@@ -57,6 +57,28 @@ const ToolCall = z.object({
   tool: z.string(),
   arguments: z.record(z.string(), z.unknown()),
 });
+
+/**
+ * The app server can carry provider diagnostics in a failed turn. Never relay
+ * that payload verbatim: it can contain provider URLs, headers, or credentials.
+ * These stable messages retain the actionable failure class without exposing
+ * any provider-controlled text.
+ */
+export function codexTurnFailureDiagnostic(value: unknown): string {
+  const message =
+    typeof value === 'string'
+      ? value
+      : z.object({ message: z.string().optional() }).passthrough().safeParse(value).data?.message;
+  if (typeof message !== 'string') return 'The provider did not complete the turn.';
+  if (/(?:credential.*traffic.*denied|credential[ -]bearing.*cannot be inspected)/i.test(message))
+    return 'OpenShell denied the provider request because its credential-bearing body could not be inspected.';
+  if (/stream disconnected before completion/i.test(message))
+    return 'The provider stream disconnected before completion.';
+  if (/context[_ -]length[_ -]exceeded/i.test(message))
+    return 'The provider rejected the turn because its context is too large.';
+  if (/timed? out/i.test(message)) return 'The provider request timed out.';
+  return 'The provider did not complete the turn.';
+}
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
@@ -475,7 +497,8 @@ export class CodexConversation {
       this.active = undefined;
       this.paused ||= status !== 'completed';
       this.mapper?.notification(method, params);
-      if (status === 'failed') this.opts.onError?.(new Error('Codex turn failed'));
+      if (status === 'failed')
+        this.opts.onError?.(new Error(codexTurnFailureDiagnostic(turn.data.error)));
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)

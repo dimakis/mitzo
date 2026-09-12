@@ -3590,6 +3590,62 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
+    const sessionReg = new SessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.register('old-conn:sess-1', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      ownerConnectionId: 'old-conn',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+      transport: oldTransport,
+    });
+    sessionReg.suspend('old-conn:sess-1', 0);
+    sessionReg.bufferEvent('old-conn:sess-1', {
+      type: 'block_delta',
+      delta: 'durable-text',
+      sessionId: 'sess-1',
+    });
+
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      { seq: 1, payload: { type: 'block_delta', delta: 'durable-text', sessionId: 'sess-1' } },
+    ]);
+
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg,
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', transport);
+    (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce((clientId, nextTransport) =>
+      sessionReg.reattach(clientId, nextTransport as SessionTransport),
+    );
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('old-conn:sess-1', transport);
+    expect(sessionReg.get('old-conn:sess-1')?.ownerConnectionId).toBe('new-conn');
+    expect(sessionReg.isSuspended('old-conn:sess-1')).toBe(false);
+    expect(oldTransport.sent).toContainEqual({ type: 'session_takeover', sessionId: 'sess-1' });
+    expect(
+      transport.sent.filter(
+        (message) => message.type === 'block_delta' && message.delta === 'durable-text',
+      ),
+    ).toHaveLength(1);
+    expect(transport.sent).toContainEqual({
+      type: 'session_resumed',
+      sessionId: 'sess-1',
+      replayed: 1,
+    });
+  });
+
   it('replays buffered events for suspended sessions', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
@@ -3627,8 +3683,9 @@ describe('handleReconnect suspend resume', () => {
     expect(
       transport.sent.some((m) => m.type === 'block_delta' && m.delta === 'buffered-text'),
     ).toBe(false);
-    // Should have sent session_resumed with total replayed count
-    expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 1)).toBe(true);
+    // Buffered events are reconciled through EventStore; the transition still
+    // tells the client that suspension ended.
+    expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 0)).toBe(true);
   });
 });
 

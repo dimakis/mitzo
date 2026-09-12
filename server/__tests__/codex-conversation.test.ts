@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CodexConversation } from '../codex-conversation.js';
+import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 const cleanup: (() => void)[] = [];
@@ -501,11 +501,25 @@ it('marks failed provider turns as errors without exposing provider diagnostics'
     expect.objectContaining({ type: 'result', session_id: 'app', is_error: true }),
   );
   expect(onError).toHaveBeenCalledWith(
-    expect.objectContaining({
-      message: 'Codex turn failed',
-    }),
+    expect.objectContaining({ message: 'The provider did not complete the turn.' }),
   );
   expect(c.isPaused()).toBe(true);
+});
+
+it('maps known failed-turn provider diagnostics without exposing provider payloads', () => {
+  expect(
+    codexTurnFailureDiagnostic({
+      message: 'POST request body credential traffic denied for api.openai.com:443',
+    }),
+  ).toBe(
+    'OpenShell denied the provider request because its credential-bearing body could not be inspected.',
+  );
+  expect(codexTurnFailureDiagnostic({ message: 'stream disconnected before completion' })).toBe(
+    'The provider stream disconnected before completion.',
+  );
+  expect(
+    codexTurnFailureDiagnostic({ message: 'Bearer sk-secret at https://private.example' }),
+  ).toBe('The provider did not complete the turn.');
 });
 
 it('uses canonical display names while executing the original wire tool', async () => {

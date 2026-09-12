@@ -2,6 +2,11 @@
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
 /sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
+# OpenShell's inspected credential route must see the JSON body in order to
+# enforce its endpoint policy and inject the gateway-owned bearer. Codex's
+# optional zstd Responses encoding makes that body opaque on the affected
+# gateway release, so keep this compatibility boundary uncompressed.
 exec codex app-server --stdio \
   -c 'model_provider="openshell"' \
+  -c 'features.enable_request_compression=false' \
   -c 'model_providers.openshell={ name = "OpenShell", base_url = "https://api.openai.com/v1", env_key = "OPENAI_API_KEY", wire_api = "responses" }'
