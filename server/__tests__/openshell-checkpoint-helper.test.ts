@@ -170,3 +170,13 @@ it('rejects auth state and corrupt archives', () => {
     ]),
   ).toThrow();
 });
+it('fails closed for remaining execution processes but exempts only the pinned root supervisor', () => {
+  const from = root(); source(from);
+  const proc = join(root(), 'proc');
+  mkdirSync(join(proc, '1'), { recursive: true });
+  writeFileSync(join(proc, '1/status'), 'Name:\topenshell-sandb\nUid:\t0\t0\t0\t0\nPPid:\t0\n');
+  run(['capture', '--source', from, '--output', join(root(), 'safe.tar'), '--require-quiescent', '--proc-root', proc, '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy']);
+  mkdirSync(join(proc, '999'), { recursive: true });
+  writeFileSync(join(proc, '999/status'), `Name:\tagent\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`);
+  expect(() => run(['capture', '--source', from, '--output', join(root(), 'blocked.tar'), '--require-quiescent', '--proc-root', proc, '--conversation', 'c', '--thread', 'thread', '--binding', 'binding', '--image', 'image', '--policy', 'policy'])).toThrow(/execution process/);
+});
