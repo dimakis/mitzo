@@ -171,7 +171,13 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   ) {}
   private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     try {
-      return await this.runner(args, { env, signal, timeoutMs: this.options.timeoutMs ?? 15_000 });
+      // The pinned Podman driver allows 45 seconds to stop a container before removal.
+      const teardown = args[0] === 'sandbox' && ['stop', 'delete'].includes(args[3]);
+      return await this.runner(args, {
+        env,
+        signal,
+        timeoutMs: this.options.timeoutMs ?? (teardown ? 90_000 : 15_000),
+      });
     } catch {
       // CLI output can include credential material; never forward it across this boundary.
       throw new Error('Gateway command failed');
@@ -551,6 +557,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     if (sandbox.labels['mitzo.connection_probe'] !== '1')
       throw new Error('Probe sandbox ownership cannot be verified');
     await this.run(['sandbox', '--workspace', this.options.workspace, 'delete', name], signal);
-    if (await this.sandbox(name, signal)) throw new Error('Probe sandbox remains present');
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (!(await this.sandbox(name, signal))) return;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    throw new Error('Probe sandbox remains present');
   }
 }

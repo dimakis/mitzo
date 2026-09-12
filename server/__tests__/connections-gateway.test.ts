@@ -406,4 +406,32 @@ describe('OpenShellConnectionGateway', () => {
       if (kind === 'aborted') expect(runner).toHaveBeenCalledTimes(1);
     },
   );
+  it('allows the pinned gateway stop grace period when deleting a probe', async () => {
+    const name = 'mzp-1234567890abcde';
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([{ name, phase: 'Ready', labels: { 'mitzo.connection_probe': '1' } }]),
+      )
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('[]');
+    await new OpenShellConnectionGateway(runner).deleteSandbox(name, signal);
+    expect(runner.mock.calls[1][1].timeoutMs).toBe(90_000);
+  });
+  it('waits for authoritative absence after deletion acknowledges a stopping probe', async () => {
+    const name = 'mzp-1234567890abcde';
+    const owned = JSON.stringify([
+      { name, phase: 'Deleting', labels: { 'mitzo.connection_probe': '1' } },
+    ]);
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(owned)
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(owned)
+      .mockResolvedValueOnce('[]');
+    await expect(
+      new OpenShellConnectionGateway(runner).deleteSandbox(name, signal),
+    ).resolves.toBeUndefined();
+    expect(runner).toHaveBeenCalledTimes(4);
+  });
 });
