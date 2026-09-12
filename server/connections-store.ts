@@ -21,6 +21,7 @@ export interface Connection {
   identity: string | null;
   verifiedAt: number | null;
   errorCode: string | null;
+  archivedAt: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -76,6 +77,7 @@ function row(row: Record<string, unknown>): Connection {
     identity: row.identity as string | null,
     verifiedAt: row.verified_at as number | null,
     errorCode: row.error_code as string | null,
+    archivedAt: row.archived_at as number | null,
     createdAt: row.created_at as number,
     updatedAt: row.updated_at as number,
   };
@@ -89,7 +91,7 @@ export class ConnectionStore {
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('busy_timeout = 5000');
     this.db
-      .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, archived_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_audit (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), revision INTEGER NOT NULL, operation TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, affected_refs TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_probe_operations (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_name TEXT NOT NULL, sandbox_name TEXT NOT NULL UNIQUE, gateway TEXT NOT NULL, workspace TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_assignment_operations (connection_id TEXT PRIMARY KEY REFERENCES connections(id), account_ids TEXT NOT NULL, removed_ids TEXT NOT NULL);
@@ -100,6 +102,7 @@ export class ConnectionStore {
       "ALTER TABLE connections ADD COLUMN gateway TEXT NOT NULL DEFAULT 'openshell'",
       "ALTER TABLE connections ADD COLUMN workspace TEXT NOT NULL DEFAULT 'default'",
       "ALTER TABLE connections ADD COLUMN submitted_email TEXT NOT NULL DEFAULT ''",
+      'ALTER TABLE connections ADD COLUMN archived_at INTEGER',
     ])
       try {
         this.db.exec(statement);
@@ -383,9 +386,48 @@ export class ConnectionStore {
   list(ownerId: string) {
     return (
       this.database()
-        .prepare('SELECT * FROM connections WHERE owner_id=? ORDER BY created_at DESC')
+        .prepare(
+          'SELECT * FROM connections WHERE owner_id=? AND archived_at IS NULL ORDER BY created_at DESC',
+        )
         .all(ownerId) as Record<string, unknown>[]
     ).map(row);
+  }
+  archive(id: string, revision: number, actor: string) {
+    const db = this.database();
+    return db.transaction(() => {
+      const current = this.get(id);
+      if (!current) throw new Error('Connection not found');
+      if (current.archivedAt) throw new Error('Connection is already archived');
+      if (current.revision !== revision) throw new RevisionConflictError();
+      if (current.status !== 'revoked')
+        throw new Error('Connection must be revoked before removal');
+      for (const [table, column] of [
+        ['connection_probe_operations', 'connection_id'],
+        ['connection_assignment_operations', 'connection_id'],
+        ['connection_quarantine_operations', 'connection_id'],
+        ['connection_candidates', 'connection_id'],
+      ] as const)
+        if (db.prepare(`SELECT 1 FROM ${table} WHERE ${column}=? LIMIT 1`).get(id))
+          throw new Error('Connection cleanup is still pending');
+      const now = Date.now();
+      db.prepare('UPDATE connections SET archived_at=?, revision=?, updated_at=? WHERE id=?').run(
+        now,
+        current.revision + 1,
+        now,
+        id,
+      );
+      db.prepare('INSERT INTO connection_audit VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+        randomUUID(),
+        id,
+        current.revision + 1,
+        'archive',
+        'success',
+        actor,
+        '[]',
+        now,
+      );
+      return this.get(id)!;
+    })();
   }
   incomplete() {
     return (

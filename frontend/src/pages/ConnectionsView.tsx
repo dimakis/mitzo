@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
   createConnection,
+  deleteConnection,
   getConnectionAudit,
   getConnections,
   reauthorize,
@@ -150,8 +151,9 @@ export function ConnectionsView() {
           {busy === 'reauthorize' ? 'Reauthorizing…' : 'Reauthorize'}
         </button>
       </section>
-      <section className="today-section connections-card" aria-labelledby="connect-jira-heading">
-        <h2 id="connect-jira-heading">Connect Jira</h2>
+      <section className="today-section connections-card" aria-labelledby="add-connection-heading">
+        <h2 id="add-connection-heading">Add connection</h2>
+        <h3>Jira</h3>
         <p>
           Approved endpoint: <code>{endpoint}</code>. The gateway enforces the reviewed read-only
           template; Jira token permissions are controlled upstream.
@@ -197,6 +199,9 @@ export function ConnectionsView() {
           )}
         </fieldset>
         <p className="workspace-muted">
+          Choose the work profiles that can use this external service in new conversations.
+        </p>
+        <p className="workspace-muted">
           Your API token stays only in this form, is masked, and is cleared after submission or when
           you leave this page.
         </p>
@@ -219,7 +224,7 @@ export function ConnectionsView() {
         </button>
       </section>
       <section className="today-section" aria-labelledby="managed-heading">
-        <h2 id="managed-heading">Managed connections</h2>
+        <h2 id="managed-heading">External service connections</h2>
         {data.connections.length === 0 ? (
           <p>No managed Jira connection.</p>
         ) : (
@@ -304,7 +309,7 @@ function ConnectionCard({
         </small>
         <small>{status(connection)}</small>
         <fieldset className="connections-profiles">
-          <legend>Assigned work profiles</legend>
+          <legend>Work profiles with access</legend>
           {accounts.map((id) => (
             <label className="connections-profile-option" key={id}>
               <input
@@ -364,6 +369,26 @@ function ConnectionCard({
           }}
         >
           Revoke
+        </button>
+        <button
+          disabled={busy !== null}
+          className="connections-danger"
+          onClick={() => {
+            if (
+              !window.confirm(
+                'Remove this connection? Mitzo will revoke managed Jira access before removing it from this list.',
+              ) ||
+              !requireReauthorization()
+            )
+              return;
+            void onAction(
+              `delete:${connection.id}`,
+              () => deleteConnection({ id: connection.id, revision: connection.revision, csrf }),
+              'Connection removed from this list after managed access was revoked.',
+            );
+          }}
+        >
+          Remove connection
         </button>
         <button
           disabled={busy === `audit:${connection.id}`}

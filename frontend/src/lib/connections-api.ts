@@ -123,6 +123,16 @@ export async function revokeConnection(input: {
     )
   ).connection;
 }
+export async function deleteConnection(input: {
+  id: string;
+  revision: number;
+  csrf: string;
+}): Promise<void> {
+  const { id, ...body } = input;
+  await bodyOrError(
+    await apiFetch(`/api/connections/${encodeURIComponent(id)}`, json('DELETE', body, input.csrf)),
+  );
+}
 export async function getConnectionAudit(id: string): Promise<ConnectionAuditEntry[]> {
   return (
     await bodyOrError<{ audit: ConnectionAuditEntry[] }>(
