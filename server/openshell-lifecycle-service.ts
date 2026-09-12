@@ -46,7 +46,11 @@ export interface LifecycleAdapters {
     sandbox: LifecycleSandbox,
     signal: AbortSignal,
   ): Promise<boolean>;
-  stop(record: OpenShellLifecycleRecord, signal: AbortSignal): Promise<void>;
+  stop(
+    record: OpenShellLifecycleRecord,
+    signal: AbortSignal,
+    activityUnchanged?: () => boolean,
+  ): Promise<void>;
   delete(record: OpenShellLifecycleRecord, signal: AbortSignal): Promise<void>;
   now?(): number;
   /** Explicit persisted operator consent. It is never inferred from an env var. */
@@ -234,7 +238,16 @@ export class OpenShellLifecycleService {
         if (!stopping) throw new Error('OpenShell lifecycle generation changed');
         transient = stopping;
         try {
-          await this.adapters.stop({ ...stopping, checkpoint }, signal);
+          const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
+            record.conversationId,
+          );
+          await this.adapters.stop(
+            { ...stopping, checkpoint },
+            signal,
+            () =>
+              sharedOpenShellLifecycleCoordinator.activityGeneration(record.conversationId) ===
+              activityGeneration,
+          );
           const stopped = await this.adapters.inspect(stopping, signal);
           if (
             !stopped ||

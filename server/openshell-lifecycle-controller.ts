@@ -9,6 +9,7 @@ import {
 } from './openshell-checkpoint-transport.js';
 import {
   OpenShellLifecycleStore,
+  sharedOpenShellLifecycleCoordinator,
   openShellLifecyclePolicy,
   type OpenShellLifecycleIdentity,
   type OpenShellLifecycleRecord,
@@ -179,10 +180,15 @@ export function initializeOpenShellLifecycle(
       if (!record.physicalSandboxId) return undefined;
       return managerFor(record).inspect(record.conversationId, record.physicalSandboxId, signal);
     },
-    stop: (record, signal) => {
+    stop: (record, signal, activityUnchanged) => {
       if (!record.physicalSandboxId)
         return Promise.reject(new Error('OpenShell sandbox identity missing'));
-      return managerFor(record).stop(record.conversationId, record.physicalSandboxId, signal);
+      return managerFor(record).stop(
+        record.conversationId,
+        record.physicalSandboxId,
+        signal,
+        activityUnchanged,
+      );
     },
     delete: (record, signal) => {
       if (!record.physicalSandboxId)
@@ -352,10 +358,13 @@ export function lifecycleService() {
  * has not completed initial identity registration. */
 export function touchOpenShellLifecycle(conversationId: string) {
   if (!configured) return;
+  sharedOpenShellLifecycleCoordinator.noteActivity(conversationId);
   const record = configured.store.get(conversationId);
   if (!record || record.phase === 'deleted' || record.phase === 'failed') return;
+  const resumable = record.phase === 'checkpointing' || record.phase === 'stopping';
   configured.store.upsert({
     ...record,
+    ...(resumable ? { phase: 'retained' as const } : {}),
     generation: record.generation + 1,
     lastActivityAt: Date.now(),
     idleSince: null,

@@ -138,6 +138,13 @@ it('cancels a scheduled idle action when new work is admitted', async () => {
   expect(called).toBe(false);
 });
 
+it('synchronously invalidates a pending stop when queue activity arrives', () => {
+  const coordinator = new OpenShellLifecycleCoordinator();
+  const before = coordinator.activityGeneration('conversation');
+  expect(coordinator.noteActivity('conversation')).toBe(before + 1);
+  expect(coordinator.activityGeneration('conversation')).toBe(before + 1);
+});
+
 it('reports idle cleanup failure instead of swallowing it', async () => {
   const failure = vi.fn();
   const coordinator = new OpenShellLifecycleCoordinator({ onIdleError: failure });

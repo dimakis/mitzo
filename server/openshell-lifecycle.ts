@@ -280,6 +280,7 @@ export class OpenShellLifecycleStore {
 export class OpenShellLifecycleCoordinator {
   private tails = new Map<string, Promise<void>>();
   private idle = new Map<string, { generation: number; timer: ReturnType<typeof setTimeout> }>();
+  private activity = new Map<string, number>();
 
   constructor(
     private options: { onIdleError?: (conversationId: string, error: Error) => void } = {},
@@ -290,6 +291,19 @@ export class OpenShellLifecycleCoordinator {
     if (!scheduled) return;
     clearTimeout(scheduled.timer);
     this.idle.delete(conversationId);
+  }
+
+  /** Records queue admission synchronously so a pending stop can recheck it
+   * immediately before making the control-plane stop request. */
+  noteActivity(conversationId: string) {
+    this.cancelIdle(conversationId);
+    const generation = (this.activity.get(conversationId) ?? 0) + 1;
+    this.activity.set(conversationId, generation);
+    return generation;
+  }
+
+  activityGeneration(conversationId: string) {
+    return this.activity.get(conversationId) ?? 0;
   }
 
   async reserve(conversationId: string): Promise<() => void> {

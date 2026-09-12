@@ -714,6 +714,26 @@ describe('OpenShell runtime lifecycle', () => {
     expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['delete', 'mitzo-123']));
   });
 
+  it('does not issue a stop after queue admission invalidates the lifecycle fence', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        id: 'physical-1',
+        name: 'mitzo-123',
+        phase: 'Ready',
+        labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).stop(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+        () => false,
+      ),
+    ).rejects.toThrow('activity changed before stop');
+    expect(run.mock.calls.flatMap(([args]) => args)).not.toContain('stop');
+  });
+
   it('refuses lifecycle mutation when the physical sandbox identity or phase changed', async () => {
     const run = vi.fn().mockResolvedValue(
       JSON.stringify({

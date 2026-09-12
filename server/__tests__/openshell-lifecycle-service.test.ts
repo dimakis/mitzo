@@ -212,6 +212,20 @@ it('durably fences a checkpoint when verification returns false', async () => {
   });
 });
 
+it('passes a final activity fence to the stop adapter', async () => {
+  const { service, adapters, sandbox } = setup('retained');
+  let activityUnchanged: (() => boolean) | undefined;
+  adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {
+    activityUnchanged = current;
+    sandbox.phase = 'Stopped';
+    sandbox.resourceVersion = 'stopped-v';
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
+  expect(activityUnchanged).toEqual(expect.any(Function));
+  expect(activityUnchanged!()).toBe(true);
+});
+
 it('durably fences a stopped checkpoint when deletion verification returns false', async () => {
   const { service, store, adapters } = setup('stopped');
   adapters.verifyCheckpoint.mockResolvedValueOnce(false);

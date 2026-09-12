@@ -435,10 +435,17 @@ export class OpenShellRuntimeManager {
   }
 
   /** Stops only a current, owned Ready sandbox. Callers must fence policy separately. */
-  async stop(conversationId: string, physicalId: string, signal: AbortSignal) {
+  async stop(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    activityUnchanged?: () => boolean,
+  ) {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
     if (sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Ready`);
+    if (activityUnchanged && !activityUnchanged())
+      throw new Error('OpenShell lifecycle activity changed before stop');
     await this.run(['sandbox', ...this.base(), 'stop', sandbox.name], signal);
   }
 
