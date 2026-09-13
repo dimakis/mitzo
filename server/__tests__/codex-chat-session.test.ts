@@ -49,6 +49,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as lifecycleController from '../openshell-lifecycle-controller.js';
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
@@ -328,6 +329,79 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     ensure.mockRestore();
     compile.mockRestore();
     grant.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it('registers a newly ensured sandbox before context initialization can fail', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    sandboxId: 'physical-id',
+    created: true,
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const provisional = vi.spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional');
+  const compile = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+    .mockImplementationOnce(async () => {
+      expect(provisional).toHaveBeenCalledWith(
+        'conversation',
+        expect.objectContaining({ sandboxId: 'physical-id', created: true }),
+        expect.objectContaining({ provider: 'openai-work' }),
+        'client',
+      );
+      throw new Error('context initialization failed');
+    });
+  const abortController = new AbortController();
+  const baseOptions = options(abortController);
+  const session = baseOptions.session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  try {
+    await expect(
+      openCodexChat({
+        ...baseOptions,
+        conversationId: 'conversation',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        session,
+        registry,
+        prompt: 'test',
+        messageId: 'message',
+        systemPrompt: 'base prompt',
+        env: {},
+      }),
+    ).rejects.toThrow('context initialization failed');
+    expect(provisional).toHaveBeenCalledOnce();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    ensure.mockRestore();
+    provisional.mockRestore();
+    compile.mockRestore();
     vi.unstubAllEnvs();
   }
 });

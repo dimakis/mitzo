@@ -163,7 +163,11 @@ export function initializeOpenShellLifecycle(
   config: OpenShellRuntimeConfig | undefined,
   sources: ProtectionSources,
 ) {
-  if (!config) return undefined;
+  const policy = openShellLifecyclePolicy(process.env);
+  // Lifecycle is explicitly opt-in. Do not make an otherwise usable
+  // OpenShell runtime depend on the lifecycle checkpoint policy until it is
+  // enabled, because only lifecycle needs to hash that file.
+  if (!config || !policy.enabled) return undefined;
   const directory = codexPrivateDirectory();
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const store = new OpenShellLifecycleStore(join(directory, 'openshell-lifecycle.db'));
@@ -237,13 +241,40 @@ export function initializeOpenShellLifecycle(
       });
     },
   });
-  const service = new OpenShellLifecycleService(
-    store,
-    openShellLifecyclePolicy(process.env),
-    adapter,
-  );
+  const service = new OpenShellLifecycleService(store, policy, adapter);
   configured.service = service;
-  return { service, store, policy: openShellLifecyclePolicy(process.env) };
+  return { service, store, policy };
+}
+
+/** Persist physical ownership before downstream app-server setup can fail.
+ * Without a provider thread this row is intentionally non-actionable; a later
+ * successful registration fills in the complete resumable identity. */
+export function registerOpenShellLifecycleProvisional(
+  conversationId: string,
+  runtime: OpenShellRuntime,
+  account: OpenShellAccountRoute,
+  ownerClientId?: string,
+) {
+  if (!configured || !runtime.sandboxId || configured.store.get(conversationId)) return;
+  const now = Date.now();
+  configured.store.upsert({
+    conversationId,
+    workspace: configured.config.workspace,
+    gateway: configured.config.gateway,
+    gatewayEndpoint: configured.config.gatewayEndpoint ?? null,
+    sandboxName: runtime.sandboxName,
+    physicalSandboxId: runtime.sandboxId,
+    accountProvider: account.provider,
+    ownerClientId: ownerClientId ?? null,
+    phase: 'retained',
+    generation: 1,
+    lastActivityAt: now,
+    idleSince: null,
+    stoppedAt: null,
+    checkpoint: null,
+    retentionConsent: false,
+    identity: null,
+  });
 }
 
 export function registerOpenShellLifecycle(

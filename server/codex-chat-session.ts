@@ -34,6 +34,7 @@ import { getConnectionsRuntime } from './connections-runtime.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 import {
   registerOpenShellLifecycle,
+  registerOpenShellLifecycleProvisional,
   restoreOpenShellLifecycleIfNeeded,
   touchOpenShellLifecycle,
   markOpenShellLifecycleIdle,
@@ -250,6 +251,13 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     startupReservation?.();
     throw error;
   }
+  if (runtimeManager && managedOpenShell)
+    registerOpenShellLifecycleProvisional(
+      options.conversationId,
+      managedOpenShell,
+      selectedOpenShellAccountRoute(options),
+      options.registry.findBySessionId(options.conversationId)?.clientId,
+    );
   const openShell =
     managedOpenShell ??
     (openShellName
