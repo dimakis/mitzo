@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, chmodSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { loadOrCreateToken, TOKEN_LENGTH } from '../internal-token.js';
+import {
+  createSignalCallbackToken,
+  isValidSignalCallbackToken,
+  loadOrCreateToken,
+  revokeSignalCallbackToken,
+  TOKEN_LENGTH,
+} from '../internal-token.js';
 
 describe('loadOrCreateToken', () => {
   let testDir: string;
@@ -93,5 +99,27 @@ describe('loadOrCreateToken', () => {
     expect(token).toMatch(/^[0-9a-f]+$/);
     // Restore permissions for cleanup
     chmodSync(readOnlyDir, 0o755);
+  });
+});
+
+describe('signal callback tokens', () => {
+  it('rotates and revokes task-scoped callback tokens', () => {
+    const first = createSignalCallbackToken('task-1');
+    const second = createSignalCallbackToken('task-1');
+
+    expect(first).toHaveLength(TOKEN_LENGTH);
+    expect(second).toHaveLength(TOKEN_LENGTH);
+    expect(second).not.toBe(first);
+    expect(isValidSignalCallbackToken('task-1', first)).toBe(false);
+    expect(isValidSignalCallbackToken('task-1', second)).toBe(true);
+    expect(isValidSignalCallbackToken('task-2', second)).toBe(false);
+
+    revokeSignalCallbackToken('task-1');
+    expect(isValidSignalCallbackToken('task-1', second)).toBe(false);
+  });
+
+  it('rejects malformed callback tokens', () => {
+    expect(isValidSignalCallbackToken('task-1', undefined)).toBe(false);
+    expect(isValidSignalCallbackToken('task-1', 'wrong')).toBe(false);
   });
 });

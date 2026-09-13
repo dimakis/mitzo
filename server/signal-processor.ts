@@ -2,9 +2,32 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { TaskStore, GateConfig } from './task-store.js';
 import { createLogger } from './logger.js';
+import { createSignalCallbackToken, revokeSignalCallbackToken } from './internal-token.js';
 
 const log = createLogger('signal-processor');
 const execFileAsync = promisify(execFile);
+
+/** Local Centaur uses Mitzo's plain HTTP listener, which moves to PORT + 1 under TLS. */
+export function localSignalCallbackBaseUrl(port: number, useTls: boolean): string {
+  return `http://localhost:${useTls ? port + 1 : port}`;
+}
+
+function centaurReviewPrUrl(config: GateConfig): string | undefined {
+  const fields = config as GateConfig & {
+    pr_url?: unknown;
+    repo?: unknown;
+    pr?: unknown;
+  };
+  if (typeof fields.pr_url === 'string' && fields.pr_url.length > 0) return fields.pr_url;
+  if (
+    typeof fields.repo === 'string' &&
+    fields.repo.length > 0 &&
+    (typeof fields.pr === 'string' || typeof fields.pr === 'number')
+  ) {
+    return `https://github.com/${fields.repo}/pull/${fields.pr}`;
+  }
+  return undefined;
+}
 
 export interface GateResult {
   resolved: boolean;
@@ -32,12 +55,22 @@ const POLL_INTERVALS: Record<string, number> = {
  */
 export class SignalProcessor {
   private watches = new Map<string, WatchEntry>();
+  private callbackOperations = new Map<string, Promise<void>>();
   private store: TaskStore;
   private onSignalResolved: (taskId: string) => void;
+  private centaurBaseUrl: string;
+  private mitzoBaseUrl: string;
 
-  constructor(store: TaskStore, onSignalResolved: (taskId: string) => void) {
+  constructor(
+    store: TaskStore,
+    onSignalResolved: (taskId: string) => void,
+    centaurBaseUrl = 'http://localhost:8642',
+    mitzoBaseUrl = 'http://localhost:3100',
+  ) {
     this.store = store;
     this.onSignalResolved = onSignalResolved;
+    this.centaurBaseUrl = centaurBaseUrl;
+    this.mitzoBaseUrl = mitzoBaseUrl;
   }
 
   watch(taskId: string, gateConfig: GateConfig): void {
@@ -57,22 +90,41 @@ export class SignalProcessor {
     }
 
     this.watches.set(taskId, { taskId, gateConfig, intervalId });
+
+    // Register callback with Centaur for push-based resolution
+    if (gateConfig.type === 'centaur_review') {
+      const prUrl = centaurReviewPrUrl(gateConfig);
+      if (prUrl) {
+        const callbackToken = createSignalCallbackToken(taskId);
+        this.enqueueCallbackOperation(taskId, () =>
+          this.registerCentaurCallback(taskId, { pr_url: prUrl }, callbackToken),
+        );
+      } else {
+        log.warn('centaur callback registration missing PR identity', { taskId });
+      }
+    }
   }
 
   unwatch(taskId: string): void {
     const entry = this.watches.get(taskId);
     if (!entry) return;
     if (entry.intervalId) clearInterval(entry.intervalId);
+
     this.watches.delete(taskId);
+
+    // Serialize DELETE with registration and any immediate rewatch. This makes
+    // the newest registration the final operation for a task ID.
+    if (entry.gateConfig.type === 'centaur_review') {
+      revokeSignalCallbackToken(taskId);
+      this.enqueueCallbackOperation(taskId, () => this.deregisterCentaurCallback(taskId));
+    }
+
     log.info('unwatched task', { taskId });
   }
 
-  unwatchAll(): void {
-    for (const [taskId, entry] of this.watches) {
-      if (entry.intervalId) clearInterval(entry.intervalId);
-      log.info('unwatched task', { taskId });
-    }
-    this.watches.clear();
+  async unwatchAll(): Promise<void> {
+    for (const taskId of [...this.watches.keys()]) this.unwatch(taskId);
+    await Promise.all([...this.callbackOperations.values()]);
   }
 
   isWatching(taskId: string): boolean {
@@ -112,7 +164,11 @@ export class SignalProcessor {
     if (!entry) return;
 
     try {
-      const result = await checkGate(entry.gateConfig);
+      const result = await checkGate(entry.gateConfig, this.centaurBaseUrl);
+      // A callback or a replacement watch can resolve/unwatch this task while
+      // the external check is in flight. Only the exact watch that initiated
+      // the poll may consume its result.
+      if (this.watches.get(taskId) !== entry) return;
       if (result.resolved) {
         this.resolveSignal(taskId, { status: result.status, artifacts: result.artifacts });
       }
@@ -154,6 +210,59 @@ export class SignalProcessor {
     }
   }
 
+  /** Register a callback URL with Centaur so it pushes ReviewCompleted events. */
+  private async registerCentaurCallback(
+    taskId: string,
+    config: { pr_url: string },
+    callbackToken: string,
+  ): Promise<void> {
+    const callbackUrl = new URL(`${this.mitzoBaseUrl}/api/tasks/${taskId}/signal`);
+    callbackUrl.searchParams.set('token', callbackToken);
+    try {
+      const res = await fetch(`${this.centaurBaseUrl}/api/signals/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: taskId,
+          pr_url: config.pr_url,
+          callback_url: callbackUrl.toString(),
+        }),
+      });
+      if (res.ok) {
+        log.info('registered centaur callback', { taskId, pr_url: config.pr_url });
+      } else {
+        log.warn('centaur callback registration failed', { taskId, status: res.status });
+      }
+    } catch (err) {
+      // Centaur might not be running — polling fallback covers this case
+      log.warn('centaur callback registration error', {
+        taskId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Deregister a callback with Centaur. Best-effort. */
+  private async deregisterCentaurCallback(taskId: string): Promise<void> {
+    try {
+      await fetch(`${this.centaurBaseUrl}/api/signals/${taskId}`, {
+        method: 'DELETE',
+      });
+      log.info('deregistered centaur callback', { taskId });
+    } catch {
+      // Best-effort — Centaur might be down
+    }
+  }
+
+  private enqueueCallbackOperation(taskId: string, operation: () => Promise<void>): void {
+    const previous = this.callbackOperations.get(taskId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(operation);
+    this.callbackOperations.set(taskId, next);
+    void next.finally(() => {
+      if (this.callbackOperations.get(taskId) === next) this.callbackOperations.delete(taskId);
+    });
+  }
+
   /** Reset the most recent agent_work sibling before this task to pending. */
   private resetPrecedingSibling(task: { id: string; parentId: string | null }): void {
     if (!task.parentId) return;
@@ -179,16 +288,23 @@ export class SignalProcessor {
 
 // --- Gate checker implementations ---
 
-export async function checkGate(config: GateConfig): Promise<GateResult> {
+export async function checkGate(
+  config: GateConfig,
+  centaurBaseUrl = 'http://localhost:8642',
+): Promise<GateResult> {
   switch (config.type) {
     case 'gh_ci':
       return checkGhCi(config as GateConfig & { repo: string; pr: number | string });
     case 'gh_review':
       return checkGhReview(config as GateConfig & { repo: string; pr: number | string });
-    case 'centaur_review':
-      return checkCentaurReview(config as GateConfig & { pr_url: string });
+    case 'centaur_review': {
+      const prUrl = centaurReviewPrUrl(config);
+      return prUrl
+        ? checkCentaurReview({ pr_url: prUrl }, centaurBaseUrl)
+        : { resolved: false, status: 'fail' };
+    }
     case 'compound':
-      return checkCompound(config as GateConfig & { all: GateConfig[] });
+      return checkCompound(config as GateConfig & { all: GateConfig[] }, centaurBaseUrl);
     case 'human_approval':
       return { resolved: false, status: 'fail' }; // never auto-resolves
     default:
@@ -260,10 +376,13 @@ async function checkGhReview(config: { repo: string; pr: number | string }): Pro
   }
 }
 
-async function checkCentaurReview(config: { pr_url: string }): Promise<GateResult> {
+async function checkCentaurReview(
+  config: { pr_url: string },
+  centaurBaseUrl: string,
+): Promise<GateResult> {
   try {
     const res = await fetch(
-      `http://localhost:8642/api/reviews?pr=${encodeURIComponent(config.pr_url)}`,
+      `${centaurBaseUrl}/api/reviews?pr=${encodeURIComponent(config.pr_url)}`,
     );
     if (!res.ok) return { resolved: false, status: 'fail' };
     const data = (await res.json()) as { status?: string; review?: unknown };
@@ -281,8 +400,11 @@ async function checkCentaurReview(config: { pr_url: string }): Promise<GateResul
   }
 }
 
-async function checkCompound(config: { all: GateConfig[] }): Promise<GateResult> {
-  const results = await Promise.all(config.all.map((c) => checkGate(c)));
+async function checkCompound(
+  config: { all: GateConfig[] },
+  centaurBaseUrl: string,
+): Promise<GateResult> {
+  const results = await Promise.all(config.all.map((c) => checkGate(c, centaurBaseUrl)));
   const allResolved = results.every((r) => r.resolved);
   const anyFailed = results.some((r) => r.status === 'fail' && r.resolved);
 

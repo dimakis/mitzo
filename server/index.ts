@@ -79,7 +79,7 @@ import { createConnectionsRuntime } from './connections-runtime.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
-import { SignalProcessor } from './signal-processor.js';
+import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -243,9 +243,14 @@ setTemplateStore(wfTemplateStore);
 // SignalProcessor + orchestrator have a circular dep: signal resolution triggers tick(),
 // tick() registers watches. Break the cycle with a late-bound callback.
 let orchestratorRef: TaskOrchestrator | null = null;
-const signalProc = new SignalProcessor(taskStore, () => {
-  orchestratorRef?.tick();
-});
+const signalProc = new SignalProcessor(
+  taskStore,
+  () => {
+    orchestratorRef?.tick();
+  },
+  process.env.CENTAUR_URL || 'http://localhost:8642',
+  process.env.MITZO_URL || localSignalCallbackBaseUrl(PORT, USE_TLS),
+);
 setSignalProcessor(signalProc);
 
 // --- Task Orchestrator ---
@@ -1074,11 +1079,12 @@ const skillWatcher = new SkillWatcher(
 );
 setSkillWatcher(skillWatcher);
 
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   server.close();
   skillWatcher.destroy();
-  signalProc.unwatchAll();
+  await signalProc.unwatchAll();
   wfTemplateStore.close();
   healthMonitor.destroy();
   overviewEmitter.destroy();
@@ -1089,11 +1095,10 @@ function shutdown(signal: string) {
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
   }
-  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 import { checkPort } from './port-check.js';
 

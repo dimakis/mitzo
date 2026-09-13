@@ -3,7 +3,8 @@ import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
-import { SignalProcessor } from '../signal-processor.js';
+import { checkGate, localSignalCallbackBaseUrl, SignalProcessor } from '../signal-processor.js';
+import { isValidSignalCallbackToken } from '../internal-token.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-signal-test-${process.pid}`);
 
@@ -18,9 +19,10 @@ beforeEach(() => {
   processor = new SignalProcessor(store, onResolved);
 });
 
-afterEach(() => {
-  processor.unwatchAll();
+afterEach(async () => {
+  await processor.unwatchAll();
   store.close();
+  vi.restoreAllMocks();
   try {
     rmSync(TEST_DIR, { recursive: true, force: true });
   } catch {
@@ -29,6 +31,11 @@ afterEach(() => {
 });
 
 describe('SignalProcessor', () => {
+  it('targets the plain HTTP listener when the primary server uses TLS', () => {
+    expect(localSignalCallbackBaseUrl(3100, false)).toBe('http://localhost:3100');
+    expect(localSignalCallbackBaseUrl(3100, true)).toBe('http://localhost:3101');
+  });
+
   it('watches and resolves a signal manually', () => {
     const goal = store.create({ title: 'Goal' });
     const task = store.create({
@@ -143,7 +150,7 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(task.id)).toBe(false);
   });
 
-  it('unwatchAll clears everything', () => {
+  it('unwatchAll clears everything', async () => {
     const goal = store.create({ title: 'Goal' });
     const t1 = store.create({
       title: 'W1',
@@ -165,7 +172,7 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(t1.id)).toBe(true);
     expect(processor.isWatching(t2.id)).toBe(true);
 
-    processor.unwatchAll();
+    await processor.unwatchAll();
     expect(processor.isWatching(t1.id)).toBe(false);
     expect(processor.isWatching(t2.id)).toBe(false);
   });
@@ -377,6 +384,273 @@ describe('SignalProcessor', () => {
       expect(updated!.status).toBe('done');
       expect(updated!.artifacts).toEqual({ ci: 'green' });
       expect(onResolved).toHaveBeenCalledWith(t1.id);
+    });
+  });
+
+  describe('centaur callback registration', () => {
+    it('ignores an in-flight poll after a callback resolves the same watch', async () => {
+      let resolvePoll!: (response: Response) => void;
+      const pollResponse = new Promise<Response>((resolve) => {
+        resolvePoll = resolve;
+      });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        if (String(input).includes('/api/reviews?')) return pollResponse;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/signals/register',
+          expect.anything(),
+        ),
+      );
+      const pollPromise = (processor as unknown as { poll(taskId: string): Promise<void> }).poll(
+        task.id,
+      );
+      await vi.waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/reviews?pr=https%3A%2F%2Fgithub.com%2Forg%2Frepo%2Fpull%2F1',
+        ),
+      );
+
+      processor.resolveSignal(task.id, { status: 'pass' });
+      resolvePoll(
+        new Response(JSON.stringify({ status: 'changes_requested', review: 'stale failure' }), {
+          status: 200,
+        }),
+      );
+      await pollPromise;
+
+      expect(store.get(task.id)?.status).toBe('done');
+      expect(onResolved).toHaveBeenCalledTimes(1);
+      fetchSpy.mockRestore();
+    });
+
+    it('registers callback with Centaur on watch for centaur_review', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      // Allow async registration to complete
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/signals/register',
+          expect.objectContaining({
+            method: 'POST',
+            body: expect.stringContaining(task.id),
+          }),
+        );
+      });
+
+      const registration = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as {
+        callback_url: string;
+      };
+      const callbackUrl = new URL(registration.callback_url);
+      expect(callbackUrl.pathname).toBe(`/api/tasks/${task.id}/signal`);
+      expect(isValidSignalCallbackToken(task.id, callbackUrl.searchParams.get('token')!)).toBe(
+        true,
+      );
+
+      fetchSpy.mockRestore();
+    });
+
+    it('derives the callback PR URL from repo and pr gate fields', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 512 },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() => {
+        const registration = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as {
+          pr_url?: string;
+        };
+        expect(registration.pr_url).toBe('https://github.com/dimakis/mitzo/pull/512');
+      });
+    });
+
+    it('deregisters Centaur callbacks when unwatching all tasks', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatchAll();
+
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          `http://localhost:8642/api/signals/${task.id}`,
+          expect.objectContaining({ method: 'DELETE' }),
+        );
+      });
+    });
+
+    it('serializes unwatch and rewatch so the new registration wins', async () => {
+      const calls: string[] = [];
+      const callbackUrls: string[] = [];
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        calls.push(init?.method ?? 'GET');
+        if (init?.method === 'POST') {
+          callbackUrls.push(
+            (JSON.parse(String(init.body)) as { callback_url: string }).callback_url,
+          );
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatch(task.id);
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() => expect(calls).toEqual(['POST', 'DELETE', 'POST']));
+      expect(processor.isWatching(task.id)).toBe(true);
+      expect(callbackUrls).toHaveLength(2);
+      expect(new URL(callbackUrls[0]).searchParams.get('token')).not.toBe(
+        new URL(callbackUrls[1]).searchParams.get('token'),
+      );
+      expect(
+        isValidSignalCallbackToken(
+          task.id,
+          new URL(callbackUrls[0]).searchParams.get('token') ?? undefined,
+        ),
+      ).toBe(false);
+      expect(
+        isValidSignalCallbackToken(
+          task.id,
+          new URL(callbackUrls[1]).searchParams.get('token') ?? undefined,
+        ),
+      ).toBe(true);
+      fetchSpy.mockRestore();
+    });
+
+    it('uses the configured Centaur base URL for polling fallback', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ status: 'not_found' }), { status: 200 }));
+
+      await checkGate(
+        { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+        'https://centaur.example.test',
+      );
+
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://centaur.example.test/api/reviews?pr=https%3A%2F%2Fgithub.com%2Forg%2Frepo%2Fpull%2F1',
+      );
+      fetchSpy.mockRestore();
+    });
+
+    it('deregisters callback on unwatch for centaur_review', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+      processor.unwatch(task.id);
+
+      await vi.waitFor(() => {
+        expect(fetchSpy).toHaveBeenCalledWith(
+          `http://localhost:8642/api/signals/${task.id}`,
+          expect.objectContaining({ method: 'DELETE' }),
+        );
+      });
+
+      fetchSpy.mockRestore();
+    });
+
+    it('does not register callback for non-centaur gate types', () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for CI',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'gh_ci', repo: 'org/repo', pr: 1 },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      // fetch should not have been called for registration (only polling uses execFile, not fetch)
+      const registerCalls = fetchSpy.mock.calls.filter(
+        (call) => typeof call[0] === 'string' && call[0].includes('/api/signals/'),
+      );
+      expect(registerCalls).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('handles Centaur being unavailable gracefully', () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+
+      // Should not throw — fire-and-forget registration
+      expect(() => processor.watch(task.id, task.gateConfig!)).not.toThrow();
+      // Polling interval should still be set
+      expect(processor.isWatching(task.id)).toBe(true);
+
+      vi.restoreAllMocks();
     });
   });
 
