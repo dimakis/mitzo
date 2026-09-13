@@ -10,6 +10,7 @@ import {
 import {
   OpenShellLifecycleStore,
   sharedOpenShellLifecycleCoordinator,
+  openShellLifecycleEnabled,
   openShellLifecyclePolicy,
   type OpenShellLifecycleIdentity,
   type OpenShellLifecycleRecord,
@@ -192,11 +193,11 @@ export function initializeOpenShellLifecycle(
   // The OpenShell runtime guard must precede all lifecycle policy parsing so a
   // disabled deployment ignores stale lifecycle-only configuration entirely.
   if (!config) return undefined;
+  if (!openShellLifecycleEnabled(process.env)) return undefined;
   const policy = openShellLifecyclePolicy(process.env);
   // Lifecycle is explicitly opt-in. Do not make an otherwise usable
   // OpenShell runtime depend on the lifecycle checkpoint policy until it is
   // enabled, because only lifecycle needs to hash that file.
-  if (!policy.enabled) return undefined;
   const directory = codexPrivateDirectory();
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const store = new OpenShellLifecycleStore(join(directory, 'openshell-lifecycle.db'));

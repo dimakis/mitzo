@@ -83,6 +83,7 @@ import {
   openShellLifecyclePhaseCounts,
 } from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
+import { openShellLifecycleEnabled } from './openshell-lifecycle.js';
 import {
   OpenShellLifecycleObservability,
   openShellLifecycleObservabilityThresholds,
@@ -177,7 +178,8 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
-const lifecycleObservability = configuredOpenShellRuntime
+const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
+const lifecycleObservability = lifecycleEnabled
   ? new OpenShellLifecycleObservability({
       ...openShellLifecycleObservabilityThresholds(process.env),
       log: {

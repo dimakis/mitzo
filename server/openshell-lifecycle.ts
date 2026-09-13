@@ -97,8 +97,27 @@ function retentionDays(value: string | undefined) {
   return parsed;
 }
 
+/** Lifecycle is independently opt-in; reject malformed control values eagerly. */
+export function openShellLifecycleEnabled(env: NodeJS.ProcessEnv): boolean {
+  const value = env.MITZO_OPENSHELL_LIFECYCLE_ENABLED;
+  if (value === undefined || value === '' || value === '0') return false;
+  if (value === '1') return true;
+  throw new Error('Invalid OpenShell lifecycle enabled flag');
+}
+
 /** Conservative lifecycle policy. Retention mutations remain disabled unless explicitly enabled. */
 export function openShellLifecyclePolicy(env: NodeJS.ProcessEnv): OpenShellLifecyclePolicy {
+  const enabled = openShellLifecycleEnabled(env);
+  // Lifecycle settings are meaningful only after explicit opt-in. Keep stale
+  // cleanup configuration inert in otherwise enabled OpenShell deployments.
+  if (!enabled)
+    return {
+      idleMs: 30 * MINUTE,
+      retentionMs: 7 * DAY,
+      reconcileMs: 5 * MINUTE,
+      enabled: false,
+      retentionEligible: () => false,
+    };
   const retention = retentionDays(env.MITZO_OPENSHELL_RETENTION_DAYS);
   const idleMinutes = timerMinutes(env.MITZO_OPENSHELL_IDLE_MINUTES, 30, 'idle delay');
   const reconcileMinutes = timerMinutes(
@@ -110,7 +129,7 @@ export function openShellLifecyclePolicy(env: NodeJS.ProcessEnv): OpenShellLifec
     idleMs: idleMinutes * MINUTE,
     retentionMs: retention * DAY,
     reconcileMs: reconcileMinutes * MINUTE,
-    enabled: env.MITZO_OPENSHELL_LIFECYCLE_ENABLED === '1',
+    enabled,
     retentionEligible: (record, now) =>
       record.phase === 'stopped' &&
       record.stoppedAt !== null &&

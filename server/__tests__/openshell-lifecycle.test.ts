@@ -11,6 +11,10 @@ import {
 
 const roots: string[] = [];
 const DAY = 24 * 60 * 60 * 1000;
+const lifecycleEnabled = (env: NodeJS.ProcessEnv = {}) => ({
+  MITZO_OPENSHELL_LIFECYCLE_ENABLED: '1',
+  ...env,
+});
 function setup() {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-openshell-lifecycle-'));
   roots.push(root);
@@ -40,9 +44,9 @@ afterEach(() => {
 });
 
 it('rejects timer values that overflow Node timers and does not overwrite a newer record', () => {
-  expect(() => openShellLifecyclePolicy({ MITZO_OPENSHELL_IDLE_MINUTES: '9999999999999' })).toThrow(
-    'idle',
-  );
+  expect(() =>
+    openShellLifecyclePolicy(lifecycleEnabled({ MITZO_OPENSHELL_IDLE_MINUTES: '9999999999999' })),
+  ).toThrow('idle');
   const store = setup();
   store.upsert(record({ generation: 2 }));
   expect(() => store.upsert(record({ generation: 1, phase: 'deleted' }))).toThrow('newer');
@@ -51,16 +55,18 @@ it('rejects timer values that overflow Node timers and does not overwrite a newe
 });
 
 it('defaults retention to seven days and permits a five-day minimum', () => {
-  expect(openShellLifecyclePolicy({}).retentionMs).toBe(7 * DAY);
-  expect(openShellLifecyclePolicy({ MITZO_OPENSHELL_RETENTION_DAYS: '5' }).retentionMs).toBe(
-    5 * DAY,
-  );
-  expect(openShellLifecyclePolicy({ MITZO_OPENSHELL_RETENTION_DAYS: '30' }).retentionMs).toBe(
-    30 * DAY,
-  );
-  expect(openShellLifecyclePolicy({ MITZO_OPENSHELL_RETENTION_DAYS: '40000' }).retentionMs).toBe(
-    40000 * DAY,
-  );
+  expect(openShellLifecyclePolicy(lifecycleEnabled()).retentionMs).toBe(7 * DAY);
+  expect(
+    openShellLifecyclePolicy(lifecycleEnabled({ MITZO_OPENSHELL_RETENTION_DAYS: '5' })).retentionMs,
+  ).toBe(5 * DAY);
+  expect(
+    openShellLifecyclePolicy(lifecycleEnabled({ MITZO_OPENSHELL_RETENTION_DAYS: '30' }))
+      .retentionMs,
+  ).toBe(30 * DAY);
+  expect(
+    openShellLifecyclePolicy(lifecycleEnabled({ MITZO_OPENSHELL_RETENTION_DAYS: '40000' }))
+      .retentionMs,
+  ).toBe(40000 * DAY);
   for (const value of [
     '0',
     '-1',
@@ -70,28 +76,49 @@ it('defaults retention to seven days and permits a five-day minimum', () => {
     'Infinity',
     String(Math.floor(Number.MAX_SAFE_INTEGER / DAY) + 1),
   ])
-    expect(() => openShellLifecyclePolicy({ MITZO_OPENSHELL_RETENTION_DAYS: value })).toThrow(
-      'retention',
-    );
+    expect(() =>
+      openShellLifecyclePolicy(lifecycleEnabled({ MITZO_OPENSHELL_RETENTION_DAYS: value })),
+    ).toThrow('retention');
 });
 
 it('keeps Node timer bounds on minute-based lifecycle intervals', () => {
   const maxTimerMinutes = Math.floor((2 ** 31 - 1) / 60_000);
   expect(
-    openShellLifecyclePolicy({ MITZO_OPENSHELL_IDLE_MINUTES: String(maxTimerMinutes) }),
+    openShellLifecyclePolicy(
+      lifecycleEnabled({ MITZO_OPENSHELL_IDLE_MINUTES: String(maxTimerMinutes) }),
+    ),
   ).toMatchObject({
     idleMs: maxTimerMinutes * 60_000,
   });
   for (const env of [
-    { MITZO_OPENSHELL_IDLE_MINUTES: String(maxTimerMinutes + 1) },
-    { MITZO_OPENSHELL_RECONCILE_MINUTES: String(maxTimerMinutes + 1) },
-    { MITZO_OPENSHELL_IDLE_MINUTES: '1.5' },
+    lifecycleEnabled({ MITZO_OPENSHELL_IDLE_MINUTES: String(maxTimerMinutes + 1) }),
+    lifecycleEnabled({ MITZO_OPENSHELL_RECONCILE_MINUTES: String(maxTimerMinutes + 1) }),
+    lifecycleEnabled({ MITZO_OPENSHELL_IDLE_MINUTES: '1.5' }),
   ])
     expect(() => openShellLifecyclePolicy(env)).toThrow();
 });
 
+it.each([
+  ['MITZO_OPENSHELL_IDLE_MINUTES', 'not-a-number'],
+  ['MITZO_OPENSHELL_RECONCILE_MINUTES', 'not-a-number'],
+  ['MITZO_OPENSHELL_RETENTION_DAYS', 'not-a-number'],
+])('leaves stale %s settings inert until lifecycle is enabled', (key, value) => {
+  expect(openShellLifecyclePolicy({ [key]: value })).toMatchObject({ enabled: false });
+});
+
+it('rejects an invalid lifecycle enable flag before parsing other settings', () => {
+  expect(() =>
+    openShellLifecyclePolicy({
+      MITZO_OPENSHELL_LIFECYCLE_ENABLED: 'sometimes',
+      MITZO_OPENSHELL_IDLE_MINUTES: 'not-a-number',
+    }),
+  ).toThrow('lifecycle enabled');
+});
+
 it('requires a confirmed stopped timestamp before retention eligibility', () => {
-  const policy = openShellLifecyclePolicy({ MITZO_OPENSHELL_RETENTION_DAYS: '5' });
+  const policy = openShellLifecyclePolicy(
+    lifecycleEnabled({ MITZO_OPENSHELL_RETENTION_DAYS: '5' }),
+  );
   expect(policy.retentionEligible(record({ stoppedAt: null }), 300 + 100 * DAY)).toBe(false);
   expect(policy.retentionEligible(record(), 300 + 5 * DAY - 1)).toBe(false);
   expect(policy.retentionEligible(record(), 300 + 5 * DAY)).toBe(true);

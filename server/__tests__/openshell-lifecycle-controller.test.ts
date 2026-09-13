@@ -61,7 +61,6 @@ it.each([
   ['usage threshold', 'MITZO_OPENSHELL_USAGE_THRESHOLD_BYTES', '0'],
   ['sandbox threshold', 'MITZO_OPENSHELL_SANDBOX_THRESHOLD', '-1'],
   ['policy path', 'MITZO_OPENSHELL_POLICY', 'relative-policy.yaml'],
-  ['lifecycle opt-in', 'MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1'],
 ])('is inert with stale %s configuration while OpenShell is disabled', (_name, key, value) => {
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '');
   vi.stubEnv(key, value);
@@ -73,6 +72,74 @@ it.each([
         {} as Parameters<typeof initializeOpenShellLifecycle>[1],
       ),
     ).not.toThrow();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
+it.each([
+  ['idle interval', 'MITZO_OPENSHELL_IDLE_MINUTES', 'not-a-number'],
+  ['reconcile interval', 'MITZO_OPENSHELL_RECONCILE_MINUTES', 'not-a-number'],
+  ['retention', 'MITZO_OPENSHELL_RETENTION_DAYS', 'not-a-number'],
+  ['usage threshold', 'MITZO_OPENSHELL_USAGE_THRESHOLD_BYTES', '0'],
+  ['sandbox threshold', 'MITZO_OPENSHELL_SANDBOX_THRESHOLD', '-1'],
+  ['policy path', 'MITZO_OPENSHELL_POLICY', 'relative-policy.yaml'],
+])(
+  'is inert with stale %s configuration while lifecycle cleanup is disabled',
+  (_name, key, value) => {
+    vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '');
+    vi.stubEnv(key, value);
+    try {
+      expect(() =>
+        initializeOpenShellLifecycle(
+          {
+            cli: 'openshell',
+            image: 'mitzo-runtime:1',
+            policy: '/unavailable/lifecycle-policy.yaml',
+            seed: '/seed/mgmt',
+            serviceProviders: [],
+            grantableServiceProviders: [],
+            workspace: 'default',
+            gateway: 'openshell',
+            gatewayInsecure: false,
+            createDetached: true,
+            sandboxIdLength: 13,
+            workdir: '/sandbox/workspaces/mgmt',
+            webSearch: 'disabled',
+          },
+          {} as Parameters<typeof initializeOpenShellLifecycle>[1],
+        ),
+      ).not.toThrow();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  },
+);
+
+it('rejects an invalid lifecycle enable flag before parsing lifecycle settings', () => {
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', 'sometimes');
+  vi.stubEnv('MITZO_OPENSHELL_IDLE_MINUTES', 'not-a-number');
+  try {
+    expect(() =>
+      initializeOpenShellLifecycle(
+        {
+          cli: 'openshell',
+          image: 'mitzo-runtime:1',
+          policy: '/unavailable/lifecycle-policy.yaml',
+          seed: '/seed/mgmt',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayInsecure: false,
+          createDetached: true,
+          sandboxIdLength: 13,
+          workdir: '/sandbox/workspaces/mgmt',
+          webSearch: 'disabled',
+        },
+        {} as Parameters<typeof initializeOpenShellLifecycle>[1],
+      ),
+    ).toThrow('lifecycle enabled');
   } finally {
     vi.unstubAllEnvs();
   }
