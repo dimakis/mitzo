@@ -52,6 +52,7 @@ def provider(path):
 def workspace(path):
  if not os.path.isdir(path): fail('workspace is missing')
  for rel,isdir,_ in entries(path):
+  if rel!='.' and rel.split('/')[-1]=='.git' and not isdir: fail('workspace Git metadata is unsafe')
   if rel!='.' and cred(rel) and not excluded_workspace_config(rel): fail('credential-like workspace file')
 def source(p,w): provider(p); workspace(w); return p,w
 def resumable_rollout(provider_root, thread):
@@ -218,7 +219,8 @@ def cleanup_backups(backups):
   except OSError: pass
 def restore_git_identity(workspace):
  git=os.path.join(workspace,'.git')
- if not os.path.isdir(git): return
+ if not os.path.lexists(git): return
+ if not stat.S_ISDIR(lst(git).st_mode): fail('workspace Git metadata is unsafe')
  config=os.path.join(git,'config')
  if any(os.path.lexists(os.path.join(git,name)) for name in ('config','config.worktree')): fail('restored Git config is unsafe')
  fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)

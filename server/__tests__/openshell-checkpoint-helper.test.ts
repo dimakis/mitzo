@@ -98,6 +98,7 @@ it('captures and restores git, executable files, empty directories, and sqlite s
     ['config', '--worktree', 'http.https://example.invalid/.extraheader', 'Bearer unsafe-token'],
     { cwd: join(from, 'workspace') },
   );
+  writeFileSync(join(from, 'workspace/.git/credentials'), 'https://unsafe-token@example.invalid');
   run([
     'capture',
     '--source',
@@ -154,8 +155,10 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   const archived = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' }).split('\n');
   expect(archived).not.toContain('workspace/.git/config');
   expect(archived).not.toContain('workspace/.git/config.worktree');
+  expect(archived).not.toContain('workspace/.git/credentials');
   expect(archived).not.toContain('workspace/.npmrc');
   expect(existsSync(join(to, 'workspace/.git/config.worktree'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/credentials'))).toBe(false);
   const db = new Database(join(to, '.codex/queue_1.sqlite'));
   expect(db.prepare('SELECT v FROM t').get()).toEqual({ v: 'ok' });
   db.close();
@@ -189,6 +192,89 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   ]);
   expect(readFileSync(join(workspaceRoot, 'untracked.txt'), 'utf8')).toBe('untracked');
   expect(readFileSync(join(providerRoot, 'queue_1.sqlite')).length).toBeGreaterThan(0);
+});
+it('rejects Git pointer files and symlinks across capture and restore', () => {
+  for (const pointer of ['gitdir: /private/external-repo', 'gitdir: ../../external-repo']) {
+    const from = root();
+    source(from);
+    const git = join(from, 'workspace/.git');
+    rmSync(git, { recursive: true, force: true });
+    writeFileSync(git, pointer);
+    expect(() =>
+      run([
+        'capture',
+        '--source',
+        from,
+        '--output',
+        join(root(), 'checkpoint.tar'),
+        '--conversation',
+        'c',
+        '--thread',
+        'thread',
+        '--binding',
+        'binding',
+        '--image',
+        'image',
+        '--policy',
+        'policy',
+      ]),
+    ).toThrow();
+  }
+  const symlinked = root();
+  source(symlinked);
+  const git = join(symlinked, 'workspace/.git');
+  rmSync(git, { recursive: true, force: true });
+  const external = join(root(), 'external-repo');
+  mkdirSync(external);
+  symlinkSync(external, git);
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      symlinked,
+      '--output',
+      join(root(), 'checkpoint.tar'),
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow();
+
+  const workspace = root();
+  writeFileSync(join(workspace, '.git'), 'gitdir: /private/external-repo');
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.restore_git_identity(sys.argv[2])",
+        helper,
+        workspace,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow();
+});
+
+it('rejects archive paths that escape the workspace Git boundary', () => {
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.safe_name('../workspace/.git/config')",
+        helper,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow();
 });
 it('keeps a recoverable backup when post-restore cleanup fails', () => {
   const backup = join(root(), '.codex.mitzo-pre-restore');
