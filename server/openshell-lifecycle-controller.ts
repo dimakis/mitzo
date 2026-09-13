@@ -118,12 +118,14 @@ function runtimeFor(record: OpenShellLifecycleRecord): OpenShellRuntime {
   };
 }
 
+/** Archive verification must use its immutable capture origin, never a later
+ * replacement sandbox that happens to own the same conversation. */
 function checkpointIdentity(
   record: OpenShellLifecycleRecord,
-  resourceVersion: string,
+  origin: { sandboxId: string; resourceVersion: string },
 ): CheckpointIdentity {
   const identity = record.identity;
-  if (!identity || !record.physicalSandboxId)
+  if (!identity || !origin.sandboxId || !origin.resourceVersion)
     throw new Error('OpenShell lifecycle identity is unavailable');
   return {
     conversation: record.conversationId,
@@ -136,8 +138,8 @@ function checkpointIdentity(
     ]),
     image: identity.image,
     policy: identity.policyDigest,
-    sandboxId: record.physicalSandboxId,
-    resourceVersion,
+    sandboxId: origin.sandboxId,
+    resourceVersion: origin.resourceVersion,
     accountProvider: record.accountProvider,
     accountId: identity.accountId,
     provider: identity.provider,
@@ -210,7 +212,10 @@ export function initializeOpenShellLifecycle(
       const transport = new OpenShellCheckpointTransport(runtimeFor(record));
       const result = await transport.capture(
         checkpointDirectoryForConversation(directory, record.conversationId, record.generation),
-        checkpointIdentity(record, sandbox.resourceVersion),
+        checkpointIdentity(record, {
+          sandboxId: sandbox.id,
+          resourceVersion: sandbox.resourceVersion,
+        }),
         signal,
       );
       return {
@@ -224,13 +229,20 @@ export function initializeOpenShellLifecycle(
     verifyCheckpoint: async (record, sandbox, signal) => {
       if (!record.checkpoint) return false;
       const version = record.checkpoint.sourceResourceVersion;
-      if (!version) return false;
+      if (!version || !record.checkpoint.sandboxId || sandbox.id !== record.physicalSandboxId)
+        return false;
       const manifest = await new OpenShellCheckpointTransport(runtimeFor(record)).verify(
         record.checkpoint.path,
-        checkpointIdentity(record, version),
+        checkpointIdentity(record, {
+          sandboxId: record.checkpoint.sandboxId,
+          resourceVersion: version,
+        }),
         signal,
       );
-      return manifest.digest === record.checkpoint.digest && manifest.sandboxId === sandbox.id;
+      return (
+        manifest.digest === record.checkpoint.digest &&
+        manifest.sandboxId === record.checkpoint.sandboxId
+      );
     },
     consent: (record) => !!record.retentionConsent,
     onOutcome: (action) => sources.onOutcome?.(action),
@@ -362,14 +374,22 @@ export async function restoreOpenShellLifecycleIfNeeded(
   managerFor(record);
   const replaced = record.physicalSandboxId !== runtime.sandboxId;
   if (record.phase !== 'deleted' && !replaced) return;
-  if (!record.checkpoint || !record.identity || !record.checkpoint.sourceResourceVersion)
+  if (
+    !record.checkpoint ||
+    !record.identity ||
+    !record.checkpoint.sandboxId ||
+    !record.checkpoint.sourceResourceVersion
+  )
     throw new Error('OpenShell sandbox recovery requires a verified checkpoint');
   const restoring = configured.store.transition(conversationId, record.generation, 'restoring');
   if (!restoring) throw new Error('OpenShell lifecycle generation changed during restore');
   try {
     await new OpenShellCheckpointTransport(runtime).restore(
       record.checkpoint.path,
-      checkpointIdentity(record, record.checkpoint.sourceResourceVersion),
+      checkpointIdentity(record, {
+        sandboxId: record.checkpoint.sandboxId,
+        resourceVersion: record.checkpoint.sourceResourceVersion,
+      }),
       record.checkpoint.digest,
       signal,
     );
