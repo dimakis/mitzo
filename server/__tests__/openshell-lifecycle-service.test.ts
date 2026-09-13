@@ -322,6 +322,19 @@ it('passes a final activity fence to the stop adapter', async () => {
   expect(activityUnchanged!()).toBe(false);
 });
 
+it('rejects queue admission after the final stop fence while physical stop is in flight', async () => {
+  const { service, adapters, sandbox } = setup('retained');
+  adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {
+    expect(current?.()).toBe(true);
+    expect(sharedOpenShellLifecycleCoordinator.tryAdmitActivity('c')).toBe(false);
+    sandbox.phase = 'Stopped';
+    sandbox.resourceVersion = 'stopped-v';
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
+  expect(sharedOpenShellLifecycleCoordinator.tryAdmitActivity('c')).toBe(true);
+});
+
 it('fences a stop when durable lifecycle state changes after the final preflight', async () => {
   const { service, store, sandbox, adapters } = setup('retained');
   adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {

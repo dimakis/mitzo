@@ -293,6 +293,7 @@ export class OpenShellLifecycleCoordinator {
   private tails = new Map<string, Promise<void>>();
   private idle = new Map<string, { generation: number; timer: ReturnType<typeof setTimeout> }>();
   private activity = new Map<string, number>();
+  private mutations = new Set<string>();
 
   constructor(
     private options: { onIdleError?: (conversationId: string, error: Error) => void } = {},
@@ -312,6 +313,15 @@ export class OpenShellLifecycleCoordinator {
     const generation = (this.activity.get(conversationId) ?? 0) + 1;
     this.activity.set(conversationId, generation);
     return generation;
+  }
+
+  /** Atomically admits queue work unless a stop/delete owns this conversation.
+   * Callers must reject the enqueue when this returns false: accepting work
+   * while a physical mutation is in flight would race a stopped sandbox. */
+  tryAdmitActivity(conversationId: string) {
+    if (this.mutations.has(conversationId)) return false;
+    this.noteActivity(conversationId);
+    return true;
   }
 
   activityGeneration(conversationId: string) {
@@ -342,6 +352,18 @@ export class OpenShellLifecycleCoordinator {
     } finally {
       release();
     }
+  }
+
+  /** Holds the coordinator through the entire physical stop/delete operation. */
+  async mutate<T>(conversationId: string, operation: () => Promise<T>): Promise<T> {
+    return this.admit(conversationId, async () => {
+      this.mutations.add(conversationId);
+      try {
+        return await operation();
+      } finally {
+        this.mutations.delete(conversationId);
+      }
+    });
   }
 
   scheduleIdle(conversationId: string, delayMs: number, operation: () => Promise<void>) {

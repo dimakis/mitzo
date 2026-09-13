@@ -403,10 +403,10 @@ export function lifecycleService() {
  * It intentionally does not manufacture a lifecycle record for a session that
  * has not completed initial identity registration. */
 export function touchOpenShellLifecycle(conversationId: string) {
-  if (!configured) return;
-  sharedOpenShellLifecycleCoordinator.noteActivity(conversationId);
+  if (!configured) return true;
+  if (!sharedOpenShellLifecycleCoordinator.tryAdmitActivity(conversationId)) return false;
   const record = configured.store.get(conversationId);
-  if (!record || record.phase === 'deleted' || record.phase === 'failed') return;
+  if (!record || record.phase === 'deleted' || record.phase === 'failed') return true;
   const resumable =
     record.phase === 'checkpointing' || record.phase === 'stopping' || record.phase === 'deleting';
   configured.store.upsert({
@@ -416,6 +416,7 @@ export function touchOpenShellLifecycle(conversationId: string) {
     lastActivityAt: Date.now(),
     idleSince: null,
   });
+  return true;
 }
 
 /** Transport close alone is not eligibility; it only begins idle accounting.

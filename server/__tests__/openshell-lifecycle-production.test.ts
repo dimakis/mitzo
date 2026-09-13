@@ -55,6 +55,21 @@ it('resolves Task Board client ownership to its durable conversation and blocks 
     expect.arrayContaining(['task_board', 'inventory_unavailable']),
   );
 });
+it('scopes unresolved nonterminal Task Board ownership to the lifecycle record', async () => {
+  const related = await adapter({
+    registry: { findBySessionId: () => null, entries: function* () {} },
+    taskStore: { getTree: () => [{ sessionId: 'client-c', status: 'pending', children: [] }] },
+    eventStore: { getSession: () => ({}) },
+  }).protect({ ...record, ownerClientId: 'client-c' }, AbortSignal.timeout(10));
+  expect(related.blockers).toEqual(expect.arrayContaining(['task_board', 'ambiguous_ownership']));
+
+  const unrelated = await adapter({
+    registry: { findBySessionId: () => null, entries: function* () {} },
+    taskStore: { getTree: () => [{ sessionId: 'other-client', status: 'pending', children: [] }] },
+    eventStore: { getSession: () => ({}) },
+  }).protect({ ...record, ownerClientId: 'client-c' }, AbortSignal.timeout(10));
+  expect(unrelated.blockers).toEqual([]);
+});
 it('forwards isolated reconciliation errors to the production observer', () => {
   const onReconcileError = vi.fn();
   const onOutcome = vi.fn();

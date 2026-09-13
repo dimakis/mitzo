@@ -83,15 +83,14 @@ export function createOpenShellLifecycleProductionAdapter(
         if (
           flatten(deps.taskStore.getTree()).some((task) => {
             if (terminal.has(task.status)) return false;
-            if (task.sessionId === record.conversationId) return true;
-            if (task.sessionId && task.sessionId === record.ownerClientId) return true;
-            if (task.sessionId && clients.get(task.sessionId) === record.conversationId)
-              return true;
-            if (task.sessionId && !clients.has(task.sessionId)) {
-              blockers.push('ambiguous_ownership');
-              return false;
-            }
-            return false;
+            const owner = task.sessionId;
+            if (!owner) return false;
+            const isConversation = owner === record.conversationId;
+            const isDurableClient = owner === record.ownerClientId;
+            const isLiveClient = clients.get(owner) === record.conversationId;
+            if (!isConversation && !isDurableClient && !isLiveClient) return false;
+            if (isDurableClient && !clients.has(owner)) blockers.push('ambiguous_ownership');
+            return true;
           })
         )
           blockers.push('task_board');

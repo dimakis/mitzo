@@ -174,6 +174,22 @@ it('synchronously invalidates a pending stop when queue activity arrives', () =>
   expect(coordinator.activityGeneration('conversation')).toBe(before + 1);
 });
 
+it('rejects queue admission while a lifecycle mutation lease is held', async () => {
+  const coordinator = new OpenShellLifecycleCoordinator();
+  let release!: () => void;
+  let entered!: () => void;
+  const enteredMutation = new Promise<void>((resolve) => (entered = resolve));
+  const mutation = coordinator.mutate('conversation', async () => {
+    expect(coordinator.tryAdmitActivity('conversation')).toBe(false);
+    entered();
+    await new Promise<void>((resolve) => (release = resolve));
+  });
+  await enteredMutation;
+  release();
+  await mutation;
+  expect(coordinator.tryAdmitActivity('conversation')).toBe(true);
+});
+
 it('reports idle cleanup failure instead of swallowing it', async () => {
   const failure = vi.fn();
   const coordinator = new OpenShellLifecycleCoordinator({ onIdleError: failure });

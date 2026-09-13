@@ -192,7 +192,7 @@ export class OpenShellLifecycleService {
   async confirm(token: string, signal: AbortSignal) {
     const preview = this.previews.get(token);
     if (!preview) throw new Error('OpenShell lifecycle preview is expired or already used');
-    return sharedOpenShellLifecycleCoordinator.admit(preview.conversationId, () =>
+    return sharedOpenShellLifecycleCoordinator.mutate(preview.conversationId, () =>
       this.confirmLocked(token, signal),
     );
   }

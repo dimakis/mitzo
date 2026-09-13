@@ -46,7 +46,7 @@ interface Options {
   turnSandboxPolicy?: Record<string, unknown>;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
-  onActivity?: () => void;
+  onActivity?: () => boolean | void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -230,7 +230,8 @@ export class CodexConversation {
     // Built-in Codex skill readers cannot yet be mediated; do not silently weaken a ceiling.
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
-    this.opts.onActivity?.();
+    if (this.opts.onActivity?.() === false)
+      throw new Error('OpenShell lifecycle mutation is in progress');
     const commands = this.queue();
     const previousModel =
       commands.find((c) => c.id === input.id)?.model ??
