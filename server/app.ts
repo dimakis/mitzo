@@ -17,6 +17,7 @@ import {
   login,
   authenticateToken,
   authMiddleware,
+  operatorAuthMiddleware,
   registerAuthSession,
   revokeAuthSession,
   COOKIE_NAME,
@@ -682,7 +683,7 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
     });
   }
 });
-app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
+app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req, res) => {
   if (!openShellLifecycleService) {
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
@@ -702,27 +703,33 @@ app.post('/api/openshell/lifecycle/confirm', async (req, res) => {
     });
   }
 });
-app.post('/api/openshell/lifecycle/:conversationId/retention-consent', async (req, res) => {
-  if (!openShellLifecycleService) {
-    res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
-    return;
-  }
-  if (typeof req.body?.enabled !== 'boolean') {
-    res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
-    return;
-  }
-  try {
-    await openShellLifecycleService.setRetentionConsent(
-      req.params.conversationId,
-      req.body.enabled,
-    );
-    res.json({ enabled: req.body.enabled });
-  } catch (error) {
-    res
-      .status(409)
-      .json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
-  }
-});
+app.post(
+  '/api/openshell/lifecycle/:conversationId/retention-consent',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    if (!openShellLifecycleService) {
+      res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
+      return;
+    }
+    if (typeof req.body?.enabled !== 'boolean') {
+      res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
+      return;
+    }
+    const conversationId = req.params.conversationId;
+    if (typeof conversationId !== 'string') {
+      res.status(400).json({ error: 'Lifecycle conversation ID is required' });
+      return;
+    }
+    try {
+      await openShellLifecycleService.setRetentionConsent(conversationId, req.body.enabled);
+      res.json({ enabled: req.body.enabled });
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
+    }
+  },
+);
 
 // --- SSE Event Bus ---
 

@@ -17,6 +17,10 @@ vi.mock('../auth.js', () => ({
     }
     return res.status(401).json({ error: 'Not authenticated' });
   },
+  operatorAuthMiddleware: (req: Request, res: Response, next: NextFunction) => {
+    if (req.header('x-browser') === 'yes') return next();
+    return res.status(403).json({ error: 'Interactive operator authentication is required' });
+  },
   registerAuthSession: vi.fn(() => () => undefined),
   revokeAuthSession: vi.fn(),
   verifyPassphrase: (value: string) => value === 'correct',
