@@ -338,6 +338,16 @@ export async function restoreOpenShellLifecycleIfNeeded(
       throw new Error('OpenShell existing conversation has no verified recovery record');
     return;
   }
+  // A new sandbox is registered before app-server initialization supplies its
+  // provider thread. It is current but intentionally non-actionable, so it
+  // cannot be mistaken for a recovery candidate.
+  if (
+    !record.identity &&
+    record.phase === 'retained' &&
+    record.physicalSandboxId === runtime.sandboxId &&
+    !record.checkpoint
+  )
+    return;
   if (
     !record.identity ||
     (binding &&

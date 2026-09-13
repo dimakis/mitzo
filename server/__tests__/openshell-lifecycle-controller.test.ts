@@ -7,6 +7,7 @@ import {
   initializeOpenShellLifecycle,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
+  restoreOpenShellLifecycleIfNeeded,
 } from '../openshell-lifecycle-controller.js';
 
 it('hashes arbitrary conversation IDs before creating checkpoint directories', () => {
@@ -50,7 +51,7 @@ it('does not read the checkpoint policy when lifecycle is disabled', () => {
   }
 });
 
-it('keeps a newly ensured sandbox durably fenced until its provider thread is ready', () => {
+it('keeps a newly ensured sandbox durably fenced until its provider thread is ready', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-'));
   const policy = join(directory, 'policy.yaml');
   writeFileSync(policy, 'reviewed: policy\n');
@@ -104,6 +105,25 @@ it('keeps a newly ensured sandbox durably fenced until its provider thread is re
       physicalSandboxId: 'physical-id',
       identity: null,
     });
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'conversation',
+        runtime,
+        AbortSignal.timeout(100),
+        binding,
+        account,
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'conversation',
+        { ...runtime, sandboxId: 'replacement-id', created: true },
+        AbortSignal.timeout(100),
+        binding,
+        account,
+        true,
+      ),
+    ).rejects.toThrow('account binding changed');
     registerOpenShellLifecycle('conversation', runtime, binding, account, 'thread', 'client');
     expect(lifecycle.store.get('conversation')).toMatchObject({
       physicalSandboxId: 'physical-id',
