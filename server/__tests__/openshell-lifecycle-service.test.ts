@@ -161,6 +161,41 @@ it('automatically checkpoints and stops an idle retained conversation without re
   expect(onOutcome).toHaveBeenCalledWith(expect.objectContaining({ phase: 'stopped' }), 'stopped');
 });
 
+it('fences a checkpoint when the Ready source resource version changes before stop', async () => {
+  const { service, store, sandbox, adapters } = setup('retained');
+  adapters.verifyCheckpoint.mockImplementationOnce(async () => {
+    sandbox.resourceVersion = 'changed-ready-v';
+    return true;
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'OpenShell state changed while checkpointing',
+  );
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    failure: 'OpenShell state changed while checkpointing',
+    checkpoint: expect.objectContaining({ sourceResourceVersion: 'ready-v' }),
+  });
+});
+
+it('fences a checkpoint when the sandbox is no longer Ready before stop', async () => {
+  const { service, store, sandbox, adapters } = setup('retained');
+  adapters.verifyCheckpoint.mockImplementationOnce(async () => {
+    sandbox.phase = 'Stopped';
+    return true;
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'OpenShell state changed while checkpointing',
+  );
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(store.get('c')).toMatchObject({
+    phase: 'failed',
+    checkpoint: expect.objectContaining({ sourceResourceVersion: 'ready-v' }),
+  });
+});
+
 it('deletes a retained stopped record after restart only when its checkpoint and consent remain valid', async () => {
   const { store, adapters } = setup('stopped');
   // Simulate a server restart: the durable row, not an in-memory preview,
@@ -273,15 +308,38 @@ it('durably fences a checkpoint when verification returns false', async () => {
 it('passes a final activity fence to the stop adapter', async () => {
   const { service, adapters, sandbox } = setup('retained');
   let activityUnchanged: (() => boolean) | undefined;
+  let fenceHeldDuringStop = false;
   adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {
     activityUnchanged = current;
+    fenceHeldDuringStop = current?.() ?? false;
     sandbox.phase = 'Stopped';
     sandbox.resourceVersion = 'stopped-v';
   });
   const preview = await service.preview('c', AbortSignal.timeout(100));
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
   expect(activityUnchanged).toEqual(expect.any(Function));
-  expect(activityUnchanged!()).toBe(true);
+  expect(fenceHeldDuringStop).toBe(true);
+  expect(activityUnchanged!()).toBe(false);
+});
+
+it('fences a stop when durable lifecycle state changes after the final preflight', async () => {
+  const { service, store, sandbox, adapters } = setup('retained');
+  adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {
+    const pending = store.get('c')!;
+    store.upsert({ ...pending, phase: 'retained', generation: pending.generation + 1 });
+    if (!current?.()) throw new Error('OpenShell lifecycle state changed before stop');
+    sandbox.phase = 'Stopped';
+    sandbox.resourceVersion = 'stopped-v';
+  });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'OpenShell lifecycle state changed before stop',
+  );
+  expect(sandbox.phase).toBe('Ready');
+  expect(store.get('c')).toMatchObject({
+    phase: 'retained',
+    checkpoint: expect.objectContaining({ sourceResourceVersion: 'ready-v' }),
+  });
 });
 
 it('durably fences a stopped checkpoint when deletion verification returns false', async () => {

@@ -237,6 +237,10 @@ export class OpenShellLifecycleService {
         if (
           !afterCheckpoint.sandbox ||
           afterCheckpoint.sandbox.id !== sandbox.id ||
+          afterCheckpoint.sandbox.phase !== 'Ready' ||
+          !checkpointed.checkpoint?.sourceResourceVersion ||
+          afterCheckpoint.sandbox.resourceVersion !==
+            checkpointed.checkpoint.sourceResourceVersion ||
           afterCheckpoint.blockers.length
         )
           throw new Error('OpenShell state changed while checkpointing');
@@ -251,13 +255,15 @@ export class OpenShellLifecycleService {
           const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
             record.conversationId,
           );
-          await this.adapters.stop(
-            { ...stopping, checkpoint },
-            signal,
-            () =>
+          await this.adapters.stop({ ...stopping, checkpoint }, signal, () => {
+            const current = this.store.get(record.conversationId);
+            return (
+              current?.phase === 'stopping' &&
+              current.generation === stopping.generation &&
               sharedOpenShellLifecycleCoordinator.activityGeneration(record.conversationId) ===
-              activityGeneration,
-          );
+                activityGeneration
+            );
+          });
           const stopped = await this.adapters.inspect(stopping, signal);
           if (
             !stopped ||
