@@ -2,10 +2,11 @@
 // Starts no model turn and never reads the user's HOME or Codex state.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import readline from 'node:readline';
+import { findRollout } from './local-checkpoint-rollout.mjs';
 
 if (process.env.MITZO_REAL_CODEX_PROBE !== '1') {
   console.log('LOCAL_CODEX_CHECKPOINT_RESUME=skipped (set MITZO_REAL_CODEX_PROBE=1)');
@@ -183,15 +184,9 @@ try {
   const sessionEntries = existsSync(join(codexHome, 'sessions'))
     ? names(join(codexHome, 'sessions')).sort()
     : [];
-  const rollout = join(
-    codexHome,
-    'sessions',
-    sessionEntries.find((entry) => entry.startsWith('2026/') && entry.endsWith('.jsonl')) ??
-      'missing',
-  );
-  const first = JSON.parse(readFileSync(rollout, 'utf8').split('\n', 1)[0]);
-  if (first.type !== 'session_meta' || first.payload?.id !== thread)
-    throw new Error('unexpected rollout session metadata');
+  const rollout = findRollout(join(codexHome, 'sessions'), thread);
+  if (!rollout) throw new Error('resumable rollout is missing');
+  const first = rollout.metadata;
   const archive = join(root, 'checkpoint.tar');
   const actual = [...identity];
   actual[actual.indexOf('THREAD')] = thread;
