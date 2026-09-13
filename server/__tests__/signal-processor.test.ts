@@ -474,6 +474,29 @@ describe('SignalProcessor', () => {
       fetchSpy.mockRestore();
     });
 
+    it('derives the callback PR URL from repo and pr gate fields', async () => {
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', repo: 'dimakis/mitzo', pr: 512 },
+      });
+      store.update(task.id, { status: 'active' });
+
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() => {
+        const registration = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body)) as {
+          pr_url?: string;
+        };
+        expect(registration.pr_url).toBe('https://github.com/dimakis/mitzo/pull/512');
+      });
+    });
+
     it('deregisters Centaur callbacks when unwatching all tasks', async () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')

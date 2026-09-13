@@ -12,6 +12,23 @@ export function localSignalCallbackBaseUrl(port: number, useTls: boolean): strin
   return `http://localhost:${useTls ? port + 1 : port}`;
 }
 
+function centaurReviewPrUrl(config: GateConfig): string | undefined {
+  const fields = config as GateConfig & {
+    pr_url?: unknown;
+    repo?: unknown;
+    pr?: unknown;
+  };
+  if (typeof fields.pr_url === 'string' && fields.pr_url.length > 0) return fields.pr_url;
+  if (
+    typeof fields.repo === 'string' &&
+    fields.repo.length > 0 &&
+    (typeof fields.pr === 'string' || typeof fields.pr === 'number')
+  ) {
+    return `https://github.com/${fields.repo}/pull/${fields.pr}`;
+  }
+  return undefined;
+}
+
 export interface GateResult {
   resolved: boolean;
   status: 'pass' | 'fail';
@@ -76,14 +93,15 @@ export class SignalProcessor {
 
     // Register callback with Centaur for push-based resolution
     if (gateConfig.type === 'centaur_review') {
-      const callbackToken = createSignalCallbackToken(taskId);
-      this.enqueueCallbackOperation(taskId, () =>
-        this.registerCentaurCallback(
-          taskId,
-          gateConfig as GateConfig & { pr_url: string },
-          callbackToken,
-        ),
-      );
+      const prUrl = centaurReviewPrUrl(gateConfig);
+      if (prUrl) {
+        const callbackToken = createSignalCallbackToken(taskId);
+        this.enqueueCallbackOperation(taskId, () =>
+          this.registerCentaurCallback(taskId, { pr_url: prUrl }, callbackToken),
+        );
+      } else {
+        log.warn('centaur callback registration missing PR identity', { taskId });
+      }
     }
   }
 
@@ -279,8 +297,12 @@ export async function checkGate(
       return checkGhCi(config as GateConfig & { repo: string; pr: number | string });
     case 'gh_review':
       return checkGhReview(config as GateConfig & { repo: string; pr: number | string });
-    case 'centaur_review':
-      return checkCentaurReview(config as GateConfig & { pr_url: string }, centaurBaseUrl);
+    case 'centaur_review': {
+      const prUrl = centaurReviewPrUrl(config);
+      return prUrl
+        ? checkCentaurReview({ pr_url: prUrl }, centaurBaseUrl)
+        : { resolved: false, status: 'fail' };
+    }
     case 'compound':
       return checkCompound(config as GateConfig & { all: GateConfig[] }, centaurBaseUrl);
     case 'human_approval':

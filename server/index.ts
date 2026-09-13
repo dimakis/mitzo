@@ -1081,7 +1081,7 @@ setSkillWatcher(skillWatcher);
 
 async function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
-  const forceExitTimer = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   server.close();
   skillWatcher.destroy();
   await signalProc.unwatchAll();
@@ -1095,7 +1095,6 @@ async function shutdown(signal: string) {
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
   }
-  forceExitTimer.unref();
 }
 
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
