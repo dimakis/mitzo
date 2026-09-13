@@ -16,8 +16,9 @@ export interface OpenShellCheckpointRef {
   digest: string;
   version: number;
   sandboxId: string;
-  /** Ready resource version at capture time. It is deliberately distinct from
-   * the stopped marker used to authorize a later delete. */
+  /** Gateway observation recorded in the archive identity at capture time. It
+   * is volatile for Ready sandboxes and is not a workspace-mutation fence; the
+   * coordinator's admission lock provides capture-to-stop quiescence. */
   sourceResourceVersion?: string;
 }
 
@@ -35,7 +36,8 @@ export interface OpenShellLifecycleRecord {
   lastActivityAt: number | null;
   idleSince: number | null;
   stoppedAt: number | null;
-  /** Resource version observed after the stop. Capture identity has its own Ready version. */
+  /** Stable stopped revision used to authorize a later delete. Capture identity has its own
+   * volatile Ready observation version. */
   stoppedResourceVersion?: string | null;
   checkpoint: OpenShellCheckpointRef | null;
   failure?: string | null;

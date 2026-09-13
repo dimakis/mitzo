@@ -52,8 +52,12 @@ The host-side baseline records the source commit and file hashes.
 Conversation/thread state and the sandbox workspace are checkpointed together before
 an operator-approved stop. The private, versioned archive is bound to the exact
 conversation, provider thread, account binding, policy/image identity, physical
-sandbox ID, and source resource version. A deleted or replaced sandbox is restored
-from that verified archive before Mitzo starts the app server and resumes its
+sandbox ID, and the capture-time gateway resource observation. Ready observation
+versions are not mutation revisions: gateway reads may advance them. The
+per-conversation lifecycle admission lock instead keeps the workspace quiescent
+from capture through stop; identity, phase, protection checks, and the archive
+digest remain the durable fences. A deleted or replaced sandbox is restored from
+that verified archive before Mitzo starts the app server and resumes its
 existing provider thread; a missing or invalid archive is a recoverable error, not
 a blank-thread fallback.
 

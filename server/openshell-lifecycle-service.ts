@@ -234,13 +234,14 @@ export class OpenShellLifecycleService {
         )
           throw new Error('OpenShell checkpoint is unavailable');
         const afterCheckpoint = await this.state(checkpointed, signal);
+        // Ready resource versions are observation counters, so a second
+        // inspect can advance one without a workspace mutation. `mutate()`
+        // holds the per-conversation admission lock across capture and stop;
+        // recheck durable identity, phase, and protection instead.
         if (
           !afterCheckpoint.sandbox ||
           afterCheckpoint.sandbox.id !== sandbox.id ||
           afterCheckpoint.sandbox.phase !== 'Ready' ||
-          !checkpointed.checkpoint?.sourceResourceVersion ||
-          afterCheckpoint.sandbox.resourceVersion !==
-            checkpointed.checkpoint.sourceResourceVersion ||
           afterCheckpoint.blockers.length
         )
           throw new Error('OpenShell state changed while checkpointing');
@@ -265,12 +266,7 @@ export class OpenShellLifecycleService {
             );
           });
           const stopped = await this.adapters.inspect(stopping, signal);
-          if (
-            !stopped ||
-            stopped.id !== stopping.physicalSandboxId ||
-            stopped.phase !== 'Stopped' ||
-            !stopped.resourceVersion
-          )
+          if (!stopped || stopped.id !== stopping.physicalSandboxId || stopped.phase !== 'Stopped')
             throw new Error('OpenShell stop could not be verified');
           const stoppedRecord = {
             ...stopping,

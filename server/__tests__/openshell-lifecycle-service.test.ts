@@ -161,20 +161,34 @@ it('automatically checkpoints and stops an idle retained conversation without re
   expect(onOutcome).toHaveBeenCalledWith(expect.objectContaining({ phase: 'stopped' }), 'stopped');
 });
 
-it('fences a checkpoint when the Ready source resource version changes before stop', async () => {
+it('retains a stopped sandbox without a stable deletion revision and blocks its deletion', async () => {
   const { service, store, sandbox, adapters } = setup('retained');
-  adapters.verifyCheckpoint.mockImplementationOnce(async () => {
-    sandbox.resourceVersion = 'changed-ready-v';
-    return true;
+  adapters.stop.mockImplementationOnce(async () => {
+    sandbox.phase = 'Stopped';
+    delete (sandbox as { resourceVersion?: string }).resourceVersion;
+  });
+  const stop = await service.preview('c', AbortSignal.timeout(100));
+  await expect(service.confirm(stop.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
+  expect(store.get('c')).toMatchObject({ phase: 'stopped', stoppedResourceVersion: null });
+
+  const deletion = await service.preview('c', AbortSignal.timeout(100));
+  expect(deletion).toMatchObject({ action: 'none' });
+  expect(deletion.blockers).toContain('ambiguous_ownership');
+});
+
+it('allows a Ready checkpoint when a read-only inspection advances its observation version', async () => {
+  const { service, store, sandbox, adapters } = setup('retained');
+  let inspectCount = 0;
+  adapters.inspect.mockImplementation(async () => {
+    // preview, confirmation preflight, then the post-capture re-read
+    if (++inspectCount === 3) sandbox.resourceVersion = 'changed-ready-v';
+    return sandbox;
   });
   const preview = await service.preview('c', AbortSignal.timeout(100));
-  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
-    'OpenShell state changed while checkpointing',
-  );
-  expect(adapters.stop).not.toHaveBeenCalled();
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
+  expect(adapters.stop).toHaveBeenCalledOnce();
   expect(store.get('c')).toMatchObject({
-    phase: 'failed',
-    failure: 'OpenShell state changed while checkpointing',
+    phase: 'stopped',
     checkpoint: expect.objectContaining({ sourceResourceVersion: 'ready-v' }),
   });
 });
@@ -227,6 +241,24 @@ it('serializes concurrent confirmation and rejects the stale second action', asy
   await expect(first).resolves.toBe('deleted');
   await expect(second).rejects.toThrow('expired or already used');
   expect(adapters.delete).toHaveBeenCalledOnce();
+});
+
+it('does not stop after activity changes durable lifecycle state between preview and confirmation', async () => {
+  const { service, store, adapters } = setup('retained');
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  const active = store.get('c')!;
+  expect(sharedOpenShellLifecycleCoordinator.tryAdmitActivity('c')).toBe(true);
+  store.upsert({
+    ...active,
+    generation: active.generation + 1,
+    lastActivityAt: active.lastActivityAt! + 1,
+    idleSince: null,
+  });
+
+  await expect(service.confirm(preview.token, AbortSignal.timeout(100))).rejects.toThrow(
+    'OpenShell lifecycle preview is stale',
+  );
+  expect(adapters.stop).not.toHaveBeenCalled();
 });
 
 it('does not record deletion until the exact sandbox is absent', async () => {
@@ -322,8 +354,12 @@ it('passes a final activity fence to the stop adapter', async () => {
   expect(activityUnchanged!()).toBe(false);
 });
 
-it('rejects queue admission after the final stop fence while physical stop is in flight', async () => {
+it('rejects queue admission from checkpoint capture through the physical stop', async () => {
   const { service, adapters, sandbox } = setup('retained');
+  adapters.checkpoint.mockImplementationOnce(async () => {
+    expect(sharedOpenShellLifecycleCoordinator.tryAdmitActivity('c')).toBe(false);
+    return { path: '/private/checkpoint', digest: 'd', version: 1, sandboxId: 'p' };
+  });
   adapters.stop.mockImplementationOnce(async (_record, _signal, current) => {
     expect(current?.()).toBe(true);
     expect(sharedOpenShellLifecycleCoordinator.tryAdmitActivity('c')).toBe(false);

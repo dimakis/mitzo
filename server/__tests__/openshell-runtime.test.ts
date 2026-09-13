@@ -168,6 +168,18 @@ describe('OpenShell runtime lifecycle', () => {
     expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped', resourceVersion: '1' });
   });
 
+  it('does not treat a stopped resource observation as a stable deletion revision', async () => {
+    const sandbox = JSON.parse(ready('Stopped'));
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped' });
+  });
+
   it('uses resource_version rather than revision for a Ready checkpoint source', async () => {
     const sandbox = JSON.parse(ready());
     sandbox.id = 'sandbox-id';
