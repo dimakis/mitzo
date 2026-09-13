@@ -251,13 +251,30 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     startupReservation?.();
     throw error;
   }
-  if (runtimeManager && managedOpenShell)
-    registerOpenShellLifecycleProvisional(
-      options.conversationId,
-      managedOpenShell,
-      selectedOpenShellAccountRoute(options),
-      options.registry.findBySessionId(options.conversationId)?.clientId,
-    );
+  const signal = options.session.abortController.signal;
+  try {
+    if (runtimeManager && managedOpenShell) {
+      // A resumed conversation must validate its durable recovery record before
+      // a first-launch provisional row can make a missing record look valid.
+      await restoreOpenShellLifecycleIfNeeded(
+        options.conversationId,
+        managedOpenShell,
+        signal,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        !!options.resume,
+      );
+      registerOpenShellLifecycleProvisional(
+        options.conversationId,
+        managedOpenShell,
+        selectedOpenShellAccountRoute(options),
+        options.registry.findBySessionId(options.conversationId)?.clientId,
+      );
+    }
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -276,7 +293,6 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           },
         }
       : openShell;
-  const signal = options.session.abortController.signal;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
   try {
@@ -302,14 +318,6 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   let startup: { context?: string };
   try {
     if (runtimeManager) {
-      await restoreOpenShellLifecycleIfNeeded(
-        options.conversationId,
-        managedOpenShell!,
-        signal,
-        options.binding,
-        selectedOpenShellAccountRoute(options),
-        !!options.resume,
-      );
       const context = await runtimeManager.compileContext(managedOpenShell!, signal);
       options.onBootContext?.(context);
       startup = { context: context.fullMarkdown };
