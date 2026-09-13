@@ -87,6 +87,17 @@ it('captures and restores git, executable files, empty directories, and sqlite s
     to = join(root(), 'restored');
   source(from);
   writeFileSync(join(from, 'workspace/.npmrc'), '//registry.example/:_authToken=secret');
+  execFileSync('git', ['config', 'extensions.worktreeConfig', 'true'], {
+    cwd: join(from, 'workspace'),
+  });
+  execFileSync('git', ['config', '--worktree', 'credential.helper', 'unsafe-helper'], {
+    cwd: join(from, 'workspace'),
+  });
+  execFileSync(
+    'git',
+    ['config', '--worktree', 'http.https://example.invalid/.extraheader', 'Bearer unsafe-token'],
+    { cwd: join(from, 'workspace') },
+  );
   run([
     'capture',
     '--source',
@@ -140,9 +151,11 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   expect(statSync(join(to, 'workspace/empty')).isDirectory()).toBe(true);
   expect(statSync(join(to, 'workspace/tool.sh')).mode & 0o777).toBe(0o755);
   expect(statSync(archive).mode & 0o777).toBe(0o600);
-  const archived = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' });
+  const archived = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' }).split('\n');
   expect(archived).not.toContain('workspace/.git/config');
+  expect(archived).not.toContain('workspace/.git/config.worktree');
   expect(archived).not.toContain('workspace/.npmrc');
+  expect(existsSync(join(to, 'workspace/.git/config.worktree'))).toBe(false);
   const db = new Database(join(to, '.codex/queue_1.sqlite'));
   expect(db.prepare('SELECT v FROM t').get()).toEqual({ v: 'ok' });
   db.close();

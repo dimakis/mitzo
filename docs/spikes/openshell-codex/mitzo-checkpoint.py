@@ -39,7 +39,7 @@ def cred(rel):
  return any(x in ('.codex','.aws','.ssh','auth.json','credentials.json') or x.startswith('.env') or x.startswith('credential') for x in rel.split('/'))
 def excluded_workspace_config(rel):
  parts=rel.split('/')
- return parts[-1] in ('.npmrc','.pypirc','.netrc','.git-credentials') or any(a=='.git' and b in ('config','credentials') for a,b in zip(parts,parts[1:]))
+ return parts[-1] in ('.npmrc','.pypirc','.netrc','.git-credentials') or any(a=='.git' and b in ('config','config.worktree','credentials') for a,b in zip(parts,parts[1:]))
 def provider(path):
  if not os.path.isdir(path): fail('provider state is missing')
  lst(path)
@@ -220,7 +220,7 @@ def restore_git_identity(workspace):
  git=os.path.join(workspace,'.git')
  if not os.path.isdir(git): return
  config=os.path.join(git,'config')
- if os.path.lexists(config): fail('restored Git config is unsafe')
+ if any(os.path.lexists(os.path.join(git,name)) for name in ('config','config.worktree')): fail('restored Git config is unsafe')
  fd=os.open(config,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
  with os.fdopen(fd,'wb') as f: f.write(SANDBOX_GIT_CONFIG)
 def restore(a):
