@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -289,6 +290,8 @@ it('fails closed for remaining execution processes but exempts only the pinned r
   const proc = join(root(), 'proc');
   mkdirSync(join(proc, '1'), { recursive: true });
   writeFileSync(join(proc, '1/status'), 'Name:\topenshell-sandb\nUid:\t0\t0\t0\t0\nPPid:\t0\n');
+  mkdirSync(join(proc, '1/fd'));
+  symlinkSync(join(from, '.codex/state_5.sqlite'), join(proc, '1/fd/3'));
   run([
     'capture',
     '--source',
@@ -309,6 +312,33 @@ it('fails closed for remaining execution processes but exempts only the pinned r
     '--policy',
     'policy',
   ]);
+  mkdirSync(join(proc, '3/fd'), { recursive: true });
+  writeFileSync(join(proc, '3/status'), 'Name:\tworker\nUid:\t0\t0\t0\t0\nPPid:\t1\n');
+  writeFileSync(join(proc, '3/cmdline'), 'worker\0');
+  symlinkSync(join(from, 'workspace/tool.sh'), join(proc, '3/fd/4'));
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'non-supervisor-fd-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/writer is still open/);
+  rmSync(join(proc, '3'), { recursive: true, force: true });
   mkdirSync(join(proc, '2'), { recursive: true });
   writeFileSync(
     join(proc, '2/status'),

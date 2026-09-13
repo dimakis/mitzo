@@ -168,6 +168,19 @@ describe('OpenShell runtime lifecycle', () => {
     expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped', resourceVersion: '1' });
   });
 
+  it('uses resource_version rather than revision for a Ready checkpoint source', async () => {
+    const sandbox = JSON.parse(ready());
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    sandbox.revision = 1;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Ready', resourceVersion: '19' });
+  });
+
   it('reports an absent lifecycle sandbox as undefined during inspection', async () => {
     const run = vi
       .fn()

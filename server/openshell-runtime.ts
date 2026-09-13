@@ -410,10 +410,16 @@ export class OpenShellRuntimeManager {
     const sandbox = await this.ownedSandbox(conversationId, physicalId, signal, true);
     if (!sandbox) return undefined;
     if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
-    const stoppedVersion = sandbox.revision ?? sandbox.resource_version;
+    // Gateway observations advance revision independently of the immutable
+    // checkpoint source version. A stopped sandbox deliberately uses revision
+    // as its deletion fence; a Ready sandbox must bind capture to resource_version.
+    const lifecycleVersion =
+      sandbox.phase === 'Stopped'
+        ? (sandbox.revision ?? sandbox.resource_version)
+        : sandbox.resource_version;
     return {
       id: sandbox.id,
-      ...(stoppedVersion ? { resourceVersion: stoppedVersion } : {}),
+      ...(lifecycleVersion ? { resourceVersion: lifecycleVersion } : {}),
       phase: sandbox.phase,
     };
   }

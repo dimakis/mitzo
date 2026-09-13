@@ -106,6 +106,7 @@ def quiescent(provider_root, workspace_root, proc_root='/proc'):
  allowed=ancestors(proc_root); own_uid=str(os.getuid())
  for pid in os.listdir(proc_root):
   if not pid.isdigit() or int(pid)==os.getpid(): continue
+  if pid1_supervisor(proc_root,pid): continue
   try:
    values=dict(line.split(':',1) for line in open(os.path.join(proc_root,pid,'status')).read().splitlines() if ':' in line)
    if pinned_login_shell(proc_root,pid,values,own_uid): continue
