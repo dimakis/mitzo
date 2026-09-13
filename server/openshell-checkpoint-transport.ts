@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLogger } from './logger.js';
 import type { OpenShellRuntime } from './openshell-runtime.js';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 
@@ -33,6 +34,7 @@ export interface CheckpointManifest extends CheckpointIdentity {
   helper: string;
 }
 const timeout = 120_000;
+const log = createLogger('openshell-checkpoint-transport');
 const helperPath = join(
   dirname(fileURLToPath(import.meta.url)),
   '../docs/spikes/openshell-codex/mitzo-checkpoint.py',
@@ -176,6 +178,36 @@ export class OpenShellCheckpointTransport {
       this.runtime.workspace,
     ];
   }
+  /** Removes only the hash-derived staging archive, even after caller cancellation. */
+  private async cleanupStagingArchive(remote: string, local?: string) {
+    const failures: unknown[] = [];
+    try {
+      await this.ssh(['rm', '-f', '--', remote], AbortSignal.timeout(timeout));
+    } catch (error) {
+      failures.push(error);
+    }
+    if (local) {
+      try {
+        rmSync(local, { force: true });
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1)
+      throw new AggregateError(failures, 'OpenShell checkpoint staging archive cleanup failed');
+  }
+  private async finalizeStagingArchive(remote: string, primaryFailed: boolean, local?: string) {
+    try {
+      await this.cleanupStagingArchive(remote, local);
+    } catch (error) {
+      if (!primaryFailed) throw error;
+      log.warn('OpenShell checkpoint staging archive cleanup failed after operation failure', {
+        remote,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   async capture(destinationDir: string, identity: CheckpointIdentity, signal: AbortSignal) {
     mkdirSync(destinationDir, { recursive: true, mode: 0o700 });
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
@@ -186,6 +218,7 @@ export class OpenShellCheckpointTransport {
     const local = join(destinationDir, name);
     if (existsSync(local)) throw new Error('checkpoint destination already exists');
     const stage = join(destinationDir, `.${name}.${process.pid}.${crypto.randomUUID()}.stage`);
+    let primaryFailed = false;
     try {
       await this.ssh(helper('capture', remote, identity), signal);
       await this.run(
@@ -197,8 +230,10 @@ export class OpenShellCheckpointTransport {
       renameSync(stage, local);
       return { path: local, ...manifest };
     } catch (error) {
-      rmSync(stage, { force: true });
+      primaryFailed = true;
       throw error;
+    } finally {
+      await this.finalizeStagingArchive(remote, primaryFailed, stage);
     }
   }
   async verify(
@@ -227,14 +262,31 @@ export class OpenShellCheckpointTransport {
   ) {
     const name = `mitzo-${createHash('sha256').update(identity.conversation).digest('hex')}.tar`;
     const remote = `/sandbox/${name}`;
-    const manifest = await this.verify(archive, identity, signal);
-    if (manifest.digest !== expectedDigest)
-      throw new Error('checkpoint digest does not match record');
-    await this.run(
-      this.runtime.cli,
-      [...this.base(), 'upload', this.runtime.sandboxName, archive, '/sandbox', '--no-git-ignore'],
-      signal,
-    );
-    await this.ssh([...helper('restore', remote, identity), '--replace-fresh-roots'], signal);
+    let uploaded = false;
+    let primaryFailed = false;
+    try {
+      const manifest = await this.verify(archive, identity, signal);
+      if (manifest.digest !== expectedDigest)
+        throw new Error('checkpoint digest does not match record');
+      uploaded = true;
+      await this.run(
+        this.runtime.cli,
+        [
+          ...this.base(),
+          'upload',
+          this.runtime.sandboxName,
+          archive,
+          '/sandbox',
+          '--no-git-ignore',
+        ],
+        signal,
+      );
+      await this.ssh([...helper('restore', remote, identity), '--replace-fresh-roots'], signal);
+    } catch (error) {
+      primaryFailed = true;
+      throw error;
+    } finally {
+      if (uploaded) await this.finalizeStagingArchive(remote, primaryFailed);
+    }
   }
 }

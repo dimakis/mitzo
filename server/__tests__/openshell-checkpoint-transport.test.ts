@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -6,6 +6,47 @@ import { OpenShellCheckpointTransport } from '../openshell-checkpoint-transport.
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+const checkpointIdentity = {
+  conversation: 'conversation',
+  thread: 'thread',
+  binding: 'binding',
+  image: 'image',
+  policy: 'policy',
+  sandboxId: 'sandbox',
+  resourceVersion: '1',
+  accountProvider: 'account',
+  accountId: 'account',
+  provider: 'openai',
+  model: 'model',
+  profileRevision: 'r1',
+  runtimeScope: 'scope',
+  routeKind: 'api' as const,
+  routeProvider: 'openai',
+};
+const checkpointManifest = JSON.stringify({
+  version: 1,
+  digest: 'a'.repeat(64),
+  helper: 'mitzo-checkpoint-v1',
+  ...checkpointIdentity,
+});
+const checkpointRuntime = {
+  sandboxName: 'mitzo-x',
+  workdir: '/sandbox/workspaces/mgmt',
+  appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+  cli: 'openshell',
+  gateway: 'g',
+  workspace: 'w',
+  gatewayInsecure: false,
+};
+function cleanupCalls(run: { mock: { calls: unknown[][] } }) {
+  return run.mock.calls.filter(
+    ([command, args]) =>
+      command === 'ssh' &&
+      Array.isArray(args) &&
+      args.at(-1)?.includes("'rm' '-f' '--' '/sandbox/mitzo-"),
+  );
+}
+
 it('uses one hashed archive name, verifies before upload, and quotes SSH arguments', async () => {
   const manifest = JSON.stringify({
     version: 1,
@@ -81,6 +122,104 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   expect(remote).toContain("'thread'\\''s'");
   expect(remote).toContain("'id@tenant:$(not-run)\nwith'\\''quote'");
   expect(remote).toContain("'openai/route;$(not-run)'");
+  expect(cleanupCalls(run)).toHaveLength(2);
+  for (const [, args] of cleanupCalls(run)) {
+    expect((args as string[]).at(-1)).toMatch(
+      /'rm' '-f' '--' '\/sandbox\/mitzo-[a-f0-9]{64}\.tar'/,
+    );
+  }
+});
+
+it('removes the exact remote archive after capture download and verification failures', async () => {
+  const destination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-download-failure-'));
+  roots.push(destination);
+  const downloadFailure = vi.fn(async (_command: string, args: readonly string[]) => {
+    if (args.includes('download')) throw new Error('download failed');
+    return checkpointManifest;
+  });
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, downloadFailure).capture(
+      destination,
+      checkpointIdentity,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('download failed');
+  expect(cleanupCalls(downloadFailure)).toHaveLength(1);
+
+  const verificationFailure = vi.fn(async (command: string, args: readonly string[]) => {
+    if (args.includes('download')) writeFileSync(args.at(-1)!, 'invalid archive');
+    return command === 'python3' ? 'not json' : checkpointManifest;
+  });
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, verificationFailure).capture(
+      destination,
+      checkpointIdentity,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('checkpoint helper returned invalid JSON');
+  expect(cleanupCalls(verificationFailure)).toHaveLength(1);
+  expect(readdirSync(destination)).toEqual([]);
+});
+
+it('removes the uploaded remote archive after restore success and failure', async () => {
+  const success = vi.fn(async () => checkpointManifest);
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, success).restore(
+      '/private/tmp/checkpoint.tar',
+      checkpointIdentity,
+      'a'.repeat(64),
+      new AbortController().signal,
+    ),
+  ).resolves.toBeUndefined();
+  expect(cleanupCalls(success)).toHaveLength(1);
+
+  const failure = vi.fn(async (command: string, args: readonly string[]) => {
+    if (command === 'ssh' && args.at(-1)?.includes("'restore'")) throw new Error('restore failed');
+    return checkpointManifest;
+  });
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, failure).restore(
+      '/private/tmp/checkpoint.tar',
+      checkpointIdentity,
+      'a'.repeat(64),
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('restore failed');
+  expect(cleanupCalls(failure)).toHaveLength(1);
+});
+
+it('surfaces cleanup-only failures without masking the operation failure', async () => {
+  const destination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-cleanup-failure-'));
+  roots.push(destination);
+  const cleanupOnlyFailure = vi.fn(async (command: string, args: readonly string[]) => {
+    if (command === 'ssh' && args.at(-1)?.includes("'rm' '-f' '--'"))
+      throw new Error('cleanup failed');
+    if (args.includes('download')) writeFileSync(args.at(-1)!, 'archive');
+    return checkpointManifest;
+  });
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, cleanupOnlyFailure).capture(
+      destination,
+      checkpointIdentity,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('cleanup failed');
+
+  const primaryDestination = mkdtempSync(join(tmpdir(), 'checkpoint-transport-primary-failure-'));
+  roots.push(primaryDestination);
+  const primaryFailure = vi.fn(async (command: string, args: readonly string[]) => {
+    if (command === 'ssh' && args.at(-1)?.includes("'rm' '-f' '--'"))
+      throw new Error('cleanup failed');
+    if (args.includes('download')) throw new Error('download failed');
+    return checkpointManifest;
+  });
+  await expect(
+    new OpenShellCheckpointTransport(checkpointRuntime, primaryFailure).capture(
+      primaryDestination,
+      checkpointIdentity,
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('download failed');
 });
 
 it('rejects an archive whose verified digest differs from the persisted checkpoint', async () => {
