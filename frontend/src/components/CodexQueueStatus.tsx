@@ -95,22 +95,20 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       setBusy(false);
     }
   };
-  if (!queue.paused && !queue.queued && !error) return null;
+  const hasRecovery = queue.paused && (queue.queued > 0 || queue.interrupted > 0);
+  if (!hasRecovery && !queue.queued && !error) return null;
+  const title = queue.queued
+    ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} waiting`
+    : 'Session paused';
+  const recoveryMessage = queue.connected
+    ? 'An earlier action may be incomplete. Review the chat before continuing.'
+    : 'Connection interrupted; an action may be incomplete. Send a message to reconnect.';
   return (
     <aside className="codex-queue-status" role="status" aria-live="polite">
-      <strong>
-        {queue.queued} queued {queue.queued === 1 ? 'message' : 'messages'}
-        {queue.paused ? ' · Paused' : ''}
-      </strong>
-      {queue.paused && (
-        <p>
-          Inspect interrupted actions before continuing. Their outcomes may be uncertain; they will
-          not be replayed automatically.
-        </p>
-      )}
-      {queue.paused && !queue.connected && (
-        <p>Send a message to reconnect, then continue the saved queue.</p>
-      )}
+      <div className="codex-queue-status-copy">
+        <strong>{title}</strong>
+        {hasRecovery && <span>{recoveryMessage}</span>}
+      </div>
       {error && <p role="alert">{error}</p>}
       {queue.paused && queue.connected && queue.queued > 0 && (
         <button type="button" disabled={busy} onClick={() => void continueQueue()}>
