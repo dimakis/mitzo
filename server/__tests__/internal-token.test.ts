@@ -6,6 +6,7 @@ import {
   createSignalCallbackToken,
   isValidSignalCallbackToken,
   loadOrCreateToken,
+  revokeSignalCallbackToken,
   TOKEN_LENGTH,
 } from '../internal-token.js';
 
@@ -102,12 +103,19 @@ describe('loadOrCreateToken', () => {
 });
 
 describe('signal callback tokens', () => {
-  it('creates a stable task-scoped token', () => {
-    const token = createSignalCallbackToken('task-1');
+  it('rotates and revokes task-scoped callback tokens', () => {
+    const first = createSignalCallbackToken('task-1');
+    const second = createSignalCallbackToken('task-1');
 
-    expect(token).toHaveLength(TOKEN_LENGTH);
-    expect(isValidSignalCallbackToken('task-1', token)).toBe(true);
-    expect(isValidSignalCallbackToken('task-2', token)).toBe(false);
+    expect(first).toHaveLength(TOKEN_LENGTH);
+    expect(second).toHaveLength(TOKEN_LENGTH);
+    expect(second).not.toBe(first);
+    expect(isValidSignalCallbackToken('task-1', first)).toBe(false);
+    expect(isValidSignalCallbackToken('task-1', second)).toBe(true);
+    expect(isValidSignalCallbackToken('task-2', second)).toBe(false);
+
+    revokeSignalCallbackToken('task-1');
+    expect(isValidSignalCallbackToken('task-1', second)).toBe(false);
   });
 
   it('rejects malformed callback tokens', () => {

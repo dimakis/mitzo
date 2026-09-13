@@ -2,10 +2,15 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import type { TaskStore, GateConfig } from './task-store.js';
 import { createLogger } from './logger.js';
-import { createSignalCallbackToken } from './internal-token.js';
+import { createSignalCallbackToken, revokeSignalCallbackToken } from './internal-token.js';
 
 const log = createLogger('signal-processor');
 const execFileAsync = promisify(execFile);
+
+/** Local Centaur uses Mitzo's plain HTTP listener, which moves to PORT + 1 under TLS. */
+export function localSignalCallbackBaseUrl(port: number, useTls: boolean): string {
+  return `http://localhost:${useTls ? port + 1 : port}`;
+}
 
 export interface GateResult {
   resolved: boolean;
@@ -71,8 +76,13 @@ export class SignalProcessor {
 
     // Register callback with Centaur for push-based resolution
     if (gateConfig.type === 'centaur_review') {
+      const callbackToken = createSignalCallbackToken(taskId);
       this.enqueueCallbackOperation(taskId, () =>
-        this.registerCentaurCallback(taskId, gateConfig as GateConfig & { pr_url: string }),
+        this.registerCentaurCallback(
+          taskId,
+          gateConfig as GateConfig & { pr_url: string },
+          callbackToken,
+        ),
       );
     }
   }
@@ -87,6 +97,7 @@ export class SignalProcessor {
     // Serialize DELETE with registration and any immediate rewatch. This makes
     // the newest registration the final operation for a task ID.
     if (entry.gateConfig.type === 'centaur_review') {
+      revokeSignalCallbackToken(taskId);
       this.enqueueCallbackOperation(taskId, () => this.deregisterCentaurCallback(taskId));
     }
 
@@ -182,9 +193,13 @@ export class SignalProcessor {
   }
 
   /** Register a callback URL with Centaur so it pushes ReviewCompleted events. */
-  private async registerCentaurCallback(taskId: string, config: { pr_url: string }): Promise<void> {
+  private async registerCentaurCallback(
+    taskId: string,
+    config: { pr_url: string },
+    callbackToken: string,
+  ): Promise<void> {
     const callbackUrl = new URL(`${this.mitzoBaseUrl}/api/tasks/${taskId}/signal`);
-    callbackUrl.searchParams.set('token', createSignalCallbackToken(taskId));
+    callbackUrl.searchParams.set('token', callbackToken);
     try {
       const res = await fetch(`${this.centaurBaseUrl}/api/signals/register`, {
         method: 'POST',

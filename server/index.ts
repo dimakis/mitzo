@@ -79,7 +79,7 @@ import { createConnectionsRuntime } from './connections-runtime.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
-import { SignalProcessor } from './signal-processor.js';
+import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -249,7 +249,7 @@ const signalProc = new SignalProcessor(
     orchestratorRef?.tick();
   },
   process.env.CENTAUR_URL || 'http://localhost:8642',
-  process.env.MITZO_URL || `http://localhost:${PORT}`,
+  process.env.MITZO_URL || localSignalCallbackBaseUrl(PORT, USE_TLS),
 );
 setSignalProcessor(signalProc);
 

@@ -3,7 +3,7 @@ import { join } from 'path';
 import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
-import { checkGate, SignalProcessor } from '../signal-processor.js';
+import { checkGate, localSignalCallbackBaseUrl, SignalProcessor } from '../signal-processor.js';
 import { isValidSignalCallbackToken } from '../internal-token.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-signal-test-${process.pid}`);
@@ -31,6 +31,11 @@ afterEach(async () => {
 });
 
 describe('SignalProcessor', () => {
+  it('targets the plain HTTP listener when the primary server uses TLS', () => {
+    expect(localSignalCallbackBaseUrl(3100, false)).toBe('http://localhost:3100');
+    expect(localSignalCallbackBaseUrl(3100, true)).toBe('http://localhost:3101');
+  });
+
   it('watches and resolves a signal manually', () => {
     const goal = store.create({ title: 'Goal' });
     const task = store.create({
@@ -495,8 +500,14 @@ describe('SignalProcessor', () => {
 
     it('serializes unwatch and rewatch so the new registration wins', async () => {
       const calls: string[] = [];
+      const callbackUrls: string[] = [];
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
         calls.push(init?.method ?? 'GET');
+        if (init?.method === 'POST') {
+          callbackUrls.push(
+            (JSON.parse(String(init.body)) as { callback_url: string }).callback_url,
+          );
+        }
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       });
       const goal = store.create({ title: 'Goal' });
@@ -514,6 +525,22 @@ describe('SignalProcessor', () => {
 
       await vi.waitFor(() => expect(calls).toEqual(['POST', 'DELETE', 'POST']));
       expect(processor.isWatching(task.id)).toBe(true);
+      expect(callbackUrls).toHaveLength(2);
+      expect(new URL(callbackUrls[0]).searchParams.get('token')).not.toBe(
+        new URL(callbackUrls[1]).searchParams.get('token'),
+      );
+      expect(
+        isValidSignalCallbackToken(
+          task.id,
+          new URL(callbackUrls[0]).searchParams.get('token') ?? undefined,
+        ),
+      ).toBe(false);
+      expect(
+        isValidSignalCallbackToken(
+          task.id,
+          new URL(callbackUrls[1]).searchParams.get('token') ?? undefined,
+        ),
+      ).toBe(true);
       fetchSpy.mockRestore();
     });
 

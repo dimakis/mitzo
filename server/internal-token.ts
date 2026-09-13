@@ -30,18 +30,30 @@ export function loadOrCreateToken(tokenPath: string = TOKEN_PATH): string {
 }
 
 export const INTERNAL_TOKEN = loadOrCreateToken();
+const activeSignalCallbackTokens = new Map<string, string>();
 
-/** Create a credential scoped to one inbound signal callback route. */
+/** Create and activate a fresh credential scoped to one callback watch. */
 export function createSignalCallbackToken(taskId: string): string {
-  return createHmac('sha256', INTERNAL_TOKEN).update(`signal-callback:${taskId}`).digest('hex');
+  const nonce = randomBytes(32).toString('hex');
+  const token = createHmac('sha256', INTERNAL_TOKEN)
+    .update(`signal-callback:${taskId}:${nonce}`)
+    .digest('hex');
+  activeSignalCallbackTokens.set(taskId, token);
+  return token;
 }
 
-/** Verify a task-scoped signal credential without exposing the global internal token. */
+/** Invalidate the current callback credential as soon as its watch ends. */
+export function revokeSignalCallbackToken(taskId: string): void {
+  activeSignalCallbackTokens.delete(taskId);
+}
+
+/** Verify the credential for the task's current watch only. */
 export function isValidSignalCallbackToken(taskId: string, candidate: string | undefined): boolean {
   if (!candidate || candidate.length !== TOKEN_LENGTH || !/^[0-9a-f]+$/i.test(candidate)) {
     return false;
   }
-  const expected = createSignalCallbackToken(taskId);
+  const expected = activeSignalCallbackTokens.get(taskId);
+  if (!expected) return false;
   return timingSafeEqual(Buffer.from(candidate), Buffer.from(expected));
 }
 
