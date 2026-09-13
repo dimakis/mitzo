@@ -1079,11 +1079,12 @@ const skillWatcher = new SkillWatcher(
 );
 setSkillWatcher(skillWatcher);
 
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
+  const forceExitTimer = setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   server.close();
   skillWatcher.destroy();
-  signalProc.unwatchAll();
+  await signalProc.unwatchAll();
   wfTemplateStore.close();
   healthMonitor.destroy();
   overviewEmitter.destroy();
@@ -1094,11 +1095,11 @@ function shutdown(signal: string) {
   for (const client of wss.clients) {
     client.close(1001, 'Server shutting down');
   }
-  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+  forceExitTimer.unref();
 }
 
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 import { checkPort } from './port-check.js';
 

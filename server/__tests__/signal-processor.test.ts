@@ -22,6 +22,7 @@ beforeEach(() => {
 afterEach(async () => {
   await processor.unwatchAll();
   store.close();
+  vi.restoreAllMocks();
   try {
     rmSync(TEST_DIR, { recursive: true, force: true });
   } catch {
@@ -144,7 +145,7 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(task.id)).toBe(false);
   });
 
-  it('unwatchAll clears everything', () => {
+  it('unwatchAll clears everything', async () => {
     const goal = store.create({ title: 'Goal' });
     const t1 = store.create({
       title: 'W1',
@@ -166,7 +167,7 @@ describe('SignalProcessor', () => {
     expect(processor.isWatching(t1.id)).toBe(true);
     expect(processor.isWatching(t2.id)).toBe(true);
 
-    processor.unwatchAll();
+    await processor.unwatchAll();
     expect(processor.isWatching(t1.id)).toBe(false);
     expect(processor.isWatching(t2.id)).toBe(false);
   });
@@ -382,6 +383,53 @@ describe('SignalProcessor', () => {
   });
 
   describe('centaur callback registration', () => {
+    it('ignores an in-flight poll after a callback resolves the same watch', async () => {
+      let resolvePoll!: (response: Response) => void;
+      const pollResponse = new Promise<Response>((resolve) => {
+        resolvePoll = resolve;
+      });
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+        if (String(input).includes('/api/reviews?')) return pollResponse;
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      });
+      const goal = store.create({ title: 'Goal' });
+      const task = store.create({
+        title: 'Wait for Centaur review',
+        parentId: goal.id,
+        stageType: 'wait_for_signal',
+        gateConfig: { type: 'centaur_review', pr_url: 'https://github.com/org/repo/pull/1' },
+      });
+      store.update(task.id, { status: 'active' });
+      processor.watch(task.id, task.gateConfig!);
+
+      await vi.waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/signals/register',
+          expect.anything(),
+        ),
+      );
+      const pollPromise = (processor as unknown as { poll(taskId: string): Promise<void> }).poll(
+        task.id,
+      );
+      await vi.waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          'http://localhost:8642/api/reviews?pr=https%3A%2F%2Fgithub.com%2Forg%2Frepo%2Fpull%2F1',
+        ),
+      );
+
+      processor.resolveSignal(task.id, { status: 'pass' });
+      resolvePoll(
+        new Response(JSON.stringify({ status: 'changes_requested', review: 'stale failure' }), {
+          status: 200,
+        }),
+      );
+      await pollPromise;
+
+      expect(store.get(task.id)?.status).toBe('done');
+      expect(onResolved).toHaveBeenCalledTimes(1);
+      fetchSpy.mockRestore();
+    });
+
     it('registers callback with Centaur on watch for centaur_review', async () => {
       const fetchSpy = vi
         .spyOn(globalThis, 'fetch')

@@ -136,6 +136,10 @@ export class SignalProcessor {
 
     try {
       const result = await checkGate(entry.gateConfig, this.centaurBaseUrl);
+      // A callback or a replacement watch can resolve/unwatch this task while
+      // the external check is in flight. Only the exact watch that initiated
+      // the poll may consume its result.
+      if (this.watches.get(taskId) !== entry) return;
       if (result.resolved) {
         this.resolveSignal(taskId, { status: result.status, artifacts: result.artifacts });
       }
