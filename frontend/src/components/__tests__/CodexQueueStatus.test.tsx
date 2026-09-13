@@ -17,9 +17,9 @@ it('restores paused queue status without replay and requires an explicit continu
     }),
   } as Response);
   render(<CodexQueueStatus sessionId="task" />);
-  await screen.findByText(/2 queued messages/);
+  await screen.findByText('2 messages waiting');
   expect(apiFetch).toHaveBeenCalledTimes(1);
-  expect(screen.getByText(/Inspect interrupted actions/)).toBeTruthy();
+  expect(screen.getByText(/An earlier action may be incomplete/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Continue queued messages' }));
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions/task/codex-queue/continue', {
@@ -41,6 +41,31 @@ it('hides for other backends and explains a disconnected saved queue', async () 
   rerender(<CodexQueueStatus sessionId="codex" />);
   await screen.findByText(/Send a message to reconnect/);
   expect(screen.queryByRole('button', { name: 'Continue queued messages' })).toBeNull();
+});
+
+it('hides an empty paused fallback when there is nothing to recover', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      codexQueue: { paused: true, connected: false, queued: 0, interrupted: 0 },
+    }),
+  } as Response);
+  render(<CodexQueueStatus sessionId="paused-empty" />);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('uses a plain session title for interrupted work with no queued messages', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      codexQueue: { paused: true, connected: false, queued: 0, interrupted: 1 },
+    }),
+  } as Response);
+  render(<CodexQueueStatus sessionId="paused-interrupted" />);
+  await screen.findByText('Session paused');
+  expect(screen.queryByText(/0 queued messages/)).toBeNull();
+  expect(screen.getByText(/Connection interrupted/)).toBeTruthy();
 });
 
 it('slows idle polling and avoids overlapping requests', async () => {
