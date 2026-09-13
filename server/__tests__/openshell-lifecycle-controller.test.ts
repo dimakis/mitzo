@@ -263,6 +263,124 @@ it('keeps a newly ensured sandbox durably fenced until its provider thread is re
   }
 });
 
+it('keeps a failed same-sandbox stop fenced until checkpoint and ownership recovery succeeds', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-failed-recovery-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  const runtime = {
+    sandboxName: 'mitzo-sandbox',
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  const account = { kind: 'api' as const, provider: 'openai-work', model: 'model' };
+  const binding = {
+    accountId: 'account',
+    accountLabel: 'Account',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: '1',
+  };
+  const inspect = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inspect')
+    .mockResolvedValue({ id: 'physical-id', phase: 'Ready' });
+  const verify = vi
+    .spyOn(OpenShellCheckpointTransport.prototype, 'verify')
+    .mockRejectedValueOnce(new Error('checkpoint unavailable'))
+    .mockResolvedValue({ digest: 'a'.repeat(64) } as Awaited<
+      ReturnType<typeof OpenShellCheckpointTransport.prototype.verify>
+    >);
+  try {
+    registerOpenShellLifecycle('conversation', runtime, binding, account, 'thread', 'client');
+    const retained = lifecycle.store.get('conversation')!;
+    lifecycle.store.upsert({
+      ...retained,
+      phase: 'failed',
+      generation: retained.generation + 1,
+      stoppedAt: Date.now(),
+      checkpoint: {
+        path: '/private/checkpoint',
+        digest: 'a'.repeat(64),
+        version: 1,
+        sandboxId: 'physical-id',
+        sourceResourceVersion: 'stopped-version',
+      },
+      failure: 'OpenShell stop could not be verified',
+    });
+
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'conversation',
+        runtime,
+        AbortSignal.timeout(100),
+        binding,
+        account,
+        true,
+      ),
+    ).rejects.toThrow('checkpoint unavailable');
+    expect(lifecycle.store.get('conversation')).toMatchObject({
+      phase: 'failed',
+      failure: 'OpenShell stop could not be verified',
+    });
+    expect(() =>
+      registerOpenShellLifecycle('conversation', runtime, binding, account, 'thread', 'client'),
+    ).toThrow('recovery must be verified');
+
+    await expect(
+      restoreOpenShellLifecycleIfNeeded(
+        'conversation',
+        runtime,
+        AbortSignal.timeout(100),
+        binding,
+        account,
+        true,
+      ),
+    ).resolves.toBeUndefined();
+    expect(lifecycle.store.get('conversation')).toMatchObject({
+      phase: 'retained',
+      failure: null,
+      physicalSandboxId: 'physical-id',
+    });
+    registerOpenShellLifecycle('conversation', runtime, binding, account, 'thread', 'client');
+    expect(inspect).toHaveBeenCalledTimes(2);
+  } finally {
+    inspect.mockRestore();
+    verify.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('restores repeated replacements from the immutable checkpoint origin and rejects tampering', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-recovery-'));
   const policy = join(directory, 'policy.yaml');

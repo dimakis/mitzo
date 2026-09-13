@@ -329,6 +329,8 @@ export function registerOpenShellLifecycle(
   if (!configured) return;
   if (!runtime.sandboxId) return;
   const existing = configured.store.get(conversationId);
+  if (existing?.phase === 'failed')
+    throw new Error('OpenShell lifecycle recovery must be verified before registration');
   const now = Date.now();
   configured.store.upsert({
     conversationId,
@@ -400,9 +402,43 @@ export async function restoreOpenShellLifecycleIfNeeded(
   )
     throw new Error('OpenShell lifecycle account binding changed');
   // Validates current runtime image, policy content, gateway, and provider route.
-  managerFor(record);
+  const manager = managerFor(record);
   const replaced = record.physicalSandboxId !== runtime.sandboxId;
-  if (record.phase !== 'deleted' && !replaced) return;
+  if (record.phase === 'failed' && !replaced) {
+    if (
+      !runtime.sandboxId ||
+      !record.checkpoint ||
+      !record.checkpoint.sandboxId ||
+      !record.checkpoint.sourceResourceVersion
+    )
+      throw new Error('OpenShell failed lifecycle recovery requires a verified checkpoint');
+    const sandbox = await manager.inspect(conversationId, runtime.sandboxId, signal);
+    if (!sandbox || sandbox.id !== record.physicalSandboxId || sandbox.phase !== 'Ready')
+      throw new Error('OpenShell failed lifecycle recovery requires a verified ready sandbox');
+    const manifest = await new OpenShellCheckpointTransport(runtime).verify(
+      record.checkpoint.path,
+      checkpointIdentity(record, {
+        sandboxId: record.checkpoint.sandboxId,
+        resourceVersion: record.checkpoint.sourceResourceVersion,
+      }),
+      signal,
+    );
+    if (manifest.digest !== record.checkpoint.digest)
+      throw new Error('OpenShell failed lifecycle recovery checkpoint digest mismatch');
+    configured.store.upsert({
+      ...record,
+      phase: 'retained',
+      generation: record.generation + 1,
+      physicalSandboxId: runtime.sandboxId,
+      lastActivityAt: Date.now(),
+      idleSince: null,
+      stoppedAt: null,
+      stoppedResourceVersion: null,
+      failure: null,
+    });
+    return;
+  }
+  if (record.phase !== 'deleted' && record.phase !== 'failed' && !replaced) return;
   if (
     !record.checkpoint ||
     !record.identity ||
