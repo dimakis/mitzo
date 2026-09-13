@@ -75,33 +75,45 @@ export interface OpenShellLifecyclePolicy {
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
-function positiveNumber(value: string | undefined, fallback: number, label: string, minimum = 1) {
+const MINUTE = 60 * 1000;
+const MAX_RETENTION_DAYS = Math.floor(Number.MAX_SAFE_INTEGER / DAY);
+function positiveInteger(value: string | undefined, fallback: number, label: string, minimum = 1) {
   if (value === undefined || value === '') return fallback;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < minimum || parsed * 60 * 1000 > MAX_TIMER_MS)
+  if (!Number.isSafeInteger(parsed) || parsed < minimum)
     throw new Error(`Invalid OpenShell ${label}`);
+  return parsed;
+}
+function timerMinutes(value: string | undefined, fallback: number, label: string, minimum = 1) {
+  const parsed = positiveInteger(value, fallback, label, minimum);
+  if (parsed * MINUTE > MAX_TIMER_MS) throw new Error(`Invalid OpenShell ${label}`);
+  return parsed;
+}
+function retentionDays(value: string | undefined) {
+  const parsed = positiveInteger(value, 7, 'retention', 5);
+  if (parsed > MAX_RETENTION_DAYS) throw new Error('Invalid OpenShell retention');
   return parsed;
 }
 
 /** Conservative lifecycle policy. Retention mutations remain disabled unless explicitly enabled. */
 export function openShellLifecyclePolicy(env: NodeJS.ProcessEnv): OpenShellLifecyclePolicy {
-  const retentionDays = positiveNumber(env.MITZO_OPENSHELL_RETENTION_DAYS, 7, 'retention', 5);
-  const idleMinutes = positiveNumber(env.MITZO_OPENSHELL_IDLE_MINUTES, 30, 'idle delay');
-  const reconcileMinutes = positiveNumber(
+  const retention = retentionDays(env.MITZO_OPENSHELL_RETENTION_DAYS);
+  const idleMinutes = timerMinutes(env.MITZO_OPENSHELL_IDLE_MINUTES, 30, 'idle delay');
+  const reconcileMinutes = timerMinutes(
     env.MITZO_OPENSHELL_RECONCILE_MINUTES,
     5,
     'reconcile interval',
   );
   return {
-    idleMs: idleMinutes * 60 * 1000,
-    retentionMs: retentionDays * DAY,
-    reconcileMs: reconcileMinutes * 60 * 1000,
+    idleMs: idleMinutes * MINUTE,
+    retentionMs: retention * DAY,
+    reconcileMs: reconcileMinutes * MINUTE,
     enabled: env.MITZO_OPENSHELL_LIFECYCLE_ENABLED === '1',
     retentionEligible: (record, now) =>
       record.phase === 'stopped' &&
       record.stoppedAt !== null &&
       Number.isFinite(record.stoppedAt) &&
-      now >= record.stoppedAt + retentionDays * DAY,
+      now >= record.stoppedAt + retention * DAY,
   };
 }
 
