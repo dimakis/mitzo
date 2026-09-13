@@ -200,6 +200,7 @@ const openShellLifecycle = initializeOpenShellLifecycle(configuredOpenShellRunti
       profileRevision: record.identity.profileRevision,
     });
   },
+  accountProviders: () => loadAccountProfiles().openShellSandboxProviders(),
   onOutcome: (action) => lifecycleObservability?.recordOutcome(action),
 });
 setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
@@ -218,7 +219,13 @@ const lifecycleReconcile = () => {
         return;
       }
       try {
-        metrics.phaseCounts = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
+        const inventory = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
+        metrics.phaseCounts = inventory.phaseCounts;
+        if (Object.keys(inventory.providerErrors).length) {
+          log.warn('OpenShell sandbox inventory telemetry partially unavailable', {
+            providerErrors: inventory.providerErrors,
+          });
+        }
       } catch (error) {
         lifecycleObservability.observe({ available: false });
         log.warn('OpenShell sandbox inventory telemetry unavailable', {

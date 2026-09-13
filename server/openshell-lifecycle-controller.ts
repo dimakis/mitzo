@@ -29,6 +29,8 @@ interface ProtectionSources {
   eventStore: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['eventStore'];
   taskStore: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['taskStore'];
   queue: Parameters<typeof createOpenShellLifecycleProductionAdapter>[0]['queue'];
+  /** Current account-profile sandbox providers, including ones without retained records. */
+  accountProviders?: () => Iterable<string>;
   onOutcome?: (action: 'stopped' | 'deleted') => void;
 }
 
@@ -36,6 +38,7 @@ let configured:
   | {
       config: OpenShellRuntimeConfig;
       policyDigest: string;
+      sources: ProtectionSources;
       store: OpenShellLifecycleStore;
       service: OpenShellLifecycleService;
     }
@@ -56,18 +59,39 @@ export function checkpointDirectoryForConversation(
 export async function openShellLifecyclePhaseCounts(signal: AbortSignal) {
   if (!configured) throw new Error('OpenShell lifecycle controller is unavailable');
   const seen = new Set<string>();
-  const counts: Record<string, number> = {};
-  for (const record of configured.store.list()) {
-    if (!record.identity) continue;
-    const manager = managerFor(record);
-    for (const sandbox of await manager.inventory(signal)) {
-      const key = sandbox.id ?? sandbox.name;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      counts[sandbox.phase] = (counts[sandbox.phase] ?? 0) + 1;
+  const phaseCounts: Record<string, number> = {};
+  const providerErrors: Record<string, string> = {};
+  const providers = new Set(configured.store.list().map((record) => record.accountProvider));
+  try {
+    for (const provider of configured.sources.accountProviders?.() ?? []) providers.add(provider);
+  } catch (error) {
+    providerErrors.configured = error instanceof Error ? error.message : String(error);
+  }
+  for (const provider of providers) {
+    try {
+      signal.throwIfAborted();
+      for (const sandbox of await managerForProvider(provider).inventory(signal)) {
+        const key = sandbox.id ?? sandbox.name;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        phaseCounts[sandbox.phase] = (phaseCounts[sandbox.phase] ?? 0) + 1;
+      }
+    } catch (error) {
+      if (signal.aborted) throw error;
+      providerErrors[provider] = error instanceof Error ? error.message : String(error);
     }
   }
-  return counts;
+  return { phaseCounts, providerErrors };
+}
+
+function managerForProvider(provider: string) {
+  if (!configured) throw new Error('OpenShell lifecycle controller is unavailable');
+  // Inventory authenticates through the gateway and filters only on the provider label.
+  // It does not invoke a model, so an API route safely inventories either configured route kind.
+  return new OpenShellRuntimeManager({
+    ...configured.config,
+    account: { kind: 'api', provider, model: 'lifecycle-telemetry' },
+  });
 }
 
 function route(identity: OpenShellLifecycleIdentity): OpenShellAccountRoute {
@@ -176,6 +200,7 @@ export function initializeOpenShellLifecycle(
   store.reconcileInterrupted();
   configured = {
     config,
+    sources,
     store,
     policyDigest: createHash('sha256').update(readFileSync(config.policy)).digest('hex'),
     service: undefined as unknown as OpenShellLifecycleService,

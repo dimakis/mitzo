@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { expect, it, vi } from 'vitest';
 import { OpenShellCheckpointTransport } from '../openshell-checkpoint-transport.js';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import {
   checkpointDirectoryForConversation,
   initializeOpenShellLifecycle,
+  openShellLifecyclePhaseCounts,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
   restoreOpenShellLifecycleIfNeeded,
@@ -258,6 +260,62 @@ it('restores repeated replacements from the immutable checkpoint origin and reje
     expect(lifecycle.store.get('conversation')).toMatchObject({ phase: 'failed' });
   } finally {
     restore.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('counts configured recordless providers once while retaining partial inventory errors', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-telemetry-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
+    .mockResolvedValueOnce([
+      {
+        id: 'legacy-sandbox',
+        name: 'mitzo-legacy',
+        phase: 'Ready' as const,
+      },
+    ])
+    .mockRejectedValueOnce(new Error('provider unavailable'));
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+      accountProviders: () => ['legacy-provider', 'legacy-provider', 'unavailable-provider'],
+    } as Parameters<typeof initializeOpenShellLifecycle>[1] & {
+      accountProviders: () => string[];
+    },
+  )!;
+  try {
+    await expect(openShellLifecyclePhaseCounts(AbortSignal.timeout(100))).resolves.toEqual({
+      phaseCounts: { Ready: 1 },
+      providerErrors: { 'unavailable-provider': 'provider unavailable' },
+    });
+    expect(inventory).toHaveBeenCalledTimes(2);
+  } finally {
+    inventory.mockRestore();
     lifecycle.store.close();
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
