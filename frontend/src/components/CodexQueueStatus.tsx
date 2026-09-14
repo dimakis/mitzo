@@ -258,9 +258,18 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen((open) => !open)}
             >
-              {drawerOpen ? 'Hide queue' : 'Review queue'}
+              {drawerOpen ? 'Close queue' : 'Review queue'}
             </button>
           )}
+          <button
+            type="button"
+            className="codex-queue-status-hide"
+            ref={hideButton}
+            onClick={hide}
+            aria-label="Hide status"
+          >
+            Hide
+          </button>
         </div>
         {drawerOpen && queue.queued > 0 && (
           <div className="codex-queue-status-drawer" aria-label="Queued messages">
@@ -284,13 +293,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           </div>
         )}
         {(error || notice) && <p role="alert">{error || notice}</p>}
-        {error ? (
-          <button type="button" ref={hideButton} onClick={() => void refresh.current()}>
+        {error && (
+          <button type="button" onClick={() => void refresh.current()}>
             Retry
-          </button>
-        ) : (
-          <button type="button" className="codex-queue-status-hide" ref={hideButton} onClick={hide}>
-            Hide status
           </button>
         )}
       </aside>
