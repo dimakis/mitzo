@@ -17,112 +17,41 @@ describe('VoiceSettings', () => {
     const { container } = render(
       <VoiceSettings
         ttsAvailable={false}
-        ttsEnabled={false}
-        speaking={false}
         voices={[]}
         selectedVoice="af_heart"
-        onToggle={vi.fn()}
         onVoiceChange={vi.fn()}
       />,
     );
     expect(container.firstChild).toBeNull();
   });
 
-  it('shows speaker toggle when ttsAvailable', () => {
+  it('renders nothing until voices have loaded', () => {
     render(
       <VoiceSettings
         ttsAvailable={true}
-        ttsEnabled={false}
-        speaking={false}
-        voices={voices}
+        voices={[]}
         selectedVoice="af_heart"
-        onToggle={vi.fn()}
         onVoiceChange={vi.fn()}
       />,
     );
-    expect(screen.getByTitle('Enable text-to-speech')).toBeTruthy();
+    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
-  it('shows active state when ttsEnabled', () => {
-    const { container } = render(
-      <VoiceSettings
-        ttsAvailable={true}
-        ttsEnabled={true}
-        speaking={false}
-        voices={voices}
-        selectedVoice="af_heart"
-        onToggle={vi.fn()}
-        onVoiceChange={vi.fn()}
-      />,
-    );
-    expect(container.querySelector('.voice-toggle--active')).toBeTruthy();
-    expect(screen.getByTitle('Disable text-to-speech')).toBeTruthy();
-  });
-
-  it('shows speaking animation when speaking', () => {
-    const { container } = render(
-      <VoiceSettings
-        ttsAvailable={true}
-        ttsEnabled={true}
-        speaking={true}
-        voices={voices}
-        selectedVoice="af_heart"
-        onToggle={vi.fn()}
-        onVoiceChange={vi.fn()}
-      />,
-    );
-    expect(container.querySelector('.voice-toggle--speaking')).toBeTruthy();
-  });
-
-  it('calls onToggle when speaker button clicked', () => {
-    const onToggle = vi.fn();
+  it('shows a voice picker when TTS is available', () => {
     render(
       <VoiceSettings
         ttsAvailable={true}
-        ttsEnabled={false}
-        speaking={false}
         voices={voices}
         selectedVoice="af_heart"
-        onToggle={onToggle}
-        onVoiceChange={vi.fn()}
-      />,
-    );
-    fireEvent.click(screen.getByTitle('Enable text-to-speech'));
-    expect(onToggle).toHaveBeenCalledTimes(1);
-  });
-
-  it('shows voice picker when ttsEnabled', () => {
-    render(
-      <VoiceSettings
-        ttsAvailable={true}
-        ttsEnabled={true}
-        speaking={false}
-        voices={voices}
-        selectedVoice="af_heart"
-        onToggle={vi.fn()}
         onVoiceChange={vi.fn()}
       />,
     );
     const select = screen.getByRole('combobox');
     expect(select).toBeTruthy();
+    expect(select.getAttribute('aria-label')).toBe('Read-aloud voice');
     // Should have options for all voices
     const options = select.querySelectorAll('option');
     expect(options).toHaveLength(3);
-  });
-
-  it('hides voice picker when ttsEnabled is false', () => {
-    render(
-      <VoiceSettings
-        ttsAvailable={true}
-        ttsEnabled={false}
-        speaking={false}
-        voices={voices}
-        selectedVoice="af_heart"
-        onToggle={vi.fn()}
-        onVoiceChange={vi.fn()}
-      />,
-    );
-    expect(screen.queryByRole('combobox')).toBeNull();
   });
 
   it('calls onVoiceChange when voice selected', () => {
@@ -130,11 +59,8 @@ describe('VoiceSettings', () => {
     render(
       <VoiceSettings
         ttsAvailable={true}
-        ttsEnabled={true}
-        speaking={false}
         voices={voices}
         selectedVoice="af_heart"
-        onToggle={vi.fn()}
         onVoiceChange={onVoiceChange}
       />,
     );
@@ -146,11 +72,8 @@ describe('VoiceSettings', () => {
     render(
       <VoiceSettings
         ttsAvailable={true}
-        ttsEnabled={true}
-        speaking={false}
         voices={voices}
         selectedVoice="af_heart"
-        onToggle={vi.fn()}
         onVoiceChange={vi.fn()}
       />,
     );

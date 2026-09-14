@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
+import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
@@ -298,6 +299,12 @@ export function ChatView() {
                   &times;
                 </button>
               )}
+              <VoiceSettings
+                ttsAvailable={voice.ttsAvailable}
+                voices={voice.voices}
+                selectedVoice={voice.selectedVoice}
+                onVoiceChange={voice.setVoice}
+              />
             </>
           )}
         </header>

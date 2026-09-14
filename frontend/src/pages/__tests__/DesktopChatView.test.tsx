@@ -75,7 +75,6 @@ vi.mock('../../hooks/useVoice', () => ({
     recording: false,
     transcribing: false,
     micBlocked: false,
-    ttsEnabled: false,
     ttsAvailable: false,
     speaking: false,
     voices: [],
@@ -85,14 +84,9 @@ vi.mock('../../hooks/useVoice', () => ({
     startRecording: vi.fn(),
     stopRecording: vi.fn(),
     cancelRecording: vi.fn(),
-    setTtsEnabled: vi.fn(),
     setVoice: vi.fn(),
     partialTranscript: '',
   }),
-}));
-
-vi.mock('../../hooks/useAutoSpeak', () => ({
-  useAutoSpeak: vi.fn(),
 }));
 
 import { DesktopChatView } from '../DesktopChatView';
@@ -247,9 +241,10 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('.mode-pills')).toBeTruthy();
   });
 
-  it('does not expose automatic response speech in the center header', () => {
+  it('keeps the voice picker without exposing an automatic response-speech toggle', () => {
     renderWithRouter();
-    expect(screen.queryByTestId('voice-settings')).toBeNull();
+    expect(screen.getByTestId('voice-settings')).toBeTruthy();
+    expect(screen.queryByTitle(/text-to-speech/)).toBeNull();
   });
 });
 

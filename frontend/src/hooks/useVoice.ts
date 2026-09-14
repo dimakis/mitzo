@@ -1,7 +1,7 @@
 // Voice integration hook — Yapper health, mic capture, streaming + batch transcription, TTS playback.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { YAPPER_URL, TTS_ENABLED_KEY, TTS_VOICE_KEY, DEFAULT_TTS_VOICE } from '../lib/constants';
+import { YAPPER_URL, TTS_VOICE_KEY, DEFAULT_TTS_VOICE } from '../lib/constants';
 import { useServiceHealth } from './useServiceHealth';
 import {
   negotiateMimeType,
@@ -12,14 +12,7 @@ import {
   type StreamingRecorder,
 } from '../lib/audio';
 import { createYapperStreamClient, type YapperStreamClient } from '../lib/yapper-ws';
-import {
-  chunkText,
-  synthesize,
-  playAudio,
-  getOrCreateAudioContext,
-  unlockAudioContext,
-  closeAudioContext,
-} from '../lib/tts';
+import { chunkText, synthesize, playAudio, closeAudioContext } from '../lib/tts';
 
 export interface Voice {
   id: string;
@@ -45,7 +38,6 @@ export interface UseVoiceReturn {
 
   // TTS state
   ttsAvailable: boolean;
-  ttsEnabled: boolean;
   speaking: boolean;
   voices: Voice[];
   selectedVoice: string;
@@ -53,7 +45,6 @@ export interface UseVoiceReturn {
   // TTS actions
   speak: (text: string) => Promise<void>;
   stopSpeaking: () => void;
-  setTtsEnabled: (v: boolean) => void;
   setVoice: (id: string) => void;
 }
 
@@ -79,9 +70,6 @@ export function useVoice(): UseVoiceReturn {
   const [transcribing, setTranscribing] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ttsEnabled, setTtsEnabledState] = useState(
-    () => localStorage.getItem(TTS_ENABLED_KEY) === 'true',
-  );
   const [speaking, setSpeaking] = useState(false);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState(
@@ -105,32 +93,6 @@ export function useVoice(): UseVoiceReturn {
   const voicesFetchedRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const currentPlayRef = useRef<{ stop: () => void } | null>(null);
-
-  // --- Unlock AudioContext on first interaction when TTS is pre-enabled ---
-  // When ttsEnabled is restored from localStorage, unlockAudioContext() never runs
-  // because setTtsEnabled(true) isn't called on load. iOS Safari blocks playback
-  // from non-gesture contexts, so useAutoSpeak's speak() calls silently hang.
-  // Register a one-shot listener to unlock on the user's first tap/click.
-  useEffect(() => {
-    if (!ttsEnabled) return;
-
-    const ctx = getOrCreateAudioContext();
-    if (ctx.state !== 'suspended') return;
-
-    const unlock = () => {
-      unlockAudioContext().catch(() => {});
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-    };
-
-    document.addEventListener('click', unlock);
-    document.addEventListener('touchstart', unlock);
-
-    return () => {
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-    };
-  }, [ttsEnabled]);
 
   // --- Negotiate mime type once ---
   useEffect(() => {
@@ -348,21 +310,11 @@ export function useVoice(): UseVoiceReturn {
     }
   }, []);
 
-  // --- TTS: Toggle ---
-  const setTtsEnabled = useCallback(
-    (v: boolean) => {
-      setTtsEnabledState(v);
-      localStorage.setItem(TTS_ENABLED_KEY, String(v));
-      if (v) {
-        // Unlock AudioContext on user gesture — plays a silent buffer so iOS
-        // Safari allows programmatic playback later when assistant messages arrive.
-        unlockAudioContext().catch(() => {});
-        // Lazy voice list fetch
-        fetchVoices();
-      }
-    },
-    [fetchVoices],
-  );
+  // A picker is always available for explicit read-aloud, so load voices whenever
+  // the service advertises TTS support. Playback still only starts from a user tap.
+  useEffect(() => {
+    if (ttsAvailable) fetchVoices();
+  }, [ttsAvailable, fetchVoices]);
 
   // --- TTS: Voice selection ---
   const setVoice = useCallback((id: string) => {
@@ -448,13 +400,11 @@ export function useVoice(): UseVoiceReturn {
 
     // TTS
     ttsAvailable,
-    ttsEnabled,
     speaking,
     voices,
     selectedVoice,
     speak,
     stopSpeaking,
-    setTtsEnabled,
     setVoice,
   };
 }

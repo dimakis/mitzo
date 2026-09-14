@@ -11,6 +11,7 @@ import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
+import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
@@ -249,6 +250,12 @@ export function DesktopChatView() {
                   &times;
                 </button>
               )}
+              <VoiceSettings
+                ttsAvailable={voice.ttsAvailable}
+                voices={voice.voices}
+                selectedVoice={voice.selectedVoice}
+                onVoiceChange={voice.setVoice}
+              />
             </header>
           </WorkspaceControls>
           <CodexQueueStatus sessionId={activeSessionId} />
