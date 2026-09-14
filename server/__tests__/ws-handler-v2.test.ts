@@ -1682,6 +1682,30 @@ describe('handleSendV2 routing', () => {
     expect(settled).toBe(true);
   });
 
+  it('reports a refused active-driver admission as a send error', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'error',
+      error: 'Session is not accepting input. Please retry.',
+    });
+  });
+
   it('sends error on resolution error', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({

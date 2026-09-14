@@ -669,7 +669,8 @@ export function handleSendV2(
               msg.accountId ? msg.model : undefined,
               msg.accountId ? msg.reasoningEffort : undefined,
             );
-            if (accepted) span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
+            if (!accepted) throw new Error('Session is not accepting input. Please retry.');
+            span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }
 
