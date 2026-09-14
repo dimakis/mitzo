@@ -809,14 +809,18 @@
     bottom: calc(49px + env(safe-area-inset-bottom));
   }
 
-  /* Two compact rows: conversation navigation, then the workspace disclosure. */
+  /* Compact navigation plus an on-demand workspace disclosure. */
   .workspace-chat .conversation-heading {
     min-height: 44px;
     gap: 8px;
     padding: 2px 12px;
+    justify-content: flex-start;
   }
   .workspace-chat .conversation-heading h1 {
-    font-size: 15px;
+    display: none;
+  }
+  .workspace-chat .conversation-heading button {
+    margin-left: auto;
   }
   .workspace-chat .conversation-heading a,
   .workspace-chat .conversation-heading button {
@@ -928,5 +932,44 @@
   .workspace-tabs .workspace-nav-link {
     min-height: 44px;
     padding: 3px 0;
+  }
+}
+
+@media (max-width: 767px) {
+  .chat-mobile-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 52px;
+    align-items: start;
+    flex-shrink: 0;
+  }
+  .workspace-chat .conversation-heading {
+    padding-right: 4px;
+  }
+  .workspace-chat .workspace-controls {
+    position: relative;
+    width: 52px;
+    border: 0;
+  }
+  .workspace-chat .workspace-controls-toggle {
+    width: 52px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+  .workspace-chat .workspace-controls-toggle > span {
+    display: none;
+  }
+  .workspace-chat .workspace-controls > div:not([hidden]) {
+    position: absolute;
+    top: 44px;
+    right: 0;
+    z-index: 20;
+    width: min(22rem, 100vw);
+    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom));
+    overflow: auto;
+    background: var(--workspace-bg);
+    border: 1px solid var(--workspace-line);
+    border-radius: 0 0 0 14px;
+    box-shadow: 0 10px 28px #0003;
   }
 }

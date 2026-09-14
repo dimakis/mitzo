@@ -236,18 +236,30 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
-it('keeps the public conversation open on process loss and resumes through a fresh transport', async () => {
-  const { c, callbacks, onClosed, requests } = await setup();
+it('treats a new send as recovery acknowledgement, reconnects, resumes queued FIFO work, and skips interrupted work', async () => {
+  const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
-  await c.interrupt();
-  expect(c.isPaused()).toBe(true);
-  await c.send({ id: 'b', prompt: 'saved until acknowledgement' });
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
+  c.enqueue({ id: 'b', prompt: 'already sent' });
   callbacks.onClose(new Error('process lost'));
-  expect(onClosed).not.toHaveBeenCalled();
-  await c.acknowledgeRecovery();
+  expect(c.isPaused()).toBe(true);
+  await c.send({ id: 'c', prompt: 'send now' });
+
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
+    { type: 'text', text: 'already sent' },
+  ]);
+  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'running', 'queued']);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-2', status: 'completed' },
+  });
+  await vi.waitFor(() =>
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3),
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')[2].params.input).toEqual([
+    { type: 'text', text: 'send now' },
+  ]);
 });
 
 it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
@@ -261,6 +273,33 @@ it('reconnects an interrupted turn without replaying it when no later command is
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   expect(c.isPaused()).toBe(false);
+});
+
+it('reports workspace startup only until reconnect completes, not through the new turn', async () => {
+  let release!: () => void;
+  const beforeReconnect = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  await c.send({ id: 'first', prompt: 'first' });
+  callbacks.onClose(new Error('process lost'));
+  const send = c.send({ id: 'next', prompt: 'next' });
+  await vi.waitFor(() => expect(c.getRecoveryPhase()).toBe('starting_workspace'));
+  expect(c.isRecovering()).toBe(true);
+  release();
+  await send;
+  expect(c.isRecovering()).toBe(false);
+  expect(c.getRecoveryPhase()).toBeUndefined();
 });
 
 it('treats transport loss during turn startup as paused recovery instead of a fatal send', async () => {
@@ -402,14 +441,14 @@ it('fails safely and recovers queued work after an unconfirmed stale completion'
   expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
 });
 
-it('continues queued work only after recovery is explicitly acknowledged', async () => {
+it('does not reconnect or replay interrupted work until a new send explicitly requests recovery', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'first', prompt: 'first' });
-  await c.send({ id: 'second', prompt: 'second' });
-  await c.interrupt();
+  callbacks.onClose(new Error('process lost'));
   expect(c.isPaused()).toBe(true);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
-  await c.acknowledgeRecovery();
+  expect(requests.filter((r) => r.method === 'thread/resume')).toHaveLength(0);
+  await c.send({ id: 'second', prompt: 'second' });
   expect(c.isPaused()).toBe(false);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
   callbacks.onNotification('turn/completed', {

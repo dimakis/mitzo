@@ -6,7 +6,7 @@ import type { ManagedSession } from '@mitzo/harness';
 const runtime = vi.hoisted(() => ({
   enqueue: vi.fn(),
   send: vi.fn().mockResolvedValue(undefined),
-  startQueued: vi.fn().mockResolvedValue(undefined),
+  resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexRuntime: () => runtime,
@@ -33,7 +33,7 @@ it('repairs a private queue after a previously echoed message without echoing it
   expect(chat.sendToChat('c', 'hello', undefined, undefined, 'same-id')).toBe(true);
   expect(runtime.enqueue).toHaveBeenCalledWith({ id: 'same-id', prompt: 'hello' });
   expect(runtime.enqueue).toHaveBeenCalledTimes(1);
-  expect(runtime.startQueued).toHaveBeenCalledTimes(1);
+  expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
   expect(runtime.send).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 });

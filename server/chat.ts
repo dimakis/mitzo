@@ -1733,12 +1733,11 @@ export function sendToChat(
       broadcastToObservers(session.observers, echo);
     }
     if (codex) {
-      void codex.startQueued().catch(() =>
+      void codex.resumeAfterExplicitSend().catch(() =>
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
-          error:
-            'Codex queue is paused or unavailable. Inspect interrupted work before continuing.',
+          error: 'Message saved. Mitzo could not reconnect yet.',
         }),
       );
     } else

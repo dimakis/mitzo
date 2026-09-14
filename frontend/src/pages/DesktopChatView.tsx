@@ -26,6 +26,8 @@ export function DesktopChatView() {
 
   // Store state
   const messages = useMessages();
+  const historyLoading = useMitzoStore((s) => s.historyLoading);
+  const historyError = useMitzoStore((s) => s.historyError);
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
@@ -259,9 +261,25 @@ export function DesktopChatView() {
             </header>
           </WorkspaceControls>
           <CodexQueueStatus sessionId={activeSessionId} />
+          {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
+            <div role="status">Loading conversation…</div>
+          )}
+          {historyError && (
+            <div role="alert">
+              {historyError}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  if (sessionId) void storeSwitchSession(sessionId);
+                }}
+              >
+                Retry loading conversation
+              </button>
+            </div>
+          )}
           <ChatArea
-            messages={messages.messages}
-            current={messages.current}
+            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
             running={messages.running}
             permission={messages.permission}
             onPermissionRespond={handlePermission}
@@ -287,8 +305,8 @@ export function DesktopChatView() {
             wtId={messages.wtId || undefined}
             sessionId={activeSessionId ?? undefined}
             tokenState={tokens}
-            messages={messages.messages}
-            current={messages.current}
+            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
             bootContext={bootContext}
             sessionContext={sessionContext}
           />

@@ -4,75 +4,98 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { CodexQueueStatus } from '../CodexQueueStatus';
+
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.useRealTimers();
 });
-it('restores paused queue status without replay and requires an explicit continue action', async () => {
+
+it('explains paused saved work without a second recovery action', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 2, interrupted: 1 },
+      codexQueue: { paused: true, connected: true, queued: 2, interrupted: 1, recovering: false },
     }),
   } as Response);
   render(<CodexQueueStatus sessionId="task" />);
   await screen.findByText('2 messages waiting');
-  expect(apiFetch).toHaveBeenCalledTimes(1);
   expect(screen.getByText(/Your last step may be incomplete/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Continue messages' }));
-  await waitFor(() =>
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/task/codex-queue/continue', {
-      method: 'POST',
-    }),
-  );
+  expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy();
 });
-it('hides for other backends and explains a disconnected saved queue', async () => {
-  vi.mocked(apiFetch).mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
-  const { rerender } = render(<CodexQueueStatus sessionId="vertex" />);
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
-  expect(screen.queryByRole('status')).toBeNull();
+
+it('tells the user to send when no runtime is connected', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: true, connected: false, queued: 1, interrupted: 1 },
+      codexQueue: { paused: true, connected: false, queued: 1, interrupted: 1, recovering: false },
     }),
   } as Response);
-  rerender(<CodexQueueStatus sessionId="codex" />);
-  await screen.findByText(/Send a message to reconnect/);
-  expect(screen.queryByRole('button', { name: 'Continue queued messages' })).toBeNull();
+  render(<CodexQueueStatus sessionId="codex" />);
+  await screen.findByText('Connection interrupted. Send a message to reconnect.');
+  expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
 });
 
-it('hides an empty paused fallback when there is nothing to recover', async () => {
+it.each([
+  ['starting_workspace', 'Starting workspace…'],
+  ['reconnecting', 'Reconnecting…'],
+] as const)('shows actual %s recovery progress without an action gate', async (phase, label) => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: true, connected: false, queued: 0, interrupted: 0 },
+      codexQueue: {
+        paused: true,
+        connected: true,
+        recovering: true,
+        recoveryPhase: phase,
+        queued: 1,
+        interrupted: 1,
+      },
     }),
   } as Response);
-  render(<CodexQueueStatus sessionId="paused-empty" />);
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
-  expect(screen.queryByRole('status')).toBeNull();
+  render(<CodexQueueStatus sessionId="recovering" />);
+  await screen.findByText(label);
+  expect(screen.getByText('Your message is saved.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
 });
 
-it('lets the user reconnect interrupted work with no queued messages without replaying it', async () => {
-  vi.mocked(apiFetch).mockResolvedValueOnce({
+it('collapses with a horizontal swipe and restores focus through Chat status', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
+      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1, recovering: false },
     }),
   } as Response);
-  render(<CodexQueueStatus sessionId="paused-interrupted" />);
-  await screen.findByText('Chat paused');
-  expect(screen.queryByText(/0 queued messages/)).toBeNull();
-  expect(screen.getByText(/Your last step may be incomplete/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }));
-  await waitFor(() =>
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/paused-interrupted/codex-queue/continue', {
-      method: 'POST',
-    }),
-  );
+  render(<CodexQueueStatus sessionId="paused" />);
+  const status = await screen.findByRole('status');
+  fireEvent.pointerDown(status, { clientX: 8, clientY: 12 });
+  fireEvent.pointerUp(status, { clientX: 72, clientY: 14 });
+  const tab = screen.getByRole('button', { name: 'Chat status' });
+  expect(document.activeElement).toBe(tab);
+  const user = userEvent.setup();
+  await user.keyboard('{Enter}');
+  const hide = await screen.findByRole('button', { name: 'Hide' });
+  await waitFor(() => expect(document.activeElement).toBe(hide));
+});
+
+it('reopens a hidden status when polling finds an actionable error', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1, recovering: false },
+      }),
+    } as Response)
+    .mockRejectedValueOnce(new Error('offline'));
+  render(<CodexQueueStatus sessionId="paused" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Hide' }));
+  expect(screen.getByRole('button', { name: 'Chat status' })).toBeTruthy();
+  fireEvent.focus(window);
+  expect((await screen.findByRole('alert')).textContent).toContain('Queue status unavailable');
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
 });
 
 it('slows idle polling and avoids overlapping requests', async () => {
@@ -80,7 +103,7 @@ it('slows idle polling and avoids overlapping requests', async () => {
   vi.mocked(apiFetch).mockResolvedValue({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: false, connected: true, queued: 0, interrupted: 0 },
+      codexQueue: { paused: false, connected: true, queued: 0, interrupted: 0, recovering: false },
     }),
   } as Response);
   render(<CodexQueueStatus sessionId="idle" />);
@@ -94,100 +117,4 @@ it('slows idle polling and avoids overlapping requests', async () => {
     await vi.advanceTimersByTimeAsync(10000);
   });
   expect(apiFetch).toHaveBeenCalledTimes(2);
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(60000);
-  });
-  expect(apiFetch).toHaveBeenCalledTimes(2);
-});
-it('shows the server recovery explanation when continuation fails', async () => {
-  vi.mocked(apiFetch).mockResolvedValueOnce({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 1, interrupted: 1 },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="paused" />);
-  const button = await screen.findByRole('button', { name: 'Continue messages' });
-  vi.mocked(apiFetch).mockResolvedValueOnce({
-    ok: false,
-    json: async () => ({ error: 'Queue remains paused. Check the account configuration.' }),
-  } as Response);
-  fireEvent.click(button);
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Queue remains paused. Check the account configuration.',
-  );
-});
-
-it('collapses recovery with a horizontal swipe and restores it from the side tab', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="paused-interrupted" />);
-  const status = await screen.findByRole('status');
-  fireEvent.pointerDown(status, { clientX: 8, clientY: 12 });
-  fireEvent.pointerUp(status, { clientX: 72, clientY: 14 });
-  const tab = screen.getByRole('button', { name: 'Chat status' });
-  expect(tab.getAttribute('aria-expanded')).toBe('false');
-  fireEvent.click(tab);
-  expect(await screen.findByRole('button', { name: 'Reconnect' })).toBeTruthy();
-});
-
-it('keeps a keyboard-accessible hide and show control on desktop', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="paused-interrupted" />);
-  const hide = await screen.findByRole('button', { name: 'Hide' });
-  hide.focus();
-  fireEvent.click(hide);
-  const tab = screen.getByRole('button', { name: 'Chat status' });
-  await waitFor(() => expect(document.activeElement).toBe(tab));
-  fireEvent.click(tab);
-  const reopenedHide = await screen.findByRole('button', { name: 'Hide' });
-  await waitFor(() => expect(document.activeElement).toBe(reopenedHide));
-});
-
-it('does not run recovery when a horizontal swipe starts on its action', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="paused-interrupted" />);
-  const reconnect = await screen.findByRole('button', { name: 'Reconnect' });
-  fireEvent.pointerDown(reconnect, { clientX: 8, clientY: 12 });
-  fireEvent.pointerUp(reconnect, { clientX: 72, clientY: 14 });
-  fireEvent.click(reconnect);
-  expect(apiFetch).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('button', { name: 'Chat status' })).toBeTruthy();
-});
-
-it('allows recovery after swiping text closed and reopening with the keyboard', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="paused-interrupted" />);
-  const copy = await screen.findByText(/Your last step may be incomplete/);
-  fireEvent.pointerDown(copy, { clientX: 8, clientY: 12 });
-  fireEvent.pointerUp(copy, { clientX: 72, clientY: 14 });
-  const tab = screen.getByRole('button', { name: 'Chat status' });
-  const user = userEvent.setup();
-  tab.focus();
-  await user.keyboard('{Enter}');
-  fireEvent.click(await screen.findByRole('button', { name: 'Reconnect' }));
-  await waitFor(() =>
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/paused-interrupted/codex-queue/continue', {
-      method: 'POST',
-    }),
-  );
 });

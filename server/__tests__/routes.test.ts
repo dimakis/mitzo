@@ -1323,6 +1323,8 @@ describe('account catalog routes', () => {
         reasoningEffort: 'high',
         paused: true,
         connected: false,
+        recovering: false,
+        recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
       })
@@ -1331,6 +1333,8 @@ describe('account catalog routes', () => {
         reasoningEffort: null,
         paused: true,
         connected: false,
+        recovering: false,
+        recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
       });
@@ -1372,6 +1376,7 @@ describe('account catalog routes', () => {
     expect(res.body.codexQueue).toEqual({
       paused: true,
       connected: false,
+      recovering: false,
       queued: 0,
       interrupted: 0,
     });

@@ -269,3 +269,19 @@ it('keeps mobile session details inside the expanded workspace controls', async 
   expect(summary.closest('details')?.textContent).toContain('mobile-worktree');
   expect(summary.closest('details')?.textContent).toContain('mobile-session');
 });
+
+it('shows conversation history loading explicitly', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  act(() => store.setState({ historyLoading: true }));
+  expect(screen.getByText('Loading conversation…')).toBeTruthy();
+  act(() => store.setState({ historyLoading: false }));
+  expect(screen.queryByText('Loading conversation…')).toBeNull();
+});
