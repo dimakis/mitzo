@@ -134,6 +134,47 @@ export function hasExactGlobalSetting(settings, key, value) {
   return settingPattern.test(settings);
 }
 
+export function validateSeedBaseline(seedBaseline, manifest) {
+  invariant(
+    seedBaseline && typeof seedBaseline === 'object' && !Array.isArray(seedBaseline),
+    'prepared seed baseline must be an object',
+  );
+  invariant(
+    typeof seedBaseline.startingCommit === 'string' &&
+      /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(seedBaseline.startingCommit),
+    'prepared seed source commit is invalid',
+  );
+  const hasRuntimeBase = Object.hasOwn(seedBaseline, 'runtimeBaseCommit');
+  if (hasRuntimeBase) {
+    invariant(
+      typeof seedBaseline.runtimeBaseCommit === 'string' &&
+        /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(seedBaseline.runtimeBaseCommit),
+      'prepared seed runtime base commit is invalid',
+    );
+  }
+  invariant(
+    hasRuntimeBase
+      ? seedBaseline.runtimeBaseCommit === manifest.runtime.mgmtSourceCommit
+      : seedBaseline.startingCommit === manifest.runtime.mgmtSourceCommit,
+    'prepared seed runtime base does not match the stack lock',
+  );
+}
+
+export function validateRuntimeImageLabels(imageLabels, manifest) {
+  invariant(
+    imageLabels?.['io.mitzo.source-commit'] === manifest.runtime.mitzoSourceCommit,
+    'runtime image Mitzo provenance does not match the stack lock',
+  );
+  invariant(
+    imageLabels?.['io.mitzo.mgmt-source-commit'] === manifest.runtime.mgmtSourceCommit,
+    'runtime image MGMT provenance does not match the stack lock',
+  );
+  invariant(
+    imageLabels?.['io.mitzo.openshell.base-image'] === manifest.runtime.baseImage,
+    'runtime image base provenance does not match the stack lock',
+  );
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
   const fileConfig = existsSync(envPath) ? parse(readFileSync(envPath)) : {};
@@ -157,10 +198,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
   invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
   const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
-  invariant(
-    seedBaseline.startingCommit === manifest.runtime.mgmtSourceCommit,
-    'prepared seed commit does not match the stack lock',
-  );
+  validateSeedBaseline(seedBaseline, manifest);
 
   const openshell = required(config, 'MITZO_OPENSHELL_CLI');
   invariant(isAbsolute(openshell), 'MITZO_OPENSHELL_CLI must be absolute');
@@ -215,18 +253,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const imageLabels = JSON.parse(
     run(podman, ['image', 'inspect', staticResult.image, '--format', '{{json .Labels}}']),
   );
-  invariant(
-    imageLabels['io.mitzo.source-commit'] === manifest.runtime.mitzoSourceCommit,
-    'runtime image Mitzo provenance does not match the stack lock',
-  );
-  invariant(
-    imageLabels['io.mitzo.mgmt-source-commit'] === manifest.runtime.mgmtSourceCommit,
-    'runtime image MGMT provenance does not match the stack lock',
-  );
-  invariant(
-    imageLabels['io.mitzo.openshell.base-image'] === manifest.runtime.baseImage,
-    'runtime image base provenance does not match the stack lock',
-  );
+  validateRuntimeImageLabels(imageLabels, manifest);
   for (const binary of manifest.runtime.requiredBinaries ?? []) {
     run(podman, ['run', '--rm', '--entrypoint', '/usr/bin/test', staticResult.image, '-x', binary]);
   }

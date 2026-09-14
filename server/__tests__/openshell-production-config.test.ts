@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
+  validateRuntimeImageLabels,
+  validateSeedBaseline,
   validateStaticConfig,
   verifyAccountBindings,
 } from '../../scripts/verify-openshell-production.mjs';
@@ -23,6 +25,73 @@ const config = {
 };
 
 describe('OpenShell production bundle validation', () => {
+  it('allows a newer knowledge seed against its compatible runtime base', () => {
+    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    expect(() =>
+      validateSeedBaseline(
+        { startingCommit: 'b'.repeat(40), runtimeBaseCommit: 'a'.repeat(40) },
+        runtimeManifest,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateSeedBaseline(
+        { startingCommit: 'b'.repeat(40), runtimeBaseCommit: 'c'.repeat(40) },
+        runtimeManifest,
+      ),
+    ).toThrow('runtime base');
+  });
+
+  it('keeps backward compatibility only when a legacy seed matches the runtime commit', () => {
+    const runtimeCommit = 'a'.repeat(40);
+    const runtimeManifest = { runtime: { mgmtSourceCommit: runtimeCommit } };
+    expect(() =>
+      validateSeedBaseline({ startingCommit: runtimeCommit }, runtimeManifest),
+    ).not.toThrow();
+    expect(() => validateSeedBaseline({ startingCommit: 'b'.repeat(40) }, runtimeManifest)).toThrow(
+      'runtime base',
+    );
+  });
+
+  it('rejects malformed seed commit identifiers', () => {
+    const runtimeCommit = 'a'.repeat(40);
+    const runtimeManifest = { runtime: { mgmtSourceCommit: runtimeCommit } };
+    expect(() =>
+      validateSeedBaseline(
+        { startingCommit: 'b'.repeat(41), runtimeBaseCommit: runtimeCommit },
+        runtimeManifest,
+      ),
+    ).toThrow('source commit');
+    expect(() =>
+      validateSeedBaseline(
+        { startingCommit: 'b'.repeat(40), runtimeBaseCommit: 'not-a-commit' },
+        runtimeManifest,
+      ),
+    ).toThrow('runtime base commit is invalid');
+    expect(() => validateSeedBaseline(null, runtimeManifest)).toThrow('baseline must be an object');
+  });
+
+  it('requires runtime image labels to match both source locks', () => {
+    const runtimeManifest = {
+      runtime: {
+        mitzoSourceCommit: 'a'.repeat(40),
+        mgmtSourceCommit: 'b'.repeat(40),
+        baseImage: 'docker.io/library/debian@sha256:fixture',
+      },
+    };
+    const labels = {
+      'io.mitzo.source-commit': runtimeManifest.runtime.mitzoSourceCommit,
+      'io.mitzo.mgmt-source-commit': runtimeManifest.runtime.mgmtSourceCommit,
+      'io.mitzo.openshell.base-image': runtimeManifest.runtime.baseImage,
+    };
+    expect(() => validateRuntimeImageLabels(labels, runtimeManifest)).not.toThrow();
+    expect(() =>
+      validateRuntimeImageLabels(
+        { ...labels, 'io.mitzo.mgmt-source-commit': 'c'.repeat(40) },
+        runtimeManifest,
+      ),
+    ).toThrow('MGMT provenance');
+  });
+
   it('matches only active global settings with exact values', () => {
     expect(hasExactGlobalSetting('providers_v2_enabled = true', 'providers_v2_enabled', true)).toBe(
       true,

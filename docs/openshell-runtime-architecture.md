@@ -43,11 +43,25 @@ tears down only the transport; sandbox deletion is a separate future lifecycle.
 
 ## Seed and persistence
 
-The MGMT seed is copied from a reviewed committed tree plus safe working-tree
-overlays. It excludes host runtime, dependency, credential, log, and repository
-administration paths. A new portable Git repository is initialized inside the seed,
-so normal edits, diffs, and local commits work without copying host `.git` state.
-The host-side baseline records the source commit and file hashes.
+The MGMT seed is copied from one reviewed committed tree. The only working-tree
+overlay is the explicit rebuilt-memory allowlist: `memory/manifest/index.json`,
+`wikilinks.json`, `by_type.json`, and `by_tag.json`. The builder rejects missing,
+malformed, inconsistent, or symlinked artifacts and excludes all other ignored
+files, host runtime, dependency, credential, log, and repository-administration
+paths. A new portable Git repository is initialized inside the seed, so normal
+edits, diffs, and local commits work without copying host `.git` state. It builds
+and validates a new versioned seed in a temporary sibling directory before it is
+published; it never changes an existing versioned seed.
+
+The host-side baseline records both the seed content commit (`startingCommit`) and
+the runtime-base commit whose executable dependency set it uses, plus file hashes.
+The production lock and runtime image labels must continue to match that runtime
+base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
+without rebuilding the immutable runtime image; dependency changes still require a
+new image release. The mgmt updater alone validates dependency compatibility and
+atomically repoints its `current` symlink after a successful seed build. Existing
+sandboxes retain their workspace; only future sandbox creation resolves that current
+seed path.
 
 Conversation/thread state and the sandbox workspace are checkpointed together before
 an operator-approved stop. The private, versioned archive is bound to the exact

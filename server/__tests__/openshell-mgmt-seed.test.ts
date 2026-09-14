@@ -19,6 +19,14 @@ afterEach(() => {
   root = '';
 });
 
+function writeMemoryManifests(source: string) {
+  const manifest = join(source, 'memory', 'manifest');
+  writeFileSync(join(manifest, 'index.json'), '{"memories":[]}\n');
+  writeFileSync(join(manifest, 'wikilinks.json'), '{"forward_links":{}}\n');
+  writeFileSync(join(manifest, 'by_type.json'), '{"types":{}}\n');
+  writeFileSync(join(manifest, 'by_tag.json'), '{"tags":{}}\n');
+}
+
 it('builds a versioned MGMT seed without host credentials or repository administration', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-'));
   const source = join(root, 'source');
@@ -37,6 +45,8 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   mkdirSync(join(source, 'src'));
   writeFileSync(join(source, 'src', 'credentials.json'), '{"token":"must-not-copy"}\n');
   writeFileSync(join(source, 'src', 'client_secret_fixture.json'), '{"secret":"no"}\n');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -52,6 +62,8 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   writeFileSync(join(source, '.netrc'), 'password must-not-copy\n');
   writeFileSync(join(source, 'certificate.pem'), 'synthetic-certificate\n');
   writeFileSync(join(source, 'work.txt'), 'working tree overlay\n');
+  writeMemoryManifests(source);
+  writeFileSync(join(source, 'memory', 'manifest', 'secret-export.json'), '{"secret":"no"}\n');
 
   execFileSync(
     'bash',
@@ -60,7 +72,19 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   );
 
   const workspace = join(output, 'mgmt');
-  expect(readFileSync(join(workspace, 'work.txt'), 'utf8')).toBe('working tree overlay\n');
+  expect(readFileSync(join(workspace, 'work.txt'), 'utf8')).toBe('tracked\n');
+  expect(readFileSync(join(workspace, 'memory', 'manifest', 'index.json'), 'utf8')).toBe(
+    '{"memories":[]}\n',
+  );
+  expect(readFileSync(join(workspace, 'memory', 'manifest', 'wikilinks.json'), 'utf8')).toBe(
+    '{"forward_links":{}}\n',
+  );
+  expect(readFileSync(join(workspace, 'memory', 'manifest', 'by_type.json'), 'utf8')).toBe(
+    '{"types":{}}\n',
+  );
+  expect(readFileSync(join(workspace, 'memory', 'manifest', 'by_tag.json'), 'utf8')).toBe(
+    '{"tags":{}}\n',
+  );
   expect(() => readFileSync(join(workspace, '.env'), 'utf8')).toThrow();
   for (const path of [
     '.env.local',
@@ -71,6 +95,7 @@ it('builds a versioned MGMT seed without host credentials or repository administ
     join('.ssh', 'id_ed25519'),
     join('src', 'credentials.json'),
     join('src', 'client_secret_fixture.json'),
+    join('memory', 'manifest', 'secret-export.json'),
   ]) {
     expect(() => readFileSync(join(workspace, path), 'utf8')).toThrow();
   }
@@ -82,7 +107,219 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   ).toBe('chore: seed isolated MGMT workspace');
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
+  expect(baseline.runtimeBaseCommit).toBe(baseline.startingCommit);
   expect(baseline.saveBack).toBe('not-implemented');
+});
+
+it('fails closed when a required rebuilt memory manifest is missing', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-missing-manifest-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source);
+  unlinkSync(join(source, 'memory', 'manifest', 'wikilinks.json'));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(output)).toBe(false);
+});
+
+it('fails closed when a rebuilt memory manifest is inconsistent', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-missing-manifest-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source);
+  writeFileSync(join(source, 'memory', 'manifest', 'by_tag.json'), '{"wrong":true}\n');
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(output)).toBe(false);
+});
+
+it('records an explicit runtime base ref as its canonical commit', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-runtime-base-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'requirements.txt'), 'runtime-dependency==1\n');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  const runtimeBaseCommit = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim();
+  writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge update',
+  ]);
+  const startingCommit = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim();
+  writeMemoryManifests(source);
+
+  execFileSync(
+    'bash',
+    [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+    { cwd: resolve('.') },
+  );
+
+  const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
+  expect(baseline.startingCommit).toBe(startingCommit);
+  expect(baseline.runtimeBaseCommit).toBe(runtimeBaseCommit);
+});
+
+it('rejects a runtime base that is not an ancestor of the seed starting commit', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-nonancestor-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  writeFileSync(join(source, 'base.txt'), 'base\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', ['-C', source, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'base']);
+  execFileSync('git', ['-C', source, 'checkout', '-q', '-b', 'runtime-side']);
+  writeFileSync(join(source, 'runtime.txt'), 'runtime side\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime',
+  ]);
+  const unrelatedRuntimeBase = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim();
+  execFileSync('git', ['-C', source, 'checkout', '-q', '-']);
+  writeFileSync(join(source, 'knowledge.md'), 'knowledge\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge',
+  ]);
+  writeMemoryManifests(source);
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [
+        resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'),
+        source,
+        output,
+        unrelatedRuntimeBase,
+      ],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(output)).toBe(false);
+});
+
+it('never overwrites an existing versioned seed', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-existing-output-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source);
+  mkdirSync(output);
+  writeFileSync(join(output, 'must-remain'), 'preserved\n');
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(readFileSync(join(output, 'must-remain'), 'utf8')).toBe('preserved\n');
 });
 
 it('rejects a tracked symlink before an overlay can write through it', () => {
