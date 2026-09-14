@@ -144,7 +144,7 @@ function validateSeedContents(seedBaseline, seedPath) {
   );
   const root = resolve(seedPath);
   const expected = new Map();
-  for (const [path, digest] of Object.entries(seedBaseline.files)) {
+  for (const [path, entry] of Object.entries(seedBaseline.files)) {
     invariant(
       typeof path === 'string' &&
         path.length > 0 &&
@@ -156,10 +156,15 @@ function validateSeedContents(seedBaseline, seedPath) {
       'prepared seed file manifest contains an unsafe path',
     );
     invariant(
-      typeof digest === 'string' && /^[a-f0-9]{64}$/.test(digest),
-      `prepared seed file manifest has an invalid hash for ${path}`,
+      entry &&
+        typeof entry === 'object' &&
+        typeof entry.sha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(entry.sha256) &&
+        typeof entry.mode === 'string' &&
+        /^[0-7]{4}$/.test(entry.mode),
+      `prepared seed file manifest has an invalid hash or mode for ${path}`,
     );
-    expected.set(path, digest);
+    expected.set(path, entry);
   }
 
   const actual = new Map();
@@ -173,8 +178,12 @@ function validateSeedContents(seedBaseline, seedPath) {
       const stat = lstatSync(absolutePath);
       invariant(!stat.isSymbolicLink(), `prepared seed contains an unsafe symlink: ${path}`);
       if (stat.isDirectory()) walk(absolutePath, path);
-      else if (stat.isFile()) actual.set(path, sha256(absolutePath));
-      else invariant(false, `prepared seed contains an unsupported path: ${path}`);
+      else if (stat.isFile()) {
+        actual.set(path, {
+          sha256: sha256(absolutePath),
+          mode: (stat.mode & 0o777).toString(8).padStart(4, '0'),
+        });
+      } else invariant(false, `prepared seed contains an unsupported path: ${path}`);
     }
   };
   walk(root);
@@ -184,10 +193,10 @@ function validateSeedContents(seedBaseline, seedPath) {
       [...expected.keys()].every((path) => actual.has(path)),
     'prepared seed files do not exactly match baseline.json',
   );
-  for (const [path, digest] of expected) {
+  for (const [path, entry] of expected) {
     invariant(
-      actual.get(path) === digest,
-      `prepared seed file hash does not match baseline.json: ${path}`,
+      actual.get(path).sha256 === entry.sha256 && actual.get(path).mode === entry.mode,
+      `prepared seed file hash or mode does not match baseline.json: ${path}`,
     );
   }
 

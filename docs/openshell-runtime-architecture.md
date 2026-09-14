@@ -44,11 +44,12 @@ tears down only the transport; sandbox deletion is a separate future lifecycle.
 ## Seed and persistence
 
 The MGMT seed is copied from one reviewed committed tree. The only working-tree
-overlay is the explicit rebuilt-memory allowlist: `memory/manifest/index.json`,
-`wikilinks.json`, `by_type.json`, and `by_tag.json`. The builder rejects missing,
-malformed, inconsistent, or symlinked artifacts and excludes all other ignored
-files, host runtime, dependency, credential, log, and repository-administration
-paths. A new portable Git repository is initialized inside the seed, so normal
+inputs are the explicit rebuilt-memory provenance allowlist: `memory/manifest/index.json`,
+`wikilinks.json`, `by_type.json`, and `by_tag.json`; their attestations are checked,
+then the published manifest contents are regenerated from archived Markdown. The
+builder rejects missing, malformed, inconsistent, or symlinked artifacts and
+excludes all other ignored files, host runtime, dependency, credential, log, and
+repository-administration paths. A new portable Git repository is initialized inside the seed, so normal
 edits, diffs, and local commits work without copying host `.git` state. It builds
 and validates a new versioned seed in a temporary sibling directory before it is
 published; it never changes an existing versioned seed. Publication uses an
@@ -63,8 +64,8 @@ type/tag metadata and groupings against the archived Markdown front matter, and
 the forward/backlink inverse before accepting the overlay.
 
 The host-side baseline records both the seed content commit (`startingCommit`) and
-the runtime-base commit whose executable dependency set it uses, plus hashes for
-the exact non-`.git` seed payload. Production preflight checks that exact path set,
+the runtime-base commit whose executable dependency set it uses, plus hashes and
+normalized modes for the exact non-`.git` seed payload. Production preflight checks that exact path set,
 rejects payload symlinks, and requires all four manifest provenance markers to
 match `startingCommit` before it accepts a dynamic baseline. The portable local
 Git metadata is intentionally excluded because it is not seed content.

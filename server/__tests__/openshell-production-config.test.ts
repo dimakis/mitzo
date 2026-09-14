@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -65,7 +66,10 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
       startingCommit: sourceCommit,
       runtimeBaseCommit: sourceCommit,
       files: Object.fromEntries(
-        Object.entries(files).map(([path, contents]) => [path, digest(contents)]),
+        Object.entries(files).map(([path, contents]) => [
+          path,
+          { sha256: digest(contents), mode: '0644' },
+        ]),
       ),
     },
   };
@@ -106,7 +110,10 @@ describe('OpenShell production bundle validation', () => {
 
     expect(() =>
       validateSeedBaseline(
-        { ...baseline, files: { ...baseline.files, 'knowledge.md': 'b'.repeat(64) } },
+        {
+          ...baseline,
+          files: { ...baseline.files, 'knowledge.md': { sha256: 'b'.repeat(64), mode: '0644' } },
+        },
         runtimeManifest,
         seedPath,
       ),
@@ -114,6 +121,13 @@ describe('OpenShell production bundle validation', () => {
 
     writeFileSync(join(seedPath, 'knowledge.md'), 'modified knowledge\n');
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('file hash');
+  });
+
+  it('rejects dynamic seeds whose payload mode differs from the baseline', () => {
+    const { baseline, seedPath } = makePreparedSeed();
+    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    chmodSync(join(seedPath, 'knowledge.md'), 0o755);
+    expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('hash or mode');
   });
 
   it('rejects dynamic seeds with extra, missing, or symlinked payload files', () => {
@@ -151,7 +165,10 @@ describe('OpenShell production bundle validation', () => {
       writeFileSync(path, contents);
       const altered = {
         ...baseline,
-        files: { ...baseline.files, [`memory/manifest/${name}`]: digest(contents) },
+        files: {
+          ...baseline.files,
+          [`memory/manifest/${name}`]: { sha256: digest(contents), mode: '0644' },
+        },
       };
       expect(() => validateSeedBaseline(altered, runtimeManifest, seedPath)).toThrow(
         'manifest source commit',

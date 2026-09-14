@@ -298,16 +298,21 @@ it('accepts generated manifests for linked, tagged knowledge files', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-linked-manifests-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
+  const pythonBin = join(root, 'python-no-yaml');
+  const actualPython = execFileSync('which', ['python3'], { encoding: 'utf8' }).trim();
   mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
   mkdirSync(join(source, 'memory', 'notes'), { recursive: true });
+  mkdirSync(pythonBin);
   writeRuntimeInputs(source);
   execFileSync('git', ['init', '-q', source]);
   execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
   execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
   writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  writeFileSync(join(pythonBin, 'python3'), `#!/bin/sh\nexec "${actualPython}" -S "$@"\n`);
+  chmodSync(join(pythonBin, 'python3'), 0o755);
   writeFileSync(
     join(source, 'memory', 'notes', 'alpha.md'),
-    '---\ntype: decision\ntags:\n  - runtime\n---\n# Alpha\n[[beta]]\n',
+    '---\nname: Alpha\ndescription: Runtime decision\ntype: decision\nstate: active\nconfidence: high\ntags:\n  - runtime\n---\n# Alpha\n[[beta]]\n',
   );
   writeFileSync(
     join(source, 'memory', 'notes', 'beta.md'),
@@ -331,7 +336,7 @@ it('accepts generated manifests for linked, tagged knowledge files', () => {
     execFileSync(
       'bash',
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
-      { cwd: resolve('.') },
+      { cwd: resolve('.'), env: { ...process.env, PATH: `${pythonBin}:${process.env.PATH}` } },
     ),
   ).not.toThrow();
   expect(
@@ -377,7 +382,7 @@ it('fails closed when a rebuilt memory manifest is inconsistent', () => {
   expect(existsSync(output)).toBe(false);
 });
 
-it('rejects index type and tag metadata consistently tampered away from archived front matter', () => {
+it('rebuilds ignored manifest entries from archived front matter instead of copying tampered data', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-frontmatter-metadata-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -416,6 +421,7 @@ it('rejects index type and tag metadata consistently tampered away from archived
           type: 'reference',
           tags: ['wrong'],
           wikilinks: [],
+          content_preview: 'SYNTHETIC_SECRET=must-not-copy',
         },
       ],
     }) + '\n',
@@ -439,8 +445,14 @@ it('rejects index type and tag metadata consistently tampered away from archived
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
       { cwd: resolve('.'), stdio: 'pipe' },
     ),
-  ).toThrow();
-  expect(existsSync(output)).toBe(false);
+  ).not.toThrow();
+  const rebuilt = JSON.parse(
+    readFileSync(join(output, 'mgmt', 'memory', 'manifest', 'index.json'), 'utf8'),
+  );
+  expect(rebuilt.memories).toMatchObject([
+    { path: 'notes/alpha.md', type: 'decision', tags: ['runtime'] },
+  ]);
+  expect(JSON.stringify(rebuilt)).not.toContain('SYNTHETIC_SECRET');
 });
 
 it('rejects manifest provenance that does not attest to the archived starting commit', () => {

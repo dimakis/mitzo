@@ -58,16 +58,20 @@ else:
 
 lock_path = pathlib.Path(sys.argv[1])
 status_path = pathlib.Path(sys.argv[2])
+def write_status(value):
+    temporary = status_path.with_name(f'{status_path.name}.tmp')
+    temporary.write_text(value)
+    os.replace(temporary, status_path)
 try:
     handle = lock_path.open('a+')
     fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    status_path.write_text('busy\n')
+    write_status('busy\n')
     raise SystemExit(0)
 except OSError as error:
-    status_path.write_text(f'error:{error}\n')
+    write_status(f'error:{error}\n')
     raise SystemExit(1)
-status_path.write_text('locked\n')
+write_status('locked\n')
 # The helper exits when its updater process exits, and closing this process
 # closes the OS-managed advisory lock.
 wait_for_parent_exit()
@@ -107,8 +111,8 @@ baseline="$build_root/baseline.json"
 mkdir -p "$workspace"
 
 # Mirror Dockerfile.mgmt-runtime exactly: each historical pyproject.toml and
-# uv.lock pair is copied into an otherwise empty build context, `uv lock` is run,
-# then `uv sync --frozen --no-dev --no-install-project` is represented by a
+# uv.lock pair is copied into an otherwise empty build context, then the frozen
+# `uv sync --no-dev --no-install-project` input is represented by a
 # normalized no-dev export plus its effective Python constraint. This includes
 # default dependency groups, sources, indexes, constraints, resolver settings,
 # and locked artifacts to the extent that they alter the packages installed in
@@ -129,7 +133,6 @@ if test "$runtime_base_commit" != "$starting_commit"; then
     git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
     (
       cd "$projection_dir"
-      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" lock >/dev/null
       python3 - <<'PY'
 import tomllib
 
@@ -224,8 +227,171 @@ for file in "${manifest_files[@]}"; do
     echo "required rebuilt memory manifest is missing or unsafe: $file" >&2
     exit 3
   }
-  install -m 0644 "$source_manifest" "$workspace/memory/manifest/$file"
+  # The generated set attests that MGMT rebuilt the knowledge index for this
+  # commit, but its contents are never copied into a seed. Recreate the
+  # published manifests from archived Markdown below so an ignored working-tree
+  # artifact cannot smuggle stale fields or host data into a future sandbox.
+  SOURCE_MANIFEST="$source_manifest" STARTING_COMMIT="$starting_commit" python3 - <<'PY'
+import json, os
+try:
+    value = json.load(open(os.environ['SOURCE_MANIFEST']))
+except (OSError, ValueError) as error:
+    raise SystemExit(f'invalid rebuilt memory manifest: {error}')
+if not isinstance(value, dict) or value.get('sourceCommit') != os.environ['STARTING_COMMIT']:
+    raise SystemExit('rebuilt memory manifest does not attest to startingCommit')
+PY
 done
+
+# Rebuild every published manifest from the archived tree. The ignored source
+# manifests are only provenance gates; no entry data crosses the working-tree
+# boundary. This mirrors build_index.py's metadata/link semantics while using a
+# deterministic Git timestamp for the portable seed's `modified` field.
+WORKSPACE="$workspace" SOURCE_REPO="$source_repo" STARTING_COMMIT="$starting_commit" python3 - <<'PY'
+import json, os, pathlib, re, subprocess
+from datetime import date, datetime
+from collections import defaultdict
+
+workspace = pathlib.Path(os.environ['WORKSPACE'])
+memory_root = workspace / 'memory'
+manifest = memory_root / 'manifest'
+source_repo = os.environ['SOURCE_REPO']
+starting = os.environ['STARTING_COMMIT']
+link_pattern = re.compile(r'\[\[([^\]]+)\]\]')
+
+def fallback_metadata(lines, path):
+    result = {}
+    index = 0
+    known = {'name', 'description', 'type', 'date', 'tags', 'state', 'confidence'}
+    while index < len(lines):
+        line = lines[index]
+        if not line.strip() or line.lstrip().startswith('#'):
+            index += 1
+            continue
+        if line.startswith((' ', '\t')) or ':' not in line:
+            raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+        key, value = (part.strip() for part in line.split(':', 1))
+        if key not in known:
+            index += 1
+            while index < len(lines) and lines[index].startswith((' ', '\t')):
+                index += 1
+            continue
+        if key == 'tags' and not value:
+            tags = []
+            index += 1
+            while index < len(lines) and lines[index].startswith((' ', '\t')):
+                item = lines[index].strip()
+                if not item.startswith('- ') or not item[2:].strip():
+                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                tags.append(item[2:].strip().strip('\"\''))
+                index += 1
+            result[key] = tags
+            continue
+        if key == 'tags' and value.startswith('[') and value.endswith(']'):
+            tags = [item.strip().strip('\"\'') for item in value[1:-1].split(',')]
+            if any(not item for item in tags):
+                raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+            result[key] = tags
+        elif value and not value.startswith(('{', '&', '*', '|', '>')):
+            result[key] = value.strip('\"\'')
+        else:
+            raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+        index += 1
+    return result
+
+def parse_memory(path):
+    lines = path.read_text().splitlines()
+    metadata, content_lines = {}, lines
+    if lines and lines[0].strip() == '---':
+        closing = next((i for i, line in enumerate(lines[1:], 1) if line.strip() in ('---', '...')), None)
+        if closing is None:
+            raise SystemExit(f'cannot verify front matter in archived memory: {path}')
+        raw = '\n'.join(lines[1:closing])
+        try:
+            import yaml
+        except ImportError:
+            metadata = fallback_metadata(lines[1:closing], path)
+        else:
+            try:
+                metadata = yaml.safe_load(raw) or {}
+            except yaml.YAMLError as error:
+                raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
+        if not isinstance(metadata, dict):
+            raise SystemExit(f'cannot verify front matter in archived memory: {path}')
+        content_lines = lines[closing + 1:]
+    content = '\n'.join(content_lines)
+    relative = path.relative_to(memory_root).as_posix()
+    tags = metadata.get('tags', [])
+    if not isinstance(tags, (list, str)) or (isinstance(tags, list) and not all(isinstance(tag, str) for tag in tags)):
+        raise SystemExit(f'cannot verify tags front matter in archived memory: {path}')
+    for key in ('name', 'description', 'type', 'state', 'confidence'):
+        if key in metadata and not isinstance(metadata[key], str):
+            raise SystemExit(f'cannot verify {key} front matter in archived memory: {path}')
+    date_value = metadata.get('date', '')
+    if date_value and not isinstance(date_value, str):
+        if isinstance(date_value, (date, datetime)):
+            date_value = date_value.isoformat()
+        else:
+            raise SystemExit(f'cannot verify date front matter in archived memory: {path}')
+    result = subprocess.run(
+        ['git', '-C', source_repo, 'log', '-1', '--format=%cI', starting, '--', f'memory/{relative}'],
+        capture_output=True, text=True, check=False,
+    )
+    modified = result.stdout.strip()
+    if result.returncode or not modified:
+        raise SystemExit(f'cannot derive archived memory timestamp: {relative}')
+    wikilinks = sorted({
+        target.split('#', 1)[0].split('|', 1)[0].strip()
+        for target in link_pattern.findall(content)
+        if target.split('#', 1)[0].split('|', 1)[0].strip()
+    })
+    return {
+        'path': relative,
+        'slug': path.stem,
+        'name': metadata.get('name', path.stem),
+        'description': metadata.get('description', ''),
+        'type': metadata.get('type', 'unknown'),
+        'date': date_value,
+        'tags': tags,
+        'state': metadata.get('state', ''),
+        'confidence': metadata.get('confidence', ''),
+        'wikilinks': wikilinks,
+        'content_preview': content[:200].replace('\n', ' '),
+        'word_count': len(content.split()),
+        'modified': modified,
+    }
+
+paths = []
+for path in memory_root.rglob('*.md'):
+    relative = path.relative_to(memory_root)
+    if len(relative.parts) < 2 or relative.parts[0] in ('manifest', 'scripts') or relative.parts[0].startswith('.'):
+        continue
+    paths.append(path)
+memories = [parse_memory(path) for path in sorted(paths)]
+slug_map = {memory['slug']: memory for memory in memories}
+if len(slug_map) != len(memories):
+    raise SystemExit('cannot rebuild manifests with duplicate archived memory slugs')
+slug_by_lower = {slug.lower(): slug for slug in slug_map}
+forward, backlinks = defaultdict(list), defaultdict(list)
+for memory in memories:
+    for target in memory['wikilinks']:
+        resolved = target if target in slug_map else slug_by_lower.get(target.lower())
+        if resolved is not None:
+            forward[memory['slug']].append(resolved)
+            backlinks[resolved].append(memory['slug'])
+types, tags = defaultdict(list), defaultdict(list)
+for memory in memories:
+    types[memory['type']].append(memory['slug'])
+    for tag in memory['tags']:
+        tags[tag].append(memory['slug'])
+payloads = {
+    'index.json': {'sourceCommit': starting, 'total_memories': len(memories), 'memories': memories},
+    'wikilinks.json': {'sourceCommit': starting, 'forward_links': dict(forward), 'backlinks': dict(backlinks), 'total_links': sum(len(value) for value in forward.values())},
+    'by_type.json': {'sourceCommit': starting, 'types': dict(types)},
+    'by_tag.json': {'sourceCommit': starting, 'tags': dict(tags)},
+}
+for name, payload in payloads.items():
+    (manifest / name).write_text(json.dumps(payload, indent=2) + '\n')
+PY
 
 # The manifests are built after the knowledge commit, then copied from the
 # working tree. Their explicit sourceCommit marker binds every artifact to the
@@ -331,7 +497,12 @@ def archived_metadata(path):
                 raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
             key, value = (part.strip() for part in line.split(':', 1))
             if key not in ('type', 'tags'):
-                raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                # Unrelated front-matter fields are recreated by the archive
+                # manifest builder above; this verifier only needs type/tags.
+                index += 1
+                while index < len(front_matter) and front_matter[index].startswith((' ', '\t')):
+                    index += 1
+                continue
             if key == 'type':
                 if not value or value.startswith(('[', '{', '&', '*', '|', '>')):
                     raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
@@ -473,7 +644,10 @@ for path in sorted(p for p in workspace.rglob('*') if p.is_file() and not p.is_s
     # never participate in the verifier's immutable content manifest.
     if rel == '.git' or rel.startswith('.git/'):
         continue
-    entries[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
+    entries[rel] = {
+        'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        'mode': format(path.stat().st_mode & 0o777, '04o'),
+    }
 payload = {
     'source': str(source),
     'startingCommit': os.environ['STARTING_COMMIT'],
