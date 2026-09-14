@@ -312,8 +312,12 @@ it('does not persist an explicit send cancelled during its transport probe', asy
   const probeBlocked = new Promise<void>((resolve) => {
     releaseProbe = resolve;
   });
+  let blockNextProbe = true;
   rpc.request.mockImplementation(async (method, params) => {
-    if (method === 'config/read') await probeBlocked;
+    if (method === 'config/read' && blockNextProbe) {
+      blockNextProbe = false;
+      await probeBlocked;
+    }
     return request(method, params);
   });
 
@@ -327,10 +331,13 @@ it('does not persist an explicit send cancelled during its transport probe', asy
   );
 
   controller.abort();
-  releaseProbe();
-
   await expect(admission).rejects.toMatchObject({ name: 'AbortError' });
-  expect(c.queue()).toEqual([]);
+  await expect(c.admitExplicitSend({ id: 'next', prompt: 'admit immediately' })).resolves.toEqual({
+    model: 'test-model',
+    reasoningEffort: undefined,
+  });
+  expect(c.queue().map((command) => command.id)).toEqual(['next']);
+  releaseProbe();
 });
 
 it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {

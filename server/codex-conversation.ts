@@ -50,6 +50,32 @@ interface Options {
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
+
+function sendCancelledError(): Error {
+  const error = new Error('Send cancelled');
+  error.name = 'AbortError';
+  return error;
+}
+
+function raceWithAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) return Promise.reject(sendCancelledError());
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(sendCancelledError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 const ToolCall = z.object({
   threadId: z.string(),
   turnId: z.string(),
@@ -264,9 +290,9 @@ export class CodexConversation {
   }
   async admitExplicitSend(input: CodexCommandInput, signal?: AbortSignal) {
     const admission = this.explicitEnqueue.then(async () => {
-      if (signal?.aborted) throw new DOMException('Send cancelled', 'AbortError');
-      await this.probeOpenShellTransport();
-      if (signal?.aborted) throw new DOMException('Send cancelled', 'AbortError');
+      if (signal?.aborted) throw sendCancelledError();
+      await this.probeOpenShellTransport(signal);
+      if (signal?.aborted) throw sendCancelledError();
       return this.enqueue(input);
     });
     this.explicitEnqueue = admission.then(
@@ -288,14 +314,17 @@ export class CodexConversation {
    * persisting a new user command so transport recovery cannot turn that
    * command into an ambiguous interrupted turn.
    */
-  private async probeOpenShellTransport() {
+  private async probeOpenShellTransport(signal?: AbortSignal) {
     if (!this.opts.beforeReconnect || this.paused || !this.ready || this.closed) return;
     const generation = this.transportGeneration;
     try {
-      await this.client.request('config/read', {
-        cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-        includeLayers: false,
-      });
+      await raceWithAbort(
+        this.client.request('config/read', {
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+          includeLayers: false,
+        }),
+        signal,
+      );
     } catch (error) {
       // The transport close callback owns recovery persistence. If it ran,
       // continue so this explicit send can acknowledge recovery and reconnect.
