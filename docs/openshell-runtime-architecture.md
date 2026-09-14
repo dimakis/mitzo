@@ -51,7 +51,9 @@ files, host runtime, dependency, credential, log, and repository-administration
 paths. A new portable Git repository is initialized inside the seed, so normal
 edits, diffs, and local commits work without copying host `.git` state. It builds
 and validates a new versioned seed in a temporary sibling directory before it is
-published; it never changes an existing versioned seed.
+published; it never changes an existing versioned seed. Publication uses an
+OS-managed advisory lock, so a terminated updater releases its lock automatically
+and cannot leave a permanently stale version gate.
 
 Each generated manifest must carry `sourceCommit`, written by MGMT's
 `memory/scripts/build_index.py` from its checked-out `HEAD`. Mitzo requires that
@@ -63,7 +65,11 @@ the runtime-base commit whose executable dependency set it uses, plus file hashe
 The production lock and runtime image labels must continue to match that runtime
 base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
 without rebuilding the immutable runtime image; dependency changes still require a
-new image release. The mgmt updater alone validates dependency compatibility and
+new image release. Compatibility is calculated from the normalized effective
+`uv lock` plus `uv sync --frozen --no-dev --no-install-project` package set used by
+the runtime Dockerfile, so a dev-only lockfile change may proceed while any changed
+runtime package, default dependency group, source, constraint, or resolver effect
+requires an image release. The mgmt updater alone validates dependency compatibility and
 atomically repoints its `current` symlink after a successful seed build. Existing
 sandboxes retain their workspace; only future sandbox creation resolves that current
 seed path.

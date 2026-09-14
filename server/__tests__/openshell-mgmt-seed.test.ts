@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
   mkdtempSync,
@@ -15,17 +15,20 @@ import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
 
 let root = '';
+let lockHolder: ReturnType<typeof spawn> | undefined;
 afterEach(() => {
+  lockHolder?.kill();
+  lockHolder = undefined;
   if (root) rmSync(root, { recursive: true, force: true });
   root = '';
 });
 
-function writeRuntimeInputs(source: string, dependencies = ['runtime-dependency==1']) {
+function writeRuntimeInputs(source: string, dependencies: string[] = [], extra = '') {
   writeFileSync(
     join(source, 'pyproject.toml'),
-    `[project]\nname = "fixture"\nrequires-python = ">=3.11"\ndependencies = [${dependencies.map((item) => `"${item}"`).join(', ')}]\n\n[build-system]\nrequires = ["setuptools>=1"]\n`,
+    `[project]\nname = "fixture"\nversion = "0.0.0"\nrequires-python = ">=3.11"\ndependencies = [${dependencies.map((item) => `"${item}"`).join(', ')}]\n\n[build-system]\nrequires = ["setuptools>=1"]\n${extra}`,
   );
-  writeFileSync(join(source, 'uv.lock'), 'version = 1\n');
+  writeFileSync(join(source, 'uv.lock'), 'version = 1\nrevision = 1\nrequires-python = ">=3.11"\n');
 }
 
 function currentCommit(source: string) {
@@ -44,6 +47,63 @@ function writeMemoryManifests(source: string, sourceCommit: string) {
   );
   writeFileSync(join(manifest, 'by_type.json'), JSON.stringify({ sourceCommit, types: {} }) + '\n');
   writeFileSync(join(manifest, 'by_tag.json'), JSON.stringify({ sourceCommit, tags: {} }) + '\n');
+}
+
+function writeLinkedMemoryManifests(source: string, sourceCommit: string) {
+  const manifest = join(source, 'memory', 'manifest');
+  const memories = [
+    {
+      path: 'notes/alpha.md',
+      slug: 'alpha',
+      name: 'Alpha',
+      description: 'Runtime decision',
+      type: 'decision',
+      date: '',
+      tags: ['runtime'],
+      state: 'active',
+      confidence: 'high',
+      wikilinks: ['beta'],
+      content_preview: '# Alpha [[beta]] ',
+      word_count: 2,
+      modified: '2026-01-01T00:00:00',
+    },
+    {
+      path: 'notes/beta.md',
+      slug: 'beta',
+      name: 'Beta',
+      description: 'Seed reference',
+      type: 'reference',
+      date: '',
+      tags: ['runtime', 'seed'],
+      state: 'active',
+      confidence: 'high',
+      wikilinks: [],
+      content_preview: '# Beta ',
+      word_count: 2,
+      modified: '2026-01-01T00:00:00',
+    },
+  ];
+  writeFileSync(
+    join(manifest, 'index.json'),
+    JSON.stringify({ sourceCommit, total_memories: memories.length, memories }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'wikilinks.json'),
+    JSON.stringify({
+      sourceCommit,
+      forward_links: { alpha: ['beta'] },
+      backlinks: { beta: ['alpha'] },
+      total_links: 1,
+    }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'by_type.json'),
+    JSON.stringify({ sourceCommit, types: { decision: ['alpha'], reference: ['beta'] } }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'by_tag.json'),
+    JSON.stringify({ sourceCommit, tags: { runtime: ['alpha', 'beta'], seed: ['beta'] } }) + '\n',
+  );
 }
 
 it('builds a versioned MGMT seed without host credentials or repository administration', () => {
@@ -124,7 +184,6 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
   expect(baseline.runtimeBaseCommit).toBe(baseline.startingCommit);
   expect(baseline.saveBack).toBe('not-implemented');
-  expect(existsSync(join(root, '.output.lock'))).toBe(false);
 });
 
 it('fails closed when a required rebuilt memory manifest is missing', () => {
@@ -159,7 +218,48 @@ it('fails closed when a required rebuilt memory manifest is missing', () => {
     ),
   ).toThrow();
   expect(existsSync(output)).toBe(false);
-  expect(existsSync(join(root, '.output.lock'))).toBe(false);
+});
+
+it('accepts generated manifests for linked, tagged knowledge files', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-linked-manifests-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(join(source, 'memory', 'notes'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  writeFileSync(join(source, 'memory', 'notes', 'alpha.md'), '# Alpha\n[[beta]]\n');
+  writeFileSync(join(source, 'memory', 'notes', 'beta.md'), '# Beta\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge',
+  ]);
+  writeLinkedMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(
+    JSON.parse(readFileSync(join(output, 'mgmt', 'memory', 'manifest', 'wikilinks.json'), 'utf8')),
+  ).toMatchObject({
+    forward_links: { alpha: ['beta'] },
+    backlinks: { beta: ['alpha'] },
+    total_links: 1,
+  });
 });
 
 it('fails closed when a rebuilt memory manifest is inconsistent', () => {
@@ -194,7 +294,6 @@ it('fails closed when a rebuilt memory manifest is inconsistent', () => {
     ),
   ).toThrow();
   expect(existsSync(output)).toBe(false);
-  expect(existsSync(join(root, '.output.lock'))).toBe(false);
 });
 
 it('rejects manifest provenance that does not attest to the archived starting commit', () => {
@@ -305,7 +404,7 @@ it('rejects runtime dependency changes after the runtime base commit', () => {
     '-m',
     'runtime base',
   ]);
-  writeRuntimeInputs(source, ['runtime-dependency==2']);
+  writeRuntimeInputs(source, ['requests==2.32.5']);
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -325,11 +424,11 @@ it('rejects runtime dependency changes after the runtime base commit', () => {
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
       { cwd: resolve('.'), stdio: 'pipe' },
     ),
-  ).toThrow();
+  ).toThrow(/effective no-dev uv install set changed/);
   expect(existsSync(output)).toBe(false);
 });
 
-it('rejects a changed uv.lock after the runtime base commit', () => {
+it('allows a dev-only uv.lock refresh after the runtime base commit', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-runtime-lock-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -350,7 +449,10 @@ it('rejects a changed uv.lock after the runtime base commit', () => {
     '-m',
     'runtime base',
   ]);
-  writeFileSync(join(source, 'uv.lock'), 'version = 2\n');
+  writeFileSync(
+    join(source, 'uv.lock'),
+    'version = 1\nrevision = 1\nrequires-python = ">=3.11"\n# dev-only lock refresh\n',
+  );
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -360,7 +462,7 @@ it('rejects a changed uv.lock after the runtime base commit', () => {
     'commit',
     '-q',
     '-m',
-    'lockfile change',
+    'dev-only lockfile refresh',
   ]);
   writeMemoryManifests(source, currentCommit(source));
 
@@ -368,10 +470,10 @@ it('rejects a changed uv.lock after the runtime base commit', () => {
     execFileSync(
       'bash',
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
-      { cwd: resolve('.'), stdio: 'pipe' },
+      { cwd: resolve('.') },
     ),
-  ).toThrow();
-  expect(existsSync(output)).toBe(false);
+  ).not.toThrow();
+  expect(existsSync(output)).toBe(true);
 });
 
 it('allows a dev or build-system-only change after the runtime base commit', () => {
@@ -419,6 +521,112 @@ it('allows a dev or build-system-only change after the runtime base commit', () 
       { cwd: resolve('.') },
     ),
   ).not.toThrow();
+});
+
+it('allows a changed dev-only dependency and lock refresh', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-dev-lock-refresh-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source, [], '\n[dependency-groups]\ndev = ["requests==2.32.5"]\n');
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  writeFileSync(
+    join(source, 'pyproject.toml'),
+    readFileSync(join(source, 'pyproject.toml'), 'utf8').replace(
+      'requests==2.32.5',
+      'requests==2.32.4',
+    ),
+  );
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'dev dependency update',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(existsSync(output)).toBe(true);
+});
+
+it('rejects a changed default dependency group that alters the runtime install set', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-default-groups-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(
+    source,
+    [],
+    '\n[dependency-groups]\nruntime = ["requests==2.32.5"]\n\n[tool.uv]\ndefault-groups = ["runtime"]\n',
+  );
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  writeFileSync(
+    join(source, 'pyproject.toml'),
+    readFileSync(join(source, 'pyproject.toml'), 'utf8').replace(
+      'default-groups = ["runtime"]',
+      'default-groups = []',
+    ),
+  );
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'default group change',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow(/effective no-dev uv install set changed/);
+  expect(existsSync(output)).toBe(false);
 });
 
 it('rejects a runtime base that is not an ancestor of the seed starting commit', () => {
@@ -552,7 +760,7 @@ it('rejects a symlinked memory-manifest parent that escapes the source repositor
   expect(existsSync(output)).toBe(false);
 });
 
-it('rejects concurrent publishers without leaving an output, temp directory, or lock', () => {
+it('rejects a live publisher lock, then recovers when its holder is killed', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-publish-lock-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -575,7 +783,21 @@ it('rejects concurrent publishers without leaving an output, temp directory, or 
   ]);
   writeMemoryManifests(source, currentCommit(source));
   const concurrentLock = join(root, '.output.lock');
-  mkdirSync(concurrentLock);
+  const lockReady = join(root, 'lock-ready');
+  lockHolder = spawn(
+    'python3',
+    [
+      '-c',
+      'import fcntl, pathlib, sys, time; handle = open(sys.argv[1], "a+"); fcntl.flock(handle, fcntl.LOCK_EX); pathlib.Path(sys.argv[2]).write_text("ready"); time.sleep(60)',
+      concurrentLock,
+      lockReady,
+    ],
+    { stdio: 'ignore' },
+  );
+  for (let attempts = 0; attempts < 50 && !existsSync(lockReady); attempts += 1) {
+    execFileSync('sleep', ['0.01']);
+  }
+  expect(existsSync(lockReady)).toBe(true);
 
   expect(() =>
     execFileSync(
@@ -586,7 +808,19 @@ it('rejects concurrent publishers without leaving an output, temp directory, or 
   ).toThrow();
   expect(existsSync(output)).toBe(false);
   expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
-  rmSync(concurrentLock, { recursive: true, force: true });
+  lockHolder.kill('SIGKILL');
+  lockHolder = undefined;
+  execFileSync('sleep', ['0.05']);
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(existsSync(output)).toBe(true);
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
 });
 
 it('rejects a tracked symlink before an overlay can write through it', () => {

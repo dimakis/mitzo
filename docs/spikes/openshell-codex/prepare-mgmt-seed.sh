@@ -5,13 +5,18 @@ source_repo="${1:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR [RUNTIME_BA
 output_root="${2:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR [RUNTIME_BASE_COMMIT]}"
 output_parent="$(dirname "$output_root")"
 output_name="$(basename "$output_root")"
-lock_dir="$output_parent/.${output_name}.lock"
+lock_file="$output_parent/.${output_name}.lock"
+lock_status="$output_parent/.${output_name}.lock-status.$$"
 build_root=''
-lock_acquired=0
+runtime_projection_dir=''
+lock_pid=''
 
 cleanup() {
   test -z "$build_root" || rm -rf "$build_root"
-  test "$lock_acquired" -eq 0 || rmdir "$lock_dir" 2>/dev/null || true
+  test -z "$runtime_projection_dir" || rm -rf "$runtime_projection_dir"
+  test -z "$lock_pid" || kill "$lock_pid" 2>/dev/null || true
+  test -z "$lock_pid" || wait "$lock_pid" 2>/dev/null || true
+  rm -f "$lock_status"
 }
 
 test "${source_repo#/}" != "$source_repo" || { echo 'source must be absolute' >&2; exit 2; }
@@ -24,11 +29,47 @@ git -C "$source_repo" merge-base --is-ancestor "$runtime_base_commit" "$starting
   exit 2
 }
 test -d "$output_parent" || { echo 'output parent does not exist' >&2; exit 2; }
-mkdir "$lock_dir" 2>/dev/null || {
-  echo 'another seed publisher is already preparing this versioned output' >&2
-  exit 2
-}
-lock_acquired=1
+python3 - "$lock_file" "$lock_status" <<'PY' &
+import fcntl, pathlib, sys, time
+
+lock_path = pathlib.Path(sys.argv[1])
+status_path = pathlib.Path(sys.argv[2])
+try:
+    handle = lock_path.open('a+')
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    status_path.write_text('busy\n')
+    raise SystemExit(0)
+except OSError as error:
+    status_path.write_text(f'error:{error}\n')
+    raise SystemExit(1)
+status_path.write_text('locked\n')
+while True:
+    time.sleep(60)
+PY
+lock_pid="$!"
+for _ in $(seq 1 50); do
+  test -e "$lock_status" && break
+  sleep 0.1
+done
+lock_result="$(test -f "$lock_status" && tr -d '\n' < "$lock_status" || true)"
+case "$lock_result" in
+  locked) ;;
+  busy)
+    wait "$lock_pid" 2>/dev/null || true
+    lock_pid=''
+    rm -f "$lock_status"
+    echo 'another seed publisher is already preparing this versioned output' >&2
+    exit 2
+    ;;
+  *)
+    wait "$lock_pid" 2>/dev/null || true
+    lock_pid=''
+    rm -f "$lock_status"
+    echo 'could not acquire an OS-managed seed publication lock' >&2
+    exit 2
+    ;;
+esac
 trap cleanup EXIT
 test ! -e "$output_root" || { echo 'output already exists' >&2; exit 2; }
 build_root="$(mktemp -d "$output_parent/.${output_name}.tmp.XXXXXX")"
@@ -36,40 +77,59 @@ workspace="$build_root/mgmt"
 baseline="$build_root/baseline.json"
 mkdir -p "$workspace"
 
-# A knowledge-only seed may reuse the pinned runtime only when its runtime
-# dependency inputs are unchanged. This intentionally ignores dev dependencies
-# and build-system metadata, matching mgmt's updater policy exactly.
-git -C "$source_repo" diff --quiet "$runtime_base_commit" "$starting_commit" -- uv.lock || {
-  echo 'runtime compatibility failed: uv.lock changed since the runtime base commit' >&2
+# Mirror Dockerfile.mgmt-runtime exactly: each historical pyproject.toml and
+# uv.lock pair is copied into an otherwise empty build context, `uv lock` is run,
+# then `uv sync --frozen --no-dev --no-install-project` is represented by a
+# normalized no-dev export plus its effective Python constraint. This includes
+# default dependency groups, sources, indexes, constraints, resolver settings,
+# and locked artifacts to the extent that they alter the packages installed in
+# the runtime image. A dev-only lockfile refresh whose no-dev projection is
+# unchanged is intentionally compatible.
+runtime_projection_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
+runtime_projection() {
+  local commit="$1"
+  local projection_dir="$runtime_projection_dir/$commit"
+  mkdir -p "$projection_dir"
+  git -C "$source_repo" show "$commit:pyproject.toml" > "$projection_dir/pyproject.toml"
+  git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
+  (
+    cd "$projection_dir"
+    UV_CACHE_DIR="$projection_dir/.uv-cache" uv lock >/dev/null
+    python3 - <<'PY'
+import tomllib
+
+with open('pyproject.toml', 'rb') as handle:
+    project = tomllib.load(handle).get('project')
+if not isinstance(project, dict) or not isinstance(project.get('requires-python'), str):
+    raise SystemExit('pyproject.toml must declare project.requires-python')
+print(f"requires-python={project['requires-python']}")
+PY
+    UV_CACHE_DIR="$projection_dir/.uv-cache" uv export --frozen --no-dev --no-emit-project --no-annotate --no-header \
+      | LC_ALL=C sort
+  )
+}
+runtime_base_projection="$(runtime_projection "$runtime_base_commit")" || {
+  echo 'runtime compatibility failed: could not compute the runtime-base uv projection' >&2
   exit 3
 }
-python3 - "$source_repo" "$runtime_base_commit" "$starting_commit" <<'PY'
-import subprocess, sys, tomllib
+starting_projection="$(runtime_projection "$starting_commit")" || {
+  echo 'runtime compatibility failed: could not compute the seed uv projection' >&2
+  exit 3
+}
+rm -rf "$runtime_projection_dir"
+runtime_projection_dir=''
+if test "$runtime_base_projection" != "$starting_projection"; then
+  echo 'runtime compatibility failed: effective no-dev uv install set changed since the runtime base commit' >&2
+  exit 3
+fi
 
-repo = sys.argv[1]
-base = sys.argv[2]
-starting = sys.argv[3]
-
-def runtime_inputs(commit):
-    try:
-        raw = subprocess.check_output(
-            ['git', '-C', repo, 'show', f'{commit}:pyproject.toml'], text=True
-        )
-        parsed = tomllib.loads(raw)
-        project = parsed['project']
-        requires_python = project['requires-python']
-        dependencies = project['dependencies']
-    except (KeyError, OSError, subprocess.CalledProcessError, tomllib.TOMLDecodeError) as error:
-        raise SystemExit(f'cannot read runtime dependency inputs at {commit}: {error}')
-    if not isinstance(requires_python, str) or not all(isinstance(item, str) for item in dependencies):
-        raise SystemExit(f'invalid runtime dependency inputs at {commit}')
-    return requires_python, dependencies
-
-if runtime_inputs(base) != runtime_inputs(starting):
-    raise SystemExit(
-        'runtime compatibility failed: pyproject.toml project.requires-python or project.dependencies changed since the runtime base commit'
-    )
-PY
+# Ignored manifests are generated from the working tree. Refuse a dirty tracked
+# knowledge tree so their sourceCommit marker cannot be attached to data that
+# differs from the immutable startingCommit archived below.
+git -C "$source_repo" diff --quiet "$starting_commit" -- memory || {
+  echo 'generated memory manifests cannot attest to a dirty tracked knowledge tree' >&2
+  exit 3
+}
 
 safe_path() {
   case "$1" in
@@ -224,6 +284,37 @@ if backward != {key: sorted(value) for key, value in expected_backlinks.items()}
     raise SystemExit('wikilinks.json backlinks do not invert forward_links')
 if links.get('total_links') != sum(len(targets) for targets in forward.values()):
     raise SystemExit('wikilinks.json total_links does not match forward_links')
+
+# Reproduce build_index.py's resolved-link semantics from the archived Markdown,
+# including anchor/display cleanup and case-insensitive slug fallback. This binds
+# the graph to the archived knowledge content rather than merely checking that
+# the four JSON files agree with one another.
+import re
+link_pattern = re.compile(r'\[\[([^\]]+)\]\]')
+expected_forward = {}
+slug_by_lower = {slug.lower(): slug for slug in slugs}
+for slug, entry in memory_by_slug.items():
+    content = (memory_root / entry['path']).read_text()
+    raw_targets = {
+        target.split('#', 1)[0].split('|', 1)[0].strip()
+        for target in link_pattern.findall(content)
+    }
+    recorded_targets = entry.get('wikilinks')
+    if not isinstance(recorded_targets, list) or not all(isinstance(target, str) for target in recorded_targets):
+        raise SystemExit('inconsistent index.json memory wikilinks')
+    if set(recorded_targets) != {target for target in raw_targets if target}:
+        raise SystemExit('index.json wikilinks do not match archived startingCommit Markdown links')
+    resolved = []
+    for target in raw_targets:
+        if not target:
+            continue
+        resolved_target = target if target in slugs else slug_by_lower.get(target.lower())
+        if resolved_target is not None:
+            resolved.append(resolved_target)
+    if resolved:
+        expected_forward[slug] = sorted(resolved)
+if forward != expected_forward:
+    raise SystemExit('wikilinks.json does not match archived startingCommit Markdown links')
 PY
 
 test -z "$(find "$workspace" -type l -print -quit)" || {
@@ -285,8 +376,8 @@ test ! -e "$output_root" || {
 }
 mv "$build_root" "$output_root"
 build_root=''
-rmdir "$lock_dir"
-lock_acquired=0
+cleanup
+lock_pid=''
 trap - EXIT
 workspace="$output_root/mgmt"
 
