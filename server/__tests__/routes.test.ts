@@ -1324,6 +1324,7 @@ describe('account catalog routes', () => {
         paused: true,
         connected: false,
         recovering: false,
+        recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
       })
@@ -1333,6 +1334,7 @@ describe('account catalog routes', () => {
         paused: true,
         connected: false,
         recovering: false,
+        recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
       });
