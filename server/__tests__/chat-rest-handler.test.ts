@@ -162,7 +162,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {
-    vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
+    vi.mocked(handleSendV2).mockImplementationOnce(async (_id, transport, _msg, _ctx, delivery) => {
       if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });
       const sid = delivery!.initialSessionId!;
       const seq = eventStore.append(sid, 'message_start', {

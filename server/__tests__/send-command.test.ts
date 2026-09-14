@@ -124,4 +124,28 @@ describe('durable send acceptance', () => {
       store.close();
     }
   });
+
+  it('coalesces a concurrent retry until the original admission settles', async () => {
+    const store = new EventStore(':memory:');
+    let rejectAdmission!: (reason: Error) => void;
+    const dispatch = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAdmission = reject;
+        }),
+    );
+    try {
+      const original = acceptSendCommandAsync(store, message, dispatch);
+      const retry = acceptSendCommandAsync(store, message, dispatch);
+
+      expect(retry).toBe(original);
+      expect(dispatch).toHaveBeenCalledOnce();
+      rejectAdmission(new Error('probe failed'));
+      await expect(original).rejects.toThrow('probe failed');
+      await expect(retry).rejects.toThrow('probe failed');
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBe('probe failed');
+    } finally {
+      store.close();
+    }
+  });
 });
