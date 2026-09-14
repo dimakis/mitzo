@@ -262,9 +262,11 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
   }
-  async admitExplicitSend(input: CodexCommandInput) {
+  async admitExplicitSend(input: CodexCommandInput, signal?: AbortSignal) {
     const admission = this.explicitEnqueue.then(async () => {
+      if (signal?.aborted) throw new DOMException('Send cancelled', 'AbortError');
       await this.probeOpenShellTransport();
+      if (signal?.aborted) throw new DOMException('Send cancelled', 'AbortError');
       return this.enqueue(input);
     });
     this.explicitEnqueue = admission.then(

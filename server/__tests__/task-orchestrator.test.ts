@@ -81,6 +81,39 @@ describe('TaskOrchestrator', () => {
     expect(orchestrator.getStatus().activeTaskId).toBeNull();
   });
 
+  it('cancels a pending pinned dispatch when stopped and ignores its stale failure', async () => {
+    let rejectDispatch!: (error: Error) => void;
+    vi.mocked(sendToChat).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_resolve, reject) => {
+          rejectDispatch = reject;
+        }),
+    );
+    const firstGoal = store.create({ title: 'First goal' });
+    const firstTask = store.create({ title: 'First task', parentId: firstGoal.id });
+
+    orchestrator.start(firstGoal.id);
+    const signal = vi.mocked(sendToChat).mock.calls[0]?.[7];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+
+    orchestrator.stop();
+    expect(signal?.aborted).toBe(true);
+
+    const secondGoal = store.create({ title: 'Second goal' });
+    const secondTask = store.create({ title: 'Second task', parentId: secondGoal.id });
+    orchestrator.start(secondGoal.id);
+    rejectDispatch(new Error('stale queue failure'));
+    await Promise.resolve();
+
+    expect(orchestrator.getStatus().goalId).toBe(secondGoal.id);
+    expect(orchestrator.getStatus().activeTaskId).toBe(secondTask.id);
+    expect(store.get(firstTask.id)!.status).toBe('active');
+    expect(store.get(firstTask.id)!.annotations).not.toContain(
+      'dispatch_error: stale queue failure',
+    );
+  });
+
   it('pause() transitions from running to paused', () => {
     const goal = store.create({ title: 'Goal' });
     store.create({ title: 'Task', parentId: goal.id });

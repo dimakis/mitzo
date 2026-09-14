@@ -49,7 +49,15 @@ it('waits for recovery-aware admission before acknowledging an idle follow-up', 
   } as unknown as ManagedSession);
   vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(true);
   const result = chat.sendToChat('c', 'hello', undefined, undefined, 'same-id');
-  expect(runtime.admitExplicitSend).toHaveBeenCalledWith({ id: 'same-id', prompt: 'hello' });
+  expect(runtime.admitExplicitSend).toHaveBeenCalledWith(
+    {
+      id: 'same-id',
+      prompt: 'hello',
+      images: undefined,
+      reasoningEffort: undefined,
+    },
+    undefined,
+  );
   expect(runtime.enqueue).not.toHaveBeenCalled();
   expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
@@ -82,11 +90,14 @@ it('queues image and thinking input on an existing conversation', async () => {
   await expect(
     chat.sendToChat('c', 'describe', images, undefined, 'image-followup', 'gpt', 'high'),
   ).resolves.toBe(true);
-  expect(runtime.admitExplicitSend).toHaveBeenLastCalledWith({
-    id: 'image-followup',
-    prompt: 'describe',
-    model: 'gpt',
-    reasoningEffort: 'high',
-    images,
-  });
+  expect(runtime.admitExplicitSend).toHaveBeenLastCalledWith(
+    {
+      id: 'image-followup',
+      prompt: 'describe',
+      model: 'gpt',
+      reasoningEffort: 'high',
+      images,
+    },
+    undefined,
+  );
 });

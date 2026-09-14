@@ -1617,8 +1617,10 @@ export async function sendToChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
+    if (signal?.aborted) return false;
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
@@ -1717,13 +1719,16 @@ export async function sendToChat(
     };
     if (codex) {
       try {
-        const selection = await codex.admitExplicitSend({
-          id: messageId,
-          prompt: fullPrompt,
-          images,
-          reasoningEffort,
-          ...(model ? { model } : {}),
-        });
+        const selection = await codex.admitExplicitSend(
+          {
+            id: messageId,
+            prompt: fullPrompt,
+            images,
+            reasoningEffort,
+            ...(model ? { model } : {}),
+          },
+          signal,
+        );
         selectionReasoningEffort = selection.reasoningEffort;
         if (model) session.model = selection.model;
         acknowledge();
@@ -1735,6 +1740,7 @@ export async function sendToChat(
           }),
         );
       } catch {
+        if (signal?.aborted) return false;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,

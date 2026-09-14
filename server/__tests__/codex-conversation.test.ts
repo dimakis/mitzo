@@ -297,6 +297,42 @@ it('recovers an idle dead transport before persisting the explicit send', async 
   expect(c.isPaused()).toBe(false);
 });
 
+it('does not persist an explicit send cancelled during its transport probe', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  let releaseProbe!: () => void;
+  const probeBlocked = new Promise<void>((resolve) => {
+    releaseProbe = resolve;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read') await probeBlocked;
+    return request(method, params);
+  });
+
+  const controller = new AbortController();
+  const admission = c.admitExplicitSend(
+    { id: 'cancelled', prompt: 'do not persist this' },
+    controller.signal,
+  );
+  await vi.waitFor(() =>
+    expect(rpc.request.mock.calls.some(([method]) => method === 'config/read')).toBe(true),
+  );
+
+  controller.abort();
+  releaseProbe();
+
+  await expect(admission).rejects.toMatchObject({ name: 'AbortError' });
+  expect(c.queue()).toEqual([]);
+});
+
 it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });

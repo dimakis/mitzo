@@ -68,6 +68,8 @@ export class TaskOrchestrator {
   private spawnDepth = 0;
   private _spawnEnabled = false;
   private deps: OrchestratorDeps;
+  private runGeneration = 0;
+  private dispatchAbort = new AbortController();
 
   /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
   private recentSpawns = new Map<string, number>();
@@ -97,11 +99,17 @@ export class TaskOrchestrator {
   }
 
   private dispatchToPinned(taskId: string, clientId: string, prompt: string): void {
-    void Promise.resolve(sendToChat(clientId, prompt))
+    const generation = this.runGeneration;
+    const signal = this.dispatchAbort.signal;
+    void Promise.resolve(
+      sendToChat(clientId, prompt, undefined, undefined, undefined, undefined, undefined, signal),
+    )
       .then((accepted) => {
+        if (signal.aborted || generation !== this.runGeneration) return;
         if (!accepted) this.markDispatchFailed(taskId, 'session did not accept the task');
       })
       .catch((err: unknown) => {
+        if (signal.aborted || generation !== this.runGeneration) return;
         this.markDispatchFailed(
           taskId,
           err instanceof Error ? err.message : 'session dispatch failed',
@@ -153,6 +161,9 @@ export class TaskOrchestrator {
     }
 
     this.state = 'running';
+    this.dispatchAbort.abort();
+    this.dispatchAbort = new AbortController();
+    this.runGeneration++;
     this.goalId = goalId;
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
@@ -217,6 +228,8 @@ export class TaskOrchestrator {
 
   stop(): LoopStatus {
     if (this.state === 'idle') return this.getStatus();
+    this.dispatchAbort.abort();
+    this.runGeneration++;
     this.state = 'idle';
     this.goalId = null;
     this.activeTaskId = null;
