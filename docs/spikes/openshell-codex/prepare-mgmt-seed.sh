@@ -88,6 +88,10 @@ case "$lock_result" in
     exit 2
     ;;
   *)
+    # A delayed helper can acquire the lock after this coordinator has given
+    # up. Terminate it before waiting: otherwise its parent-death watch waits
+    # for us while we wait for it, wedging this publisher indefinitely.
+    kill "$lock_pid" 2>/dev/null || true
     wait "$lock_pid" 2>/dev/null || true
     lock_pid=''
     rm -f "$lock_status"
@@ -274,9 +278,9 @@ for entry in memories:
         raise SystemExit('inconsistent index.json memory path or slug')
     if path in paths or slug in slugs:
         raise SystemExit('inconsistent index.json duplicate memory path or slug')
-    if not isinstance(entry.get('type', 'unknown'), str) or not isinstance(entry.get('tags', []), list):
+    if not isinstance(entry.get('type', 'unknown'), str) or not isinstance(entry.get('tags', []), (list, str)):
         raise SystemExit('inconsistent index.json memory metadata')
-    if not all(isinstance(tag, str) for tag in entry.get('tags', [])):
+    if isinstance(entry.get('tags', []), list) and not all(isinstance(tag, str) for tag in entry.get('tags', [])):
         raise SystemExit('inconsistent index.json memory tags')
     paths.add(path)
     slugs.add(slug)
@@ -295,14 +299,90 @@ def normalized_groups(value, key):
 
 expected_types = {}
 expected_tags = {}
+def archived_metadata(path):
+    """Mirror python-frontmatter's YAML metadata for type and tags.
+
+    When PyYAML is not available to the updater, accept only the common safe
+    scalar/list subset and fail closed for richer YAML rather than treating a
+    malformed value as trusted metadata. A scalar ``tags`` value stays a
+    scalar: that intentionally mirrors build_index.py's current iteration
+    semantics instead of silently normalizing its generated output.
+    """
+    lines = path.read_text().splitlines()
+    if not lines or lines[0].strip() != '---':
+        return 'unknown', []
+    closing = next((index for index, line in enumerate(lines[1:], 1)
+                    if line.strip() in ('---', '...')), None)
+    if closing is None:
+        raise SystemExit(f'cannot verify front matter in archived memory: {path}')
+    raw = '\n'.join(lines[1:closing])
+    try:
+        import yaml
+    except ImportError:
+        metadata = {}
+        front_matter = lines[1:closing]
+        index = 0
+        while index < len(front_matter):
+            line = front_matter[index]
+            if not line.strip() or line.lstrip().startswith('#'):
+                index += 1
+                continue
+            if line.startswith((' ', '\t')) or ':' not in line:
+                raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+            key, value = (part.strip() for part in line.split(':', 1))
+            if key not in ('type', 'tags'):
+                raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+            if key == 'type':
+                if not value or value.startswith(('[', '{', '&', '*', '|', '>')):
+                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                metadata[key] = value.strip('"\'')
+            elif value.startswith('[') and value.endswith(']'):
+                items = [item.strip().strip('"\'') for item in value[1:-1].split(',')]
+                if any(not item for item in items):
+                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                metadata[key] = items
+            elif value:
+                if value.startswith(('{', '&', '*', '|', '>')):
+                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                metadata[key] = value.strip('"\'')
+            else:
+                items = []
+                index += 1
+                while index < len(front_matter) and front_matter[index].startswith((' ', '\t')):
+                    item = front_matter[index].strip()
+                    if not item.startswith('- ') or not item[2:].strip():
+                        raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
+                    items.append(item[2:].strip().strip('"\''))
+                    index += 1
+                metadata[key] = items
+                continue
+            index += 1
+    else:
+        try:
+            metadata = yaml.safe_load(raw) or {}
+        except yaml.YAMLError as error:
+            raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
+    if not isinstance(metadata, dict):
+        raise SystemExit(f'cannot verify front matter in archived memory: {path}')
+    memory_type = metadata.get('type', 'unknown')
+    tags = metadata.get('tags', [])
+    if not isinstance(memory_type, str) or not isinstance(tags, (list, str)):
+        raise SystemExit(f'cannot verify metadata front matter in archived memory: {path}')
+    if isinstance(tags, list) and not all(isinstance(tag, str) for tag in tags):
+        raise SystemExit(f'cannot verify tags front matter in archived memory: {path}')
+    return memory_type, tags
+
 for slug, entry in memory_by_slug.items():
-    expected_types.setdefault(entry.get('type', 'unknown'), []).append(slug)
-    for tag in entry.get('tags', []):
+    archived_type, archived_tags = archived_metadata(memory_root / entry['path'])
+    if entry.get('type', 'unknown') != archived_type or entry.get('tags', []) != archived_tags:
+        raise SystemExit('index.json type or tags do not match archived startingCommit Markdown metadata')
+    expected_types.setdefault(archived_type, []).append(slug)
+    for tag in archived_tags:
         expected_tags.setdefault(tag, []).append(slug)
 if normalized_groups(by_type, 'types') != {key: sorted(value) for key, value in expected_types.items()}:
-    raise SystemExit('by_type.json does not match index.json')
+    raise SystemExit('by_type.json does not match archived startingCommit Markdown metadata')
 if normalized_groups(by_tag, 'tags') != {key: sorted(value) for key, value in expected_tags.items()}:
-    raise SystemExit('by_tag.json does not match index.json')
+    raise SystemExit('by_tag.json does not match archived startingCommit Markdown metadata')
 
 forward = normalized_groups(links, 'forward_links')
 backward = normalized_groups(links, 'backlinks')
@@ -388,6 +468,11 @@ workspace = pathlib.Path(os.environ['WORKSPACE'])
 entries = {}
 for path in sorted(p for p in workspace.rglob('*') if p.is_file() and not p.is_symlink()):
     rel = path.relative_to(workspace).as_posix()
+    # The fresh portable repository is an implementation detail of seed
+    # construction. Its mutable Git internals are not seed payload and must
+    # never participate in the verifier's immutable content manifest.
+    if rel == '.git' or rel.startswith('.git/'):
+        continue
     entries[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
 payload = {
     'source': str(source),

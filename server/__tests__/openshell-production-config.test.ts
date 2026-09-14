@@ -1,5 +1,16 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
   validateRuntimeImageLabels,
@@ -23,6 +34,42 @@ const config = {
   MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
   OPENSHELL_WORKSPACE: 'default',
 };
+
+let preparedSeed = '';
+
+afterEach(() => {
+  if (preparedSeed) rmSync(preparedSeed, { recursive: true, force: true });
+  preparedSeed = '';
+});
+
+function digest(contents: string) {
+  return createHash('sha256').update(contents).digest('hex');
+}
+
+function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
+  preparedSeed = mkdtempSync(join(tmpdir(), 'mitzo-prepared-seed-'));
+  const manifestDirectory = join(preparedSeed, 'memory', 'manifest');
+  mkdirSync(manifestDirectory, { recursive: true });
+  const files: Record<string, string> = { 'knowledge.md': 'immutable knowledge\n' };
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    files[`memory/manifest/${name}`] = JSON.stringify({ sourceCommit }) + '\n';
+  }
+  for (const [path, contents] of Object.entries(files)) {
+    const destination = join(preparedSeed, path);
+    mkdirSync(join(destination, '..'), { recursive: true });
+    writeFileSync(destination, contents);
+  }
+  return {
+    seedPath: preparedSeed,
+    baseline: {
+      startingCommit: sourceCommit,
+      runtimeBaseCommit: sourceCommit,
+      files: Object.fromEntries(
+        Object.entries(files).map(([path, contents]) => [path, digest(contents)]),
+      ),
+    },
+  };
+}
 
 describe('OpenShell production bundle validation', () => {
   it('allows a newer knowledge seed against its compatible runtime base', () => {
@@ -51,6 +98,66 @@ describe('OpenShell production bundle validation', () => {
       'runtime base',
     );
   });
+
+  it('binds a dynamic baseline to the selected immutable seed contents', () => {
+    const { baseline, seedPath } = makePreparedSeed();
+    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).not.toThrow();
+
+    expect(() =>
+      validateSeedBaseline(
+        { ...baseline, files: { ...baseline.files, 'knowledge.md': 'b'.repeat(64) } },
+        runtimeManifest,
+        seedPath,
+      ),
+    ).toThrow('file hash');
+
+    writeFileSync(join(seedPath, 'knowledge.md'), 'modified knowledge\n');
+    expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('file hash');
+  });
+
+  it('rejects dynamic seeds with extra, missing, or symlinked payload files', () => {
+    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    let fixture = makePreparedSeed();
+    writeFileSync(join(fixture.seedPath, 'extra.txt'), 'extra\n');
+    expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
+      'exactly match',
+    );
+
+    rmSync(fixture.seedPath, { recursive: true, force: true });
+    preparedSeed = '';
+    fixture = makePreparedSeed();
+    unlinkSync(join(fixture.seedPath, 'knowledge.md'));
+    expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
+      'exactly match',
+    );
+
+    rmSync(fixture.seedPath, { recursive: true, force: true });
+    preparedSeed = '';
+    fixture = makePreparedSeed();
+    symlinkSync(join(fixture.seedPath, 'knowledge.md'), join(fixture.seedPath, 'escaped-link'));
+    expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
+      'unsafe symlink',
+    );
+  });
+
+  it.each(['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json'])(
+    'requires %s to attest to the baseline source commit',
+    (name) => {
+      const { baseline, seedPath } = makePreparedSeed();
+      const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+      const path = join(seedPath, 'memory', 'manifest', name);
+      const contents = JSON.stringify({ sourceCommit: 'b'.repeat(40) }) + '\n';
+      writeFileSync(path, contents);
+      const altered = {
+        ...baseline,
+        files: { ...baseline.files, [`memory/manifest/${name}`]: digest(contents) },
+      };
+      expect(() => validateSeedBaseline(altered, runtimeManifest, seedPath)).toThrow(
+        'manifest source commit',
+      );
+    },
+  );
 
   it('rejects malformed seed commit identifiers', () => {
     const runtimeCommit = 'a'.repeat(40);

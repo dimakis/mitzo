@@ -59,10 +59,15 @@ permanently stale version gate.
 Each generated manifest must carry `sourceCommit`, written by MGMT's
 `memory/scripts/build_index.py` from its checked-out `HEAD`. Mitzo requires that
 marker to equal the archived `startingCommit` and validates the index source paths,
-type/tag groupings, and forward/backlink inverse before accepting the overlay.
+type/tag metadata and groupings against the archived Markdown front matter, and
+the forward/backlink inverse before accepting the overlay.
 
 The host-side baseline records both the seed content commit (`startingCommit`) and
-the runtime-base commit whose executable dependency set it uses, plus file hashes.
+the runtime-base commit whose executable dependency set it uses, plus hashes for
+the exact non-`.git` seed payload. Production preflight checks that exact path set,
+rejects payload symlinks, and requires all four manifest provenance markers to
+match `startingCommit` before it accepts a dynamic baseline. The portable local
+Git metadata is intentionally excluded because it is not seed content.
 The production lock and runtime image labels must continue to match that runtime
 base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
 without rebuilding the immutable runtime image; dependency changes still require a

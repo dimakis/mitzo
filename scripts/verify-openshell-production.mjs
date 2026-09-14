@@ -2,8 +2,8 @@
 import { execFileSync } from 'node:child_process';
 import console from 'node:console';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
@@ -134,7 +134,83 @@ export function hasExactGlobalSetting(settings, key, value) {
   return settingPattern.test(settings);
 }
 
-export function validateSeedBaseline(seedBaseline, manifest) {
+function validateSeedContents(seedBaseline, seedPath) {
+  invariant(typeof seedPath === 'string' && isAbsolute(seedPath), 'prepared seed path is invalid');
+  invariant(
+    seedBaseline.files &&
+      typeof seedBaseline.files === 'object' &&
+      !Array.isArray(seedBaseline.files),
+    'prepared dynamic seed file manifest is invalid',
+  );
+  const root = resolve(seedPath);
+  const expected = new Map();
+  for (const [path, digest] of Object.entries(seedBaseline.files)) {
+    invariant(
+      typeof path === 'string' &&
+        path.length > 0 &&
+        !path.startsWith('/') &&
+        !path.startsWith('.git/') &&
+        path !== '.git' &&
+        !path.split('/').includes('..') &&
+        resolve(root, path).startsWith(`${root}${sep}`),
+      'prepared seed file manifest contains an unsafe path',
+    );
+    invariant(
+      typeof digest === 'string' && /^[a-f0-9]{64}$/.test(digest),
+      `prepared seed file manifest has an invalid hash for ${path}`,
+    );
+    expected.set(path, digest);
+  }
+
+  const actual = new Map();
+  const walk = (directory, prefix = '') => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      // The builder creates a portable local Git repository for sandbox
+      // ergonomics. It is deliberately outside the immutable seed payload.
+      if (!prefix && entry.name === '.git') continue;
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolutePath = resolve(directory, entry.name);
+      const stat = lstatSync(absolutePath);
+      invariant(!stat.isSymbolicLink(), `prepared seed contains an unsafe symlink: ${path}`);
+      if (stat.isDirectory()) walk(absolutePath, path);
+      else if (stat.isFile()) actual.set(path, sha256(absolutePath));
+      else invariant(false, `prepared seed contains an unsupported path: ${path}`);
+    }
+  };
+  walk(root);
+  invariant(
+    actual.size === expected.size &&
+      [...actual.keys()].every((path) => expected.has(path)) &&
+      [...expected.keys()].every((path) => actual.has(path)),
+    'prepared seed files do not exactly match baseline.json',
+  );
+  for (const [path, digest] of expected) {
+    invariant(
+      actual.get(path) === digest,
+      `prepared seed file hash does not match baseline.json: ${path}`,
+    );
+  }
+
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    const manifestPath = resolve(root, 'memory', 'manifest', name);
+    invariant(
+      relative(root, manifestPath) && !relative(root, manifestPath).startsWith(`..${sep}`),
+      'prepared seed manifest path is invalid',
+    );
+    let generated;
+    try {
+      generated = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    } catch (error) {
+      throw new Error(`prepared seed manifest is missing or invalid: ${name}: ${error.message}`);
+    }
+    invariant(
+      generated && generated.sourceCommit === seedBaseline.startingCommit,
+      `prepared seed manifest source commit does not match baseline: ${name}`,
+    );
+  }
+}
+
+export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
   invariant(
     seedBaseline && typeof seedBaseline === 'object' && !Array.isArray(seedBaseline),
     'prepared seed baseline must be an object',
@@ -158,6 +234,10 @@ export function validateSeedBaseline(seedBaseline, manifest) {
       : seedBaseline.startingCommit === manifest.runtime.mgmtSourceCommit,
     'prepared seed runtime base does not match the stack lock',
   );
+  // Legacy baselines predate the dynamic seed contract and retain only the
+  // historical exact-commit comparison above. Every baseline with an explicit
+  // runtime base is dynamically generated and must bind to its selected seed.
+  if (hasRuntimeBase && seedPath !== undefined) validateSeedContents(seedBaseline, seedPath);
 }
 
 export function validateRuntimeImageLabels(imageLabels, manifest) {
@@ -198,7 +278,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
   invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
   const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
-  validateSeedBaseline(seedBaseline, manifest);
+  validateSeedBaseline(seedBaseline, manifest, seedPath);
 
   const openshell = required(config, 'MITZO_OPENSHELL_CLI');
   invariant(isAbsolute(openshell), 'MITZO_OPENSHELL_CLI must be absolute');

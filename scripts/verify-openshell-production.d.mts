@@ -17,6 +17,7 @@ export function hasExactGlobalSetting(
 export function validateSeedBaseline(
   seedBaseline: Record<string, unknown> | null,
   manifest: { runtime: { mgmtSourceCommit: string } },
+  seedPath?: string,
 ): void;
 
 export function validateRuntimeImageLabels(

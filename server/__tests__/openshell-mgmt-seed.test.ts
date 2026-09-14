@@ -13,7 +13,12 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+
+// Seed fixtures launch several short-lived Git/Python processes. The complete
+// suite runs many files concurrently, so a five-second unit-test default is
+// intermittently shorter than a legitimate isolated seed build.
+vi.setConfig({ testTimeout: 10_000 });
 
 let root = '';
 let lockHolder: ReturnType<typeof spawn> | undefined;
@@ -116,11 +121,26 @@ function writeLinkedMemoryManifests(source: string, sourceCommit: string) {
       description: 'Seed reference',
       type: 'reference',
       date: '',
-      tags: ['runtime', 'seed'],
+      tags: 'seed',
       state: 'active',
       confidence: 'high',
       wikilinks: [],
       content_preview: '# Beta ',
+      word_count: 2,
+      modified: '2026-01-01T00:00:00',
+    },
+    {
+      path: 'notes/gamma.md',
+      slug: 'gamma',
+      name: 'Gamma',
+      description: 'Unclassified note',
+      type: 'unknown',
+      date: '',
+      tags: [],
+      state: '',
+      confidence: '',
+      wikilinks: [],
+      content_preview: '# Gamma ',
       word_count: 2,
       modified: '2026-01-01T00:00:00',
     },
@@ -140,11 +160,17 @@ function writeLinkedMemoryManifests(source: string, sourceCommit: string) {
   );
   writeFileSync(
     join(manifest, 'by_type.json'),
-    JSON.stringify({ sourceCommit, types: { decision: ['alpha'], reference: ['beta'] } }) + '\n',
+    JSON.stringify({
+      sourceCommit,
+      types: { decision: ['alpha'], reference: ['beta'], unknown: ['gamma'] },
+    }) + '\n',
   );
   writeFileSync(
     join(manifest, 'by_tag.json'),
-    JSON.stringify({ sourceCommit, tags: { runtime: ['alpha', 'beta'], seed: ['beta'] } }) + '\n',
+    JSON.stringify({
+      sourceCommit,
+      tags: { runtime: ['alpha'], s: ['beta'], e: ['beta', 'beta'], d: ['beta'] },
+    }) + '\n',
   );
 }
 
@@ -228,6 +254,9 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
   expect(baseline.runtimeBaseCommit).toBe(baseline.startingCommit);
+  expect(
+    Object.keys(baseline.files).some((path) => path === '.git' || path.startsWith('.git/')),
+  ).toBe(false);
   expect(baseline.saveBack).toBe('not-implemented');
 });
 
@@ -276,8 +305,15 @@ it('accepts generated manifests for linked, tagged knowledge files', () => {
   execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
   execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
   writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
-  writeFileSync(join(source, 'memory', 'notes', 'alpha.md'), '# Alpha\n[[beta]]\n');
-  writeFileSync(join(source, 'memory', 'notes', 'beta.md'), '# Beta\n');
+  writeFileSync(
+    join(source, 'memory', 'notes', 'alpha.md'),
+    '---\ntype: decision\ntags:\n  - runtime\n---\n# Alpha\n[[beta]]\n',
+  );
+  writeFileSync(
+    join(source, 'memory', 'notes', 'beta.md'),
+    '---\ntype: reference\ntags: seed\n---\n# Beta\n',
+  );
+  writeFileSync(join(source, 'memory', 'notes', 'gamma.md'), '# Gamma\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
     '-C',
@@ -330,6 +366,72 @@ it('fails closed when a rebuilt memory manifest is inconsistent', () => {
   ]);
   writeMemoryManifests(source, currentCommit(source));
   writeFileSync(join(source, 'memory', 'manifest', 'by_tag.json'), '{"wrong":true}\n');
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(output)).toBe(false);
+});
+
+it('rejects index type and tag metadata consistently tampered away from archived front matter', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-frontmatter-metadata-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(join(source, 'memory', 'notes'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  writeFileSync(
+    join(source, 'memory', 'notes', 'alpha.md'),
+    '---\ntype: decision\ntags: [runtime]\n---\n# Alpha\n',
+  );
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge',
+  ]);
+  const sourceCommit = currentCommit(source);
+  writeFileSync(
+    join(source, 'memory', 'manifest', 'index.json'),
+    JSON.stringify({
+      sourceCommit,
+      total_memories: 1,
+      memories: [
+        {
+          path: 'notes/alpha.md',
+          slug: 'alpha',
+          type: 'reference',
+          tags: ['wrong'],
+          wikilinks: [],
+        },
+      ],
+    }) + '\n',
+  );
+  writeFileSync(
+    join(source, 'memory', 'manifest', 'wikilinks.json'),
+    JSON.stringify({ sourceCommit, forward_links: {}, backlinks: {}, total_links: 0 }) + '\n',
+  );
+  writeFileSync(
+    join(source, 'memory', 'manifest', 'by_type.json'),
+    JSON.stringify({ sourceCommit, types: { reference: ['alpha'] } }) + '\n',
+  );
+  writeFileSync(
+    join(source, 'memory', 'manifest', 'by_tag.json'),
+    JSON.stringify({ sourceCommit, tags: { wrong: ['alpha'] } }) + '\n',
+  );
 
   expect(() =>
     execFileSync(
@@ -426,7 +528,7 @@ it('records an explicit runtime base ref as its canonical commit', () => {
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toBe(startingCommit);
   expect(baseline.runtimeBaseCommit).toBe(runtimeBaseCommit);
-});
+}, 10_000);
 
 it('fails closed with an actionable error when a descendant seed cannot run uv', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-missing-uv-'));
@@ -568,7 +670,7 @@ it('allows a dev-only uv.lock refresh after the runtime base commit', () => {
     ),
   ).not.toThrow();
   expect(existsSync(output)).toBe(true);
-});
+}, 10_000);
 
 it('allows a dev or build-system-only change after the runtime base commit', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-dev-inputs-'));
@@ -916,6 +1018,60 @@ it('rejects a live publisher lock, then recovers when its holder is killed', () 
   expect(existsSync(output)).toBe(true);
   expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
 });
+
+it('terminates a delayed lock helper before waiting and permits a later publish', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-delayed-lock-helper-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  const pythonBin = join(root, 'bin');
+  const actualPython = execFileSync('which', ['python3'], { encoding: 'utf8' }).trim();
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(pythonBin);
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+  writeFileSync(join(pythonBin, 'python3'), `#!/bin/sh\nsleep 6\nexec "${actualPython}" "$@"\n`);
+  chmodSync(join(pythonBin, 'python3'), 0o755);
+
+  const startedAt = Date.now();
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      {
+        cwd: resolve('.'),
+        env: { ...process.env, PATH: `${pythonBin}:${process.env.PATH}` },
+        stdio: 'pipe',
+      },
+    ),
+  ).toThrow();
+  expect(Date.now() - startedAt).toBeLessThan(7500);
+  expect(existsSync(output)).toBe(false);
+  expect(readdirSync(root).filter((entry) => entry.includes('lock-status'))).toEqual([]);
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(existsSync(output)).toBe(true);
+}, 10_000);
 
 it('releases an updater-owned lock after the updater is killed without cleanup', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-updater-sigkill-'));
