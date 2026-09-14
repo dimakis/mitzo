@@ -9,6 +9,9 @@ interface Props {
 export function ToolGroup({ tools }: Props) {
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
+  // A single operation already has its own detail disclosure. Show its useful
+  // summary directly instead of requiring a second, count-only disclosure.
+  if (tools.length === 1) return <ToolPill block={tools[0]} />;
   const statuses = tools.map(getToolStatus);
   const doneCount = statuses.filter((status) => status.done).length;
   const failedCount = statuses.filter((status) => status.done && status.hasError).length;

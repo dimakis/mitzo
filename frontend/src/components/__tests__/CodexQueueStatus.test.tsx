@@ -7,114 +7,173 @@ import { CodexQueueStatus } from '../CodexQueueStatus';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
+const meta = (queue: Record<string, unknown>) =>
+  ({ ok: true, json: async () => ({ codexQueue: queue }) }) as Response;
+const commands = (queued: Array<{ id: string; preview: string }>) =>
+  ({ ok: true, json: async () => ({ queued, cancelledIds: [] }) }) as Response;
+
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
   vi.useRealTimers();
+  sessionStorage.clear();
 });
 
-it('explains paused saved work without a second recovery action', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 2, interrupted: 1, recovering: false },
-    }),
-  } as Response);
+it('shows waiting work with a drawer that cancels only an identified queued message', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 2, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(
+      commands([
+        { id: 'one', preview: 'First saved message' },
+        { id: 'two', preview: 'Second saved message' },
+      ]),
+    )
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true, status: 'cancelled' }),
+    } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'two', preview: 'Second saved message' }]));
+
   render(<CodexQueueStatus sessionId="task" />);
-  await screen.findByText('2 messages waiting');
-  expect(screen.getByText(/Your last step may be incomplete/)).toBeTruthy();
-  expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
-  expect(screen.getByRole('button', { name: 'Hide' })).toBeTruthy();
-});
+  await screen.findByText('2 messages are waiting behind the current turn.');
+  await userEvent.click(screen.getByRole('button', { name: 'Review queue' }));
+  expect(screen.getByText('First saved message')).toBeTruthy();
+  expect(screen.getByText('Second saved message')).toBeTruthy();
 
-it('tells the user to send when no runtime is connected', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: false, queued: 1, interrupted: 1, recovering: false },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="codex" />);
-  await screen.findByText('Connection interrupted. Send a message to reconnect.');
-  expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
+  await userEvent.click(screen.getAllByRole('button', { name: 'Cancel' })[0]);
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(5));
+  expect(apiFetch).toHaveBeenNthCalledWith(
+    3,
+    '/api/sessions/task/codex-queue/one/cancel',
+    expect.objectContaining({ method: 'POST' }),
+  );
+  expect(screen.queryByText('First saved message')).toBeNull();
+  expect(screen.getByText('Second saved message')).toBeTruthy();
 });
 
 it.each([
-  ['starting_workspace', 'Starting workspace…'],
-  ['reconnecting', 'Reconnecting…'],
-] as const)('shows actual %s recovery progress without an action gate', async (phase, label) => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: {
-        paused: true,
-        connected: true,
-        recovering: true,
-        recoveryPhase: phase,
-        queued: 1,
-        interrupted: 1,
-      },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="recovering" />);
+  [
+    { paused: false, connected: true, queued: 1, interrupted: 0, recovering: false },
+    '1 message is waiting behind the current turn.',
+  ],
+  [
+    {
+      paused: true,
+      connected: false,
+      queued: 0,
+      interrupted: 1,
+      recovering: true,
+      recoveryPhase: 'reconnecting',
+    },
+    'Reconnecting… Your message is saved.',
+  ],
+  [
+    {
+      paused: true,
+      connected: true,
+      queued: 0,
+      interrupted: 0,
+      recovering: true,
+      recoveryPhase: 'reconnecting',
+    },
+    'Reconnecting… Your message is saved.',
+  ],
+])('uses compact, accurate status text', async (queue, label) => {
+  vi.mocked(apiFetch).mockResolvedValue(meta(queue));
+  render(<CodexQueueStatus sessionId="status" />);
   await screen.findByText(label);
-  expect(screen.getByText('Your message is saved.')).toBeTruthy();
   expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
 });
 
-it('collapses with a horizontal swipe and restores focus through Chat status', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1, recovering: false },
+it('hides to an edge control outside the status layout and stays hidden through polling', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      paused: true,
+      connected: true,
+      queued: 0,
+      interrupted: 1,
+      recovering: true,
+      recoveryPhase: 'reconnecting',
     }),
-  } as Response);
+  );
   render(<CodexQueueStatus sessionId="paused" />);
+  await act(async () => {});
+  fireEvent.click(screen.getByRole('button', { name: 'Hide status' }));
+  const tab = screen.getByRole('button', { name: 'Chat status' });
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(tab.className).toBe('codex-queue-status-tab');
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(screen.getByRole('button', { name: 'Chat status' })).toBeTruthy();
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('allows a horizontal swipe to hide and restores focus when the edge control opens', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      paused: true,
+      connected: true,
+      queued: 0,
+      interrupted: 1,
+      recovering: true,
+      recoveryPhase: 'reconnecting',
+    }),
+  );
+  render(<CodexQueueStatus sessionId="swipe" />);
   const status = await screen.findByRole('status');
   fireEvent.pointerDown(status, { clientX: 8, clientY: 12 });
   fireEvent.pointerUp(status, { clientX: 72, clientY: 14 });
   const tab = screen.getByRole('button', { name: 'Chat status' });
   expect(document.activeElement).toBe(tab);
-  const user = userEvent.setup();
-  await user.keyboard('{Enter}');
-  const hide = await screen.findByRole('button', { name: 'Hide' });
-  await waitFor(() => expect(document.activeElement).toBe(hide));
+  await userEvent.click(tab);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Hide status' })),
+  );
 });
 
-it('reopens a hidden status when polling finds an actionable error', async () => {
+it('allows an attention status to be dismissed and reports a cancel race honestly', async () => {
   vi.mocked(apiFetch)
-    .mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1, recovering: false },
-      }),
-    } as Response)
-    .mockRejectedValueOnce(new Error('offline'));
-  render(<CodexQueueStatus sessionId="paused" />);
-  fireEvent.click(await screen.findByRole('button', { name: 'Hide' }));
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'started', preview: 'Saved prompt' }]))
+    .mockResolvedValueOnce({ ok: false, status: 409 } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 0, interrupted: 0, recovering: false }),
+    );
+  render(<CodexQueueStatus sessionId="race" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Review queue' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(
+    await screen.findByText('Could not cancel this message. It may have started; check the queue.'),
+  ).toBeTruthy();
+  expect(screen.getByRole('img', { name: 'Attention' })).toBeTruthy();
+  await userEvent.click(screen.getByRole('button', { name: 'Hide status' }));
   expect(screen.getByRole('button', { name: 'Chat status' })).toBeTruthy();
-  fireEvent.focus(window);
-  expect((await screen.findByRole('alert')).textContent).toContain('Queue status unavailable');
-  expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
 });
 
-it('slows idle polling and avoids overlapping requests', async () => {
-  vi.useFakeTimers();
-  vi.mocked(apiFetch).mockResolvedValue({
-    ok: true,
-    json: async () => ({
-      codexQueue: { paused: false, connected: true, queued: 0, interrupted: 0, recovering: false },
-    }),
-  } as Response);
-  render(<CodexQueueStatus sessionId="idle" />);
+it('has no row or edge control when the session is not a Codex chat', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
+  render(<CodexQueueStatus sessionId="regular" />);
   await act(async () => {});
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(20000);
-  });
-  expect(apiFetch).toHaveBeenCalledTimes(1);
-  vi.mocked(apiFetch).mockImplementation(() => new Promise(() => {}));
-  await act(async () => {
-    await vi.advanceTimersByTimeAsync(10000);
-  });
-  expect(apiFetch).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
+});
+
+it('does not resurrect a status row for historical interrupted work with nothing waiting', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({ paused: true, connected: false, queued: 0, interrupted: 3, recovering: false }),
+  );
+  render(<CodexQueueStatus sessionId="completed" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
 });

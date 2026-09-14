@@ -270,6 +270,12 @@ export class CodexConversation {
     if (this.paused) await this.acknowledgeRecovery();
     else await this.startQueued();
   }
+  cancelQueued(commandId: string) {
+    if (!this.binding) throw new Error('Codex account binding unavailable');
+    const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
+    if (result === 'cancelled') this.opts.onQueueChange?.();
+    return result;
+  }
   async startQueued() {
     if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
     if (this.paused) return;

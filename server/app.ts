@@ -1,5 +1,11 @@
 import { AccountAliases } from './account-aliases.js';
-import { readCodexQueue, waitForCodexRuntimeBySessionId } from './codex-chat-session.js';
+import {
+  readCodexQueue,
+  waitForCodexRuntimeBySessionId,
+  readCodexQueueOverview,
+  cancelCodexQueuedCommand,
+} from './codex-chat-session.js';
+import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
@@ -1525,6 +1531,24 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     numTurns: meta.numTurns,
   });
 });
+
+app.use(
+  '/api/sessions',
+  createCodexQueueRouter({
+    binding(sessionId) {
+      const meta = eventStore.getSession(sessionId);
+      const binding = meta?.accountBinding;
+      return binding &&
+        (binding.provider === 'openai-codex' ||
+          (binding.provider === 'openai' && !!meta?.cwd?.startsWith('/sandbox/workspaces/')))
+        ? binding
+        : undefined;
+    },
+    overview: readCodexQueueOverview,
+    cancel: (id, binding, commandId) =>
+      cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+  }),
+);
 
 app.post('/api/sessions/:id/codex-queue/continue', async (req, res) => {
   const sessionId = req.params.id;

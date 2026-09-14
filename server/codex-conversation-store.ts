@@ -34,7 +34,7 @@ const CommandInput = z
   .strict();
 export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
-  status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed';
+  status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
 };
 interface Conversation {
   conversationId: string;
@@ -59,7 +59,8 @@ export class CodexConversationStore {
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
         PRIMARY KEY(conversation_id,call_id),
-        FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+        FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
+      CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
   }
   private key(b: AccountBinding) {
     return JSON.stringify([b.accountId, b.provider, b.model, b.profileRevision]);
@@ -118,6 +119,26 @@ export class CodexConversationStore {
         .all(id) as { input: string; status: CodexCommand['status'] }[]
     ).map((row) => ({ ...CommandInput.parse(JSON.parse(row.input)), status: row.status }));
   }
+  /** Polling must not deserialize historical prompts, images, or tool inputs. */
+  queueOverview(id: string, b: AccountBinding) {
+    this.read(id, b);
+    const limit = 100;
+    const queued = this.db
+      .prepare(
+        "SELECT id, substr(json_extract(input, '$.prompt'), 1, 160) AS preview FROM codex_commands WHERE conversation_id=? AND status='queued' ORDER BY sequence LIMIT ?",
+      )
+      .all(id, limit + 1) as Array<{ id: string; preview: string }>;
+    const cancelled = this.db
+      .prepare(
+        "SELECT id FROM codex_commands WHERE conversation_id=? AND status='cancelled' ORDER BY sequence DESC LIMIT ?",
+      )
+      .all(id, limit + 1) as Array<{ id: string }>;
+    return {
+      queued: queued.slice(0, limit),
+      cancelledIds: cancelled.slice(0, limit).map((c) => c.id),
+      hasMore: queued.length > limit || cancelled.length > limit,
+    };
+  }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
    * queue summary, which intentionally degrades errors to an empty result. */
   lifecycleQueue(id: string, b: AccountBinding) {
@@ -128,6 +149,25 @@ export class CodexConversationStore {
       running: commands.filter((command) => command.status === 'running').length,
       recovery: !!conversation.recovery,
     };
+  }
+  /** Retain the command ID so a retried send cannot resurrect cancelled work. */
+  cancelQueued(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+  ): 'cancelled' | 'not_queued' | 'not_found' {
+    return this.db.transaction(() => {
+      this.read(id, b);
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+        )
+        .run(id, commandId);
+      const row = this.db
+        .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
+        .get(id, commandId) as { status: string } | undefined;
+      return !row ? 'not_found' : row.status === 'cancelled' ? 'cancelled' : 'not_queued';
+    })();
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {

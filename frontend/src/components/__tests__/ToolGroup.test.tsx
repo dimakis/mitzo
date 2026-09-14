@@ -32,11 +32,12 @@ describe('ToolGroup', () => {
     expect(screen.getByText('3 tool calls')).toBeTruthy();
   });
 
-  it('starts collapsed, reveals independent tool rows when expanded, and exposes disclosure ARIA', () => {
+  it('shows a single tool name and input immediately, with one disclosure for its output', () => {
     const tools = [makeTool('t1', true)];
     render(wrap(<ToolGroup tools={tools} />));
 
-    const toggle = screen.getByRole('button', { name: /1 tool call/i });
+    expect(screen.queryByText('1 tool call')).toBeNull();
+    const toggle = screen.getByRole('button', { name: /Read.*file\.txt/i });
     expect(toggle.getAttribute('type')).toBe('button');
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     const contentId = toggle.getAttribute('aria-controls');
@@ -47,6 +48,12 @@ describe('ToolGroup', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(document.getElementById(contentId!)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Read/ })).toBeTruthy();
+  });
+
+  it('identifies a single failed tool without opening it', () => {
+    render(wrap(<ToolGroup tools={[{ ...makeTool('failed', true), toolError: true }]} />));
+    expect(screen.getByRole('button', { name: /Read.*file\.txt.*Failed/i })).toBeTruthy();
+    expect(screen.queryByText('1 tool call')).toBeNull();
   });
 
   it('keeps user expansion as tools complete and reports running work live', () => {
