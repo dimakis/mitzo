@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -183,6 +184,65 @@ it('retains recovery when cancelled work is accompanied by interrupted or failed
   // clear an uncertainty fence that was intentionally retained.
   expect(s.cancelQueued('failed', binding, 'queued')).toBe('cancelled');
   expect(s.read('failed', binding).recovery).toBe(1);
+  s.close();
+});
+
+it('clears later startup recovery after prior interrupted work was acknowledged', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'prior', prompt: 'uncertain' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'prior');
+  s.acknowledgeRecovery('c', binding);
+
+  s.enqueue('c', binding, { id: 'later', prompt: 'saved' });
+  s.recoverAtStartup();
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 1, running: 0, recovery: true });
+  expect(s.cancelQueued('c', binding, 'later')).toBe('cancelled');
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 0, running: 0, recovery: false });
+  s.close();
+});
+
+it('migrates legacy recovery flags into acknowledged and unacknowledged command state', () => {
+  const { path } = setup();
+  const db = new Database(path);
+  db.exec(`CREATE TABLE codex_conversations (
+    id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT, recovery INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE codex_commands (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, UNIQUE(conversation_id,id));`);
+  const key = JSON.stringify([
+    binding.accountId,
+    binding.provider,
+    binding.model,
+    binding.profileRevision,
+  ]);
+  for (const [id, recovery] of [
+    ['acknowledged', 0],
+    ['uncertain', 1],
+  ] as const) {
+    db.prepare('INSERT INTO codex_conversations(id,binding,cwd,recovery) VALUES (?,?,?,?)').run(
+      id,
+      key,
+      '/workspace',
+      recovery,
+    );
+    db.prepare(
+      "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'failed')",
+    ).run(id, 'prior', JSON.stringify({ id: 'prior', prompt: 'uncertain' }));
+  }
+  db.close();
+
+  const s = new CodexConversationStore(path);
+  s.enqueue('acknowledged', binding, { id: 'later', prompt: 'saved' });
+  s.recoverAtStartup();
+  expect(s.cancelQueued('acknowledged', binding, 'later')).toBe('cancelled');
+  expect(s.read('acknowledged', binding).recovery).toBe(0);
+
+  s.enqueue('uncertain', binding, { id: 'later', prompt: 'saved' });
+  expect(s.cancelQueued('uncertain', binding, 'later')).toBe('cancelled');
+  expect(s.read('uncertain', binding).recovery).toBe(1);
   s.close();
 });
 
