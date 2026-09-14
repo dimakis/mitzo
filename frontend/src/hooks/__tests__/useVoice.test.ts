@@ -416,6 +416,28 @@ describe('useVoice', () => {
       expect(mockPlayHandle.play).toHaveBeenCalled();
     });
 
+    it('unlocks audio synchronously from an explicit read-aloud gesture on iOS', async () => {
+      const { unlockAudioContext, synthesize } = await import('../../lib/tts');
+      vi.mocked(unlockAudioContext).mockClear();
+      vi.mocked(synthesize).mockClear();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
+      const { result } = renderHook(() => useVoice());
+
+      let speakPromise!: Promise<void>;
+      act(() => {
+        speakPromise = result.current.speak('Hello from iOS');
+        expect(unlockAudioContext).toHaveBeenCalledTimes(1);
+      });
+
+      expect(vi.mocked(unlockAudioContext).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(synthesize).mock.invocationCallOrder[0],
+      );
+
+      await act(async () => {
+        await speakPromise;
+      });
+    });
+
     it('stopSpeaking() stops current playback', async () => {
       let resolvePlay!: () => void;
       mockPlayHandle.play.mockImplementationOnce(

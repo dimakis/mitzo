@@ -12,7 +12,13 @@ import {
   type StreamingRecorder,
 } from '../lib/audio';
 import { createYapperStreamClient, type YapperStreamClient } from '../lib/yapper-ws';
-import { chunkText, synthesize, playAudio, closeAudioContext } from '../lib/tts';
+import {
+  chunkText,
+  synthesize,
+  playAudio,
+  unlockAudioContext,
+  closeAudioContext,
+} from '../lib/tts';
 
 export interface Voice {
   id: string;
@@ -325,6 +331,10 @@ export function useVoice(): UseVoiceReturn {
   // --- TTS: Speak ---
   const speak = useCallback(
     async (text: string) => {
+      // iOS requires AudioContext activation during the initiating user gesture.
+      // Start the unlock before synthesis yields control back to the browser.
+      void unlockAudioContext().catch(() => {});
+
       // Abort any in-flight synthesis
       abortRef.current?.abort();
       currentPlayRef.current?.stop();
