@@ -136,17 +136,52 @@ export class CodexConversationStore {
     return {
       queued: queued.slice(0, limit),
       cancelledIds: cancelled.slice(0, limit).map((c) => c.id),
-      hasMore: queued.length > limit || cancelled.length > limit,
+      hasMore: queued.length > limit,
+    };
+  }
+  /** Lightweight status for the frequent session metadata poll. It deliberately
+   * leaves command JSON in SQLite: full command deserialization can include
+   * historical prompts and image payloads. */
+  queueSummary(id: string, b: AccountBinding) {
+    this.read(id, b);
+    const counts = this.db
+      .prepare(
+        "SELECT SUM(status='queued') AS queued, SUM(status IN ('interrupted','failed')) AS interrupted FROM codex_commands WHERE conversation_id=?",
+      )
+      .get(id) as { queued: number | null; interrupted: number | null };
+    const latest = this.db
+      .prepare(
+        "SELECT json_extract(input, '$.model') AS model, json_extract(input, '$.reasoningEffort') AS reasoning_effort, json_type(input, '$.reasoningEffort') AS reasoning_effort_type FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(id) as
+      | {
+          model: string | null;
+          reasoning_effort: string | null;
+          reasoning_effort_type: string | null;
+        }
+      | undefined;
+    return {
+      queued: counts.queued ?? 0,
+      interrupted: counts.interrupted ?? 0,
+      model: latest?.model ?? b.model,
+      // SQLite's json_extract returns null for either an omitted property or
+      // an explicit JSON null. json_type keeps the user's explicit reset.
+      reasoningEffort:
+        latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
    * queue summary, which intentionally degrades errors to an empty result. */
   lifecycleQueue(id: string, b: AccountBinding) {
     const conversation = this.read(id, b);
-    const commands = this.commands(id, b);
+    const counts = this.db
+      .prepare(
+        "SELECT SUM(status='queued') AS queued, SUM(status='running') AS running FROM codex_commands WHERE conversation_id=?",
+      )
+      .get(id) as { queued: number | null; running: number | null };
     return {
-      queued: commands.filter((command) => command.status === 'queued').length,
-      running: commands.filter((command) => command.status === 'running').length,
+      queued: counts.queued ?? 0,
+      running: counts.running ?? 0,
       recovery: !!conversation.recovery,
     };
   }
@@ -158,7 +193,7 @@ export class CodexConversationStore {
   ): 'cancelled' | 'not_queued' | 'not_found' {
     return this.db.transaction(() => {
       this.read(id, b);
-      this.db
+      const update = this.db
         .prepare(
           "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
         )
@@ -166,7 +201,22 @@ export class CodexConversationStore {
       const row = this.db
         .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
         .get(id, commandId) as { status: string } | undefined;
-      return !row ? 'not_found' : row.status === 'cancelled' ? 'cancelled' : 'not_queued';
+      if (!row) return 'not_found';
+      if (row.status !== 'cancelled') return 'not_queued';
+      // A retry against an existing cancellation is idempotent, but it must not
+      // clear a recovery fence that was retained for another uncertain action.
+      if (update.changes === 0) return 'cancelled';
+      // Cancellation resolves a recovery fence only when it removes all work
+      // and all interrupted/failed uncertainty. Never erase an earlier action
+      // that still needs user review.
+      const unresolved = this.db
+        .prepare(
+          "SELECT 1 FROM codex_commands WHERE conversation_id=? AND status IN ('queued','running','interrupted','failed') LIMIT 1",
+        )
+        .get(id);
+      if (!unresolved)
+        this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+      return 'cancelled';
     })();
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {

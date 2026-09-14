@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 const roots: string[] = [];
 const binding = {
@@ -144,6 +144,48 @@ it('cancels only queued commands and retains an idempotency tombstone across res
   s.close();
 });
 
+it('clears startup recovery when cancelling the only queued command', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'only', prompt: 'saved' });
+  s.recoverAtStartup();
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 1, running: 0, recovery: true });
+
+  expect(s.cancelQueued('c', binding, 'only')).toBe('cancelled');
+  expect(s.lifecycleQueue('c', binding)).toEqual({ queued: 0, running: 0, recovery: false });
+  expect(s.claimNext('c', binding)).toBeUndefined();
+  s.close();
+});
+
+it('retains recovery when cancelled work is accompanied by interrupted or failed uncertainty', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('interrupted', binding, '/workspace');
+  s.enqueue('interrupted', binding, { id: 'running', prompt: 'uncertain' });
+  s.enqueue('interrupted', binding, { id: 'queued', prompt: 'saved' });
+  s.claimNext('interrupted', binding);
+  s.pauseForRecovery('interrupted', binding, 'running');
+
+  expect(s.cancelQueued('interrupted', binding, 'queued')).toBe('cancelled');
+  expect(s.read('interrupted', binding).recovery).toBe(1);
+  expect(() => s.claimNext('interrupted', binding)).toThrow('recovery');
+
+  s.create('failed', binding, '/workspace');
+  s.enqueue('failed', binding, { id: 'running', prompt: 'uncertain' });
+  s.enqueue('failed', binding, { id: 'queued', prompt: 'saved' });
+  s.claimNext('failed', binding);
+  s.pauseForRecovery('failed', binding, 'running', 'failed');
+  expect(s.cancelQueued('failed', binding, 'queued')).toBe('cancelled');
+  expect(s.read('failed', binding).recovery).toBe(1);
+
+  // A repeated cancellation is an idempotent acknowledgement, not a reason to
+  // clear an uncertainty fence that was intentionally retained.
+  expect(s.cancelQueued('failed', binding, 'queued')).toBe('cancelled');
+  expect(s.read('failed', binding).recovery).toBe(1);
+  s.close();
+});
+
 it('bounds queue overview and excludes historical payloads from polling', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
@@ -164,5 +206,59 @@ it('bounds queue overview and excludes historical payloads from polling', () => 
   expect(summary.hasMore).toBe(true);
   expect(JSON.stringify(summary)).not.toContain('historical private input');
   expect(() => s.queueOverview('c', { ...binding, accountId: 'other' })).toThrow('binding');
+  s.close();
+});
+
+it('reports queue truncation independently from cancelled tombstone truncation', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  for (let i = 0; i < 101; i++) {
+    s.enqueue('c', binding, { id: `cancelled-${i}`, prompt: 'tombstone' });
+    s.cancelQueued('c', binding, `cancelled-${i}`);
+  }
+  s.enqueue('c', binding, { id: 'queued', prompt: 'waiting' });
+
+  const overview = s.queueOverview('c', binding);
+  expect(overview.queued).toEqual([{ id: 'queued', preview: 'waiting' }]);
+  expect(overview.cancelledIds).toHaveLength(100);
+  expect(overview.hasMore).toBe(false);
+  s.close();
+});
+
+it('summarizes metadata without loading the historical command list', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, {
+    id: 'historical',
+    prompt: 'x'.repeat(100_000),
+    images: [{ data: 'a'.repeat(1_000), mediaType: 'image/png' }],
+  });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'historical', 'interrupted');
+  s.enqueue('c', binding, { id: 'waiting', prompt: 'queued', reasoningEffort: 'high' });
+  const commands = vi.spyOn(s, 'commands');
+
+  expect(s.queueSummary('c', binding)).toEqual({
+    queued: 1,
+    interrupted: 1,
+    model: 'test-model',
+    reasoningEffort: 'high',
+  });
+  expect(commands).not.toHaveBeenCalled();
+  s.close();
+});
+
+it('preserves an explicit reasoning reset separately from an omitted value in metadata', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('reset', binding, '/workspace');
+  s.enqueue('reset', binding, { id: 'explicit-null', prompt: 'reset', reasoningEffort: null });
+  expect(s.queueSummary('reset', binding).reasoningEffort).toBeNull();
+
+  s.create('missing', binding, '/workspace');
+  s.enqueue('missing', binding, { id: 'missing-value', prompt: 'default' });
+  expect(s.queueSummary('missing', binding).reasoningEffort).toBeUndefined();
   s.close();
 });

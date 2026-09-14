@@ -153,17 +153,16 @@ export function readCodexQueue(
   if (binding.provider !== 'openai-codex' && binding.provider !== 'openai') return undefined;
   try {
     const live = session ? getCodexRuntime(session) : undefined;
-    const commands = live?.queue() ?? store().commands(conversationId, binding);
+    const summary = store().queueSummary(conversationId, binding);
     return {
-      model: commands.at(-1)?.model ?? binding.model,
-      reasoningEffort: commands.at(-1)?.reasoningEffort,
+      model: summary.model,
+      reasoningEffort: summary.reasoningEffort,
       paused: live?.isPaused() ?? true,
       connected: !!live,
       recovering: live?.isRecovering() ?? false,
       recoveryPhase: live?.getRecoveryPhase(),
-      queued: commands.filter((c) => c.status === 'queued').length,
-      interrupted: commands.filter((c) => c.status === 'interrupted' || c.status === 'failed')
-        .length,
+      queued: summary.queued,
+      interrupted: summary.interrupted,
     };
   } catch {
     return { paused: true, connected: false, recovering: false, queued: 0, interrupted: 0 };

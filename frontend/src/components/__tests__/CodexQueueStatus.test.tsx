@@ -116,6 +116,20 @@ it('hides to an edge control outside the status layout and stays hidden through 
   expect(screen.queryByRole('status')).toBeNull();
 });
 
+it('does not fast-poll a paused inactive chat with no queued or recovering work', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({ paused: true, connected: false, queued: 0, interrupted: 1, recovering: false }),
+  );
+  render(<CodexQueueStatus sessionId="inactive" />);
+  await act(async () => {});
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
 it('allows a horizontal swipe to hide and restores focus when the edge control opens', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     meta({
@@ -136,6 +150,80 @@ it('allows a horizontal swipe to hide and restores focus when the edge control o
   await userEvent.click(tab);
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Hide status' })),
+  );
+});
+
+it('consumes a follow-up cancel click after a cancel-originated horizontal gesture', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved prompt' }]));
+  render(<CodexQueueStatus sessionId="gesture" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Review queue' }));
+
+  const cancel = screen.getByRole('button', { name: 'Cancel' });
+  fireEvent.pointerDown(cancel, { clientX: 8, clientY: 12 });
+  fireEvent.pointerUp(cancel, { clientX: 72, clientY: 14 });
+  fireEvent.click(cancel, { detail: 1 });
+
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('allows the next deliberate pointer or keyboard cancellation when a swipe click is suppressed', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved prompt' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved prompt' }]));
+  render(<CodexQueueStatus sessionId="suppressed-gesture" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Review queue' }));
+
+  const cancel = screen.getByRole('button', { name: 'Cancel' });
+  fireEvent.pointerDown(cancel, { clientX: 8, clientY: 12 });
+  fireEvent.pointerUp(cancel, { clientX: 72, clientY: 14 });
+  // No click follows: some touch browsers suppress it after a gesture.
+  fireEvent.pointerDown(cancel, { clientX: 8, clientY: 12 });
+  fireEvent.pointerUp(cancel, { clientX: 8, clientY: 12 });
+  fireEvent.click(cancel, { detail: 1 });
+
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(5));
+  expect(apiFetch).toHaveBeenNthCalledWith(
+    3,
+    '/api/sessions/suppressed-gesture/codex-queue/saved/cancel',
+    expect.objectContaining({ method: 'POST' }),
+  );
+});
+
+it('does not swallow keyboard cancellation after a cancel-originated swipe', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved prompt' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 1, interrupted: 0, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved prompt' }]));
+  render(<CodexQueueStatus sessionId="keyboard-gesture" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Review queue' }));
+
+  const cancel = screen.getByRole('button', { name: 'Cancel' });
+  fireEvent.pointerDown(cancel, { clientX: 8, clientY: 12 });
+  fireEvent.pointerUp(cancel, { clientX: 72, clientY: 14 });
+  fireEvent.click(cancel, { detail: 0 });
+
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(5));
+  expect(apiFetch).toHaveBeenNthCalledWith(
+    3,
+    '/api/sessions/keyboard-gesture/codex-queue/saved/cancel',
+    expect.objectContaining({ method: 'POST' }),
   );
 });
 

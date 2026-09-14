@@ -51,7 +51,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const refresh = useRef<() => Promise<void>>(async () => {});
   const statusTab = useRef<HTMLButtonElement>(null);
   const hideButton = useRef<HTMLButtonElement>(null);
-  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const swipeStart = useRef<{ x: number; y: number; cancel: boolean } | null>(null);
+  const consumeCancelClick = useRef(false);
   const sessionEpoch = useRef(0);
   const previousCollapsed = useRef<boolean | null>(null);
   const drawerId = useId();
@@ -70,6 +71,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setNotice('');
     setCancelling(null);
     setDrawerOpen(false);
+    consumeCancelClick.current = false;
     setCollapsed(sessionId ? isHidden(sessionId) : false);
     if (!sessionId) return;
 
@@ -85,9 +87,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         const data = await response.json();
         const parsed = Queue.safeParse(data.codexQueue);
         isCodex = parsed.success;
-        pending =
-          parsed.success &&
-          (parsed.data.paused || !!parsed.data.recovering || parsed.data.queued > 0);
+        pending = parsed.success && (!!parsed.data.recovering || parsed.data.queued > 0);
         let queued: QueuedCommand[] = [];
         let moreQueued = false;
         if (parsed.success && parsed.data.queued > 0) {
@@ -230,7 +230,11 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         role="status"
         aria-live="polite"
         onPointerDown={(event) => {
-          swipeStart.current = { x: event.clientX, y: event.clientY };
+          swipeStart.current = {
+            x: event.clientX,
+            y: event.clientY,
+            cancel: !!(event.target as HTMLElement).closest('.codex-queue-status-command button'),
+          };
         }}
         onPointerCancel={() => {
           swipeStart.current = null;
@@ -241,6 +245,12 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           if (!start) return;
           const horizontalDistance = Math.abs(event.clientX - start.x);
           const verticalDistance = Math.abs(event.clientY - start.y);
+          if (start.cancel && horizontalDistance >= 56 && horizontalDistance > verticalDistance) {
+            consumeCancelClick.current = true;
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (horizontalDistance >= 56 && horizontalDistance > verticalDistance) hide();
         }}
       >
@@ -281,7 +291,21 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
                   <button
                     type="button"
                     disabled={cancelling === command.id}
-                    onClick={() => void cancel(command.id)}
+                    onPointerDown={() => {
+                      // A new pointer action is a deliberate new cancellation
+                      // attempt if the browser suppressed the swipe's click.
+                      consumeCancelClick.current = false;
+                    }}
+                    onClick={(event) => {
+                      // Keyboard activation has detail 0 and must never be
+                      // swallowed by a stale pointer gesture.
+                      if (consumeCancelClick.current && event.detail !== 0) {
+                        consumeCancelClick.current = false;
+                        return;
+                      }
+                      consumeCancelClick.current = false;
+                      void cancel(command.id);
+                    }}
                   >
                     {cancelling === command.id ? 'Cancelling…' : 'Cancel'}
                   </button>
