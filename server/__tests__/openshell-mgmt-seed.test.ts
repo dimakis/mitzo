@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 
 let root = '';
 let lockHolder: ReturnType<typeof spawn> | undefined;
+let updater: ReturnType<typeof spawn> | undefined;
 const uvFixtureRoot = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-uv-fixture-'));
 const uvFixture = join(uvFixtureRoot, 'uv');
 const originalUvBin = process.env.MITZO_UV_BIN;
@@ -58,6 +59,8 @@ afterAll(() => {
 afterEach(() => {
   lockHolder?.kill();
   lockHolder = undefined;
+  updater?.kill();
+  updater = undefined;
   if (root) rmSync(root, { recursive: true, force: true });
   root = '';
 });
@@ -912,6 +915,80 @@ it('rejects a live publisher lock, then recovers when its holder is killed', () 
   ).not.toThrow();
   expect(existsSync(output)).toBe(true);
   expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
+});
+
+it('releases an updater-owned lock after the updater is killed without cleanup', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-updater-sigkill-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  const slowUv = join(root, 'slow-uv');
+  const uvStarted = join(root, 'slow-uv-started');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge update',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+  writeFileSync(slowUv, `#!/bin/sh\ntouch "${uvStarted}"\nsleep 60\n`);
+  chmodSync(slowUv, 0o755);
+
+  updater = spawn(
+    'bash',
+    [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+    { cwd: resolve('.'), env: { ...process.env, MITZO_UV_BIN: slowUv }, stdio: 'ignore' },
+  );
+  for (let attempts = 0; attempts < 50 && !existsSync(uvStarted); attempts += 1) {
+    execFileSync('sleep', ['0.01']);
+  }
+  expect(existsSync(uvStarted)).toBe(true);
+  expect(existsSync(output)).toBe(false);
+  const releasedBy = Date.now() + 5000;
+  updater.kill('SIGKILL');
+  updater = undefined;
+
+  let published = false;
+  while (Date.now() < releasedBy && !published) {
+    try {
+      execFileSync(
+        'bash',
+        [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+        { cwd: resolve('.'), stdio: 'pipe' },
+      );
+      published = true;
+    } catch {
+      execFileSync('sleep', ['0.05']);
+    }
+  }
+  expect(published).toBe(true);
+  expect(existsSync(output)).toBe(true);
+  // SIGKILL cannot run the original updater's cleanup trap; the abandoned temp
+  // directory proves the replacement publisher did not need manual cleanup to
+  // acquire the released lock and publish its own immutable destination.
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(1);
 });
 
 it('rejects a tracked symlink before an overlay can write through it', () => {

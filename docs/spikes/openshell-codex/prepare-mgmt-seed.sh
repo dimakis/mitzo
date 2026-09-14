@@ -29,8 +29,32 @@ git -C "$source_repo" merge-base --is-ancestor "$runtime_base_commit" "$starting
   exit 2
 }
 test -d "$output_parent" || { echo 'output parent does not exist' >&2; exit 2; }
+# The lock helper watches its original coordinating shell at the kernel level:
+# kqueue on macOS and PR_SET_PDEATHSIG on Linux. This does not leak through
+# build subprocesses, so SIGKILL of the updater releases flock immediately.
 python3 - "$lock_file" "$lock_status" <<'PY' &
-import fcntl, pathlib, sys, time
+import ctypes, fcntl, os, pathlib, select, signal, sys
+
+parent_pid = os.getppid()
+if sys.platform == "darwin":
+    watcher = select.kqueue()
+    watcher.control([select.kevent(
+        parent_pid,
+        filter=select.KQ_FILTER_PROC,
+        flags=select.KQ_EV_ADD,
+        fflags=select.KQ_NOTE_EXIT,
+    )], 0, 0)
+    def wait_for_parent_exit():
+        watcher.control(None, 1, None)
+elif sys.platform.startswith("linux"):
+    if ctypes.CDLL(None, use_errno=True).prctl(1, signal.SIGTERM, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), "PR_SET_PDEATHSIG failed")
+    if os.getppid() != parent_pid:
+        raise SystemExit("parent exited before lock ownership was established")
+    def wait_for_parent_exit():
+        signal.pause()
+else:
+    raise SystemExit(f"unsupported platform for parent-bound lock: {sys.platform}")
 
 lock_path = pathlib.Path(sys.argv[1])
 status_path = pathlib.Path(sys.argv[2])
@@ -44,8 +68,9 @@ except OSError as error:
     status_path.write_text(f'error:{error}\n')
     raise SystemExit(1)
 status_path.write_text('locked\n')
-while True:
-    time.sleep(60)
+# The helper exits when its updater process exits, and closing this process
+# closes the OS-managed advisory lock.
+wait_for_parent_exit()
 PY
 lock_pid="$!"
 for _ in $(seq 1 50); do

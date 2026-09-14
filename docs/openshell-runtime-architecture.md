@@ -52,8 +52,9 @@ paths. A new portable Git repository is initialized inside the seed, so normal
 edits, diffs, and local commits work without copying host `.git` state. It builds
 and validates a new versioned seed in a temporary sibling directory before it is
 published; it never changes an existing versioned seed. Publication uses an
-OS-managed advisory lock, so a terminated updater releases its lock automatically
-and cannot leave a permanently stale version gate.
+OS-managed advisory lock bound to its coordinating updater process, so SIGKILL or
+another ungraceful updater exit releases the lock automatically and cannot leave a
+permanently stale version gate.
 
 Each generated manifest must carry `sourceCommit`, written by MGMT's
 `memory/scripts/build_index.py` from its checked-out `HEAD`. Mitzo requires that
