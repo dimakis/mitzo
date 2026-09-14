@@ -261,8 +261,29 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
   }
   async send(input: CodexCommandInput) {
+    await this.probeOpenShellTransport();
     this.enqueue(input);
     await this.resumeAfterExplicitSend();
+  }
+  /**
+   * An idle SSH relay can look healthy until its next write. Probe it before
+   * persisting a new user command so transport recovery cannot turn that
+   * command into an ambiguous interrupted turn.
+   */
+  private async probeOpenShellTransport() {
+    if (!this.opts.beforeReconnect || this.paused || !this.ready || this.closed) return;
+    const generation = this.transportGeneration;
+    try {
+      await this.client.request('config/read', {
+        cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+        includeLayers: false,
+      });
+    } catch (error) {
+      // The transport close callback owns recovery persistence. If it ran,
+      // continue so this explicit send can acknowledge recovery and reconnect.
+      if (generation !== this.transportGeneration && this.paused) return;
+      throw error;
+    }
   }
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
    * stays interrupted and is never replayed by this path. */

@@ -262,6 +262,36 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   ]);
 });
 
+it('recovers an idle dead transport before persisting the explicit send', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, rpc, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  let failProbe = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && failProbe) {
+      failProbe = false;
+      callbacks.onClose(new Error('idle relay broke on first write'));
+      throw new Error('connection closed');
+    }
+    return request(method, params);
+  });
+
+  await c.send({ id: 'after-idle', prompt: 'continue' });
+
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(c.queue().map((command) => command.status)).toEqual(['running']);
+  expect(c.isPaused()).toBe(false);
+});
+
 it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });
