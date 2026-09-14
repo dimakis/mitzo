@@ -129,6 +129,22 @@ export async function waitForCodexRuntimeBySessionId(
   }
   return runtime;
 }
+export function readSavedCodexCommands(conversationId: string, binding: AccountBinding) {
+  return store().commands(conversationId, binding);
+}
+export function cancelCodexQueuedCommand(
+  conversationId: string,
+  binding: AccountBinding,
+  commandId: string,
+  session?: ManagedSession,
+) {
+  // Verify the persisted binding even when the live runtime is available.
+  store().read(conversationId, binding);
+  const live = session ? getCodexRuntime(session) : undefined;
+  return live
+    ? live.cancelQueued(commandId)
+    : store().cancelQueued(conversationId, binding, commandId);
+}
 export function readCodexQueue(
   conversationId: string,
   binding: AccountBinding,

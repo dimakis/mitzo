@@ -34,7 +34,7 @@ const CommandInput = z
   .strict();
 export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
-  status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed';
+  status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
 };
 interface Conversation {
   conversationId: string;
@@ -128,6 +128,25 @@ export class CodexConversationStore {
       running: commands.filter((command) => command.status === 'running').length,
       recovery: !!conversation.recovery,
     };
+  }
+  /** Retain the command ID so a retried send cannot resurrect cancelled work. */
+  cancelQueued(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+  ): 'cancelled' | 'not_queued' | 'not_found' {
+    return this.db.transaction(() => {
+      this.read(id, b);
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+        )
+        .run(id, commandId);
+      const row = this.db
+        .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
+        .get(id, commandId) as { status: string } | undefined;
+      return !row ? 'not_found' : row.status === 'cancelled' ? 'cancelled' : 'not_queued';
+    })();
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {

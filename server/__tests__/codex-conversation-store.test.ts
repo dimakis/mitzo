@@ -119,3 +119,27 @@ it('does not require recovery after cleanly completed work', () => {
   expect(s.read('c', binding).recovery).toBe(0);
   s.close();
 });
+
+it('cancels only queued commands and retains an idempotency tombstone across restart', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'running', prompt: 'first' });
+  s.enqueue('c', binding, { id: 'duplicate', prompt: 'second' });
+  expect(s.claimNext('c', binding)?.id).toBe('running');
+  expect(s.cancelQueued('c', binding, 'running')).toBe('not_queued');
+  expect(s.cancelQueued('c', binding, 'missing')).toBe('not_found');
+  expect(() => s.cancelQueued('c', { ...binding, accountId: 'other' }, 'duplicate')).toThrow(
+    'binding',
+  );
+  expect(s.cancelQueued('c', binding, 'duplicate')).toBe('cancelled');
+  expect(s.cancelQueued('c', binding, 'duplicate')).toBe('cancelled');
+  s.finish('c', binding, 'running', 'completed');
+  expect(s.cancelQueued('c', binding, 'running')).toBe('not_queued');
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.enqueue('c', binding, { id: 'duplicate', prompt: 'second' })).toBe(false);
+  expect(s.claimNext('c', binding)).toBeUndefined();
+  expect(s.commands('c', binding).find((c) => c.id === 'duplicate')?.status).toBe('cancelled');
+  s.close();
+});
