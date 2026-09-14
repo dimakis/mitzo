@@ -1298,15 +1298,7 @@ export async function dispatchV2Message(
       handleSessionClose(connectionId, msg, ctx);
       break;
     case 'send':
-      // Admission may wait on a dead provider transport probe. Start it in
-      // receive order, but do not hold the connection FIFO: stop, interrupt,
-      // and permission responses must remain able to break that wait.
-      void handleSendV2(connectionId, transport, msg, ctx).catch((error: unknown) => {
-        log.warn('v2 send dispatch error', {
-          connectionId,
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
-      });
+      await handleSendV2(connectionId, transport, msg, ctx);
       break;
     case 'stop':
       handleStopV2(connectionId, msg, ctx);
@@ -1321,4 +1313,36 @@ export async function dispatchV2Message(
       await handleSetModeV2(connectionId, msg, ctx);
       break;
   }
+}
+
+/**
+ * Keep ordinary messages in receive order, while allowing controls that can
+ * break a stalled provider admission to run immediately.
+ */
+export function scheduleV2Message(
+  chain: Promise<void>,
+  connectionId: string,
+  transport: SessionTransport,
+  raw: string,
+  ctx: V2HandlerContext,
+  onError: (error: unknown) => void,
+): Promise<void> {
+  let isControl = false;
+  try {
+    const parsed = IncomingWsMessageV2.safeParse(JSON.parse(raw));
+    isControl =
+      parsed.success &&
+      (parsed.data.type === 'stop' ||
+        parsed.data.type === 'interrupt' ||
+        parsed.data.type === 'permission_response');
+  } catch {
+    // Malformed messages stay on the ordinary FIFO and are ignored by dispatch.
+  }
+
+  const dispatch = () => dispatchV2Message(connectionId, transport, raw, ctx);
+  if (isControl) {
+    void dispatch().catch(onError);
+    return chain;
+  }
+  return chain.then(dispatch).catch(onError);
 }

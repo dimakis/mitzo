@@ -104,7 +104,7 @@ import {
   isHelloHandshake,
   getOwnerConnection,
   handleHello,
-  dispatchV2Message,
+  scheduleV2Message,
   handleLegacySetMode,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
@@ -677,13 +677,18 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
   let dispatchChain = Promise.resolve();
 
   ws.on('message', (raw) => {
-    dispatchChain = dispatchChain
-      .then(() => dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx))
-      .catch((err: unknown) => {
+    dispatchChain = scheduleV2Message(
+      dispatchChain,
+      connectionId,
+      transport,
+      raw.toString(),
+      v2Ctx,
+      (err: unknown) => {
         const message = err instanceof Error ? err.message : 'Unknown error';
         log.warn('v2 message dispatch error', { connectionId, error: message });
         transport.send({ type: 'error', error: message });
-      });
+      },
+    );
   });
 
   ws.on('close', (code, reason) => {

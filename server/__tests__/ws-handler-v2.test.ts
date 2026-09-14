@@ -67,6 +67,7 @@ import {
   handleSessionSuspend,
   isHelloHandshake,
   dispatchV2Message,
+  scheduleV2Message,
   getOwnerConnection,
   detectStateMismatch,
   type V2HandlerContext,
@@ -2095,11 +2096,15 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
-  it('does not hold stop behind a pending send admission', async () => {
+  it('lets stop bypass a pending send while ordinary messages remain FIFO', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    let admit!: (accepted: boolean) => void;
     (sendToChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
-      () => new Promise<boolean>(() => undefined),
+      () =>
+        new Promise<boolean>((resolve) => {
+          admit = resolve;
+        }),
     );
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
@@ -2110,7 +2115,9 @@ describe('dispatchV2Message', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    await dispatchV2Message(
+    const errors: unknown[] = [];
+    const sendChain = scheduleV2Message(
+      Promise.resolve(),
       'c1',
       transport,
       JSON.stringify({
@@ -2120,16 +2127,40 @@ describe('dispatchV2Message', () => {
         clientMsgId: 'pending-send',
       }),
       ctx,
+      (error) => errors.push(error),
     );
-    await dispatchV2Message(
+    await Promise.resolve();
+    const controlChain = scheduleV2Message(
+      sendChain,
       'c1',
       transport,
       JSON.stringify({ type: 'stop', sessionId: 'sess-1' }),
       ctx,
+      (error) => errors.push(error),
     );
 
+    expect(controlChain).toBe(sendChain);
     expect(sendToChat).toHaveBeenCalledOnce();
     expect(stopChat).toHaveBeenCalledWith('driver-1');
+    expect(errors).toEqual([]);
+
+    const ordinaryChain = scheduleV2Message(
+      sendChain,
+      'c1',
+      transport,
+      JSON.stringify({ type: 'watch', sessionId: 'later-session' }),
+      ctx,
+      (error) => errors.push(error),
+    );
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
+    );
+
+    admit(true);
+    await ordinaryChain;
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
+    );
   });
 
   it('routes reconnect messages and produces reconnected summary', async () => {
