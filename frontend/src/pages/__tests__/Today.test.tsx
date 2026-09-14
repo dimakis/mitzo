@@ -20,6 +20,8 @@ const data = vi.hoisted(() => ({
     navigateTo: `/tasks?task=task-${i}`,
   })),
   loading: false,
+  sessionsError: null as string | null,
+  retrySessions: vi.fn(),
   briefing: null as { path: string; generatedAt: string } | null,
   fetch: (_url: string) =>
     Promise.resolve({ ok: true, json: () => Promise.resolve(null) }) as Promise<{
@@ -28,7 +30,12 @@ const data = vi.hoisted(() => ({
     }>,
 }));
 vi.mock('../../hooks/useSessionList', () => ({
-  useSessionList: () => ({ sessions: data.sessions, loading: data.loading }),
+  useSessionList: () => ({
+    sessions: data.sessions,
+    loading: data.loading,
+    error: data.sessionsError,
+    retry: data.retrySessions,
+  }),
 }));
 vi.mock('../../hooks/useAttentionFeed', () => ({
   useAttentionFeed: () => ({ items: data.items, loading: data.loading }),
@@ -55,6 +62,8 @@ function show() {
 beforeEach(() => {
   localStorage.clear();
   data.briefing = null;
+  data.sessionsError = null;
+  data.retrySessions.mockReset();
   data.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve(data.briefing) });
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 8, 8, 9));
@@ -183,5 +192,14 @@ describe('Today', () => {
     const url = new URL(screen.getByTestId('location').textContent!, 'http://localhost');
     expect(url.pathname).toBe('/chat');
     expect(url.searchParams.get('prompt')).toBe('Review A & B?');
+  });
+  it('shows a retry instead of treating a failed chat request as an empty inbox', () => {
+    data.sessions = [];
+    data.sessionsError = 'Couldn’t load chats. Check the connection and try again.';
+    show();
+    expect(screen.getByRole('alert').textContent).toContain('Couldn’t load chats');
+    expect(screen.queryByText('Your conversations will appear here.')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(data.retrySessions).toHaveBeenCalledOnce();
   });
 });

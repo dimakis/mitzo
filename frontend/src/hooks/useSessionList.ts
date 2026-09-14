@@ -32,6 +32,7 @@ export interface UseSessionListReturn {
   sessions: Session[];
   quickActions: QuickAction[];
   loading: boolean;
+  error: string | null;
   loadingMore: boolean;
   hasMore: boolean;
   updateAvailable: boolean;
@@ -41,45 +42,64 @@ export interface UseSessionListReturn {
   handleRename: (id: string, title: string) => void;
   checkForUpdates: () => Promise<void>;
   loadMore: () => void;
+  retry: () => void;
 }
 
 function parseSessionsResponse(data: unknown): { sessions: Session[]; hasMore: boolean } {
   // Handle both new paginated shape and legacy array shape
   if (Array.isArray(data)) return { sessions: data, hasMore: false };
-  const obj = data as { sessions?: Session[]; hasMore?: boolean };
-  return { sessions: obj.sessions ?? [], hasMore: obj.hasMore ?? false };
+  if (
+    !data ||
+    typeof data !== 'object' ||
+    !Array.isArray((data as { sessions?: unknown }).sessions)
+  ) {
+    throw new Error('Invalid sessions response');
+  }
+  const obj = data as { sessions: Session[]; hasMore?: unknown };
+  return { sessions: obj.sessions, hasMore: obj.hasMore === true };
 }
 
 export function useSessionList(): UseSessionListReturn {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
   const nextOffset = useRef(0);
 
+  const loadSessions = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/sessions');
+      if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
+      const { sessions: page, hasMore: more } = parseSessionsResponse(await response.json());
+      setSessions(page);
+      setHasMore(more);
+      nextOffset.current = page.length;
+      setError(null);
+    } catch {
+      setError('Couldn’t load chats. Check the connection and try again.');
+    }
+  }, []);
+
   useEffect(() => {
-    const loadAll = () =>
-      Promise.all([
-        apiFetch('/api/sessions')
-          .then((r) => r.json())
-          .catch(() => ({ sessions: [], hasMore: false })),
+    const loadAll = async () => {
+      await Promise.all([
+        loadSessions(),
         apiFetch('/api/config')
           .then((r) => r.json())
-          .catch(() => ({})),
+          .catch(() => ({}))
+          .then((config) => setQuickActions(buildQuickActions(config.quickActions))),
         apiFetch('/api/version')
           .then((r) => r.json())
-          .catch(() => ({})),
-      ]).then(([sessData, config, version]) => {
-        const { sessions: page, hasMore: more } = parseSessionsResponse(sessData);
-        setSessions(page);
-        setHasMore(more);
-        nextOffset.current = page.length;
-        setQuickActions(buildQuickActions(config.quickActions));
-        if (version?.updateAvailable) setUpdateAvailable(true);
-      });
+          .catch(() => ({}))
+          .then((version) => {
+            if (version?.updateAvailable) setUpdateAvailable(true);
+          }),
+      ]);
+    };
 
     loadAll().finally(() => setLoading(false));
 
@@ -90,15 +110,7 @@ export function useSessionList(): UseSessionListReturn {
 
     // Refetch session list when sessions are created, renamed, or deleted
     const unsubChanged = eventBus.on('sessions_changed', () => {
-      apiFetch('/api/sessions')
-        .then((r) => r.json())
-        .then((data) => {
-          const { sessions: page, hasMore: more } = parseSessionsResponse(data);
-          setSessions(page);
-          setHasMore(more);
-          nextOffset.current = page.length;
-        })
-        .catch(() => {});
+      void loadSessions();
     });
 
     // Live session dots via SSE — update isActive/isAttached without full refetch
@@ -121,20 +133,24 @@ export function useSessionList(): UseSessionListReturn {
       unsubChanged();
       unsubActivity();
     };
-  }, []);
+  }, [loadSessions]);
 
   const loadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     apiFetch(`/api/sessions?offset=${nextOffset.current}`)
-      .then((r) => r.json())
+      .then((response) => {
+        if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
+        return response.json();
+      })
       .then((data) => {
         const { sessions: page, hasMore: more } = parseSessionsResponse(data);
         setSessions((prev) => [...prev, ...page]);
         setHasMore(more);
         nextOffset.current += page.length;
+        setError(null);
       })
-      .catch(() => {})
+      .catch(() => setError('Couldn’t load more chats. Check the connection and try again.'))
       .finally(() => setLoadingMore(false));
   }, [loadingMore, hasMore]);
 
@@ -193,10 +209,12 @@ export function useSessionList(): UseSessionListReturn {
     hasMore,
     updateAvailable,
     checking,
+    error,
     dismissSession,
     clearAll,
     handleRename,
     checkForUpdates,
     loadMore,
+    retry: () => void loadSessions(),
   };
 }

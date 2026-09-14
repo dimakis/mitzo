@@ -62,6 +62,24 @@
 .workspace-record small {
   color: var(--workspace-muted);
 }
+.workspace-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 0;
+  color: var(--workspace-muted);
+  font-size: 13px;
+}
+.workspace-load-error button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--workspace-text);
+}
 .today-top,
 .workspace-section-heading,
 .workspace-actions {

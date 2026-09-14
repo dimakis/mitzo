@@ -237,6 +237,25 @@ textarea:focus {
   z-index: 10;
 }
 
+/* Authentication can fail before a workspace page is available. Keep that
+ * state inside the iOS safe area instead of leaving raw text at the top edge. */
+.auth-status {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-3);
+  min-height: 100dvh;
+  box-sizing: border-box;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  color: var(--text);
+  text-align: center;
+}
+.auth-status > p {
+  max-width: 28rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
 .page-header-back {
   background: none;
   border: none;

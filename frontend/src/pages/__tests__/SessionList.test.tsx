@@ -29,7 +29,7 @@ function mockFetchResponses(overrides: Record<string, unknown> = {}) {
     'fetch',
     vi.fn((url: string) => {
       const body = defaults[url] ?? {};
-      return Promise.resolve({ json: () => Promise.resolve(body) });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
     }),
   );
 }

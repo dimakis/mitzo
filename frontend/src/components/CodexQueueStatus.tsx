@@ -13,7 +13,13 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const refresh = useRef<() => Promise<void>>(async () => {});
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const swiped = useRef(false);
+  const statusTab = useRef<HTMLButtonElement>(null);
+  const hideButton = useRef<HTMLButtonElement>(null);
+  const previousCollapsed = useRef<boolean | null>(null);
   useEffect(() => {
     let disposed = false;
     let isCodex = false;
@@ -22,6 +28,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     let lastRead = 0;
     setQueue(null);
     setError('');
+    setCollapsed(false);
     if (!sessionId) return;
     const read = async () => {
       if (disposed || reading) return;
@@ -67,6 +74,16 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       window.removeEventListener('focus', focus);
     };
   }, [sessionId]);
+  useEffect(() => {
+    const previous = previousCollapsed.current;
+    previousCollapsed.current = collapsed;
+    if (previous === null || previous === collapsed) return;
+    if (collapsed) statusTab.current?.focus();
+    else hideButton.current?.focus();
+  }, [collapsed]);
+  useEffect(() => {
+    if (error) setCollapsed(false);
+  }, [error]);
   if (!queue) return null;
   const continueQueue = async () => {
     setBusy(true);
@@ -99,31 +116,92 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   if (!hasRecovery && !queue.queued && !error) return null;
   const title = queue.queued
     ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} waiting`
-    : 'Session paused';
+    : 'Chat paused';
   const recoveryMessage = queue.connected
-    ? 'An earlier action may be incomplete. Review the chat before continuing.'
-    : 'Connection interrupted; an action may be incomplete. Send a message to reconnect.';
+    ? 'Your last step may be incomplete. Check the chat before continuing.'
+    : 'Connection interrupted. Send a message to reconnect.';
+  const hide = () => {
+    if (!busy && !error) setCollapsed(true);
+  };
+  const consumeSwipe = () => {
+    if (!swiped.current) return false;
+    swiped.current = false;
+    return true;
+  };
+  if (collapsed) {
+    return (
+      <button
+        className="codex-queue-status-tab"
+        type="button"
+        ref={statusTab}
+        aria-expanded="false"
+        onClick={() => {
+          swiped.current = false;
+          setCollapsed(false);
+        }}
+      >
+        Chat status
+      </button>
+    );
+  }
   return (
-    <aside className="codex-queue-status" role="status" aria-live="polite">
+    <aside
+      className="codex-queue-status"
+      role="status"
+      aria-live="polite"
+      onPointerDown={(event) => {
+        swiped.current = false;
+        swipeStart.current = { x: event.clientX, y: event.clientY };
+      }}
+      onPointerCancel={() => {
+        swipeStart.current = null;
+      }}
+      onPointerUp={(event) => {
+        const start = swipeStart.current;
+        swipeStart.current = null;
+        if (!start) return;
+        const horizontalDistance = Math.abs(event.clientX - start.x);
+        const verticalDistance = Math.abs(event.clientY - start.y);
+        if (horizontalDistance >= 56 && horizontalDistance > verticalDistance && !busy && !error) {
+          swiped.current = true;
+          hide();
+        }
+      }}
+    >
       <div className="codex-queue-status-copy">
         <strong>{title}</strong>
         {hasRecovery && <span>{recoveryMessage}</span>}
       </div>
       {error && <p role="alert">{error}</p>}
-      {queue.paused && queue.connected && (
-        <button type="button" disabled={busy} onClick={() => void continueQueue()}>
-          {busy
-            ? 'Reconnecting…'
-            : queue.queued > 0
-              ? 'Continue queued messages'
-              : 'Reconnect session'}
-        </button>
-      )}
-      {error && (
-        <button type="button" onClick={() => void refresh.current()}>
-          Retry queue status
-        </button>
-      )}
+      <div className="codex-queue-status-actions">
+        {queue.paused && queue.connected && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              if (!consumeSwipe()) void continueQueue();
+            }}
+          >
+            {busy ? 'Reconnecting…' : queue.queued > 0 ? 'Continue messages' : 'Reconnect'}
+          </button>
+        )}
+        {error ? (
+          <button type="button" onClick={() => void refresh.current()}>
+            Retry
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="codex-queue-status-hide"
+            ref={hideButton}
+            onClick={() => {
+              if (!consumeSwipe()) hide();
+            }}
+          >
+            Hide
+          </button>
+        )}
+      </div>
     </aside>
   );
 }

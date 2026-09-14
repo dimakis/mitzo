@@ -265,6 +265,7 @@ export function SessionList() {
     sessions,
     quickActions,
     loading,
+    error,
     loadingMore,
     hasMore,
     updateAvailable,
@@ -274,6 +275,7 @@ export function SessionList() {
     handleRename,
     checkForUpdates,
     loadMore,
+    retry,
   } = useSessionList();
   const search = useSessionSearch();
 
@@ -425,7 +427,15 @@ export function SessionList() {
                   : 'Waiting for you'}
             </p>
             {loading && <p className="session-list-empty">Loading…</p>}
-            {!loading && visible.length === 0 && (
+            {!loading && error && (
+              <div className="session-list-error" role="alert">
+                <span>{error}</span>
+                <button type="button" onClick={retry}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {!loading && !error && visible.length === 0 && (
               <p className="session-list-empty">
                 {filter === 'attention'
                   ? 'Nothing needs your attention'

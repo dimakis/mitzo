@@ -26,6 +26,7 @@ function makeDefaultReturn(overrides = {}) {
     sessions: [],
     quickActions: [],
     loading: false,
+    error: null,
     loadingMore: false,
     hasMore: false,
     updateAvailable: false,
@@ -35,6 +36,7 @@ function makeDefaultReturn(overrides = {}) {
     handleRename: vi.fn(),
     checkForUpdates: vi.fn(),
     loadMore: vi.fn(),
+    retry: vi.fn(),
     ...overrides,
   };
 }

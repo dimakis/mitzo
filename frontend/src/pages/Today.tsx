@@ -23,7 +23,7 @@ function localDate(date: Date): string {
 
 export function Today() {
   const navigate = useNavigate();
-  const { sessions, loading } = useSessionList();
+  const { sessions, loading, error: sessionsError, retry: retrySessions } = useSessionList();
   const attention = useAttentionFeed();
   const [now, setNow] = useState(() => new Date());
   const [prompt, setPrompt] = useState('');
@@ -171,6 +171,13 @@ export function Today() {
           </div>
           {loading ? (
             <p role="status">Loading recent chats…</p>
+          ) : sessionsError ? (
+            <div className="workspace-load-error" role="alert">
+              <span>{sessionsError}</span>
+              <button type="button" onClick={retrySessions}>
+                Try again
+              </button>
+            </div>
           ) : recent.length === 0 ? (
             <p className="workspace-muted">Your conversations will appear here.</p>
           ) : (
