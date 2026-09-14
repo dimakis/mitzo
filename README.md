@@ -10,7 +10,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
-- **Voice** — push-to-talk input (STT) and auto-speak output (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
+- **Voice** — push-to-talk input (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, switch between worktree roots
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
@@ -165,17 +165,16 @@ React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView
 
 - `useChatMessages` — v2 protocol message reducer (MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE)
 - `useTaskBoard` — task CRUD + loop control + WS subscriptions
-- `useVoice` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback)
+- `useVoice` — STT (push-to-talk) + manual TTS (voice selection, sequential chunk playback)
 - `useFileNavigation` / `useFileEditor` — file browser and editing
 - `useSessionOverview` — session metadata and statistics
-- `useAutoSpeak` — auto-speak TTS preferences
 - `useServiceHealth` — health status for Yapper, ContexGin
 
 **Key Components:**
 
 - `MessageBubble` (UserBubble/TextBubble), `ThinkingBlock`, `ToolPill`, `ToolGroup`, `PermissionBanner`, `ChatInput`, `SlashPicker`
 - `TaskNode`, `TaskCreateForm`, `LoopControls`, `TaskSidebar` — task board UI
-- `VoiceSettings` — speaker toggle with pulse indicator, voice picker dropdown grouped by language
+- `VoiceSettings` — read-aloud voice picker grouped by language
 - `SessionOverview` — session metadata card
 - `ContextPanel` — boot context viewer
 - `FileBrowserPanel` — file tree navigation

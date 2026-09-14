@@ -29,6 +29,7 @@ export const MIN_RECORDING_DURATION_MS = 500;
 export const TTS_CHUNK_MAX_CHARS = 500;
 export const TTS_CHUNK_MIN_CHARS = 10;
 export const TTS_MAX_SPEAK_CHARS = 2000;
+export const TTS_VOICES_RETRY_DELAY_MS = 5_000;
 export const TTS_ENABLED_KEY = 'mitzo-tts-enabled';
 export const TTS_VOICE_KEY = 'mitzo-tts-voice';
 export const DEFAULT_TTS_VOICE = 'af_heart';

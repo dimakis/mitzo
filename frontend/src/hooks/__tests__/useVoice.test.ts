@@ -90,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -382,43 +383,8 @@ describe('useVoice', () => {
   });
 
   describe('TTS', () => {
-    it('ttsEnabled defaults to false', () => {
+    it('fetches voices when explicit read-aloud is available', async () => {
       mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      const { result } = renderHook(() => useVoice());
-      expect(result.current.ttsEnabled).toBe(false);
-    });
-
-    it('setTtsEnabled toggles and persists to localStorage', async () => {
-      mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            voices: [
-              { id: 'af_heart', name: 'Heart', language: 'American English', gender: 'female' },
-            ],
-          }),
-      });
-
-      const { result } = renderHook(() => useVoice());
-
-      await act(async () => {
-        result.current.setTtsEnabled(true);
-      });
-
-      expect(result.current.ttsEnabled).toBe(true);
-      expect(localStorage.getItem('mitzo-tts-enabled')).toBe('true');
-    });
-
-    it('fetches voices lazily on first setTtsEnabled(true)', async () => {
-      mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      const { result } = renderHook(() => useVoice());
-
-      const voiceFetchesBefore = mockFetch.mock.calls.filter(
-        (call) => typeof call[0] === 'string' && call[0].includes('/v1/voices'),
-      );
-      expect(voiceFetchesBefore).toHaveLength(0);
-
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -430,84 +396,17 @@ describe('useVoice', () => {
           }),
       });
 
-      await act(async () => {
-        result.current.setTtsEnabled(true);
-      });
+      const { result } = renderHook(() => useVoice());
 
       await waitFor(() => {
         expect(result.current.voices).toHaveLength(2);
       });
     });
 
-    it('registers interaction listener to unlock AudioContext when ttsEnabled is pre-set', async () => {
-      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
-      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
-      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
-      mockUnlock.mockClear();
-
-      mockCtx.mockReturnValue({ state: 'suspended' });
-
-      localStorage.setItem('mitzo-tts-enabled', 'true');
-
+    it('retries voice loading after a transient failure', async () => {
+      vi.useFakeTimers();
       mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      renderHook(() => useVoice());
-      await waitFor(() => {});
-
-      expect(mockUnlock).not.toHaveBeenCalled();
-
-      document.dispatchEvent(new Event('click'));
-
-      expect(mockUnlock).toHaveBeenCalledTimes(1);
-
-      mockCtx.mockReturnValue({ state: 'running' });
-    });
-
-    it('unlocks AudioContext on touchstart (iOS Safari primary path)', async () => {
-      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
-      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
-      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
-      mockUnlock.mockClear();
-
-      mockCtx.mockReturnValue({ state: 'suspended' });
-      localStorage.setItem('mitzo-tts-enabled', 'true');
-
-      mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      renderHook(() => useVoice());
-      await waitFor(() => {});
-
-      document.dispatchEvent(new Event('touchstart'));
-
-      expect(mockUnlock).toHaveBeenCalledTimes(1);
-
-      mockUnlock.mockClear();
-      document.dispatchEvent(new Event('touchstart'));
-      expect(mockUnlock).not.toHaveBeenCalled();
-
-      mockCtx.mockReturnValue({ state: 'running' });
-    });
-
-    it('skips interaction listener when AudioContext is already running', async () => {
-      const { getOrCreateAudioContext, unlockAudioContext } = await import('../../lib/tts');
-      const mockCtx = getOrCreateAudioContext as ReturnType<typeof vi.fn>;
-      const mockUnlock = unlockAudioContext as ReturnType<typeof vi.fn>;
-      mockUnlock.mockClear();
-
-      mockCtx.mockReturnValue({ state: 'running' });
-
-      localStorage.setItem('mitzo-tts-enabled', 'true');
-
-      mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      renderHook(() => useVoice());
-      await waitFor(() => {});
-
-      document.dispatchEvent(new Event('click'));
-      expect(mockUnlock).not.toHaveBeenCalled();
-    });
-
-    it('setTtsEnabled(true) calls unlockAudioContext for iOS Safari', async () => {
-      const { unlockAudioContext } = await import('../../lib/tts');
-      mockYapper = { ok: true, detail: { stt: true, tts: true } };
-      mockFetch.mockResolvedValueOnce({
+      mockFetch.mockRejectedValueOnce(new Error('Yapper restarting')).mockResolvedValueOnce({
         ok: true,
         json: () =>
           Promise.resolve({
@@ -518,12 +417,18 @@ describe('useVoice', () => {
       });
 
       const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
 
       await act(async () => {
-        result.current.setTtsEnabled(true);
+        await vi.advanceTimersByTimeAsync(5_000);
       });
 
-      expect(unlockAudioContext).toHaveBeenCalled();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(result.current.voices).toHaveLength(1);
+      vi.useRealTimers();
     });
 
     it('speak() synthesizes and plays audio', async () => {
@@ -538,6 +443,28 @@ describe('useVoice', () => {
       expect(synthesize).toHaveBeenCalled();
       expect(playAudio).toHaveBeenCalled();
       expect(mockPlayHandle.play).toHaveBeenCalled();
+    });
+
+    it('unlocks audio synchronously from an explicit read-aloud gesture on iOS', async () => {
+      const { unlockAudioContext, synthesize } = await import('../../lib/tts');
+      vi.mocked(unlockAudioContext).mockClear();
+      vi.mocked(synthesize).mockClear();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
+      const { result } = renderHook(() => useVoice());
+
+      let speakPromise!: Promise<void>;
+      act(() => {
+        speakPromise = result.current.speak('Hello from iOS');
+        expect(unlockAudioContext).toHaveBeenCalledTimes(1);
+      });
+
+      expect(vi.mocked(unlockAudioContext).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(synthesize).mock.invocationCallOrder[0],
+      );
+
+      await act(async () => {
+        await speakPromise;
+      });
     });
 
     it('stopSpeaking() stops current playback', async () => {

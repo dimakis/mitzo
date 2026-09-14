@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { createStore } from 'zustand/vanilla';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import type { MitzoStoreState } from '@mitzo/client';
-import { INITIAL_MESSAGES_STATE } from '@mitzo/client';
+import { INITIAL_MESSAGES_STATE, messagesReducer } from '@mitzo/client';
+
+const voiceMocks = vi.hoisted(() => ({
+  speak: vi.fn(),
+  stopSpeaking: vi.fn(),
+}));
 
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
@@ -36,7 +41,9 @@ vi.mock('../../components/CommandCenter', () => ({
 }));
 
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: () => <div data-testid="chat-area">ChatArea</div>,
+  ChatArea: ({ messages }: { messages: unknown[] }) => (
+    <div data-testid="chat-area">Messages: {messages.length}</div>
+  ),
 }));
 
 vi.mock('../../components/VoiceSettings', () => ({
@@ -75,30 +82,25 @@ vi.mock('../../hooks/useVoice', () => ({
     recording: false,
     transcribing: false,
     micBlocked: false,
-    ttsEnabled: false,
-    ttsAvailable: false,
+    ttsAvailable: true,
+    ttsEnabled: true,
     speaking: false,
     voices: [],
     selectedVoice: '',
-    speak: vi.fn(),
-    stopSpeaking: vi.fn(),
+    speak: voiceMocks.speak,
+    stopSpeaking: voiceMocks.stopSpeaking,
     startRecording: vi.fn(),
     stopRecording: vi.fn(),
     cancelRecording: vi.fn(),
-    setTtsEnabled: vi.fn(),
     setVoice: vi.fn(),
     partialTranscript: '',
   }),
 }));
 
-vi.mock('../../hooks/useAutoSpeak', () => ({
-  useAutoSpeak: vi.fn(),
-}));
-
 import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
-  return createStore<MitzoStoreState>(() => ({
+  const store = createStore<MitzoStoreState>(() => ({
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
     connection: { status: 'connected', clientId: null },
@@ -170,6 +172,11 @@ function createMockStore() {
     sendSuspend: vi.fn(),
     closeSession: vi.fn().mockResolvedValue(undefined),
   }));
+  store.setState({
+    dispatchMessages: (action) =>
+      store.setState((state) => ({ messages: messagesReducer(state.messages, action) })),
+  });
+  return store;
 }
 
 beforeEach(() => {
@@ -247,9 +254,43 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('.mode-pills')).toBeTruthy();
   });
 
-  it('renders voice settings in center header', () => {
+  it('keeps the voice picker without exposing an automatic response-speech toggle', () => {
     renderWithRouter();
     expect(screen.getByTestId('voice-settings')).toBeTruthy();
+    expect(screen.queryByTitle(/text-to-speech/)).toBeNull();
+  });
+
+  it('does not speak when an assistant response completes', async () => {
+    const store = createMockStore();
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+
+    act(() => {
+      const dispatch = store.getState().dispatchMessages;
+      dispatch({ type: 'MESSAGE_START', messageId: 'assistant-response' });
+      dispatch({
+        type: 'BLOCK_START',
+        messageId: 'assistant-response',
+        blockId: 'text',
+        blockType: 'text',
+      });
+      dispatch({
+        type: 'BLOCK_DELTA',
+        messageId: 'assistant-response',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'Do not auto-play me',
+      });
+      dispatch({ type: 'MESSAGE_END', messageId: 'assistant-response' });
+    });
+
+    expect(await screen.findByText('Messages: 1')).toBeTruthy();
+    expect(voiceMocks.speak).not.toHaveBeenCalled();
   });
 });
 

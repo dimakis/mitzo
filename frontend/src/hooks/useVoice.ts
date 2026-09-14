@@ -1,7 +1,12 @@
 // Voice integration hook — Yapper health, mic capture, streaming + batch transcription, TTS playback.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { YAPPER_URL, TTS_ENABLED_KEY, TTS_VOICE_KEY, DEFAULT_TTS_VOICE } from '../lib/constants';
+import {
+  YAPPER_URL,
+  TTS_VOICE_KEY,
+  TTS_VOICES_RETRY_DELAY_MS,
+  DEFAULT_TTS_VOICE,
+} from '../lib/constants';
 import { useServiceHealth } from './useServiceHealth';
 import {
   negotiateMimeType,
@@ -16,7 +21,6 @@ import {
   chunkText,
   synthesize,
   playAudio,
-  getOrCreateAudioContext,
   unlockAudioContext,
   closeAudioContext,
 } from '../lib/tts';
@@ -45,7 +49,6 @@ export interface UseVoiceReturn {
 
   // TTS state
   ttsAvailable: boolean;
-  ttsEnabled: boolean;
   speaking: boolean;
   voices: Voice[];
   selectedVoice: string;
@@ -53,7 +56,6 @@ export interface UseVoiceReturn {
   // TTS actions
   speak: (text: string) => Promise<void>;
   stopSpeaking: () => void;
-  setTtsEnabled: (v: boolean) => void;
   setVoice: (id: string) => void;
 }
 
@@ -79,9 +81,6 @@ export function useVoice(): UseVoiceReturn {
   const [transcribing, setTranscribing] = useState(false);
   const [micBlocked, setMicBlocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ttsEnabled, setTtsEnabledState] = useState(
-    () => localStorage.getItem(TTS_ENABLED_KEY) === 'true',
-  );
   const [speaking, setSpeaking] = useState(false);
   const [voices, setVoices] = useState<Voice[]>([]);
   const [selectedVoice, setSelectedVoice] = useState(
@@ -103,34 +102,9 @@ export function useVoice(): UseVoiceReturn {
   const streamingActiveRef = useRef(false);
   const mimeTypeRef = useRef<string | undefined>(undefined);
   const voicesFetchedRef = useRef(false);
+  const voicesFetchRef = useRef<Promise<boolean> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const currentPlayRef = useRef<{ stop: () => void } | null>(null);
-
-  // --- Unlock AudioContext on first interaction when TTS is pre-enabled ---
-  // When ttsEnabled is restored from localStorage, unlockAudioContext() never runs
-  // because setTtsEnabled(true) isn't called on load. iOS Safari blocks playback
-  // from non-gesture contexts, so useAutoSpeak's speak() calls silently hang.
-  // Register a one-shot listener to unlock on the user's first tap/click.
-  useEffect(() => {
-    if (!ttsEnabled) return;
-
-    const ctx = getOrCreateAudioContext();
-    if (ctx.state !== 'suspended') return;
-
-    const unlock = () => {
-      unlockAudioContext().catch(() => {});
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-    };
-
-    document.addEventListener('click', unlock);
-    document.addEventListener('touchstart', unlock);
-
-    return () => {
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-    };
-  }, [ttsEnabled]);
 
   // --- Negotiate mime type once ---
   useEffect(() => {
@@ -326,43 +300,60 @@ export function useVoice(): UseVoiceReturn {
   }, [releaseStream, setPartialTranscript]);
 
   // --- TTS: Voice list ---
-  const fetchVoices = useCallback(async () => {
-    if (voicesFetchedRef.current) return;
-    try {
-      const res = await fetch(`${YAPPER_URL}/v1/voices`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data.voices)) {
-        setVoices(data.voices);
-        voicesFetchedRef.current = true;
+  const fetchVoices = useCallback((): Promise<boolean> => {
+    if (voicesFetchedRef.current) return Promise.resolve(true);
+    if (voicesFetchRef.current) return voicesFetchRef.current;
 
-        // If no stored voice, default to first from list
-        const stored = localStorage.getItem(TTS_VOICE_KEY);
-        if (!stored && data.voices.length > 0) {
-          setSelectedVoice(data.voices[0].id);
-          localStorage.setItem(TTS_VOICE_KEY, data.voices[0].id);
+    const request = (async () => {
+      try {
+        const res = await fetch(`${YAPPER_URL}/v1/voices`);
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (Array.isArray(data.voices) && data.voices.length > 0) {
+          setVoices(data.voices);
+          voicesFetchedRef.current = true;
+
+          // If no stored voice, default to first from list
+          const stored = localStorage.getItem(TTS_VOICE_KEY);
+          if (!stored) {
+            setSelectedVoice(data.voices[0].id);
+            localStorage.setItem(TTS_VOICE_KEY, data.voices[0].id);
+          }
+          return true;
         }
+      } catch {
+        // A retry is scheduled by the caller while TTS remains available.
       }
-    } catch {
-      // Voice list fetch failed — use default
-    }
+      return false;
+    })();
+
+    voicesFetchRef.current = request;
+    void request.finally(() => {
+      if (voicesFetchRef.current === request) voicesFetchRef.current = null;
+    });
+    return request;
   }, []);
 
-  // --- TTS: Toggle ---
-  const setTtsEnabled = useCallback(
-    (v: boolean) => {
-      setTtsEnabledState(v);
-      localStorage.setItem(TTS_ENABLED_KEY, String(v));
-      if (v) {
-        // Unlock AudioContext on user gesture — plays a silent buffer so iOS
-        // Safari allows programmatic playback later when assistant messages arrive.
-        unlockAudioContext().catch(() => {});
-        // Lazy voice list fetch
-        fetchVoices();
+  // A picker is always available for explicit read-aloud, so load voices whenever
+  // the service advertises TTS support. Playback still only starts from a user tap.
+  useEffect(() => {
+    if (!ttsAvailable || voicesFetchedRef.current) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      const loaded = await fetchVoices();
+      if (!loaded && !cancelled) {
+        retryTimer = setTimeout(load, TTS_VOICES_RETRY_DELAY_MS);
       }
-    },
-    [fetchVoices],
-  );
+    };
+    void load();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [ttsAvailable, fetchVoices]);
 
   // --- TTS: Voice selection ---
   const setVoice = useCallback((id: string) => {
@@ -373,6 +364,10 @@ export function useVoice(): UseVoiceReturn {
   // --- TTS: Speak ---
   const speak = useCallback(
     async (text: string) => {
+      // iOS requires AudioContext activation during the initiating user gesture.
+      // Start the unlock before synthesis yields control back to the browser.
+      void unlockAudioContext().catch(() => {});
+
       // Abort any in-flight synthesis
       abortRef.current?.abort();
       currentPlayRef.current?.stop();
@@ -448,13 +443,11 @@ export function useVoice(): UseVoiceReturn {
 
     // TTS
     ttsAvailable,
-    ttsEnabled,
     speaking,
     voices,
     selectedVoice,
     speak,
     stopSpeaking,
-    setTtsEnabled,
     setVoice,
   };
 }

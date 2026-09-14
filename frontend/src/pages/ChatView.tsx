@@ -12,7 +12,6 @@ import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/cli
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
-import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import { useProgressByToolId } from '../hooks/useProgress';
 import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
@@ -180,14 +179,6 @@ export function ChatView() {
     forceScrollToBottom();
   }, [pendingSession, accountSelection]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useAutoSpeak({
-    messages: messages.messages,
-    running: messages.running,
-    ttsEnabled: voice.ttsEnabled,
-    ttsAvailable: voice.ttsAvailable,
-    speak: voice.speak,
-  });
-
   // ── Actions ──────────────────────────────────────────────────────────────
 
   function handleSend(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): boolean {
@@ -310,11 +301,8 @@ export function ChatView() {
               )}
               <VoiceSettings
                 ttsAvailable={voice.ttsAvailable}
-                ttsEnabled={voice.ttsEnabled}
-                speaking={voice.speaking}
                 voices={voice.voices}
                 selectedVoice={voice.selectedVoice}
-                onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
                 onVoiceChange={voice.setVoice}
               />
             </>
