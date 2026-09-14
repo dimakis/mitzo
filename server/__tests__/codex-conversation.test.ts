@@ -250,6 +250,19 @@ it('keeps the public conversation open on process loss and resumes through a fre
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
 });
 
+it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
+  const { c, callbacks, requests } = await setup();
+  await c.send({ id: 'a', prompt: 'hello' });
+  callbacks.onClose(new Error('process lost'));
+
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted']);
+  await c.acknowledgeRecovery();
+
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(c.isPaused()).toBe(false);
+});
+
 it('treats transport loss during turn startup as paused recovery instead of a fatal send', async () => {
   const { c, callbacks, onClosed, rpc, requests } = await setup();
   const request = rpc.request.getMockImplementation()!;

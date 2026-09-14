@@ -55,17 +55,23 @@ it('hides an empty paused fallback when there is nothing to recover', async () =
   expect(screen.queryByRole('status')).toBeNull();
 });
 
-it('uses a plain session title for interrupted work with no queued messages', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({
+it('lets the user reconnect interrupted work with no queued messages without replaying it', async () => {
+  vi.mocked(apiFetch).mockResolvedValueOnce({
     ok: true,
     json: async () => ({
-      codexQueue: { paused: true, connected: false, queued: 0, interrupted: 1 },
+      codexQueue: { paused: true, connected: true, queued: 0, interrupted: 1 },
     }),
   } as Response);
   render(<CodexQueueStatus sessionId="paused-interrupted" />);
   await screen.findByText('Session paused');
   expect(screen.queryByText(/0 queued messages/)).toBeNull();
-  expect(screen.getByText(/Connection interrupted/)).toBeTruthy();
+  expect(screen.getByText(/An earlier action may be incomplete/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Reconnect session' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/paused-interrupted/codex-queue/continue', {
+      method: 'POST',
+    }),
+  );
 });
 
 it('slows idle polling and avoids overlapping requests', async () => {

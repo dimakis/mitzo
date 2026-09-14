@@ -110,9 +110,13 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         {hasRecovery && <span>{recoveryMessage}</span>}
       </div>
       {error && <p role="alert">{error}</p>}
-      {queue.paused && queue.connected && queue.queued > 0 && (
+      {queue.paused && queue.connected && (
         <button type="button" disabled={busy} onClick={() => void continueQueue()}>
-          {busy ? 'Continuing…' : 'Continue queued messages'}
+          {busy
+            ? 'Reconnecting…'
+            : queue.queued > 0
+              ? 'Continue queued messages'
+              : 'Reconnect session'}
         </button>
       )}
       {error && (
