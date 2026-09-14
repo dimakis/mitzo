@@ -100,6 +100,7 @@ export class CodexConversation {
   private ready = false;
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
+  private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   constructor(private opts: Options) {
     this.client = this.createClient();
   }
@@ -212,6 +213,12 @@ export class CodexConversation {
   isPaused() {
     return this.paused;
   }
+  isRecovering() {
+    return !!this.recoveryPhase;
+  }
+  getRecoveryPhase() {
+    return this.recoveryPhase;
+  }
   /** Exposed only to the server lifecycle bridge after initialize has bound the
    * provider thread. Undefined means no checkpoint/deletion record may exist. */
   getThreadId() {
@@ -226,7 +233,10 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
-    if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
+    // A transport loss keeps the durable binding. Accept an explicit new user
+    // message before reconnecting so it cannot be lost between recovery and send.
+    if (this.closed || (!this.ready && !this.paused) || !this.binding)
+      throw new Error('Codex conversation unavailable');
     // Built-in Codex skill readers cannot yet be mediated; do not silently weaken a ceiling.
     if (input.allowedTools)
       throw new Error('Codex execution does not yet support restricted skill tool ceilings');
@@ -252,7 +262,13 @@ export class CodexConversation {
   }
   async send(input: CodexCommandInput) {
     this.enqueue(input);
-    await this.startQueued();
+    await this.resumeAfterExplicitSend();
+  }
+  /** A new user message explicitly resumes saved FIFO work. Interrupted work
+   * stays interrupted and is never replayed by this path. */
+  async resumeAfterExplicitSend() {
+    if (this.paused) await this.acknowledgeRecovery();
+    else await this.startQueued();
   }
   async startQueued() {
     if (!this.ready || this.closed) throw new Error('Codex conversation unavailable');
@@ -263,7 +279,11 @@ export class CodexConversation {
     if (this.recovery) return this.recovery;
     const operation = this.continueRecovery();
     const shared = operation.finally(() => {
-      if (this.recovery === shared) this.recovery = undefined;
+      if (this.recovery === shared) {
+        this.recovery = undefined;
+        this.recoveryPhase = undefined;
+        this.opts.onQueueChange?.();
+      }
     });
     this.recovery = shared;
     return shared;
@@ -271,17 +291,31 @@ export class CodexConversation {
   private async continueRecovery() {
     if (this.closed) throw new Error('Codex conversation unavailable');
     if (!this.ready) await this.reconnect();
+    // A provider turn may continue after turn/start returns. Recovery progress
+    // is only for workspace startup and transport reattachment, not generation.
+    if (this.recoveryPhase) {
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
+    }
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
   }
   private async reconnect() {
+    this.recoveryPhase = 'reconnecting';
+    this.opts.onQueueChange?.();
     if (this.opts.reconnectGuard) return this.opts.reconnectGuard(() => this.reconnectBound());
     return this.reconnectBound();
   }
   private async reconnectBound() {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
-    await this.opts.beforeReconnect?.();
+    if (this.opts.beforeReconnect) {
+      this.recoveryPhase = 'starting_workspace';
+      this.opts.onQueueChange?.();
+      await this.opts.beforeReconnect();
+    }
+    this.recoveryPhase = 'reconnecting';
+    this.opts.onQueueChange?.();
     const client = this.createClient();
     this.client = client;
     try {

@@ -5,6 +5,8 @@ import './CodexQueueStatus.css';
 const Queue = z.object({
   paused: z.boolean(),
   connected: z.boolean(),
+  recovering: z.boolean().optional(),
+  recoveryPhase: z.enum(['starting_workspace', 'reconnecting']).optional(),
   queued: z.number().int().nonnegative(),
   interrupted: z.number().int().nonnegative(),
 });
@@ -12,7 +14,6 @@ type QueueState = z.infer<typeof Queue>;
 export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
@@ -85,48 +86,22 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     if (error) setCollapsed(false);
   }, [error]);
   if (!queue) return null;
-  const continueQueue = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const response = await apiFetch(
-        `/api/sessions/${encodeURIComponent(sessionId!)}/codex-queue/continue`,
-        { method: 'POST' },
-      );
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(
-          typeof body.error === 'string'
-            ? body.error
-            : 'Could not continue. Check the connection and retry.',
-        );
-      }
-      await refresh.current();
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'Could not continue. Check the connection and retry.',
-      );
-    } finally {
-      setBusy(false);
-    }
-  };
   const hasRecovery = queue.paused && (queue.queued > 0 || queue.interrupted > 0);
-  if (!hasRecovery && !queue.queued && !error) return null;
-  const title = queue.queued
-    ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} waiting`
-    : 'Chat paused';
-  const recoveryMessage = queue.connected
-    ? 'Your last step may be incomplete. Check the chat before continuing.'
-    : 'Connection interrupted. Send a message to reconnect.';
+  if (!hasRecovery && !queue.recovering && !queue.queued && !error) return null;
+  const title = queue.recovering
+    ? queue.recoveryPhase === 'starting_workspace'
+      ? 'Starting workspace…'
+      : 'Reconnecting…'
+    : queue.queued
+      ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} waiting`
+      : 'Chat paused';
+  const recoveryMessage = queue.recovering
+    ? 'Your message is saved.'
+    : queue.connected
+      ? 'Your last step may be incomplete. Check the chat before continuing.'
+      : 'Connection interrupted. Send a message to reconnect.';
   const hide = () => {
-    if (!busy && !error) setCollapsed(true);
-  };
-  const consumeSwipe = () => {
-    if (!swiped.current) return false;
-    swiped.current = false;
-    return true;
+    if (!error) setCollapsed(true);
   };
   if (collapsed) {
     return (
@@ -162,7 +137,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         if (!start) return;
         const horizontalDistance = Math.abs(event.clientX - start.x);
         const verticalDistance = Math.abs(event.clientY - start.y);
-        if (horizontalDistance >= 56 && horizontalDistance > verticalDistance && !busy && !error) {
+        if (horizontalDistance >= 56 && horizontalDistance > verticalDistance && !error) {
           swiped.current = true;
           hide();
         }
@@ -174,30 +149,12 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       </div>
       {error && <p role="alert">{error}</p>}
       <div className="codex-queue-status-actions">
-        {queue.paused && queue.connected && (
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              if (!consumeSwipe()) void continueQueue();
-            }}
-          >
-            {busy ? 'Reconnecting…' : queue.queued > 0 ? 'Continue messages' : 'Reconnect'}
-          </button>
-        )}
         {error ? (
           <button type="button" onClick={() => void refresh.current()}>
             Retry
           </button>
         ) : (
-          <button
-            type="button"
-            className="codex-queue-status-hide"
-            ref={hideButton}
-            onClick={() => {
-              if (!consumeSwipe()) hide();
-            }}
-          >
+          <button type="button" className="codex-queue-status-hide" ref={hideButton} onClick={hide}>
             Hide
           </button>
         )}

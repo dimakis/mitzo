@@ -143,12 +143,14 @@ export function readCodexQueue(
       reasoningEffort: commands.at(-1)?.reasoningEffort,
       paused: live?.isPaused() ?? true,
       connected: !!live,
+      recovering: live?.isRecovering() ?? false,
+      recoveryPhase: live?.getRecoveryPhase(),
       queued: commands.filter((c) => c.status === 'queued').length,
       interrupted: commands.filter((c) => c.status === 'interrupted' || c.status === 'failed')
         .length,
     };
   } catch {
-    return { paused: true, connected: false, queued: 0, interrupted: 0 };
+    return { paused: true, connected: false, recovering: false, queued: 0, interrupted: 0 };
   }
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
