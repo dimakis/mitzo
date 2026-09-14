@@ -53,6 +53,11 @@ edits, diffs, and local commits work without copying host `.git` state. It build
 and validates a new versioned seed in a temporary sibling directory before it is
 published; it never changes an existing versioned seed.
 
+Each generated manifest must carry `sourceCommit`, written by MGMT's
+`memory/scripts/build_index.py` from its checked-out `HEAD`. Mitzo requires that
+marker to equal the archived `startingCommit` and validates the index source paths,
+type/tag groupings, and forward/backlink inverse before accepting the overlay.
+
 The host-side baseline records both the seed content commit (`startingCommit`) and
 the runtime-base commit whose executable dependency set it uses, plus file hashes.
 The production lock and runtime image labels must continue to match that runtime

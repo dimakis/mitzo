@@ -13,3 +13,15 @@ export function hasExactGlobalSetting(
   key: string,
   value: string | number | boolean,
 ): boolean;
+
+export function validateSeedBaseline(
+  seedBaseline: Record<string, unknown> | null,
+  manifest: { runtime: { mgmtSourceCommit: string } },
+): void;
+
+export function validateRuntimeImageLabels(
+  imageLabels: Record<string, string | undefined>,
+  manifest: {
+    runtime: { mitzoSourceCommit: string; mgmtSourceCommit: string; baseImage: string };
+  },
+): void;
