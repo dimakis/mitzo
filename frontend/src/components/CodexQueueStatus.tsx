@@ -189,7 +189,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         if (epoch === sessionEpoch.current) {
           setNotice(
             response.status === 409
-              ? 'This message already started and cannot be cancelled.'
+              ? 'Could not cancel this message. It may have started; check the queue.'
               : 'Could not confirm cancellation. Check the queue.',
           );
         }
@@ -238,7 +238,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         onPointerUp={(event) => {
           const start = swipeStart.current;
           swipeStart.current = null;
-          if (!start || error) return;
+          if (!start) return;
           const horizontalDistance = Math.abs(event.clientX - start.x);
           const verticalDistance = Math.abs(event.clientY - start.y);
           if (horizontalDistance >= 56 && horizontalDistance > verticalDistance) hide();

@@ -260,7 +260,6 @@ export function DesktopChatView() {
               />
             </header>
           </WorkspaceControls>
-          <CodexQueueStatus sessionId={activeSessionId} />
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}
@@ -288,6 +287,7 @@ export function DesktopChatView() {
             voice={voice}
           />
           <ScrollFab scrollRef={scrollRef} />
+          <CodexQueueStatus sessionId={activeSessionId} />
           <ChatInput
             sendDisabledReason={
               !activeSessionId && !accountSelection

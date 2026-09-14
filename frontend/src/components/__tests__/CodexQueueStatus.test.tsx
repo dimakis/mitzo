@@ -153,7 +153,7 @@ it('allows an attention status to be dismissed and reports a cancel race honestl
   await userEvent.click(await screen.findByRole('button', { name: 'Review queue' }));
   await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(
-    await screen.findByText('This message already started and cannot be cancelled.'),
+    await screen.findByText('Could not cancel this message. It may have started; check the queue.'),
   ).toBeTruthy();
   expect(screen.getByRole('img', { name: 'Attention' })).toBeTruthy();
   await userEvent.click(screen.getByRole('button', { name: 'Hide status' }));
@@ -163,6 +163,16 @@ it('allows an attention status to be dismissed and reports a cancel race honestl
 it('has no row or edge control when the session is not a Codex chat', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => ({}) } as Response);
   render(<CodexQueueStatus sessionId="regular" />);
+  await act(async () => {});
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
+});
+
+it('does not resurrect a status row for historical interrupted work with nothing waiting', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({ paused: true, connected: false, queued: 0, interrupted: 3, recovering: false }),
+  );
+  render(<CodexQueueStatus sessionId="completed" />);
   await act(async () => {});
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
