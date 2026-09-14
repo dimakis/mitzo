@@ -283,8 +283,13 @@ it('recovers an idle dead transport before persisting the explicit send', async 
     return request(method, params);
   });
 
-  await c.send({ id: 'after-idle', prompt: 'continue' });
+  const onEnqueued = vi.fn(() => {
+    expect(c.queue().map((command) => command.status)).toEqual(['queued']);
+    expect(beforeReconnect).not.toHaveBeenCalled();
+  });
+  await c.send({ id: 'after-idle', prompt: 'continue' }, onEnqueued);
 
+  expect(onEnqueued).toHaveBeenCalledOnce();
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   expect(beforeReconnect).toHaveBeenCalledOnce();

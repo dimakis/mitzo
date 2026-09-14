@@ -1,4 +1,4 @@
-import { afterAll, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,13 +15,24 @@ vi.mock('../codex-chat-session.js', () => ({
 const root = mkdtempSync(join(tmpdir(), 'codex-queue-retry-'));
 vi.stubEnv('REPO_PATH', root);
 const chat = await import('../chat.js');
+beforeEach(() => {
+  runtime.enqueue.mockReset();
+  runtime.resumeAfterExplicitSend.mockReset().mockResolvedValue(undefined);
+  runtime.send.mockReset().mockImplementation(async (_input, onEnqueued?: () => void) => {
+    onEnqueued?.();
+  });
+});
 afterAll(() => {
   chat.eventStore.close();
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
-it('repairs a private queue after a previously echoed message without echoing it twice', () => {
+it('routes an idle follow-up through the recovery-aware send before acknowledging it', async () => {
   const send = vi.fn();
+  let acknowledge: (() => void) | undefined;
+  runtime.send.mockImplementationOnce(async (_input, onEnqueued?: () => void) => {
+    acknowledge = onEnqueued;
+  });
   vi.spyOn(chat.registry, 'get').mockReturnValue({
     inputQueue: {},
     sessionId: 's',
@@ -31,13 +42,18 @@ it('repairs a private queue after a previously echoed message without echoing it
   } as unknown as ManagedSession);
   vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(true);
   expect(chat.sendToChat('c', 'hello', undefined, undefined, 'same-id')).toBe(true);
-  expect(runtime.enqueue).toHaveBeenCalledWith({ id: 'same-id', prompt: 'hello' });
-  expect(runtime.enqueue).toHaveBeenCalledTimes(1);
-  expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
-  expect(runtime.send).not.toHaveBeenCalled();
+  expect(runtime.send).toHaveBeenCalledWith(
+    { id: 'same-id', prompt: 'hello' },
+    expect.any(Function),
+  );
+  expect(runtime.enqueue).not.toHaveBeenCalled();
+  expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalled();
+
+  acknowledge?.();
   expect(send).not.toHaveBeenCalled();
 });
-it('does not acknowledge or echo a message when durable enqueue fails', () => {
+it('does not acknowledge or echo a message when durable enqueue fails', async () => {
   const send = vi.fn();
   vi.spyOn(chat.registry, 'get').mockReturnValue({
     inputQueue: {},
@@ -48,12 +64,12 @@ it('does not acknowledge or echo a message when durable enqueue fails', () => {
   } as unknown as ManagedSession);
   const echo = vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(false);
   echo.mockClear();
-  runtime.enqueue.mockImplementationOnce(() => {
-    throw new Error('disk full');
-  });
-  expect(chat.sendToChat('c', 'hello', undefined, undefined, 'new-id')).toBe(false);
+  runtime.send.mockRejectedValueOnce(new Error('disk full'));
+  expect(chat.sendToChat('c', 'hello', undefined, undefined, 'new-id')).toBe(true);
   expect(echo).not.toHaveBeenCalled();
-  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  await vi.waitFor(() =>
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })),
+  );
 });
 
 it('queues image and thinking input on an existing conversation', () => {
@@ -61,11 +77,14 @@ it('queues image and thinking input on an existing conversation', () => {
   expect(chat.sendToChat('c', 'describe', images, undefined, 'image-followup', 'gpt', 'high')).toBe(
     true,
   );
-  expect(runtime.enqueue).toHaveBeenLastCalledWith({
-    id: 'image-followup',
-    prompt: 'describe',
-    model: 'gpt',
-    reasoningEffort: 'high',
-    images,
-  });
+  expect(runtime.send).toHaveBeenLastCalledWith(
+    {
+      id: 'image-followup',
+      prompt: 'describe',
+      model: 'gpt',
+      reasoningEffort: 'high',
+      images,
+    },
+    expect.any(Function),
+  );
 });

@@ -1652,27 +1652,6 @@ export function sendToChat(
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
-    if (codex) {
-      try {
-        // Persist before public acknowledgement; retries also repair older echo-only entries.
-        codex.enqueue({
-          id: messageId,
-          prompt: fullPrompt,
-          images,
-          reasoningEffort: selectionReasoningEffort,
-          ...(model ? { model } : {}),
-        });
-        if (model) session.model = model;
-      } catch {
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error:
-            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
-        });
-        return false;
-      }
-    }
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
@@ -1693,57 +1672,80 @@ export function sendToChat(
         return false;
       }
     }
-    if (session.sessionId) {
-      if (model || selectionReasoningEffort !== undefined) {
-        eventStore.upsertSession({
-          sessionId: session.sessionId,
-          ...(model ? { selectedModel: model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort || null }
-            : {}),
+    const acknowledge = (): boolean => {
+      if (model) session.model = model;
+      if (session.sessionId) {
+        if (model || selectionReasoningEffort !== undefined) {
+          eventStore.upsertSession({
+            sessionId: session.sessionId,
+            ...(model ? { selectedModel: model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort || null }
+              : {}),
+          });
+        }
+        const isDup = storeAndEchoIfNew(
+          session.sessionId,
+          messageId,
+          fullPrompt,
+          clientId,
+          session.transport,
+          session.observers,
+          previews,
+          contextBlocks,
+        );
+        tryAutoRename(session.sessionId, clientId).catch(() => {
+          /* errors logged internally */
         });
+        return isDup;
+      } else {
+        // Pre-session-resolve: no eventStore to dedup against.
+        // The frontend deduplicates echoes by messageId, and server-generated
+        // fallback IDs include randomUUID, so duplicates are not possible in practice.
+        const echo = {
+          type: 'user_message',
+          v: 2,
+          messageId,
+          text: fullPrompt,
+          ...(previews?.length ? { images: previews } : {}),
+          ...(contextBlocks?.length ? { contextBlocks } : {}),
+        };
+        send(session.transport, echo);
+        broadcastToObservers(session.observers, echo);
+        return false;
       }
-      const isDup = storeAndEchoIfNew(
-        session.sessionId,
-        messageId,
-        fullPrompt,
-        clientId,
-        session.transport,
-        session.observers,
-        previews,
-        contextBlocks,
-      );
-      if (isDup && !codex) return true;
-      tryAutoRename(session.sessionId, clientId).catch(() => {
-        /* errors logged internally */
-      });
-    } else {
-      // Pre-session-resolve: no eventStore to dedup against.
-      // The frontend deduplicates echoes by messageId, and server-generated
-      // fallback IDs include randomUUID, so duplicates are not possible in practice.
-      const echo = {
-        type: 'user_message',
-        v: 2,
-        messageId,
-        text: fullPrompt,
-        ...(previews?.length ? { images: previews } : {}),
-        ...(contextBlocks?.length ? { contextBlocks } : {}),
-      };
-      send(session.transport, echo);
-      broadcastToObservers(session.observers, echo);
-    }
+    };
     if (codex) {
-      void codex.resumeAfterExplicitSend().catch(() =>
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error: 'Message saved. Mitzo could not reconnect yet.',
-        }),
-      );
-    } else
+      let acknowledged = false;
+      void codex
+        .send(
+          {
+            id: messageId,
+            prompt: fullPrompt,
+            images,
+            reasoningEffort: selectionReasoningEffort,
+            ...(model ? { model } : {}),
+          },
+          () => {
+            acknowledged = true;
+            acknowledge();
+          },
+        )
+        .catch(() =>
+          send(session.transport, {
+            type: 'error',
+            sessionId: session.sessionId,
+            error: acknowledged
+              ? 'Message saved. Mitzo could not reconnect yet.'
+              : 'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+          }),
+        );
+    } else {
+      if (acknowledge()) return true;
       session.inputQueue.push(
         makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
       );
+    }
     return true;
   });
 }

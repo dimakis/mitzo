@@ -100,6 +100,7 @@ export class CodexConversation {
   private ready = false;
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
+  private explicitEnqueue = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   constructor(private opts: Options) {
     this.client = this.createClient();
@@ -260,9 +261,14 @@ export class CodexConversation {
     });
     this.opts.onQueueChange?.();
   }
-  async send(input: CodexCommandInput) {
-    await this.probeOpenShellTransport();
-    this.enqueue(input);
+  async send(input: CodexCommandInput, onEnqueued?: () => void) {
+    const enqueue = this.explicitEnqueue.then(async () => {
+      await this.probeOpenShellTransport();
+      this.enqueue(input);
+      onEnqueued?.();
+    });
+    this.explicitEnqueue = enqueue.catch(() => undefined);
+    await enqueue;
     await this.resumeAfterExplicitSend();
   }
   /**
