@@ -1298,7 +1298,15 @@ export async function dispatchV2Message(
       handleSessionClose(connectionId, msg, ctx);
       break;
     case 'send':
-      await handleSendV2(connectionId, transport, msg, ctx);
+      // Admission may wait on a dead provider transport probe. Start it in
+      // receive order, but do not hold the connection FIFO: stop, interrupt,
+      // and permission responses must remain able to break that wait.
+      void handleSendV2(connectionId, transport, msg, ctx).catch((error: unknown) => {
+        log.warn('v2 send dispatch error', {
+          connectionId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      });
       break;
     case 'stop':
       handleStopV2(connectionId, msg, ctx);

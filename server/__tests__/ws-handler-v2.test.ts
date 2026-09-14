@@ -2095,6 +2095,43 @@ describe('dispatchV2Message', () => {
     expect(stopChat).toHaveBeenCalledWith('driver-1');
   });
 
+  it('does not hold stop behind a pending send admission', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (sendToChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise<boolean>(() => undefined),
+    );
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'wait on probe',
+        clientMsgId: 'pending-send',
+      }),
+      ctx,
+    );
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({ type: 'stop', sessionId: 'sess-1' }),
+      ctx,
+    );
+
+    expect(sendToChat).toHaveBeenCalledOnce();
+    expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
+
   it('routes reconnect messages and produces reconnected summary', async () => {
     const ctx = createContext();
     const transport = mockTransport();
