@@ -187,6 +187,30 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
     });
 }
 
+/** Merge an older HTTP snapshot with events received while it was in flight. */
+function mergeHistory(
+  state: MessagesState,
+  history: FinishedMessage[],
+  initialCurrent: MessagesState['current'],
+): MessagesState {
+  const live = new Map(state.messages.map((message) => [message.messageId, message]));
+  const updatedCurrent = state.current && state.current !== initialCurrent;
+  const merged: FinishedMessage[] = [];
+  const seen = new Set<string>();
+  for (const message of [...history, ...state.messages]) {
+    if (!message || typeof message.messageId !== 'string' || !Array.isArray(message.blocks))
+      continue;
+    if (
+      seen.has(message.messageId) ||
+      (updatedCurrent && message.messageId === state.current!.messageId)
+    )
+      continue;
+    seen.add(message.messageId);
+    merged.push(live.get(message.messageId) ?? message);
+  }
+  return messagesReducer(state, { type: 'RESTORE', messages: merged });
+}
+
 // ─── Factory ─────────────────────────────────────────────────────────────────
 
 export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStoreState> {
@@ -207,16 +231,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (recoveryInFlight) return;
     recoveryInFlight = true;
     const request = historyRequest;
+    const initialCurrent = store.getState().messages.current;
     api
       .getSessionMessages(sessionId)
       .then((msgs) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           store.setState((s) => ({
-            messages:
-              msgs.length > 0
-                ? messagesReducer(s.messages, { type: 'RESTORE', messages: msgs })
-                : s.messages, // preserve state — empty REST response doesn't mean state is invalid
+            messages: msgs.length > 0 ? mergeHistory(s.messages, msgs, initialCurrent) : s.messages, // preserve state — empty REST response doesn't mean state is invalid
           }));
         }
       })
@@ -301,7 +323,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (request !== historyRequest || get().sessions.active !== id) return;
         if (Array.isArray(msgs) && msgs.length > 0) {
           set((s) => ({
-            messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
+            messages: mergeHistory(s.messages, msgs, null),
           }));
         }
       } catch {

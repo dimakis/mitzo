@@ -157,12 +157,15 @@ describe('conversation history selection', () => {
       () => new Promise((resolve) => pending.push(resolve)),
     );
     const store = createMitzoStore(makeOptions(transport));
-    const finish = (index: number, id: string) =>
+    const finish = (index: number, id: string | string[]) =>
       pending[index]({
         ok: true,
-        json: async () => [
-          { messageId: id, role: 'assistant', blocks: [{ type: 'text', text: id }] },
-        ],
+        json: async () =>
+          (Array.isArray(id) ? id : [id]).map((messageId) => ({
+            messageId,
+            role: 'assistant',
+            blocks: [{ type: 'text', text: messageId }],
+          })),
       });
     return { store, finish };
   }
@@ -191,4 +194,32 @@ describe('conversation history selection', () => {
     expect(store.getState().messages.messages).toEqual([]);
     expect(store.getState().historyLoading).toBe(false);
   });
+  it.each([false, true])(
+    'keeps live messages and a running turn when older history arrives (overlap: %s)',
+    async (overlap) => {
+      const { store, finish } = deferredHistory();
+      const load = store.getState().switchSession('second');
+      const dispatch = store.getState().dispatchMessages;
+      dispatch({ type: 'USER_MESSAGE_RECEIVED', messageId: 'live-user', text: 'new turn' });
+      dispatch({ type: 'MESSAGE_START', messageId: 'live-assistant' });
+      dispatch({ type: 'MESSAGE_END', messageId: 'live-assistant' });
+      dispatch({ type: 'MESSAGE_START', messageId: 'still-streaming' });
+      store.setState((s) => ({ messages: { ...s.messages, running: true } }));
+      const runningBefore = store.getState().messages.running;
+      finish(
+        0,
+        overlap
+          ? ['older-history', 'live-user', 'live-assistant', 'still-streaming']
+          : ['older-history'],
+      );
+      await load;
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+        'older-history',
+        'live-user',
+        'live-assistant',
+      ]);
+      expect(store.getState().messages.current?.messageId).toBe('still-streaming');
+      expect(store.getState().messages.running).toBe(runningBefore);
+    },
+  );
 });
