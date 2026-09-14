@@ -505,7 +505,14 @@ export class OpenShellRuntimeManager {
     const deadline = Date.now() + this.readiness.timeoutMs;
     while (Date.now() <= deadline) {
       signal.throwIfAborted();
-      const sandbox = await this.get(name, signal);
+      const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+      let sandbox: z.infer<typeof Sandbox> | undefined;
+      try {
+        sandbox = await this.get(name, AbortSignal.any([signal, timeout]));
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
       if (!sandbox) return;
       if (sandbox.id !== physicalId)
         throw new Error('OpenShell sandbox identity changed during delete');

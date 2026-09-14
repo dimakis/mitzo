@@ -825,6 +825,32 @@ describe('OpenShell runtime lifecycle', () => {
     ).rejects.toThrow('did not disappear after delete');
   });
 
+  it('bounds an individual gateway read by the deletion deadline', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(stopped)
+      .mockResolvedValueOnce('{}')
+      .mockImplementationOnce(
+        (_args: readonly string[], signal: AbortSignal) =>
+          new Promise<string>((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(new Error('gateway read aborted'))),
+          ),
+      );
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 5 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('did not disappear after delete');
+  });
+
   it('aborts while waiting for asynchronous deletion to settle', async () => {
     const stopped = JSON.stringify({
       id: 'physical-1',
