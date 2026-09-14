@@ -809,37 +809,18 @@
     bottom: calc(49px + env(safe-area-inset-bottom));
   }
 
-  /* Two compact rows: conversation navigation, then the workspace disclosure. */
+  /* Compact navigation plus an on-demand workspace disclosure. */
   .workspace-chat .conversation-heading {
     min-height: 44px;
     gap: 8px;
     padding: 2px 12px;
+    justify-content: flex-start;
   }
   .workspace-chat .conversation-heading h1 {
     display: none;
   }
-  /* One mobile navigation row: back, a concise state label, and new chat.
-     Workspace and Sources remain 44px disclosure controls on demand. */
-  .workspace-chat .conversation-heading {
-    justify-content: flex-start;
-  }
-  .workspace-chat .conversation-heading a::after {
-    content: 'Chats';
-  }
-  .workspace-chat .conversation-heading a {
-    font-size: 0;
-  }
-  .workspace-chat .conversation-heading a::after {
-    font-size: 14px;
-  }
   .workspace-chat .conversation-heading button {
     margin-left: auto;
-    font-size: 0;
-  }
-  .workspace-chat .conversation-heading button::after {
-    content: '+';
-    font-size: 24px;
-    line-height: 1;
   }
   .workspace-chat .conversation-heading a,
   .workspace-chat .conversation-heading button {
@@ -954,18 +935,41 @@
   }
 }
 
-@media (max-width: 700px) {
-  .chat-mobile-topbar { display: grid; grid-template-columns: minmax(0, 1fr) 52px; align-items: start; }
-  .workspace-chat .conversation-heading { padding-right: 4px; }
-  .workspace-chat .conversation-heading h1 { display: none; }
-  .workspace-chat .conversation-heading a::after { content: 'Chats'; font-size: 14px; }
-  .workspace-chat .conversation-heading a { font-size: 0; }
-  .workspace-chat .conversation-heading button { margin-left: auto; min-width: 44px; font-size: 13px; }
-  .workspace-chat .workspace-controls { position: relative; width: 52px; border: 0; }
-  .workspace-chat .workspace-controls-toggle { width: 52px; min-height: 44px; justify-content: center; padding: 0; }
-  .workspace-chat .workspace-controls-toggle > span { display: none; }
-  .workspace-chat .workspace-controls > div:not([hidden]) { position: absolute; right: 0; top: 44px; width: min(22rem, 100vw); max-height: calc(100dvh - 88px); overflow: auto; background: var(--workspace-bg); border: 1px solid var(--workspace-line); border-radius: 0 0 0 14px; box-shadow: 0 10px 28px #0003; }
-  .workspace-chat .mobile-new-chat { display: none; }
+@media (max-width: 767px) {
+  .chat-mobile-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 52px;
+    align-items: start;
+    flex-shrink: 0;
+  }
+  .workspace-chat .conversation-heading {
+    padding-right: 4px;
+  }
+  .workspace-chat .workspace-controls {
+    position: relative;
+    width: 52px;
+    border: 0;
+  }
+  .workspace-chat .workspace-controls-toggle {
+    width: 52px;
+    min-height: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+  .workspace-chat .workspace-controls-toggle > span {
+    display: none;
+  }
+  .workspace-chat .workspace-controls > div:not([hidden]) {
+    position: absolute;
+    top: 44px;
+    right: 0;
+    z-index: 20;
+    width: min(22rem, 100vw);
+    max-height: calc(100dvh - 88px - env(safe-area-inset-bottom));
+    overflow: auto;
+    background: var(--workspace-bg);
+    border: 1px solid var(--workspace-line);
+    border-radius: 0 0 0 14px;
+    box-shadow: 0 10px 28px #0003;
+  }
 }
-
-@media (min-width: 701px) { .mobile-new-chat { display: none; } }

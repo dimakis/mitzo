@@ -241,98 +241,88 @@ export function ChatView() {
   return (
     <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
       <div className="chat-mobile-topbar">
-      <div className="conversation-heading">
-        <Link to="/sessions" aria-label="Back to chats">
-          ← Chats
-        </Link>
-        <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
-        <button
-          onClick={() => {
-            storeNewSession();
-            navigate('/chat');
-          }}
-        >
-          New chat
-        </button>
-      </div>
-      <WorkspaceControls
-        status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
-      >
-        <button
-          type="button"
-          className="mobile-new-chat"
-          onClick={() => {
-            storeNewSession();
-            navigate('/chat');
-          }}
-        >
-          New chat
-        </button>
-        <div className="chat-account-bar">
-          <AccountModelPicker
-            disabled={messages.running}
-            sessionId={activeSessionId}
-            preferredModel={modelState}
-            onChange={selectAccount}
-            onUnavailable={accountUnavailable}
-          />
+        <div className="conversation-heading">
+          <Link to="/sessions" aria-label="Back to chats">
+            ← Chats
+          </Link>
+          <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+          <button
+            onClick={() => {
+              storeNewSession();
+              navigate('/chat');
+            }}
+          >
+            New chat
+          </button>
         </div>
-        <header className="chat-header">
-          {!connected && (
-            <span
-              className="chat-header-offline"
-              title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
-            >
-              !
-            </span>
-          )}
-
-          {!keyboardOpen && (
-            <>
-              <PermissionModePicker
-                mode={mode}
-                onChange={handleModeChange}
-                disabled={modeChangeReady === false}
-              />
-              {!activeSessionId && (
-                <button
-                  className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                  onClick={() => setIsolation((v) => !v)}
-                  title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-                >
-                  {isolation ? '\u{1f512}' : '\u{1f513}'}
-                </button>
-              )}
-              {activeSessionId && (
-                <button
-                  className="session-close-btn"
-                  onClick={storeCloseSession}
-                  title="Close session"
-                >
-                  &times;
-                </button>
-              )}
-              <VoiceSettings
-                ttsAvailable={voice.ttsAvailable}
-                voices={voice.voices}
-                selectedVoice={voice.selectedVoice}
-                onVoiceChange={voice.setVoice}
-              />
-            </>
-          )}
-        </header>
-        {activeSessionId && (
-          <div className="mobile-session-context">
-            <StatusBar
-              connected={connected}
+        <WorkspaceControls
+          status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
+        >
+          <div className="chat-account-bar">
+            <AccountModelPicker
+              disabled={messages.running}
               sessionId={activeSessionId}
-              branch={messages.branch || undefined}
-              isWorktree={messages.isWorktree}
-              wtId={messages.wtId || undefined}
+              preferredModel={modelState}
+              onChange={selectAccount}
+              onUnavailable={accountUnavailable}
             />
           </div>
-        )}
-      </WorkspaceControls>
+          <header className="chat-header">
+            {!connected && (
+              <span
+                className="chat-header-offline"
+                title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+              >
+                !
+              </span>
+            )}
+
+            {!keyboardOpen && (
+              <>
+                <PermissionModePicker
+                  mode={mode}
+                  onChange={handleModeChange}
+                  disabled={modeChangeReady === false}
+                />
+                {!activeSessionId && (
+                  <button
+                    className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                    onClick={() => setIsolation((v) => !v)}
+                    title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+                  >
+                    {isolation ? '\u{1f512}' : '\u{1f513}'}
+                  </button>
+                )}
+                {activeSessionId && (
+                  <button
+                    className="session-close-btn"
+                    onClick={storeCloseSession}
+                    title="Close session"
+                  >
+                    &times;
+                  </button>
+                )}
+                <VoiceSettings
+                  ttsAvailable={voice.ttsAvailable}
+                  voices={voice.voices}
+                  selectedVoice={voice.selectedVoice}
+                  onVoiceChange={voice.setVoice}
+                />
+              </>
+            )}
+          </header>
+          {activeSessionId && (
+            <div className="mobile-session-context">
+              <StatusBar
+                connected={connected}
+                sessionId={activeSessionId}
+                branch={messages.branch || undefined}
+                isWorktree={messages.isWorktree}
+                wtId={messages.wtId || undefined}
+              />
+            </div>
+          )}
+        </WorkspaceControls>
       </div>
       {(sendError || sendStatus) && (
         <div
