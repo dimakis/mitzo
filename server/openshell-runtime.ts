@@ -23,7 +23,7 @@ const Sandbox = z.object({
   // revision is the stable lifecycle fence for an already-stopped sandbox.
   revision: ResourceVersion.optional(),
   name: z.string(),
-  phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
+  phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Deleting', 'Error']),
   workspace: z.string().optional(),
   labels: z.record(z.string(), z.string()).optional(),
 });
@@ -486,6 +486,36 @@ export class OpenShellRuntimeManager {
     if (stateUnchanged && !stateUnchanged())
       throw new Error('OpenShell lifecycle state changed before delete');
     await this.run(['sandbox', ...this.base(), 'delete', sandbox.name], signal);
+    await this.waitForAbsent(conversationId, sandbox.name, physicalId, signal);
+  }
+
+  /** Gateway deletion is asynchronous. Do not report success while a same-named
+   * physical sandbox still exists; a replacement is a hard identity failure. */
+  private async waitForAbsent(
+    conversationId: string,
+    name: string,
+    physicalId: string,
+    signal: AbortSignal,
+  ) {
+    const hash = createHash('sha256').update(conversationId).digest('hex');
+    const expectedOwner =
+      name === sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
+        ? hash.slice(0, 63)
+        : hash;
+    const deadline = Date.now() + this.readiness.timeoutMs;
+    while (Date.now() <= deadline) {
+      signal.throwIfAborted();
+      const sandbox = await this.get(name, signal);
+      if (!sandbox) return;
+      if (sandbox.id !== physicalId)
+        throw new Error('OpenShell sandbox identity changed during delete');
+      if (sandbox.labels?.['mitzo.conversation'] !== expectedOwner)
+        throw new Error('OpenShell sandbox is not owned by this conversation');
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        throw new Error('OpenShell sandbox has another account provider binding');
+      await this.delay(signal);
+    }
+    throw new Error('OpenShell sandbox did not disappear after delete');
   }
 
   private delay(signal: AbortSignal) {

@@ -742,7 +742,8 @@ describe('OpenShell runtime lifecycle', () => {
           labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
         }),
       )
-      .mockResolvedValueOnce('{}');
+      .mockResolvedValueOnce('{}')
+      .mockRejectedValueOnce(new Error('sandbox not found'));
     const manager = new OpenShellRuntimeManager(config, run);
     await expect(manager.inventory(new AbortController().signal)).resolves.toEqual([
       expect.objectContaining({ id: 'physical-1', phase: 'Stopped' }),
@@ -752,6 +753,94 @@ describe('OpenShell runtime lifecycle', () => {
     await manager.delete('conversation', 'physical-1', new AbortController().signal);
     expect(run.mock.calls[2][0]).toEqual(expect.arrayContaining(['stop', 'mitzo-123']));
     expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['delete', 'mitzo-123']));
+  });
+
+  it('waits for asynchronous gateway deletion to become absent', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(stopped)
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(stopped.replace('"Stopped"', '"Deleting"'))
+      .mockRejectedValueOnce(new Error('sandbox not found'));
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 100 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).resolves.toBeUndefined();
+    expect(run.mock.calls[1][0]).toEqual(expect.arrayContaining(['delete']));
+    expect(run.mock.calls).toHaveLength(4);
+  });
+
+  it('fails closed when a same-named replacement appears while deletion settles', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: sandboxNameForConversation('conversation'),
+          phase: 'Stopped',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'replacement',
+          name: sandboxNameForConversation('conversation'),
+          phase: 'Ready',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      );
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 100 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('identity changed during delete');
+  });
+
+  it('fails closed if asynchronous deletion never becomes absent', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi.fn().mockResolvedValue(stopped);
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 5 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('did not disappear after delete');
+  });
+
+  it('aborts while waiting for asynchronous deletion to settle', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi.fn().mockResolvedValue(stopped);
+    const controller = new AbortController();
+    const deletion = new OpenShellRuntimeManager(config, run, {
+      pollIntervalMs: 1_000,
+      timeoutMs: 30_000,
+    }).delete('conversation', 'physical-1', controller.signal);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
+    controller.abort();
+    await expect(deletion).rejects.toThrow(/abort/i);
   });
 
   it('does not issue a stop after queue admission invalidates the lifecycle fence', async () => {

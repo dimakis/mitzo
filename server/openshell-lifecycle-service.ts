@@ -28,7 +28,7 @@ export interface LifecycleProtection {
 export interface LifecycleSandbox {
   id: string;
   resourceVersion?: string;
-  phase: 'Ready' | 'Stopped' | 'Error' | 'Pending' | 'Creating' | 'Starting';
+  phase: 'Ready' | 'Stopped' | 'Error' | 'Pending' | 'Creating' | 'Starting' | 'Deleting';
 }
 export interface LifecycleAdapters {
   inspect(
@@ -83,7 +83,8 @@ function blockersFor(
     sandbox.phase === 'Error' ||
     sandbox.phase === 'Pending' ||
     sandbox.phase === 'Creating' ||
-    sandbox.phase === 'Starting'
+    sandbox.phase === 'Starting' ||
+    sandbox.phase === 'Deleting'
   )
     blockers.push('transitional_sandbox');
   if (!record.physicalSandboxId || !sandbox || sandbox.id !== record.physicalSandboxId)
