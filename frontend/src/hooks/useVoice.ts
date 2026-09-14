@@ -1,7 +1,12 @@
 // Voice integration hook — Yapper health, mic capture, streaming + batch transcription, TTS playback.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { YAPPER_URL, TTS_VOICE_KEY, DEFAULT_TTS_VOICE } from '../lib/constants';
+import {
+  YAPPER_URL,
+  TTS_VOICE_KEY,
+  TTS_VOICES_RETRY_DELAY_MS,
+  DEFAULT_TTS_VOICE,
+} from '../lib/constants';
 import { useServiceHealth } from './useServiceHealth';
 import {
   negotiateMimeType,
@@ -97,6 +102,7 @@ export function useVoice(): UseVoiceReturn {
   const streamingActiveRef = useRef(false);
   const mimeTypeRef = useRef<string | undefined>(undefined);
   const voicesFetchedRef = useRef(false);
+  const voicesFetchRef = useRef<Promise<boolean> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const currentPlayRef = useRef<{ stop: () => void } | null>(null);
 
@@ -294,32 +300,59 @@ export function useVoice(): UseVoiceReturn {
   }, [releaseStream, setPartialTranscript]);
 
   // --- TTS: Voice list ---
-  const fetchVoices = useCallback(async () => {
-    if (voicesFetchedRef.current) return;
-    try {
-      const res = await fetch(`${YAPPER_URL}/v1/voices`);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (Array.isArray(data.voices)) {
-        setVoices(data.voices);
-        voicesFetchedRef.current = true;
+  const fetchVoices = useCallback((): Promise<boolean> => {
+    if (voicesFetchedRef.current) return Promise.resolve(true);
+    if (voicesFetchRef.current) return voicesFetchRef.current;
 
-        // If no stored voice, default to first from list
-        const stored = localStorage.getItem(TTS_VOICE_KEY);
-        if (!stored && data.voices.length > 0) {
-          setSelectedVoice(data.voices[0].id);
-          localStorage.setItem(TTS_VOICE_KEY, data.voices[0].id);
+    const request = (async () => {
+      try {
+        const res = await fetch(`${YAPPER_URL}/v1/voices`);
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (Array.isArray(data.voices) && data.voices.length > 0) {
+          setVoices(data.voices);
+          voicesFetchedRef.current = true;
+
+          // If no stored voice, default to first from list
+          const stored = localStorage.getItem(TTS_VOICE_KEY);
+          if (!stored) {
+            setSelectedVoice(data.voices[0].id);
+            localStorage.setItem(TTS_VOICE_KEY, data.voices[0].id);
+          }
+          return true;
         }
+      } catch {
+        // A retry is scheduled by the caller while TTS remains available.
       }
-    } catch {
-      // Voice list fetch failed — use default
-    }
+      return false;
+    })();
+
+    voicesFetchRef.current = request;
+    void request.finally(() => {
+      if (voicesFetchRef.current === request) voicesFetchRef.current = null;
+    });
+    return request;
   }, []);
 
   // A picker is always available for explicit read-aloud, so load voices whenever
   // the service advertises TTS support. Playback still only starts from a user tap.
   useEffect(() => {
-    if (ttsAvailable) fetchVoices();
+    if (!ttsAvailable || voicesFetchedRef.current) return;
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const load = async () => {
+      const loaded = await fetchVoices();
+      if (!loaded && !cancelled) {
+        retryTimer = setTimeout(load, TTS_VOICES_RETRY_DELAY_MS);
+      }
+    };
+    void load();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   }, [ttsAvailable, fetchVoices]);
 
   // --- TTS: Voice selection ---

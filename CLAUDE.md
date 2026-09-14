@@ -154,10 +154,9 @@ Web-based command center for Claude Code sessions via the Agent SDK. The repo us
 
 - `useChatMessages` — useReducer for v2 protocol: MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE
 - `useTaskBoard` — task CRUD + loop control + WS subscriptions
-- `useVoice` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback)
+- `useVoice` — STT (push-to-talk) + manual TTS (voice selection, sequential chunk playback)
 - `useFileNavigation` / `useFileEditor` — file browser and editing
 - `useSessionOverview` — session metadata and statistics
-- `useAutoSpeak` — auto-speak TTS preferences
 - `useServiceHealth` — health status for Yapper, ContexGin
 - `useCalendarData`, `useTodoData`, `useSessionList`, `useSessionSearch`, `useAttentionFeed`, `useProgress`, `useDocumentReader`, `useDraft`, `useTabBadges`, `useTheme`, `useLongPress`, `useMediaQuery`, `useQueuedMessages`, `useCopyFeedback`
 
@@ -288,8 +287,8 @@ Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to b
 
 - Client-direct architecture: frontend talks to [Yapper](~/projects/yapper/) for STT/TTS, server stays text-only.
 - `lib/tts.ts` — Text chunking at sentence boundaries, WAV synthesis via Yapper API, singleton AudioContext playback.
-- `hooks/useVoice.ts` — STT (push-to-talk) + TTS (auto-speak toggle, voice selection, sequential chunk playback).
-- `components/VoiceSettings.tsx` — Speaker toggle with pulse indicator, voice picker dropdown grouped by language.
+- `hooks/useVoice.ts` — STT (push-to-talk) + manual TTS (voice selection, sequential chunk playback).
+- `components/VoiceSettings.tsx` — Read-aloud voice picker grouped by language.
 - Graceful degradation when Yapper is offline — voice features hide automatically.
 
 **Key conventions:**

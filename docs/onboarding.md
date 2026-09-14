@@ -14,7 +14,7 @@ What you get:
 - **Slash-command skills** — reusable workflows (`/simplify`, `/pr-review`, `/risk-scan`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`)
 - **Task board** — drop a goal, Claude decomposes it into subtasks and executes across sessions
 - **File browser** — view and edit repo files, switch between worktree roots
-- **Voice** — push-to-talk STT and auto-speak TTS via [Yapper](https://github.com/dimakis/yapper)
+- **Voice** — push-to-talk STT and explicit per-message read-aloud via [Yapper](https://github.com/dimakis/yapper)
 - **Push notifications** — ntfy (Android/desktop) and Pushover (iOS/Apple Watch) when Claude needs approval
 - **iOS native app** — Capacitor wrapper with push notifications and home-screen install
 - **Desktop mode** — side-by-side chat + file viewer on laptop screens
@@ -459,7 +459,7 @@ Voice requires [Yapper](https://github.com/dimakis/yapper), a local voice servic
 
 2. Yapper runs on port 8700 by default. If you changed it, set `YAPPER_PROXY_TARGET` in `.env`.
 
-3. Restart Mitzo. Voice features appear automatically when Yapper is reachable — a microphone button for push-to-talk and a speaker toggle for auto-speak.
+3. Restart Mitzo. Voice features appear automatically when Yapper is reachable — a microphone button for push-to-talk, a voice picker, and read-aloud buttons on individual messages.
 
 Voice degrades gracefully. If Yapper goes offline, voice controls hide and chat continues as normal.
 

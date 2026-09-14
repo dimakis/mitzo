@@ -7,13 +7,40 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+const voiceMocks = vi.hoisted(() => ({
+  speak: vi.fn(),
+  stopSpeaking: vi.fn(),
+}));
+
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
-vi.mock('../../hooks/useAutoSpeak', () => ({ useAutoSpeak: vi.fn() }));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
-vi.mock('../../hooks/useVoice', () => ({ useVoice: () => ({ stopSpeaking: vi.fn() }) }));
+vi.mock('../../hooks/useVoice', () => ({
+  useVoice: () => ({
+    available: false,
+    recording: false,
+    transcribing: false,
+    micBlocked: false,
+    ttsAvailable: true,
+    ttsEnabled: true,
+    speaking: false,
+    voices: [],
+    selectedVoice: '',
+    speak: voiceMocks.speak,
+    stopSpeaking: voiceMocks.stopSpeaking,
+    startRecording: vi.fn(),
+    stopRecording: vi.fn(),
+    cancelRecording: vi.fn(),
+    setVoice: vi.fn(),
+    partialTranscript: '',
+  }),
+}));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
-vi.mock('../../components/ChatArea', () => ({ ChatArea: () => null }));
+vi.mock('../../components/ChatArea', () => ({
+  ChatArea: ({ messages }: { messages: unknown[] }) => (
+    <div data-testid="chat-message-count">Messages: {messages.length}</div>
+  ),
+}));
 vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({ initialText }: { initialText?: string }) => (
     <div data-testid="draft">{initialText}</div>
@@ -22,6 +49,40 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+it('does not speak when an assistant response completes on mobile', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const store = createTestStore();
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+
+  act(() => {
+    const dispatch = store.getState().dispatchMessages;
+    dispatch({ type: 'MESSAGE_START', messageId: 'assistant-response' });
+    dispatch({
+      type: 'BLOCK_START',
+      messageId: 'assistant-response',
+      blockId: 'text',
+      blockType: 'text',
+    });
+    dispatch({
+      type: 'BLOCK_DELTA',
+      messageId: 'assistant-response',
+      blockId: 'text',
+      blockType: 'text',
+      delta: 'Do not auto-play me',
+    });
+    dispatch({ type: 'MESSAGE_END', messageId: 'assistant-response' });
+  });
+
+  expect(await screen.findByText('Messages: 1')).toBeTruthy();
+  expect(voiceMocks.speak).not.toHaveBeenCalled();
 });
 
 it.each(['before', 'after'])(

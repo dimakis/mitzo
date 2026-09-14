@@ -90,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -400,6 +401,34 @@ describe('useVoice', () => {
       await waitFor(() => {
         expect(result.current.voices).toHaveLength(2);
       });
+    });
+
+    it('retries voice loading after a transient failure', async () => {
+      vi.useFakeTimers();
+      mockYapper = { ok: true, detail: { stt: true, tts: true } };
+      mockFetch.mockRejectedValueOnce(new Error('Yapper restarting')).mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            voices: [
+              { id: 'af_heart', name: 'Heart', language: 'American English', gender: 'female' },
+            ],
+          }),
+      });
+
+      const { result } = renderHook(() => useVoice());
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(result.current.voices).toHaveLength(1);
+      vi.useRealTimers();
     });
 
     it('speak() synthesizes and plays audio', async () => {
