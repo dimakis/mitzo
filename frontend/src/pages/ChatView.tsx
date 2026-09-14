@@ -240,6 +240,7 @@ export function ChatView() {
 
   return (
     <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
+      <div className="chat-mobile-topbar">
       <div className="conversation-heading">
         <Link to="/sessions" aria-label="Back to chats">
           ← Chats
@@ -257,6 +258,16 @@ export function ChatView() {
       <WorkspaceControls
         status={!connected ? 'Reconnecting' : messages.running ? 'Working' : 'Ready'}
       >
+        <button
+          type="button"
+          className="mobile-new-chat"
+          onClick={() => {
+            storeNewSession();
+            navigate('/chat');
+          }}
+        >
+          New chat
+        </button>
         <div className="chat-account-bar">
           <AccountModelPicker
             disabled={messages.running}
@@ -322,6 +333,7 @@ export function ChatView() {
           </div>
         )}
       </WorkspaceControls>
+      </div>
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}

@@ -16,6 +16,7 @@ export function WorkspaceControls({ children, status }: { children: ReactNode; s
     <section className="workspace-controls">
       <button
         className="workspace-controls-toggle"
+        aria-label="Workspace controls"
         aria-expanded={expanded}
         aria-controls={id}
         onClick={() => {
