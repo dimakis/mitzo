@@ -11,12 +11,10 @@ import { ChatArea } from '../components/ChatArea';
 import { ChatInput } from '../components/ChatInput';
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
-import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
 import { getPreferredModel, setPreferredModel } from '../lib/model-preference';
 import { useVoice } from '../hooks/useVoice';
-import { useAutoSpeak } from '../hooks/useAutoSpeak';
 import { useProgressByToolId } from '../hooks/useProgress';
 import type { ImageAttachment } from '../types/chat';
 
@@ -133,14 +131,6 @@ export function DesktopChatView() {
       storeFetchSessionMeta(sessionId);
     }
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useAutoSpeak({
-    messages: messages.messages,
-    running: messages.running,
-    ttsEnabled: voice.ttsEnabled,
-    ttsAvailable: voice.ttsAvailable,
-    speak: voice.speak,
-  });
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -259,15 +249,6 @@ export function DesktopChatView() {
                   &times;
                 </button>
               )}
-              <VoiceSettings
-                ttsAvailable={voice.ttsAvailable}
-                ttsEnabled={voice.ttsEnabled}
-                speaking={voice.speaking}
-                voices={voice.voices}
-                selectedVoice={voice.selectedVoice}
-                onToggle={() => voice.setTtsEnabled(!voice.ttsEnabled)}
-                onVoiceChange={voice.setVoice}
-              />
             </header>
           </WorkspaceControls>
           <CodexQueueStatus sessionId={activeSessionId} />

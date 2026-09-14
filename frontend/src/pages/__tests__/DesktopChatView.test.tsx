@@ -247,9 +247,9 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('.mode-pills')).toBeTruthy();
   });
 
-  it('renders voice settings in center header', () => {
+  it('does not expose automatic response speech in the center header', () => {
     renderWithRouter();
-    expect(screen.getByTestId('voice-settings')).toBeTruthy();
+    expect(screen.queryByTestId('voice-settings')).toBeNull();
   });
 });
 
