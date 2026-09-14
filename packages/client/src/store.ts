@@ -89,6 +89,8 @@ export interface MitzoStoreState {
   // Error state
   sendError: string | null;
   sendStatus: string | null;
+  historyLoading: boolean;
+  historyError: string | null;
 
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
@@ -195,6 +197,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   const parserState: ProtocolParserState = { currentSessionId: undefined };
 
+  let historyRequest = 0;
+  let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
@@ -202,9 +206,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
     recoveryInFlight = true;
+    const request = historyRequest;
     api
       .getSessionMessages(sessionId)
       .then((msgs) => {
+        if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           store.setState((s) => ({
             messages:
@@ -244,6 +250,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     progress: INITIAL_PROGRESS_STATE,
     sendError: null,
     sendStatus: null,
+    historyLoading: false,
+    historyError: null,
     modeChangeReady: true,
     pendingSession: null,
 
@@ -254,9 +262,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      const request = ++historyRequest;
+      historyAbort?.abort();
+      const abort = new AbortController();
+      historyAbort = abort;
       awaitingSessionId = false;
       awaitingModeHydration = id;
-      set({ modeChangeReady: false });
+      set({ modeChangeReady: false, historyLoading: true, historyError: null });
       const oldId = parserState.currentSessionId;
       if (oldId) {
         // clearSession stops seq tracking. No suspend needed — session_suspend
@@ -285,18 +297,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
 
       try {
-        const msgs = await api.getSessionMessages(id);
+        const msgs = await api.getSessionMessages(id, abort.signal);
+        if (request !== historyRequest || get().sessions.active !== id) return;
         if (Array.isArray(msgs) && msgs.length > 0) {
           set((s) => ({
             messages: messagesReducer(s.messages, { type: 'RESTORE', messages: msgs }),
           }));
         }
       } catch {
-        // Session may be expired — handle gracefully
+        if (request === historyRequest && get().sessions.active === id)
+          set({ historyError: 'Could not load this conversation. Please retry.' });
+      } finally {
+        if (request === historyRequest) set({ historyLoading: false });
       }
     },
 
     newSession() {
+      ++historyRequest;
+      historyAbort?.abort();
+      historyAbort = undefined;
+      set({ historyLoading: false, historyError: null });
       awaitingSessionId = false;
       awaitingModeHydration = undefined;
       set({ modeChangeReady: true });
@@ -485,7 +505,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     async fetchSessionMeta(sessionId: string) {
       try {
         const meta = await api.getSessionMeta(sessionId);
-        if (!meta) return;
+        if (!meta || get().sessions.active !== sessionId) return;
         if (meta.branch) {
           set((s) => ({
             messages: messagesReducer(s.messages, {

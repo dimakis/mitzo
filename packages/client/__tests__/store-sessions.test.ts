@@ -148,3 +148,47 @@ describe('delivery status on navigation', () => {
     expect(store.getState().sendError).toBeNull();
   });
 });
+
+describe('conversation history selection', () => {
+  function deferredHistory() {
+    const transport = mockTransport();
+    const pending: Array<(response: unknown) => void> = [];
+    vi.mocked(transport.fetch).mockImplementation(
+      () => new Promise((resolve) => pending.push(resolve)),
+    );
+    const store = createMitzoStore(makeOptions(transport));
+    const finish = (index: number, id: string) =>
+      pending[index]({
+        ok: true,
+        json: async () => [
+          { messageId: id, role: 'assistant', blocks: [{ type: 'text', text: id }] },
+        ],
+      });
+    return { store, finish };
+  }
+
+  it('keeps the selected transcript when an earlier fetch finishes last', async () => {
+    const { store, finish } = deferredHistory();
+    const first = store.getState().switchSession('first');
+    const second = store.getState().switchSession('second');
+    expect(store.getState().historyLoading).toBe(true);
+    finish(1, 'second-response');
+    await second;
+    finish(0, 'first-response');
+    await first;
+    expect(store.getState().sessions.active).toBe('second');
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['second-response']);
+    expect(store.getState().historyLoading).toBe(false);
+  });
+
+  it('does not restore a previous conversation into a new chat', async () => {
+    const { store, finish } = deferredHistory();
+    const first = store.getState().switchSession('first');
+    store.getState().newSession();
+    finish(0, 'first-response');
+    await first;
+    expect(store.getState().sessions.active).toBeNull();
+    expect(store.getState().messages.messages).toEqual([]);
+    expect(store.getState().historyLoading).toBe(false);
+  });
+});
