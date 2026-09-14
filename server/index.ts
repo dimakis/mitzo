@@ -829,7 +829,7 @@ function tryRouteToActiveSession(
       blocks: found.session.currentSnapshot.blocks,
     });
   }
-  sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
+  void sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
   log.info('routed observer message to active session', {
     sessionId: resume,
     driverClientId: found.clientId,
@@ -1014,7 +1014,7 @@ function handleChatWs(
                 ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
               });
               if (isActive(clientId)) {
-                sendToChat(
+                void sendToChat(
                   clientId,
                   resolution.renderedPrompt,
                   msg.images,
@@ -1046,7 +1046,13 @@ function handleChatWs(
             } else {
               clearSkillPolicy(registry, clientId);
               if (isActive(clientId)) {
-                sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+                void sendToChat(
+                  clientId,
+                  msg.prompt,
+                  msg.images,
+                  msg.contextBlocks,
+                  msg.clientMsgId,
+                );
               } else if (
                 !tryRouteToActiveSession(
                   ws,

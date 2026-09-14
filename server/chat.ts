@@ -1609,7 +1609,7 @@ function validateNativeModelSelection(
 }
 
 /** Push a follow-up message into a running session. */
-export function sendToChat(
+export async function sendToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
@@ -1617,8 +1617,8 @@ export function sendToChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
-): boolean {
-  return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
+): Promise<boolean> {
+  return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
@@ -1648,7 +1648,7 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
-    const selectionReasoningEffort =
+    let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
@@ -1716,30 +1716,33 @@ export function sendToChat(
       }
     };
     if (codex) {
-      let acknowledged = false;
-      void codex
-        .send(
-          {
-            id: messageId,
-            prompt: fullPrompt,
-            images,
-            reasoningEffort: selectionReasoningEffort,
-            ...(model ? { model } : {}),
-          },
-          () => {
-            acknowledged = true;
-            acknowledge();
-          },
-        )
-        .catch(() =>
+      try {
+        const selection = await codex.admitExplicitSend({
+          id: messageId,
+          prompt: fullPrompt,
+          images,
+          reasoningEffort,
+          ...(model ? { model } : {}),
+        });
+        selectionReasoningEffort = selection.reasoningEffort;
+        if (model) session.model = selection.model;
+        acknowledge();
+        void codex.resumeAfterExplicitSend().catch(() =>
           send(session.transport, {
             type: 'error',
             sessionId: session.sessionId,
-            error: acknowledged
-              ? 'Message saved. Mitzo could not reconnect yet.'
-              : 'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+            error: 'Message saved. Mitzo could not reconnect yet.',
           }),
         );
+      } catch {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error:
+            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+        });
+        return false;
+      }
     } else {
       if (acknowledge()) return true;
       session.inputQueue.push(

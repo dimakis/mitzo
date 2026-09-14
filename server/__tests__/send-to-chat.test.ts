@@ -23,7 +23,7 @@ describe('sendToChat emits user_message via transport', () => {
     for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
-  it('sends a user_message event after persisting to event store', () => {
+  it('sends a user_message event after persisting to event store', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
 
@@ -38,7 +38,7 @@ describe('sendToChat emits user_message via transport', () => {
     session.sessionId = 'sess-123';
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
-    const result = sendToChat(CLIENT_ID, 'Hello from user');
+    const result = await sendToChat(CLIENT_ID, 'Hello from user');
     expect(result).toBe(true);
 
     // Should have sent a user_message via transport
@@ -54,7 +54,7 @@ describe('sendToChat emits user_message via transport', () => {
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toMatch(/^umsg-/);
   });
 
-  it('uses clientMsgId as messageId when provided', () => {
+  it('uses clientMsgId as messageId when provided', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
 
@@ -70,7 +70,7 @@ describe('sendToChat emits user_message via transport', () => {
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
     const clientMsgId = `user-${Date.now()}-abc`;
-    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, clientMsgId);
+    const result = await sendToChat(CLIENT_ID, 'Hello', undefined, undefined, clientMsgId);
     expect(result).toBe(true);
 
     const userMsgEvents = transport._sent.filter(
@@ -80,7 +80,7 @@ describe('sendToChat emits user_message via transport', () => {
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
   });
 
-  it('persists and echoes image previews and context block names', () => {
+  it('persists and echoes image previews and context block names', async () => {
     const transport = mockTransport();
     const sessionId = `sess-sources-${Date.now()}`;
     registry.register(CLIENT_ID, {
@@ -96,7 +96,7 @@ describe('sendToChat emits user_message via transport', () => {
     session.inputQueue = { push: vi.fn(), close: vi.fn() };
 
     expect(
-      sendToChat(
+      await sendToChat(
         CLIENT_ID,
         'Inspect this',
         [{ data: 'cHJldmlldw==', mediaType: 'image/png' }],
@@ -118,7 +118,7 @@ describe('sendToChat emits user_message via transport', () => {
     ).toMatchObject(expectedSources);
   });
 
-  it('does not crash when transport is not open', () => {
+  it('does not crash when transport is not open', async () => {
     const transport = mockTransport(false);
     const pushSpy = vi.fn();
 
@@ -133,13 +133,13 @@ describe('sendToChat emits user_message via transport', () => {
     session.sessionId = 'sess-456';
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
-    const result = sendToChat(CLIENT_ID, 'Hello');
+    const result = await sendToChat(CLIENT_ID, 'Hello');
     expect(result).toBe(true);
     // send() guards on isOpen(), so no message should be sent
     expect(transport.send).not.toHaveBeenCalled();
   });
 
-  it('skips duplicate when same clientMsgId is sent twice', () => {
+  it('skips duplicate when same clientMsgId is sent twice', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
 
@@ -155,11 +155,13 @@ describe('sendToChat emits user_message via transport', () => {
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
     // First send — should succeed
-    expect(sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1')).toBe(true);
+    await expect(
+      sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1'),
+    ).resolves.toBe(true);
     expect(pushSpy).toHaveBeenCalledTimes(1);
 
     // Second send with same clientMsgId — should be silently deduplicated
-    const result = sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1');
+    const result = await sendToChat(CLIENT_ID, 'Hello', undefined, undefined, 'user-dedup-1');
     expect(result).toBe(true);
     // inputQueue should NOT get a second push
     expect(pushSpy).toHaveBeenCalledTimes(1);
@@ -170,7 +172,7 @@ describe('sendToChat emits user_message via transport', () => {
     expect(userMsgs).toHaveLength(1);
   });
 
-  it('still pushes to inputQueue even when transport send happens', () => {
+  it('still pushes to inputQueue even when transport send happens', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
 
@@ -185,11 +187,11 @@ describe('sendToChat emits user_message via transport', () => {
     session.sessionId = 'sess-789';
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
-    sendToChat(CLIENT_ID, 'Follow-up');
+    await sendToChat(CLIENT_ID, 'Follow-up');
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('sends echo without sessionId when session.sessionId is falsy', () => {
+  it('sends echo without sessionId when session.sessionId is falsy', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
 
@@ -204,7 +206,7 @@ describe('sendToChat emits user_message via transport', () => {
     // Deliberately leave sessionId unset (falsy)
     session.inputQueue = { push: pushSpy, close: vi.fn() };
 
-    const result = sendToChat(CLIENT_ID, 'Before session resolved');
+    const result = await sendToChat(CLIENT_ID, 'Before session resolved');
     expect(result).toBe(true);
 
     const userMsgs = transport._sent.filter(
@@ -215,7 +217,7 @@ describe('sendToChat emits user_message via transport', () => {
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects an active Anthropic model switch without persisting or sending the message', () => {
+  it('rejects an active Anthropic model switch without persisting or sending the message', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
     const sessionId = `sess-anthropic-model-${Date.now()}`;
@@ -233,7 +235,7 @@ describe('sendToChat emits user_message via transport', () => {
     eventStore.upsertSession({ sessionId, selectedModel: session.model });
 
     expect(
-      sendToChat(
+      await sendToChat(
         CLIENT_ID,
         'Use the other model',
         undefined,

@@ -100,7 +100,7 @@ export class CodexConversation {
   private ready = false;
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
-  private explicitEnqueue = Promise.resolve();
+  private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   constructor(private opts: Options) {
     this.client = this.createClient();
@@ -260,15 +260,25 @@ export class CodexConversation {
       reasoningEffort,
     });
     this.opts.onQueueChange?.();
+    return { model, reasoningEffort };
   }
-  async send(input: CodexCommandInput, onEnqueued?: () => void) {
-    const enqueue = this.explicitEnqueue.then(async () => {
+  async admitExplicitSend(input: CodexCommandInput) {
+    const admission = this.explicitEnqueue.then(async () => {
       await this.probeOpenShellTransport();
-      this.enqueue(input);
-      onEnqueued?.();
+      return this.enqueue(input);
     });
-    this.explicitEnqueue = enqueue.catch(() => undefined);
-    await enqueue;
+    this.explicitEnqueue = admission.then(
+      () => undefined,
+      () => undefined,
+    );
+    return admission;
+  }
+  async send(
+    input: CodexCommandInput,
+    onEnqueued?: (selection: { model: string; reasoningEffort?: string | null }) => void,
+  ) {
+    const selection = await this.admitExplicitSend(input);
+    onEnqueued?.(selection);
     await this.resumeAfterExplicitSend();
   }
   /**

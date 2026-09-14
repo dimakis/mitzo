@@ -529,8 +529,8 @@ export function handleSendV2(
   msg: SendMsg,
   ctx: V2HandlerContext,
   delivery?: { initialSessionId?: string },
-): 'native' | void {
-  return withSpan<'native' | void>(
+): 'native' | Promise<void> | void {
+  return withSpan<'native' | Promise<void> | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     (span) => {
@@ -660,20 +660,17 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            if (
-              !sendToChat(
-                activeClientId,
-                prompt,
-                msg.images,
-                msg.contextBlocks,
-                msg.clientMsgId,
-                msg.accountId ? msg.model : undefined,
-                msg.accountId ? msg.reasoningEffort : undefined,
-              )
-            )
-              throw new Error('Session is not accepting input. Please retry.');
-            span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
-            return;
+            return sendToChat(
+              activeClientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            ).then((accepted) => {
+              if (accepted) span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
+            });
           }
 
           // A send payload may still contain the previous chat's mode before
@@ -1300,7 +1297,7 @@ export async function dispatchV2Message(
       handleSessionClose(connectionId, msg, ctx);
       break;
     case 'send':
-      handleSendV2(connectionId, transport, msg, ctx);
+      await handleSendV2(connectionId, transport, msg, ctx);
       break;
     case 'stop':
       handleStopV2(connectionId, msg, ctx);

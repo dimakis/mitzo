@@ -165,6 +165,7 @@ export function createChatRestRouter(
           initialSessionId: command.sessionId ? undefined : sessionId,
         });
         if (outcome === 'native') return false;
+        if (outcome) void outcome;
       });
       res.status(202).json(receipt);
     } catch (err) {

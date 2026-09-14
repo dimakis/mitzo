@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ManagedSession } from '@mitzo/harness';
 const runtime = vi.hoisted(() => ({
+  admitExplicitSend: vi.fn(),
   enqueue: vi.fn(),
   send: vi.fn().mockResolvedValue(undefined),
   resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
@@ -16,6 +17,10 @@ const root = mkdtempSync(join(tmpdir(), 'codex-queue-retry-'));
 vi.stubEnv('REPO_PATH', root);
 const chat = await import('../chat.js');
 beforeEach(() => {
+  runtime.admitExplicitSend.mockReset().mockResolvedValue({
+    model: 'gpt',
+    reasoningEffort: undefined,
+  });
   runtime.enqueue.mockReset();
   runtime.resumeAfterExplicitSend.mockReset().mockResolvedValue(undefined);
   runtime.send.mockReset().mockImplementation(async (_input, onEnqueued?: () => void) => {
@@ -27,11 +32,13 @@ afterAll(() => {
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
-it('routes an idle follow-up through the recovery-aware send before acknowledging it', async () => {
+it('waits for recovery-aware admission before acknowledging an idle follow-up', async () => {
   const send = vi.fn();
-  let acknowledge: (() => void) | undefined;
-  runtime.send.mockImplementationOnce(async (_input, onEnqueued?: () => void) => {
-    acknowledge = onEnqueued;
+  let admit!: (selection: { model: string; reasoningEffort?: string | null }) => void;
+  runtime.admitExplicitSend.mockImplementationOnce(() => {
+    return new Promise((resolve) => {
+      admit = resolve;
+    });
   });
   vi.spyOn(chat.registry, 'get').mockReturnValue({
     inputQueue: {},
@@ -41,16 +48,15 @@ it('routes an idle follow-up through the recovery-aware send before acknowledgin
     observers: new Set(),
   } as unknown as ManagedSession);
   vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(true);
-  expect(chat.sendToChat('c', 'hello', undefined, undefined, 'same-id')).toBe(true);
-  expect(runtime.send).toHaveBeenCalledWith(
-    { id: 'same-id', prompt: 'hello' },
-    expect.any(Function),
-  );
+  const result = chat.sendToChat('c', 'hello', undefined, undefined, 'same-id');
+  expect(runtime.admitExplicitSend).toHaveBeenCalledWith({ id: 'same-id', prompt: 'hello' });
   expect(runtime.enqueue).not.toHaveBeenCalled();
   expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 
-  acknowledge?.();
+  admit({ model: 'gpt', reasoningEffort: undefined });
+  await expect(result).resolves.toBe(true);
+  expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledOnce();
   expect(send).not.toHaveBeenCalled();
 });
 it('does not acknowledge or echo a message when durable enqueue fails', async () => {
@@ -64,27 +70,23 @@ it('does not acknowledge or echo a message when durable enqueue fails', async ()
   } as unknown as ManagedSession);
   const echo = vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(false);
   echo.mockClear();
-  runtime.send.mockRejectedValueOnce(new Error('disk full'));
-  expect(chat.sendToChat('c', 'hello', undefined, undefined, 'new-id')).toBe(true);
+  runtime.admitExplicitSend.mockRejectedValueOnce(new Error('disk full'));
+  await expect(chat.sendToChat('c', 'hello', undefined, undefined, 'new-id')).resolves.toBe(false);
   expect(echo).not.toHaveBeenCalled();
-  await vi.waitFor(() =>
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' })),
-  );
+  expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
 });
 
-it('queues image and thinking input on an existing conversation', () => {
+it('queues image and thinking input on an existing conversation', async () => {
   const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];
-  expect(chat.sendToChat('c', 'describe', images, undefined, 'image-followup', 'gpt', 'high')).toBe(
-    true,
-  );
-  expect(runtime.send).toHaveBeenLastCalledWith(
-    {
-      id: 'image-followup',
-      prompt: 'describe',
-      model: 'gpt',
-      reasoningEffort: 'high',
-      images,
-    },
-    expect.any(Function),
-  );
+  runtime.admitExplicitSend.mockResolvedValueOnce({ model: 'gpt', reasoningEffort: 'high' });
+  await expect(
+    chat.sendToChat('c', 'describe', images, undefined, 'image-followup', 'gpt', 'high'),
+  ).resolves.toBe(true);
+  expect(runtime.admitExplicitSend).toHaveBeenLastCalledWith({
+    id: 'image-followup',
+    prompt: 'describe',
+    model: 'gpt',
+    reasoningEffort: 'high',
+    images,
+  });
 });

@@ -152,7 +152,7 @@ export class TaskOrchestrator {
       this.deps.broadcastStatus(this.getStatus());
 
       if (this.pinnedClientId) {
-        sendToChat(
+        void sendToChat(
           this.pinnedClientId,
           `Decompose this goal into subtasks: "${goal.title}"\n` +
             (goal.description ? `\nDetails: ${goal.description}\n` : '') +
@@ -288,7 +288,7 @@ export class TaskOrchestrator {
     // Notify agent session so it retries with feedback
     if (this.state === 'running') {
       if (this.pinnedClientId) {
-        sendToChat(
+        void sendToChat(
           this.pinnedClientId,
           `Your previous work on "${task.title}" was rejected.\n` +
             (feedback ? `Feedback: ${feedback}\n` : '') +
@@ -480,7 +480,7 @@ export class TaskOrchestrator {
                   this.activeTaskId = next.id;
                   this.deps.setTaskContext(next.id, capturedGoalId);
                   this.deps.broadcastStatus(this.getStatus());
-                  if (capturedPinnedClientId) sendToChat(capturedPinnedClientId, prompt);
+                  if (capturedPinnedClientId) void sendToChat(capturedPinnedClientId, prompt);
                 } else {
                   // Pinned session busy — mark blocked so it's retried later
                   log.warn('pinned session busy, blocking spawn-failed task', { taskId: next.id });
@@ -527,7 +527,7 @@ export class TaskOrchestrator {
 
           if (this.pinnedClientId) {
             const prompt = this.buildTaskPrompt(next);
-            sendToChat(this.pinnedClientId, prompt);
+            void sendToChat(this.pinnedClientId, prompt);
           }
         }
         break;

@@ -7,7 +7,7 @@ import { V2SendMessage } from '@mitzo/protocol';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
-  sendToChat: vi.fn().mockReturnValue(true),
+  sendToChat: vi.fn().mockResolvedValue(true),
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
@@ -1634,8 +1634,15 @@ describe('handleReconnect reconnected summary (P1)', () => {
 // ─── handleSendV2 — routing paths ──────────────────────────────────────────
 
 describe('handleSendV2 routing', () => {
-  it('sends to active driver on the active path', () => {
+  it('waits for active-driver admission on the active path', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    let admit!: (accepted: boolean) => void;
+    (sendToChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          admit = resolve;
+        }),
+    );
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
@@ -1647,12 +1654,16 @@ describe('handleSendV2 routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    const handled = handleSendV2(
       'c1',
       transport,
       { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
       ctx,
     );
+    let settled = false;
+    void Promise.resolve(handled).then(() => {
+      settled = true;
+    });
 
     expect(sendToChat).toHaveBeenCalledWith(
       'c1:sess-1',
@@ -1665,6 +1676,10 @@ describe('handleSendV2 routing', () => {
     );
     expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
+    expect(settled).toBe(false);
+    admit(true);
+    await handled;
+    expect(settled).toBe(true);
   });
 
   it('sends error on resolution error', () => {

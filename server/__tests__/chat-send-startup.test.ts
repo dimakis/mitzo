@@ -69,9 +69,9 @@ it('makes an accepted session routable before boot completes and preserves its p
       },
     );
     expect(chat.registry.findBySessionId(sessionId)?.clientId).toBe('stable-driver');
-    expect(
+    await expect(
       chat.sendToChat('stable-driver', 'rapid follow-up', undefined, undefined, 'follow-up'),
-    ).toBe(true);
+    ).resolves.toBe(true);
     await running;
     expect(chat.eventStore.hasUserMessage(sessionId, 'original-prompt')).toBe(true);
     expect(events).toContainEqual(expect.objectContaining({ type: 'session_end', sessionId }));

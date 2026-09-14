@@ -438,6 +438,42 @@ it('keeps the last selected model for follow-ups that omit a model and deduplica
   expect(c.queue()).toHaveLength(3);
 });
 
+it('serializes rapid model-selection admission against the durable queue', async () => {
+  const { c, rpc } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let firstProbe = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && firstProbe) {
+      firstProbe = false;
+      await gate;
+    }
+    return request(method, params);
+  });
+
+  const first = c.admitExplicitSend({
+    id: 'model-switch',
+    prompt: 'switch',
+    model: 'other-model',
+    reasoningEffort: 'high',
+  });
+  const second = c.admitExplicitSend({
+    id: 'model-follow-up',
+    prompt: 'continue',
+    model: 'other-model',
+  });
+  release();
+
+  await Promise.all([first, second]);
+  expect(c.queue().map(({ model, reasoningEffort }) => ({ model, reasoningEffort }))).toEqual([
+    { model: 'other-model', reasoningEffort: 'high' },
+    { model: 'other-model', reasoningEffort: undefined },
+  ]);
+});
+
 it('retains early completion until the start response confirms its turn identity', async () => {
   const { c, rpc, callbacks } = await setup();
   const request = rpc.request.getMockImplementation()!;
