@@ -85,17 +85,23 @@ mkdir -p "$workspace"
 # and locked artifacts to the extent that they alter the packages installed in
 # the runtime image. A dev-only lockfile refresh whose no-dev projection is
 # unchanged is intentionally compatible.
-runtime_projection_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
-runtime_projection() {
-  local commit="$1"
-  local projection_dir="$runtime_projection_dir/$commit"
-  mkdir -p "$projection_dir"
-  git -C "$source_repo" show "$commit:pyproject.toml" > "$projection_dir/pyproject.toml"
-  git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
-  (
-    cd "$projection_dir"
-    UV_CACHE_DIR="$projection_dir/.uv-cache" uv lock >/dev/null
-    python3 - <<'PY'
+if test "$runtime_base_commit" != "$starting_commit"; then
+  uv_bin="${MITZO_UV_BIN:-uv}"
+  command -v "$uv_bin" >/dev/null 2>&1 || {
+    echo 'runtime compatibility failed: uv is required to compare a descendant seed with its runtime base' >&2
+    exit 3
+  }
+  runtime_projection_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
+  runtime_projection() {
+    local commit="$1"
+    local projection_dir="$runtime_projection_dir/$commit"
+    mkdir -p "$projection_dir"
+    git -C "$source_repo" show "$commit:pyproject.toml" > "$projection_dir/pyproject.toml"
+    git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
+    (
+      cd "$projection_dir"
+      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" lock >/dev/null
+      python3 - <<'PY'
 import tomllib
 
 with open('pyproject.toml', 'rb') as handle:
@@ -104,23 +110,24 @@ if not isinstance(project, dict) or not isinstance(project.get('requires-python'
     raise SystemExit('pyproject.toml must declare project.requires-python')
 print(f"requires-python={project['requires-python']}")
 PY
-    UV_CACHE_DIR="$projection_dir/.uv-cache" uv export --frozen --no-dev --no-emit-project --no-annotate --no-header \
-      | LC_ALL=C sort
-  )
-}
-runtime_base_projection="$(runtime_projection "$runtime_base_commit")" || {
-  echo 'runtime compatibility failed: could not compute the runtime-base uv projection' >&2
-  exit 3
-}
-starting_projection="$(runtime_projection "$starting_commit")" || {
-  echo 'runtime compatibility failed: could not compute the seed uv projection' >&2
-  exit 3
-}
-rm -rf "$runtime_projection_dir"
-runtime_projection_dir=''
-if test "$runtime_base_projection" != "$starting_projection"; then
-  echo 'runtime compatibility failed: effective no-dev uv install set changed since the runtime base commit' >&2
-  exit 3
+      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" export --frozen --no-dev --no-emit-project --no-annotate --no-header \
+        | LC_ALL=C sort
+    )
+  }
+  runtime_base_projection="$(runtime_projection "$runtime_base_commit")" || {
+    echo 'runtime compatibility failed: could not compute the runtime-base uv projection' >&2
+    exit 3
+  }
+  starting_projection="$(runtime_projection "$starting_commit")" || {
+    echo 'runtime compatibility failed: could not compute the seed uv projection' >&2
+    exit 3
+  }
+  rm -rf "$runtime_projection_dir"
+  runtime_projection_dir=''
+  if test "$runtime_base_projection" != "$starting_projection"; then
+    echo 'runtime compatibility failed: effective no-dev uv install set changed since the runtime base commit' >&2
+    exit 3
+  fi
 fi
 
 # Ignored manifests are generated from the working tree. Refuse a dirty tracked

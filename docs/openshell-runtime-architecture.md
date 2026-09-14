@@ -69,7 +69,9 @@ new image release. Compatibility is calculated from the normalized effective
 `uv lock` plus `uv sync --frozen --no-dev --no-install-project` package set used by
 the runtime Dockerfile, so a dev-only lockfile change may proceed while any changed
 runtime package, default dependency group, source, constraint, or resolver effect
-requires an image release. The mgmt updater alone validates dependency compatibility and
+requires an image release. A seed at the same commit as its runtime base needs no
+compatibility calculation; a newer seed fails closed unless its updater has `uv`
+available to calculate that projection. The mgmt updater alone validates dependency compatibility and
 atomically repoints its `current` symlink after a successful seed build. Existing
 sandboxes retain their workspace; only future sandbox creation resolves that current
 seed path.

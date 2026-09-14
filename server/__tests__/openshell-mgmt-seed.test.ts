@@ -1,5 +1,6 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -12,10 +13,48 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect, it } from 'vitest';
 
 let root = '';
 let lockHolder: ReturnType<typeof spawn> | undefined;
+const uvFixtureRoot = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-uv-fixture-'));
+const uvFixture = join(uvFixtureRoot, 'uv');
+const originalUvBin = process.env.MITZO_UV_BIN;
+
+beforeAll(() => {
+  // CI does not install uv. This fixture models precisely the test inputs that
+  // change the no-dev export: project dependencies and non-dev default groups.
+  // Production uses the real uv executable unless explicitly configured.
+  writeFileSync(
+    uvFixture,
+    `#!/usr/bin/env python3
+import sys, tomllib
+
+command = sys.argv[1]
+if command == 'lock':
+    raise SystemExit(0)
+if command != 'export':
+    raise SystemExit(f'unsupported uv fixture command: {command}')
+with open('pyproject.toml', 'rb') as handle:
+    project = tomllib.load(handle)
+requirements = list(project.get('project', {}).get('dependencies', []))
+uv = project.get('tool', {}).get('uv', {})
+for group in uv.get('default-groups', ['dev']):
+    if group != 'dev':
+        requirements.extend(project.get('dependency-groups', {}).get(group, []))
+print('\\n'.join(sorted(set(requirements))))
+`,
+  );
+  chmodSync(uvFixture, 0o755);
+  process.env.MITZO_UV_BIN = uvFixture;
+});
+
+afterAll(() => {
+  if (originalUvBin === undefined) delete process.env.MITZO_UV_BIN;
+  else process.env.MITZO_UV_BIN = originalUvBin;
+  rmSync(uvFixtureRoot, { recursive: true, force: true });
+});
+
 afterEach(() => {
   lockHolder?.kill();
   lockHolder = undefined;
@@ -148,7 +187,10 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   execFileSync(
     'bash',
     [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
-    { cwd: resolve('.') },
+    {
+      cwd: resolve('.'),
+      env: { ...process.env, MITZO_UV_BIN: join(root, 'uv-must-not-run') },
+    },
   );
 
   const workspace = join(output, 'mgmt');
@@ -381,6 +423,55 @@ it('records an explicit runtime base ref as its canonical commit', () => {
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toBe(startingCommit);
   expect(baseline.runtimeBaseCommit).toBe(runtimeBaseCommit);
+});
+
+it('fails closed with an actionable error when a descendant seed cannot run uv', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-missing-uv-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge update',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+      {
+        cwd: resolve('.'),
+        env: { ...process.env, MITZO_UV_BIN: join(root, 'missing-uv') },
+        stdio: 'pipe',
+      },
+    ),
+  ).toThrow(/uv is required to compare a descendant seed with its runtime base/);
+  expect(existsSync(output)).toBe(false);
 });
 
 it('rejects runtime dependency changes after the runtime base commit', () => {
