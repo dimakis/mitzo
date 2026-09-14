@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import type { AccountBinding } from '@mitzo/protocol';
-import type { CodexCommand } from './codex-conversation-store.js';
+import type { CodexConversationStore } from './codex-conversation-store.js';
 
 interface Dependencies {
   binding(sessionId: string): AccountBinding | undefined;
-  commands(sessionId: string, binding: AccountBinding): CodexCommand[];
+  overview(
+    sessionId: string,
+    binding: AccountBinding,
+  ): ReturnType<CodexConversationStore['queueOverview']>;
   cancel(
     sessionId: string,
     binding: AccountBinding,
@@ -21,13 +24,7 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      const commands = deps.commands(req.params.id, binding);
-      res.json({
-        queued: commands
-          .filter((c) => c.status === 'queued')
-          .map((c) => ({ id: c.id, preview: c.prompt.slice(0, 160) })),
-        cancelledIds: commands.filter((c) => c.status === 'cancelled').map((c) => c.id),
-      });
+      res.json(deps.overview(req.params.id, binding));
     } catch {
       res.status(409).json({ error: 'Cannot read this queue. Check the conversation account.' });
     }
@@ -45,11 +42,9 @@ export function createCodexQueueRouter(deps: Dependencies) {
         return;
       }
       if (result === 'not_queued') {
-        res
-          .status(409)
-          .json({
-            error: 'This message has already started and cannot be cancelled from the queue.',
-          });
+        res.status(409).json({
+          error: 'This message has already started and cannot be cancelled from the queue.',
+        });
         return;
       }
       res.json({ ok: true, status: 'cancelled' });

@@ -143,3 +143,26 @@ it('cancels only queued commands and retains an idempotency tombstone across res
   expect(s.commands('c', binding).find((c) => c.id === 'duplicate')?.status).toBe('cancelled');
   s.close();
 });
+
+it('bounds queue overview and excludes historical payloads from polling', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'completed', prompt: 'historical private input' });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'completed', 'completed');
+  for (let i = 0; i < 101; i++) {
+    s.enqueue('c', binding, { id: `cancelled-${i}`, prompt: 'not returned' });
+    s.cancelQueued('c', binding, `cancelled-${i}`);
+    s.enqueue('c', binding, { id: `queued-${i}`, prompt: 'x'.repeat(200) });
+  }
+  const summary = s.queueOverview('c', binding);
+  expect(summary.queued).toHaveLength(100);
+  expect(summary.queued[0]).toEqual({ id: 'queued-0', preview: 'x'.repeat(160) });
+  expect(summary.cancelledIds).toHaveLength(100);
+  expect(summary.cancelledIds[0]).toBe('cancelled-100');
+  expect(summary.hasMore).toBe(true);
+  expect(JSON.stringify(summary)).not.toContain('historical private input');
+  expect(() => s.queueOverview('c', { ...binding, accountId: 'other' })).toThrow('binding');
+  s.close();
+});

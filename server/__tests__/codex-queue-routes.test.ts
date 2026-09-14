@@ -16,11 +16,11 @@ function setup(result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled') {
     '/api/sessions',
     createCodexQueueRouter({
       binding: (id) => (id === 'known' ? binding : undefined),
-      commands: () => [
-        { id: 'waiting', prompt: 'duplicate', model: 'm', status: 'queued' },
-        { id: 'done', prompt: 'executed', model: 'm', status: 'completed' },
-        { id: 'cancelled', prompt: 'old', model: 'm', status: 'cancelled' },
-      ],
+      overview: () => ({
+        queued: [{ id: 'waiting', preview: 'duplicate' }],
+        cancelledIds: ['cancelled'],
+        hasMore: false,
+      }),
       cancel,
     }),
   );
@@ -32,6 +32,7 @@ it('lists only waiting summaries and cancelled tombstone IDs', async () => {
   expect(res.body).toEqual({
     queued: [{ id: 'waiting', preview: 'duplicate' }],
     cancelledIds: ['cancelled'],
+    hasMore: false,
   });
 });
 it.each([

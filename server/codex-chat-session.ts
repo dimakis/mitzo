@@ -129,8 +129,8 @@ export async function waitForCodexRuntimeBySessionId(
   }
   return runtime;
 }
-export function readSavedCodexCommands(conversationId: string, binding: AccountBinding) {
-  return store().commands(conversationId, binding);
+export function readCodexQueueOverview(conversationId: string, binding: AccountBinding) {
+  return store().queueOverview(conversationId, binding);
 }
 export function cancelCodexQueuedCommand(
   conversationId: string,

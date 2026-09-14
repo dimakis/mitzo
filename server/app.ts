@@ -2,7 +2,7 @@ import { AccountAliases } from './account-aliases.js';
 import {
   readCodexQueue,
   waitForCodexRuntimeBySessionId,
-  readSavedCodexCommands,
+  readCodexQueueOverview,
   cancelCodexQueuedCommand,
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
@@ -1544,7 +1544,7 @@ app.use(
         ? binding
         : undefined;
     },
-    commands: readSavedCodexCommands,
+    overview: readCodexQueueOverview,
     cancel: (id, binding, commandId) =>
       cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
   }),
