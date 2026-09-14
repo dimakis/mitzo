@@ -8,8 +8,10 @@ import type { OrchestratorDeps, LoopStatus } from '../task-orchestrator.js';
 
 // Mock sendToChat
 vi.mock('../chat.js', () => ({
-  sendToChat: vi.fn(() => true),
+  sendToChat: vi.fn(() => Promise.resolve(true)),
 }));
+
+import { sendToChat } from '../chat.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-orchestrator-test-${process.pid}`);
 
@@ -31,6 +33,7 @@ function createTestDeps(store: TaskStore): OrchestratorDeps {
 }
 
 beforeEach(() => {
+  vi.mocked(sendToChat).mockReset().mockResolvedValue(true);
   mkdirSync(TEST_DIR, { recursive: true });
   store = new TaskStore(join(TEST_DIR, `tasks-${Date.now()}.db`));
   mockDeps = createTestDeps(store);
@@ -64,6 +67,18 @@ describe('TaskOrchestrator', () => {
     expect(status.goalId).toBe(goal.id);
     expect(status.activeTaskId).toBe(child.id);
     expect(store.get(child.id)!.status).toBe('active');
+  });
+
+  it('blocks a task when pinned-session dispatch rejects', async () => {
+    vi.mocked(sendToChat).mockRejectedValueOnce(new Error('queue unavailable'));
+    const goal = store.create({ title: 'Goal' });
+    const child = store.create({ title: 'First task', parentId: goal.id });
+
+    orchestrator.start(goal.id);
+
+    await vi.waitFor(() => expect(store.get(child.id)!.status).toBe('blocked'));
+    expect(store.get(child.id)!.annotations).toContain('dispatch_error: queue unavailable');
+    expect(orchestrator.getStatus().activeTaskId).toBeNull();
   });
 
   it('pause() transitions from running to paused', () => {

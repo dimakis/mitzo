@@ -39,3 +39,35 @@ export function acceptSendCommand(
   }
   return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
 }
+
+/** Async counterpart used when dispatch has an admission boundary that must
+ * complete before the HTTP receipt is acknowledged. */
+export async function acceptSendCommandAsync(
+  store: EventStore,
+  message: SendMessage,
+  dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
+): Promise<{ ok: true; accepted: true; clientMsgId: string; sessionId: string | null }> {
+  const existing = store.getSendCommand(message.clientMsgId);
+  if (existing && !isDeepStrictEqual(existing.payload, message))
+    throw new Error('Command ID already used for a different message');
+  if (existing?.error) throw new Error(existing.error);
+  let sessionId = existing ? existing.sessionId : (message.sessionId ?? randomUUID());
+  if (!existing) {
+    store.insertSendCommand(message.clientMsgId, sessionId!, message);
+    try {
+      if ((await dispatch(message, sessionId!)) === false) {
+        store.completeNativeSendCommand(message.clientMsgId);
+        sessionId = null;
+      }
+      const failed = store.getSendCommand(message.clientMsgId)?.error;
+      if (failed) throw new Error(failed);
+    } catch (err) {
+      store.failSendCommand(
+        message.clientMsgId,
+        err instanceof Error ? err.message : 'Send failed',
+      );
+      throw err;
+    }
+  }
+  return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
+}

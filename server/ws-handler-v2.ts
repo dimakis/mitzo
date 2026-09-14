@@ -529,11 +529,11 @@ export function handleSendV2(
   msg: SendMsg,
   ctx: V2HandlerContext,
   delivery?: { initialSessionId?: string },
-): 'native' | Promise<void> | void {
-  return withSpan<'native' | Promise<void> | void>(
+): Promise<'native' | void> {
+  return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
-    (span) => {
+    async (span) => {
       try {
         const storedBinding = msg.sessionId
           ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
@@ -660,7 +660,7 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            return sendToChat(
+            const accepted = await sendToChat(
               activeClientId,
               prompt,
               msg.images,
@@ -668,9 +668,9 @@ export function handleSendV2(
               msg.clientMsgId,
               msg.accountId ? msg.model : undefined,
               msg.accountId ? msg.reasoningEffort : undefined,
-            ).then((accepted) => {
-              if (accepted) span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
-            });
+            );
+            if (accepted) span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
+            return;
           }
 
           // A send payload may still contain the previous chat's mode before

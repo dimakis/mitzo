@@ -2030,13 +2030,18 @@ app.post('/api/push/notification-action', async (req, res) => {
       return;
     }
 
-    const ok = await sendToChat(found.clientId, userText);
-    if (!ok) {
-      res.status(500).json({ error: 'Failed to send message to session' });
-      return;
-    }
+    try {
+      const ok = await sendToChat(found.clientId, userText);
+      if (!ok) {
+        res.status(500).json({ error: 'Failed to send message to session' });
+        return;
+      }
 
-    res.json({ ok: true, action: 'reply' });
+      res.json({ ok: true, action: 'reply' });
+    } catch (err) {
+      log.error('push reply send failed', { sessionId, error: String(err) });
+      res.status(500).json({ error: 'Failed to send message to session' });
+    }
     return;
   }
 

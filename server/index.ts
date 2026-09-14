@@ -799,6 +799,32 @@ function sendSnapshot(
   }
 }
 
+function sendToActiveChat(
+  transport: WsTransport,
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+): void {
+  void Promise.resolve(sendToChat(clientId, prompt, images, contextBlocks, clientMsgId))
+    .then((accepted) => {
+      if (!accepted) log.warn('active legacy send was not accepted', { clientId });
+    })
+    .catch((err: unknown) => {
+      const error = err instanceof Error ? err.message : 'Send failed';
+      log.error('active legacy send failed', { clientId, error });
+      try {
+        transport.send({ type: 'error', error });
+      } catch (deliveryError) {
+        log.warn('active legacy send error delivery failed', {
+          clientId,
+          error: String(deliveryError),
+        });
+      }
+    });
+}
+
 /**
  * If `resume` targets a session that's already active, subscribe the caller
  * as an observer and inject the message into the running session.
@@ -829,7 +855,7 @@ function tryRouteToActiveSession(
       blocks: found.session.currentSnapshot.blocks,
     });
   }
-  void sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
+  sendToActiveChat(transport, found.clientId, prompt, images, contextBlocks, clientMsgId);
   log.info('routed observer message to active session', {
     sessionId: resume,
     driverClientId: found.clientId,
@@ -1014,7 +1040,8 @@ function handleChatWs(
                 ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
               });
               if (isActive(clientId)) {
-                void sendToChat(
+                sendToActiveChat(
+                  transport,
                   clientId,
                   resolution.renderedPrompt,
                   msg.images,
@@ -1046,7 +1073,8 @@ function handleChatWs(
             } else {
               clearSkillPolicy(registry, clientId);
               if (isActive(clientId)) {
-                void sendToChat(
+                sendToActiveChat(
+                  transport,
                   clientId,
                   msg.prompt,
                   msg.images,

@@ -236,6 +236,24 @@ describe('chat-rest-handler', () => {
     );
   });
 
+  it('records and rejects an asynchronous send admission failure', async () => {
+    vi.mocked(handleSendV2).mockRejectedValueOnce(new Error('queue unavailable'));
+
+    const res = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'send',
+        sessionId: null,
+        prompt: 'hello world',
+        clientMsgId: 'msg-rejected',
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe('queue unavailable');
+    expect(eventStore.getSendCommand('msg-rejected')?.error).toBe('queue unavailable');
+  });
+
   // ─── POST /api/chat/stop ────────────────────────────────────────────────
 
   it('POST /stop calls handleStopV2', async () => {

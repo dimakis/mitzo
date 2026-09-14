@@ -203,6 +203,22 @@ describe('POST /api/push/notification-action', () => {
     expect(res.status).toBe(500);
   });
 
+  it('returns 500 when sendToChat rejects', async () => {
+    mockFindBySessionId.mockReturnValueOnce({
+      clientId: 'client-1',
+      session: { sessionId: 'sess-abc' },
+    });
+    mockSendToChat.mockRejectedValueOnce(new Error('storage unavailable'));
+
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'test' });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to send message to session');
+  });
+
   it('requires authentication', async () => {
     const res = await request(app)
       .post('/api/push/notification-action')
