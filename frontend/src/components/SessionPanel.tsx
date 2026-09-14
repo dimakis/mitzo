@@ -26,7 +26,8 @@ function readViewMode(): ViewMode {
 }
 
 export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: SessionPanelProps) {
-  const { sessions, loading, loadingMore, hasMore, loadMore, dismissSession } = useSessionList();
+  const { sessions, loading, error, retry, loadingMore, hasMore, loadMore, dismissSession } =
+    useSessionList();
   const search = useSessionSearch();
   const { attendCount } = useSessionOverview();
   const [viewMode, setViewMode] = useState<ViewMode>(readViewMode);
@@ -74,7 +75,18 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
         <>
           {loading && <p className="session-panel-empty">Loading...</p>}
 
-          {!loading && sessions.length === 0 && <p className="session-panel-empty">No sessions</p>}
+          {!loading && error && (
+            <div className="session-panel-empty" role="alert">
+              <p>{error}</p>
+              <button type="button" onClick={retry}>
+                Try again
+              </button>
+            </div>
+          )}
+
+          {!loading && !error && sessions.length === 0 && (
+            <p className="session-panel-empty">No sessions</p>
+          )}
 
           {!loading && sessions.length > 0 && (
             <div className="session-panel-list">

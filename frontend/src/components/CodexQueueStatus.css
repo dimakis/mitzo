@@ -3,12 +3,13 @@
   align-items: center;
   gap: 0.5rem;
   margin: 0.35rem 0.75rem;
-  padding: 0.5rem 0.65rem;
+  padding: 0.4rem 0.55rem;
   border: 1px solid var(--border-color, #777);
   border-radius: 0.6rem;
-  font-size: 0.78rem;
+  font-size: 0.75rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+  touch-action: pan-y;
 }
 .codex-queue-status-copy {
   display: block;
@@ -16,6 +17,7 @@
   min-width: 0;
 }
 .codex-queue-status-copy strong {
+  display: block;
   margin-right: 0.35rem;
 }
 .codex-queue-status-copy span {
@@ -25,22 +27,52 @@
   margin: 0;
 }
 .codex-queue-status button {
-  min-height: 44px;
+  min-height: 36px;
   flex-shrink: 0;
-  padding: 0.4rem 0.65rem;
+  padding: 0.35rem 0.55rem;
   border-radius: 0.5rem;
   cursor: pointer;
+}
+.codex-queue-status-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+.codex-queue-status-hide {
+  background: transparent;
+}
+.codex-queue-status-tab {
+  display: block;
+  min-height: 36px;
+  margin: 0.35rem 0 0.35rem auto;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-color, #777);
+  border-right: 0;
+  border-radius: 0.6rem 0 0 0.6rem;
+  background: var(--surface, transparent);
+  color: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.codex-queue-status-tab:focus-visible,
+.codex-queue-status button:focus-visible {
+  outline: 2px solid var(--accent, #8f7aff);
+  outline-offset: 2px;
 }
 
 @media (max-width: 520px) {
   .codex-queue-status {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .codex-queue-status {
     gap: 0.35rem;
   }
+  .codex-queue-status-copy {
+    min-width: 6rem;
+  }
+  .codex-queue-status-actions {
+    gap: 0.25rem;
+  }
   .codex-queue-status button {
-    align-self: flex-start;
+    min-height: 34px;
+    padding: 0.3rem 0.45rem;
   }
 }

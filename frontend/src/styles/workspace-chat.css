@@ -633,6 +633,20 @@
   color: var(--text-dim);
   margin: 18px 0 4px;
 }
+.session-list-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 16px 0;
+  color: var(--text-dim);
+  font-size: var(--text-sm);
+}
+.session-list-error button {
+  flex-shrink: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+}
 .conversation-library .session-item {
   padding: 16px 42px 16px 0;
   gap: 8px;

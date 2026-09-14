@@ -68,6 +68,65 @@ describe('useSessionList', () => {
     });
 
     expect(result.current.sessions).toEqual(sessions);
+    expect(result.current.error).toBeNull();
+  });
+
+  it('keeps a failed session request distinct from an empty session list and retries it', async () => {
+    let available = false;
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
+      if (url === '/api/sessions') {
+        return Promise.resolve(
+          available
+            ? ({ ok: true, json: () => Promise.resolve([]) } as Response)
+            : ({
+                ok: false,
+                status: 503,
+                json: () => Promise.resolve({ error: 'offline' }),
+              } as Response),
+        );
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+    });
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.error).toBe('Couldn’t load chats. Check the connection and try again.');
+
+    available = true;
+    act(() => result.current.retry());
+    await waitFor(() => expect(result.current.error).toBeNull());
+  });
+
+  it('clears a load-more error when a later page succeeds', async () => {
+    let moreAttempts = 0;
+    vi.mocked(apiFetch).mockImplementation((url: string) => {
+      if (url === '/api/sessions') {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ sessions: [{ id: 'first' }], hasMore: true }),
+        }) as Promise<Response>;
+      }
+      if (url === '/api/sessions?offset=1') {
+        moreAttempts += 1;
+        return Promise.resolve(
+          moreAttempts === 1
+            ? ({ ok: false, status: 503, json: () => Promise.resolve({}) } as Response)
+            : ({
+                ok: true,
+                json: () => Promise.resolve({ sessions: [{ id: 'second' }], hasMore: false }),
+              } as Response),
+        );
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) }) as Promise<Response>;
+    });
+    const { result } = renderHook(() => useSessionList());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.error).toContain('Couldn’t load more chats'));
+    act(() => result.current.loadMore());
+    await waitFor(() => expect(result.current.error).toBeNull());
+    expect(result.current.sessions.map((session) => session.id)).toEqual(['first', 'second']);
   });
 
   it('dismissSession removes from list and calls DELETE', async () => {
