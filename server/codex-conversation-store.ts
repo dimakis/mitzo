@@ -55,12 +55,30 @@ export class CodexConversationStore {
       id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT, recovery INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
-        id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, UNIQUE(conversation_id,id));
+        id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
+        recovery_acknowledged INTEGER NOT NULL DEFAULT 0, UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
+    this.db.transaction(() => {
+      const columns = this.db.prepare('PRAGMA table_info(codex_commands)').all() as Array<{
+        name: string;
+      }>;
+      if (columns.some((column) => column.name === 'recovery_acknowledged')) return;
+      this.db.exec(
+        'ALTER TABLE codex_commands ADD COLUMN recovery_acknowledged INTEGER NOT NULL DEFAULT 0',
+      );
+      // Before this column existed, a cleared conversation recovery flag was
+      // the only durable evidence that its interrupted work was acknowledged.
+      // Keep recovery=1 rows conservative because their individual history is
+      // ambiguous until the user acknowledges it after this upgrade.
+      this.db.exec(`UPDATE codex_commands
+        SET recovery_acknowledged=1
+        WHERE status IN ('interrupted','failed')
+          AND conversation_id IN (SELECT id FROM codex_conversations WHERE recovery=0)`);
+    })();
   }
   private key(b: AccountBinding) {
     return JSON.stringify([b.accountId, b.provider, b.model, b.profileRevision]);
@@ -136,17 +154,52 @@ export class CodexConversationStore {
     return {
       queued: queued.slice(0, limit),
       cancelledIds: cancelled.slice(0, limit).map((c) => c.id),
-      hasMore: queued.length > limit || cancelled.length > limit,
+      hasMore: queued.length > limit,
+    };
+  }
+  /** Lightweight status for the frequent session metadata poll. It deliberately
+   * leaves command JSON in SQLite: full command deserialization can include
+   * historical prompts and image payloads. */
+  queueSummary(id: string, b: AccountBinding) {
+    this.read(id, b);
+    const counts = this.db
+      .prepare(
+        "SELECT SUM(status='queued') AS queued, SUM(status IN ('interrupted','failed')) AS interrupted FROM codex_commands WHERE conversation_id=?",
+      )
+      .get(id) as { queued: number | null; interrupted: number | null };
+    const latest = this.db
+      .prepare(
+        "SELECT json_extract(input, '$.model') AS model, json_extract(input, '$.reasoningEffort') AS reasoning_effort, json_type(input, '$.reasoningEffort') AS reasoning_effort_type FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(id) as
+      | {
+          model: string | null;
+          reasoning_effort: string | null;
+          reasoning_effort_type: string | null;
+        }
+      | undefined;
+    return {
+      queued: counts.queued ?? 0,
+      interrupted: counts.interrupted ?? 0,
+      model: latest?.model ?? b.model,
+      // SQLite's json_extract returns null for either an omitted property or
+      // an explicit JSON null. json_type keeps the user's explicit reset.
+      reasoningEffort:
+        latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
    * queue summary, which intentionally degrades errors to an empty result. */
   lifecycleQueue(id: string, b: AccountBinding) {
     const conversation = this.read(id, b);
-    const commands = this.commands(id, b);
+    const counts = this.db
+      .prepare(
+        "SELECT SUM(status='queued') AS queued, SUM(status='running') AS running FROM codex_commands WHERE conversation_id=?",
+      )
+      .get(id) as { queued: number | null; running: number | null };
     return {
-      queued: commands.filter((command) => command.status === 'queued').length,
-      running: commands.filter((command) => command.status === 'running').length,
+      queued: counts.queued ?? 0,
+      running: counts.running ?? 0,
       recovery: !!conversation.recovery,
     };
   }
@@ -158,7 +211,7 @@ export class CodexConversationStore {
   ): 'cancelled' | 'not_queued' | 'not_found' {
     return this.db.transaction(() => {
       this.read(id, b);
-      this.db
+      const update = this.db
         .prepare(
           "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
         )
@@ -166,7 +219,23 @@ export class CodexConversationStore {
       const row = this.db
         .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
         .get(id, commandId) as { status: string } | undefined;
-      return !row ? 'not_found' : row.status === 'cancelled' ? 'cancelled' : 'not_queued';
+      if (!row) return 'not_found';
+      if (row.status !== 'cancelled') return 'not_queued';
+      // A retry against an existing cancellation is idempotent, but it must not
+      // clear a recovery fence that was retained for another uncertain action.
+      if (update.changes === 0) return 'cancelled';
+      // Cancellation resolves a recovery fence only when it removes all work
+      // and all *unacknowledged* interrupted/failed uncertainty. An earlier
+      // recovery acknowledgement is durable per command, so old history does
+      // not block cancellation after a later restart.
+      const unresolved = this.db
+        .prepare(
+          "SELECT 1 FROM codex_commands WHERE conversation_id=? AND (status IN ('queued','running') OR (status IN ('interrupted','failed') AND recovery_acknowledged=0)) LIMIT 1",
+        )
+        .get(id);
+      if (!unresolved)
+        this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+      return 'cancelled';
     })();
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
@@ -193,7 +262,7 @@ export class CodexConversationStore {
     this.read(id, b);
     this.db
       .prepare(
-        "UPDATE codex_commands SET status=? WHERE conversation_id=? AND id=? AND status='running'",
+        "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
       )
       .run(status, id, commandId);
   }
@@ -213,7 +282,7 @@ export class CodexConversationStore {
       if (commandId)
         this.db
           .prepare(
-            "UPDATE codex_commands SET status=? WHERE conversation_id=? AND id=? AND status='running'",
+            "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
           )
           .run(status, id, commandId);
       if (pending) this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
@@ -239,12 +308,21 @@ export class CodexConversationStore {
       this.db.exec(
         "UPDATE codex_conversations SET recovery=1 WHERE id IN (SELECT conversation_id FROM codex_commands WHERE status IN ('running','queued'))",
       );
-      this.db.exec("UPDATE codex_commands SET status='interrupted' WHERE status='running'");
+      this.db.exec(
+        "UPDATE codex_commands SET status='interrupted', recovery_acknowledged=0 WHERE status='running'",
+      );
     })();
   }
   acknowledgeRecovery(id: string, b: AccountBinding) {
-    this.read(id, b);
-    this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+    this.db.transaction(() => {
+      this.read(id, b);
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",
+        )
+        .run(id);
+      this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+    })();
   }
   close() {
     this.db.close();
