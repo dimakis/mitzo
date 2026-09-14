@@ -39,7 +39,12 @@ def cred(rel):
  return any(x in ('.codex','.aws','.ssh','auth.json','credentials.json') or x.startswith('.env') or x.startswith('credential') for x in rel.split('/'))
 def excluded_workspace_config(rel):
  parts=rel.split('/')
- return parts[-1] in ('.npmrc','.pypirc','.netrc','.git-credentials') or any(a=='.git' and b in ('config','config.worktree','credentials') for a,b in zip(parts,parts[1:]))
+ name=parts[-1]
+ # A Git directory can contain nested admin repositories (for submodules and
+ # linked worktrees).  Their config and credential stores are just as capable
+ # of carrying authentication as the top-level .git/config, so omit the whole
+ # Git-admin family rather than only the immediate children of .git.
+ return name in ('.npmrc','.pypirc','.netrc','.git-credentials') or ('.git' in parts and (name=='config' or name.startswith('config.') or name=='credentials' or name.startswith('credential')))
 def provider(path):
  if not os.path.isdir(path): fail('provider state is missing')
  lst(path)

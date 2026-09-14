@@ -99,6 +99,11 @@ it('captures and restores git, executable files, empty directories, and sqlite s
     { cwd: join(from, 'workspace') },
   );
   writeFileSync(join(from, 'workspace/.git/credentials'), 'https://unsafe-token@example.invalid');
+  const nestedGit = join(from, 'workspace/.git/modules/example');
+  mkdirSync(nestedGit, { recursive: true });
+  writeFileSync(join(nestedGit, 'config'), '[credential]\nhelper = unsafe-helper\n');
+  writeFileSync(join(nestedGit, 'config.worktree'), '[http]\nextraHeader = Bearer unsafe-token\n');
+  writeFileSync(join(nestedGit, 'credentials'), 'https://unsafe-token@example.invalid');
   run([
     'capture',
     '--source',
@@ -156,9 +161,15 @@ it('captures and restores git, executable files, empty directories, and sqlite s
   expect(archived).not.toContain('workspace/.git/config');
   expect(archived).not.toContain('workspace/.git/config.worktree');
   expect(archived).not.toContain('workspace/.git/credentials');
+  expect(archived).not.toContain('workspace/.git/modules/example/config');
+  expect(archived).not.toContain('workspace/.git/modules/example/config.worktree');
+  expect(archived).not.toContain('workspace/.git/modules/example/credentials');
   expect(archived).not.toContain('workspace/.npmrc');
   expect(existsSync(join(to, 'workspace/.git/config.worktree'))).toBe(false);
   expect(existsSync(join(to, 'workspace/.git/credentials'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/config'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/config.worktree'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/credentials'))).toBe(false);
   const db = new Database(join(to, '.codex/queue_1.sqlite'));
   expect(db.prepare('SELECT v FROM t').get()).toEqual({ v: 'ok' });
   db.close();
@@ -275,6 +286,19 @@ it('rejects archive paths that escape the workspace Git boundary', () => {
       { encoding: 'utf8' },
     ),
   ).toThrow();
+});
+it('rejects hostile nested Git admin configuration archive members', () => {
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.validate_names(['workspace/.git/modules/example/config','workspace/.git/modules/example/config.worktree','workspace/.git/modules/example/credentials'])",
+        helper,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow(/credential-like workspace file/);
 });
 it('keeps a recoverable backup when post-restore cleanup fails', () => {
   const backup = join(root(), '.codex.mitzo-pre-restore');

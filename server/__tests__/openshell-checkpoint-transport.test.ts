@@ -108,16 +108,18 @@ it('uses one hashed archive name, verifies before upload, and quotes SSH argumen
   await transport.capture(destination, identity, signal);
   await transport.restore(join(destination, 'input.tar'), identity, 'a'.repeat(64), signal);
   const all = run.mock.calls.flatMap((call) => call[1] as string[]).join(' ');
+  const ssh = run.mock.calls.find((call) => call[0] === 'ssh')![1] as string[];
+  const remote = ssh.at(-1)!;
   expect(all).toContain('--gateway-endpoint http://127.0.0.1:8000 --gateway-insecure');
   expect(all).toMatch(/mitzo-[a-f0-9]{64}\.tar/);
   expect(all).toContain('/sandbox/mitzo-');
-  expect(all).not.toContain('/tmp/mitzo-');
+  // The staging file is intentionally local and can live under the checkout's
+  // system temp root. Only the generated remote archive must stay in /sandbox.
+  expect(remote).not.toContain('/tmp/mitzo-');
   expect(all).not.toContain('a space;$(bad).tar');
   const verify = run.mock.calls.findIndex((call) => call[0] === 'python3');
   const upload = run.mock.calls.findIndex((call) => (call[1] as string[]).includes('upload'));
   expect(verify).toBeLessThan(upload);
-  const ssh = run.mock.calls.find((call) => call[0] === 'ssh')![1] as string[];
-  const remote = ssh.at(-1)!;
   expect(remote).toContain('\'["account","openai","model","revision"]\'');
   expect(remote).toContain("'thread'\\''s'");
   expect(remote).toContain("'id@tenant:$(not-run)\nwith'\\''quote'");
