@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
   permissionHandler: vi.fn(),
   store: vi.fn(),
+  privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
 }));
 vi.mock('../codex-conversation-store.js', () => ({
@@ -27,6 +28,7 @@ vi.mock('../codex-conversation.js', () => ({
       mocks.close.mockImplementation(options.onClosed);
     }
     initialize = mocks.initialize;
+    getThreadId = vi.fn(() => 'thread');
     close = mocks.close;
     send = mocks.send;
   },
@@ -34,7 +36,7 @@ vi.mock('../codex-conversation.js', () => ({
 vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: mocks.connect }));
 vi.mock('../codex-private-path.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-private-path.js')>()),
-  codexPrivateDirectory: () => '/tmp',
+  codexPrivateDirectory: () => mocks.privateDirectory,
 }));
 vi.mock('@mitzo/harness', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@mitzo/harness')>()),
@@ -48,6 +50,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import * as lifecycleController from '../openshell-lifecycle-controller.js';
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
@@ -331,6 +334,79 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   }
 });
 
+it('registers a newly ensured sandbox before context initialization can fail', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    sandboxId: 'physical-id',
+    created: true,
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const provisional = vi.spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional');
+  const compile = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+    .mockImplementationOnce(async () => {
+      expect(provisional).toHaveBeenCalledWith(
+        'conversation',
+        expect.objectContaining({ sandboxId: 'physical-id', created: true }),
+        expect.objectContaining({ provider: 'openai-work' }),
+        'client',
+      );
+      throw new Error('context initialization failed');
+    });
+  const abortController = new AbortController();
+  const baseOptions = options(abortController);
+  const session = baseOptions.session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  try {
+    await expect(
+      openCodexChat({
+        ...baseOptions,
+        conversationId: 'conversation',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        session,
+        registry,
+        prompt: 'test',
+        messageId: 'message',
+        systemPrompt: 'base prompt',
+        env: {},
+      }),
+    ).rejects.toThrow('context initialization failed');
+    expect(provisional).toHaveBeenCalledOnce();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    ensure.mockRestore();
+    provisional.mockRestore();
+    compile.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
 it('rejects the legacy shared-sandbox seam in production', async () => {
   vi.clearAllMocks();
   vi.stubEnv('NODE_ENV', 'production');
@@ -448,5 +524,146 @@ it('rejects managed OpenShell API profiles without an account provider binding',
     expect(mocks.initialize).not.toHaveBeenCalled();
   } finally {
     vi.unstubAllEnvs();
+  }
+});
+
+it('preserves first launch and valid restore while failing closed for a replacement with no lifecycle state', async () => {
+  vi.clearAllMocks();
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-openshell-chat-resume-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  mocks.privateDirectory = directory;
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', policy);
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const lifecycle = lifecycleController.initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  const replacement = {
+    sandboxName: 'mitzo-runtime',
+    sandboxId: 'replacement-id',
+    created: true,
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  const restored = { ...replacement, sandboxId: 'restored-id', created: false };
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockResolvedValueOnce(replacement)
+    .mockResolvedValueOnce(replacement)
+    .mockResolvedValueOnce(restored);
+  const provisional = vi.spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional');
+  const compile = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+    .mockRejectedValueOnce(new Error('context initialization failed'))
+    .mockResolvedValue({
+      type: 'boot_context',
+      scope: 'sandbox',
+      sourceCount: 0,
+      tokenCount: 0,
+      tokenBudget: 12000,
+      sources: [],
+      included: [],
+      trimmed: [],
+      fullMarkdown: '',
+    });
+  const baseOptions = options(new AbortController());
+  const session = baseOptions.session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  const binding = {
+    accountId: 'work',
+    accountLabel: 'Work',
+    provider: 'openai',
+    model: 'test-model',
+    profileRevision: '1',
+  };
+  const profile = {
+    accountId: 'work',
+    accountLabel: 'Work',
+    email: 'work@example.com',
+    planType: 'api' as const,
+    model: 'test-model',
+    sandboxProvider: 'openai-work',
+  };
+  const chatOptions = (conversationId: string, resume = false) => ({
+    ...baseOptions,
+    resume,
+    conversationId,
+    binding,
+    profile,
+    session,
+    registry,
+    prompt: 'resume',
+    messageId: 'message',
+    systemPrompt: 'base prompt',
+    env: {},
+  });
+  try {
+    await expect(openCodexChat(chatOptions('first-launch'))).rejects.toThrow(
+      'context initialization failed',
+    );
+    expect(lifecycle.store.get('first-launch')).toMatchObject({
+      physicalSandboxId: 'replacement-id',
+      identity: null,
+    });
+
+    await expect(openCodexChat(chatOptions('missing-lifecycle-state', true))).rejects.toThrow(
+      'OpenShell existing conversation has no verified recovery record',
+    );
+    expect(provisional).toHaveBeenCalledTimes(1);
+    expect(compile).toHaveBeenCalledTimes(1);
+    expect(lifecycle.store.get('missing-lifecycle-state')).toBeNull();
+
+    lifecycleController.registerOpenShellLifecycle(
+      'valid-lifecycle-state',
+      restored,
+      binding,
+      { kind: 'api', provider: 'openai-work', model: 'test-model' },
+      'thread',
+      'client',
+    );
+    const chat = await openCodexChat(chatOptions('valid-lifecycle-state', true));
+    expect(mocks.initialize).toHaveBeenCalled();
+    expect(lifecycle.store.get('valid-lifecycle-state')).toMatchObject({
+      physicalSandboxId: 'restored-id',
+      identity: expect.objectContaining({ threadId: 'thread' }),
+    });
+    chat.close();
+  } finally {
+    ensure.mockRestore();
+    provisional.mockRestore();
+    compile.mockRestore();
+    lifecycle.store.close();
+    mocks.privateDirectory = '/tmp';
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

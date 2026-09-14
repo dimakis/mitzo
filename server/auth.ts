@@ -178,6 +178,20 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   next();
 }
 
+/** Destructive operator actions cannot use the internal agent/hooks token.
+ * This reuses the ordinary interactive JWT/cookie session mechanism even when
+ * the broader API middleware admitted an internal caller. */
+export async function operatorAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = selectRequestToken(req);
+  const session = token ? await authenticateToken(token) : null;
+  if (!session) {
+    res.status(403).json({ error: 'Interactive operator authentication is required' });
+    return;
+  }
+  res.locals.authSession = session;
+  next();
+}
+
 export async function verifyWsAuth(cookie: string | undefined): Promise<boolean> {
   if (!cookie) return false;
 

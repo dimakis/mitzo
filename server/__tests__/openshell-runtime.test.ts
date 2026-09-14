@@ -143,6 +143,71 @@ describe('OpenShell runtime lifecycle', () => {
     expect(stopped.mock.calls.flat().flat()).not.toContain('create');
   });
 
+  it('normalizes a numeric gateway resource version for lifecycle fencing', async () => {
+    const sandbox = JSON.parse(ready());
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 9;
+    const runtime = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).ensure('conversation', new AbortController().signal);
+
+    expect(runtime).toMatchObject({ sandboxId: 'sandbox-id', resourceVersion: '9' });
+  });
+
+  it('uses the stable gateway revision when inspecting a stopped lifecycle fence', async () => {
+    const sandbox = JSON.parse(ready('Stopped'));
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    sandbox.revision = 1;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped', resourceVersion: '1' });
+  });
+
+  it('does not treat a stopped resource observation as a stable deletion revision', async () => {
+    const sandbox = JSON.parse(ready('Stopped'));
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Stopped' });
+  });
+
+  it('uses resource_version rather than revision for a Ready checkpoint source', async () => {
+    const sandbox = JSON.parse(ready());
+    sandbox.id = 'sandbox-id';
+    sandbox.resource_version = 19;
+    sandbox.revision = 1;
+    const inspected = await new OpenShellRuntimeManager(
+      config,
+      vi.fn().mockResolvedValue(JSON.stringify(sandbox)),
+    ).inspect('conversation', 'sandbox-id', new AbortController().signal);
+
+    expect(inspected).toEqual({ id: 'sandbox-id', phase: 'Ready', resourceVersion: '19' });
+  });
+
+  it('reports an absent lifecycle sandbox as undefined during inspection', async () => {
+    const run = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockRejectedValueOnce(new Error('sandbox not found'));
+
+    await expect(
+      new OpenShellRuntimeManager(config, run).inspect(
+        'conversation',
+        'sandbox-id',
+        new AbortController().signal,
+      ),
+    ).resolves.toBeUndefined();
+  });
+
   it('revokes grant-only providers from a retained pre-change sandbox', async () => {
     const legacyPolicyReady = ready('Ready', 'grant-v1');
     const run = vi
@@ -568,9 +633,12 @@ describe('OpenShell runtime lifecycle', () => {
       .mockResolvedValueOnce('{}')
       .mockResolvedValueOnce(legacyReady);
 
-    await expect(
-      new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
-    ).resolves.toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    const runtime = await new OpenShellRuntimeManager(config, run).ensure(
+      'conversation',
+      new AbortController().signal,
+    );
+    expect(runtime).toMatchObject({ sandboxName: `mitzo-${legacyOwner.slice(0, 24)}` });
+    expect(runtime).not.toHaveProperty('created');
     expect(run).toHaveBeenCalledTimes(5);
     expect(run.mock.calls.flat().flat()).not.toContain('create');
   });
@@ -634,6 +702,230 @@ describe('OpenShell runtime lifecycle', () => {
     await expect(
       new OpenShellRuntimeManager(config, run).ensure('conversation', new AbortController().signal),
     ).rejects.toThrow('another account provider');
+  });
+
+  it('lists only verified conversation sandboxes and fences stop/delete by exact identity', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify([
+          {
+            id: 'physical-1',
+            name: 'mitzo-123',
+            phase: 'Stopped',
+            workspace: 'mitzo',
+            labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+          },
+          {
+            id: 'foreign',
+            name: 'other',
+            phase: 'Ready',
+            workspace: 'mitzo',
+            labels: { 'mitzo.conversation': 'other', 'mitzo.account_provider': 'openai-work' },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: 'mitzo-123',
+          phase: 'Ready',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: 'mitzo-123',
+          phase: 'Stopped',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}')
+      .mockRejectedValueOnce(new Error('sandbox not found'));
+    const manager = new OpenShellRuntimeManager(config, run);
+    await expect(manager.inventory(new AbortController().signal)).resolves.toEqual([
+      expect.objectContaining({ id: 'physical-1', phase: 'Stopped' }),
+      expect.objectContaining({ id: 'foreign', phase: 'Ready' }),
+    ]);
+    await manager.stop('conversation', 'physical-1', new AbortController().signal);
+    await manager.delete('conversation', 'physical-1', new AbortController().signal);
+    expect(run.mock.calls[2][0]).toEqual(expect.arrayContaining(['stop', 'mitzo-123']));
+    expect(run.mock.calls[4][0]).toEqual(expect.arrayContaining(['delete', 'mitzo-123']));
+  });
+
+  it('waits for asynchronous gateway deletion to become absent', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(stopped)
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(stopped.replace('"Stopped"', '"Deleting"'))
+      .mockRejectedValueOnce(new Error('sandbox not found'));
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 100 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).resolves.toBeUndefined();
+    expect(run.mock.calls[1][0]).toEqual(expect.arrayContaining(['delete']));
+    expect(run.mock.calls).toHaveLength(4);
+  });
+
+  it('fails closed when a same-named replacement appears while deletion settles', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'physical-1',
+          name: sandboxNameForConversation('conversation'),
+          phase: 'Stopped',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      )
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(
+        JSON.stringify({
+          id: 'replacement',
+          name: sandboxNameForConversation('conversation'),
+          phase: 'Ready',
+          labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+        }),
+      );
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 100 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('identity changed during delete');
+  });
+
+  it('fails closed if asynchronous deletion never becomes absent', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi.fn().mockResolvedValue(stopped);
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 5 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('did not disappear after delete');
+  });
+
+  it('bounds an individual gateway read by the deletion deadline', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(stopped)
+      .mockResolvedValueOnce('{}')
+      .mockImplementationOnce(
+        (_args: readonly string[], signal: AbortSignal) =>
+          new Promise<string>((_resolve, reject) =>
+            signal.addEventListener('abort', () => reject(new Error('gateway read aborted'))),
+          ),
+      );
+    await expect(
+      new OpenShellRuntimeManager(config, run, { pollIntervalMs: 0, timeoutMs: 5 }).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('did not disappear after delete');
+  });
+
+  it('aborts while waiting for asynchronous deletion to settle', async () => {
+    const stopped = JSON.stringify({
+      id: 'physical-1',
+      name: sandboxNameForConversation('conversation'),
+      phase: 'Stopped',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    });
+    const run = vi.fn().mockResolvedValue(stopped);
+    const controller = new AbortController();
+    const deletion = new OpenShellRuntimeManager(config, run, {
+      pollIntervalMs: 1_000,
+      timeoutMs: 30_000,
+    }).delete('conversation', 'physical-1', controller.signal);
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(3));
+    controller.abort();
+    await expect(deletion).rejects.toThrow(/abort/i);
+  });
+
+  it('does not issue a stop after queue admission invalidates the lifecycle fence', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        id: 'physical-1',
+        name: 'mitzo-123',
+        phase: 'Ready',
+        labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).stop(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+        () => false,
+      ),
+    ).rejects.toThrow('activity changed before stop');
+    expect(run.mock.calls.flatMap(([args]) => args)).not.toContain('stop');
+  });
+
+  it('does not issue deletion after the final lifecycle fence changes', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        id: 'physical-1',
+        name: 'mitzo-123',
+        phase: 'Stopped',
+        labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+        () => false,
+      ),
+    ).rejects.toThrow('state changed before delete');
+    expect(run.mock.calls.flatMap(([args]) => args)).not.toContain('delete');
+  });
+
+  it('refuses lifecycle mutation when the physical sandbox identity or phase changed', async () => {
+    const run = vi.fn().mockResolvedValue(
+      JSON.stringify({
+        id: 'replacement',
+        name: 'mitzo-123',
+        phase: 'Stopped',
+        labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+      }),
+    );
+    await expect(
+      new OpenShellRuntimeManager(config, run).delete(
+        'conversation',
+        'physical-1',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('identity changed');
+    expect(run.mock.calls.flat().flat()).not.toContain('delete');
   });
 
   it('compiles launch context against the exact sandbox workspace', async () => {

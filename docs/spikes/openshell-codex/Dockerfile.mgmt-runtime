@@ -22,8 +22,9 @@ COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
 COPY initialize-mitzo-workspace /sandbox/initialize-mitzo-workspace
 COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
+COPY mitzo-checkpoint.py /sandbox/mitzo-checkpoint.py
 COPY contexgin /usr/lib/contexgin
-RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/compile-mgmt-context.mjs \
+RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/compile-mgmt-context.mjs /sandbox/mitzo-checkpoint.py \
     && chmod -R a+rX /usr/lib/contexgin \
     && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server
 ENV PATH="/opt/mgmt-venv/bin:${PATH}"

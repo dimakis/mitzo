@@ -212,6 +212,24 @@ export class AccountProfiles {
       .map((profile) => profile.id);
   }
 
+  /** Sandbox provider labels active in this deployment for lifecycle telemetry. */
+  openShellSandboxProviders(): string[] {
+    const visible = new Set(this.catalog().map((account) => account.id));
+    return [
+      ...new Set(
+        this.profiles.flatMap((profile) => {
+          if (
+            !visible.has(profile.id) ||
+            (profile.provider !== 'openai' && profile.provider !== 'openai-codex') ||
+            !profile.sandboxProvider
+          )
+            return [];
+          return [profile.sandboxProvider];
+        }),
+      ),
+    ];
+  }
+
   /** Legacy requests use the server's Vertex route, not any other account's models. */
   legacyModels(projectId: string | undefined, region: string, credentialRef: string | undefined) {
     // Ambient ADC can resolve through several sources; do not guess a profile identity.

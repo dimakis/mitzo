@@ -167,7 +167,10 @@ export interface ConnectionGateway {
 }
 /** Pinned CLI 0.0.116-mitzo.2 table parser. Unknown output must fail closed. */
 export function parseProviderAttachments(output: string, sandbox: string): string[] {
-  const text = output.trim();
+  // The pinned CLI may decorate table headings when stdout is a terminal. Strip
+  // only ANSI control sequences, then retain the exact fail-closed table shape.
+  const ansiControlSequence = new RegExp(String.fromCharCode(27) + '\\[[0-?]*[ -/]*[@-~]', 'g');
+  const text = output.replace(ansiControlSequence, '').trim();
   if (text === `No providers attached to sandbox ${sandbox}.`) return [];
   const lines = text.split(/\r?\n/);
   // Pinned CLI formats table headings with SGR bold even when NO_COLOR=1.

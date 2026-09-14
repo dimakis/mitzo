@@ -141,6 +141,7 @@ const overviewBroadcast = vi.fn();
 let app: Express;
 let authCookie: string;
 let authSessionId: string;
+let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
   const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
@@ -178,6 +179,7 @@ beforeAll(async () => {
 
   const mod = await import('../app.js');
   app = mod.app;
+  setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
   } as unknown as import('../session-overview.js').SessionOverviewEmitter);
@@ -332,6 +334,71 @@ describe('bearer token auth', () => {
   it('rejects malformed Authorization header', async () => {
     const res = await request(app).get('/api/auth/check').set('Authorization', 'Basic abc123');
     expect(res.status).toBe(401);
+  });
+});
+
+describe('OpenShell lifecycle destructive authorization', () => {
+  afterEach(() => setOpenShellLifecycleService(null));
+
+  function lifecycleService() {
+    return {
+      preview: vi.fn().mockResolvedValue({ action: 'stop' }),
+      confirm: vi.fn().mockResolvedValue('stopped'),
+      setRetentionConsent: vi.fn().mockResolvedValue(undefined),
+    } as unknown as import('../openshell-lifecycle-service.js').OpenShellLifecycleService;
+  }
+
+  it('rejects internal-token-only destructive lifecycle requests but preserves preview access', async () => {
+    const lifecycle = lifecycleService();
+    setOpenShellLifecycleService(lifecycle);
+    const { INTERNAL_TOKEN } = await import('../internal-token.js');
+
+    expect(
+      (
+        await request(app)
+          .get('/api/openshell/lifecycle/conversation/preview')
+          .set('x-internal-token', INTERNAL_TOKEN)
+      ).status,
+    ).toBe(200);
+    expect(lifecycle.preview).toHaveBeenCalledOnce();
+
+    expect(
+      (
+        await request(app)
+          .post('/api/openshell/lifecycle/confirm')
+          .set('x-internal-token', INTERNAL_TOKEN)
+          .send({ token: 'preview-token' })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post('/api/openshell/lifecycle/conversation/retention-consent')
+          .set('x-internal-token', INTERNAL_TOKEN)
+          .send({ enabled: true })
+      ).status,
+    ).toBe(403);
+    expect(lifecycle.confirm).not.toHaveBeenCalled();
+    expect(lifecycle.setRetentionConsent).not.toHaveBeenCalled();
+  });
+
+  it('accepts an interactive operator session for all destructive lifecycle mutations', async () => {
+    const lifecycle = lifecycleService();
+    setOpenShellLifecycleService(lifecycle);
+
+    const confirm = await request(app)
+      .post('/api/openshell/lifecycle/confirm')
+      .set('Cookie', authCookie)
+      .send({ token: 'preview-token' });
+    expect(confirm.status).toBe(200);
+    expect(lifecycle.confirm).toHaveBeenCalledWith('preview-token', expect.any(AbortSignal));
+
+    const consent = await request(app)
+      .post('/api/openshell/lifecycle/conversation/retention-consent')
+      .set('Cookie', authCookie)
+      .send({ enabled: true });
+    expect(consent.status).toBe(200);
+    expect(lifecycle.setRetentionConsent).toHaveBeenCalledWith('conversation', true);
   });
 });
 

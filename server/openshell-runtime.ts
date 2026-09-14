@@ -8,11 +8,26 @@ import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 
+// OpenShell gateways prior to the current API contract encode resource_version
+// as a JSON number. Normalize that legacy representation at the boundary so
+// checkpoint identity and CLI arguments always retain the string form.
+const ResourceVersion = z.union([
+  z.string().min(1),
+  z.number().int().nonnegative().transform(String),
+]);
+
 const Sandbox = z.object({
+  id: z.string().min(1).optional(),
+  resource_version: ResourceVersion.optional(),
+  // OpenShell increments resource_version for read-only status observations.
+  // revision is the stable lifecycle fence for an already-stopped sandbox.
+  revision: ResourceVersion.optional(),
   name: z.string(),
-  phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Error']),
+  phase: z.enum(['Ready', 'Stopped', 'Pending', 'Creating', 'Starting', 'Deleting', 'Error']),
+  workspace: z.string().optional(),
   labels: z.record(z.string(), z.string()).optional(),
 });
+const SandboxList = z.array(Sandbox);
 const Provider = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -53,6 +68,10 @@ export type OpenShellBootContext = z.infer<typeof BootContext>;
 
 export interface OpenShellRuntime {
   sandboxName: string;
+  /** Immutable provider resource ID observed after ensure. */
+  sandboxId?: string;
+  resourceVersion?: string;
+  created?: boolean;
   workdir: string;
   appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
   cli: string;
@@ -350,6 +369,162 @@ export class OpenShellRuntimeManager {
     }
   }
 
+  /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
+  async inventory(signal: AbortSignal) {
+    const sandboxes: z.infer<typeof Sandbox>[] = [];
+    const limit = 100;
+    for (let offset = 0; ; offset += limit) {
+      const page = SandboxList.parse(
+        JSON.parse(
+          await this.run(
+            [
+              'sandbox',
+              ...this.base(),
+              'list',
+              '--output',
+              'json',
+              '--limit',
+              String(limit),
+              '--offset',
+              String(offset),
+            ],
+            signal,
+          ),
+        ),
+      );
+      sandboxes.push(...page);
+      if (page.length < limit) break;
+    }
+    return sandboxes.filter(
+      (sandbox) =>
+        sandbox.labels?.['mitzo.conversation'] &&
+        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+        (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+    );
+  }
+
+  /** Read the current physical sandbox for a lifecycle record.  This keeps
+   * lifecycle callers from reconstructing CLI arguments or trusting a name
+   * without re-checking its ownership labels. */
+  async inspect(conversationId: string, physicalId: string, signal: AbortSignal) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal, true);
+    if (!sandbox) return undefined;
+    if (!sandbox.id) throw new Error('OpenShell sandbox has no physical identity');
+    // A Ready resource_version is an observation and may change after a read.
+    // It is retained only in the checkpoint archive identity. A stopped
+    // revision is stable and fences a later delete.
+    const lifecycleVersion =
+      sandbox.phase === 'Stopped' ? sandbox.revision : sandbox.resource_version;
+    return {
+      id: sandbox.id,
+      ...(lifecycleVersion ? { resourceVersion: lifecycleVersion } : {}),
+      phase: sandbox.phase,
+    };
+  }
+
+  private ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+  ): Promise<z.infer<typeof Sandbox>>;
+  private ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    allowAbsent: true,
+  ): Promise<z.infer<typeof Sandbox> | undefined>;
+  private async ownedSandbox(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    allowAbsent = false,
+  ) {
+    const hash = createHash('sha256').update(conversationId).digest('hex');
+    const current = await this.get(
+      sandboxNameForConversation(conversationId, this.config.sandboxIdLength),
+      signal,
+    );
+    const sandbox = current ?? (await this.get(legacySandboxNameForConversation(hash), signal));
+    const expectedOwner = current ? hash.slice(0, 63) : hash;
+    if (!sandbox) {
+      if (allowAbsent) return undefined;
+      throw new Error('OpenShell sandbox is unavailable');
+    }
+    if (sandbox.id !== physicalId) throw new Error('OpenShell sandbox identity changed');
+    if (sandbox.labels?.['mitzo.conversation'] !== expectedOwner)
+      throw new Error('OpenShell sandbox is not owned by this conversation');
+    if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+      throw new Error('OpenShell sandbox has another account provider binding');
+    return sandbox;
+  }
+
+  /** Stops only a current, owned Ready sandbox. Callers must fence policy separately. */
+  async stop(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    activityUnchanged?: () => boolean,
+  ) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (sandbox.phase !== 'Ready')
+      throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Ready`);
+    if (activityUnchanged && !activityUnchanged())
+      throw new Error('OpenShell lifecycle activity changed before stop');
+    await this.run(['sandbox', ...this.base(), 'stop', sandbox.name], signal);
+  }
+
+  /** Deletes only a current, owned Stopped sandbox. This is intentionally not an automatic policy. */
+  async delete(
+    conversationId: string,
+    physicalId: string,
+    signal: AbortSignal,
+    stateUnchanged?: () => boolean,
+  ) {
+    const sandbox = await this.ownedSandbox(conversationId, physicalId, signal);
+    if (sandbox.phase !== 'Stopped')
+      throw new Error(`OpenShell sandbox is ${sandbox.phase}, not Stopped`);
+    if (stateUnchanged && !stateUnchanged())
+      throw new Error('OpenShell lifecycle state changed before delete');
+    await this.run(['sandbox', ...this.base(), 'delete', sandbox.name], signal);
+    await this.waitForAbsent(conversationId, sandbox.name, physicalId, signal);
+  }
+
+  /** Gateway deletion is asynchronous. Do not report success while a same-named
+   * physical sandbox still exists; a replacement is a hard identity failure. */
+  private async waitForAbsent(
+    conversationId: string,
+    name: string,
+    physicalId: string,
+    signal: AbortSignal,
+  ) {
+    const hash = createHash('sha256').update(conversationId).digest('hex');
+    const expectedOwner =
+      name === sandboxNameForConversation(conversationId, this.config.sandboxIdLength)
+        ? hash.slice(0, 63)
+        : hash;
+    const deadline = Date.now() + this.readiness.timeoutMs;
+    while (Date.now() <= deadline) {
+      signal.throwIfAborted();
+      const timeout = AbortSignal.timeout(Math.max(1, deadline - Date.now()));
+      let sandbox: z.infer<typeof Sandbox> | undefined;
+      try {
+        sandbox = await this.get(name, AbortSignal.any([signal, timeout]));
+      } catch (error) {
+        if (signal.aborted || !timeout.aborted) throw error;
+        break;
+      }
+      if (!sandbox) return;
+      if (sandbox.id !== physicalId)
+        throw new Error('OpenShell sandbox identity changed during delete');
+      if (sandbox.labels?.['mitzo.conversation'] !== expectedOwner)
+        throw new Error('OpenShell sandbox is not owned by this conversation');
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        throw new Error('OpenShell sandbox has another account provider binding');
+      await this.delay(signal);
+    }
+    throw new Error('OpenShell sandbox did not disappear after delete');
+  }
+
   private delay(signal: AbortSignal) {
     signal.throwIfAborted();
     return new Promise<void>((resolve, reject) => {
@@ -479,6 +654,7 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    let created = false;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -496,6 +672,7 @@ export class OpenShellRuntimeManager {
     if (sandbox) await this.verifyManagedConnections(name, signal);
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
+      created = true;
       const args = [
         'sandbox',
         ...this.base(),
@@ -588,6 +765,9 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     return {
       sandboxName: name,
+      ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
+      ...(sandbox.resource_version ? { resourceVersion: sandbox.resource_version } : {}),
+      ...(created ? { created: true } : {}),
       workdir: this.config.workdir,
       appServerCommand:
         this.config.account.kind === 'chatgpt-subscription'

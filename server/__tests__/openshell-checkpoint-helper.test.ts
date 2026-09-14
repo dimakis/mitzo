@@ -1,0 +1,577 @@
+import { execFileSync } from 'node:child_process';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
+import { afterEach, expect, it } from 'vitest';
+
+const roots: string[] = [];
+const helper = join(process.cwd(), 'docs/spikes/openshell-codex/mitzo-checkpoint.py');
+function root() {
+  const value = mkdtempSync(join(tmpdir(), 'mitzo-checkpoint-helper-'));
+  roots.push(value);
+  return value;
+}
+function run(args: string[]) {
+  return execFileSync(
+    'python3',
+    [
+      helper,
+      ...args,
+      '--sandbox-id',
+      'sandbox',
+      '--resource-version',
+      '1',
+      '--account-provider',
+      'account',
+      '--account-id',
+      'id',
+      '--provider',
+      'openai',
+      '--model',
+      'model',
+      '--profile-revision',
+      'r1',
+      '--runtime-scope',
+      'scope',
+      '--route-kind',
+      'api',
+      '--route-provider',
+      'openai',
+    ],
+    { encoding: 'utf8' },
+  );
+}
+function source(root: string) {
+  mkdirSync(join(root, '.codex/sessions'), { recursive: true });
+  mkdirSync(join(root, 'workspace/empty'), { recursive: true });
+  writeFileSync(join(root, '.codex/state_5.sqlite'), 'state');
+  writeFileSync(join(root, '.codex/installation_id'), 'install');
+  writeFileSync(
+    join(root, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'),
+    '{"type":"session_meta","payload":{"id":"thread"}}\n',
+  );
+  writeFileSync(join(root, 'workspace/tool.sh'), '#!/bin/sh\necho ok\n');
+  chmodSync(join(root, 'workspace/tool.sh'), 0o755);
+  execFileSync('git', ['init', '-q'], { cwd: join(root, 'workspace') });
+  execFileSync('git', ['config', 'user.email', 'test@example.invalid'], {
+    cwd: join(root, 'workspace'),
+  });
+  execFileSync('git', ['config', 'user.name', 'Test'], { cwd: join(root, 'workspace') });
+  execFileSync('git', ['add', '.'], { cwd: join(root, 'workspace') });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'seed'], {
+    cwd: join(root, 'workspace'),
+  });
+  writeFileSync(join(root, 'workspace/untracked.txt'), 'untracked');
+  const db = new Database(join(root, '.codex/queue_1.sqlite'));
+  db.exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('ok')");
+  db.close();
+}
+afterEach(() => {
+  for (const value of roots) rmSync(value, { recursive: true, force: true });
+  roots.length = 0;
+});
+it('captures and restores git, executable files, empty directories, and sqlite state', () => {
+  const from = root(),
+    archive = join(root(), 'checkpoint.tar'),
+    to = join(root(), 'restored');
+  source(from);
+  writeFileSync(join(from, 'workspace/.npmrc'), '//registry.example/:_authToken=secret');
+  execFileSync('git', ['config', 'extensions.worktreeConfig', 'true'], {
+    cwd: join(from, 'workspace'),
+  });
+  execFileSync('git', ['config', '--worktree', 'credential.helper', 'unsafe-helper'], {
+    cwd: join(from, 'workspace'),
+  });
+  execFileSync(
+    'git',
+    ['config', '--worktree', 'http.https://example.invalid/.extraheader', 'Bearer unsafe-token'],
+    { cwd: join(from, 'workspace') },
+  );
+  writeFileSync(join(from, 'workspace/.git/credentials'), 'https://unsafe-token@example.invalid');
+  const nestedGit = join(from, 'workspace/.git/modules/example');
+  mkdirSync(nestedGit, { recursive: true });
+  writeFileSync(join(nestedGit, 'config'), '[credential]\nhelper = unsafe-helper\n');
+  writeFileSync(join(nestedGit, 'config.worktree'), '[http]\nextraHeader = Bearer unsafe-token\n');
+  writeFileSync(join(nestedGit, 'credentials'), 'https://unsafe-token@example.invalid');
+  run([
+    'capture',
+    '--source',
+    from,
+    '--output',
+    archive,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  run([
+    'restore',
+    '--input',
+    archive,
+    '--destination',
+    to,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  expect(readFileSync(join(to, 'workspace/untracked.txt'), 'utf8')).toBe('untracked');
+  expect(
+    execFileSync('git', ['config', '--local', 'user.name'], {
+      cwd: join(to, 'workspace'),
+      encoding: 'utf8',
+    }).trim(),
+  ).toBe('Mitzo Sandbox');
+  writeFileSync(join(to, 'workspace/post-restore.txt'), 'committed after restore');
+  execFileSync('git', ['add', 'post-restore.txt'], { cwd: join(to, 'workspace') });
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'post-restore'], {
+    cwd: join(to, 'workspace'),
+  });
+  expect(
+    execFileSync('git', ['rev-parse', 'HEAD'], { cwd: join(to, 'workspace'), encoding: 'utf8' }),
+  ).toMatch(/[a-f0-9]{40}/);
+  expect(readFileSync(join(to, '.codex/queue_1.sqlite')).length).toBeGreaterThan(0);
+  expect(statSync(join(to, 'workspace/empty')).isDirectory()).toBe(true);
+  expect(statSync(join(to, 'workspace/tool.sh')).mode & 0o777).toBe(0o755);
+  expect(statSync(archive).mode & 0o777).toBe(0o600);
+  const archived = execFileSync('tar', ['-tf', archive], { encoding: 'utf8' }).split('\n');
+  expect(archived).not.toContain('workspace/.git/config');
+  expect(archived).not.toContain('workspace/.git/config.worktree');
+  expect(archived).not.toContain('workspace/.git/credentials');
+  expect(archived).not.toContain('workspace/.git/modules/example/config');
+  expect(archived).not.toContain('workspace/.git/modules/example/config.worktree');
+  expect(archived).not.toContain('workspace/.git/modules/example/credentials');
+  expect(archived).not.toContain('workspace/.npmrc');
+  expect(existsSync(join(to, 'workspace/.git/config.worktree'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/credentials'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/config'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/config.worktree'))).toBe(false);
+  expect(existsSync(join(to, 'workspace/.git/modules/example/credentials'))).toBe(false);
+  const db = new Database(join(to, '.codex/queue_1.sqlite'));
+  expect(db.prepare('SELECT v FROM t').get()).toEqual({ v: 'ok' });
+  db.close();
+
+  const freshRoot = root();
+  const providerRoot = join(freshRoot, '.codex');
+  const workspaceRoot = join(freshRoot, 'nested', 'mgmt');
+  mkdirSync(providerRoot, { recursive: true });
+  mkdirSync(workspaceRoot, { recursive: true });
+  writeFileSync(join(providerRoot, 'installation_id'), 'fresh');
+  writeFileSync(join(workspaceRoot, 'fresh.txt'), 'fresh');
+  run([
+    'restore',
+    '--input',
+    archive,
+    '--provider-root',
+    providerRoot,
+    '--workspace-root',
+    workspaceRoot,
+    '--replace-fresh-roots',
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  expect(readFileSync(join(workspaceRoot, 'untracked.txt'), 'utf8')).toBe('untracked');
+  expect(readFileSync(join(providerRoot, 'queue_1.sqlite')).length).toBeGreaterThan(0);
+});
+it('rejects Git pointer files and symlinks across capture and restore', () => {
+  for (const pointer of ['gitdir: /private/external-repo', 'gitdir: ../../external-repo']) {
+    const from = root();
+    source(from);
+    const git = join(from, 'workspace/.git');
+    rmSync(git, { recursive: true, force: true });
+    writeFileSync(git, pointer);
+    expect(() =>
+      run([
+        'capture',
+        '--source',
+        from,
+        '--output',
+        join(root(), 'checkpoint.tar'),
+        '--conversation',
+        'c',
+        '--thread',
+        'thread',
+        '--binding',
+        'binding',
+        '--image',
+        'image',
+        '--policy',
+        'policy',
+      ]),
+    ).toThrow();
+  }
+  const symlinked = root();
+  source(symlinked);
+  const git = join(symlinked, 'workspace/.git');
+  rmSync(git, { recursive: true, force: true });
+  const external = join(root(), 'external-repo');
+  mkdirSync(external);
+  symlinkSync(external, git);
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      symlinked,
+      '--output',
+      join(root(), 'checkpoint.tar'),
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow();
+
+  const workspace = root();
+  writeFileSync(join(workspace, '.git'), 'gitdir: /private/external-repo');
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.restore_git_identity(sys.argv[2])",
+        helper,
+        workspace,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow();
+});
+
+it('rejects archive paths that escape the workspace Git boundary', () => {
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.safe_name('../workspace/.git/config')",
+        helper,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow();
+});
+it('rejects hostile nested Git admin configuration archive members', () => {
+  expect(() =>
+    execFileSync(
+      'python3',
+      [
+        '-c',
+        "import importlib.util,sys; s=importlib.util.spec_from_file_location('checkpoint',sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.validate_names(['workspace/.git/modules/example/config','workspace/.git/modules/example/config.worktree','workspace/.git/modules/example/credentials'])",
+        helper,
+      ],
+      { encoding: 'utf8' },
+    ),
+  ).toThrow(/credential-like workspace file/);
+});
+it('keeps a recoverable backup when post-restore cleanup fails', () => {
+  const backup = join(root(), '.codex.mitzo-pre-restore');
+  mkdirSync(backup);
+  execFileSync(
+    'python3',
+    [
+      '-c',
+      `import importlib.util\ns=importlib.util.spec_from_file_location('checkpoint','${helper}')\nm=importlib.util.module_from_spec(s); s.loader.exec_module(m)\nm.shutil.rmtree=lambda _: (_ for _ in ()).throw(OSError('cleanup failed'))\nm.cleanup_backups([('', '${backup}')])`,
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(existsSync(backup)).toBe(true);
+});
+it('rejects auth state and corrupt archives', () => {
+  const from = root(),
+    archive = join(root(), 'checkpoint.tar');
+  source(from);
+  writeFileSync(join(from, '.codex/auth.json'), 'secret');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      archive,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow();
+  writeFileSync(archive, 'not a tar');
+  expect(() =>
+    run([
+      'verify',
+      '--input',
+      archive,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow();
+});
+it('rejects a provider state without an exact thread rollout', () => {
+  const from = root();
+  source(from);
+  rmSync(join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl'));
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'checkpoint.tar'),
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/rollout/);
+});
+it('rejects empty, malformed, or mismatched rollout metadata', () => {
+  const from = root();
+  source(from);
+  const rollout = join(from, '.codex/sessions/rollout-2026-09-12T00-00-00.jsonl');
+  for (const header of ['', '{bad\n', '{"type":"session_meta","payload":{"id":"other"}}\n']) {
+    writeFileSync(rollout, header);
+    expect(() =>
+      run([
+        'capture',
+        '--source',
+        from,
+        '--output',
+        join(root(), `${header.length}.tar`),
+        '--conversation',
+        'c',
+        '--thread',
+        'thread',
+        '--binding',
+        'binding',
+        '--image',
+        'image',
+        '--policy',
+        'policy',
+      ]),
+    ).toThrow(/rollout/);
+  }
+});
+it('fails closed for remaining execution processes but exempts only the pinned root supervisor', () => {
+  const from = root();
+  source(from);
+  const proc = join(root(), 'proc');
+  mkdirSync(join(proc, '1'), { recursive: true });
+  writeFileSync(join(proc, '1/status'), 'Name:\topenshell-sandb\nUid:\t0\t0\t0\t0\nPPid:\t0\n');
+  mkdirSync(join(proc, '1/fd'));
+  symlinkSync(join(from, '.codex/state_5.sqlite'), join(proc, '1/fd/3'));
+  run([
+    'capture',
+    '--source',
+    from,
+    '--output',
+    join(root(), 'safe.tar'),
+    '--require-quiescent',
+    '--proc-root',
+    proc,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  mkdirSync(join(proc, '3/fd'), { recursive: true });
+  writeFileSync(join(proc, '3/status'), 'Name:\tworker\nUid:\t0\t0\t0\t0\nPPid:\t1\n');
+  writeFileSync(join(proc, '3/cmdline'), 'worker\0');
+  symlinkSync(join(from, 'workspace/tool.sh'), join(proc, '3/fd/4'));
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'non-supervisor-fd-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/writer is still open/);
+  rmSync(join(proc, '3'), { recursive: true, force: true });
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-l\0');
+  run([
+    'capture',
+    '--source',
+    from,
+    '--output',
+    join(root(), 'bootstrap-shell-safe.tar'),
+    '--require-quiescent',
+    '--proc-root',
+    proc,
+    '--conversation',
+    'c',
+    '--thread',
+    'thread',
+    '--binding',
+    'binding',
+    '--image',
+    'image',
+    '--policy',
+    'policy',
+  ]);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-c\0sleep 60\0');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'lookalike-command-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
+  mkdirSync(join(proc, '2'), { recursive: true });
+  writeFileSync(
+    join(proc, '2/status'),
+    `Name:\tbash\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t9\n`,
+  );
+  writeFileSync(join(proc, '2/cmdline'), '/bin/bash\0-l\0');
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'lookalike-parent-blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
+  rmSync(join(proc, '2'), { recursive: true, force: true });
+  mkdirSync(join(proc, '999'), { recursive: true });
+  writeFileSync(
+    join(proc, '999/status'),
+    `Name:\tagent\nUid:\t${process.getuid?.() ?? 998}\t998\t998\t998\nPPid:\t1\n`,
+  );
+  expect(() =>
+    run([
+      'capture',
+      '--source',
+      from,
+      '--output',
+      join(root(), 'blocked.tar'),
+      '--require-quiescent',
+      '--proc-root',
+      proc,
+      '--conversation',
+      'c',
+      '--thread',
+      'thread',
+      '--binding',
+      'binding',
+      '--image',
+      'image',
+      '--policy',
+      'policy',
+    ]),
+  ).toThrow(/execution process/);
+});

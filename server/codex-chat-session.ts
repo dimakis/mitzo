@@ -31,6 +31,14 @@ import {
 } from './openshell-runtime.js';
 import type { Connection } from './connections-store.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
+import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
+import {
+  registerOpenShellLifecycle,
+  registerOpenShellLifecycleProvisional,
+  restoreOpenShellLifecycleIfNeeded,
+  touchOpenShellLifecycle,
+  markOpenShellLifecycleIdle,
+} from './openshell-lifecycle-controller.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
@@ -61,7 +69,6 @@ function grantIntegrationTools(providers: string[]) {
     },
   ];
 }
-
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
   const message = error.message;
@@ -143,6 +150,11 @@ export function readCodexQueue(
   } catch {
     return { paused: true, connected: false, queued: 0, interrupted: 0 };
   }
+}
+/** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
+ * where they become a preservation blocker. */
+export function readCodexLifecycleQueue(conversationId: string, binding: AccountBinding) {
+  return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
   resume?: boolean;
@@ -227,9 +239,42 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           : undefined,
       })
     : undefined;
-  const managedOpenShell = runtimeManager
-    ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+  const startupReservation = runtimeManager
+    ? await sharedOpenShellLifecycleCoordinator.reserve(options.conversationId)
     : undefined;
+  let managedOpenShell;
+  try {
+    managedOpenShell = runtimeManager
+      ? await runtimeManager.ensure(options.conversationId, options.session.abortController.signal)
+      : undefined;
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
+  const signal = options.session.abortController.signal;
+  try {
+    if (runtimeManager && managedOpenShell) {
+      // A resumed conversation must validate its durable recovery record before
+      // a first-launch provisional row can make a missing record look valid.
+      await restoreOpenShellLifecycleIfNeeded(
+        options.conversationId,
+        managedOpenShell,
+        signal,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        !!options.resume,
+      );
+      registerOpenShellLifecycleProvisional(
+        options.conversationId,
+        managedOpenShell,
+        selectedOpenShellAccountRoute(options),
+        options.registry.findBySessionId(options.conversationId)?.clientId,
+      );
+    }
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const openShell =
     managedOpenShell ??
     (openShellName
@@ -248,11 +293,21 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           },
         }
       : openShell;
-  const signal = options.session.abortController.signal;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
-  signal.throwIfAborted();
-  const privateStorage = store();
+  try {
+    signal.throwIfAborted();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
+  let privateStorage: CodexConversationStore;
+  try {
+    privateStorage = store();
+  } catch (error) {
+    startupReservation?.();
+    throw error;
+  }
   const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
@@ -273,6 +328,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     }
   } catch (error) {
     dispose();
+    startupReservation?.();
     throw error;
   }
   const mcp = connectedOpenShell
@@ -290,6 +346,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         signal: options.session.abortController.signal,
       }).catch((error) => {
         dispose();
+        startupReservation?.();
         throw error;
       });
   const events = new AsyncQueue<Record<string, unknown>>();
@@ -344,7 +401,18 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
                 )
             : undefined,
           beforeReconnect: async () => {
-            await runtimeManager.ensure(options.conversationId, signal);
+            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              const recovered = await runtimeManager.ensure(options.conversationId, signal);
+              await restoreOpenShellLifecycleIfNeeded(
+                options.conversationId,
+                recovered,
+                signal,
+                options.binding,
+                selectedOpenShellAccountRoute(options),
+                true,
+              );
+              Object.assign(managedOpenShell!, recovered);
+            });
           },
         }
       : {}),
@@ -369,7 +437,10 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         }
       : {}),
     emit: (event) => events.push(event),
-    onClosed: finish,
+    onClosed: () => {
+      if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
+      finish();
+    },
     requestUserInput: async (params, signal) => {
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
@@ -445,6 +516,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
+    ...(runtimeManager
+      ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
+      : {}),
     onError: (error) => {
       if (options.session.transport?.isOpen())
         options.session.transport.send({
@@ -463,6 +537,18 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   try {
     signal.throwIfAborted();
     await runtime.initialize();
+    if (runtimeManager && managedOpenShell) {
+      const threadId = runtime.getThreadId();
+      if (!threadId) throw new Error('OpenShell provider thread was not initialized');
+      registerOpenShellLifecycle(
+        options.conversationId,
+        managedOpenShell,
+        options.binding,
+        selectedOpenShellAccountRoute(options),
+        threadId,
+        options.registry.findBySessionId(options.conversationId)?.clientId,
+      );
+    }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
     await runtime.send({
@@ -475,6 +561,8 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   } catch (error) {
     close();
     throw error;
+  } finally {
+    startupReservation?.();
   }
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),

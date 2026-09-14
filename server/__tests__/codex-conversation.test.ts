@@ -22,6 +22,7 @@ async function setup(
     profileRevision: string;
   }>,
   beforeReconnect?: () => Promise<void>,
+  onActivity?: () => boolean,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -80,6 +81,7 @@ async function setup(
     beforeComplete,
     completionHookTimeoutMs,
     beforeReconnect,
+    onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
@@ -114,6 +116,21 @@ async function setup(
     requestUserInput,
   };
 }
+it('does not persist queued work when lifecycle admission is fenced', async () => {
+  const onActivity = vi.fn(() => false);
+  const { c } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onActivity,
+  );
+  expect(() => c.enqueue({ id: 'fenced', prompt: 'wait' })).toThrow('lifecycle mutation');
+  expect(onActivity).toHaveBeenCalledOnce();
+  expect(c.queue()).toEqual([]);
+});
 it('runs queued turns sequentially, rechecks account and never uses SDK/provider IDs as application IDs', async () => {
   const { c, callbacks, requests, events } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });

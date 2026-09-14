@@ -62,6 +62,7 @@ import {
   setSignalProcessor,
   setOverviewEmitter,
   setHealthMonitor,
+  setOpenShellLifecycleService,
   setSkillWatcher,
   setConnectionsRuntime as setAppConnectionsRuntime,
   runUpdateCheck,
@@ -76,7 +77,17 @@ import {
   workloadStore,
 } from './app.js';
 import { createConnectionsRuntime } from './connections-runtime.js';
+import { readCodexLifecycleQueue } from './codex-chat-session.js';
+import {
+  initializeOpenShellLifecycle,
+  openShellLifecyclePhaseCounts,
+} from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
+import { openShellLifecycleEnabled } from './openshell-lifecycle.js';
+import {
+  OpenShellLifecycleObservability,
+  openShellLifecycleObservabilityThresholds,
+} from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
@@ -163,6 +174,84 @@ configureConnectionsRuntime();
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
 setConnectionRegistry(connRegistry);
+
+// Lifecycle construction happens only after the authoritative session, event,
+// task and queue readers exist. It is still inert unless OpenShell is enabled.
+const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
+const lifecycleObservability = lifecycleEnabled
+  ? new OpenShellLifecycleObservability({
+      ...openShellLifecycleObservabilityThresholds(process.env),
+      log: {
+        warn: (data, message) => log.warn(message, data as Record<string, unknown>),
+        info: (data, message) => log.info(message, data as Record<string, unknown>),
+      },
+    })
+  : undefined;
+const openShellLifecycle = initializeOpenShellLifecycle(configuredOpenShellRuntime, {
+  registry,
+  eventStore,
+  taskStore,
+  queue: (record) => {
+    if (!record.identity) return { queued: 0, running: 0, recovery: true };
+    return readCodexLifecycleQueue(record.conversationId, {
+      accountId: record.identity.accountId,
+      accountLabel: 'lifecycle',
+      provider: record.identity.provider,
+      model: record.identity.model,
+      profileRevision: record.identity.profileRevision,
+    });
+  },
+  accountProviders: () => loadAccountProfiles().openShellSandboxProviders(),
+  onOutcome: (action) => lifecycleObservability?.recordOutcome(action),
+});
+setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
+const lifecycleAbort = new AbortController();
+let lifecycleReconciling = false;
+const lifecycleReconcile = () => {
+  if (!openShellLifecycle || lifecycleReconciling || lifecycleAbort.signal.aborted) return;
+  lifecycleReconciling = true;
+  void openShellLifecycle.service
+    .reconcile(lifecycleAbort.signal)
+    .then(async () => {
+      if (!lifecycleObservability) return;
+      const metrics = await lifecycleObservability.collect(lifecycleAbort.signal);
+      if (!metrics.available) {
+        lifecycleObservability.observe(metrics);
+        return;
+      }
+      try {
+        const inventory = await openShellLifecyclePhaseCounts(lifecycleAbort.signal);
+        metrics.phaseCounts = inventory.phaseCounts;
+        if (Object.keys(inventory.providerErrors).length) {
+          log.warn('OpenShell sandbox inventory telemetry partially unavailable', {
+            providerErrors: inventory.providerErrors,
+          });
+        }
+      } catch (error) {
+        lifecycleObservability.observe({ available: false });
+        log.warn('OpenShell sandbox inventory telemetry unavailable', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      lifecycleObservability.observe(metrics);
+    })
+    .catch((error) => {
+      lifecycleObservability?.recordOutcome('reconcile_failed');
+      log.error('OpenShell lifecycle reconciliation failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    })
+    .finally(() => {
+      lifecycleReconciling = false;
+    });
+};
+const lifecycleTimer = openShellLifecycle
+  ? setInterval(lifecycleReconcile, openShellLifecycle.policy.reconcileMs)
+  : undefined;
+lifecycleTimer?.unref();
+lifecycleReconcile();
 
 // Wire up EventStore for periodic sync (enables delivery guarantee).
 // Provide isSessionActive so periodic sync skips ended sessions (P1: use state, not is_active).
@@ -1083,6 +1172,9 @@ async function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
   setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   server.close();
+  lifecycleAbort.abort();
+  if (lifecycleTimer) clearInterval(lifecycleTimer);
+  openShellLifecycle?.store.close();
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();
