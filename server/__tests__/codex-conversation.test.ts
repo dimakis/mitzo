@@ -283,13 +283,61 @@ it('recovers an idle dead transport before persisting the explicit send', async 
     return request(method, params);
   });
 
-  await c.send({ id: 'after-idle', prompt: 'continue' });
+  const onEnqueued = vi.fn(() => {
+    expect(c.queue().map((command) => command.status)).toEqual(['queued']);
+    expect(beforeReconnect).not.toHaveBeenCalled();
+  });
+  await c.send({ id: 'after-idle', prompt: 'continue' }, onEnqueued);
 
+  expect(onEnqueued).toHaveBeenCalledOnce();
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(c.queue().map((command) => command.status)).toEqual(['running']);
   expect(c.isPaused()).toBe(false);
+});
+
+it('does not persist an explicit send cancelled during its transport probe', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  let releaseProbe!: () => void;
+  const probeBlocked = new Promise<void>((resolve) => {
+    releaseProbe = resolve;
+  });
+  let blockNextProbe = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && blockNextProbe) {
+      blockNextProbe = false;
+      await probeBlocked;
+    }
+    return request(method, params);
+  });
+
+  const controller = new AbortController();
+  const admission = c.admitExplicitSend(
+    { id: 'cancelled', prompt: 'do not persist this' },
+    controller.signal,
+  );
+  await vi.waitFor(() =>
+    expect(rpc.request.mock.calls.some(([method]) => method === 'config/read')).toBe(true),
+  );
+
+  controller.abort();
+  await expect(admission).rejects.toMatchObject({ name: 'AbortError' });
+  await expect(c.admitExplicitSend({ id: 'next', prompt: 'admit immediately' })).resolves.toEqual({
+    model: 'test-model',
+    reasoningEffort: undefined,
+  });
+  expect(c.queue().map((command) => command.id)).toEqual(['next']);
+  releaseProbe();
 });
 
 it('reconnects an interrupted turn without replaying it when no later command is queued', async () => {
@@ -431,6 +479,42 @@ it('keeps the last selected model for follow-ups that omit a model and deduplica
   expect(c.queue().map((q) => q.model)).toEqual(['test-model', 'other-model', 'other-model']);
   await c.send({ id: 'first', prompt: 'one' });
   expect(c.queue()).toHaveLength(3);
+});
+
+it('serializes rapid model-selection admission against the durable queue', async () => {
+  const { c, rpc } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let firstProbe = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'config/read' && firstProbe) {
+      firstProbe = false;
+      await gate;
+    }
+    return request(method, params);
+  });
+
+  const first = c.admitExplicitSend({
+    id: 'model-switch',
+    prompt: 'switch',
+    model: 'other-model',
+    reasoningEffort: 'high',
+  });
+  const second = c.admitExplicitSend({
+    id: 'model-follow-up',
+    prompt: 'continue',
+    model: 'other-model',
+  });
+  release();
+
+  await Promise.all([first, second]);
+  expect(c.queue().map(({ model, reasoningEffort }) => ({ model, reasoningEffort }))).toEqual([
+    { model: 'other-model', reasoningEffort: 'high' },
+    { model: 'other-model', reasoningEffort: undefined },
+  ]);
 });
 
 it('retains early completion until the start response confirms its turn identity', async () => {

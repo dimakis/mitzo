@@ -68,6 +68,8 @@ export class TaskOrchestrator {
   private spawnDepth = 0;
   private _spawnEnabled = false;
   private deps: OrchestratorDeps;
+  private runGeneration = 0;
+  private dispatchAbort = new AbortController();
 
   /** Tracks recently-spawned task IDs with their spawn timestamp for orphan detection grace. */
   private recentSpawns = new Map<string, number>();
@@ -96,6 +98,43 @@ export class TaskOrchestrator {
     this.deps.broadcastStatus(this.getStatus());
   }
 
+  private dispatchToPinned(taskId: string, clientId: string, prompt: string): void {
+    const generation = this.runGeneration;
+    const signal = this.dispatchAbort.signal;
+    void Promise.resolve(
+      sendToChat(clientId, prompt, undefined, undefined, undefined, undefined, undefined, signal),
+    )
+      .then((accepted) => {
+        if (signal.aborted || generation !== this.runGeneration) return;
+        if (!accepted) this.markDispatchFailed(taskId, 'session did not accept the task');
+      })
+      .catch((err: unknown) => {
+        if (signal.aborted || generation !== this.runGeneration) return;
+        this.markDispatchFailed(
+          taskId,
+          err instanceof Error ? err.message : 'session dispatch failed',
+        );
+      });
+  }
+
+  private markDispatchFailed(taskId: string, error: string): void {
+    const task = this.deps.store.get(taskId);
+    if (!task || task.status !== 'active') return;
+    log.error('task dispatch failed', { taskId, error });
+    this.deps.store.update(taskId, {
+      status: 'blocked',
+      annotations: [...task.annotations, `dispatch_error: ${error}`],
+    });
+    this.deps.store.cascadeStatus(taskId);
+    if (this.activeTaskId === taskId) {
+      this.activeTaskId = null;
+      this.deps.clearTaskContext();
+    }
+    this.deps.broadcastTasks();
+    this.deps.broadcastStatus(this.getStatus());
+    if (this.state === 'running') queueMicrotask(() => this.tick());
+  }
+
   getStatus(): LoopStatus {
     const progress = this.goalId ? this.computeProgress(this.goalId) : null;
     return {
@@ -122,6 +161,9 @@ export class TaskOrchestrator {
     }
 
     this.state = 'running';
+    this.dispatchAbort.abort();
+    this.dispatchAbort = new AbortController();
+    this.runGeneration++;
     this.goalId = goalId;
     this.activeTaskId = null;
     this.specMode = opts?.specMode ?? false;
@@ -152,7 +194,8 @@ export class TaskOrchestrator {
       this.deps.broadcastStatus(this.getStatus());
 
       if (this.pinnedClientId) {
-        sendToChat(
+        this.dispatchToPinned(
+          goalId,
           this.pinnedClientId,
           `Decompose this goal into subtasks: "${goal.title}"\n` +
             (goal.description ? `\nDetails: ${goal.description}\n` : '') +
@@ -185,6 +228,8 @@ export class TaskOrchestrator {
 
   stop(): LoopStatus {
     if (this.state === 'idle') return this.getStatus();
+    this.dispatchAbort.abort();
+    this.runGeneration++;
     this.state = 'idle';
     this.goalId = null;
     this.activeTaskId = null;
@@ -288,7 +333,8 @@ export class TaskOrchestrator {
     // Notify agent session so it retries with feedback
     if (this.state === 'running') {
       if (this.pinnedClientId) {
-        sendToChat(
+        this.dispatchToPinned(
+          taskId,
           this.pinnedClientId,
           `Your previous work on "${task.title}" was rejected.\n` +
             (feedback ? `Feedback: ${feedback}\n` : '') +
@@ -480,7 +526,8 @@ export class TaskOrchestrator {
                   this.activeTaskId = next.id;
                   this.deps.setTaskContext(next.id, capturedGoalId);
                   this.deps.broadcastStatus(this.getStatus());
-                  if (capturedPinnedClientId) sendToChat(capturedPinnedClientId, prompt);
+                  if (capturedPinnedClientId)
+                    this.dispatchToPinned(next.id, capturedPinnedClientId, prompt);
                 } else {
                   // Pinned session busy — mark blocked so it's retried later
                   log.warn('pinned session busy, blocking spawn-failed task', { taskId: next.id });
@@ -527,7 +574,7 @@ export class TaskOrchestrator {
 
           if (this.pinnedClientId) {
             const prompt = this.buildTaskPrompt(next);
-            sendToChat(this.pinnedClientId, prompt);
+            this.dispatchToPinned(next.id, this.pinnedClientId, prompt);
           }
         }
         break;

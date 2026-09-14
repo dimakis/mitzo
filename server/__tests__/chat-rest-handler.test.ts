@@ -162,7 +162,7 @@ describe('chat-rest-handler', () => {
   });
 
   it('persists startup events before a stream exists without duplicating sequenced events', async () => {
-    vi.mocked(handleSendV2).mockImplementationOnce((_id, transport, _msg, _ctx, delivery) => {
+    vi.mocked(handleSendV2).mockImplementationOnce(async (_id, transport, _msg, _ctx, delivery) => {
       if (transport.isOpen()) transport.send({ type: 'session_info', branch: 'main' });
       const sid = delivery!.initialSessionId!;
       const seq = eventStore.append(sid, 'message_start', {
@@ -234,6 +234,24 @@ describe('chat-rest-handler', () => {
       expect.any(Object),
       expect.objectContaining({ initialSessionId: res.body.sessionId }),
     );
+  });
+
+  it('records and rejects an asynchronous send admission failure', async () => {
+    vi.mocked(handleSendV2).mockRejectedValueOnce(new Error('queue unavailable'));
+
+    const res = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'send',
+        sessionId: null,
+        prompt: 'hello world',
+        clientMsgId: 'msg-rejected',
+      });
+
+    expect(res.status).toBe(422);
+    expect(res.body.error).toBe('queue unavailable');
+    expect(eventStore.getSendCommand('msg-rejected')?.error).toBe('queue unavailable');
   });
 
   // ─── POST /api/chat/stop ────────────────────────────────────────────────

@@ -1609,7 +1609,7 @@ function validateNativeModelSelection(
 }
 
 /** Push a follow-up message into a running session. */
-export function sendToChat(
+export async function sendToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
@@ -1617,8 +1617,10 @@ export function sendToChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
-): boolean {
-  return withSpan('chat.send', { 'chat.clientId': clientId }, () => {
+  signal?: AbortSignal,
+): Promise<boolean> {
+  return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
+    if (signal?.aborted) return false;
     const session = registry.get(clientId);
     if (!session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
@@ -1648,31 +1650,10 @@ export function sendToChat(
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
-    const selectionReasoningEffort =
+    let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
     if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
       return true;
-    if (codex) {
-      try {
-        // Persist before public acknowledgement; retries also repair older echo-only entries.
-        codex.enqueue({
-          id: messageId,
-          prompt: fullPrompt,
-          images,
-          reasoningEffort: selectionReasoningEffort,
-          ...(model ? { model } : {}),
-        });
-        if (model) session.model = model;
-      } catch {
-        send(session.transport, {
-          type: 'error',
-          sessionId: session.sessionId,
-          error:
-            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
-        });
-        return false;
-      }
-    }
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
@@ -1693,57 +1674,87 @@ export function sendToChat(
         return false;
       }
     }
-    if (session.sessionId) {
-      if (model || selectionReasoningEffort !== undefined) {
-        eventStore.upsertSession({
-          sessionId: session.sessionId,
-          ...(model ? { selectedModel: model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort || null }
-            : {}),
+    const acknowledge = (): boolean => {
+      if (model) session.model = model;
+      if (session.sessionId) {
+        if (model || selectionReasoningEffort !== undefined) {
+          eventStore.upsertSession({
+            sessionId: session.sessionId,
+            ...(model ? { selectedModel: model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort || null }
+              : {}),
+          });
+        }
+        const isDup = storeAndEchoIfNew(
+          session.sessionId,
+          messageId,
+          fullPrompt,
+          clientId,
+          session.transport,
+          session.observers,
+          previews,
+          contextBlocks,
+        );
+        tryAutoRename(session.sessionId, clientId).catch(() => {
+          /* errors logged internally */
         });
+        return isDup;
+      } else {
+        // Pre-session-resolve: no eventStore to dedup against.
+        // The frontend deduplicates echoes by messageId, and server-generated
+        // fallback IDs include randomUUID, so duplicates are not possible in practice.
+        const echo = {
+          type: 'user_message',
+          v: 2,
+          messageId,
+          text: fullPrompt,
+          ...(previews?.length ? { images: previews } : {}),
+          ...(contextBlocks?.length ? { contextBlocks } : {}),
+        };
+        send(session.transport, echo);
+        broadcastToObservers(session.observers, echo);
+        return false;
       }
-      const isDup = storeAndEchoIfNew(
-        session.sessionId,
-        messageId,
-        fullPrompt,
-        clientId,
-        session.transport,
-        session.observers,
-        previews,
-        contextBlocks,
-      );
-      if (isDup && !codex) return true;
-      tryAutoRename(session.sessionId, clientId).catch(() => {
-        /* errors logged internally */
-      });
-    } else {
-      // Pre-session-resolve: no eventStore to dedup against.
-      // The frontend deduplicates echoes by messageId, and server-generated
-      // fallback IDs include randomUUID, so duplicates are not possible in practice.
-      const echo = {
-        type: 'user_message',
-        v: 2,
-        messageId,
-        text: fullPrompt,
-        ...(previews?.length ? { images: previews } : {}),
-        ...(contextBlocks?.length ? { contextBlocks } : {}),
-      };
-      send(session.transport, echo);
-      broadcastToObservers(session.observers, echo);
-    }
+    };
     if (codex) {
-      void codex.resumeAfterExplicitSend().catch(() =>
+      try {
+        const selection = await codex.admitExplicitSend(
+          {
+            id: messageId,
+            prompt: fullPrompt,
+            images,
+            reasoningEffort,
+            ...(model ? { model } : {}),
+          },
+          signal,
+        );
+        selectionReasoningEffort = selection.reasoningEffort;
+        if (model) session.model = selection.model;
+        acknowledge();
+        void codex.resumeAfterExplicitSend().catch(() =>
+          send(session.transport, {
+            type: 'error',
+            sessionId: session.sessionId,
+            error: 'Message saved. Mitzo could not reconnect yet.',
+          }),
+        );
+      } catch {
+        if (signal?.aborted) return false;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
-          error: 'Message saved. Mitzo could not reconnect yet.',
-        }),
-      );
-    } else
+          error:
+            'Message could not be saved to the Codex queue. Retry after checking storage and connection.',
+        });
+        return false;
+      }
+    } else {
+      if (acknowledge()) return true;
       session.inputQueue.push(
         makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
       );
+    }
     return true;
   });
 }

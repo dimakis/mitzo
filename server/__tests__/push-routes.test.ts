@@ -7,7 +7,7 @@ import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-push-test-${process.pid}`);
 
-const mockSendToChat = vi.fn().mockReturnValue(true);
+const mockSendToChat = vi.fn().mockResolvedValue(true);
 const mockFindBySessionId = vi.fn().mockReturnValue(null);
 
 vi.mock('../chat.js', () => {
@@ -116,7 +116,7 @@ describe('POST /api/push/notification-action', () => {
       clientId: 'client-1',
       session: { sessionId: 'sess-abc' },
     });
-    mockSendToChat.mockReturnValueOnce(true);
+    mockSendToChat.mockResolvedValueOnce(true);
 
     const res = await request(app)
       .post('/api/push/notification-action')
@@ -193,7 +193,7 @@ describe('POST /api/push/notification-action', () => {
       clientId: 'client-1',
       session: { sessionId: 'sess-abc' },
     });
-    mockSendToChat.mockReturnValueOnce(false);
+    mockSendToChat.mockResolvedValueOnce(false);
 
     const res = await request(app)
       .post('/api/push/notification-action')
@@ -201,6 +201,22 @@ describe('POST /api/push/notification-action', () => {
       .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'test' });
 
     expect(res.status).toBe(500);
+  });
+
+  it('returns 500 when sendToChat rejects', async () => {
+    mockFindBySessionId.mockReturnValueOnce({
+      clientId: 'client-1',
+      session: { sessionId: 'sess-abc' },
+    });
+    mockSendToChat.mockRejectedValueOnce(new Error('storage unavailable'));
+
+    const res = await request(app)
+      .post('/api/push/notification-action')
+      .set('Cookie', authCookie)
+      .send({ sessionId: 'sess-abc', actionId: 'REPLY_ACTION', userText: 'test' });
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('Failed to send message to session');
   });
 
   it('requires authentication', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
-import { acceptSendCommand } from '../send-command.js';
+import { acceptSendCommand, acceptSendCommandAsync } from '../send-command.js';
 
 const message = {
   type: 'send' as const,
@@ -81,6 +81,69 @@ describe('durable send acceptance', () => {
       acceptSendCommand(store, message, vi.fn());
       store.recoverPendingSendCommands();
       expect(() => acceptSendCommand(store, message, vi.fn())).toThrow(/restart/i);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not acknowledge async dispatch until admission completes', async () => {
+    const store = new EventStore(':memory:');
+    let admit!: () => void;
+    try {
+      const accepted = acceptSendCommandAsync(
+        store,
+        message,
+        () =>
+          new Promise((resolve) => {
+            admit = () => resolve();
+          }),
+      );
+      let settled = false;
+      void accepted.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      admit();
+      await expect(accepted).resolves.toMatchObject({ accepted: true });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('records an async dispatch rejection before returning a receipt', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      await expect(
+        acceptSendCommandAsync(store, message, async () => {
+          throw new Error('admission failed');
+        }),
+      ).rejects.toThrow('admission failed');
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBe('admission failed');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('coalesces a concurrent retry until the original admission settles', async () => {
+    const store = new EventStore(':memory:');
+    let rejectAdmission!: (reason: Error) => void;
+    const dispatch = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAdmission = reject;
+        }),
+    );
+    try {
+      const original = acceptSendCommandAsync(store, message, dispatch);
+      const retry = acceptSendCommandAsync(store, message, dispatch);
+
+      expect(retry).toBe(original);
+      expect(dispatch).toHaveBeenCalledOnce();
+      rejectAdmission(new Error('probe failed'));
+      await expect(original).rejects.toThrow('probe failed');
+      await expect(retry).rejects.toThrow('probe failed');
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBe('probe failed');
     } finally {
       store.close();
     }

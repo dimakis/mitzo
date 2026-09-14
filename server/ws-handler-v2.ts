@@ -529,11 +529,11 @@ export function handleSendV2(
   msg: SendMsg,
   ctx: V2HandlerContext,
   delivery?: { initialSessionId?: string },
-): 'native' | void {
-  return withSpan<'native' | void>(
+): Promise<'native' | void> {
+  return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
-    (span) => {
+    async (span) => {
       try {
         const storedBinding = msg.sessionId
           ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
@@ -660,18 +660,16 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            if (
-              !sendToChat(
-                activeClientId,
-                prompt,
-                msg.images,
-                msg.contextBlocks,
-                msg.clientMsgId,
-                msg.accountId ? msg.model : undefined,
-                msg.accountId ? msg.reasoningEffort : undefined,
-              )
-            )
-              throw new Error('Session is not accepting input. Please retry.');
+            const accepted = await sendToChat(
+              activeClientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            );
+            if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }
@@ -1300,7 +1298,7 @@ export async function dispatchV2Message(
       handleSessionClose(connectionId, msg, ctx);
       break;
     case 'send':
-      handleSendV2(connectionId, transport, msg, ctx);
+      await handleSendV2(connectionId, transport, msg, ctx);
       break;
     case 'stop':
       handleStopV2(connectionId, msg, ctx);
@@ -1315,4 +1313,36 @@ export async function dispatchV2Message(
       await handleSetModeV2(connectionId, msg, ctx);
       break;
   }
+}
+
+/**
+ * Keep ordinary messages in receive order, while allowing controls that can
+ * break a stalled provider admission to run immediately.
+ */
+export function scheduleV2Message(
+  chain: Promise<void>,
+  connectionId: string,
+  transport: SessionTransport,
+  raw: string,
+  ctx: V2HandlerContext,
+  onError: (error: unknown) => void,
+): Promise<void> {
+  let isControl = false;
+  try {
+    const parsed = IncomingWsMessageV2.safeParse(JSON.parse(raw));
+    isControl =
+      parsed.success &&
+      (parsed.data.type === 'stop' ||
+        parsed.data.type === 'interrupt' ||
+        parsed.data.type === 'permission_response');
+  } catch {
+    // Malformed messages stay on the ordinary FIFO and are ignored by dispatch.
+  }
+
+  const dispatch = () => dispatchV2Message(connectionId, transport, raw, ctx);
+  if (isControl) {
+    void dispatch().catch(onError);
+    return chain;
+  }
+  return chain.then(dispatch).catch(onError);
 }

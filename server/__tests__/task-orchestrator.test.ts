@@ -8,8 +8,10 @@ import type { OrchestratorDeps, LoopStatus } from '../task-orchestrator.js';
 
 // Mock sendToChat
 vi.mock('../chat.js', () => ({
-  sendToChat: vi.fn(() => true),
+  sendToChat: vi.fn(() => Promise.resolve(true)),
 }));
+
+import { sendToChat } from '../chat.js';
 
 const TEST_DIR = join(tmpdir(), `mitzo-orchestrator-test-${process.pid}`);
 
@@ -31,6 +33,7 @@ function createTestDeps(store: TaskStore): OrchestratorDeps {
 }
 
 beforeEach(() => {
+  vi.mocked(sendToChat).mockReset().mockResolvedValue(true);
   mkdirSync(TEST_DIR, { recursive: true });
   store = new TaskStore(join(TEST_DIR, `tasks-${Date.now()}.db`));
   mockDeps = createTestDeps(store);
@@ -64,6 +67,51 @@ describe('TaskOrchestrator', () => {
     expect(status.goalId).toBe(goal.id);
     expect(status.activeTaskId).toBe(child.id);
     expect(store.get(child.id)!.status).toBe('active');
+  });
+
+  it('blocks a task when pinned-session dispatch rejects', async () => {
+    vi.mocked(sendToChat).mockRejectedValueOnce(new Error('queue unavailable'));
+    const goal = store.create({ title: 'Goal' });
+    const child = store.create({ title: 'First task', parentId: goal.id });
+
+    orchestrator.start(goal.id);
+
+    await vi.waitFor(() => expect(store.get(child.id)!.status).toBe('blocked'));
+    expect(store.get(child.id)!.annotations).toContain('dispatch_error: queue unavailable');
+    expect(orchestrator.getStatus().activeTaskId).toBeNull();
+  });
+
+  it('cancels a pending pinned dispatch when stopped and ignores its stale failure', async () => {
+    let rejectDispatch!: (error: Error) => void;
+    vi.mocked(sendToChat).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_resolve, reject) => {
+          rejectDispatch = reject;
+        }),
+    );
+    const firstGoal = store.create({ title: 'First goal' });
+    const firstTask = store.create({ title: 'First task', parentId: firstGoal.id });
+
+    orchestrator.start(firstGoal.id);
+    const signal = vi.mocked(sendToChat).mock.calls[0]?.[7];
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal?.aborted).toBe(false);
+
+    orchestrator.stop();
+    expect(signal?.aborted).toBe(true);
+
+    const secondGoal = store.create({ title: 'Second goal' });
+    const secondTask = store.create({ title: 'Second task', parentId: secondGoal.id });
+    orchestrator.start(secondGoal.id);
+    rejectDispatch(new Error('stale queue failure'));
+    await Promise.resolve();
+
+    expect(orchestrator.getStatus().goalId).toBe(secondGoal.id);
+    expect(orchestrator.getStatus().activeTaskId).toBe(secondTask.id);
+    expect(store.get(firstTask.id)!.status).toBe('active');
+    expect(store.get(firstTask.id)!.annotations).not.toContain(
+      'dispatch_error: stale queue failure',
+    );
   });
 
   it('pause() transitions from running to paused', () => {

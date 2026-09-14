@@ -1995,7 +1995,7 @@ app.delete('/api/push/register', (req, res) => {
 
 // --- Push notification action responses (Reply/View/Later from iOS) ---
 
-app.post('/api/push/notification-action', (req, res) => {
+app.post('/api/push/notification-action', async (req, res) => {
   const { sessionId, actionId, userText } = req.body || {};
 
   if (!sessionId || typeof sessionId !== 'string') {
@@ -2030,13 +2030,18 @@ app.post('/api/push/notification-action', (req, res) => {
       return;
     }
 
-    const ok = sendToChat(found.clientId, userText);
-    if (!ok) {
-      res.status(500).json({ error: 'Failed to send message to session' });
-      return;
-    }
+    try {
+      const ok = await sendToChat(found.clientId, userText);
+      if (!ok) {
+        res.status(500).json({ error: 'Failed to send message to session' });
+        return;
+      }
 
-    res.json({ ok: true, action: 'reply' });
+      res.json({ ok: true, action: 'reply' });
+    } catch (err) {
+      log.error('push reply send failed', { sessionId, error: String(err) });
+      res.status(500).json({ error: 'Failed to send message to session' });
+    }
     return;
   }
 

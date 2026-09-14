@@ -104,7 +104,7 @@ import {
   isHelloHandshake,
   getOwnerConnection,
   handleHello,
-  dispatchV2Message,
+  scheduleV2Message,
   handleLegacySetMode,
   type V2HandlerContext,
 } from './ws-handler-v2.js';
@@ -677,13 +677,18 @@ function handleChatWsV2(ws: WebSocket, connectionId: string) {
   let dispatchChain = Promise.resolve();
 
   ws.on('message', (raw) => {
-    dispatchChain = dispatchChain
-      .then(() => dispatchV2Message(connectionId, transport, raw.toString(), v2Ctx))
-      .catch((err: unknown) => {
+    dispatchChain = scheduleV2Message(
+      dispatchChain,
+      connectionId,
+      transport,
+      raw.toString(),
+      v2Ctx,
+      (err: unknown) => {
         const message = err instanceof Error ? err.message : 'Unknown error';
         log.warn('v2 message dispatch error', { connectionId, error: message });
         transport.send({ type: 'error', error: message });
-      });
+      },
+    );
   });
 
   ws.on('close', (code, reason) => {
@@ -799,6 +804,32 @@ function sendSnapshot(
   }
 }
 
+function sendToActiveChat(
+  transport: WsTransport,
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+): void {
+  void Promise.resolve(sendToChat(clientId, prompt, images, contextBlocks, clientMsgId))
+    .then((accepted) => {
+      if (!accepted) log.warn('active legacy send was not accepted', { clientId });
+    })
+    .catch((err: unknown) => {
+      const error = err instanceof Error ? err.message : 'Send failed';
+      log.error('active legacy send failed', { clientId, error });
+      try {
+        transport.send({ type: 'error', error });
+      } catch (deliveryError) {
+        log.warn('active legacy send error delivery failed', {
+          clientId,
+          error: String(deliveryError),
+        });
+      }
+    });
+}
+
 /**
  * If `resume` targets a session that's already active, subscribe the caller
  * as an observer and inject the message into the running session.
@@ -829,7 +860,7 @@ function tryRouteToActiveSession(
       blocks: found.session.currentSnapshot.blocks,
     });
   }
-  sendToChat(found.clientId, prompt, images, contextBlocks, clientMsgId);
+  sendToActiveChat(transport, found.clientId, prompt, images, contextBlocks, clientMsgId);
   log.info('routed observer message to active session', {
     sessionId: resume,
     driverClientId: found.clientId,
@@ -1014,7 +1045,8 @@ function handleChatWs(
                 ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
               });
               if (isActive(clientId)) {
-                sendToChat(
+                sendToActiveChat(
+                  transport,
                   clientId,
                   resolution.renderedPrompt,
                   msg.images,
@@ -1046,7 +1078,14 @@ function handleChatWs(
             } else {
               clearSkillPolicy(registry, clientId);
               if (isActive(clientId)) {
-                sendToChat(clientId, msg.prompt, msg.images, msg.contextBlocks, msg.clientMsgId);
+                sendToActiveChat(
+                  transport,
+                  clientId,
+                  msg.prompt,
+                  msg.images,
+                  msg.contextBlocks,
+                  msg.clientMsgId,
+                );
               } else if (
                 !tryRouteToActiveSession(
                   ws,

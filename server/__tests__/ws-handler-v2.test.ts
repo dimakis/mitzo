@@ -7,7 +7,7 @@ import { V2SendMessage } from '@mitzo/protocol';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
-  sendToChat: vi.fn().mockReturnValue(true),
+  sendToChat: vi.fn().mockResolvedValue(true),
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
@@ -67,6 +67,7 @@ import {
   handleSessionSuspend,
   isHelloHandshake,
   dispatchV2Message,
+  scheduleV2Message,
   getOwnerConnection,
   detectStateMismatch,
   type V2HandlerContext,
@@ -1634,8 +1635,15 @@ describe('handleReconnect reconnected summary (P1)', () => {
 // ─── handleSendV2 — routing paths ──────────────────────────────────────────
 
 describe('handleSendV2 routing', () => {
-  it('sends to active driver on the active path', () => {
+  it('waits for active-driver admission on the active path', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    let admit!: (accepted: boolean) => void;
+    (sendToChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          admit = resolve;
+        }),
+    );
 
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
@@ -1647,12 +1655,16 @@ describe('handleSendV2 routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    const handled = handleSendV2(
       'c1',
       transport,
       { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
       ctx,
     );
+    let settled = false;
+    void Promise.resolve(handled).then(() => {
+      settled = true;
+    });
 
     expect(sendToChat).toHaveBeenCalledWith(
       'c1:sess-1',
@@ -1665,6 +1677,34 @@ describe('handleSendV2 routing', () => {
     );
     expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
+    expect(settled).toBe(false);
+    admit(true);
+    await handled;
+    expect(settled).toBe(true);
+  });
+
+  it('reports a refused active-driver admission as a send error', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockResolvedValueOnce(false);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'c1:sess-1', session: {} });
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'error',
+      error: 'Session is not accepting input. Please retry.',
+    });
   });
 
   it('sends error on resolution error', () => {
@@ -2054,6 +2094,73 @@ describe('dispatchV2Message', () => {
     );
 
     expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
+
+  it('lets stop bypass a pending send while ordinary messages remain FIFO', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    let admit!: (accepted: boolean) => void;
+    (sendToChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          admit = resolve;
+        }),
+    );
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    const errors: unknown[] = [];
+    const sendChain = scheduleV2Message(
+      Promise.resolve(),
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'wait on probe',
+        clientMsgId: 'pending-send',
+      }),
+      ctx,
+      (error) => errors.push(error),
+    );
+    await Promise.resolve();
+    const controlChain = scheduleV2Message(
+      sendChain,
+      'c1',
+      transport,
+      JSON.stringify({ type: 'stop', sessionId: 'sess-1' }),
+      ctx,
+      (error) => errors.push(error),
+    );
+
+    expect(controlChain).toBe(sendChain);
+    expect(sendToChat).toHaveBeenCalledOnce();
+    expect(stopChat).toHaveBeenCalledWith('driver-1');
+    expect(errors).toEqual([]);
+
+    const ordinaryChain = scheduleV2Message(
+      sendChain,
+      'c1',
+      transport,
+      JSON.stringify({ type: 'watch', sessionId: 'later-session' }),
+      ctx,
+      (error) => errors.push(error),
+    );
+    expect(transport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
+    );
+
+    admit(true);
+    await ordinaryChain;
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'watched', sessionId: 'later-session' }),
+    );
   });
 
   it('routes reconnect messages and produces reconnected summary', async () => {
