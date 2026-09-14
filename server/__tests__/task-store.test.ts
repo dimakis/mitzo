@@ -509,6 +509,41 @@ describe('TaskStore', () => {
     store2.close();
   });
 
+  // --- externalRef ---
+
+  it('creates a task with externalRef', () => {
+    const task = store.create({ title: 'Ref task', externalRef: 'pr_shepherd:org/repo#42' });
+    expect(task.externalRef).toBe('pr_shepherd:org/repo#42');
+  });
+
+  it('defaults externalRef to null', () => {
+    const task = store.create({ title: 'No ref' });
+    expect(task.externalRef).toBeNull();
+  });
+
+  it('getByExternalRef finds a task', () => {
+    store.create({ title: 'Findable', externalRef: 'test:find-me' });
+    const found = store.getByExternalRef('test:find-me');
+    expect(found).not.toBeNull();
+    expect(found!.title).toBe('Findable');
+  });
+
+  it('getByExternalRef returns null for unknown ref', () => {
+    expect(store.getByExternalRef('nonexistent')).toBeNull();
+  });
+
+  it('rejects duplicate externalRef', () => {
+    store.create({ title: 'First', externalRef: 'unique:ref' });
+    expect(() => store.create({ title: 'Second', externalRef: 'unique:ref' })).toThrow();
+  });
+
+  it('allows multiple tasks with null externalRef', () => {
+    store.create({ title: 'A' });
+    store.create({ title: 'B' });
+    const roots = store.listRoots();
+    expect(roots.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('migrates existing database to add workflow columns', () => {
     // Create a DB without workflow columns, then reopen to trigger migration
     const dbPath = join(TEST_DIR, 'migrate.db');
@@ -523,6 +558,24 @@ describe('TaskStore', () => {
     expect(task!.gateConfig).toBeNull();
     expect(task!.retryCount).toBe(0);
     expect(task!.maxRetries).toBe(0);
+    store2.close();
+  });
+
+  it('migrates existing database to add external_ref column', () => {
+    const dbPath = join(TEST_DIR, 'migrate-extref.db');
+    const store1 = new TaskStore(dbPath);
+    const t = store1.create({ title: 'Pre-extref task' });
+    store1.close();
+
+    // Reopen — migration 2 should add external_ref
+    const store2 = new TaskStore(dbPath);
+    const task = store2.get(t.id);
+    expect(task!.externalRef).toBeNull();
+
+    // Verify the column works after migration
+    const refTask = store2.create({ title: 'With ref', externalRef: 'migrated:ref' });
+    expect(refTask.externalRef).toBe('migrated:ref');
+    expect(store2.getByExternalRef('migrated:ref')!.id).toBe(refTask.id);
     store2.close();
   });
 
