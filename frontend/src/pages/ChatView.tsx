@@ -335,7 +335,6 @@ export function ChatView() {
         </div>
       )}
 
-      <CodexQueueStatus sessionId={activeSessionId} />
       {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
         <div role="status">Loading conversation…</div>
       )}
@@ -379,6 +378,7 @@ export function ChatView() {
           <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
         </div>
       )}
+      <CodexQueueStatus sessionId={activeSessionId} />
       <ChatInput
         onSend={handleSend}
         onStop={handleStop}
