@@ -39,4 +39,10 @@ describe('configureKeyboard', () => {
     await configureKeyboard();
     expect(Keyboard.setAccessoryBarVisible).toHaveBeenCalledWith({ isVisible: false });
   });
+
+  it('disables native WebView scrolling so focusing the composer cannot pan the UI sideways', async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    await configureKeyboard();
+    expect(Keyboard.setScroll).toHaveBeenCalledWith({ isDisabled: true });
+  });
 });

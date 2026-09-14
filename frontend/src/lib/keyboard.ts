@@ -7,6 +7,7 @@ export async function configureKeyboard(): Promise<void> {
 
   await Keyboard.setResizeMode({ mode: KeyboardResize.Native });
   await Keyboard.setAccessoryBarVisible({ isVisible: false });
+  await Keyboard.setScroll({ isDisabled: true });
 }
 
 /** Register keyboard show/hide listeners. Returns cleanup function. No-op in browser. */

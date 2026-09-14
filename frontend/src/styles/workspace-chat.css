@@ -151,8 +151,8 @@
   outline: 2px solid var(--workspace-accent);
   outline-offset: -2px;
 }
-.workspace-chat.keyboard-open .conversation-heading {
-  display: none;
+.workspace-chat .chat-input-field:focus-visible {
+  outline: none;
 }
 @media (min-width: 768px) {
   .desktop-chat-center.workspace-chat {

@@ -100,4 +100,24 @@ describe('MobileShell navigation', () => {
     expect(narrowToolbar).toMatch(/flex:\s*1 1 100%/);
     expect(narrowToolbar).toMatch(/justify-content:\s*flex-end/);
   });
+
+  it('keeps conversation navigation visible while the keyboard is open', () => {
+    const styles = readFileSync(
+      resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
+      'utf8',
+    );
+    expect(styles).not.toMatch(
+      /\.workspace-chat\.keyboard-open \.conversation-heading\s*\{[^}]*display:\s*none;/s,
+    );
+  });
+
+  it('uses the composer border instead of a second textarea focus box', () => {
+    const styles = readFileSync(
+      resolve(process.cwd(), 'frontend/src/styles/workspace-chat.css'),
+      'utf8',
+    );
+    expect(styles).toMatch(
+      /\.workspace-chat \.chat-input-field:focus-visible\s*\{[^}]*outline:\s*none;/s,
+    );
+  });
 });
