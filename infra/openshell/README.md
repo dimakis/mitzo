@@ -62,8 +62,10 @@ file remains the optional observability stack.
    `docs/spikes/openshell-codex/build-mgmt-runtime.sh`. The builder requires an
    immutable base digest and labels the image with the Mitzo commit, MGMT
    commit, and base image.
-2. Prepare a fresh seed with
-   `docs/spikes/openshell-codex/prepare-mgmt-seed.sh`. Never point production at
+2. Prepare a fresh dynamic seed with
+   `MGMT_DYNAMIC_SEED=1 docs/spikes/openshell-codex/prepare-mgmt-seed.sh` using
+   the runtime stack-lock projection/base-image/platform inputs. This applies
+   even when the selected MGMT commit equals the runtime MGMT commit. Never point production at
    the live host MGMT checkout.
 3. Import/update reviewed provider profiles, configure gateway-owned credential
    refresh, and set `providers_v2_enabled=true` globally.

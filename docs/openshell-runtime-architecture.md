@@ -43,11 +43,64 @@ tears down only the transport; sandbox deletion is a separate future lifecycle.
 
 ## Seed and persistence
 
-The MGMT seed is copied from a reviewed committed tree plus safe working-tree
-overlays. It excludes host runtime, dependency, credential, log, and repository
-administration paths. A new portable Git repository is initialized inside the seed,
-so normal edits, diffs, and local commits work without copying host `.git` state.
-The host-side baseline records the source commit and file hashes.
+The MGMT seed is copied from one reviewed committed tree. The only working-tree
+inputs are the explicit rebuilt-memory provenance allowlist: `memory/manifest/index.json`,
+`wikilinks.json`, `by_type.json`, and `by_tag.json`; their attestations are checked,
+then the published manifest contents are regenerated from archived Markdown. The
+builder rejects missing, malformed, inconsistent, or symlinked artifacts and
+excludes all other ignored files, host runtime, dependency, credential, log, and
+repository-administration paths. A new portable Git repository is initialized inside the seed, so normal
+edits, diffs, and local commits work without copying host `.git` state. It builds
+and validates a new versioned seed in a temporary sibling directory before it is
+published; it never changes an existing versioned seed. Publication uses an
+OS-managed advisory lock bound to its coordinating updater process, so SIGKILL or
+another ungraceful updater exit releases the lock automatically and cannot leave a
+permanently stale version gate.
+
+Each generated manifest must carry `sourceCommit`, written by MGMT's
+`memory/scripts/build_index.py` from its checked-out `HEAD`. Mitzo requires that
+marker to equal the archived `startingCommit` and validates the index source paths,
+type/tag metadata and groupings against the archived Markdown front matter, and
+the forward/backlink inverse before accepting the overlay.
+
+The host-side baseline records both the seed content commit (`startingCommit`) and
+the runtime-base commit whose executable dependency set it uses, plus hashes and
+normalized modes for the exact seed payload, including the freshly created
+portable `.git` repository that OpenShell uploads with the workspace. Production
+preflight checks that exact path set, rejects payload symlinks, and requires all
+four manifest provenance markers to match `startingCommit` before it accepts a
+dynamic baseline. This binds the portable Git metadata too, so a local hook,
+configuration, or object change cannot be smuggled into a future sandbox.
+The production lock and runtime image labels must continue to match that runtime
+base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
+without rebuilding the immutable runtime image; dependency changes still require a
+new image release. The runtime-image builder emits a SHA-256 of one canonical,
+newline-terminated resolution-contract JSON document. It is derived from the
+checked-in no-dev reachable `uv.lock` graph—not an ambient re-resolution—and
+includes package dependency entries, markers, sources, artifact URLs, lock
+resolver metadata, the effective Python constraint/default groups, and the
+digest-pinned base image plus target platform. The image embeds those exact bytes
+and labels their hash; a release records that value as
+`runtime.dependencyProjectionSha256` in the stack lock and passes the builder's
+exact `MGMT_RUNTIME_*` output names to seed preparation. New dynamic baselines
+carry the same value, and production preflight reads the contract from the
+selected digest-pinned image and checks its hash, labels, base image, and platform
+against the stack lock. This one-time lock-field migration is required before a
+descendant knowledge seed may be published; legacy equality-only baselines retain
+their historical path. A seed at the same commit as its runtime base needs no
+compatibility calculation; a newer seed fails closed unless its checked-in
+contract directly matches the trusted stack lock. The mgmt updater alone validates
+dependency compatibility and atomically repoints its `current` symlink after a
+successful seed build. Dynamic deployment config uses
+`<release-root>/current/mgmt`. Immediately before a new sandbox is created,
+Mitzo resolves that symlink once, requires its resolved release to remain beneath
+the release root, and uploads the resulting immutable path. Dangling, escaping,
+or concurrently replaced links fail closed. Existing sandboxes retain their
+workspace; only future sandbox creation selects a current seed.
+Dynamic stack locks additionally pin the canonical SHA-256 of the selected seed
+file tree; preflight verifies both that digest and every manifest entry before
+the server can create a sandbox. Legacy equality-only seeds do not require that
+new field.
 
 Conversation/thread state and the sandbox workspace are checkpointed together before
 an operator-approved stop. The private, versioned archive is bound to the exact
@@ -74,7 +127,9 @@ Automatic routing is opt-in until live acceptance completes:
 - `MITZO_OPENSHELL_ENABLED=1`
 - `MITZO_OPENSHELL_IMAGE=<pinned image>`
 - `MITZO_OPENSHELL_POLICY=<absolute policy path>`
-- `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`
+- `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`; dynamic releases
+  use `<absolute release-root>/current/mgmt`, which Mitzo resolves once when
+  creating a new sandbox.
 - `MITZO_OPENSHELL_SERVICE_PROVIDERS=<comma-separated reviewed service providers>`;
 - `MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS=<comma-separated reviewed providers>`
   advertises providers that may be attached to one retained conversation sandbox

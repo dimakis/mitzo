@@ -52,9 +52,12 @@ different filesystem trust domains.
   baseline manifest; save-back is not implemented.
 - `Dockerfile.mgmt-runtime` and `build-mgmt-runtime.sh`: local-only reusable
   Linux runtime image. The builder requires an immutable OpenShell base-image
-  digest and rejects `latest`/`dev` output tags. Because MGMT's checked-in lock
-  currently predates a declared dependency, resolution occurs only in the
-  disposable build context; the host checkout is not rewritten.
+  digest and rejects `latest`/`dev` output tags. It checks the checked-in MGMT
+  lock with `uv lock --locked` and never rewrites or re-resolves it in a
+  disposable build context. If that check fails, operators must run `uv lock`
+  in the MGMT checkout, review and commit the resulting `uv.lock`, then retry
+  the image build. That migration command is intentionally a separate,
+  reviewable source change—not a builder side effect.
 
 Prefer a small set of immutable, versioned runtime images over a custom image
 per conversation. Put common management dependencies such as GWS, GitHub CLI,

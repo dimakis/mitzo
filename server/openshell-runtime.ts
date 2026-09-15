@@ -1,8 +1,22 @@
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -86,6 +100,8 @@ export interface OpenShellRuntimeConfig {
   image: string;
   policy: string;
   seed: string;
+  /** Trusted production stack lock. Required only for dynamic current/mgmt seeds. */
+  stackManifest?: string;
   serviceProviders: string[];
   grantableServiceProviders: string[];
   workspace: string;
@@ -96,6 +112,142 @@ export interface OpenShellRuntimeConfig {
   sandboxIdLength: number;
   workdir: string;
   webSearch: 'disabled' | 'live';
+}
+
+interface DynamicSeedBaselineFile {
+  sha256: string;
+  mode: string;
+}
+
+interface DynamicSeedBaseline {
+  startingCommit: string;
+  runtimeBaseCommit: string;
+  runtimeDependencyProjectionSha256: string;
+  payloadSha256: string;
+  files: Record<string, DynamicSeedBaselineFile>;
+}
+
+interface DynamicSeedIdentity {
+  dev: string;
+  ino: string;
+  mode: string;
+  uid: string;
+  gid: string;
+  size: string;
+  mtimeNs: string;
+  ctimeNs: string;
+}
+
+interface DynamicSeedWorkerResult {
+  ok: true;
+  path: string;
+  token: string;
+  identity: DynamicSeedIdentity;
+}
+
+interface DynamicSeedWorkerFailure {
+  ok: false;
+  message: string;
+}
+
+type DynamicSeedWorkerMessage = DynamicSeedWorkerResult | DynamicSeedWorkerFailure;
+type DynamicSeedWorker = Pick<Worker, 'once' | 'terminate'>;
+type DynamicSeedWorkerFactory = (
+  filename: URL,
+  options: ConstructorParameters<typeof Worker>[1],
+) => DynamicSeedWorker;
+
+let dynamicSeedWorkerFactory: DynamicSeedWorkerFactory = (filename, options) =>
+  new Worker(filename, options);
+
+/** Test-only injection seam for deterministic worker failure/cancellation tests. */
+export function setDynamicSeedWorkerFactoryForTests(factory?: DynamicSeedWorkerFactory) {
+  const previous = dynamicSeedWorkerFactory;
+  dynamicSeedWorkerFactory = factory ?? ((filename, options) => new Worker(filename, options));
+  return () => {
+    dynamicSeedWorkerFactory = previous;
+  };
+}
+
+export interface VerifiedDynamicSeedSnapshot {
+  path: string;
+  /**
+   * The synchronous verifier is retained for callers which explicitly need a
+   * complete re-scan. Runtime creation instead uses its constant-cost check.
+   */
+  verify: () => void;
+  /** Constant-cost ownership and identity fence for the upload boundary. */
+  verifyIdentity: () => void;
+  cleanup: () => void;
+}
+
+const SHA256 = /^[a-f0-9]{64}$/;
+const COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const TARGET_MARKER_ENVIRONMENT_KEYS = [
+  'implementation_name',
+  'implementation_version',
+  'os_name',
+  'platform_machine',
+  'platform_release',
+  'platform_system',
+  'platform_version',
+  'platform_python_implementation',
+  'python_full_version',
+  'python_version',
+  'sys_platform',
+].sort();
+
+function validTargetMarkerEnvironment(value: unknown) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64').toString('utf8'));
+    return (
+      !!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      JSON.stringify(Object.keys(parsed).sort()) ===
+        JSON.stringify(TARGET_MARKER_ENVIRONMENT_KEYS) &&
+      Object.values(parsed).every((entry) => typeof entry === 'string')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function compareUtf8(left: string, right: string) {
+  return Buffer.from(left, 'utf8').compare(Buffer.from(right, 'utf8'));
+}
+
+/**
+ * Canonical JSON shared with the release publisher: compact UTF-8 JSON whose
+ * object keys are sorted by UTF-8 byte sequence.  Do not use localeCompare:
+ * it is locale-sensitive and does not agree with Python's Unicode ordering.
+ */
+export function canonicalSeedJson(value: unknown): string {
+  const normalize = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(normalize);
+    if (entry && typeof entry === 'object') {
+      const object = entry as Record<string, unknown>;
+      return Object.fromEntries(
+        Object.keys(object)
+          .sort(compareUtf8)
+          .map((key) => [key, normalize(object[key])]),
+      );
+    }
+    return entry;
+  };
+  return JSON.stringify(normalize(value));
+}
+
+function dynamicSeedReleaseRoot(seed: string): string | undefined {
+  const components = seed.split(sep).filter(Boolean);
+  const currentIndex = components.length - 2;
+  if (components[currentIndex] !== 'current' || components.at(-1) !== 'mgmt') return undefined;
+  return resolve(sep, ...components.slice(0, currentIndex));
+}
+
+function sameIdentity(left: ReturnType<typeof lstatSync>, right: ReturnType<typeof lstatSync>) {
+  return !!left && !!right && left.dev === right.dev && left.ino === right.ino;
 }
 
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
@@ -198,6 +350,426 @@ function identifier(value: string, label: string) {
   return value;
 }
 
+/**
+ * A dynamic release is configured as <release-root>/current/mgmt. Resolve that
+ * one mutable pointer exactly once, immediately before creating a sandbox. The
+ * returned path contains no `current` component, so a later updater swap cannot
+ * alter the upload selected for this sandbox. Static/legacy seeds deliberately
+ * retain their existing direct-path behavior.
+ */
+export function resolveImmutableSeed(seed: string): string {
+  const configuredReleaseRoot = dynamicSeedReleaseRoot(seed);
+  // Only the documented <release-root>/current/mgmt suffix is dynamic. A
+  // static deployment may legitimately contain another directory named current.
+  if (!configuredReleaseRoot) return seed;
+  let releaseRoot: string;
+  try {
+    releaseRoot = realpathSync(configuredReleaseRoot);
+  } catch {
+    throw new Error('OpenShell dynamic seed release root is missing');
+  }
+  const current = join(releaseRoot, 'current');
+  const before = lstatSync(current, { bigint: true });
+  if (!before.isSymbolicLink()) throw new Error('OpenShell dynamic seed current is not a symlink');
+
+  let release: string;
+  try {
+    release = realpathSync(current);
+  } catch {
+    throw new Error('OpenShell dynamic seed current is dangling');
+  }
+  const after = lstatSync(current, { bigint: true });
+  if (
+    !after.isSymbolicLink() ||
+    before.dev !== after.dev ||
+    before.ino !== after.ino ||
+    before.mtimeNs !== after.mtimeNs
+  )
+    throw new Error('OpenShell dynamic seed current changed while it was being resolved');
+  const releasedRelative = relative(releaseRoot, release);
+  if (!releasedRelative || releasedRelative === '..' || releasedRelative.startsWith(`..${sep}`))
+    throw new Error('OpenShell dynamic seed current escapes its immutable release root');
+  if (!lstatSync(release).isDirectory())
+    throw new Error('OpenShell dynamic seed current does not resolve to a release directory');
+
+  const resolvedSeed = realpathSync(join(release, 'mgmt'));
+  const seedRelative = relative(release, resolvedSeed);
+  if (!seedRelative || seedRelative === '..' || seedRelative.startsWith(`..${sep}`))
+    throw new Error('OpenShell dynamic seed escapes its immutable release');
+  if (!lstatSync(resolvedSeed).isDirectory())
+    throw new Error('OpenShell dynamic seed does not resolve to a directory');
+  return resolvedSeed;
+}
+
+function readJson(path: string, label: string): unknown {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch {
+    throw new Error(`OpenShell dynamic seed ${label} is missing`);
+  }
+  if (stat.isSymbolicLink() || !stat.isFile())
+    throw new Error(`OpenShell dynamic seed ${label} is not a regular file`);
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    throw new Error(`OpenShell dynamic seed ${label} is malformed`);
+  }
+}
+
+function dynamicBaseline(value: unknown): DynamicSeedBaseline {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('OpenShell dynamic seed baseline is malformed');
+  const baseline = value as Partial<DynamicSeedBaseline>;
+  if (
+    typeof baseline.startingCommit !== 'string' ||
+    !COMMIT.test(baseline.startingCommit) ||
+    typeof baseline.runtimeBaseCommit !== 'string' ||
+    !COMMIT.test(baseline.runtimeBaseCommit) ||
+    typeof baseline.runtimeDependencyProjectionSha256 !== 'string' ||
+    !SHA256.test(baseline.runtimeDependencyProjectionSha256) ||
+    typeof baseline.payloadSha256 !== 'string' ||
+    !SHA256.test(baseline.payloadSha256) ||
+    !baseline.files ||
+    typeof baseline.files !== 'object' ||
+    Array.isArray(baseline.files)
+  )
+    throw new Error('OpenShell dynamic seed baseline is malformed');
+  for (const [path, entry] of Object.entries(baseline.files)) {
+    if (
+      !path ||
+      path.startsWith('/') ||
+      path.split('/').includes('..') ||
+      !entry ||
+      typeof entry !== 'object' ||
+      !SHA256.test((entry as DynamicSeedBaselineFile).sha256) ||
+      !/^[0-7]{4}$/.test((entry as DynamicSeedBaselineFile).mode)
+    )
+      throw new Error('OpenShell dynamic seed baseline file manifest is malformed');
+  }
+  return baseline as DynamicSeedBaseline;
+}
+
+function dynamicStackLock(value: unknown) {
+  const runtime = (value as { runtime?: unknown } | undefined)?.runtime;
+  if (!runtime || typeof runtime !== 'object' || Array.isArray(runtime))
+    throw new Error('OpenShell dynamic seed stack lock is malformed');
+  const stack = runtime as Record<string, unknown>;
+  if (
+    typeof stack.mgmtSourceCommit !== 'string' ||
+    !COMMIT.test(stack.mgmtSourceCommit) ||
+    typeof stack.dependencyProjectionSha256 !== 'string' ||
+    !SHA256.test(stack.dependencyProjectionSha256) ||
+    typeof stack.seedPayloadSha256 !== 'string' ||
+    !SHA256.test(stack.seedPayloadSha256) ||
+    !validTargetMarkerEnvironment(stack.targetMarkerEnvironmentB64) ||
+    typeof stack.image !== 'string' ||
+    !/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(stack.image)
+  )
+    throw new Error('OpenShell dynamic seed stack lock is malformed');
+  return stack as {
+    mgmtSourceCommit: string;
+    dependencyProjectionSha256: string;
+    seedPayloadSha256: string;
+    targetMarkerEnvironmentB64: string;
+    image: string;
+  };
+}
+
+function snapshotDynamicSeed(source: string, baseline: DynamicSeedBaseline) {
+  const parent = mkdtempSync(join(tmpdir(), 'mitzo-dynamic-seed-'));
+  // The source release is writable by the updater.  Only this process may
+  // reach the snapshot after it is created, so no release-path mutation can
+  // race validation with OpenShell's upload.
+  chmodSync(parent, 0o700);
+  const destination = join(parent, 'mgmt');
+  const copy = (from: string, to: string) => {
+    mkdirSync(to, { mode: 0o700 });
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      const input = join(from, entry.name);
+      const output = join(to, entry.name);
+      const before = lstatSync(input);
+      if (before.isSymbolicLink())
+        throw new Error(`OpenShell dynamic seed contains an unsafe symlink: ${entry.name}`);
+      if (before.isDirectory()) {
+        copy(input, output);
+      } else if (before.isFile()) {
+        const contents = readFileSync(input);
+        const after = lstatSync(input);
+        if (after.isSymbolicLink() || !sameIdentity(before, after))
+          throw new Error(
+            `OpenShell dynamic seed changed while it was being copied: ${entry.name}`,
+          );
+        writeFileSync(output, contents, { mode: before.mode & 0o7777 });
+        chmodSync(output, before.mode & 0o7777);
+      } else {
+        throw new Error(`OpenShell dynamic seed contains an unsupported path: ${entry.name}`);
+      }
+    }
+  };
+  try {
+    copy(source, destination);
+    verifyDynamicSeedFiles(destination, baseline);
+    return {
+      path: destination,
+      verify: () => verifyDynamicSeedFiles(destination, baseline),
+      verifyIdentity: () => {
+        const stat = lstatSync(destination);
+        if (stat.isSymbolicLink() || !stat.isDirectory())
+          throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+      },
+      cleanup: () => rmSync(parent, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    rmSync(parent, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+function verifyDynamicSeedFiles(seed: string, baseline: DynamicSeedBaseline) {
+  const root = realpathSync(seed);
+  const expected = new Map(Object.entries(baseline.files));
+  const actual = new Map<string, DynamicSeedBaselineFile>();
+  const walk = (directory: string, prefix = '') => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = join(directory, entry.name);
+      const stat = lstatSync(absolute);
+      if (stat.isSymbolicLink())
+        throw new Error(`OpenShell dynamic seed contains an unsafe symlink: ${path}`);
+      if (stat.isDirectory()) walk(absolute, path);
+      else if (stat.isFile()) {
+        actual.set(path, {
+          sha256: createHash('sha256').update(readFileSync(absolute)).digest('hex'),
+          mode: (stat.mode & 0o7777).toString(8).padStart(4, '0'),
+        });
+      } else throw new Error(`OpenShell dynamic seed contains an unsupported path: ${path}`);
+    }
+  };
+  walk(root);
+  if (
+    actual.size !== expected.size ||
+    [...actual.keys()].some((path) => !expected.has(path)) ||
+    [...expected.keys()].some((path) => !actual.has(path))
+  )
+    throw new Error('OpenShell dynamic seed files do not exactly match its baseline');
+  for (const [path, expectedFile] of expected) {
+    const actualFile = actual.get(path)!;
+    if (actualFile.sha256 !== expectedFile.sha256 || actualFile.mode !== expectedFile.mode)
+      throw new Error(`OpenShell dynamic seed file hash or mode does not match baseline: ${path}`);
+  }
+  // These generated manifests attest to the archived seed commit. Their bytes
+  // are in the payload manifest, but validate their semantic provenance too:
+  // a forged baseline.startingCommit must not be accepted merely because file
+  // hashes still agree with it.
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    const manifest = readJson(join(root, 'memory', 'manifest', name), `memory manifest ${name}`);
+    if (
+      !manifest ||
+      typeof manifest !== 'object' ||
+      Array.isArray(manifest) ||
+      (manifest as { sourceCommit?: unknown }).sourceCommit !== baseline.startingCommit
+    )
+      throw new Error(
+        `OpenShell dynamic seed manifest provenance does not match baseline: ${name}`,
+      );
+  }
+}
+
+function dynamicSeedPayload(baseline: DynamicSeedBaseline) {
+  return {
+    startingCommit: baseline.startingCommit,
+    runtimeBaseCommit: baseline.runtimeBaseCommit,
+    runtimeDependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
+    files: baseline.files,
+  };
+}
+
+function validateDynamicSeedContract(
+  baseline: DynamicSeedBaseline,
+  stack: ReturnType<typeof dynamicStackLock>,
+  image: string,
+) {
+  if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image))
+    throw new Error('OpenShell dynamic seed requires a digest-pinned configured image');
+  if (stack.image !== image)
+    throw new Error('OpenShell dynamic seed stack lock image does not match the configured image');
+  if (baseline.runtimeBaseCommit !== stack.mgmtSourceCommit)
+    throw new Error('OpenShell dynamic seed runtime base does not match the stack lock');
+  if (baseline.runtimeDependencyProjectionSha256 !== stack.dependencyProjectionSha256)
+    throw new Error('OpenShell dynamic seed dependency projection does not match the stack lock');
+  const manifestDigest = createHash('sha256')
+    .update(canonicalSeedJson(dynamicSeedPayload(baseline)), 'utf8')
+    .digest('hex');
+  if (manifestDigest !== baseline.payloadSha256)
+    throw new Error('OpenShell dynamic seed payload digest does not match baseline');
+  if (manifestDigest !== stack.seedPayloadSha256)
+    throw new Error('OpenShell dynamic seed payload digest does not match the stack lock');
+}
+
+function dynamicSeedIdentity(path: string): DynamicSeedIdentity {
+  const stat = lstatSync(path, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory())
+    throw new Error('OpenShell dynamic seed private snapshot is not a directory');
+  return {
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    mode: String(stat.mode),
+    uid: String(stat.uid),
+    gid: String(stat.gid),
+    size: String(stat.size),
+    mtimeNs: String(stat.mtimeNs),
+    ctimeNs: String(stat.ctimeNs),
+  };
+}
+
+function sameDynamicSeedIdentity(left: DynamicSeedIdentity, right: DynamicSeedIdentity) {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.uid === right.uid &&
+    left.gid === right.gid &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
+}
+
+function verifyPrivateDynamicSeedParent(parent: string) {
+  const stat = lstatSync(parent, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory() || (stat.mode & 0o777n) !== 0o700n)
+    throw new Error('OpenShell dynamic seed private snapshot parent is unsafe');
+  // OpenShell deployments use a local POSIX temporary directory. Refuse a
+  // snapshot parent owned by another account rather than treating its 0700
+  // bits as sufficient proof of privacy.
+  if (typeof process.getuid === 'function' && stat.uid !== BigInt(process.getuid()))
+    throw new Error('OpenShell dynamic seed private snapshot parent has another owner');
+}
+
+function workerModuleUrl() {
+  // Vitest and development run the TypeScript entrypoint via tsx. Production
+  // executes the emitted .js sibling from dist.
+  return new URL(
+    import.meta.url.endsWith('.ts')
+      ? './openshell-dynamic-seed-worker.ts'
+      : './openshell-dynamic-seed-worker.js',
+    import.meta.url,
+  );
+}
+
+/**
+ * Copy and validate a dynamic seed off the server event loop. The caller owns
+ * the 0700 parent and removes it on every completion path; the worker returns
+ * only a concrete child path plus an identity fence which makes the final
+ * pre-upload check constant cost.
+ */
+export async function prepareVerifiedDynamicSeedSnapshot(
+  seed: string,
+  stackManifest: string,
+  image: string,
+  signal?: AbortSignal,
+  timeoutMs = 120_000,
+): Promise<VerifiedDynamicSeedSnapshot | string> {
+  if (!dynamicSeedReleaseRoot(seed)) return seed;
+  if (!isAbsolute(stackManifest))
+    throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
+  const resolvedSeed = resolveImmutableSeed(seed);
+  const release = resolve(resolvedSeed, '..');
+  const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
+  const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+  // Reject a bad lock before allocating a worker, but deliberately leave the
+  // payload tree scan and manifest provenance validation to that worker.
+  validateDynamicSeedContract(baseline, stack, image);
+  const parent = mkdtempSync(join(tmpdir(), 'mitzo-dynamic-seed-'));
+  chmodSync(parent, 0o700);
+  let worker: DynamicSeedWorker | undefined;
+  let result: DynamicSeedWorkerResult | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => rmSync(parent, { recursive: true, force: true });
+  try {
+    const execArgv = import.meta.url.endsWith('.ts') ? ['--import', 'tsx'] : undefined;
+    worker = dynamicSeedWorkerFactory(workerModuleUrl(), {
+      workerData: { source: resolvedSeed, parent, baseline, stack, image },
+      ...(execArgv ? { execArgv } : {}),
+    });
+    result = await new Promise<DynamicSeedWorkerResult>((resolveResult, reject) => {
+      let receivedMessage = false;
+      const abort = () => reject(new Error('OpenShell dynamic seed preparation was cancelled'));
+      const expire = () => reject(new Error('OpenShell dynamic seed preparation timed out'));
+      timeout = setTimeout(expire, timeoutMs);
+      const remove = () => {
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener('abort', abort);
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+      worker!.once('message', (message: DynamicSeedWorkerMessage) => {
+        receivedMessage = true;
+        remove();
+        if (message.ok) resolveResult(message);
+        else reject(new Error(message.message));
+      });
+      worker!.once('error', (error) => {
+        remove();
+        reject(new Error('OpenShell dynamic seed preparation failed', { cause: error }));
+      });
+      worker!.once('exit', (code) => {
+        if (receivedMessage) return;
+        remove();
+        reject(new Error(`OpenShell dynamic seed worker exited unexpectedly (${code})`));
+      });
+    });
+    const expectedPath = join(parent, `snapshot-${result.token}`, 'mgmt');
+    if (result.path !== expectedPath)
+      throw new Error('OpenShell dynamic seed worker returned an invalid snapshot path');
+    verifyPrivateDynamicSeedParent(parent);
+    if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result.path), result.identity))
+      throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+    return {
+      path: result.path,
+      // This full verifier exists for explicit unit/preflight callers. The
+      // server runtime below uses only its identity fence immediately before
+      // handing the snapshot to OpenShell.
+      verify: () => verifyDynamicSeedFiles(result!.path, baseline),
+      verifyIdentity: () => {
+        verifyPrivateDynamicSeedParent(parent);
+        if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result!.path), result!.identity))
+          throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+      },
+      cleanup,
+    };
+  } catch (error) {
+    cleanup();
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (worker) await worker.terminate();
+  }
+}
+
+/**
+ * Resolve and validate a dynamic seed at the last possible point before its
+ * upload.  This is intentionally one operation: callers retain only the
+ * concrete release path it returns and never dereference `current` again.
+ */
+export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, image: string) {
+  if (!dynamicSeedReleaseRoot(seed)) return seed;
+  if (!isAbsolute(stackManifest))
+    throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
+  const resolvedSeed = resolveImmutableSeed(seed);
+  const before = lstatSync(resolvedSeed);
+  const release = resolve(resolvedSeed, '..');
+  const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
+  const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+  validateDynamicSeedContract(baseline, stack, image);
+  verifyDynamicSeedFiles(resolvedSeed, baseline);
+  const after = lstatSync(resolvedSeed);
+  if (!sameIdentity(before, after) || !after.isDirectory())
+    throw new Error('OpenShell dynamic seed changed while it was being verified');
+  return snapshotDynamicSeed(resolvedSeed, baseline);
+}
+
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
   if (env.MITZO_OPENSHELL_ENABLED !== '1') return undefined;
   if (env.MITZO_OPENSHELL_PROVIDERS)
@@ -207,12 +779,24 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   const image = env.MITZO_OPENSHELL_IMAGE;
   const policy = env.MITZO_OPENSHELL_POLICY;
   const seed = env.MITZO_OPENSHELL_SEED;
+  const stackManifest = env.MITZO_OPENSHELL_STACK_MANIFEST;
   if (!image || !policy || !seed) throw new Error('OpenShell runtime configuration is incomplete');
   const cli = env.MITZO_OPENSHELL_CLI || 'openshell';
   if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
     throw new Error('MITZO_OPENSHELL_CLI must be an absolute path');
   if (!isAbsolute(policy) || !isAbsolute(seed))
     throw new Error('OpenShell policy and seed paths must be absolute');
+  if (stackManifest && !isAbsolute(stackManifest))
+    throw new Error('MITZO_OPENSHELL_STACK_MANIFEST must be an absolute path');
+  if (dynamicSeedReleaseRoot(seed)) {
+    if (!stackManifest)
+      throw new Error('MITZO_OPENSHELL_STACK_MANIFEST is required for a dynamic current/mgmt seed');
+    const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+    if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image) || stack.image !== image)
+      throw new Error(
+        'OpenShell dynamic seed stack lock image does not match the configured image',
+      );
+  }
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)
@@ -256,6 +840,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     image,
     policy,
     seed,
+    ...(stackManifest ? { stackManifest } : {}),
     serviceProviders,
     grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
@@ -673,6 +1258,20 @@ export class OpenShellRuntimeManager {
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
       created = true;
+      // Pin and fully validate a dynamic `current` release at the final upload
+      // boundary. Its full copy/hash walk runs in a worker so a cold sandbox
+      // cannot stall API/SSE work on the Node event loop.
+      const verifiedSeed = dynamicSeedReleaseRoot(this.config.seed)
+        ? await prepareVerifiedDynamicSeedSnapshot(
+            this.config.seed,
+            this.config.stackManifest ?? '',
+            this.config.image,
+            signal,
+          )
+        : undefined;
+      if (typeof verifiedSeed === 'string')
+        throw new Error('OpenShell dynamic seed verification did not produce a private snapshot');
+      const seed = verifiedSeed?.path ?? this.config.seed;
       const args = [
         'sandbox',
         ...this.base(),
@@ -687,7 +1286,7 @@ export class OpenShellRuntimeManager {
         // OpenShell uploads a source directory as a child of the destination.
         // Target the fixed parent so the MGMT seed lands at the canonical cwd
         // instead of /sandbox/workspaces/mgmt/mgmt.
-        `${this.config.seed}:/sandbox/workspaces`,
+        `${seed}:/sandbox/workspaces`,
         '--label',
         `mitzo.conversation=${owner}`,
         '--label',
@@ -715,10 +1314,17 @@ export class OpenShellRuntimeManager {
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
+        // Verify exactly what will be uploaded after all argument preparation.
+        // The worker already performed the one full scan; this final fence is
+        // intentionally constant-cost and guards replacement/tampering of its
+        // private 0700 snapshot without blocking the event loop again.
+        verifiedSeed?.verifyIdentity();
         await this.run(args, signal);
       } catch (error) {
         if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
           throw error;
+      } finally {
+        verifiedSeed?.cleanup();
       }
       sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
