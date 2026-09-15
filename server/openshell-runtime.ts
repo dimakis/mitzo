@@ -199,6 +199,24 @@ function identifier(value: string, label: string) {
   return value;
 }
 
+function raceWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
   if (env.MITZO_OPENSHELL_ENABLED !== '1') return undefined;
   if (env.MITZO_OPENSHELL_PROVIDERS)
@@ -605,12 +623,16 @@ export class OpenShellRuntimeManager {
    * provisioning reaches a terminal state. */
   private async waitForProvisioningTerminal(name: string, owner: string) {
     const signal = new AbortController().signal;
+    const absentDeadline = Date.now() + this.readiness.timeoutMs;
     let observed = false;
     for (;;) {
       try {
         const sandbox = await this.get(name, signal);
         if (!sandbox) {
-          if (observed) return;
+          // A settled create that remains absent for the full readiness window
+          // is treated as definitively not provisioned. Once observed, absence
+          // also means the allocation was removed.
+          if (observed || Date.now() >= absentDeadline) return;
         } else {
           observed = true;
           if (
@@ -703,7 +725,13 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       // This is intentionally immediately before the only physical-create command.
       // Reattach/start paths above stay available during a capacity hard stop.
-      const releaseCapacity = await reserveOpenShellSandboxCreate(signal);
+      const capacityReservation = await reserveOpenShellSandboxCreate(signal);
+      let released = false;
+      const releaseCapacity = () => {
+        if (released) return;
+        released = true;
+        capacityReservation?.();
+      };
       created = true;
       const args = [
         'sandbox',
@@ -746,26 +774,52 @@ export class OpenShellRuntimeManager {
         );
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
-      let provisioningPending = false;
+      const guardedDetached = Boolean(capacityReservation && this.config.createDetached);
+      let releaseInBackground = false;
+      const releaseAfterTerminal = () => {
+        releaseInBackground = true;
+        const terminal = this.waitForProvisioningTerminal(name, owner);
+        void terminal.then(releaseCapacity, releaseCapacity);
+      };
       try {
-        try {
-          // Once admitted, do not cancel the physical create with the request.
-          // Detached provisioning can continue even when its caller disconnects.
-          await this.run(args, new AbortController().signal);
-        } catch (error) {
-          if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+        const create = async (createSignal: AbortSignal) => {
+          try {
+            await this.run(args, createSignal);
+          } catch (error) {
+            if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+              throw error;
+          }
+        };
+        if (guardedDetached) {
+          const createOperation = create(new AbortController().signal);
+          try {
+            await raceWithAbort(createOperation, signal);
+          } catch (error) {
+            releaseInBackground = true;
+            // Even an error response is ambiguous: the gateway may have
+            // accepted the detached create. Begin observation after the CLI
+            // settles while returning caller cancellation immediately.
+            void createOperation
+              .then(
+                () => this.waitForProvisioningTerminal(name, owner),
+                () => this.waitForProvisioningTerminal(name, owner),
+              )
+              .then(releaseCapacity, releaseCapacity);
             throw error;
+          }
+        } else {
+          await create(signal);
         }
-        provisioningPending = true;
         // Detached create can keep allocating storage after the CLI returns.
         // Hold the global reservation until provisioning reaches a stable state.
-        sandbox = await this.waitForReady(name, owner, signal);
-        provisioningPending = false;
+        try {
+          sandbox = await this.waitForReady(name, owner, signal);
+        } catch (error) {
+          if (guardedDetached) releaseAfterTerminal();
+          throw error;
+        }
       } finally {
-        if (provisioningPending) {
-          const terminal = this.waitForProvisioningTerminal(name, owner);
-          void terminal.then(releaseCapacity, releaseCapacity);
-        } else releaseCapacity();
+        if (!releaseInBackground) releaseCapacity();
       }
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);

@@ -241,7 +241,7 @@ export function admitOpenShellSandboxCreate(signal: AbortSignal) {
   return admission?.admitNewSandbox(signal) ?? Promise.resolve();
 }
 export function reserveOpenShellSandboxCreate(signal: AbortSignal) {
-  return admission?.reserveNewSandbox(signal) ?? Promise.resolve(() => undefined);
+  return admission?.reserveNewSandbox(signal) ?? Promise.resolve(undefined);
 }
 export function openShellCapacityStatus(signal: AbortSignal) {
   return admission?.status(signal);
