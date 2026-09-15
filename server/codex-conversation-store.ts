@@ -7,6 +7,9 @@ const CommandInput = z
   .object({
     id: z.string().min(1).max(200),
     prompt: z.string().min(1).max(1_000_000),
+    // Raw user-authored intent is retained separately from the provider prompt,
+    // which may contain context files or rendered skill instructions.
+    intent: z.string().max(1_000_000).optional(),
     model: z.string().min(1).optional(),
     reasoningEffort: z.string().min(1).max(32).nullable().optional(),
     images: z

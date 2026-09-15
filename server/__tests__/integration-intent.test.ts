@@ -53,8 +53,24 @@ describe('requestedIntegrationProviders', () => {
     'fix the Gmail API client',
     'write Google Drive API documentation',
     'copy the Google Drive API docs into this repository',
+    'do not access Gmail',
+    "don't search my email",
+    'never search my email',
+    'without accessing Google Drive',
+    'do not ever access Gmail',
+    'never again search my email',
+    'without directly accessing Google Drive',
+    'avoid accessing Gmail',
+    'refrain from using Google Drive',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
+  });
+
+  it.each([
+    'do not search the repo; search Gmail for Cat',
+    'search Gmail for Cat but do not open Google Drive',
+  ])('keeps affirmative access intent in a different clause for %j', (prompt) => {
+    expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
 
   it('never returns a provider that is not configured as grantable', () => {

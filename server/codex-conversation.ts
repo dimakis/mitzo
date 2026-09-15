@@ -37,7 +37,10 @@ interface Options {
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
-  prepareTurn?: (prompt: string, signal: AbortSignal) => Promise<string | void>;
+  prepareTurn?: (
+    turn: { providerPrompt: string; userIntent?: string; turnId: string },
+    signal: AbortSignal,
+  ) => Promise<string | void>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   beforeReconnect?: () => Promise<void>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
@@ -478,7 +481,10 @@ export class CodexConversation {
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
-        (await this.opts.prepareTurn?.(command.prompt, active.abort.signal)) ?? command.prompt;
+        (await this.opts.prepareTurn?.(
+          { providerPrompt: command.prompt, userIntent: command.intent, turnId: command.id },
+          active.abort.signal,
+        )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {

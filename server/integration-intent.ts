@@ -12,7 +12,7 @@ const GENERIC_EMAIL = /\b(?:emails?|mail|inbox)\b/gi;
 const GENERIC_CALENDAR = /\bcalendar\b/gi;
 
 const READ_ACTION =
-  /\b(?:access|check|find|fetch|get|inspect|list|look\s+(?:at|in|through)|open|query|read|retrieve|scan|search|show|summari[sz]e|use|view)\b/gi;
+  /\b(?:access(?:ing)?|check|find|fetch|get|inspect|list|look\s+(?:at|in|through)|open|query|read|retrieve|scan|search|show|summari[sz]e|use|view)\b/gi;
 const WRITE_ACTION =
   /\b(?:archive|copy|create|delete|download|draft|edit|move|reply|schedule|send|share|update|upload|write)\b/gi;
 const ENABLE_ACTION = /\b(?:add|attach|connect|enable|grant|permit|allow)\b/gi;
@@ -77,6 +77,7 @@ function hasActionForResource(
   for (const action of clause.matchAll(actionPattern)) {
     for (const target of clause.matchAll(resource)) {
       if (target.index === undefined || action.index === undefined) continue;
+      if (isNegatedAction(clause, action.index)) continue;
       const between =
         action.index < target.index
           ? clause.slice(action.index + action[0].length, target.index)
@@ -86,6 +87,14 @@ function hasActionForResource(
     }
   }
   return false;
+}
+
+function isNegatedAction(clause: string, actionIndex: number): boolean {
+  const lead = clause.slice(Math.max(0, actionIndex - 40), actionIndex);
+  return (
+    /\b(?:do\s+not|don't|never|without|avoid)(?:\s+\w+){0,3}\s*$/i.test(lead) ||
+    /\brefrain\s+from(?:\s+\w+){0,2}\s*$/i.test(lead)
+  );
 }
 
 function hasExplicitGoogleWorkspaceIntent(clause: string): boolean {

@@ -53,6 +53,7 @@ it('waits for recovery-aware admission before acknowledging an idle follow-up', 
     {
       id: 'same-id',
       prompt: 'hello',
+      intent: 'hello',
       images: undefined,
       reasoningEffort: undefined,
     },
@@ -94,6 +95,7 @@ it('queues image and thinking input on an existing conversation', async () => {
     {
       id: 'image-followup',
       prompt: 'describe',
+      intent: 'describe',
       model: 'gpt',
       reasoningEffort: 'high',
       images,

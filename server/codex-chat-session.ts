@@ -182,6 +182,7 @@ interface Options {
   session: ManagedSession;
   registry: SessionRegistry;
   prompt: string;
+  intent?: string;
   model?: string;
   reasoningEffort?: string | null;
   images?: Array<{ data: string; mediaType: string }>;
@@ -313,13 +314,45 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       : openShell;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
+  let integrationTurn:
+    | {
+        id: string;
+        denied: Set<string>;
+        pending: Map<string, Promise<{ content: string; isError: boolean }>>;
+      }
+    | undefined;
   const requestIntegrationAccess = async (provider: string, signal: AbortSignal) => {
+    // A cancelled approval can settle after the next queued turn has started.
+    // Keep all coalescing and denial state bound to the initiating turn.
+    const turn = integrationTurn;
     if (
       !openShell ||
       !runtimeManager ||
       !managedOpenShell ||
       !grantableProviders.includes(provider)
     )
+      return { content: 'Integration provider is not grantable', isError: true };
+    if (turn?.denied.has(provider))
+      return {
+        content: `Integration provider ${provider} was denied for this turn`,
+        isError: true,
+      };
+    const pending = turn?.pending.get(provider);
+    if (pending) return pending;
+    const request = requestIntegrationAccessInner(provider, signal, turn);
+    turn?.pending.set(provider, request);
+    try {
+      return await request;
+    } finally {
+      turn?.pending.delete(provider);
+    }
+  };
+  const requestIntegrationAccessInner = async (
+    provider: string,
+    signal: AbortSignal,
+    turn: typeof integrationTurn,
+  ) => {
+    if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
     if (
       await runtimeManager.hasServiceProviderAccess(
@@ -348,7 +381,10 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
     });
     signal.throwIfAborted();
-    if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
+    if (decision.behavior !== 'allow') {
+      turn?.denied.add(provider);
+      return { content: decision.message, isError: true };
+    }
     if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
       return { content: 'Provider grant changed during approval; retry', isError: true };
     try {
@@ -520,8 +556,15 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     },
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
-          prepareTurn: async (prompt: string, signal: AbortSignal) => {
-            for (const provider of requestedIntegrationProviders(prompt, grantableProviders)) {
+          prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
+            integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
+            // Older persisted commands did not retain separate raw intent. Do
+            // not infer approval from their assembled provider prompt.
+            const rawUserIntent = userIntent ?? '';
+            for (const provider of requestedIntegrationProviders(
+              rawUserIntent,
+              grantableProviders,
+            )) {
               if (
                 await runtimeManager.hasServiceProviderAccess(
                   options.conversationId,
@@ -534,7 +577,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
               const result = await requestIntegrationAccess(provider, signal);
               if (result.isError)
-                return `${prompt}\n\n[Mitzo did not enable ${providerLabel} for this turn. Do not run its CLI or claim a gateway outage; explain that this chat does not have access.]`;
+                return `${providerPrompt}\n\n[Mitzo did not enable ${providerLabel} for this turn. Do not run its CLI or claim a gateway outage; explain that this chat does not have access.]`;
             }
           },
         }
@@ -618,6 +661,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     await runtime.send({
       id: options.messageId,
       prompt: options.prompt,
+      intent: options.intent,
       model: options.model,
       reasoningEffort: options.reasoningEffort,
       images: options.images,

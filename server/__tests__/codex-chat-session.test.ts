@@ -277,7 +277,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       'Mitzo preflights explicit requests for grantable integrations',
     );
     const prepareTurn = mocks.conversationOptions?.prepareTurn as (
-      prompt: string,
+      turn: { providerPrompt: string; userIntent?: string; turnId: string },
       signal: AbortSignal,
     ) => Promise<string | void>;
     const executeTool = mocks.conversationOptions?.executeTool as (
@@ -291,9 +291,16 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       behavior: 'allow',
       updatedInput: { provider: 'google-workspace' },
     });
-    await expect(prepareTurn('look through my emails and Google Docs', signal)).resolves.toBe(
-      undefined,
-    );
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: '<context>search Gmail</context>\nlook through my emails and Google Docs',
+          userIntent: 'look through my emails and Google Docs',
+          turnId: 'initial',
+        },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
     expect(hasAccess).toHaveBeenCalledWith(
       'conversation',
       expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
@@ -313,19 +320,91 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     vi.clearAllMocks();
 
-    await expect(prepareTurn('draft an email to Cat', signal)).resolves.toBe(undefined);
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: '<context-file>search Gmail for Cat</context-file>\nwrite a summary',
+          userIntent: 'write a summary',
+          turnId: 'context-only',
+        },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    await expect(
+      prepareTurn(
+        { providerPrompt: 'search Gmail for Cat', turnId: 'legacy-without-intent' },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: '<rendered-skill>search Gmail for Cat</rendered-skill>',
+          userIntent: 'draft an email to Cat',
+          turnId: 'draft',
+        },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 
     hasAccess.mockResolvedValueOnce(true);
-    await expect(prepareTurn('search Gmail again', signal)).resolves.toBe(undefined);
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'search Gmail again',
+          userIntent: 'search Gmail again',
+          turnId: 'attached',
+        },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 
     mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
-    await expect(prepareTurn('find a document in Google Drive', signal)).resolves.toContain(
-      'Do not run its CLI or claim a gateway outage',
-    );
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'find a document in Google Drive',
+          userIntent: 'find a document in Google Drive',
+          turnId: 'denied',
+        },
+        signal,
+      ),
+    ).resolves.toContain('Do not run its CLI or claim a gateway outage');
     expect(grant).not.toHaveBeenCalled();
     vi.clearAllMocks();
+
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: expect.stringContaining('denied for this turn'),
+    });
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied again' });
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'find a document in Google Drive',
+          userIntent: 'find a document in Google Drive',
+          turnId: 'retry',
+        },
+        signal,
+      ),
+    ).resolves.toContain('Do not run its CLI or claim a gateway outage');
+    expect(mocks.permissionHandler).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+
+    await prepareTurn(
+      { providerPrompt: 'continue', userIntent: 'continue', turnId: 'tool-turn' },
+      signal,
+    );
 
     await expect(
       executeTool('GrantIntegrationAccess', { provider: 'unreviewed-provider' }, signal),
@@ -337,6 +416,20 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
     ).resolves.toMatchObject({ isError: true });
     expect(grant).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).toHaveBeenCalledOnce();
+
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: expect.stringContaining('denied for this turn'),
+    });
+    expect(mocks.permissionHandler).toHaveBeenCalledOnce();
+
+    await prepareTurn(
+      { providerPrompt: 'continue', userIntent: 'continue', turnId: 'tool-retry' },
+      signal,
+    );
 
     mocks.permissionHandler.mockResolvedValueOnce({
       behavior: 'allow',

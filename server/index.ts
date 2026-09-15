@@ -811,8 +811,21 @@ function sendToActiveChat(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  userIntent?: string,
 ): void {
-  void Promise.resolve(sendToChat(clientId, prompt, images, contextBlocks, clientMsgId))
+  void Promise.resolve(
+    sendToChat(
+      clientId,
+      prompt,
+      images,
+      contextBlocks,
+      clientMsgId,
+      undefined,
+      undefined,
+      undefined,
+      userIntent ?? prompt,
+    ),
+  )
     .then((accepted) => {
       if (!accepted) log.warn('active legacy send was not accepted', { clientId });
     })
@@ -842,6 +855,7 @@ function tryRouteToActiveSession(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  userIntent?: string,
 ): string | null {
   if (!resume) return null;
   const found = registry.findBySessionId(resume);
@@ -860,7 +874,15 @@ function tryRouteToActiveSession(
       blocks: found.session.currentSnapshot.blocks,
     });
   }
-  sendToActiveChat(transport, found.clientId, prompt, images, contextBlocks, clientMsgId);
+  sendToActiveChat(
+    transport,
+    found.clientId,
+    prompt,
+    images,
+    contextBlocks,
+    clientMsgId,
+    userIntent,
+  );
   log.info('routed observer message to active session', {
     sessionId: resume,
     driverClientId: found.clientId,
@@ -1052,6 +1074,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  resolution.arguments,
                 );
               } else if (
                 !tryRouteToActiveSession(
@@ -1061,6 +1084,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  resolution.arguments,
                 )
               ) {
                 startChat(transport, clientId, resolution.renderedPrompt, {
@@ -1073,6 +1097,7 @@ function handleChatWs(
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
+                  userIntent: resolution.arguments,
                 });
               }
             } else {
@@ -1085,6 +1110,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  msg.prompt,
                 );
               } else if (
                 !tryRouteToActiveSession(
@@ -1094,6 +1120,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  msg.prompt,
                 )
               ) {
                 startChat(transport, clientId, msg.prompt, {
@@ -1106,6 +1133,7 @@ function handleChatWs(
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
+                  userIntent: msg.prompt,
                 });
               }
             }

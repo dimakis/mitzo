@@ -1369,6 +1369,8 @@ describe('handleSendV2 skill policy', () => {
       'cmsg-sp',
       undefined,
       undefined,
+      undefined,
+      '',
     );
   });
 
