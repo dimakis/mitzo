@@ -324,6 +324,58 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     vi.clearAllMocks();
 
+    // A persisted approval whose first physical attach failed is recoverable:
+    // retry it without showing a second permission prompt in this chat/turn.
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'google-workspace' },
+    });
+    grant.mockRejectedValueOnce(new Error('attach failed'));
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'search Gmail for Cat',
+          userIntent: 'search Gmail for Cat',
+          turnId: 'attach-failed',
+        },
+        signal,
+      ),
+    ).resolves.toContain('did not enable Google Workspace');
+    expect(mocks.permissionHandler).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+
+    // A model tool retry in that same failed turn sees the durable approval,
+    // retries the attach, and never asks for consent again even if it fails.
+    hasAccess.mockResolvedValueOnce({ state: 'approved-detached' });
+    grant.mockRejectedValueOnce(new Error('retry attach failed'));
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: true, content: 'Integration provider attachment failed' });
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+    expect(grant).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+
+    hasAccess
+      .mockResolvedValueOnce({ state: 'approved-detached' })
+      .mockResolvedValueOnce({ state: 'approved-detached' })
+      .mockResolvedValueOnce({ state: 'available' });
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'search Gmail for Cat',
+          userIntent: 'search Gmail for Cat',
+          turnId: 'recover-approved-attachment',
+        },
+        signal,
+      ),
+    ).resolves.toBe(undefined);
+    await expect(
+      executeTool('GrantIntegrationAccess', { provider: 'google-workspace' }, signal),
+    ).resolves.toMatchObject({ isError: false });
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+    expect(grant).toHaveBeenCalledOnce();
+    vi.clearAllMocks();
+
     hasAccess.mockResolvedValueOnce({
       state: 'indeterminate',
       error: new Error('OpenShell provider list failed'),

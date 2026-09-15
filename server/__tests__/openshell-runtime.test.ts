@@ -347,14 +347,16 @@ describe('OpenShell runtime lifecycle', () => {
   });
 
   it('requires a current attachment for a durable grant to be available', async () => {
+    const attached = new Set<string>();
     const policyState = {
       read: vi.fn(() => ({ automatic: ['github'], granted: ['google-workspace'] })),
       write: vi.fn(),
     };
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes('get')) return ready();
+      if (args.includes('attach')) attached.add(args.at(-1)!);
       if (args.includes('provider') && args.includes('list'))
-        return `No providers attached to sandbox ${sandboxNameForConversation('conversation')}.`;
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
       return '{}';
     });
     const manager = new OpenShellRuntimeManager(config, run, undefined, undefined, policyState);
@@ -375,7 +377,25 @@ describe('OpenShell runtime lifecycle', () => {
         'google-workspace',
         new AbortController().signal,
       ),
-    ).resolves.toEqual({ state: 'absent' });
+    ).resolves.toEqual({ state: 'approved-detached' });
+    await manager.grantServiceProvider(
+      'conversation',
+      runtime,
+      'google-workspace',
+      new AbortController().signal,
+    );
+    expect(policyState.write).toHaveBeenLastCalledWith(sandboxNameForConversation('conversation'), {
+      automatic: ['github'],
+      granted: ['google-workspace'],
+    });
+    await expect(
+      manager.hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ state: 'available' });
   });
 
   it('verifies a Ready owned sandbox attachment for a durable grant', async () => {
@@ -734,7 +754,7 @@ describe('OpenShell runtime lifecycle', () => {
         'google-workspace',
         new AbortController().signal,
       ),
-    ).resolves.toEqual({ state: 'absent' });
+    ).resolves.toEqual({ state: 'approved-detached' });
     const recoveredRuntime = await recovered.ensure('conversation', new AbortController().signal);
     expect(recoveredRun.mock.calls.some(([args]) => args.includes('attach'))).toBe(true);
     await expect(

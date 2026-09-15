@@ -170,7 +170,12 @@ export type OpenShellAccountRoute =
     };
 
 export type ServiceProviderAccess =
-  { state: 'available' } | { state: 'absent' } | { state: 'indeterminate'; error: Error };
+  | { state: 'available' }
+  | { state: 'absent' }
+  // The durable approval is still valid, but a verified Ready sandbox no
+  // longer has its physical attachment (for example after an attach crash).
+  | { state: 'approved-detached' }
+  | { state: 'indeterminate'; error: Error };
 
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
@@ -373,8 +378,12 @@ export class OpenShellRuntimeManager {
         ),
         runtime.sandboxName,
       );
-      if (!attached.includes(provider)) return { state: 'absent' };
-      if (!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider))
+      const approved = this.providerPolicyState
+        .read(runtime.sandboxName)
+        ?.granted.includes(provider);
+      if (!attached.includes(provider))
+        return approved ? { state: 'approved-detached' } : { state: 'absent' };
+      if (!approved)
         return {
           state: 'indeterminate',
           error: new Error(

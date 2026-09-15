@@ -372,6 +372,28 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       };
     if (access.state === 'indeterminate') throw access.error;
     const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+    const attachApprovedProvider = async () => {
+      try {
+        await runtimeManager.grantServiceProvider(
+          options.conversationId,
+          managedOpenShell,
+          provider,
+          signal,
+        );
+      } catch {
+        signal.throwIfAborted();
+        return false;
+      }
+      return true;
+    };
+    if (access.state === 'approved-detached') {
+      if (!(await attachApprovedProvider()))
+        return { content: 'Integration provider attachment failed', isError: true };
+      return {
+        content: `Integration provider ${provider} is now available to this chat`,
+        isError: false,
+      };
+    }
     const approvedInput = { provider };
     const owner = options.registry.findBySessionId(options.conversationId);
     if (!owner) return { content: 'Codex session unavailable', isError: true };
@@ -393,17 +415,8 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     }
     if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
       return { content: 'Provider grant changed during approval; retry', isError: true };
-    try {
-      await runtimeManager.grantServiceProvider(
-        options.conversationId,
-        managedOpenShell,
-        provider,
-        signal,
-      );
-    } catch {
-      signal.throwIfAborted();
+    if (!(await attachApprovedProvider()))
       return { content: 'Integration provider attachment failed', isError: true };
-    }
     return {
       content: `Integration provider ${provider} is now available to this chat`,
       isError: false,
