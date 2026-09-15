@@ -20,6 +20,7 @@ const initializer = resolve('docs/spikes/openshell-codex/initialize-mitzo-worksp
 const apiRunner = resolve('docs/spikes/openshell-codex/run-mitzo-app-server');
 const subscriptionRunner = resolve('docs/spikes/openshell-codex/run-mitzo-subscription-app-server');
 const notebookRunner = resolve('docs/spikes/openshell-codex/run-mgmt-notebook');
+const chatSession = resolve('server/codex-chat-session.ts');
 
 function rejectedBase(base: string): string {
   try {
@@ -177,6 +178,12 @@ exec /bin/mkdir "$@"
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('keeps managed Jira guidance compatible with reused non-runtime images', () => {
+    const source = readFileSync(chatSession, 'utf8');
+    expect(source).toContain('provider-approved /usr/bin/python3 or curl');
+    expect(source).not.toContain('Use /opt/mgmt-jira-venv/bin/python or curl');
   });
 
   it('rejects notebook paths outside the mounted Jira runtime', () => {
