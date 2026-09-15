@@ -13,10 +13,13 @@ it('keeps capacity admission behind an explicit rollout with an authoritative pa
   expect(openShellCapacityEnabled({})).toBe(false);
   expect(openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: '0' })).toBe(false);
   expect(
-    openShellCapacityEnabled({
-      MITZO_OPENSHELL_CAPACITY_ENABLED: '1',
-      MITZO_OPENSHELL_CAPACITY_PATH: '/podman/storage',
-    }),
+    openShellCapacityEnabled(
+      {
+        MITZO_OPENSHELL_CAPACITY_ENABLED: '1',
+        MITZO_OPENSHELL_CAPACITY_PATH: '/podman/storage',
+      },
+      () => undefined,
+    ),
   ).toBe(true);
   expect(() => openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: '1' })).toThrow(
     'MITZO_OPENSHELL_CAPACITY_PATH',
@@ -24,6 +27,31 @@ it('keeps capacity admission behind an explicit rollout with an authoritative pa
   expect(() => openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: 'yes' })).toThrow(
     'must be 0 or 1',
   );
+  expect(() =>
+    openShellCapacityEnabled(
+      {
+        MITZO_OPENSHELL_CAPACITY_ENABLED: '1',
+        MITZO_OPENSHELL_CAPACITY_PATH: '/vm-only/path',
+      },
+      () => {
+        throw new Error('missing');
+      },
+    ),
+  ).toThrow('host-visible');
+});
+
+it('starts conservatively inside the hysteresis recovery band after a restart', async () => {
+  const freePercents = [12, 16];
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () => '[]',
+    filesystem: async () => {
+      const free = freePercents.shift()!;
+      return `Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 10000 1 ${free * 100} 1% /`;
+    },
+  });
+  const admission = new OpenShellCapacityAdmission(collector, openShellCapacityPolicy({}));
+  await expect(admission.admitNewSandbox(signal())).rejects.toBeInstanceOf(OpenShellCapacityError);
+  await expect(admission.admitNewSandbox(signal())).resolves.toBeUndefined();
 });
 
 it('keeps Podman usage/reclaimable separate from authoritative filesystem free capacity', async () => {

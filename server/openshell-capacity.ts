@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { accessSync, constants } from 'node:fs';
 
 export interface OpenShellCapacitySnapshot {
   collectedAt: number;
@@ -42,7 +43,10 @@ export function openShellCapacityPolicy(env: NodeJS.ProcessEnv): OpenShellCapaci
   return { warningFreePercent, hardFreePercent, recoverFreePercent };
 }
 
-export function openShellCapacityEnabled(env: NodeJS.ProcessEnv) {
+export function openShellCapacityEnabled(
+  env: NodeJS.ProcessEnv,
+  validatePath: (path: string) => void = (path) => accessSync(path, constants.R_OK),
+) {
   const raw = env.MITZO_OPENSHELL_CAPACITY_ENABLED;
   if (raw === undefined || raw === '' || raw === '0') return false;
   if (raw !== '1') throw new Error('MITZO_OPENSHELL_CAPACITY_ENABLED must be 0 or 1');
@@ -50,6 +54,11 @@ export function openShellCapacityEnabled(env: NodeJS.ProcessEnv) {
     throw new Error(
       'MITZO_OPENSHELL_CAPACITY_PATH is required when OpenShell capacity admission is enabled',
     );
+  try {
+    validatePath(env.MITZO_OPENSHELL_CAPACITY_PATH.trim());
+  } catch {
+    throw new Error('MITZO_OPENSHELL_CAPACITY_PATH must be a readable host-visible path');
+  }
   return true;
 }
 
@@ -152,7 +161,9 @@ export class OpenShellCapacityCollector {
 
 /** Serialized, fail-closed admission is only used for new physical sandboxes. */
 export class OpenShellCapacityAdmission {
-  private hard = false;
+  // A restart loses the previous latch state. Treat that ambiguity as a hard
+  // stop until a sample reaches the recovery threshold.
+  private hard = true;
   private tail = Promise.resolve();
   constructor(
     private readonly collector: OpenShellCapacityCollector,

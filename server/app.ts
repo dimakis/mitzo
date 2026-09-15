@@ -723,8 +723,16 @@ app.get('/api/openshell/inventory', async (_req, res) => {
     res.status(503).json({
       available: false,
       partial: false,
+      collectedAt: Date.now(),
       sandboxes: [],
-      scopes: [{ status: 'unavailable', error: code }],
+      scopes: [
+        {
+          provider: 'configured',
+          workspace: 'unknown',
+          status: 'unavailable',
+          error: code,
+        },
+      ],
     });
   }
 });

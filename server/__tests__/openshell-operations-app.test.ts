@@ -33,7 +33,15 @@ it('requires authentication and represents unconfigured operations honestly', as
   expect(inventory.status).toBe(503);
   expect(inventory.body).toMatchObject({
     available: false,
-    scopes: [{ status: 'unavailable' }],
+    collectedAt: expect.any(Number),
+    scopes: [
+      {
+        provider: 'configured',
+        workspace: 'unknown',
+        status: 'unavailable',
+        error: 'provider_inventory_unavailable',
+      },
+    ],
   });
   expect(inventory.body.sandboxes).toEqual([]);
 

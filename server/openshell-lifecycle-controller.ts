@@ -124,7 +124,14 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       partial: false,
       collectedAt: Date.now(),
       sandboxes: [],
-      scopes: [{ status: 'unavailable', error: 'OpenShell lifecycle controller is unavailable' }],
+      scopes: [
+        {
+          provider: 'configured',
+          workspace: 'unknown',
+          status: 'unavailable',
+          error: PROVIDER_INVENTORY_UNAVAILABLE,
+        },
+      ],
     };
   const records = configured.store.list();
   const byPhysicalId = new Map(
@@ -133,6 +140,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       .map((record) => [record.physicalSandboxId!, record]),
   );
   const groups = new Map<string, OpenShellLifecycleRecord>();
+  const identitylessRecords: OpenShellLifecycleRecord[] = [];
   const routedProviders = new Set<string>();
   const providerOnlyScopes = new Set<string>();
   const seen = new Set<string>();
@@ -140,14 +148,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const scopes: Array<Record<string, string>> = [];
   for (const record of records) {
     if (!record.identity) {
-      scopes.push({
-        provider: record.accountProvider ?? 'unknown',
-        workspace: record.workspace,
-        status: 'unavailable',
-        error: 'OpenShell lifecycle identity is unavailable',
-      });
-      sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
-      seen.add(record.physicalSandboxId ?? record.sandboxName);
+      identitylessRecords.push(record);
     } else if (!groups.has(JSON.stringify(record.identity.route))) {
       groups.set(JSON.stringify(record.identity.route), record);
       routedProviders.add(record.accountProvider);
@@ -223,7 +224,16 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const key = sandbox.id ?? `${configured.config.workspace}:${sandbox.name}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        sandboxes.push(lifecycleInventoryRow(undefined, sandbox, 'orphaned', provider));
+        const record = sandbox.id
+          ? byPhysicalId.get(sandbox.id)
+          : records.find(
+              (item) =>
+                item.workspace === configured!.config.workspace &&
+                item.sandboxName === sandbox.name,
+            );
+        sandboxes.push(
+          lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned', provider),
+        );
       }
     } catch (error) {
       if (signal.aborted) throw error;
@@ -239,6 +249,26 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         error: PROVIDER_INVENTORY_UNAVAILABLE,
       });
     }
+  }
+  for (const record of identitylessRecords) {
+    const key = record.physicalSandboxId ?? record.sandboxName;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (
+      !scopes.some(
+        (scope) =>
+          scope.provider === record.accountProvider &&
+          scope.workspace === record.workspace &&
+          scope.status === 'unavailable',
+      )
+    )
+      scopes.push({
+        provider: record.accountProvider ?? 'unknown',
+        workspace: record.workspace,
+        status: 'unavailable',
+        error: PROVIDER_INVENTORY_UNAVAILABLE,
+      });
+    sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
   }
   for (const record of records) {
     const key = record.physicalSandboxId ?? record.sandboxName;
@@ -287,7 +317,17 @@ function lifecycleInventoryRow(
 }
 
 export function recordOpenShellLifecycleAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
-  configured?.store.appendAudit(entry);
+  try {
+    configured?.store.appendAudit(entry);
+  } catch (error) {
+    // Audit storage failure must not turn a completed lifecycle mutation into
+    // an apparent action failure or trigger a second destructive attempt.
+    log.error('OpenShell lifecycle audit persistence failed', {
+      action: entry.action,
+      outcome: entry.outcome,
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+  }
 }
 export function openShellLifecycleAudit(limit?: number) {
   return configured?.store.listAudit(limit) ?? [];

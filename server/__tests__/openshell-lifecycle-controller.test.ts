@@ -10,6 +10,7 @@ import {
   openShellLifecycleCapability,
   openShellLifecycleInventory,
   openShellLifecyclePhaseCounts,
+  recordOpenShellLifecycleAudit,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
   restoreOpenShellLifecycleIfNeeded,
@@ -566,15 +567,16 @@ it('counts configured recordless providers once while retaining partial inventor
   }
 });
 
-it('discovers orphaned sandboxes from configured providers without lifecycle records', async () => {
+it('discovers recordless orphans and reconciles identity-less provisional records', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-orphans-'));
   const policy = join(directory, 'policy.yaml');
   writeFileSync(policy, 'reviewed: policy\n');
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
   vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
-  const inventory = vi
-    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
-    .mockResolvedValue([{ id: 'orphan-id', name: 'mitzo-orphan', phase: 'Ready' as const }]);
+  const inventory = vi.spyOn(OpenShellRuntimeManager.prototype, 'inventory').mockResolvedValue([
+    { id: 'provisional-id', name: 'mitzo-provisional', phase: 'Ready' as const },
+    { id: 'orphan-id', name: 'mitzo-orphan', phase: 'Ready' as const },
+  ]);
   const lifecycle = initializeOpenShellLifecycle(
     {
       cli: 'openshell',
@@ -600,11 +602,33 @@ it('discovers orphaned sandboxes from configured providers without lifecycle rec
     },
   )!;
   try {
+    registerOpenShellLifecycleProvisional(
+      'provisional-conversation',
+      {
+        sandboxName: 'mitzo-provisional',
+        sandboxId: 'provisional-id',
+        workdir: '/sandbox/workspaces/mgmt',
+        appServerCommand: '/sandbox/run-mitzo-app-server',
+        cli: 'openshell',
+        gateway: 'openshell',
+        workspace: 'default',
+        gatewayInsecure: false,
+      },
+      { kind: 'api', provider: 'openai-work', model: 'model' },
+      'client',
+    );
     await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
       available: true,
       partial: false,
       scopes: [{ provider: 'openai-work', workspace: 'default', status: 'available' }],
       sandboxes: [
+        {
+          status: 'verified',
+          physicalId: 'provisional-id',
+          provider: 'openai-work',
+          conversationId: 'provisional-conversation',
+          capabilities: { runtime: false, lifecycleActions: 'unsupported' },
+        },
         {
           status: 'orphaned',
           physicalId: 'orphan-id',
@@ -616,6 +640,58 @@ it('discovers orphaned sandboxes from configured providers without lifecycle rec
     });
   } finally {
     inventory.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('does not let audit persistence failure escape into a completed action path', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-audit-failure-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  vi.spyOn(lifecycle.store, 'appendAudit').mockImplementation(() => {
+    throw new Error('disk response includes secret-token');
+  });
+  try {
+    expect(() =>
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: 'operator',
+        conversationId: 'conversation',
+        sandboxId: 'sandbox',
+        generation: 1,
+        action: 'confirm',
+        outcome: 'confirmed',
+        error: null,
+      }),
+    ).not.toThrow();
+  } finally {
     lifecycle.store.close();
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
