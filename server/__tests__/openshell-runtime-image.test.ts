@@ -59,7 +59,7 @@ describe('OpenShell runtime image builder', () => {
       'COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/',
     );
     expect(dockerfile).toContain(
-      'UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project',
+      'UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project',
     );
     expect(dockerfile).toContain(
       'find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print',
@@ -68,6 +68,10 @@ describe('OpenShell runtime image builder', () => {
     expect(dockerfile).toContain('/usr/local/share/jupyter/kernels/mgmt-jira/kernel.json');
     expect(dockerfile).toContain('"argv": ["/usr/bin/python3", "-m", "ipykernel_launcher"');
     expect(dockerfile).toContain('\\"env\\": {\\"PYTHONPATH\\": \\"$site_packages\\"}');
+    expect(dockerfile).toContain(
+      'PYTHONPATH="$site_packages" /usr/bin/python3 -c \'import sys; import jupyter, nbconvert, ipykernel, numpy, pyarrow; assert sys.executable == "/usr/bin/python3"\'',
+    );
+    expect(dockerfile).toContain('spec["argv"][0] == "/usr/bin/python3"');
     expect(dockerfile).not.toContain('ENV PATH="/opt/mgmt-jira-venv/bin:${PATH}"');
     expect(build).toContain('test -f "$mgmt_repo/jira_process/pyproject.toml"');
     expect(build).toContain('test -f "$mgmt_repo/jira_process/uv.lock"');

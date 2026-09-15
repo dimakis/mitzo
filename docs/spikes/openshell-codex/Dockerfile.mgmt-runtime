@@ -14,7 +14,7 @@ RUN npm install --global @openai/codex@0.153.4 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/
 RUN cd /opt/mgmt-jira-runtime \
-    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project \
+    && UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project \
     && site_packages="$(find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print)" \
     && [ "$(printf '%s\n' "$site_packages" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] \
     && case "$site_packages" in /opt/mgmt-jira-venv/lib/python*/site-packages) ;; *) exit 1 ;; esac \
@@ -28,7 +28,9 @@ RUN cd /opt/mgmt-jira-runtime \
       '  "language": "python",' \
       "  \"env\": {\"PYTHONPATH\": \"$site_packages\"}" \
       '}' > /usr/local/share/jupyter/kernels/mgmt-jira/kernel.json \
-    && chmod 0444 /usr/local/share/jupyter/kernels/mgmt-jira/kernel.json
+    && chmod 0444 /usr/local/share/jupyter/kernels/mgmt-jira/kernel.json \
+    && PYTHONPATH="$site_packages" /usr/bin/python3 -c 'import sys; import jupyter, nbconvert, ipykernel, numpy, pyarrow; assert sys.executable == "/usr/bin/python3"' \
+    && PYTHONPATH="$site_packages" /usr/bin/python3 -c 'import json; spec = json.load(open("/usr/local/share/jupyter/kernels/mgmt-jira/kernel.json")); assert spec["argv"][0] == "/usr/bin/python3" and spec["env"] == {"PYTHONPATH": "'"$site_packages"'"}'
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
 COPY initialize-mitzo-workspace /sandbox/initialize-mitzo-workspace
