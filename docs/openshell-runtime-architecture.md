@@ -89,10 +89,18 @@ against the stack lock. This one-time lock-field migration is required before a
 descendant knowledge seed may be published; legacy equality-only baselines retain
 their historical path. A seed at the same commit as its runtime base needs no
 compatibility calculation; a newer seed fails closed unless its checked-in
-contract directly matches the trusted stack lock. The mgmt updater alone validates dependency compatibility and
-atomically repoints its `current` symlink after a successful seed build. Existing
-sandboxes retain their workspace; only future sandbox creation resolves that current
-seed path.
+contract directly matches the trusted stack lock. The mgmt updater alone validates
+dependency compatibility and atomically repoints its `current` symlink after a
+successful seed build. Dynamic deployment config uses
+`<release-root>/current/mgmt`. Immediately before a new sandbox is created,
+Mitzo resolves that symlink once, requires its resolved release to remain beneath
+the release root, and uploads the resulting immutable path. Dangling, escaping,
+or concurrently replaced links fail closed. Existing sandboxes retain their
+workspace; only future sandbox creation selects a current seed.
+Dynamic stack locks additionally pin the canonical SHA-256 of the selected seed
+file tree; preflight verifies both that digest and every manifest entry before
+the server can create a sandbox. Legacy equality-only seeds do not require that
+new field.
 
 Conversation/thread state and the sandbox workspace are checkpointed together before
 an operator-approved stop. The private, versioned archive is bound to the exact
@@ -119,7 +127,9 @@ Automatic routing is opt-in until live acceptance completes:
 - `MITZO_OPENSHELL_ENABLED=1`
 - `MITZO_OPENSHELL_IMAGE=<pinned image>`
 - `MITZO_OPENSHELL_POLICY=<absolute policy path>`
-- `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`
+- `MITZO_OPENSHELL_SEED=<absolute prepared seed directory>`; dynamic releases
+  use `<absolute release-root>/current/mgmt`, which Mitzo resolves once when
+  creating a new sandbox.
 - `MITZO_OPENSHELL_SERVICE_PROVIDERS=<comma-separated reviewed service providers>`;
 - `MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS=<comma-separated reviewed providers>`
   advertises providers that may be attached to one retained conversation sandbox

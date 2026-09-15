@@ -48,6 +48,18 @@ function digest(contents: string) {
   return createHash('sha256').update(contents).digest('hex');
 }
 
+function payloadDigest(files: Record<string, { sha256: string; mode: string }>) {
+  return digest(
+    JSON.stringify(
+      Object.fromEntries(
+        Object.entries(files)
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([path, entry]) => [path, { mode: entry.mode, sha256: entry.sha256 }]),
+      ),
+    ),
+  );
+}
+
 function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
   preparedSeed = mkdtempSync(join(tmpdir(), 'mitzo-prepared-seed-'));
   const manifestDirectory = join(preparedSeed, 'memory', 'manifest');
@@ -64,18 +76,30 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
     mkdirSync(join(destination, '..'), { recursive: true });
     writeFileSync(destination, contents);
   }
+  const baselineFiles = Object.fromEntries(
+    Object.entries(files).map(([path, contents]) => [
+      path,
+      { sha256: digest(contents), mode: '0644' },
+    ]),
+  );
   return {
     seedPath: preparedSeed,
     baseline: {
       startingCommit: sourceCommit,
       runtimeBaseCommit: sourceCommit,
       runtimeDependencyProjectionSha256: projectionSha,
-      files: Object.fromEntries(
-        Object.entries(files).map(([path, contents]) => [
-          path,
-          { sha256: digest(contents), mode: '0644' },
-        ]),
-      ),
+      payloadSha256: payloadDigest(baselineFiles),
+      files: baselineFiles,
+    },
+  };
+}
+
+function dynamicRuntimeManifest(payloadSha256: string) {
+  return {
+    runtime: {
+      mgmtSourceCommit: 'a'.repeat(40),
+      dependencyProjectionSha256: projectionSha,
+      seedPayloadSha256: payloadSha256,
     },
   };
 }
@@ -112,9 +136,7 @@ describe('OpenShell production bundle validation', () => {
 
   it('binds a dynamic baseline to the selected immutable seed contents', () => {
     const { baseline, seedPath } = makePreparedSeed();
-    const runtimeManifest = {
-      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-    };
+    const runtimeManifest = dynamicRuntimeManifest(baseline.payloadSha256);
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).not.toThrow();
 
     expect(() =>
@@ -132,29 +154,53 @@ describe('OpenShell production bundle validation', () => {
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('file hash');
   });
 
+  it('requires a stack-pinned dynamic seed payload digest', () => {
+    const { baseline, seedPath } = makePreparedSeed();
+    expect(() =>
+      validateSeedBaseline(
+        { ...baseline, payloadSha256: undefined },
+        dynamicRuntimeManifest(baseline.payloadSha256),
+        seedPath,
+      ),
+    ).toThrow('payload digest is invalid or missing');
+    expect(() =>
+      validateSeedBaseline(
+        baseline,
+        {
+          runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+        },
+        seedPath,
+      ),
+    ).toThrow('stack lock dynamic seed payload digest is invalid or missing');
+    expect(() =>
+      validateSeedBaseline(baseline, dynamicRuntimeManifest('b'.repeat(64)), seedPath),
+    ).toThrow('does not match the stack lock');
+    expect(() =>
+      validateSeedBaseline(
+        { ...baseline, payloadSha256: 'b'.repeat(64) },
+        dynamicRuntimeManifest(baseline.payloadSha256),
+        seedPath,
+      ),
+    ).toThrow('does not match its file manifest');
+  });
+
   it('rejects dynamic seeds whose payload mode differs from the baseline', () => {
     const { baseline, seedPath } = makePreparedSeed();
-    const runtimeManifest = {
-      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-    };
+    const runtimeManifest = dynamicRuntimeManifest(baseline.payloadSha256);
     chmodSync(join(seedPath, 'knowledge.md'), 0o755);
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('hash or mode');
   });
 
   it('rejects a setuid mode added after seed publication', () => {
     const { baseline, seedPath } = makePreparedSeed();
-    const runtimeManifest = {
-      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-    };
+    const runtimeManifest = dynamicRuntimeManifest(baseline.payloadSha256);
     chmodSync(join(seedPath, 'knowledge.md'), 0o4755);
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('hash or mode');
   });
 
   it('rejects dynamic seeds with extra, missing, or symlinked payload files', () => {
-    const runtimeManifest = {
-      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-    };
     let fixture = makePreparedSeed();
+    const runtimeManifest = dynamicRuntimeManifest(fixture.baseline.payloadSha256);
     writeFileSync(join(fixture.seedPath, 'extra.txt'), 'extra\n');
     expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
       'exactly match',
@@ -178,10 +224,8 @@ describe('OpenShell production bundle validation', () => {
   });
 
   it('binds the uploaded portable Git repository to the dynamic baseline', () => {
-    const runtimeManifest = {
-      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-    };
     const fixture = makePreparedSeed();
+    const runtimeManifest = dynamicRuntimeManifest(fixture.baseline.payloadSha256);
     mkdirSync(join(fixture.seedPath, '.git', 'hooks'));
     writeFileSync(join(fixture.seedPath, '.git', 'hooks', 'post-commit'), '#!/bin/sh\nexit 0\n');
     expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
@@ -202,9 +246,6 @@ describe('OpenShell production bundle validation', () => {
     'requires %s to attest to the baseline source commit',
     (name) => {
       const { baseline, seedPath } = makePreparedSeed();
-      const runtimeManifest = {
-        runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
-      };
       const path = join(seedPath, 'memory', 'manifest', name);
       const contents = JSON.stringify({ sourceCommit: 'b'.repeat(40) }) + '\n';
       writeFileSync(path, contents);
@@ -215,6 +256,8 @@ describe('OpenShell production bundle validation', () => {
           [`memory/manifest/${name}`]: { sha256: digest(contents), mode: '0644' },
         },
       };
+      altered.payloadSha256 = payloadDigest(altered.files);
+      const runtimeManifest = dynamicRuntimeManifest(altered.payloadSha256);
       expect(() => validateSeedBaseline(altered, runtimeManifest, seedPath)).toThrow(
         'manifest source commit',
       );

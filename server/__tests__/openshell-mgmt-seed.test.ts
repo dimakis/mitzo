@@ -150,6 +150,13 @@ function currentCommit(source: string) {
   return execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 }
 
+function exitCode(child: ReturnType<typeof spawn>): Promise<number | null> {
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', resolve);
+  });
+}
+
 function writeMemoryManifests(source: string, sourceCommit: string) {
   const manifest = join(source, 'memory', 'manifest');
   writeFileSync(
@@ -1145,6 +1152,74 @@ it('rejects a symlinked memory-manifest parent that escapes the source repositor
   expect(existsSync(output)).toBe(false);
 });
 
+it('serializes concurrent publishers so exactly one immutable release wins', async () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-concurrent-publish-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  const script = resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh');
+  const first = spawn('bash', [script, source, output], { stdio: 'ignore' });
+  const second = spawn('bash', [script, source, output], { stdio: 'ignore' });
+  const statuses = await Promise.all([exitCode(first), exitCode(second)]);
+
+  expect(statuses.filter((status) => status === 0)).toHaveLength(1);
+  expect(statuses.filter((status) => status !== 0)).toHaveLength(1);
+  expect(existsSync(output)).toBe(true);
+  // The no-replace primitive publishes an entry, never a directory into a
+  // concurrent winner's directory.
+  expect(readFileSync(join(output, 'baseline.json'), 'utf8')).toContain('startingCommit');
+});
+
+it('rejects a dangling release path instead of replacing it', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-dangling-output-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+  symlinkSync(join(root, 'missing-release'), output);
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow();
+  expect(existsSync(output)).toBe(false);
+});
+
 it('rejects a live publisher lock, then recovers when its holder is killed', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-publish-lock-'));
   const source = join(root, 'source');
@@ -1192,7 +1267,7 @@ it('rejects a live publisher lock, then recovers when its holder is killed', () 
     ),
   ).toThrow();
   expect(existsSync(output)).toBe(false);
-  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(0);
   lockHolder.kill('SIGKILL');
   lockHolder = undefined;
   execFileSync('sleep', ['0.05']);
@@ -1205,7 +1280,7 @@ it('rejects a live publisher lock, then recovers when its holder is killed', () 
     ),
   ).not.toThrow();
   expect(existsSync(output)).toBe(true);
-  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toEqual([]);
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(1);
 });
 
 it('terminates a delayed lock helper before waiting and permits a later publish', () => {
@@ -1339,9 +1414,9 @@ it('releases an updater-owned lock after the updater is killed without cleanup',
   }
   expect(published).toBe(true);
   expect(existsSync(output)).toBe(true);
-  // The lock helper was interrupted before an output staging directory was
-  // allocated; the replacement publisher still acquired the released lock.
-  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(0);
+  // The published immutable release is an atomic reference to its private
+  // staging directory; the replacement publisher acquired the released lock.
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(1);
 });
 
 it('rejects a tracked symlink before an overlay can write through it', () => {

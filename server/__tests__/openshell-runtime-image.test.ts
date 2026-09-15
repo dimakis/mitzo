@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -78,6 +79,49 @@ describe('OpenShell runtime image builder', () => {
       ).toThrow(/explicit unique tag/);
     },
   );
+
+  it('fails on a stale checked-in lock without mutating the MGMT checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-runtime-stale-lock-'));
+    const mgmt = join(root, 'mgmt');
+    const bin = join(root, 'bin');
+    try {
+      mkdirSync(mgmt);
+      mkdirSync(bin);
+      const lock = join(mgmt, 'uv.lock');
+      const lockContents = '# stale reviewed lock\n';
+      writeFileSync(
+        join(mgmt, 'pyproject.toml'),
+        '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\n',
+      );
+      writeFileSync(lock, lockContents);
+      execFileSync('git', ['init', '-q', mgmt]);
+      execFileSync('git', ['-C', mgmt, 'config', 'user.name', 'Fixture']);
+      execFileSync('git', ['-C', mgmt, 'config', 'user.email', 'fixture@example.invalid']);
+      execFileSync('git', ['-C', mgmt, 'add', '.']);
+      execFileSync('git', ['-C', mgmt, '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture']);
+      const uv = join(bin, 'uv');
+      writeFileSync(uv, '#!/bin/sh\nexit 17\n');
+      chmodSync(uv, 0o755);
+
+      expect(() =>
+        execFileSync(
+          builder,
+          [
+            mgmt,
+            'localhost/mitzo-mgmt-runtime:stale-lock',
+            `registry.invalid/base@sha256:${'a'.repeat(64)}`,
+          ],
+          {
+            env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+            stdio: ['ignore', 'pipe', 'pipe'],
+          },
+        ),
+      ).toThrow();
+      expect(readFileSync(lock, 'utf8')).toBe(lockContents);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('initializes an idempotent portable Git baseline inside the sandbox workspace', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-sandbox-workspace-'));

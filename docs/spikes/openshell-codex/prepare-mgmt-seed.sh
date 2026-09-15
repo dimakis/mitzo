@@ -608,17 +608,27 @@ payload = {
 if os.environ['IS_DYNAMIC'] == '1':
     payload['runtimeBaseCommit'] = os.environ['RUNTIME_BASE_COMMIT']
     payload['runtimeDependencyProjectionSha256'] = os.environ['RUNTIME_PROJECTION_SHA256']
+    # This is the canonical content-tree identity that the release stack lock
+    # pins for a dynamic seed. It deliberately excludes mutable publication
+    # paths and hashes the already-complete file manifest.
+    payload['payloadSha256'] = hashlib.sha256(json.dumps(
+        payload['files'], sort_keys=True, separators=(',', ':')
+    ).encode()).hexdigest()
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2) + '\n')
 PY
 
-# The versioned destination is not visible until its contents, portable Git
-# repository, and baseline have all been created and validated. The mgmt updater
-# owns switching its separate `current` symlink after this script returns.
+# Publish one immutable release reference atomically. `ln -s` fails if any
+# directory entry already exists (including a dangling symlink), unlike `mv`,
+# which can silently nest a staging directory inside a raced destination.
+# The mgmt updater owns switching its separate `current` symlink afterwards.
 test ! -e "$output_root" && test ! -L "$output_root" || {
   echo 'output was created while the seed was being prepared' >&2
   exit 2
 }
-mv "$build_root" "$output_root"
+ln -s "$build_root" "$output_root" || {
+  echo 'output was created while the seed was being prepared' >&2
+  exit 2
+}
 build_root=''
 cleanup
 lock_pid=''

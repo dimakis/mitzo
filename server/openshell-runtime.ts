@@ -1,8 +1,17 @@
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
@@ -196,6 +205,61 @@ function identifier(value: string, label: string) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(value))
     throw new Error(`Invalid OpenShell ${label}`);
   return value;
+}
+
+/**
+ * A dynamic release is configured as <release-root>/current/mgmt. Resolve that
+ * one mutable pointer exactly once, immediately before creating a sandbox. The
+ * returned path contains no `current` component, so a later updater swap cannot
+ * alter the upload selected for this sandbox. Static/legacy seeds deliberately
+ * retain their existing direct-path behavior.
+ */
+export function resolveImmutableSeed(seed: string): string {
+  const components = seed.split(sep).filter(Boolean);
+  const currentIndex = components.indexOf('current');
+  if (currentIndex === -1) return seed;
+  if (currentIndex !== components.length - 2)
+    throw new Error('OpenShell dynamic seed must be a child of its current release link');
+
+  const prefix = components.slice(0, currentIndex);
+  const configuredReleaseRoot = resolve(sep, ...prefix);
+  let releaseRoot: string;
+  try {
+    releaseRoot = realpathSync(configuredReleaseRoot);
+  } catch {
+    throw new Error('OpenShell dynamic seed release root is missing');
+  }
+  const current = join(releaseRoot, 'current');
+  const before = lstatSync(current, { bigint: true });
+  if (!before.isSymbolicLink()) throw new Error('OpenShell dynamic seed current is not a symlink');
+
+  let release: string;
+  try {
+    release = realpathSync(current);
+  } catch {
+    throw new Error('OpenShell dynamic seed current is dangling');
+  }
+  const after = lstatSync(current, { bigint: true });
+  if (
+    !after.isSymbolicLink() ||
+    before.dev !== after.dev ||
+    before.ino !== after.ino ||
+    before.mtimeNs !== after.mtimeNs
+  )
+    throw new Error('OpenShell dynamic seed current changed while it was being resolved');
+  const releasedRelative = relative(releaseRoot, release);
+  if (!releasedRelative || releasedRelative === '..' || releasedRelative.startsWith(`..${sep}`))
+    throw new Error('OpenShell dynamic seed current escapes its immutable release root');
+  if (!lstatSync(release).isDirectory())
+    throw new Error('OpenShell dynamic seed current does not resolve to a release directory');
+
+  const resolvedSeed = realpathSync(join(release, components.at(-1)!));
+  const seedRelative = relative(release, resolvedSeed);
+  if (!seedRelative || seedRelative === '..' || seedRelative.startsWith(`..${sep}`))
+    throw new Error('OpenShell dynamic seed escapes its immutable release');
+  if (!lstatSync(resolvedSeed).isDirectory())
+    throw new Error('OpenShell dynamic seed does not resolve to a directory');
+  return resolvedSeed;
 }
 
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
@@ -673,6 +737,9 @@ export class OpenShellRuntimeManager {
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
       created = true;
+      // Pin a dynamic `current` release before the create request is assembled.
+      // Do not retain its mutable spelling in config or dereference it again.
+      const seed = resolveImmutableSeed(this.config.seed);
       const args = [
         'sandbox',
         ...this.base(),
@@ -687,7 +754,7 @@ export class OpenShellRuntimeManager {
         // OpenShell uploads a source directory as a child of the destination.
         // Target the fixed parent so the MGMT seed lands at the canonical cwd
         // instead of /sandbox/workspaces/mgmt/mgmt.
-        `${this.config.seed}:/sandbox/workspaces`,
+        `${seed}:/sandbox/workspaces`,
         '--label',
         `mitzo.conversation=${owner}`,
         '--label',

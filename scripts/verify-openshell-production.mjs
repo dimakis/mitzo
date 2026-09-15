@@ -42,6 +42,17 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, canonicalJson(value[key])]),
+    );
+  return value;
+}
+
 export function validateStaticConfig(config, manifest) {
   if (config.MITZO_OPENSHELL_ENABLED !== '1') return { enabled: false };
   invariant(
@@ -258,7 +269,28 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
   // Legacy baselines predate the dynamic seed contract and retain only the
   // historical exact-commit comparison above. Every baseline with an explicit
   // runtime base is dynamically generated and must bind to its selected seed.
-  if (hasRuntimeBase && seedPath !== undefined) validateSeedContents(seedBaseline, seedPath);
+  if (hasRuntimeBase && seedPath !== undefined) {
+    validateSeedContents(seedBaseline, seedPath);
+    invariant(
+      typeof seedBaseline.payloadSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(seedBaseline.payloadSha256),
+      'prepared dynamic seed payload digest is invalid or missing',
+    );
+    invariant(
+      typeof manifest.runtime?.seedPayloadSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(manifest.runtime.seedPayloadSha256),
+      'stack lock dynamic seed payload digest is invalid or missing',
+    );
+    const payload = JSON.stringify(canonicalJson(seedBaseline.files));
+    invariant(
+      createHash('sha256').update(payload).digest('hex') === seedBaseline.payloadSha256,
+      'prepared dynamic seed payload digest does not match its file manifest',
+    );
+    invariant(
+      seedBaseline.payloadSha256 === manifest.runtime.seedPayloadSha256,
+      'prepared dynamic seed payload digest does not match the stack lock',
+    );
+  }
 }
 
 export function validateRuntimeDependencyProjection(projection, manifest) {

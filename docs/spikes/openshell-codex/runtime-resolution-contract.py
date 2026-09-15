@@ -77,9 +77,22 @@ def main():
     dependency_groups = pyproject.get("dependency-groups", {})
     if not isinstance(dependency_groups, dict):
         raise SystemExit("pyproject.toml dependency-groups is malformed")
-    selected_groups = {group: dependency_groups.get(group, []) for group in sorted(default_groups) if group != "dev"}
-    if not all(isinstance(values, list) for values in selected_groups.values()):
-        raise SystemExit("selected dependency group is malformed")
+    def expand_group(group, stack=()):
+        if group in stack:
+            raise SystemExit(f"dependency-group include cycle: {' -> '.join((*stack, group))}")
+        values = dependency_groups.get(group)
+        if not isinstance(values, list):
+            raise SystemExit(f"selected dependency group is missing or malformed: {group}")
+        expanded = []
+        for value in values:
+            if isinstance(value, dict) and set(value) == {"include-group"} and isinstance(value["include-group"], str):
+                expanded.extend(expand_group(value["include-group"], (*stack, group)))
+            elif isinstance(value, str):
+                expanded.append(value)
+            else:
+                raise SystemExit("unsupported dependency-group requirement")
+        return expanded
+    selected_groups = {group: expand_group(group) for group in sorted(default_groups) if group != "dev"}
 
     # uv sync --no-dev starts at the root's ordinary dependencies.  Do not
     # traverse dependency-groups/dev-dependencies, but retain each selected

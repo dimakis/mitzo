@@ -1,11 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
+  resolveImmutableSeed,
   sandboxNameForConversation,
 } from '../openshell-runtime.js';
 
@@ -52,6 +61,67 @@ describe('OpenShell runtime lifecycle', () => {
     expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{13}$/);
     expect(sandboxNameForConversation('private-conversation-name')).toHaveLength(19);
     expect(sandboxNameForConversation('private-conversation-name')).not.toContain('private');
+  });
+
+  it('pins a dynamic current release before the sandbox create request', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    mkdirSync(releases);
+    const releaseA = join(releases, 'release-a');
+    const releaseB = join(releases, 'release-b');
+    mkdirSync(join(releaseA, 'mgmt'), { recursive: true });
+    mkdirSync(join(releaseB, 'mgmt'), { recursive: true });
+    const current = join(releases, 'current');
+    symlinkSync(releaseA, current);
+    const expectedSeed = realpathSync(join(current, 'mgmt'));
+    try {
+      let created = false;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready();
+        }
+        if (args.includes('create')) {
+          // The updater may switch current after the manager has selected its
+          // release. The command must still use the already-resolved release.
+          unlinkSync(current);
+          symlinkSync(releaseB, current);
+          created = true;
+          return '{}';
+        }
+        return ready();
+      });
+      await new OpenShellRuntimeManager({ ...config, seed: join(current, 'mgmt') }, run).ensure(
+        'conversation',
+        new AbortController().signal,
+      );
+      const create = run.mock.calls.find(([args]) =>
+        (args as string[]).includes('create'),
+      )![0] as string[];
+      expect(create).toContain(`${expectedSeed}:/sandbox/workspaces`);
+      expect(create).not.toContain(`${realpathSync(join(releaseB, 'mgmt'))}:/sandbox/workspaces`);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects dangling or escaping dynamic current releases', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    mkdirSync(releases);
+    const outside = mkdtempSync(join(tmpdir(), 'mitzo-seed-outside-'));
+    const current = join(releases, 'current');
+    try {
+      symlinkSync(join(releases, 'missing'), current);
+      expect(() => resolveImmutableSeed(join(current, 'mgmt'))).toThrow('dangling');
+      unlinkSync(current);
+      mkdirSync(join(outside, 'mgmt'));
+      symlinkSync(outside, current);
+      expect(() => resolveImmutableSeed(join(current, 'mgmt'))).toThrow('escapes');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 
   it('creates a missing sandbox with the seed and broker providers', async () => {
