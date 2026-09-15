@@ -255,7 +255,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       });
       scopes.push({
         provider,
-        workspace: configured.config.workspace,
+        workspace: inventoryConfigured.config.workspace,
         status: 'unavailable',
         error: PROVIDER_INVENTORY_UNAVAILABLE,
       });

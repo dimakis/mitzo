@@ -95,6 +95,19 @@ it('keeps read-only inventory available while lifecycle cleanup is disabled', as
       sandboxes: [{ status: 'orphaned', physicalId: 'physical-id' }],
     });
     expect(inventory).toHaveBeenCalledOnce();
+    inventory.mockRejectedValueOnce(new Error('provider offline'));
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: false,
+      partial: true,
+      scopes: [
+        {
+          provider: 'openai-work',
+          workspace: 'default',
+          status: 'unavailable',
+          error: 'provider_inventory_unavailable',
+        },
+      ],
+    });
   } finally {
     inventory.mockRestore();
     controller.store.close();
