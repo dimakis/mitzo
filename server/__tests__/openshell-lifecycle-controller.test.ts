@@ -8,6 +8,7 @@ import {
   checkpointDirectoryForConversation,
   configureOpenShellLifecycleInventory,
   initializeOpenShellLifecycle,
+  openShellLifecycleAudit,
   openShellLifecycleCapability,
   openShellLifecycleInventory,
   openShellLifecyclePhaseCounts,
@@ -110,6 +111,48 @@ it('keeps read-only inventory available while lifecycle cleanup is disabled', as
     });
   } finally {
     inventory.mockRestore();
+    controller.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('keeps historical lifecycle audits visible while cleanup is disabled', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-audit-only-'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  const controller = configureOpenShellLifecycleInventory(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy: '/unavailable/lifecycle-policy.yaml',
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {} as Parameters<typeof configureOpenShellLifecycleInventory>[1],
+  )!;
+  try {
+    controller.store.appendAudit({
+      at: 1,
+      actor: 'operator',
+      conversationId: 'historical-conversation',
+      sandboxId: 'historical-sandbox',
+      generation: 1,
+      action: 'preview',
+      outcome: 'allowed',
+      error: null,
+    });
+    expect(openShellLifecycleAudit()).toEqual([
+      expect.objectContaining({ conversationId: 'historical-conversation', action: 'preview' }),
+    ]);
+  } finally {
     controller.store.close();
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
@@ -657,7 +700,7 @@ it('discovers recordless orphans and reconciles identity-less provisional record
       eventStore: { getSession: () => ({}) },
       taskStore: { getTree: () => [] },
       queue: () => ({ queued: 0, running: 0, recovery: false }),
-      accountProviders: () => ['openai-work'],
+      accountProviders: () => [],
     },
   )!;
   try {

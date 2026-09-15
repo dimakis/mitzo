@@ -151,17 +151,15 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       .map((record) => [record.physicalSandboxId!, record]),
   );
   const groups = new Map<string, OpenShellLifecycleRecord>();
-  const identitylessRecords: OpenShellLifecycleRecord[] = [];
   const providerOnlyScopes = new Set<string>();
   const seen = new Set<string>();
   const sandboxes: Array<ReturnType<typeof lifecycleInventoryRow>> = [];
   const scopes: Array<Record<string, string>> = [];
   for (const record of records) {
-    if (!record.identity) {
-      identitylessRecords.push(record);
-    } else if (!groups.has(record.accountProvider)) {
-      groups.set(record.accountProvider, record);
-    }
+    // Inventory needs only the persisted provider route, not a lifecycle
+    // identity. Provisional records must therefore keep retired providers in
+    // scope even after the account-profile callback stops returning them.
+    if (!groups.has(record.accountProvider)) groups.set(record.accountProvider, record);
   }
   try {
     for (const provider of inventoryConfigured.sources.accountProviders?.() ?? []) {
@@ -196,7 +194,9 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
               (item) =>
                 item.workspace === routeRecord.workspace && item.sandboxName === sandbox.name,
             );
-        sandboxes.push(lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned'));
+        sandboxes.push(
+          lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned', provider),
+        );
       }
     } catch (error) {
       if (signal.aborted) throw error;
@@ -261,26 +261,6 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       });
     }
   }
-  for (const record of identitylessRecords) {
-    const key = record.physicalSandboxId ?? record.sandboxName;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (
-      !scopes.some(
-        (scope) =>
-          scope.provider === record.accountProvider &&
-          scope.workspace === record.workspace &&
-          scope.status === 'unavailable',
-      )
-    )
-      scopes.push({
-        provider: record.accountProvider ?? 'unknown',
-        workspace: record.workspace,
-        status: 'unavailable',
-        error: PROVIDER_INVENTORY_UNAVAILABLE,
-      });
-    sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
-  }
   for (const record of records) {
     const key = record.physicalSandboxId ?? record.sandboxName;
     if (!seen.has(key)) sandboxes.push(lifecycleInventoryRow(record, undefined, 'missing'));
@@ -341,7 +321,7 @@ export function recordOpenShellLifecycleAudit(entry: Omit<OpenShellLifecycleAudi
   }
 }
 export function openShellLifecycleAudit(limit?: number) {
-  return configured?.store.listAudit(limit) ?? [];
+  return inventoryConfigured?.store.listAudit(limit) ?? [];
 }
 export function openShellLifecycleRecord(conversationId: string) {
   return configured?.store.get(conversationId) ?? null;
