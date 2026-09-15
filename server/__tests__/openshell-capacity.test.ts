@@ -67,6 +67,38 @@ it('keeps Podman usage/reclaimable separate from authoritative filesystem free c
   });
 });
 
+it('distinguishes SI and IEC units in fallback Podman metrics', async () => {
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () =>
+      JSON.stringify([
+        { Size: '12.5MB', Reclaimable: '7KB' },
+        { Size: '2MiB', Reclaimable: '3KiB' },
+      ]),
+    filesystem: async () =>
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 60 40 60% /',
+  });
+  await expect(collector.collect(signal())).resolves.toMatchObject({
+    podman: {
+      available: true,
+      usageBytes: 12.5 * 1000 ** 2 + 2 * 1024 ** 2,
+      reclaimableBytes: 7 * 1000 + 3 * 1024,
+    },
+  });
+});
+
+it('propagates collection cancellation instead of converting it into capacity loss', async () => {
+  const controller = new AbortController();
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () => {
+      controller.abort();
+      return '[]';
+    },
+    filesystem: async () =>
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 60 40 60% /',
+  });
+  await expect(collector.collect(controller.signal)).rejects.toThrow(/abort/i);
+});
+
 it('does not misrepresent incomplete Podman metrics or a missing filesystem as zero', async () => {
   const collector = new OpenShellCapacityCollector('/', {
     podman: async () => JSON.stringify([{ Size: '12B' }]),

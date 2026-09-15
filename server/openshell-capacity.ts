@@ -72,11 +72,12 @@ function scrub(value: unknown) {
 
 function bytes(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  const match = String(value).match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?)(?:i?B)?$/i);
+  const match = String(value).match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGT]?)(i?)(?:B)?$/i);
   if (!match) return undefined;
+  const base = match[3]?.toLowerCase() === 'i' ? 1024 : 1000;
   return (
     Number(match[1]) *
-    ({ '': 1, K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[match[2].toUpperCase()] ?? 1)
+    ({ '': 1, K: base, M: base ** 2, G: base ** 3, T: base ** 4 }[match[2].toUpperCase()] ?? 1)
   );
 }
 
@@ -117,6 +118,7 @@ export class OpenShellCapacityCollector {
           ? run('df', ['-Pk', this.path], signal)
           : Promise.reject(new Error('authoritative OpenShell capacity path is not configured')),
     ]);
+    if (signal.aborted) throw signal.reason;
     if (podman.status === 'fulfilled') {
       try {
         const rows = JSON.parse(podman.value) as unknown;

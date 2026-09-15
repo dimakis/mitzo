@@ -952,6 +952,14 @@ it('discovers recordless sandboxes after their provider profile is removed', asy
     });
     expect(allInventory).toHaveBeenCalledOnce();
     expect(inventory).toHaveBeenCalledOnce();
+
+    allInventory.mockResolvedValueOnce([]);
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: true,
+      partial: false,
+      sandboxes: [],
+      scopes: [{ provider: 'configured', workspace: 'default', status: 'available' }],
+    });
   } finally {
     allInventory.mockRestore();
     inventory.mockRestore();

@@ -162,6 +162,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const seen = new Set<string>();
   const sandboxes: Array<Awaited<ReturnType<typeof lifecycleInventoryRow>>> = [];
   const scopes: Array<Record<string, string>> = [];
+  let workspaceDiscoverySucceeded = false;
   for (const record of records) {
     // Inventory needs only the persisted provider route, not a lifecycle
     // identity. Provisional records must therefore keep retired providers in
@@ -173,6 +174,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       const provider = sandbox.labels?.['mitzo.account_provider'];
       if (provider && !groups.has(provider)) providerOnlyScopes.add(provider);
     }
+    workspaceDiscoverySucceeded = true;
   } catch (error) {
     if (signal.aborted) throw error;
     log.warn('OpenShell workspace provider discovery unavailable', {
@@ -311,6 +313,12 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     if (!seen.has(key))
       sandboxes.push(await lifecycleInventoryRow(record, undefined, 'missing', signal));
   }
+  if (workspaceDiscoverySucceeded && !scopes.length)
+    scopes.push({
+      provider: 'configured',
+      workspace: inventoryConfigured.config.workspace,
+      status: 'available',
+    });
   return {
     available: scopes.some((scope) => scope.status === 'available'),
     partial: scopes.some((scope) => scope.status === 'unavailable'),
