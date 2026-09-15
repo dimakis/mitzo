@@ -35,6 +35,8 @@ describe('requestedIntegrationProviders', () => {
     'write this using the Google Docs API',
     'use the Google Drive API to list files',
     "Don't edit the code, just search Gmail for Cat",
+    "I don't remember the subject, please search Gmail for Cat",
+    "I can't recall the subject, please search Gmail for Cat",
     'Fix the Gmail handler and then search Gmail for Cat',
     'show my Gmail messages',
     'Explain how to use Gmail and then search Gmail for Cat',
@@ -48,6 +50,7 @@ describe('requestedIntegrationProviders', () => {
     'do not open Drive, but search Gmail for Cat',
     'check my email, but do not access my calendar',
     'check my calendar, but do not access my email',
+    'find the email Cat sent. No, do not access my calendar.',
   ])('recognizes Google Workspace access intent in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
@@ -84,6 +87,7 @@ describe('requestedIntegrationProviders', () => {
     "please don't search or open Gmail",
     'do not search Gmail or open Google Drive',
     'do not search Gmail then open Google Drive',
+    'do not search Gmail, access Gmail',
     'you must not search and then access Gmail',
     'explain how to use Gmail',
     'show me how to use Google Drive',
@@ -105,6 +109,9 @@ describe('requestedIntegrationProviders', () => {
     'search Gmail. Do not access my email',
     'check my drive, but do not access my drive',
     'open my documents, but do not access my documents',
+    'find the email Cat sent. No, do not access my email.',
+    'reply to the email from Morgan, but do not access my email',
+    'check the calendar for tomorrow. No, do not access my calendar.',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });

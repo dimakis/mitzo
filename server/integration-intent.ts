@@ -1,7 +1,7 @@
 const GOOGLE_WORKSPACE = 'google-workspace';
 
 // Keep coordinated verbs in one clause so a leading refusal governs each of
-// them ("do not search or access Gmail"). `hasActionForResource` rejects a
+// them ("do not search or access Gmail"). Pair matching rejects a
 // coordinating connector between a verb and target, so unrelated verbs still
 // cannot bind across the coordination.
 const REQUEST_CLAUSE_BOUNDARY = /[.!?;\n]+|\b(?:but|while)\b/i;
@@ -69,17 +69,6 @@ function wordCount(text: string): number {
  * mention, while allowing natural resource-first requests such as
  * "In Gmail, find the message".
  */
-function hasActionForResource(
-  clause: string,
-  resource: RegExp,
-  actionPattern = WORKSPACE_ACTION,
-  isTechnicalArtifact?: (clause: string, target: RegExpMatchArray) => boolean,
-): boolean {
-  return matchingActionsForResource(clause, resource, actionPattern, isTechnicalArtifact).some(
-    ({ negated }) => !negated,
-  );
-}
-
 function matchingActionsForResource(
   clause: string,
   resource: RegExp,
@@ -139,7 +128,8 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   // Coordination remains in a single clause. Treat a prior explicit refusal
   // as governing later coordinated verbs until a sentence or contrast boundary
   // starts a new clause; ambiguous coordination must not request access.
-  const lead = clause.slice(Math.max(0, actionIndex - 120), actionIndex);
+  const leadStart = Math.max(0, actionIndex - 120);
+  const lead = clause.slice(leadStart, actionIndex);
   // A comma followed by an explicit limiter starts a fresh affirmative action
   // phrase ("don't edit code, just search Gmail"). A bare comma remains
   // ambiguous and therefore stays inside the refusal scope.
@@ -147,11 +137,26 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   for (const reset of lead.matchAll(/(?:^|,)\s*(?:just|instead|rather)\s*/gi))
     resetEnd = (reset.index ?? 0) + reset[0].length;
   const scopedLead = lead.slice(resetEnd);
-  return (
-    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid)\b/i.test(
-      scopedLead,
-    ) || /\brefrain\s+from\b/i.test(scopedLead)
-  );
+  const scopedStart = leadStart + resetEnd;
+  const negation =
+    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid|refrain\s+from)\b/gi;
+  for (const match of scopedLead.matchAll(negation)) {
+    const afterNegation = clause.slice(
+      scopedStart + (match.index ?? 0) + match[0].length,
+      actionIndex + 40,
+    );
+    // Refusals govern a direct Workspace verb phrase (and its coordinated
+    // continuations), not an unrelated conversational contraction such as
+    // "I don't remember the subject, please search Gmail".
+    if (
+      new RegExp(
+        `^\\s*(?:(?:ever|again|directly|really|please)\\s+)*${WORKSPACE_ACTION.source}`,
+        'i',
+      ).test(afterNegation)
+    )
+      return true;
+  }
+  return false;
 }
 
 function isExplicitGoogleServiceArtifact(clause: string, target: RegExpMatchArray): boolean {
@@ -187,8 +192,21 @@ function isContentSearchArtifact(clause: string, target: RegExpMatchArray): bool
   );
 }
 
-function explicitGoogleServiceStates(clause: string): Map<string, boolean> {
-  const states = new Map<string, boolean>();
+type ResourceState = { resource: string; index: number; affirmative: boolean };
+
+function latestResourceState(
+  states: Map<string, ResourceState>,
+  resource: string,
+  matches: Array<{ index: number; negated: boolean }>,
+) {
+  const latest = matches.reduce((last, match) => (match.index > last.index ? match : last));
+  const current = states.get(resource);
+  if (!current || latest.index >= current.index)
+    states.set(resource, { resource, index: latest.index, affirmative: !latest.negated });
+}
+
+function explicitGoogleServiceStates(clause: string): ResourceState[] {
+  const states = new Map<string, ResourceState>();
   EXPLICIT_GOOGLE_SERVICE.lastIndex = 0;
   for (const target of clause.matchAll(EXPLICIT_GOOGLE_SERVICE)) {
     const name = explicitServiceIdentity(target[0]);
@@ -201,11 +219,9 @@ function explicitGoogleServiceStates(clause: string): Map<string, boolean> {
     );
     if (GOOGLE_SERVICE_API_TRANSPORT.test(clause) || GOOGLE_SERVICE_API_COMMAND.test(clause))
       matches.push(...matchingActionsForResource(clause, resource, API_DATA_ACTION));
-    if (!matches.length) continue;
-    const latest = matches.reduce((last, match) => (match.index > last.index ? match : last));
-    states.set(name, !latest.negated);
+    if (matches.length) latestResourceState(states, name, matches);
   }
-  return states;
+  return [...states.values()];
 }
 
 function explicitServiceIdentity(service: string): string {
@@ -223,47 +239,25 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function hasClearGenericEmailOrCalendarTarget(clause: string): boolean {
-  const namesPersonalData = new RegExp(PERSONAL_WORKSPACE_DATA.source, 'i').test(clause);
-  const emailHasMessageTarget =
+function hasClearGenericEmailTarget(clause: string): boolean {
+  return (
     /\b(?:emails?|mail)\s+(?:(?:from|by|to|about|that|which)\b|\S+\s+(?:sent|wrote|shared)\b)/i.test(
       clause,
-    ) || /\b(?:send|reply)\s+(?:(?:this|an?|the)\s+)?(?:email|mail)\s+(?:to|via)\b/i.test(clause);
-  const calendarHasEventTarget =
-    /\bcalendar\s+(?:events?|meetings?|schedule|for|on|with|containing)\b/i.test(clause) ||
-    /\b(?:create|update|delete|move)\s+(?:an?\s+)?(?:event|meeting|appointment)\s+in\s+(?:my\s+)?calendar\b/i.test(
-      clause,
-    );
-
-  return namesPersonalData || emailHasMessageTarget || calendarHasEventTarget;
-}
-
-function hasGenericWorkspaceIntent(clause: string): boolean {
-  return (
-    hasClearGenericEmailOrCalendarTarget(clause) &&
-    (hasActionForResource(
-      clause,
-      PERSONAL_WORKSPACE_DATA,
-      GENERIC_WORKSPACE_DATA_ACTION,
-      isGenericWorkspaceArtifact,
-    ) ||
-      hasActionForResource(
-        clause,
-        GENERIC_EMAIL,
-        GENERIC_WORKSPACE_DATA_ACTION,
-        isGenericWorkspaceArtifact,
-      ) ||
-      hasActionForResource(
-        clause,
-        GENERIC_CALENDAR,
-        GENERIC_WORKSPACE_DATA_ACTION,
-        isGenericWorkspaceArtifact,
-      ))
+    ) || /\b(?:send|reply)\s+(?:(?:this|an?|the)\s+)?(?:email|mail)\s+(?:to|via)\b/i.test(clause)
   );
 }
 
-function genericPersonalDataStates(clause: string): Map<string, boolean> {
-  const states = new Map<string, boolean>();
+function hasClearGenericCalendarTarget(clause: string): boolean {
+  return (
+    /\bcalendar\s+(?:events?|meetings?|schedule|for|on|with|containing)\b/i.test(clause) ||
+    /\b(?:create|update|delete|move)\s+(?:an?\s+)?(?:event|meeting|appointment)\s+in\s+(?:my\s+)?calendar\b/i.test(
+      clause,
+    )
+  );
+}
+
+function genericPersonalDataStates(clause: string): ResourceState[] {
+  const states = new Map<string, ResourceState>();
   for (const [identity, resource] of [
     ['mail', PERSONAL_MAIL],
     ['calendar', PERSONAL_CALENDAR],
@@ -277,15 +271,39 @@ function genericPersonalDataStates(clause: string): Map<string, boolean> {
       GENERIC_WORKSPACE_DATA_ACTION,
       isGenericWorkspaceArtifact,
     );
-    if (!matches.length) continue;
-    const latest = matches.reduce((last, match) => (match.index > last.index ? match : last));
-    states.set(identity, !latest.negated);
+    if (matches.length) latestResourceState(states, identity, matches);
   }
-  if (/\bwhat(?:'s|\s+is)\s+on\s+(?:my|our|your)\s+calendar\b/i.test(clause))
-    states.set('calendar', true);
-  if (/\bany\s+(?:new\s+)?(?:emails?|mail)\s+(?:from|by|about|to)\b/i.test(clause))
-    states.set('mail', true);
-  return states;
+  const calendarQuestion = /\bwhat(?:'s|\s+is)\s+on\s+(?:my|our|your)\s+calendar\b/i.exec(clause);
+  if (calendarQuestion)
+    states.set('calendar', {
+      resource: 'calendar',
+      index: calendarQuestion.index,
+      affirmative: true,
+    });
+  const emailQuestion = /\bany\s+(?:new\s+)?(?:emails?|mail)\s+(?:from|by|about|to)\b/i.exec(
+    clause,
+  );
+  if (emailQuestion)
+    states.set('mail', { resource: 'mail', index: emailQuestion.index, affirmative: true });
+  return [...states.values()];
+}
+
+function genericEmailOrCalendarStates(clause: string): ResourceState[] {
+  const states = new Map<string, ResourceState>();
+  for (const [resource, target, hasClearTarget] of [
+    ['mail', GENERIC_EMAIL, hasClearGenericEmailTarget],
+    ['calendar', GENERIC_CALENDAR, hasClearGenericCalendarTarget],
+  ] as const) {
+    if (!hasClearTarget(clause)) continue;
+    const matches = matchingActionsForResource(
+      clause,
+      target,
+      GENERIC_WORKSPACE_DATA_ACTION,
+      isGenericWorkspaceArtifact,
+    );
+    if (matches.length) latestResourceState(states, resource, matches);
+  }
+  return [...states.values()];
 }
 
 /**
@@ -301,25 +319,20 @@ export function requestedIntegrationProviders(
 
   const activeResources = new Set<string>();
   let workspaceAccessRefused = false;
-  let asksForOtherGenericWorkspaceData = false;
   for (const clause of requestClauses(prompt)) {
-    for (const [service, affirmative] of explicitGoogleServiceStates(clause)) {
-      if (service === 'workspace' && !affirmative) {
+    const states = [
+      ...explicitGoogleServiceStates(clause),
+      ...genericPersonalDataStates(clause),
+      ...genericEmailOrCalendarStates(clause),
+    ].sort((left, right) => left.index - right.index);
+    for (const { resource, affirmative } of states) {
+      if (resource === 'workspace' && !affirmative) {
         workspaceAccessRefused = true;
         activeResources.clear();
-      } else if (affirmative) activeResources.add(service);
-      else activeResources.delete(service);
-    }
-    const genericStates = genericPersonalDataStates(clause);
-    for (const [resource, affirmative] of genericStates) {
-      if (affirmative) activeResources.add(resource);
+      } else if (affirmative) activeResources.add(resource);
       else activeResources.delete(resource);
     }
-    if (!genericStates.size && hasGenericWorkspaceIntent(clause))
-      asksForOtherGenericWorkspaceData = true;
   }
 
-  return !workspaceAccessRefused && (activeResources.size || asksForOtherGenericWorkspaceData)
-    ? [GOOGLE_WORKSPACE]
-    : [];
+  return !workspaceAccessRefused && activeResources.size ? [GOOGLE_WORKSPACE] : [];
 }
