@@ -840,6 +840,7 @@ export async function startChat(
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
     agentName?: string;
+    userIntent?: string;
   },
 ) {
   return withSpanAsync(
@@ -876,6 +877,7 @@ async function _startChatInner(
     onSessionResolved?: (sessionId: string) => void;
     telosTaskId?: string;
     agentName?: string;
+    userIntent?: string;
   },
 ) {
   const openShellAvailable =
@@ -1077,6 +1079,7 @@ async function _startChatInner(
     codexProfile ? undefined : options.images,
     options.contextBlocks,
   );
+  const userIntent = options.userIntent ?? prompt;
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1323,6 +1326,7 @@ async function _startChatInner(
         session,
         registry,
         prompt: fullPrompt,
+        intent: userIntent,
         model: options.model,
         reasoningEffort: options.reasoningEffort,
         images: options.images,
@@ -1618,6 +1622,7 @@ export async function sendToChat(
   model?: string,
   reasoningEffort?: string | null,
   signal?: AbortSignal,
+  userIntent?: string,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -1723,6 +1728,7 @@ export async function sendToChat(
           {
             id: messageId,
             prompt: fullPrompt,
+            intent: userIntent ?? prompt,
             images,
             reasoningEffort,
             ...(model ? { model } : {}),

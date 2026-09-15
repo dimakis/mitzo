@@ -39,6 +39,7 @@ import {
   touchOpenShellLifecycle,
   markOpenShellLifecycleIdle,
 } from './openshell-lifecycle-controller.js';
+import { requestedIntegrationProviders } from './integration-intent.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
@@ -53,7 +54,7 @@ function grantIntegrationTools(providers: string[]) {
     {
       name: GRANT_INTEGRATION_TOOL,
       description:
-        'Attach one administrator-reviewed integration provider to this conversation sandbox after explicit Mitzo approval. Use when the user asks to grant or enable integration access; this does not change OAuth consent.',
+        'Attach one administrator-reviewed integration provider to this conversation sandbox after explicit Mitzo approval. Call this before using a service that is not already attached, including before gws, Gmail, Drive, Docs, Sheets, or Calendar access. This does not change OAuth consent.',
       input_schema: {
         type: 'object',
         properties: {
@@ -181,6 +182,7 @@ interface Options {
   session: ManagedSession;
   registry: SessionRegistry;
   prompt: string;
+  intent?: string;
   model?: string;
   reasoningEffort?: string | null;
   images?: Array<{ data: string; mediaType: string }>;
@@ -312,6 +314,114 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       : openShell;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
+  let integrationTurn:
+    | {
+        id: string;
+        denied: Set<string>;
+        pending: Map<string, Promise<{ content: string; isError: boolean }>>;
+      }
+    | undefined;
+  const requestIntegrationAccess = async (
+    provider: string,
+    signal: AbortSignal,
+    controlPlane = false,
+  ) => {
+    // A cancelled approval can settle after the next queued turn has started.
+    // Keep all coalescing and denial state bound to the initiating turn.
+    const turn = integrationTurn;
+    if (
+      !openShell ||
+      !runtimeManager ||
+      !managedOpenShell ||
+      !grantableProviders.includes(provider)
+    )
+      return { content: 'Integration provider is not grantable', isError: true };
+    if (turn?.denied.has(provider))
+      return {
+        content: `Integration provider ${provider} was denied for this turn`,
+        isError: true,
+      };
+    const pending = turn?.pending.get(provider);
+    if (pending) return pending;
+    const request = requestIntegrationAccessInner(provider, signal, turn, controlPlane);
+    turn?.pending.set(provider, request);
+    try {
+      return await request;
+    } finally {
+      turn?.pending.delete(provider);
+    }
+  };
+  const requestIntegrationAccessInner = async (
+    provider: string,
+    signal: AbortSignal,
+    turn: typeof integrationTurn,
+    controlPlane: boolean,
+  ) => {
+    if (!runtimeManager || !managedOpenShell)
+      return { content: 'Integration provider is not grantable', isError: true };
+    const access = await runtimeManager.hasServiceProviderAccess(
+      options.conversationId,
+      managedOpenShell,
+      provider,
+      signal,
+    );
+    if (access.state === 'available')
+      return {
+        content: `Integration provider ${provider} is already available to this chat`,
+        isError: false,
+      };
+    if (access.state === 'indeterminate') throw access.error;
+    const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+    const attachApprovedProvider = async () => {
+      try {
+        await runtimeManager.grantServiceProvider(
+          options.conversationId,
+          managedOpenShell,
+          provider,
+          signal,
+        );
+      } catch {
+        signal.throwIfAborted();
+        return false;
+      }
+      return true;
+    };
+    if (access.state === 'approved-detached') {
+      if (!(await attachApprovedProvider()))
+        return { content: 'Integration provider attachment failed', isError: true };
+      return {
+        content: `Integration provider ${provider} is now available to this chat`,
+        isError: false,
+      };
+    }
+    const approvedInput = { provider };
+    const owner = options.registry.findBySessionId(options.conversationId);
+    if (!owner) return { content: 'Codex session unavailable', isError: true };
+    const decision = await buildPermissionHandler(owner.clientId, options.registry, {
+      onDemandCreate: options.onDemandCreate,
+    })(GRANT_INTEGRATION_TOOL, approvedInput, {
+      signal,
+      toolUseID: randomUUID(),
+      forcePrompt: true,
+      approvalScope: 'conversation',
+      controlPlane,
+      title: `Grant ${providerLabel} to this conversation?`,
+      description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
+    });
+    signal.throwIfAborted();
+    if (decision.behavior !== 'allow') {
+      turn?.denied.add(provider);
+      return { content: decision.message, isError: true };
+    }
+    if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
+      return { content: 'Provider grant changed during approval; retry', isError: true };
+    if (!(await attachApprovedProvider()))
+      return { content: 'Integration provider attachment failed', isError: true };
+    return {
+      content: `Integration provider ${provider} is now available to this chat`,
+      isError: false,
+    };
+  };
   try {
     signal.throwIfAborted();
   } catch (error) {
@@ -391,7 +501,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     systemPrompt:
       options.systemPrompt +
       (connectedOpenShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` If the user asks to add integration access, call ${GRANT_INTEGRATION_TOOL}; Mitzo will present an approval card and attach only a reviewed provider to this chat without changing OAuth consent.` : ''}\n`
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (managedConnection
         ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
@@ -463,39 +573,37 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       if (!owner) throw new Error('Codex session unavailable');
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
     },
+    ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
+      ? {
+          prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
+            integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
+            // Older persisted commands did not retain separate raw intent. Do
+            // not infer approval from their assembled provider prompt.
+            const rawUserIntent = userIntent ?? '';
+            for (const provider of requestedIntegrationProviders(
+              rawUserIntent,
+              grantableProviders,
+            )) {
+              const access = await runtimeManager.hasServiceProviderAccess(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              );
+              if (access.state === 'available') continue;
+              if (access.state === 'indeterminate') throw access.error;
+              const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+              const result = await requestIntegrationAccess(provider, signal, true);
+              if (result.isError)
+                return `${providerPrompt}\n\n[Mitzo did not enable ${providerLabel} for this turn. Do not run its CLI or claim a gateway outage; explain that this chat does not have access.]`;
+            }
+          },
+        }
+      : {}),
     executeTool: async (name, input, signal) => {
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
-        if (!grantableProviders.includes(provider))
-          return { content: 'Integration provider is not grantable', isError: true };
-        const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
-        const approvedInput = { provider };
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner) throw new Error('Codex session unavailable');
-        const decision = await buildPermissionHandler(owner.clientId, options.registry, {
-          onDemandCreate: options.onDemandCreate,
-        })(GRANT_INTEGRATION_TOOL, approvedInput, {
-          signal,
-          toolUseID: randomUUID(),
-          forcePrompt: true,
-          approvalScope: 'conversation',
-          title: `Grant ${providerLabel} to this conversation?`,
-          description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
-        });
-        signal.throwIfAborted();
-        if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
-        if (!isDeepStrictEqual(decision.updatedInput, approvedInput))
-          return { content: 'Provider grant changed during approval; retry', isError: true };
-        await runtimeManager.grantServiceProvider(
-          options.conversationId,
-          managedOpenShell,
-          provider,
-          signal,
-        );
-        return {
-          content: `Integration provider ${provider} is now available to this chat`,
-          isError: false,
-        };
+        return requestIntegrationAccess(provider, signal);
       }
       return (
         hooks?.executeTool(mcp.displayName(name), input, signal, async (input, forcePrompt) => {
@@ -571,6 +679,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     await runtime.send({
       id: options.messageId,
       prompt: options.prompt,
+      intent: options.intent,
       model: options.model,
       reasoningEffort: options.reasoningEffort,
       images: options.images,

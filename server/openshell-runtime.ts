@@ -169,6 +169,14 @@ export type OpenShellAccountRoute =
       model: string;
     };
 
+export type ServiceProviderAccess =
+  | { state: 'available' }
+  | { state: 'absent' }
+  // The durable approval is still valid, but a verified Ready sandbox no
+  // longer has its physical attachment (for example after an attach crash).
+  | { state: 'approved-detached' }
+  | { state: 'indeterminate'; error: Error };
+
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
 function command(binary: string, args: readonly string[], signal: AbortSignal): Promise<string> {
@@ -316,8 +324,91 @@ export class OpenShellRuntimeManager {
     runSsh?: Run,
     private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
+    if (config.grantableServiceProviders.includes(config.account.provider))
+      throw new Error(
+        `OpenShell account provider cannot also be grantable: ${config.account.provider}`,
+      );
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
+  }
+
+  async hasServiceProviderAccess(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<ServiceProviderAccess> {
+    if (this.config.serviceProviders.includes(provider)) return { state: 'available' };
+    if (!this.config.grantableServiceProviders.includes(provider)) return { state: 'absent' };
+
+    const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+    if (!owner)
+      return {
+        state: 'indeterminate',
+        error: new Error('OpenShell sandbox does not belong to this conversation'),
+      };
+    try {
+      signal.throwIfAborted();
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (!sandbox || sandbox.phase !== 'Ready')
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} is ${sandbox?.phase ?? 'unavailable'}`,
+          ),
+        };
+      if (sandbox.labels?.['mitzo.conversation'] !== owner)
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`,
+          ),
+        };
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
+          ),
+        };
+      const attached = parseProviderAttachments(
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'list', runtime.sandboxName],
+          signal,
+        ),
+        runtime.sandboxName,
+      );
+      const approved = this.providerPolicyState
+        .read(runtime.sandboxName)
+        ?.granted.includes(provider);
+      if (!attached.includes(provider))
+        return approved ? { state: 'approved-detached' } : { state: 'absent' };
+      if (!approved)
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} has an unapproved ${provider} attachment`,
+          ),
+        };
+      return { state: 'available' };
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return {
+        state: 'indeterminate',
+        error:
+          error instanceof Error
+            ? error
+            : new Error('OpenShell service provider availability could not be verified'),
+      };
+    }
+  }
+
+  private sandboxOwner(conversationId: string, sandboxName: string): string | undefined {
+    const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+    if (sandboxName === sandboxNameForConversation(conversationId, this.config.sandboxIdLength))
+      return conversationHash.slice(0, 63);
+    if (sandboxName === legacySandboxNameForConversation(conversationHash)) return conversationHash;
+    return undefined;
   }
 
   private base() {
@@ -645,9 +736,17 @@ export class OpenShellRuntimeManager {
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
-    const policyFingerprint = providerPolicyFingerprint(
-      this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p)),
-    );
+    // The account provider is a separately-bound inference/account role. It
+    // can happen to have a service-provider name (for example `github`), but
+    // it is never part of the attachable service-provider policy.
+    const automaticProviders = () => [
+      ...new Set(
+        this.config.serviceProviders.filter(
+          (provider) => SERVICE_PROVIDERS.has(provider) && provider !== accountProvider,
+        ),
+      ),
+    ];
+    const policyFingerprint = providerPolicyFingerprint(automaticProviders());
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
     const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
     const currentOwner = conversationHash.slice(0, 63);
@@ -713,7 +812,8 @@ export class OpenShellRuntimeManager {
           this.config.account.model,
         );
       }
-      for (const provider of this.config.serviceProviders) args.push('--provider', provider);
+      for (const provider of this.config.serviceProviders)
+        if (provider !== accountProvider) args.push('--provider', provider);
       try {
         await this.run(args, signal);
       } catch (error) {
@@ -730,29 +830,39 @@ export class OpenShellRuntimeManager {
     await this.verifyManagedConnections(name, signal);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
-        const automatic = [
-          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
-        ];
+        const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
         const previous =
           persisted ??
           (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
             ? { automatic, granted: [] }
             : undefined);
-        const granted = (previous?.granted ?? []).filter((provider) =>
-          this.config.grantableServiceProviders.includes(provider),
+        const granted = (previous?.granted ?? []).filter(
+          (provider) =>
+            provider !== accountProvider &&
+            this.config.grantableServiceProviders.includes(provider),
         );
-        const desired = new Set([this.config.account.provider, ...automatic, ...granted]);
-        const previouslyAttached = new Set([
-          ...(previous?.automatic ?? []),
-          ...(previous?.granted ?? []),
-        ]);
-        const attach = retained
-          ? automatic.filter((provider) => !previouslyAttached.has(provider))
-          : [];
+        // Desired policy alone is not evidence of a live provider attachment:
+        // an attach can fail after its approval record is durable. Conversely,
+        // a physical grant without that record is unapproved and must be
+        // detached. Read actual state before mutating either the sandbox or
+        // policy; an unreadable list fails closed.
+        const desired = new Set([...automatic, ...granted]);
+        const actual = retained
+          ? new Set(
+              parseProviderAttachments(
+                await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
+                name,
+              ),
+            )
+          : new Set<string>();
+        const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
         const detach = retained
-          ? [...(previous ? previouslyAttached : SERVICE_PROVIDERS)].filter(
-              (provider) => !desired.has(provider),
+          ? [...actual].filter(
+              (provider) =>
+                provider !== accountProvider &&
+                SERVICE_PROVIDERS.has(provider) &&
+                !desired.has(provider),
             )
           : [];
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
@@ -787,16 +897,13 @@ export class OpenShellRuntimeManager {
     provider: string,
     signal: AbortSignal,
   ): Promise<void> {
+    if (provider === this.config.account.provider)
+      throw new Error('OpenShell account provider cannot be granted as a service provider');
     if (!this.config.grantableServiceProviders.includes(provider))
       throw new Error('OpenShell service provider is not grantable');
     return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
-      const conversationHash = createHash('sha256').update(conversationId).digest('hex');
-      const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-      const legacyName = legacySandboxNameForConversation(conversationHash);
-      const owner =
-        runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
-      if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
-        throw new Error('OpenShell sandbox does not belong to this conversation');
+      const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+      if (!owner) throw new Error('OpenShell sandbox does not belong to this conversation');
       const sandbox = await this.get(runtime.sandboxName, signal);
       if (!sandbox || sandbox.phase !== 'Ready')
         throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
@@ -808,6 +915,22 @@ export class OpenShellRuntimeManager {
         throw new Error(
           `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
         );
+      // Record desired policy before attach. A crash can only leave an
+      // approved-but-missing attachment, which is safely verified as absent.
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic?.filter(
+          (configured) => configured !== this.config.account.provider,
+        ) ?? [
+          ...new Set(
+            this.config.serviceProviders.filter(
+              (configured) =>
+                SERVICE_PROVIDERS.has(configured) && configured !== this.config.account.provider,
+            ),
+          ),
+        ],
+        granted: [...new Set([...(previous?.granted ?? []), provider])],
+      });
       try {
         await this.run(
           ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
@@ -818,13 +941,6 @@ export class OpenShellRuntimeManager {
         if (!/already attached|conflict|409/i.test(message))
           throw new Error('OpenShell service provider grant failed', { cause: error });
       }
-      const previous = this.providerPolicyState.read(runtime.sandboxName);
-      this.providerPolicyState.write(runtime.sandboxName, {
-        automatic: previous?.automatic ?? [
-          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
-        ],
-        granted: [...new Set([...(previous?.granted ?? []), provider])],
-      });
       await this.waitForReady(runtime.sandboxName, owner, signal);
     });
   }

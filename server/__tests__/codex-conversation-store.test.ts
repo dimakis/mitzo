@@ -67,6 +67,67 @@ it('deduplicates queued prompts and preserves pending work through restart witho
   expect(s.claimNext('c', binding)).toBeUndefined();
   s.close();
 });
+it('deduplicates a legacy command with an equivalent raw intent without weakening input collisions', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  const db = new Database(path);
+  db.prepare(
+    "INSERT INTO codex_commands(conversation_id,id,input,status) VALUES (?,?,?,'queued')",
+  ).run(
+    'c',
+    'legacy',
+    JSON.stringify({
+      id: 'legacy',
+      prompt: '<context>search Gmail for Cat</context>\nraw request',
+      model: 'gpt',
+    }),
+  );
+  db.close();
+
+  expect(
+    s.enqueue('c', binding, {
+      id: 'legacy',
+      prompt: '<context>search Gmail for Cat</context>\nraw request',
+      model: 'gpt',
+      intent: 'raw request',
+    }),
+  ).toBe(false);
+  expect(() =>
+    s.enqueue('c', binding, {
+      id: 'legacy',
+      prompt: 'different provider prompt',
+      model: 'gpt',
+      intent: 'different raw intent',
+    }),
+  ).toThrow('reused');
+
+  expect(
+    s.enqueue('c', binding, {
+      id: 'modern',
+      prompt: 'rendered skill prompt',
+      model: 'gpt',
+      intent: 'first raw intent',
+    }),
+  ).toBe(true);
+  expect(() =>
+    s.enqueue('c', binding, {
+      id: 'modern',
+      prompt: 'rendered skill prompt',
+      model: 'gpt',
+      intent: 'second raw intent',
+    }),
+  ).toThrow('reused');
+  expect(() =>
+    s.enqueue('c', binding, {
+      id: 'modern',
+      prompt: 'rendered skill prompt',
+      model: 'other-model',
+      intent: 'first raw intent',
+    }),
+  ).toThrow('reused');
+  s.close();
+});
 it('records tool claims before execution and never repeats an uncertain effect', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

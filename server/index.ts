@@ -97,6 +97,7 @@ import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
+import { routeLegacySkillMessage } from './legacy-skill-routing.js';
 import { NativeCommandRegistry } from './native-commands.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
@@ -811,8 +812,21 @@ function sendToActiveChat(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  userIntent?: string,
 ): void {
-  void Promise.resolve(sendToChat(clientId, prompt, images, contextBlocks, clientMsgId))
+  void Promise.resolve(
+    sendToChat(
+      clientId,
+      prompt,
+      images,
+      contextBlocks,
+      clientMsgId,
+      undefined,
+      undefined,
+      undefined,
+      userIntent ?? prompt,
+    ),
+  )
     .then((accepted) => {
       if (!accepted) log.warn('active legacy send was not accepted', { clientId });
     })
@@ -842,6 +856,7 @@ function tryRouteToActiveSession(
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
   clientMsgId?: string,
+  userIntent?: string,
 ): string | null {
   if (!resume) return null;
   const found = registry.findBySessionId(resume);
@@ -860,7 +875,15 @@ function tryRouteToActiveSession(
       blocks: found.session.currentSnapshot.blocks,
     });
   }
-  sendToActiveChat(transport, found.clientId, prompt, images, contextBlocks, clientMsgId);
+  sendToActiveChat(
+    transport,
+    found.clientId,
+    prompt,
+    images,
+    contextBlocks,
+    clientMsgId,
+    userIntent,
+  );
   log.info('routed observer message to active session', {
     sessionId: resume,
     driverClientId: found.clientId,
@@ -1044,37 +1067,31 @@ function handleChatWs(
                 arguments: resolution.arguments,
                 ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
               });
-              if (isActive(clientId)) {
-                sendToActiveChat(
+              routeLegacySkillMessage(
+                {
                   transport,
-                  clientId,
-                  resolution.renderedPrompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                );
-              } else if (
-                !tryRouteToActiveSession(
                   ws,
-                  msg.resume,
-                  resolution.renderedPrompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                )
-              ) {
-                startChat(transport, clientId, resolution.renderedPrompt, {
+                  clientId,
                   resume: msg.resume,
-                  cwd: msg.cwd,
-                  model: msg.model,
-                  extraTools: msg.extraTools,
-                  isolation: msg.isolation,
-                  mode: msg.mode,
+                  renderedPrompt: resolution.renderedPrompt,
+                  userIntent: msg.prompt,
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
-                });
-              }
+                  startOptions: {
+                    resume: msg.resume,
+                    cwd: msg.cwd,
+                    model: msg.model,
+                    extraTools: msg.extraTools,
+                    isolation: msg.isolation,
+                    mode: msg.mode,
+                    images: msg.images,
+                    contextBlocks: msg.contextBlocks,
+                    clientMsgId: msg.clientMsgId,
+                  },
+                },
+                { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
+              );
             } else {
               clearSkillPolicy(registry, clientId);
               if (isActive(clientId)) {
@@ -1085,6 +1102,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  msg.prompt,
                 );
               } else if (
                 !tryRouteToActiveSession(
@@ -1094,6 +1112,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
+                  msg.prompt,
                 )
               ) {
                 startChat(transport, clientId, msg.prompt, {
@@ -1106,6 +1125,7 @@ function handleChatWs(
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
+                  userIntent: msg.prompt,
                 });
               }
             }

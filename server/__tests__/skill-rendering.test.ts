@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { SkillRegistry } from '../skills.js';
 import { parseSlashCommand, resolveSlashCommand, renderSkillPrompt } from '../slash-commands.js';
+import { routeLegacySkillMessage } from '../legacy-skill-routing.js';
 
 // --- Helpers ---
 
@@ -61,6 +62,105 @@ describe('parseSlashCommand', () => {
   it('returns null for bare slash', () => {
     expect(parseSlashCommand('/')).toBeNull();
     expect(parseSlashCommand('/ ')).toBeNull();
+  });
+});
+
+describe('legacy WebSocket slash intent forwarding', () => {
+  const renderedPrompt = '<skill>rendered body</skill>';
+  const typedCommand = '/search-gmail Cat';
+  const transport = { id: 'transport' };
+  const ws = { id: 'socket' };
+  const images = [{ data: 'image-data', mediaType: 'image/png' }];
+  const contextBlocks = ['project-context'];
+  const startOptions = {
+    resume: 'session-1',
+    cwd: '/repo',
+    model: 'test-model',
+    extraTools: 'tool',
+    isolation: true,
+    mode: 'agent',
+    images,
+    contextBlocks,
+    clientMsgId: 'message-1',
+  };
+  const message = () => ({
+    transport,
+    ws,
+    clientId: 'client',
+    resume: 'session-1',
+    renderedPrompt,
+    userIntent: typedCommand,
+    images,
+    contextBlocks,
+    clientMsgId: 'message-1',
+    startOptions,
+  });
+
+  it('sends the rendered prompt and original typed command to an active chat', () => {
+    const sendToActiveChat = vi.fn();
+    const tryRouteToActiveSession = vi.fn(() => false);
+    const startChat = vi.fn();
+    routeLegacySkillMessage(message(), {
+      isActive: () => true,
+      sendToActiveChat,
+      tryRouteToActiveSession,
+      startChat,
+    });
+
+    expect(sendToActiveChat).toHaveBeenCalledWith(
+      transport,
+      'client',
+      renderedPrompt,
+      images,
+      contextBlocks,
+      'message-1',
+      typedCommand,
+    );
+    expect(tryRouteToActiveSession).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it('routes a resumed legacy chat with rendered prompt and raw user intent', () => {
+    const sendToActiveChat = vi.fn();
+    const tryRouteToActiveSession = vi.fn(() => 'resumed-client');
+    const startChat = vi.fn();
+    routeLegacySkillMessage(message(), {
+      isActive: () => false,
+      sendToActiveChat,
+      tryRouteToActiveSession,
+      startChat,
+    });
+
+    expect(tryRouteToActiveSession).toHaveBeenCalledWith(
+      ws,
+      'session-1',
+      renderedPrompt,
+      images,
+      contextBlocks,
+      'message-1',
+      typedCommand,
+    );
+    expect(sendToActiveChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+  });
+
+  it('starts an idle legacy chat with rendered prompt and complete raw intent', () => {
+    expect(parseSlashCommand(typedCommand)).toEqual({ name: 'search-gmail', arguments: 'Cat' });
+    const sendToActiveChat = vi.fn();
+    const tryRouteToActiveSession = vi.fn(() => null);
+    const startChat = vi.fn();
+    routeLegacySkillMessage(message(), {
+      isActive: () => false,
+      sendToActiveChat,
+      tryRouteToActiveSession,
+      startChat,
+    });
+
+    expect(startChat).toHaveBeenCalledWith(transport, 'client', renderedPrompt, {
+      ...startOptions,
+      userIntent: typedCommand,
+    });
+    expect(sendToActiveChat).not.toHaveBeenCalled();
   });
 });
 
