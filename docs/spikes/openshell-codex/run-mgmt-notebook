@@ -77,12 +77,19 @@ else
   run_dir="$(mktemp -d "${output_root}/run.XXXXXX")"
 fi
 
-transient="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-jupyter.XXXXXX")"
+umask 077
+transient="$(mktemp -d /tmp/mitzo-mgmt-jupyter.XXXXXX)"
 cleanup() { rm -rf "$transient"; }
 trap cleanup EXIT
 export IPYTHONDIR="${transient}/ipython"
 export JUPYTER_RUNTIME_DIR="${transient}/runtime"
-mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
+export JUPYTER_DATA_DIR="${transient}/data"
+export JUPYTER_CONFIG_DIR="${transient}/config"
+export JUPYTER_PATH="/usr/local/share/jupyter"
+unset PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE
+export PYTHONNOUSERSITE=1
+export PYTHONSAFEPATH=1
+mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR" "$JUPYTER_DATA_DIR" "$JUPYTER_CONFIG_DIR"
 if [[ ! -r "$runtime_environment" ]]; then
   echo 'mgmt Jira runtime environment is unavailable' >&2
   exit 2
@@ -92,6 +99,7 @@ fi
 # shellcheck source=/etc/mitzo-mgmt-jira.env
 . "$runtime_environment"
 export PYTHONPATH="$MGMT_JIRA_PYTHONPATH"
+cd "$transient"
 
 # Jira credentials remain provider-injected environment placeholders; this
 # command never accepts or logs them. The source notebook is input-only: its
