@@ -52,6 +52,11 @@ for group in uv.get('default-groups', ['dev']):
         requirements.extend(project.get('dependency-groups', {}).get(group, []))
 resolved = '\\n'.join(sorted(set(requirements)))
 if command == 'lock':
+    if '--locked' in sys.argv:
+        with open('uv.lock') as handle:
+            if '# stale candidate lock' in handle.read():
+                raise SystemExit(17)
+        raise SystemExit(0)
     # The runtime Dockerfile resolves the copied project before frozen sync.
     # Model that resolution in the fixture, so export cannot accidentally
     # succeed if prepare-mgmt-seed.sh omits the lock step.
@@ -767,6 +772,56 @@ it('fails closed when a descendant seed is missing its selected stack-lock contr
       },
     ),
   ).toThrow(/stack lock is required/);
+  expect(existsSync(output)).toBe(false);
+});
+
+it('fails closed when the archived candidate lock is stale', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-stale-candidate-lock-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'runtime base',
+  ]);
+  setDynamicContract(source);
+  writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
+  writeFileSync(
+    join(source, 'uv.lock'),
+    `${readFileSync(join(source, 'uv.lock'), 'utf8')}\n# stale candidate lock\n`,
+  );
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge update with stale lock',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
+      { cwd: resolve('.'), stdio: 'pipe' },
+    ),
+  ).toThrow(/candidate checked-in lock is stale/);
   expect(existsSync(output)).toBe(false);
 });
 

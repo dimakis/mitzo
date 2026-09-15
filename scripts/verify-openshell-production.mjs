@@ -42,15 +42,19 @@ function sha256(path) {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
 }
 
-function canonicalJson(value) {
+export function canonicalJson(value) {
   if (Array.isArray(value)) return value.map(canonicalJson);
   if (value && typeof value === 'object')
     return Object.fromEntries(
       Object.keys(value)
-        .sort()
+        .sort((left, right) => Buffer.from(left, 'utf8').compare(Buffer.from(right, 'utf8')))
         .map((key) => [key, canonicalJson(value[key])]),
     );
   return value;
+}
+
+export function canonicalJsonPayload(value) {
+  return JSON.stringify(canonicalJson(value));
 }
 
 export function validateStaticConfig(config, manifest) {
@@ -281,7 +285,7 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
         /^[a-f0-9]{64}$/.test(manifest.runtime.seedPayloadSha256),
       'stack lock dynamic seed payload digest is invalid or missing',
     );
-    const payload = JSON.stringify(canonicalJson(seedBaseline.files));
+    const payload = canonicalJsonPayload(seedBaseline.files);
     invariant(
       createHash('sha256').update(payload).digest('hex') === seedBaseline.payloadSha256,
       'prepared dynamic seed payload digest does not match its file manifest',

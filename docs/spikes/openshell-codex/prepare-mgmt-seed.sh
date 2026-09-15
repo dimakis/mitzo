@@ -131,6 +131,10 @@ if test "$runtime_base_commit" != "$starting_commit"; then
   resolution_contract_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
   git -C "$source_repo" show "$starting_commit:pyproject.toml" > "$resolution_contract_dir/pyproject.toml"
   git -C "$source_repo" show "$starting_commit:uv.lock" > "$resolution_contract_dir/uv.lock"
+  (cd "$resolution_contract_dir" && "${MITZO_UV_BIN:-uv}" lock --locked) || {
+    echo 'runtime compatibility failed: candidate checked-in lock is stale' >&2
+    exit 3
+  }
   candidate_projection_sha256="$(python3 "$resolution_contract_tool" \
     --pyproject "$resolution_contract_dir/pyproject.toml" --lock "$resolution_contract_dir/uv.lock" \
     --base-image "$runtime_base_image" --target-platform "$runtime_target_platform" --sha256)" || {
@@ -590,6 +594,19 @@ git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated M
 
 SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" IS_DYNAMIC="$([[ "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
+
+def canonical(value):
+    if isinstance(value, dict):
+        return {
+            key: canonical(value[key])
+            for key in sorted(value, key=lambda key: key.encode('utf-8'))
+        }
+    if isinstance(value, list):
+        return [canonical(item) for item in value]
+    return value
+
+def canonical_json(value):
+    return json.dumps(canonical(value), ensure_ascii=False, separators=(',', ':'))
 source = pathlib.Path(os.environ['SOURCE_REPO'])
 workspace = pathlib.Path(os.environ['WORKSPACE'])
 entries = {}
@@ -611,10 +628,8 @@ if os.environ['IS_DYNAMIC'] == '1':
     # This is the canonical content-tree identity that the release stack lock
     # pins for a dynamic seed. It deliberately excludes mutable publication
     # paths and hashes the already-complete file manifest.
-    payload['payloadSha256'] = hashlib.sha256(json.dumps(
-        payload['files'], sort_keys=True, separators=(',', ':')
-    ).encode()).hexdigest()
-pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2) + '\n')
+    payload['payloadSha256'] = hashlib.sha256(canonical_json(payload['files']).encode('utf-8')).hexdigest()
+pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 PY
 
 # Publish one immutable release reference atomically. `ln -s` fails if any

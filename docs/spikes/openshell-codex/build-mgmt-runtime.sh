@@ -32,8 +32,6 @@ context="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-runtime.XXXXXX")"
 cleanup() { rm -rf "$context"; }
 trap cleanup EXIT
 
-test -f "$mgmt_repo/pyproject.toml"
-test -f "$mgmt_repo/uv.lock"
 cp "$root/Dockerfile.mgmt-runtime" "$context/Dockerfile"
 cp "$root/run-mitzo-app-server" "$context/run-mitzo-app-server"
 cp "$root/run-mitzo-subscription-app-server" "$context/run-mitzo-subscription-app-server"
@@ -44,8 +42,10 @@ cp "$root/runtime-resolution-contract.py" "$context/runtime-resolution-contract.
 mkdir -p "$context/contexgin/dist"
 cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.json"
 cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
-cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
-cp "$mgmt_repo/uv.lock" "$context/uv.lock"
+# Materialize precisely the commit named by the provenance label. Never bake a
+# consistent-but-uncommitted checkout into an image labeled with HEAD.
+git -C "$mgmt_repo" show "$mgmt_source_commit:pyproject.toml" > "$context/pyproject.toml"
+git -C "$mgmt_repo" show "$mgmt_source_commit:uv.lock" > "$context/uv.lock"
 # A release is reproducible only from a reviewed, committed lock.  Never repair
 # a stale lock in this disposable context: it would make the image disagree with
 # the MGMT commit recorded in its provenance labels. Operators must run the

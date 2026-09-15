@@ -17,6 +17,27 @@ def normalized_name(value):
     return re.sub(r"[-_.]+", "-", value).lower()
 
 
+def canonical_json(value):
+    """Compact UTF-8 JSON with object keys ordered by their UTF-8 bytes.
+
+    Node's locale-aware ordering and Python's default ASCII escaping both
+    diverge for non-ASCII paths.  The release publisher and runtime verifier
+    use this explicit representation for cross-language digest contracts.
+    """
+    return json.dumps(canonical_json_value(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def canonical_json_value(value):
+    if isinstance(value, dict):
+        return {
+            key: canonical_json_value(value[key])
+            for key in sorted(value, key=lambda key: key.encode("utf-8"))
+        }
+    if isinstance(value, list):
+        return [canonical_json_value(entry) for entry in value]
+    return value
+
+
 def dependency_names(value):
     result = []
     for dependency in value or []:
@@ -116,8 +137,41 @@ def main():
             pending.extend(dependency_names(candidate.get("dependencies")))
     selected = []
     for name in sorted(selected_names):
-        selected.extend(by_name[name])
-    selected.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
+        for package in by_name[name]:
+            # The root's version, dev-dependencies and build metadata are not
+            # installed by `uv sync --no-dev --no-install-project`.  Keeping
+            # them in the image contract makes a dev-only edit spuriously
+            # require an image migration.  Retain only root fields that affect
+            # the resolved runtime closure.
+            if name == root_name:
+                selected.append(
+                    {
+                        key: package[key]
+                        for key in ("name", "source", "dependencies", "requires-python")
+                        if key in package
+                    }
+                )
+            else:
+                selected.append(package)
+    selected.sort(key=canonical_json)
+    runtime_dependencies = project.get("dependencies", [])
+    if not isinstance(runtime_dependencies, list) or not all(
+        isinstance(dependency, str) for dependency in runtime_dependencies
+    ):
+        raise SystemExit("pyproject.toml project.dependencies is malformed")
+    runtime_uv = {
+        key: value
+        for key, value in uv_config.items()
+        if key not in {"default-groups", "dev-dependencies", "sources"}
+    }
+    sources = uv_config.get("sources", {})
+    if not isinstance(sources, dict):
+        raise SystemExit("pyproject.toml tool.uv.sources is malformed")
+    runtime_sources = {
+        name: value
+        for name, value in sources.items()
+        if isinstance(name, str) and normalized_name(name) in selected_names
+    }
     contract = {
         "schemaVersion": 1,
         "install": {"command": "uv sync --frozen --no-dev --no-install-project"},
@@ -125,8 +179,11 @@ def main():
         "project": {
             "name": root_name,
             "requiresPython": project["requires-python"],
-            "defaultGroups": sorted(default_groups),
+            "dependencies": runtime_dependencies,
+            "defaultGroups": sorted(group for group in default_groups if group != "dev"),
             "selectedDependencyGroups": selected_groups,
+            "uv": runtime_uv,
+            "sources": runtime_sources,
         },
         "lock": {
             "version": lock.get("version"),
@@ -137,11 +194,11 @@ def main():
             "packages": selected,
         },
     }
-    payload = json.dumps(contract, sort_keys=True, separators=(",", ":")) + "\n"
+    payload = canonical_json(contract) + "\n"
     if args.output:
-        Path(args.output).write_text(payload)
+        Path(args.output).write_text(payload, encoding="utf-8")
     if args.sha256:
-        print(hashlib.sha256(payload.encode()).hexdigest())
+        print(hashlib.sha256(payload.encode("utf-8")).hexdigest())
     elif not args.output:
         print(payload, end="")
 

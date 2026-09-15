@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it } from 'vitest';
+import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
 
 let root = '';
 const baseImage = `registry.invalid/runtime@sha256:${'a'.repeat(64)}`;
@@ -79,6 +81,75 @@ it('canonical contract changes for markers, Python constraints, and package sour
   expect(python).not.toBe(baseline);
   const source = contract({ source: 'https://other.example/simple' });
   expect(source).not.toBe(baseline);
+});
+
+it('uses byte-identical UTF-8 canonical JSON in Python and Node', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-unicode-'));
+  writeFileSync(
+    join(root, 'pyproject.toml'),
+    '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\ndependencies = ["runtime==1"]\n',
+  );
+  writeFileSync(
+    join(root, 'uv.lock'),
+    `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\ndependencies = [{ name = "runtime" }]\nmetadata = { "Ω-path" = "café" }\n\n[[package]]\nname = "runtime"\nversion = "1"\nsource = { registry = "https://packages.example/é" }\nsdist = { url = "https://packages.example/é/runtime-1.tar.gz", hash = "sha256:one" }\n`,
+  );
+  const python = execFileSync(
+    'python3',
+    [
+      resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+      '--pyproject',
+      join(root, 'pyproject.toml'),
+      '--lock',
+      join(root, 'uv.lock'),
+      '--base-image',
+      baseImage,
+      '--target-platform',
+      'linux/amd64',
+    ],
+    { encoding: 'utf8' },
+  );
+  expect(Buffer.from(python, 'utf8')).toEqual(
+    Buffer.from(`${canonicalJsonPayload(JSON.parse(python))}\n`, 'utf8'),
+  );
+  expect(createHash('sha256').update(python, 'utf8').digest('hex')).toBe(
+    createHash('sha256')
+      .update(`${canonicalJsonPayload(JSON.parse(python))}\n`, 'utf8')
+      .digest('hex'),
+  );
+});
+
+it('excludes dev-only root metadata but retains runtime dependency and source changes', () => {
+  const noDevContract = (devVersion: string, runtimeSource: string) => {
+    root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-no-dev-'));
+    writeFileSync(
+      join(root, 'pyproject.toml'),
+      `[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\ndependencies = ["runtime==1"]\n\n[tool.uv]\ndev-dependencies = ["dev==${devVersion}"]\n\n[tool.uv.sources]\nruntime = { index = "runtime" }\n`,
+    );
+    writeFileSync(
+      join(root, 'uv.lock'),
+      `version = 1\nrevision = 1\nrequires-python = ">=3.11"\noptions = { exclude-newer = "2026-01-01" }\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\ndependencies = [{ name = "runtime" }]\n\n[package.dev-dependencies]\ndev = [{ name = "dev" }]\n\n[[package]]\nname = "runtime"\nversion = "1"\nsource = { registry = "${runtimeSource}" }\n\n[[package]]\nname = "dev"\nversion = "${devVersion}"\nsource = { registry = "https://packages.example/dev" }\n`,
+    );
+    return execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(root, 'pyproject.toml'),
+        '--lock',
+        join(root, 'uv.lock'),
+        '--base-image',
+        baseImage,
+        '--target-platform',
+        'linux/amd64',
+      ],
+      { encoding: 'utf8' },
+    );
+  };
+  const baseline = noDevContract('1', 'https://packages.example/runtime');
+  const devOnly = noDevContract('2', 'https://packages.example/runtime');
+  const runtimeChanged = noDevContract('2', 'https://packages.example/runtime-new');
+  expect(devOnly).toBe(baseline);
+  expect(runtimeChanged).not.toBe(baseline);
 });
 
 it('recursively includes selected PEP 735 groups and their lock closure', () => {

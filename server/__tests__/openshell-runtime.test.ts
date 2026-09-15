@@ -7,16 +7,20 @@ import {
   rmSync,
   symlinkSync,
   unlinkSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  canonicalSeedJson,
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
   resolveImmutableSeed,
   sandboxNameForConversation,
+  verifyImmutableDynamicSeed,
 } from '../openshell-runtime.js';
+import { createHash } from 'node:crypto';
 
 let privateRoot: string;
 beforeEach(() => {
@@ -56,6 +60,51 @@ const ready = (phase = 'Ready', providerPolicy = 'state-v2-github') =>
     },
   });
 
+function sha256(value: string) {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function dynamicRelease(
+  release: string,
+  stackManifest: string,
+  contents = 'immutable knowledge\n',
+  writeStack = true,
+) {
+  const mgmt = join(release, 'mgmt');
+  mkdirSync(mgmt, { recursive: true });
+  writeFileSync(join(mgmt, 'knowledge.md'), contents);
+  const unicodePath = 'réleases/Ω-note.md';
+  const unicodeContents = 'café\n';
+  mkdirSync(join(mgmt, 'réleases'), { recursive: true });
+  writeFileSync(join(mgmt, unicodePath), unicodeContents);
+  const files = {
+    'knowledge.md': { sha256: sha256(contents), mode: '0644' },
+    [unicodePath]: { sha256: sha256(unicodeContents), mode: '0644' },
+  };
+  const payloadSha256 = sha256(canonicalSeedJson(files));
+  writeFileSync(
+    join(release, 'baseline.json'),
+    JSON.stringify({
+      startingCommit: 'a'.repeat(40),
+      runtimeBaseCommit: 'a'.repeat(40),
+      runtimeDependencyProjectionSha256: 'b'.repeat(64),
+      payloadSha256,
+      files,
+    }),
+  );
+  if (writeStack)
+    writeFileSync(
+      stackManifest,
+      JSON.stringify({
+        runtime: {
+          mgmtSourceCommit: 'a'.repeat(40),
+          dependencyProjectionSha256: 'b'.repeat(64),
+          seedPayloadSha256: payloadSha256,
+        },
+      }),
+    );
+}
+
 describe('OpenShell runtime lifecycle', () => {
   it('derives a stable non-revealing sandbox identity', () => {
     expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{13}$/);
@@ -69,8 +118,9 @@ describe('OpenShell runtime lifecycle', () => {
     mkdirSync(releases);
     const releaseA = join(releases, 'release-a');
     const releaseB = join(releases, 'release-b');
-    mkdirSync(join(releaseA, 'mgmt'), { recursive: true });
-    mkdirSync(join(releaseB, 'mgmt'), { recursive: true });
+    const stackManifest = join(root, 'stack.lock.json');
+    dynamicRelease(releaseA, stackManifest);
+    dynamicRelease(releaseB, stackManifest, 'replacement knowledge\n', false);
     const current = join(releases, 'current');
     symlinkSync(releaseA, current);
     const expectedSeed = realpathSync(join(current, 'mgmt'));
@@ -91,10 +141,10 @@ describe('OpenShell runtime lifecycle', () => {
         }
         return ready();
       });
-      await new OpenShellRuntimeManager({ ...config, seed: join(current, 'mgmt') }, run).ensure(
-        'conversation',
-        new AbortController().signal,
-      );
+      await new OpenShellRuntimeManager(
+        { ...config, seed: join(current, 'mgmt'), stackManifest },
+        run,
+      ).ensure('conversation', new AbortController().signal);
       const create = run.mock.calls.find(([args]) =>
         (args as string[]).includes('create'),
       )![0] as string[];
@@ -121,6 +171,25 @@ describe('OpenShell runtime lifecycle', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a tampered resolved dynamic release at the upload boundary', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      writeFileSync(join(release, 'mgmt', 'knowledge.md'), 'tampered\n');
+      expect(() => verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest)).toThrow(
+        'file hash',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 

@@ -14,6 +14,9 @@ export function hasExactGlobalSetting(
   value: string | number | boolean,
 ): boolean;
 
+export function canonicalJson(value: unknown): unknown;
+export function canonicalJsonPayload(value: unknown): string;
+
 export function validateSeedBaseline(
   seedBaseline: Record<string, unknown> | null,
   manifest: {
