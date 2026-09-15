@@ -32,6 +32,8 @@ context="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-runtime.XXXXXX")"
 cleanup() { rm -rf "$context"; }
 trap cleanup EXIT
 
+test -f "$mgmt_repo/pyproject.toml"
+test -f "$mgmt_repo/uv.lock"
 test -f "$mgmt_repo/jira_process/pyproject.toml"
 test -f "$mgmt_repo/jira_process/uv.lock"
 cp "$root/Dockerfile.mgmt-runtime" "$context/Dockerfile"
@@ -44,6 +46,8 @@ cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
 mkdir -p "$context/contexgin/dist"
 cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.json"
 cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
+cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
+cp "$mgmt_repo/uv.lock" "$context/uv.lock"
 mkdir -p "$context/jira_process"
 cp "$mgmt_repo/jira_process/pyproject.toml" "$context/jira_process/pyproject.toml"
 cp "$mgmt_repo/jira_process/uv.lock" "$context/jira_process/uv.lock"

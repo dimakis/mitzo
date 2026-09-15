@@ -55,6 +55,13 @@ describe('OpenShell runtime image builder', () => {
       'utf8',
     );
     const build = readFileSync(builder, 'utf8');
+    expect(dockerfile).toContain('COPY pyproject.toml uv.lock /opt/mgmt-deps/');
+    expect(dockerfile).toContain(
+      'UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+    );
+    expect(dockerfile).toContain(
+      'RUN cd /opt/mgmt-deps \\\n    && uv lock \\\n    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+    );
     expect(dockerfile).toContain(
       'COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/',
     );
@@ -72,12 +79,16 @@ describe('OpenShell runtime image builder', () => {
       'PYTHONPATH="$site_packages" /usr/bin/python3 -c \'import sys; import jupyter, nbconvert, ipykernel, numpy, pyarrow; assert sys.executable == "/usr/bin/python3"\'',
     );
     expect(dockerfile).toContain('spec["argv"][0] == "/usr/bin/python3"');
+    expect(dockerfile).toContain('ENV PATH="/opt/mgmt-venv/bin:${PATH}"');
     expect(dockerfile).not.toContain('ENV PATH="/opt/mgmt-jira-venv/bin:${PATH}"');
+    expect(build).toContain('test -f "$mgmt_repo/pyproject.toml"');
+    expect(build).toContain('test -f "$mgmt_repo/uv.lock"');
     expect(build).toContain('test -f "$mgmt_repo/jira_process/pyproject.toml"');
     expect(build).toContain('test -f "$mgmt_repo/jira_process/uv.lock"');
     expect(build).toContain('cp "$mgmt_repo/jira_process/pyproject.toml"');
     expect(build).toContain('cp "$mgmt_repo/jira_process/uv.lock"');
-    expect(build).not.toContain('uv lock');
+    expect(build).toContain('cp "$mgmt_repo/pyproject.toml"');
+    expect(build).toContain('cp "$mgmt_repo/uv.lock"');
   });
 
   it('executes a notebook copy from an isolated image-owned Jupyter runtime', () => {
@@ -106,7 +117,7 @@ describe('OpenShell runtime image builder', () => {
 printf '%s\\n' "$@" > "$CAPTURE"
 printf '%s\\n' "$PYTHONPATH" > "$PYTHONPATH_CAPTURE"
 printf '%s\\n' "$PWD" > "$CWD_CAPTURE"
-printf '%s\\n' "$JUPYTER_PATH" "$JUPYTER_DATA_DIR" "$JUPYTER_CONFIG_DIR" "$PYTHONNOUSERSITE" "$PYTHONSAFEPATH" > "$JUPYTER_CAPTURE"
+printf '%s\\n' "$JUPYTER_PATH" "$JUPYTER_DATA_DIR" "$JUPYTER_CONFIG_DIR" "\${JUPYTER_CONFIG_PATH-}" "$PYTHONNOUSERSITE" "$PYTHONSAFEPATH" > "$JUPYTER_CAPTURE"
 for ((index=1; index <= $#; index++)); do
   value="\${!index}"
   case "$value" in
@@ -140,6 +151,7 @@ printf 'executed\\n' > "$output_dir/$output_name"
           JUPYTER_PATH: callerJupyter,
           JUPYTER_DATA_DIR: '/caller-controlled/data',
           JUPYTER_CONFIG_DIR: '/caller-controlled/config',
+          JUPYTER_CONFIG_PATH: callerJupyter,
           TMPDIR: root,
         },
         encoding: 'utf8',
@@ -164,7 +176,7 @@ printf 'executed\\n' > "$output_dir/$output_name"
       expect(transientCwd).toMatch(/^\/tmp\/mitzo-mgmt-jupyter\.[^/]+$/);
       expect(existsSync(transientCwd)).toBe(false);
       expect(readFileSync(join(root, 'jupyter'), 'utf8')).toMatch(
-        /^\/usr\/local\/share\/jupyter\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/data\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/config\n1\n1\n$/,
+        /^\/usr\/local\/share\/jupyter\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/data\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/config\n\n1\n1\n$/,
       );
       expect(readFileSync(source, 'utf8')).toBe(sourceContents);
       expect(output.trim()).toBe(join(canonicalOutputRoot, 'smoke-run', 'smoke.executed.ipynb'));
@@ -243,6 +255,7 @@ exec /bin/mkdir "$@"
     expect(source).toContain('runtime_environment="/etc/mitzo-mgmt-jira.env"');
     expect(source).toContain('export PYTHONPATH="$MGMT_JIRA_PYTHONPATH"');
     expect(source).toContain('export JUPYTER_PATH="/usr/local/share/jupyter"');
+    expect(source).toContain('export JUPYTER_CONFIG_PATH=""');
     expect(source).toContain('cd "$transient"');
     expect(source).toContain('/usr/bin/python3 -m jupyter nbconvert');
     expect(source).toContain('--ExecutePreprocessor.kernel_name=mgmt-jira');
