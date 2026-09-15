@@ -878,6 +878,39 @@ it('matches physical inventory only to records from the queried provider', async
       }),
     ]);
     expect(inventory).toHaveBeenCalledTimes(2);
+
+    inventory.mockResolvedValueOnce([
+      {
+        id: 'shared-id',
+        name: 'shared-name',
+        phase: 'Ready' as const,
+        workspace: 'default',
+        labels: {
+          'mitzo.conversation': 'replacement-owner',
+          'mitzo.account_provider': 'provider-one',
+        },
+      },
+    ]);
+    const mismatched = await openShellLifecycleInventory(AbortSignal.timeout(100));
+    expect(mismatched.sandboxes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'orphaned',
+          provider: 'provider-one',
+          conversationId: null,
+        }),
+        expect.objectContaining({
+          status: 'missing',
+          provider: 'provider-one',
+          conversationId: 'provider-one-conversation',
+        }),
+        expect.objectContaining({
+          status: 'verified',
+          provider: 'provider-two',
+          conversationId: 'provider-two-conversation',
+        }),
+      ]),
+    );
   } finally {
     allInventory.mockRestore();
     inventory.mockRestore();

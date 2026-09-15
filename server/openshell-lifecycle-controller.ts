@@ -159,7 +159,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   );
   const groups = new Map<string, OpenShellLifecycleRecord>();
   const providerOnlyScopes = new Set<string>();
-  const seen = new Set<string>();
+  const seenPhysical = new Set<string>();
+  const representedRecords = new Set<string>();
   const sandboxes: Array<Awaited<ReturnType<typeof lifecycleInventoryRow>>> = [];
   const scopes: Array<Record<string, string>> = [];
   let workspaceDiscoverySucceeded = false;
@@ -167,6 +168,27 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     // Inventory needs only the persisted provider route, not a lifecycle
     // identity. Provisional records must therefore keep retired providers in
     // scope even after the account-profile callback stops returning them.
+    if (
+      record.workspace !== inventoryConfigured.config.workspace ||
+      record.gateway !== inventoryConfigured.config.gateway ||
+      record.gatewayEndpoint !== (inventoryConfigured.config.gatewayEndpoint ?? null)
+    ) {
+      if (
+        !scopes.some(
+          (scope) =>
+            scope.provider === record.accountProvider &&
+            scope.workspace === record.workspace &&
+            scope.status === 'unavailable',
+        )
+      )
+        scopes.push({
+          provider: record.accountProvider,
+          workspace: record.workspace,
+          status: 'unavailable',
+          error: PROVIDER_INVENTORY_UNAVAILABLE,
+        });
+      continue;
+    }
     if (!groups.has(record.accountProvider)) groups.set(record.accountProvider, record);
   }
   try {
@@ -212,8 +234,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       });
       for (const sandbox of physical) {
         const key = `${provider}:${sandbox.id ?? `${routeRecord.workspace}:${sandbox.name}`}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (seenPhysical.has(key)) continue;
+        seenPhysical.add(key);
         const candidate = sandbox.id
           ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
@@ -225,6 +247,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const record = lifecycleInventoryOwnershipMatches(candidate, sandbox, provider)
           ? candidate
           : undefined;
+        if (record) representedRecords.add(record.conversationId);
         sandboxes.push(
           await lifecycleInventoryRow(
             record,
@@ -249,9 +272,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         error: PROVIDER_INVENTORY_UNAVAILABLE,
       });
       for (const record of records.filter((item) => item.accountProvider === provider)) {
-        const key = `${provider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
-        if (!seen.has(key)) {
-          seen.add(key);
+        if (!representedRecords.has(record.conversationId)) {
+          representedRecords.add(record.conversationId);
           sandboxes.push(await lifecycleInventoryRow(record, undefined, 'unavailable', signal));
         }
       }
@@ -270,8 +292,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       });
       for (const sandbox of physical) {
         const key = `${provider}:${sandbox.id ?? `${inventoryConfigured.config.workspace}:${sandbox.name}`}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (seenPhysical.has(key)) continue;
+        seenPhysical.add(key);
         const candidate = sandbox.id
           ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
@@ -283,6 +305,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const record = lifecycleInventoryOwnershipMatches(candidate, sandbox, provider)
           ? candidate
           : undefined;
+        if (record) representedRecords.add(record.conversationId);
         sandboxes.push(
           await lifecycleInventoryRow(
             record,
@@ -309,8 +332,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     }
   }
   for (const record of records) {
-    const key = `${record.accountProvider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
-    if (!seen.has(key))
+    if (!representedRecords.has(record.conversationId))
       sandboxes.push(await lifecycleInventoryRow(record, undefined, 'missing', signal));
   }
   if (workspaceDiscoverySucceeded && !scopes.length)
