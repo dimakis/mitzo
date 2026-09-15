@@ -54,7 +54,7 @@ describe('OpenShell runtime lifecycle', () => {
     expect(sandboxNameForConversation('private-conversation-name')).not.toContain('private');
   });
 
-  it('creates a missing sandbox with the seed and broker providers', async () => {
+  it('uploads the MGMT seed to the canonical Jira runtime workspace and attaches broker providers', async () => {
     const run = vi
       .fn()
       .mockRejectedValueOnce(new Error('sandbox not found'))
@@ -69,6 +69,7 @@ describe('OpenShell runtime lifecycle', () => {
     const create = run.mock.calls[2][0] as string[];
     expect(create).toContain('create');
     expect(create).toContain('/seed/mgmt:/sandbox/workspaces');
+    expect(create).not.toContain('/seed/mgmt:/sandbox/workspaces/mgmt');
     expect(create.filter((value) => value === '--provider')).toHaveLength(2);
     expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
       'openai-work',

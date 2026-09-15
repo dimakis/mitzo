@@ -34,10 +34,13 @@ trap cleanup EXIT
 
 test -f "$mgmt_repo/pyproject.toml"
 test -f "$mgmt_repo/uv.lock"
+test -f "$mgmt_repo/jira_process/pyproject.toml"
+test -f "$mgmt_repo/jira_process/uv.lock"
 cp "$root/Dockerfile.mgmt-runtime" "$context/Dockerfile"
 cp "$root/run-mitzo-app-server" "$context/run-mitzo-app-server"
 cp "$root/run-mitzo-subscription-app-server" "$context/run-mitzo-subscription-app-server"
 cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
+cp "$root/run-mgmt-notebook" "$context/run-mgmt-notebook"
 cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
 cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
 mkdir -p "$context/contexgin/dist"
@@ -45,6 +48,9 @@ cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.
 cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
 cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
 cp "$mgmt_repo/uv.lock" "$context/uv.lock"
+mkdir -p "$context/jira_process"
+cp "$mgmt_repo/jira_process/pyproject.toml" "$context/jira_process/pyproject.toml"
+cp "$mgmt_repo/jira_process/uv.lock" "$context/jira_process/uv.lock"
 podman build --pull=never \
   --build-arg "OPENSHELL_BASE_IMAGE=$base_image" \
   --build-arg "MITZO_SOURCE_COMMIT=$mitzo_source_commit" \

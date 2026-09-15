@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+workspace="${MITZO_MGMT_WORKDIR:-/sandbox/workspaces/mgmt}"
+runtime_root="${workspace}/jira_process"
+runtime_environment="/etc/mitzo-mgmt-jira.env"
+notebook="${1:-}"
+
+if [[ -z "$notebook" || $# -ne 1 ]]; then
+  echo 'usage: run-mgmt-notebook <jira_process-relative-notebook.ipynb>' >&2
+  exit 2
+fi
+if [[ "$notebook" = /* || "$notebook" == *'..'* || "$notebook" != *.ipynb ]]; then
+  echo 'notebook must be a relative .ipynb path inside jira_process' >&2
+  exit 2
+fi
+
+if [[ ! -d "$runtime_root" ]]; then
+  echo 'mounted jira_process runtime does not exist' >&2
+  exit 2
+fi
+runtime_root="$(realpath "$runtime_root")"
+path="$(realpath "${runtime_root}/${notebook}" 2>/dev/null || true)"
+if [[ -z "$path" || ! -f "$path" ]]; then
+  echo 'notebook does not exist in the mounted jira_process runtime' >&2
+  exit 2
+fi
+case "$path" in
+  "${runtime_root}"/*.ipynb) ;;
+  *)
+    echo 'notebook must resolve inside the mounted jira_process runtime' >&2
+    exit 2
+    ;;
+esac
+
+reports_root="${runtime_root}/reports"
+if [[ -L "$reports_root" && ! -e "$reports_root" ]]; then
+  echo 'jira_process reports directory must not be a dangling symlink' >&2
+  exit 2
+fi
+mkdir -p "$reports_root"
+reports_root="$(realpath "$reports_root")"
+if [[ "$reports_root" != "${runtime_root}/reports" ]]; then
+  echo 'jira_process reports directory must not resolve outside the runtime' >&2
+  exit 2
+fi
+output_root="${reports_root}/notebook-runs"
+if [[ -L "$output_root" && ! -e "$output_root" ]]; then
+  echo 'notebook output directory must not be a dangling symlink' >&2
+  exit 2
+fi
+mkdir -p "$output_root"
+output_root="$(realpath "$output_root")"
+if [[ "$output_root" != "${reports_root}/notebook-runs" ]]; then
+  echo 'notebook output directory must not resolve outside the reports tree' >&2
+  exit 2
+fi
+requested_output_root="${MITZO_MGMT_NOTEBOOK_OUTPUT_DIR:-${output_root}}"
+requested_output_root="$(realpath "$requested_output_root" 2>/dev/null || true)"
+if [[ "$requested_output_root" != "$output_root" ]]; then
+  echo 'notebook output must stay inside jira_process/reports/notebook-runs' >&2
+  exit 2
+fi
+
+run_id="${MITZO_MGMT_NOTEBOOK_RUN_ID:-}"
+if [[ -n "$run_id" ]]; then
+  if [[ ! "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
+    echo 'notebook run ID must be a safe identifier' >&2
+    exit 2
+  fi
+  run_dir="${output_root}/${run_id}"
+  if ! mkdir "$run_dir"; then
+    echo 'notebook run output already exists' >&2
+    exit 2
+  fi
+else
+  run_dir="$(mktemp -d "${output_root}/run.XXXXXX")"
+fi
+
+umask 077
+transient="$(mktemp -d /tmp/mitzo-mgmt-jupyter.XXXXXX)"
+cleanup() { rm -rf "$transient"; }
+trap cleanup EXIT
+export IPYTHONDIR="${transient}/ipython"
+export JUPYTER_RUNTIME_DIR="${transient}/runtime"
+export JUPYTER_DATA_DIR="${transient}/data"
+export JUPYTER_CONFIG_DIR="${transient}/config"
+export JUPYTER_PATH="/usr/local/share/jupyter"
+unset PYTHONHOME PYTHONSTARTUP PYTHONUSERBASE
+export JUPYTER_CONFIG_PATH=""
+export PYTHONNOUSERSITE=1
+export PYTHONSAFEPATH=1
+mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR" "$JUPYTER_DATA_DIR" "$JUPYTER_CONFIG_DIR"
+if [[ ! -r "$runtime_environment" ]]; then
+  echo 'mgmt Jira runtime environment is unavailable' >&2
+  exit 2
+fi
+# This image-owned file is generated from the frozen environment at build time.
+# It replaces, rather than extends, any caller-controlled PYTHONPATH.
+# shellcheck source=/etc/mitzo-mgmt-jira.env
+. "$runtime_environment"
+export PYTHONPATH="$MGMT_JIRA_PYTHONPATH"
+cd "$transient"
+
+# Jira credentials remain provider-injected environment placeholders; this
+# command never accepts or logs them. The source notebook is input-only: its
+# executed copy gets a unique, writable report location.
+name="${notebook##*/}"
+output_name="${name%.ipynb}.executed.ipynb"
+/usr/bin/python3 -m jupyter nbconvert --to notebook --execute \
+  --ExecutePreprocessor.kernel_name=mgmt-jira \
+  --output-dir "$run_dir" --output "$output_name" "$path"
+printf '%s\n' "${run_dir}/${output_name}"

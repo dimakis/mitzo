@@ -1,9 +1,12 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -16,6 +19,8 @@ const builder = resolve('docs/spikes/openshell-codex/build-mgmt-runtime.sh');
 const initializer = resolve('docs/spikes/openshell-codex/initialize-mitzo-workspace');
 const apiRunner = resolve('docs/spikes/openshell-codex/run-mitzo-app-server');
 const subscriptionRunner = resolve('docs/spikes/openshell-codex/run-mitzo-subscription-app-server');
+const notebookRunner = resolve('docs/spikes/openshell-codex/run-mgmt-notebook');
+const chatSession = resolve('server/codex-chat-session.ts');
 
 function rejectedBase(base: string): string {
   try {
@@ -29,7 +34,291 @@ function rejectedBase(base: string): string {
   }
 }
 
+function notebookRunnerForTest(root: string, python: string): string {
+  const environment = join(root, 'mgmt-jira.env');
+  const runner = join(root, 'run-mgmt-notebook');
+  writeFileSync(environment, 'MGMT_JIRA_PYTHONPATH=/image-fixed/site-packages\n');
+  writeFileSync(
+    runner,
+    readFileSync(notebookRunner, 'utf8')
+      .replace('/etc/mitzo-mgmt-jira.env', environment)
+      .replace('/usr/bin/python3', python),
+  );
+  chmodSync(runner, 0o700);
+  return runner;
+}
+
 describe('OpenShell runtime image builder', () => {
+  it('installs the vendored Jira notebook runtime from its checked-in frozen lock', () => {
+    const dockerfile = readFileSync(
+      resolve('docs/spikes/openshell-codex/Dockerfile.mgmt-runtime'),
+      'utf8',
+    );
+    const build = readFileSync(builder, 'utf8');
+    expect(dockerfile).toContain('COPY pyproject.toml uv.lock /opt/mgmt-deps/');
+    expect(dockerfile).toContain(
+      'UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+    );
+    expect(dockerfile).toContain(
+      'RUN cd /opt/mgmt-deps \\\n    && uv lock \\\n    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+    );
+    expect(dockerfile).toContain(
+      'COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/',
+    );
+    expect(dockerfile).toContain(
+      'UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project',
+    );
+    expect(dockerfile).toContain(
+      'find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print',
+    );
+    expect(dockerfile).toContain('MGMT_JIRA_PYTHONPATH=%s');
+    expect(dockerfile).toContain('/usr/local/share/jupyter/kernels/mgmt-jira/kernel.json');
+    expect(dockerfile).toContain('"argv": ["/usr/bin/python3", "-m", "ipykernel_launcher"');
+    expect(dockerfile).toContain('\\"env\\": {\\"PYTHONPATH\\": \\"$site_packages\\"}');
+    expect(dockerfile).toContain(
+      'PYTHONPATH="$site_packages" /usr/bin/python3 -c \'import sys; import jupyter, nbconvert, ipykernel, numpy, pyarrow; assert sys.executable == "/usr/bin/python3"\'',
+    );
+    expect(dockerfile).toContain('spec["argv"][0] == "/usr/bin/python3"');
+    expect(dockerfile).toContain('ENV PATH="/opt/mgmt-venv/bin:${PATH}"');
+    expect(dockerfile).not.toContain('ENV PATH="/opt/mgmt-jira-venv/bin:${PATH}"');
+    expect(build).toContain('test -f "$mgmt_repo/pyproject.toml"');
+    expect(build).toContain('test -f "$mgmt_repo/uv.lock"');
+    expect(build).toContain('test -f "$mgmt_repo/jira_process/pyproject.toml"');
+    expect(build).toContain('test -f "$mgmt_repo/jira_process/uv.lock"');
+    expect(build).toContain('cp "$mgmt_repo/jira_process/pyproject.toml"');
+    expect(build).toContain('cp "$mgmt_repo/jira_process/uv.lock"');
+    expect(build).toContain('cp "$mgmt_repo/pyproject.toml"');
+    expect(build).toContain('cp "$mgmt_repo/uv.lock"');
+  });
+
+  it('executes a notebook copy from an isolated image-owned Jupyter runtime', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-'));
+    const workspace = join(root, 'mgmt');
+    const runtime = join(workspace, 'jira_process');
+    const bin = join(root, 'bin');
+    const capture = join(root, 'python-args');
+    const source = join(runtime, 'dashboards', 'smoke.ipynb');
+    const outputRoot = join(runtime, 'reports', 'notebook-runs');
+    const callerJupyter = join(root, 'caller-jupyter');
+    const sourceContents = '{"cells":[]}\n';
+    try {
+      mkdirSync(join(runtime, 'dashboards'), { recursive: true });
+      mkdirSync(bin);
+      writeFileSync(source, sourceContents);
+      writeFileSync(join(workspace, 'jupyter.py'), 'raise RuntimeError("caller module used")\n');
+      mkdirSync(join(callerJupyter, 'kernels', 'mgmt-jira'), { recursive: true });
+      writeFileSync(
+        join(callerJupyter, 'kernels', 'mgmt-jira', 'kernel.json'),
+        '{"argv":["/bin/false"]}\n',
+      );
+      writeFileSync(
+        join(bin, 'python'),
+        `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$CAPTURE"
+printf '%s\\n' "$PYTHONPATH" > "$PYTHONPATH_CAPTURE"
+printf '%s\\n' "$PWD" > "$CWD_CAPTURE"
+printf '%s\\n' "$JUPYTER_PATH" "$JUPYTER_DATA_DIR" "$JUPYTER_CONFIG_DIR" "\${JUPYTER_CONFIG_PATH-}" "$PYTHONNOUSERSITE" "$PYTHONSAFEPATH" > "$JUPYTER_CAPTURE"
+for ((index=1; index <= $#; index++)); do
+  value="\${!index}"
+  case "$value" in
+    --output-dir) next=$((index + 1)); output_dir="\${!next}" ;;
+    --output) next=$((index + 1)); output_name="\${!next}" ;;
+  esac
+done
+mkdir -p "$output_dir" "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
+printf 'executed\\n' > "$output_dir/$output_name"
+`,
+      );
+      chmodSync(join(bin, 'python'), 0o700);
+      const runner = notebookRunnerForTest(root, join(bin, 'python'));
+
+      const canonicalRuntime = realpathSync(runtime);
+      const canonicalOutputRoot = join(canonicalRuntime, 'reports', 'notebook-runs');
+      const canonicalSource = join(canonicalRuntime, 'dashboards', 'smoke.ipynb');
+
+      const output = execFileSync('bash', [runner, 'dashboards/smoke.ipynb'], {
+        env: {
+          ...process.env,
+          MITZO_MGMT_WORKDIR: workspace,
+          MITZO_MGMT_NOTEBOOK_OUTPUT_DIR: outputRoot,
+          MITZO_MGMT_NOTEBOOK_RUN_ID: 'smoke-run',
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          CAPTURE: capture,
+          PYTHONPATH_CAPTURE: join(root, 'pythonpath'),
+          CWD_CAPTURE: join(root, 'cwd'),
+          JUPYTER_CAPTURE: join(root, 'jupyter'),
+          PYTHONPATH: '/caller-controlled/site-packages',
+          JUPYTER_PATH: callerJupyter,
+          JUPYTER_DATA_DIR: '/caller-controlled/data',
+          JUPYTER_CONFIG_DIR: '/caller-controlled/config',
+          JUPYTER_CONFIG_PATH: callerJupyter,
+          TMPDIR: root,
+        },
+        encoding: 'utf8',
+      });
+
+      expect(readFileSync(capture, 'utf8').trim().split('\n')).toEqual([
+        '-m',
+        'jupyter',
+        'nbconvert',
+        '--to',
+        'notebook',
+        '--execute',
+        '--ExecutePreprocessor.kernel_name=mgmt-jira',
+        '--output-dir',
+        join(canonicalOutputRoot, 'smoke-run'),
+        '--output',
+        'smoke.executed.ipynb',
+        canonicalSource,
+      ]);
+      expect(readFileSync(join(root, 'pythonpath'), 'utf8')).toBe('/image-fixed/site-packages\n');
+      const transientCwd = readFileSync(join(root, 'cwd'), 'utf8').trim();
+      expect(transientCwd).toMatch(/^\/tmp\/mitzo-mgmt-jupyter\.[^/]+$/);
+      expect(existsSync(transientCwd)).toBe(false);
+      expect(readFileSync(join(root, 'jupyter'), 'utf8')).toMatch(
+        /^\/usr\/local\/share\/jupyter\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/data\n\/tmp\/mitzo-mgmt-jupyter\.[^/]+\/config\n\n1\n1\n$/,
+      );
+      expect(readFileSync(source, 'utf8')).toBe(sourceContents);
+      expect(output.trim()).toBe(join(canonicalOutputRoot, 'smoke-run', 'smoke.executed.ipynb'));
+      expect(readFileSync(output.trim(), 'utf8')).toBe('executed\n');
+      expect(readdirSync(root).filter((name) => name.startsWith('mitzo-mgmt-jupyter.'))).toEqual(
+        [],
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows concurrent first notebook runs to create shared report directories', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-concurrent-'));
+    const workspace = join(root, 'mgmt');
+    const runtime = join(workspace, 'jira_process');
+    const bin = join(root, 'bin');
+    const barrier = join(root, 'mkdir-barrier');
+    try {
+      mkdirSync(join(runtime, 'dashboards'), { recursive: true });
+      mkdirSync(bin);
+      writeFileSync(join(runtime, 'dashboards', 'smoke.ipynb'), '{}\n');
+      writeFileSync(join(bin, 'python'), '#!/usr/bin/env bash\nexit 0\n');
+      writeFileSync(
+        join(bin, 'mkdir'),
+        `#!/usr/bin/env bash
+target="\${!#}"
+if [[ "$target" == "$REPORTS_DIR" ]]; then
+  /bin/mkdir -p "$BARRIER"
+  touch "$BARRIER/$$"
+  for ((attempt = 0; attempt < 200; attempt++)); do
+    [[ "$(find "$BARRIER" -type f | wc -l | tr -d ' ')" == 2 ]] && break
+    sleep 0.01
+  done
+fi
+exec /bin/mkdir "$@"
+`,
+      );
+      chmodSync(join(bin, 'python'), 0o700);
+      chmodSync(join(bin, 'mkdir'), 0o700);
+      const runner = notebookRunnerForTest(root, join(bin, 'python'));
+
+      const run = (runId: string) =>
+        new Promise<number | null>((resolveRun) => {
+          const child = spawn('bash', [runner, 'dashboards/smoke.ipynb'], {
+            env: {
+              ...process.env,
+              MITZO_MGMT_WORKDIR: workspace,
+              MITZO_MGMT_NOTEBOOK_RUN_ID: runId,
+              PATH: `${bin}:${process.env.PATH ?? ''}`,
+              BARRIER: barrier,
+              REPORTS_DIR: join(realpathSync(runtime), 'reports'),
+              TMPDIR: root,
+            },
+            stdio: 'ignore',
+          });
+          child.on('close', resolveRun);
+        });
+
+      expect(await Promise.all([run('first'), run('second')])).toEqual([0, 0]);
+      expect(existsSync(join(runtime, 'reports', 'notebook-runs', 'first'))).toBe(true);
+      expect(existsSync(join(runtime, 'reports', 'notebook-runs', 'second'))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps managed Jira guidance compatible with reused non-runtime images', () => {
+    const source = readFileSync(chatSession, 'utf8');
+    expect(source).toContain('provider-approved /usr/bin/python3 or curl');
+    expect(source).not.toContain('Use /opt/mgmt-jira-venv/bin/python or curl');
+  });
+
+  it('uses system Python and a fixed image kernel for notebook execution', () => {
+    const source = readFileSync(notebookRunner, 'utf8');
+    expect(source).toContain('runtime_environment="/etc/mitzo-mgmt-jira.env"');
+    expect(source).toContain('export PYTHONPATH="$MGMT_JIRA_PYTHONPATH"');
+    expect(source).toContain('export JUPYTER_PATH="/usr/local/share/jupyter"');
+    expect(source).toContain('export JUPYTER_CONFIG_PATH=""');
+    expect(source).toContain('cd "$transient"');
+    expect(source).toContain('/usr/bin/python3 -m jupyter nbconvert');
+    expect(source).toContain('--ExecutePreprocessor.kernel_name=mgmt-jira');
+    expect(source).not.toContain('python -m jupyter nbconvert');
+  });
+
+  it('rejects notebook paths outside the mounted Jira runtime', () => {
+    try {
+      execFileSync('bash', [notebookRunner, '../outside.ipynb'], {
+        env: { ...process.env, MITZO_MGMT_WORKDIR: '/unused' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      throw new Error('runner unexpectedly accepted a traversal path');
+    } catch (error) {
+      expect(String((error as { stderr?: string }).stderr ?? error)).toContain(
+        'relative .ipynb path',
+      );
+    }
+  });
+
+  it.each(['source', 'reports'] as const)(
+    'rejects a symlinked Jira runtime %s path that resolves outside the mount',
+    (kind) => {
+      const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-symlink-'));
+      const workspace = join(root, 'mgmt');
+      const runtime = join(workspace, 'jira_process');
+      const outside = join(root, 'outside');
+      try {
+        mkdirSync(join(runtime, 'dashboards'), { recursive: true });
+        mkdirSync(outside);
+        if (kind === 'source') {
+          writeFileSync(join(outside, 'smoke.ipynb'), '{}\n');
+          symlinkSync(outside, join(runtime, 'dashboards', 'linked'), 'dir');
+        } else {
+          writeFileSync(join(runtime, 'dashboards', 'smoke.ipynb'), '{}\n');
+          symlinkSync(outside, join(runtime, 'reports'), 'dir');
+        }
+
+        try {
+          execFileSync(
+            'bash',
+            [
+              notebookRunner,
+              kind === 'source' ? 'dashboards/linked/smoke.ipynb' : 'dashboards/smoke.ipynb',
+            ],
+            {
+              env: { ...process.env, MITZO_MGMT_WORKDIR: workspace },
+              stdio: ['ignore', 'pipe', 'pipe'],
+            },
+          );
+          throw new Error('runner unexpectedly accepted an escaping symlink');
+        } catch (error) {
+          expect(String((error as { stderr?: string }).stderr ?? error)).toMatch(
+            /must resolve inside|must not resolve outside/,
+          );
+        }
+        expect(existsSync(join(outside, 'notebook-runs'))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('disables Codex request compression in every OpenShell app-server launcher', () => {
     for (const runner of [apiRunner, subscriptionRunner])
       expect(readFileSync(runner, 'utf8')).toContain('features.enable_request_compression=false');

@@ -32,11 +32,16 @@ describe('OpenShellConnectionGateway', () => {
       resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
       'utf8',
     );
+    expect(profile).toMatch(/^id: jira-readonly\nresource_version: 1\n/);
     expect(profile).toContain('resource_version: 1');
     expect(profile).toContain('env_vars: [JIRA_API_TOKEN]');
     expect(profile).toContain('protocol: rest');
     expect(profile).toContain('enforcement: enforce');
     expect(profile).toContain('tls: terminate');
+    expect(profile).toContain('host: api.atlassian.com');
+    expect(profile).toContain('path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**');
+    expect(profile).toContain('  - /usr/bin/python3\n  - /usr/bin/curl\n  - /usr/local/bin/curl\n');
+    expect(profile).not.toContain('/opt/mgmt-jira-venv/bin/python');
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
     expect(() => validateJiraProfileYaml(profile)).not.toThrow();
@@ -64,7 +69,7 @@ describe('OpenShellConnectionGateway', () => {
       ['tls: terminate', 'tls: passthrough'],
       ['inference_capable: false', 'inference_capable: true'],
       ['env_vars: [JIRA_API_TOKEN]', 'env_vars: [JIRA_TOKEN]'],
-      ['  - /usr/local/bin/curl', '  - /bin/sh'],
+      ['  - /usr/bin/python3', '  - /bin/sh'],
       [
         'method: GET, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
         'method: POST, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
