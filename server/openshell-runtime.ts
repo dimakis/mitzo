@@ -820,17 +820,24 @@ export class OpenShellRuntimeManager {
         const granted = (previous?.granted ?? []).filter((provider) =>
           this.config.grantableServiceProviders.includes(provider),
         );
-        const desired = new Set([this.config.account.provider, ...automatic, ...granted]);
-        const previouslyAttached = new Set([
-          ...(previous?.automatic ?? []),
-          ...(previous?.granted ?? []),
-        ]);
-        const attach = retained
-          ? automatic.filter((provider) => !previouslyAttached.has(provider))
-          : [];
+        // Desired policy alone is not evidence of a live provider attachment:
+        // an attach can fail after its approval record is durable. Conversely,
+        // a physical grant without that record is unapproved and must be
+        // detached. Read actual state before mutating either the sandbox or
+        // policy; an unreadable list fails closed.
+        const desired = new Set([...automatic, ...granted]);
+        const actual = retained
+          ? new Set(
+              parseProviderAttachments(
+                await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
+                name,
+              ),
+            )
+          : new Set<string>();
+        const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
         const detach = retained
-          ? [...(previous ? previouslyAttached : SERVICE_PROVIDERS)].filter(
-              (provider) => !desired.has(provider),
+          ? [...actual].filter(
+              (provider) => SERVICE_PROVIDERS.has(provider) && !desired.has(provider),
             )
           : [];
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
