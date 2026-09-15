@@ -133,6 +133,8 @@ describe('requestedIntegrationProviders', () => {
     'do not show any emails from Cat',
     "do not show what's on my calendar",
     'show any emails from Cat, but do not show any emails from Morgan',
+    'Search Gmail for Cat. Actually, do not access Google Workspace.',
+    'Do not access Google Workspace. Explain the Gmail API.',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });
@@ -144,6 +146,8 @@ describe('requestedIntegrationProviders', () => {
     'do not open Drive, but search Gmail for Cat',
     'stop discussing Gmail and search Gmail for Cat',
     "do not show any emails from Cat, but show what's on my calendar",
+    'Do not access Google Workspace. Actually, search Gmail for Cat.',
+    'Do not access Google Workspace. Check my calendar for tomorrow.',
   ])('keeps affirmative access intent in a different clause for %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });

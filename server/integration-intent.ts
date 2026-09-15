@@ -439,8 +439,13 @@ export function requestedIntegrationProviders(
       if (resource === 'workspace' && !affirmative) {
         workspaceAccessRefused = true;
         activeResources.clear();
-      } else if (affirmative) activeResources.add(resource);
-      else activeResources.delete(resource);
+      } else if (affirmative) {
+        // A later, paired data/service operation is an explicit new request,
+        // so it supersedes an earlier broad Workspace refusal. Text without a
+        // recognized action/resource pair never reaches this state machine.
+        workspaceAccessRefused = false;
+        activeResources.add(resource);
+      } else activeResources.delete(resource);
     }
   }
 
