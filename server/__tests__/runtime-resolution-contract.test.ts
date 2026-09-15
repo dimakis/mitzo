@@ -152,6 +152,37 @@ it('excludes dev-only root metadata but retains runtime dependency and source ch
   expect(runtimeChanged).not.toBe(baseline);
 });
 
+it('follows the platform-qualified lock edge instead of every same-name variant', () => {
+  const qualifiedContract = (darwinVersion: string, linuxVersion = '1') => {
+    root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-qualified-'));
+    writeFileSync(
+      join(root, 'pyproject.toml'),
+      '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\ndependencies = ["shared"]\n',
+    );
+    writeFileSync(
+      join(root, 'uv.lock'),
+      `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\ndependencies = [{ name = "shared", version = "${linuxVersion}", marker = "sys_platform == 'linux'" }, { name = "shared", version = "${darwinVersion}", marker = "sys_platform == 'darwin'" }]\n\n[[package]]\nname = "shared"\nversion = "${linuxVersion}"\nsource = { registry = "https://packages.example/linux" }\n\n[[package]]\nname = "shared"\nversion = "${darwinVersion}"\nsource = { registry = "https://packages.example/darwin" }\n`,
+    );
+    return execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(root, 'pyproject.toml'),
+        '--lock',
+        join(root, 'uv.lock'),
+        '--base-image',
+        baseImage,
+        '--target-platform',
+        'linux/amd64',
+      ],
+      { encoding: 'utf8' },
+    );
+  };
+  expect(qualifiedContract('2')).toBe(qualifiedContract('3'));
+  expect(qualifiedContract('2')).not.toBe(qualifiedContract('2', '4'));
+});
+
 it('recursively includes selected PEP 735 groups and their lock closure', () => {
   const contract = JSON.parse(groupedContract('["nested==1"]'));
   expect(contract.project.selectedDependencyGroups).toEqual({

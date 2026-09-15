@@ -64,6 +64,15 @@ function sha256(value: string) {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+function dynamicPayload(baseline: Record<string, unknown>) {
+  return {
+    startingCommit: baseline.startingCommit,
+    runtimeBaseCommit: baseline.runtimeBaseCommit,
+    runtimeDependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
+    files: baseline.files,
+  };
+}
+
 function dynamicRelease(
   release: string,
   stackManifest: string,
@@ -77,21 +86,25 @@ function dynamicRelease(
   const unicodeContents = 'café\n';
   mkdirSync(join(mgmt, 'réleases'), { recursive: true });
   writeFileSync(join(mgmt, unicodePath), unicodeContents);
-  const files = {
+  const files: Record<string, { sha256: string; mode: string }> = {
     'knowledge.md': { sha256: sha256(contents), mode: '0644' },
     [unicodePath]: { sha256: sha256(unicodeContents), mode: '0644' },
   };
-  const payloadSha256 = sha256(canonicalSeedJson(files));
-  writeFileSync(
-    join(release, 'baseline.json'),
-    JSON.stringify({
-      startingCommit: 'a'.repeat(40),
-      runtimeBaseCommit: 'a'.repeat(40),
-      runtimeDependencyProjectionSha256: 'b'.repeat(64),
-      payloadSha256,
-      files,
-    }),
-  );
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    const path = `memory/manifest/${name}`;
+    const manifest = JSON.stringify({ sourceCommit: 'a'.repeat(40) }) + '\n';
+    mkdirSync(join(mgmt, 'memory', 'manifest'), { recursive: true });
+    writeFileSync(join(mgmt, path), manifest);
+    files[path] = { sha256: sha256(manifest), mode: '0644' };
+  }
+  const baseline = {
+    startingCommit: 'a'.repeat(40),
+    runtimeBaseCommit: 'a'.repeat(40),
+    runtimeDependencyProjectionSha256: 'b'.repeat(64),
+    files,
+  };
+  const payloadSha256 = sha256(canonicalSeedJson(dynamicPayload(baseline)));
+  writeFileSync(join(release, 'baseline.json'), JSON.stringify({ ...baseline, payloadSha256 }));
   if (writeStack)
     writeFileSync(
       stackManifest,
@@ -193,6 +206,61 @@ describe('OpenShell runtime lifecycle', () => {
       expect(() =>
         verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, config.image),
       ).toThrow('file hash');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects dynamic manifests whose source provenance differs from the baseline', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      const manifest = JSON.stringify({ sourceCommit: 'b'.repeat(40) }) + '\n';
+      const path = join(release, 'mgmt', 'memory', 'manifest', 'index.json');
+      writeFileSync(path, manifest);
+      const baseline = JSON.parse(readFileSync(join(release, 'baseline.json'), 'utf8'));
+      baseline.files['memory/manifest/index.json'].sha256 = sha256(manifest);
+      baseline.payloadSha256 = sha256(canonicalSeedJson(dynamicPayload(baseline)));
+      writeFileSync(join(release, 'baseline.json'), JSON.stringify(baseline));
+      writeFileSync(
+        stackManifest,
+        JSON.stringify({
+          runtime: {
+            ...JSON.parse(readFileSync(stackManifest, 'utf8')).runtime,
+            seedPayloadSha256: baseline.payloadSha256,
+          },
+        }),
+      );
+      expect(() =>
+        verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, config.image),
+      ).toThrow('manifest provenance');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('binds baseline control fields into the stack-pinned payload digest', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      const baseline = JSON.parse(readFileSync(join(release, 'baseline.json'), 'utf8'));
+      baseline.startingCommit = 'b'.repeat(40);
+      writeFileSync(join(release, 'baseline.json'), JSON.stringify(baseline));
+      expect(() =>
+        verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, config.image),
+      ).toThrow('payload digest');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1191,6 +1259,45 @@ describe('OpenShell runtime lifecycle', () => {
         MITZO_OPENSHELL_CLI: '/isolated/openshell',
       }),
     ).toMatchObject({ cli: '/isolated/openshell' });
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: 'runtime:1',
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/releases/current/mgmt',
+      }),
+    ).toThrow('STACK_MANIFEST is required');
+    const dynamicStack = join(privateRoot, 'dynamic-stack.json');
+    writeFileSync(
+      dynamicStack,
+      JSON.stringify({
+        runtime: {
+          image: config.image,
+          mgmtSourceCommit: 'a'.repeat(40),
+          dependencyProjectionSha256: 'b'.repeat(64),
+          seedPayloadSha256: 'c'.repeat(64),
+        },
+      }),
+    );
+    expect(
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: config.image,
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/releases/current/mgmt',
+        MITZO_OPENSHELL_STACK_MANIFEST: dynamicStack,
+      }),
+    ).toMatchObject({ stackManifest: dynamicStack });
+    writeFileSync(dynamicStack, '{}');
+    expect(() =>
+      openShellRuntimeConfig({
+        MITZO_OPENSHELL_ENABLED: '1',
+        MITZO_OPENSHELL_IMAGE: config.image,
+        MITZO_OPENSHELL_POLICY: '/policy',
+        MITZO_OPENSHELL_SEED: '/releases/current/mgmt',
+        MITZO_OPENSHELL_STACK_MANIFEST: dynamicStack,
+      }),
+    ).toThrow('stack lock is malformed');
     expect(
       openShellRuntimeConfig({
         MITZO_OPENSHELL_ENABLED: '1',

@@ -1381,6 +1381,70 @@ it('rejects a live publisher lock, then recovers when its holder is killed', () 
   expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(1);
 });
 
+it('ignores a stale PID-reuse lock status artifact', async () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-stale-status-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  const bin = join(root, 'bin');
+  const gitStarted = join(root, 'git-started');
+  const actualGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(bin);
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+  writeFileSync(
+    join(bin, 'git'),
+    `#!/bin/sh\ntouch "${gitStarted}"\nsleep 1\nexec "${actualGit}" "$@"\n`,
+  );
+  chmodSync(join(bin, 'git'), 0o755);
+  const lockReady = join(root, 'lock-ready');
+  lockHolder = spawn(
+    'python3',
+    [
+      '-c',
+      'import fcntl, pathlib, sys, time; handle = open(sys.argv[1], "a+"); fcntl.flock(handle, fcntl.LOCK_EX); pathlib.Path(sys.argv[2]).write_text("ready"); time.sleep(60)',
+      join(root, '.output.lock'),
+      lockReady,
+    ],
+    { stdio: 'ignore' },
+  );
+  for (let attempts = 0; attempts < 50 && !existsSync(lockReady); attempts += 1)
+    execFileSync('sleep', ['0.01']);
+  updater = spawn(
+    'bash',
+    [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+    {
+      cwd: resolve('.'),
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      stdio: 'ignore',
+    },
+  );
+  for (let attempts = 0; attempts < 50 && !existsSync(gitStarted); attempts += 1)
+    execFileSync('sleep', ['0.01']);
+  expect(existsSync(gitStarted)).toBe(true);
+  // The old PID-derived status path would be read as successful before the
+  // helper reported its real busy lock result.
+  writeFileSync(join(root, `.output.lock-status.${updater.pid}`), 'locked\n');
+  expect(await exitCode(updater)).not.toBe(0);
+  updater = undefined;
+  expect(existsSync(output)).toBe(false);
+});
+
 it('terminates a delayed lock helper before waiting and permits a later publish', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-delayed-lock-helper-'));
   const source = join(root, 'source');

@@ -18,6 +18,7 @@ import {
   validateSeedBaseline,
   validateStaticConfig,
   verifyAccountBindings,
+  canonicalJsonPayload,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const projectionSha = 'd'.repeat(64);
@@ -48,15 +49,17 @@ function digest(contents: string) {
   return createHash('sha256').update(contents).digest('hex');
 }
 
-function payloadDigest(files: Record<string, { sha256: string; mode: string }>) {
+function payloadDigest(
+  startingCommit: string,
+  files: Record<string, { sha256: string; mode: string }>,
+) {
   return digest(
-    JSON.stringify(
-      Object.fromEntries(
-        Object.entries(files)
-          .sort(([left], [right]) => left.localeCompare(right))
-          .map(([path, entry]) => [path, { mode: entry.mode, sha256: entry.sha256 }]),
-      ),
-    ),
+    canonicalJsonPayload({
+      startingCommit,
+      runtimeBaseCommit: startingCommit,
+      runtimeDependencyProjectionSha256: projectionSha,
+      files,
+    }),
   );
 }
 
@@ -88,7 +91,7 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
       startingCommit: sourceCommit,
       runtimeBaseCommit: sourceCommit,
       runtimeDependencyProjectionSha256: projectionSha,
-      payloadSha256: payloadDigest(baselineFiles),
+      payloadSha256: payloadDigest(sourceCommit, baselineFiles),
       files: baselineFiles,
     },
   };
@@ -256,7 +259,7 @@ describe('OpenShell production bundle validation', () => {
           [`memory/manifest/${name}`]: { sha256: digest(contents), mode: '0644' },
         },
       };
-      altered.payloadSha256 = payloadDigest(altered.files);
+      altered.payloadSha256 = payloadDigest(altered.startingCommit, altered.files);
       const runtimeManifest = dynamicRuntimeManifest(altered.payloadSha256);
       expect(() => validateSeedBaseline(altered, runtimeManifest, seedPath)).toThrow(
         'manifest source commit',

@@ -466,6 +466,31 @@ function verifyDynamicSeedFiles(seed: string, baseline: DynamicSeedBaseline) {
     if (actualFile.sha256 !== expectedFile.sha256 || actualFile.mode !== expectedFile.mode)
       throw new Error(`OpenShell dynamic seed file hash or mode does not match baseline: ${path}`);
   }
+  // These generated manifests attest to the archived seed commit. Their bytes
+  // are in the payload manifest, but validate their semantic provenance too:
+  // a forged baseline.startingCommit must not be accepted merely because file
+  // hashes still agree with it.
+  for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
+    const manifest = readJson(join(root, 'memory', 'manifest', name), `memory manifest ${name}`);
+    if (
+      !manifest ||
+      typeof manifest !== 'object' ||
+      Array.isArray(manifest) ||
+      (manifest as { sourceCommit?: unknown }).sourceCommit !== baseline.startingCommit
+    )
+      throw new Error(
+        `OpenShell dynamic seed manifest provenance does not match baseline: ${name}`,
+      );
+  }
+}
+
+function dynamicSeedPayload(baseline: DynamicSeedBaseline) {
+  return {
+    startingCommit: baseline.startingCommit,
+    runtimeBaseCommit: baseline.runtimeBaseCommit,
+    runtimeDependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
+    files: baseline.files,
+  };
 }
 
 /**
@@ -491,7 +516,7 @@ export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, 
   if (baseline.runtimeDependencyProjectionSha256 !== stack.dependencyProjectionSha256)
     throw new Error('OpenShell dynamic seed dependency projection does not match the stack lock');
   const manifestDigest = createHash('sha256')
-    .update(canonicalSeedJson(baseline.files), 'utf8')
+    .update(canonicalSeedJson(dynamicSeedPayload(baseline)), 'utf8')
     .digest('hex');
   if (manifestDigest !== baseline.payloadSha256)
     throw new Error('OpenShell dynamic seed payload digest does not match baseline');
@@ -522,6 +547,15 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     throw new Error('OpenShell policy and seed paths must be absolute');
   if (stackManifest && !isAbsolute(stackManifest))
     throw new Error('MITZO_OPENSHELL_STACK_MANIFEST must be an absolute path');
+  if (dynamicSeedReleaseRoot(seed)) {
+    if (!stackManifest)
+      throw new Error('MITZO_OPENSHELL_STACK_MANIFEST is required for a dynamic current/mgmt seed');
+    const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+    if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image) || stack.image !== image)
+      throw new Error(
+        'OpenShell dynamic seed stack lock image does not match the configured image',
+      );
+  }
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)

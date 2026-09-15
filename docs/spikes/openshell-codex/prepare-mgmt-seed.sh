@@ -6,7 +6,10 @@ output_root="${2:?usage: prepare-mgmt-seed.sh SOURCE_REPO OUTPUT_DIR [RUNTIME_BA
 output_parent="$(dirname "$output_root")"
 output_name="$(basename "$output_root")"
 lock_file="$output_parent/.${output_name}.lock"
-lock_status="$output_parent/.${output_name}.lock-status.$$"
+# Allocate a random name atomically, then leave it absent for the helper's
+# atomic replace. This cannot collide with a stale status from PID reuse.
+lock_status="$(mktemp "$output_parent/.${output_name}.lock-status.XXXXXX")"
+rm -f "$lock_status"
 build_root=''
 resolution_contract_dir=''
 lock_pid=''
@@ -644,10 +647,9 @@ payload = {
 if os.environ['IS_DYNAMIC'] == '1':
     payload['runtimeBaseCommit'] = os.environ['RUNTIME_BASE_COMMIT']
     payload['runtimeDependencyProjectionSha256'] = os.environ['RUNTIME_PROJECTION_SHA256']
-    # This is the canonical content-tree identity that the release stack lock
-    # pins for a dynamic seed. It deliberately excludes mutable publication
-    # paths and hashes the already-complete file manifest.
-    payload['payloadSha256'] = hashlib.sha256(canonical_json(payload['files']).encode('utf-8')).hexdigest()
+    # Pin every release-control field, not merely the file tree. Otherwise a
+    # later startingCommit/projection edit could retain the old tree digest.
+    payload['payloadSha256'] = hashlib.sha256(canonical_json(payload).encode('utf-8')).hexdigest()
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 PY
 

@@ -38,19 +38,61 @@ def canonical_json_value(value):
     return value
 
 
-def dependency_names(value):
+def marker_applies(marker, target_platform):
+    """Evaluate the platform-only lock markers relevant to this projection."""
+    if marker is None:
+        return True
+    if not isinstance(marker, str):
+        raise SystemExit("uv.lock dependency marker is malformed")
+    operating_system, architecture = target_platform.split("/", 1)
+    environment = {
+        "sys_platform": operating_system,
+        "platform_system": {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}.get(operating_system, operating_system),
+        "platform_machine": {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture),
+    }
+    # Lock markers are conjunctions/disjunctions of quoted PEP 508 atoms. Be
+    # deliberately conservative for anything outside the platform keys: keep
+    # it in the contract rather than dropping a potentially installed edge.
+    def atom_matches(atom):
+        match = re.fullmatch(r"\s*(sys_platform|platform_system|platform_machine)\s*(==|!=)\s*['\"]([^'\"]+)['\"]\s*", atom)
+        if not match:
+            return True
+        key, operator, value = match.groups()
+        return (environment[key] == value) == (operator == "==")
+    return any(all(atom_matches(atom) for atom in clause.split(" and ")) for clause in marker.split(" or "))
+
+
+def dependencies(value, target_platform):
     result = []
     for dependency in value or []:
         if isinstance(dependency, str):
-            match = re.match(r"[A-Za-z0-9_.-]+", dependency)
+            match = re.fullmatch(r"\s*([A-Za-z0-9_.-]+)(?:\s*==\s*([A-Za-z0-9_.+!-]+))?\s*", dependency)
             if not match:
                 raise SystemExit("unsupported dependency-group requirement")
-            result.append(normalized_name(match.group(0)))
+            name, version = match.groups()
+            result.append({"name": normalized_name(name), **({"version": version} if version else {})})
         elif isinstance(dependency, dict) and isinstance(dependency.get("name"), str):
-            result.append(normalized_name(dependency["name"]))
+            if marker_applies(dependency.get("marker"), target_platform):
+                result.append({
+                    key: value
+                    for key, value in dependency.items()
+                    if key != "marker"
+                } | {"name": normalized_name(dependency["name"])})
         else:
             raise SystemExit("unsupported uv.lock dependency entry")
     return result
+
+
+def qualified_candidates(by_name, edge):
+    candidates = by_name.get(edge["name"], [])
+    for key in ("version", "source"):
+        if key in edge:
+            candidates = [candidate for candidate in candidates if candidate.get(key) == edge[key]]
+    if not candidates:
+        raise SystemExit(f"uv.lock is missing selected dependency {edge['name']}")
+    if len(candidates) != 1:
+        raise SystemExit(f"uv.lock dependency {edge['name']} is not qualified to one selected package")
+    return candidates[0]
 
 
 def main():
@@ -118,35 +160,48 @@ def main():
     # uv sync --no-dev starts at the root's ordinary dependencies.  Do not
     # traverse dependency-groups/dev-dependencies, but retain each selected
     # package verbatim so markers, sources, URLs and wheels stay meaningful.
-    selected_names = {root_name}
-    pending = dependency_names(roots[0].get("dependencies"))
+    selected_names = {canonical_json({
+        key: roots[0][key] for key in ("name", "version", "source") if key in roots[0]
+    })}
+    pending = dependencies(roots[0].get("dependencies"), args.target_platform)
     # `uv sync --no-dev` still installs explicitly selected non-dev default
     # groups. Include their full lock closures, not just their names in
     # metadata, so a source/version/artifact change cannot evade the contract.
     for values in selected_groups.values():
-        pending.extend(dependency_names(values))
+        pending.extend(dependencies(values, args.target_platform))
     while pending:
-        name = pending.pop()
-        if name in selected_names:
+        edge = pending.pop()
+        package = qualified_candidates(by_name, edge)
+        name = normalized_name(package["name"])
+        package_identity = canonical_json({
+            key: package[key] for key in ("name", "version", "source") if key in package
+        })
+        if package_identity in selected_names:
             continue
-        candidates = by_name.get(name)
-        if not candidates:
-            raise SystemExit(f"uv.lock is missing selected dependency {name}")
-        selected_names.add(name)
-        for candidate in candidates:
-            pending.extend(dependency_names(candidate.get("dependencies")))
+        selected_names.add(package_identity)
+        pending.extend(dependencies(package.get("dependencies"), args.target_platform))
     selected = []
-    for name in sorted(selected_names):
-        for package in by_name[name]:
+    for package in packages:
+        package_identity = canonical_json({
+            key: package[key] for key in ("name", "version", "source") if key in package
+        })
+        if package_identity in selected_names:
+            name = normalized_name(package["name"])
             # The root's version, dev-dependencies and build metadata are not
             # installed by `uv sync --no-dev --no-install-project`.  Keeping
             # them in the image contract makes a dev-only edit spuriously
             # require an image migration.  Retain only root fields that affect
             # the resolved runtime closure.
             if name == root_name:
+                root_dependencies = [
+                    dependency
+                    for dependency in package.get("dependencies", [])
+                    if not isinstance(dependency, dict)
+                    or marker_applies(dependency.get("marker"), args.target_platform)
+                ]
                 selected.append(
                     {
-                        key: package[key]
+                        key: (root_dependencies if key == "dependencies" else package[key])
                         for key in ("name", "source", "dependencies", "requires-python")
                         if key in package
                     }
@@ -170,7 +225,13 @@ def main():
     runtime_sources = {
         name: value
         for name, value in sources.items()
-        if isinstance(name, str) and normalized_name(name) in selected_names
+        if isinstance(name, str) and any(
+            normalized_name(package["name"]) == normalized_name(name)
+            and canonical_json({
+                key: package[key] for key in ("name", "version", "source") if key in package
+            }) in selected_names
+            for package in packages
+        )
     }
     contract = {
         "schemaVersion": 1,

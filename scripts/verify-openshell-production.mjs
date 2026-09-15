@@ -285,7 +285,12 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
         /^[a-f0-9]{64}$/.test(manifest.runtime.seedPayloadSha256),
       'stack lock dynamic seed payload digest is invalid or missing',
     );
-    const payload = canonicalJsonPayload(seedBaseline.files);
+    const payload = canonicalJsonPayload({
+      startingCommit: seedBaseline.startingCommit,
+      runtimeBaseCommit: seedBaseline.runtimeBaseCommit,
+      runtimeDependencyProjectionSha256: seedBaseline.runtimeDependencyProjectionSha256,
+      files: seedBaseline.files,
+    });
     invariant(
       createHash('sha256').update(payload).digest('hex') === seedBaseline.payloadSha256,
       'prepared dynamic seed payload digest does not match its file manifest',
