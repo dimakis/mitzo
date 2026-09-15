@@ -518,6 +518,45 @@ describe('OpenShell runtime lifecycle', () => {
     );
   });
 
+  it('preserves an account provider that also has a managed service name', async () => {
+    const sandboxName = sandboxNameForConversation('conversation');
+    const accountSandbox = JSON.parse(ready());
+    accountSandbox.labels['mitzo.account_provider'] = 'github';
+    const policyState = {
+      read: vi.fn(() => undefined),
+      write: vi.fn(),
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return JSON.stringify(accountSandbox);
+      if (args.includes('provider') && args.includes('list'))
+        return providerList(sandboxName, ['github', 'google-workspace']);
+      return '{}';
+    });
+
+    await new OpenShellRuntimeManager(
+      {
+        ...config,
+        account: { kind: 'api', provider: 'github', model: 'test-model' },
+        // `github` names the account binding here, not an automatic service
+        // grant. The stale Workspace attachment remains reconcilable.
+        serviceProviders: ['github'],
+      },
+      run,
+      undefined,
+      undefined,
+      policyState,
+    ).ensure('conversation', new AbortController().signal);
+
+    const detached = run.mock.calls
+      .filter(([args]) => args.includes('detach'))
+      .map(([args]) => args.at(-1));
+    expect(detached).toEqual(['google-workspace']);
+    expect(policyState.write).toHaveBeenCalledWith(sandboxName, {
+      automatic: [],
+      granted: [],
+    });
+  });
+
   it('fails retained reconciliation before mutating policy when provider listing fails', async () => {
     const listFailure = new Error('provider list failed');
     const policyState = {

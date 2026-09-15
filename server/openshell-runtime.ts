@@ -723,9 +723,17 @@ export class OpenShellRuntimeManager {
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
-    const policyFingerprint = providerPolicyFingerprint(
-      this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p)),
-    );
+    // The account provider is a separately-bound inference/account role. It
+    // can happen to have a service-provider name (for example `github`), but
+    // it is never part of the attachable service-provider policy.
+    const automaticProviders = () => [
+      ...new Set(
+        this.config.serviceProviders.filter(
+          (provider) => SERVICE_PROVIDERS.has(provider) && provider !== accountProvider,
+        ),
+      ),
+    ];
+    const policyFingerprint = providerPolicyFingerprint(automaticProviders());
     const conversationHash = createHash('sha256').update(conversationId).digest('hex');
     const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
     const currentOwner = conversationHash.slice(0, 63);
@@ -791,7 +799,8 @@ export class OpenShellRuntimeManager {
           this.config.account.model,
         );
       }
-      for (const provider of this.config.serviceProviders) args.push('--provider', provider);
+      for (const provider of this.config.serviceProviders)
+        if (provider !== accountProvider) args.push('--provider', provider);
       try {
         await this.run(args, signal);
       } catch (error) {
@@ -808,17 +817,17 @@ export class OpenShellRuntimeManager {
     await this.verifyManagedConnections(name, signal);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
-        const automatic = [
-          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
-        ];
+        const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
         const previous =
           persisted ??
           (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
             ? { automatic, granted: [] }
             : undefined);
-        const granted = (previous?.granted ?? []).filter((provider) =>
-          this.config.grantableServiceProviders.includes(provider),
+        const granted = (previous?.granted ?? []).filter(
+          (provider) =>
+            provider !== accountProvider &&
+            this.config.grantableServiceProviders.includes(provider),
         );
         // Desired policy alone is not evidence of a live provider attachment:
         // an attach can fail after its approval record is durable. Conversely,
@@ -837,7 +846,10 @@ export class OpenShellRuntimeManager {
         const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
         const detach = retained
           ? [...actual].filter(
-              (provider) => SERVICE_PROVIDERS.has(provider) && !desired.has(provider),
+              (provider) =>
+                provider !== accountProvider &&
+                SERVICE_PROVIDERS.has(provider) &&
+                !desired.has(provider),
             )
           : [];
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
@@ -872,6 +884,8 @@ export class OpenShellRuntimeManager {
     provider: string,
     signal: AbortSignal,
   ): Promise<void> {
+    if (provider === this.config.account.provider)
+      throw new Error('OpenShell account provider cannot be granted as a service provider');
     if (!this.config.grantableServiceProviders.includes(provider))
       throw new Error('OpenShell service provider is not grantable');
     return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
@@ -892,8 +906,15 @@ export class OpenShellRuntimeManager {
       // approved-but-missing attachment, which is safely verified as absent.
       const previous = this.providerPolicyState.read(runtime.sandboxName);
       this.providerPolicyState.write(runtime.sandboxName, {
-        automatic: previous?.automatic ?? [
-          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        automatic: previous?.automatic?.filter(
+          (configured) => configured !== this.config.account.provider,
+        ) ?? [
+          ...new Set(
+            this.config.serviceProviders.filter(
+              (configured) =>
+                SERVICE_PROVIDERS.has(configured) && configured !== this.config.account.provider,
+            ),
+          ),
         ],
         granted: [...new Set([...(previous?.granted ?? []), provider])],
       });

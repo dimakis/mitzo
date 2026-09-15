@@ -375,18 +375,24 @@ function genericPersonalDataStates(matcher: ClauseMatcher): ResourceState[] {
     );
     if (matches.length) latestResourceState(states, identity, matches);
   }
-  const calendarQuestion = /\bwhat(?:'s|\s+is)\s+on\s+(?:my|our|your)\s+calendar\b/i.exec(clause);
-  if (calendarQuestion)
-    states.set('calendar', {
-      resource: 'calendar',
-      index: calendarQuestion.index,
-      affirmative: true,
-    });
-  const emailQuestion = /\bany\s+(?:new\s+)?(?:emails?|mail)\s+(?:from|by|about|to)\b/i.exec(
-    clause,
-  );
-  if (emailQuestion)
-    states.set('mail', { resource: 'mail', index: emailQuestion.index, affirmative: true });
+  // Elliptical personal-data questions have no access verb ("Any emails from
+  // Cat?"). When an access verb is present, however, it is authoritative so
+  // an explicit refusal cannot be overwritten by the question shape.
+  for (const [resource, question] of [
+    ['calendar', /\bwhat(?:'s|\s+is)\s+on\s+(?:my|our|your)\s+calendar\b/i],
+    ['mail', /\bany\s+(?:new\s+)?(?:emails?|mail)\s+(?:from|by|about|to)\b/i],
+  ] as const) {
+    const questionMatch = question.exec(clause);
+    if (!questionMatch) continue;
+    const actionMatches = matchingActionsForResource(
+      matcher,
+      matcher.generic[resource],
+      matcher.genericActions,
+      isGenericWorkspaceArtifact,
+    );
+    if (actionMatches.length) latestResourceState(states, resource, actionMatches);
+    else states.set(resource, { resource, index: questionMatch.index, affirmative: true });
+  }
   return [...states.values()];
 }
 
