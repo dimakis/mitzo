@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -52,26 +53,47 @@ describe('OpenShell runtime image builder', () => {
     expect(build).not.toContain('uv lock');
   });
 
-  it('constructs a Jupyter notebook execution inside the mounted Jira runtime', () => {
+  it('executes a notebook copy under reports without modifying its mounted source', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-'));
     const workspace = join(root, 'mgmt');
     const runtime = join(workspace, 'jira_process');
     const bin = join(root, 'bin');
     const capture = join(root, 'python-args');
+    const source = join(runtime, 'dashboards', 'smoke.ipynb');
+    const outputRoot = join(runtime, 'reports', 'notebook-runs');
+    const sourceContents = '{"cells":[]}\n';
     try {
       mkdirSync(join(runtime, 'dashboards'), { recursive: true });
       mkdirSync(bin);
-      writeFileSync(join(runtime, 'dashboards', 'smoke.ipynb'), '{}\n');
-      writeFileSync(join(bin, 'python'), '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "$CAPTURE"\n');
+      writeFileSync(source, sourceContents);
+      writeFileSync(
+        join(bin, 'python'),
+        `#!/usr/bin/env bash
+printf '%s\\n' "$@" > "$CAPTURE"
+for ((index=1; index <= $#; index++)); do
+  value="\${!index}"
+  case "$value" in
+    --output-dir) next=$((index + 1)); output_dir="\${!next}" ;;
+    --output) next=$((index + 1)); output_name="\${!next}" ;;
+  esac
+done
+mkdir -p "$output_dir" "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
+printf 'executed\\n' > "$output_dir/$output_name"
+`,
+      );
       chmodSync(join(bin, 'python'), 0o700);
 
-      execFileSync('bash', [notebookRunner, 'dashboards/smoke.ipynb'], {
+      const output = execFileSync('bash', [notebookRunner, 'dashboards/smoke.ipynb'], {
         env: {
           ...process.env,
           MITZO_MGMT_WORKDIR: workspace,
+          MITZO_MGMT_NOTEBOOK_OUTPUT_DIR: outputRoot,
+          MITZO_MGMT_NOTEBOOK_RUN_ID: 'smoke-run',
           PATH: `${bin}:${process.env.PATH ?? ''}`,
           CAPTURE: capture,
+          TMPDIR: root,
         },
+        encoding: 'utf8',
       });
 
       expect(readFileSync(capture, 'utf8').trim().split('\n')).toEqual([
@@ -81,9 +103,18 @@ describe('OpenShell runtime image builder', () => {
         '--to',
         'notebook',
         '--execute',
-        '--inplace',
-        join(runtime, 'dashboards', 'smoke.ipynb'),
+        '--output-dir',
+        join(outputRoot, 'smoke-run'),
+        '--output',
+        'smoke.executed.ipynb',
+        source,
       ]);
+      expect(readFileSync(source, 'utf8')).toBe(sourceContents);
+      expect(output.trim()).toBe(join(outputRoot, 'smoke-run', 'smoke.executed.ipynb'));
+      expect(readFileSync(output.trim(), 'utf8')).toBe('executed\n');
+      expect(readdirSync(root).filter((name) => name.startsWith('mitzo-mgmt-jupyter.'))).toEqual(
+        [],
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

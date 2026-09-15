@@ -59,7 +59,10 @@ different filesystem trust domains.
   image's Jupyter runtime, for example
   `/sandbox/run-mgmt-notebook dashboards/weekly-org-status.ipynb`. Provider
   placeholders supply Jira credentials when a reviewed Jira connection is
-  attached; the image contains no credential material.
+  attached; the image contains no credential material. It never modifies the
+  source notebook: it prints the path of an executed copy under
+  `jira_process/reports/notebook-runs/<unique-run>/` and removes temporary
+  Jupyter state after execution.
 
 Prefer a small set of immutable, versioned runtime images over a custom image
 per conversation. Put common management dependencies such as GWS, GitHub CLI,

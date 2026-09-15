@@ -20,10 +20,42 @@ if [[ ! -f "$path" ]]; then
   exit 2
 fi
 
-# Keep Jupyter's transient files in the writable mounted workspace. Jira
-# credentials remain provider-injected environment placeholders; this command
-# never accepts or logs them.
-export IPYTHONDIR="${runtime_root}/.ipython"
-export JUPYTER_RUNTIME_DIR="${runtime_root}/.jupyter"
+output_root="${MITZO_MGMT_NOTEBOOK_OUTPUT_DIR:-${runtime_root}/reports/notebook-runs}"
+case "$output_root" in
+  "${runtime_root}/reports/notebook-runs"|"${runtime_root}/reports/notebook-runs"/*) ;;
+  *)
+    echo 'notebook output must stay inside jira_process/reports/notebook-runs' >&2
+    exit 2
+    ;;
+esac
+mkdir -p "$output_root"
+
+run_id="${MITZO_MGMT_NOTEBOOK_RUN_ID:-}"
+if [[ -n "$run_id" ]]; then
+  if [[ ! "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; then
+    echo 'notebook run ID must be a safe identifier' >&2
+    exit 2
+  fi
+  run_dir="${output_root}/${run_id}"
+  if ! mkdir "$run_dir"; then
+    echo 'notebook run output already exists' >&2
+    exit 2
+  fi
+else
+  run_dir="$(mktemp -d "${output_root}/run.XXXXXX")"
+fi
+
+transient="$(mktemp -d "${TMPDIR:-/tmp}/mitzo-mgmt-jupyter.XXXXXX")"
+cleanup() { rm -rf "$transient"; }
+trap cleanup EXIT
+export IPYTHONDIR="${transient}/ipython"
+export JUPYTER_RUNTIME_DIR="${transient}/runtime"
 mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
-exec python -m jupyter nbconvert --to notebook --execute --inplace "$path"
+
+# Jira credentials remain provider-injected environment placeholders; this
+# command never accepts or logs them. The source notebook is input-only: its
+# executed copy gets a unique, writable report location.
+name="${notebook##*/}"
+output_name="${name%.ipynb}.executed.ipynb"
+python -m jupyter nbconvert --to notebook --execute --output-dir "$run_dir" --output "$output_name" "$path"
+printf '%s\n' "${run_dir}/${output_name}"
