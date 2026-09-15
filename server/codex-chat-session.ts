@@ -1,4 +1,4 @@
-import { JIRA_ENDPOINT } from './connections-gateway.js';
+import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { requestCodexUserInput } from './codex-user-input.js';
@@ -305,7 +305,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       ? {
           ...openShell,
           connectionEnv: {
-            JIRA_URL: JIRA_ENDPOINT as typeof JIRA_ENDPOINT,
+            JIRA_URL: JIRA_API_ENDPOINT as typeof JIRA_API_ENDPOINT,
             JIRA_EMAIL: managedConnection.submittedEmail,
           },
         }
@@ -394,7 +394,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` If the user asks to add integration access, call ${GRANT_INTEGRATION_TOOL}; Mitzo will present an approval card and attach only a reviewed provider to this chat without changing OAuth consent.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (managedConnection
-        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. JIRA_URL is fixed to that Jira Cloud site. Use /opt/mgmt-jira-venv/bin/python or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
+        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use /opt/mgmt-jira-venv/bin/python or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
         : '') +
       (startup.context ? `\n\n${startup.context}` : ''),
     beforeComplete: async (signal) => {

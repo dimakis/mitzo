@@ -9,12 +9,12 @@ network_policies:
   jira_identity:
     name: jira-identity-readonly
     endpoints:
-      - host: redhat.atlassian.net
+      - host: api.atlassian.com
         port: 443
         protocol: rest
         enforcement: enforce
         tls: terminate
         rules:
-          - allow: { method: GET, path: /rest/api/3/myself }
+          - allow: { method: GET, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/myself }
     binaries:
       - { path: /usr/bin/python3 }

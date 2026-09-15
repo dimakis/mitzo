@@ -14,21 +14,50 @@ if [[ "$notebook" = /* || "$notebook" == *'..'* || "$notebook" != *.ipynb ]]; th
   exit 2
 fi
 
-path="${runtime_root}/${notebook}"
-if [[ ! -f "$path" ]]; then
+if [[ ! -d "$runtime_root" ]]; then
+  echo 'mounted jira_process runtime does not exist' >&2
+  exit 2
+fi
+runtime_root="$(realpath "$runtime_root")"
+path="$(realpath "${runtime_root}/${notebook}" 2>/dev/null || true)"
+if [[ -z "$path" || ! -f "$path" ]]; then
   echo 'notebook does not exist in the mounted jira_process runtime' >&2
   exit 2
 fi
-
-output_root="${MITZO_MGMT_NOTEBOOK_OUTPUT_DIR:-${runtime_root}/reports/notebook-runs}"
-case "$output_root" in
-  "${runtime_root}/reports/notebook-runs"|"${runtime_root}/reports/notebook-runs"/*) ;;
+case "$path" in
+  "${runtime_root}"/*.ipynb) ;;
   *)
-    echo 'notebook output must stay inside jira_process/reports/notebook-runs' >&2
+    echo 'notebook must resolve inside the mounted jira_process runtime' >&2
     exit 2
     ;;
 esac
-mkdir -p "$output_root"
+
+reports_root="${runtime_root}/reports"
+if [[ -e "$reports_root" ]]; then
+  reports_root="$(realpath "$reports_root")"
+  if [[ "$reports_root" != "${runtime_root}/reports" ]]; then
+    echo 'jira_process reports directory must not resolve outside the runtime' >&2
+    exit 2
+  fi
+else
+  mkdir "$reports_root"
+fi
+output_root="${reports_root}/notebook-runs"
+if [[ -e "$output_root" ]]; then
+  output_root="$(realpath "$output_root")"
+  if [[ "$output_root" != "${reports_root}/notebook-runs" ]]; then
+    echo 'notebook output directory must not resolve outside the reports tree' >&2
+    exit 2
+  fi
+else
+  mkdir "$output_root"
+fi
+requested_output_root="${MITZO_MGMT_NOTEBOOK_OUTPUT_DIR:-${output_root}}"
+requested_output_root="$(realpath "$requested_output_root" 2>/dev/null || true)"
+if [[ "$requested_output_root" != "$output_root" ]]; then
+  echo 'notebook output must stay inside jira_process/reports/notebook-runs' >&2
+  exit 2
+fi
 
 run_id="${MITZO_MGMT_NOTEBOOK_RUN_ID:-}"
 if [[ -n "$run_id" ]]; then

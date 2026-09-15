@@ -4,6 +4,7 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -83,6 +84,10 @@ printf 'executed\\n' > "$output_dir/$output_name"
       );
       chmodSync(join(bin, 'python'), 0o700);
 
+      const canonicalRuntime = realpathSync(runtime);
+      const canonicalOutputRoot = join(canonicalRuntime, 'reports', 'notebook-runs');
+      const canonicalSource = join(canonicalRuntime, 'dashboards', 'smoke.ipynb');
+
       const output = execFileSync('bash', [notebookRunner, 'dashboards/smoke.ipynb'], {
         env: {
           ...process.env,
@@ -104,13 +109,13 @@ printf 'executed\\n' > "$output_dir/$output_name"
         'notebook',
         '--execute',
         '--output-dir',
-        join(outputRoot, 'smoke-run'),
+        join(canonicalOutputRoot, 'smoke-run'),
         '--output',
         'smoke.executed.ipynb',
-        source,
+        canonicalSource,
       ]);
       expect(readFileSync(source, 'utf8')).toBe(sourceContents);
-      expect(output.trim()).toBe(join(outputRoot, 'smoke-run', 'smoke.executed.ipynb'));
+      expect(output.trim()).toBe(join(canonicalOutputRoot, 'smoke-run', 'smoke.executed.ipynb'));
       expect(readFileSync(output.trim(), 'utf8')).toBe('executed\n');
       expect(readdirSync(root).filter((name) => name.startsWith('mitzo-mgmt-jupyter.'))).toEqual(
         [],
@@ -133,6 +138,49 @@ printf 'executed\\n' > "$output_dir/$output_name"
       );
     }
   });
+
+  it.each(['source', 'reports'] as const)(
+    'rejects a symlinked Jira runtime %s path that resolves outside the mount',
+    (kind) => {
+      const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-symlink-'));
+      const workspace = join(root, 'mgmt');
+      const runtime = join(workspace, 'jira_process');
+      const outside = join(root, 'outside');
+      try {
+        mkdirSync(join(runtime, 'dashboards'), { recursive: true });
+        mkdirSync(outside);
+        if (kind === 'source') {
+          writeFileSync(join(outside, 'smoke.ipynb'), '{}\n');
+          symlinkSync(outside, join(runtime, 'dashboards', 'linked'), 'dir');
+        } else {
+          writeFileSync(join(runtime, 'dashboards', 'smoke.ipynb'), '{}\n');
+          symlinkSync(outside, join(runtime, 'reports'), 'dir');
+        }
+
+        try {
+          execFileSync(
+            'bash',
+            [
+              notebookRunner,
+              kind === 'source' ? 'dashboards/linked/smoke.ipynb' : 'dashboards/smoke.ipynb',
+            ],
+            {
+              env: { ...process.env, MITZO_MGMT_WORKDIR: workspace },
+              stdio: ['ignore', 'pipe', 'pipe'],
+            },
+          );
+          throw new Error('runner unexpectedly accepted an escaping symlink');
+        } catch (error) {
+          expect(String((error as { stderr?: string }).stderr ?? error)).toMatch(
+            /must resolve inside|must not resolve outside/,
+          );
+        }
+        expect(existsSync(join(outside, 'notebook-runs'))).toBe(false);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('disables Codex request compression in every OpenShell app-server launcher', () => {
     for (const runner of [apiRunner, subscriptionRunner])
