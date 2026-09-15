@@ -316,7 +316,11 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'GrantIntegrationAccess',
       { provider: 'google-workspace' },
-      expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+      expect.objectContaining({
+        forcePrompt: true,
+        approvalScope: 'conversation',
+        controlPlane: true,
+      }),
     );
     vi.clearAllMocks();
 
@@ -471,6 +475,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({
         forcePrompt: true,
         approvalScope: 'conversation',
+        controlPlane: false,
         title: 'Grant Google Workspace to this conversation?',
         description: expect.stringContaining('across reconnects and Mitzo restarts'),
       }),
@@ -482,6 +487,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       'GrantIntegrationAccess',
       { provider: 'github' },
       expect.objectContaining({
+        controlPlane: false,
         title: 'Grant GitHub to this conversation?',
         description: expect.stringContaining('reviewed GitHub provider'),
       }),

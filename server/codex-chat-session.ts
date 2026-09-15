@@ -321,7 +321,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         pending: Map<string, Promise<{ content: string; isError: boolean }>>;
       }
     | undefined;
-  const requestIntegrationAccess = async (provider: string, signal: AbortSignal) => {
+  const requestIntegrationAccess = async (
+    provider: string,
+    signal: AbortSignal,
+    controlPlane = false,
+  ) => {
     // A cancelled approval can settle after the next queued turn has started.
     // Keep all coalescing and denial state bound to the initiating turn.
     const turn = integrationTurn;
@@ -339,7 +343,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       };
     const pending = turn?.pending.get(provider);
     if (pending) return pending;
-    const request = requestIntegrationAccessInner(provider, signal, turn);
+    const request = requestIntegrationAccessInner(provider, signal, turn, controlPlane);
     turn?.pending.set(provider, request);
     try {
       return await request;
@@ -351,6 +355,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     provider: string,
     signal: AbortSignal,
     turn: typeof integrationTurn,
+    controlPlane: boolean,
   ) => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
@@ -377,6 +382,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       toolUseID: randomUUID(),
       forcePrompt: true,
       approvalScope: 'conversation',
+      controlPlane,
       title: `Grant ${providerLabel} to this conversation?`,
       description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
     });
@@ -574,7 +580,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               if (access.state === 'available') continue;
               if (access.state === 'indeterminate') throw access.error;
               const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
-              const result = await requestIntegrationAccess(provider, signal);
+              const result = await requestIntegrationAccess(provider, signal, true);
               if (result.isError)
                 return `${providerPrompt}\n\n[Mitzo did not enable ${providerLabel} for this turn. Do not run its CLI or claim a gateway outage; explain that this chat does not have access.]`;
             }

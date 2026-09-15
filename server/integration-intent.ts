@@ -13,7 +13,7 @@ const GENERIC_EMAIL = /\b(?:emails?|mail|inbox)\b/gi;
 const GENERIC_CALENDAR = /\bcalendar\b/gi;
 
 const READ_ACTION =
-  /\b(?:access(?:ing)?|check|find|fetch|get|inspect|list|look\s+(?:at|in|through)|open|query|read|retrieve|scan|search|show|summari[sz]e|use|view)\b/gi;
+  /\b(?:access(?:ing|ed)?|check(?:ing|ed)?|find(?:ing)?|fetch(?:ing|ed)?|get(?:ting)?|inspect(?:ing|ed)?|list(?:ing|ed)?|look\s+(?:at|in|through)|open(?:ing|ed)?|quer(?:y|ying|ied)|read(?:ing)?|retriev(?:e|ing|ed)|scan(?:ning|ned)?|search(?:ing|ed)?|show(?:ing|n)?|summari[sz](?:e|ing|ed)|use|using|used|view(?:ing|ed)?)\b/gi;
 const WRITE_ACTION =
   /\b(?:archive|copy|create|delete|download|draft|edit|move|reply|schedule|send|share|update|upload|write)\b/gi;
 const ENABLE_ACTION = /\b(?:add|attach|connect|enable|grant|permit|allow)\b/gi;
@@ -43,6 +43,7 @@ const GOOGLE_SERVICE_API_COMMAND = new RegExp(
 );
 const CAPABILITY_HOW_TO = /\bhow\s+(?:to|do|can|should)\b/i;
 const CAPABILITY_WHAT_CAN_USE = /\bwhat\s+can\s+(?:i|we|you)\s+use\b/i;
+const CONTENT_SEARCH_TARGET = /\b(?:mentions?|occurrences?|references?|strings?|usages?)\b/i;
 
 function requestClauses(prompt: string): string[] {
   return prompt
@@ -131,6 +132,7 @@ function isExplicitGoogleServiceArtifact(clause: string, target: RegExpMatchArra
   const end = start + target[0].length;
   return (
     new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end)) ||
+    isContentSearchArtifact(clause, target) ||
     new RegExp(
       `\\b${TECHNICAL_ARTIFACT}\\s+(?:for|about|of|using|with)\\s+(?:the\\s+)?$`,
       'i',
@@ -140,7 +142,22 @@ function isExplicitGoogleServiceArtifact(clause: string, target: RegExpMatchArra
 
 function isGenericWorkspaceArtifact(clause: string, target: RegExpMatchArray): boolean {
   const end = target.index! + target[0].length;
-  return new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end));
+  return (
+    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end)) ||
+    isContentSearchArtifact(clause, target)
+  );
+}
+
+function isContentSearchArtifact(clause: string, target: RegExpMatchArray): boolean {
+  const start = target.index!;
+  const end = start + target[0].length;
+  return (
+    new RegExp(`^\\s+${CONTENT_SEARCH_TARGET.source}`, 'i').test(clause.slice(end)) ||
+    new RegExp(
+      `${CONTENT_SEARCH_TARGET.source}\\s+(?:(?:to|of|about|for)\\s+)?(?:["']\\s*)?$`,
+      'i',
+    ).test(clause.slice(0, start))
+  );
 }
 
 function hasExplicitGoogleWorkspaceIntent(clause: string): boolean {

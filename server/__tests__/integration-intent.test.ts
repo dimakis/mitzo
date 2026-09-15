@@ -38,6 +38,9 @@ describe('requestedIntegrationProviders', () => {
     'Fix the Gmail handler and then search Gmail for Cat',
     'show my Gmail messages',
     'Explain how to use Gmail and then search Gmail for Cat',
+    'start by searching Gmail',
+    'help me by checking my calendar',
+    'I need to access my email',
   ])('recognizes Google Workspace access intent in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
@@ -78,6 +81,11 @@ describe('requestedIntegrationProviders', () => {
     'explain how to use Gmail',
     'show me how to use Google Drive',
     'what can I use Gmail for?',
+    'search for Gmail references in the repo',
+    'find Google Drive mentions in the source code',
+    'search for the string "Gmail" in the repo',
+    'find occurrences of Google Drive',
+    'search Gmail usages in the codebase',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });

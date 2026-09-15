@@ -91,6 +91,12 @@ export function buildPermissionHandler(
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
       approvalScope?: 'session' | 'conversation';
+      /**
+       * A server-owned control-plane approval (for example, attaching a
+       * reviewed integration) may bypass a skill's model-tool ceiling. It
+       * still observes mode, worktree, and explicit approval checks.
+       */
+      controlPlane?: boolean;
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
     },
@@ -101,7 +107,7 @@ export function buildPermissionHandler(
     // Skill restrictions are checked FIRST — a safe-tier tool not in the
     // skill's allowed-tools list must be denied even if shouldAutoAllow
     // would normally permit it.
-    if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
+    if (!opts.controlPlane && checkSkillPolicy(registry, clientId, toolName) === 'deny') {
       return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
     }
 
@@ -183,7 +189,10 @@ export function buildPermissionHandler(
         if (result.behavior === 'allow') {
           const modeDenial = askDenial();
           if (modeDenial) result = modeDenial;
-          else if (checkSkillPolicy(registry, clientId, toolName) === 'deny') {
+          else if (
+            !opts.controlPlane &&
+            checkSkillPolicy(registry, clientId, toolName) === 'deny'
+          ) {
             result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
           }
         }

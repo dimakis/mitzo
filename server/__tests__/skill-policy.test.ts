@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { checkSkillPolicy, setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { buildPermissionHandler } from '../permission-handler.js';
-import type { SessionTransport } from '@mitzo/harness';
+import { resolvePending, type SessionTransport } from '@mitzo/harness';
 
 function mockTransport(open = true): SessionTransport {
   return {
@@ -96,6 +96,59 @@ describe('skill policy', () => {
   });
 
   describe('integration with permission handler', () => {
+    it('permits a server-owned integration preflight without widening a restricted skill', async () => {
+      const permissionRequests: Array<{ permId: string; type?: string }> = [];
+      const session = registry.get(clientId)!;
+      session.transport = {
+        isOpen: () => true,
+        send: (message) => permissionRequests.push(message as { permId: string; type?: string }),
+      };
+      setSkillPolicy(registry, clientId, ['Read', 'Glob']);
+
+      const handler = buildPermissionHandler(clientId, registry);
+      const signal = new AbortController().signal;
+      const preflight = handler(
+        'GrantIntegrationAccess',
+        { provider: 'google-workspace' },
+        {
+          signal,
+          toolUseID: 'integration-preflight',
+          forcePrompt: true,
+          controlPlane: true,
+        },
+      );
+
+      await vi.waitFor(() =>
+        expect(permissionRequests).toContainEqual(
+          expect.objectContaining({
+            type: 'permission_request',
+            toolName: 'GrantIntegrationAccess',
+          }),
+        ),
+      );
+      const request = permissionRequests.find((message) => message.type === 'permission_request')!;
+      expect(resolvePending(request.permId, 'once')).toBe(true);
+      await expect(preflight).resolves.toMatchObject({ behavior: 'allow' });
+
+      await expect(
+        handler(
+          'GrantIntegrationAccess',
+          { provider: 'google-workspace' },
+          { signal, toolUseID: 'runtime-grant-tool' },
+        ),
+      ).resolves.toMatchObject({
+        behavior: 'deny',
+        message: expect.stringContaining('skill policy'),
+      });
+
+      await expect(
+        handler('Bash', { command: 'echo blocked' }, { signal, toolUseID: 'runtime-tool' }),
+      ).resolves.toMatchObject({
+        behavior: 'deny',
+        message: expect.stringContaining('skill policy'),
+      });
+    });
+
     it('skill policy denies Bash even in agent mode via buildPermissionHandler', async () => {
       // Set a read-only skill policy
       setSkillPolicy(registry, clientId, ['Read', 'Glob', 'Grep']);
