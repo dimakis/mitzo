@@ -28,6 +28,12 @@ describe('requestedIntegrationProviders', () => {
     'download a file from Google Drive',
     'draft this in Gmail',
     'draft an email in Gmail',
+    'uploading this to Google Drive',
+    'uploaded this to Google Drive',
+    'editing my Google Doc',
+    'edited my Google Doc',
+    'connecting Google Workspace',
+    'connected Google Workspace',
     'use the Google Drive API to upload this file',
     'upload this via the Google Drive API',
     'download the report through the Google Drive API',
@@ -40,6 +46,7 @@ describe('requestedIntegrationProviders', () => {
     'Fix the Gmail handler and then search Gmail for Cat',
     'show my Gmail messages',
     'Explain how to use Gmail and then search Gmail for Cat',
+    'Explain how to use Gmail and then show me how to use Google Drive and then search Gmail for Cat',
     'start by searching Gmail',
     'help me by checking my calendar',
     'I need to access my email',
@@ -57,6 +64,8 @@ describe('requestedIntegrationProviders', () => {
 
   it.each([
     'draft an email to Cat',
+    'editing code',
+    'uploaded Google Drive documentation',
     'explain how Google Docs permissions work',
     'find the email parser bug',
     'inspect and fix the calendar UI',
@@ -91,6 +100,7 @@ describe('requestedIntegrationProviders', () => {
     'you must not search and then access Gmail',
     'explain how to use Gmail',
     'show me how to use Google Drive',
+    'explain how to use Gmail and then show me how to use Google Drive',
     'what can I use Gmail for?',
     'search for Gmail references in the repo',
     'find Google Drive mentions in the source code',
@@ -127,5 +137,10 @@ describe('requestedIntegrationProviders', () => {
 
   it('never returns a provider that is not configured as grantable', () => {
     expect(requestedIntegrationProviders('search Gmail', [])).toEqual([]);
+  });
+
+  it('handles a large repeated clause without expanding action/resource pairs', () => {
+    const prompt = Array.from({ length: 12_000 }, () => 'search Gmail for Cat').join(' ');
+    expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
 });

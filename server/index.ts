@@ -97,6 +97,7 @@ import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
 import { resolvePending } from './permissions.js';
 import { resolveSlashCommand } from './slash-commands.js';
+import { routeLegacySkillMessage } from './legacy-skill-routing.js';
 import { NativeCommandRegistry } from './native-commands.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { ConnectionRegistry } from '@mitzo/harness';
@@ -1066,40 +1067,31 @@ function handleChatWs(
                 arguments: resolution.arguments,
                 ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
               });
-              if (isActive(clientId)) {
-                sendToActiveChat(
+              routeLegacySkillMessage(
+                {
                   transport,
-                  clientId,
-                  resolution.renderedPrompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                  msg.prompt,
-                );
-              } else if (
-                !tryRouteToActiveSession(
                   ws,
-                  msg.resume,
-                  resolution.renderedPrompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                  msg.prompt,
-                )
-              ) {
-                startChat(transport, clientId, resolution.renderedPrompt, {
+                  clientId,
                   resume: msg.resume,
-                  cwd: msg.cwd,
-                  model: msg.model,
-                  extraTools: msg.extraTools,
-                  isolation: msg.isolation,
-                  mode: msg.mode,
+                  renderedPrompt: resolution.renderedPrompt,
+                  userIntent: msg.prompt,
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
-                  userIntent: msg.prompt,
-                });
-              }
+                  startOptions: {
+                    resume: msg.resume,
+                    cwd: msg.cwd,
+                    model: msg.model,
+                    extraTools: msg.extraTools,
+                    isolation: msg.isolation,
+                    mode: msg.mode,
+                    images: msg.images,
+                    contextBlocks: msg.contextBlocks,
+                    clientMsgId: msg.clientMsgId,
+                  },
+                },
+                { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
+              );
             } else {
               clearSkillPolicy(registry, clientId);
               if (isActive(clientId)) {

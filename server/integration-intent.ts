@@ -18,8 +18,9 @@ const PERSONAL_SHEETS = /\b(?:my|our|your)\s+(?:sheets?|spreadsheets?)\b/gi;
 const READ_ACTION =
   /\b(?:access(?:ing|ed)?|check(?:ing|ed)?|find(?:ing)?|fetch(?:ing|ed)?|get(?:ting)?|inspect(?:ing|ed)?|list(?:ing|ed)?|look\s+(?:at|in|through)|open(?:ing|ed)?|quer(?:y|ying|ied)|read(?:ing)?|retriev(?:e|ing|ed)|scan(?:ning|ned)?|search(?:ing|ed)?|show(?:ing|n)?|summari[sz](?:e|ing|ed)|use|using|used|view(?:ing|ed)?)\b/gi;
 const WRITE_ACTION =
-  /\b(?:archive|copy|create|delete|download|draft|edit|move|reply|schedule|send|share|update|upload|write)\b/gi;
-const ENABLE_ACTION = /\b(?:add|attach|connect|enable|grant|permit|allow)\b/gi;
+  /\b(?:archiv(?:e|ing|ed)|cop(?:y|ying|ied)|creat(?:e|ing|ed)|delet(?:e|ing|ed)|download(?:ing|ed)?|draft(?:ing|ed)?|edit(?:ing|ed)?|mov(?:e|ing|ed)|repl(?:y|ying|ied)|schedul(?:e|ing|ed)|send(?:ing|sent)?|shar(?:e|ing|ed)|updat(?:e|ing|ed)|upload(?:ing|ed)?|writ(?:e|ing|ten))\b/gi;
+const ENABLE_ACTION =
+  /\b(?:add(?:ing|ed)?|attach(?:ing|ed)?|connect(?:ing|ed)?|enabl(?:e|ing|ed)|grant(?:ing|ed)?|permit(?:ting|ted)?|allow(?:ing|ed)?)\b/gi;
 const WORKSPACE_ACTION = new RegExp(
   `${READ_ACTION.source}|${WRITE_ACTION.source}|${ENABLE_ACTION.source}`,
   'gi',
@@ -44,8 +45,6 @@ const GOOGLE_SERVICE_API_COMMAND = new RegExp(
   '\\buse\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+api\\s+to\\b',
   'i',
 );
-const CAPABILITY_HOW_TO = /\bhow\s+(?:to|do|can|should)\b/i;
-const CAPABILITY_WHAT_CAN_USE = /\bwhat\s+can\s+(?:i|we|you)\s+use\b/i;
 const CONTENT_SEARCH_TARGET = /\b(?:mentions?|occurrences?|references?|strings?|usages?)\b/i;
 const QUOTED_TEXT = /“[^”]*”|‘[^’]*’|"[^"]*"|`[^`]*`|(?<![\p{L}\p{N}])'[^'\n]+'/gu;
 
@@ -56,70 +55,175 @@ function requestClauses(prompt: string): string[] {
     .filter(Boolean);
 }
 
-function wordCount(text: string): number {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
+type IndexedMatch = {
+  text: string;
+  index: number;
+  end: number;
+  firstWord: number;
+  lastWord: number;
+};
+type ClauseMatcher = {
+  clause: string;
+  actions: IndexedMatch[];
+  genericActions: IndexedMatch[];
+  apiDataActions: IndexedMatch[];
+  explicit: IndexedMatch[];
+  personal: Record<'mail' | 'calendar' | 'drive' | 'docs' | 'sheets', IndexedMatch[]>;
+  generic: { mail: IndexedMatch[]; calendar: IndexedMatch[] };
+  actionsByWord: Map<number, IndexedMatch[]>;
+  quoted: Array<{ start: number; end: number }>;
+  capabilityStarts: number[];
+  thenBoundaries: number[];
+};
 
-/**
- * Returns true only when an operation and its target occur near one another
- * in the same small request clause. This deliberately avoids binding a verb
- * in a different sentence (or a different side of "and") to a Google service
- * mention, while allowing natural resource-first requests such as
- * "In Gmail, find the message".
- */
-function matchingActionsForResource(
-  clause: string,
-  resource: RegExp,
-  actionPattern = WORKSPACE_ACTION,
-  isTechnicalArtifact?: (clause: string, target: RegExpMatchArray) => boolean,
-): Array<{ index: number; negated: boolean }> {
-  const matches: Array<{ index: number; negated: boolean }> = [];
-  resource.lastIndex = 0;
-  actionPattern.lastIndex = 0;
-  for (const action of clause.matchAll(actionPattern)) {
-    for (const target of clause.matchAll(resource)) {
-      if (target.index === undefined || action.index === undefined) continue;
-      if (isTechnicalArtifact?.(clause, target)) continue;
-      if (isQuotedText(clause, action.index) || isQuotedText(clause, target.index)) continue;
-      if (isCapabilityHowTo(clause, action, target)) continue;
-      const between =
-        action.index < target.index
-          ? clause.slice(action.index + action[0].length, target.index)
-          : clause.slice(target.index + target[0].length, action.index);
-      if (wordCount(between) > 6 || /\b(?:about|documentation|docs?|and|or)\b/i.test(between))
-        continue;
-      matches.push({ index: action.index, negated: isNegatedAction(clause, action.index) });
+function createClauseMatcher(clause: string): ClauseMatcher {
+  const words: number[] = [];
+  for (const word of clause.matchAll(/\S+/g)) words.push(word.index ?? 0);
+  const wordAt = (index: number) => {
+    let low = 0;
+    let high = words.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (words[middle] <= index) low = middle + 1;
+      else high = middle;
     }
-  }
-  return matches;
+    return Math.max(0, low - 1);
+  };
+  const indexed = (pattern: RegExp): IndexedMatch[] => {
+    pattern.lastIndex = 0;
+    return [...clause.matchAll(pattern)].map((match) => {
+      const index = match.index ?? 0;
+      return {
+        text: match[0],
+        index,
+        end: index + match[0].length,
+        firstWord: wordAt(index),
+        lastWord: wordAt(index + Math.max(0, match[0].length - 1)),
+      };
+    });
+  };
+  const actions = indexed(WORKSPACE_ACTION);
+  const genericActions = indexed(GENERIC_WORKSPACE_DATA_ACTION);
+  const apiDataActions = indexed(API_DATA_ACTION);
+  const actionsByWord = new Map<number, IndexedMatch[]>();
+  for (const action of [...actions, ...genericActions, ...apiDataActions])
+    for (let word = action.firstWord; word <= action.lastWord; word++) {
+      const atWord = actionsByWord.get(word) ?? [];
+      atWord.push(action);
+      actionsByWord.set(word, atWord);
+    }
+  QUOTED_TEXT.lastIndex = 0;
+  const quoted = [...clause.matchAll(QUOTED_TEXT)].map((match) => ({
+    start: match.index ?? 0,
+    end: (match.index ?? 0) + match[0].length,
+  }));
+  const capabilityStarts = [
+    ...clause.matchAll(/\bhow\s+(?:to|do|can|should)\b/gi),
+    ...clause.matchAll(/\bwhat\s+can\s+(?:i|we|you)\s+use\b/gi),
+  ]
+    .map((match) => match.index ?? 0)
+    .sort((left, right) => left - right);
+  const thenBoundaries = [...clause.matchAll(/\b(?:and\s+)?then\b/gi)].map(
+    (match) => (match.index ?? 0) + match[0].length,
+  );
+  return {
+    clause,
+    actions,
+    genericActions,
+    apiDataActions,
+    explicit: indexed(EXPLICIT_GOOGLE_SERVICE),
+    personal: {
+      mail: indexed(PERSONAL_MAIL),
+      calendar: indexed(PERSONAL_CALENDAR),
+      drive: indexed(PERSONAL_DRIVE),
+      docs: indexed(PERSONAL_DOCS),
+      sheets: indexed(PERSONAL_SHEETS),
+    },
+    generic: { mail: indexed(GENERIC_EMAIL), calendar: indexed(GENERIC_CALENDAR) },
+    actionsByWord,
+    quoted,
+    capabilityStarts,
+    thenBoundaries,
+  };
 }
 
-function isQuotedText(clause: string, index: number): boolean {
-  QUOTED_TEXT.lastIndex = 0;
-  for (const quoted of clause.matchAll(QUOTED_TEXT)) {
-    const start = quoted.index ?? 0;
-    if (index >= start && index < start + quoted[0].length) return true;
+function indexBefore(values: number[], needle: number): number {
+  let low = 0;
+  let high = values.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (values[middle] <= needle) low = middle + 1;
+    else high = middle;
   }
-  return false;
+  return low - 1;
+}
+
+function isQuotedText(matcher: ClauseMatcher, index: number): boolean {
+  const quoted = matcher.quoted;
+  let low = 0;
+  let high = quoted.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (quoted[middle].start <= index) low = middle + 1;
+    else high = middle;
+  }
+  const range = quoted[low - 1];
+  return Boolean(range && index < range.end);
 }
 
 function isCapabilityHowTo(
-  clause: string,
-  action: RegExpMatchArray,
-  target: RegExpMatchArray,
+  matcher: ClauseMatcher,
+  action: IndexedMatch,
+  target: IndexedMatch,
 ): boolean {
   // Keep explanation/capability framing bound to its own action phrase. In
   // "explain how to use Gmail and then search Gmail", the second operation is
   // a separate request and must not inherit the explanation's suppression.
-  const pairStart = Math.min(action.index!, target.index!);
-  let scopeStart = 0;
-  for (const boundary of clause.slice(0, pairStart).matchAll(/\b(?:and\s+)?then\b/gi))
-    scopeStart = (boundary.index ?? 0) + boundary[0].length;
-  const scope = clause.slice(
-    scopeStart,
-    Math.max(action.index! + action[0].length, target.index! + target[0].length),
-  );
-  return CAPABILITY_HOW_TO.test(scope) || CAPABILITY_WHAT_CAN_USE.test(scope);
+  const pairStart = Math.min(action.index, target.index);
+  const scopeStart = matcher.thenBoundaries[indexBefore(matcher.thenBoundaries, pairStart)] ?? 0;
+  const capability =
+    matcher.capabilityStarts[
+      indexBefore(matcher.capabilityStarts, Math.max(action.end, target.end))
+    ];
+  return capability !== undefined && capability >= scopeStart;
+}
+
+/**
+ * Finds only actions in the six-word neighborhood of each resource match.
+ * All regex scans are pre-indexed once per clause; this avoids the former
+ * action×resource rescan for repeated service names in large user prompts.
+ */
+function matchingActionsForResource(
+  matcher: ClauseMatcher,
+  targets: IndexedMatch[],
+  actions: IndexedMatch[],
+  isTechnicalArtifact?: (matcher: ClauseMatcher, target: IndexedMatch) => boolean,
+): Array<{ index: number; negated: boolean }> {
+  const actionSet = new Set(actions);
+  const matches: Array<{ index: number; negated: boolean }> = [];
+  for (const target of targets) {
+    if (isTechnicalArtifact?.(matcher, target) || isQuotedText(matcher, target.index)) continue;
+    const nearby = new Set<IndexedMatch>();
+    for (let word = Math.max(0, target.firstWord - 7); word <= target.lastWord + 7; word++)
+      for (const action of matcher.actionsByWord.get(word) ?? [])
+        if (actionSet.has(action)) nearby.add(action);
+    for (const action of nearby) {
+      if (isQuotedText(matcher, action.index) || isCapabilityHowTo(matcher, action, target))
+        continue;
+      const betweenWords =
+        action.index < target.index
+          ? target.firstWord - action.lastWord - 1
+          : action.firstWord - target.lastWord - 1;
+      if (betweenWords > 6) continue;
+      const between =
+        action.index < target.index
+          ? matcher.clause.slice(action.end, target.index)
+          : matcher.clause.slice(target.end, action.index);
+      if (/\b(?:about|documentation|docs?|and|or)\b/i.test(between)) continue;
+      matches.push({ index: action.index, negated: isNegatedAction(matcher.clause, action.index) });
+    }
+  }
+  return matches;
 }
 
 function isNegatedAction(clause: string, actionIndex: number): boolean {
@@ -157,36 +261,37 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   return false;
 }
 
-function isExplicitGoogleServiceArtifact(clause: string, target: RegExpMatchArray): boolean {
-  const start = target.index!;
-  const end = start + target[0].length;
+function isExplicitGoogleServiceArtifact(matcher: ClauseMatcher, target: IndexedMatch): boolean {
+  const { clause } = matcher;
+  const { index: start, end } = target;
   return (
-    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end)) ||
-    isContentSearchArtifact(clause, target) ||
+    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end, end + 120)) ||
+    isContentSearchArtifact(matcher, target) ||
     new RegExp(
       `\\b${TECHNICAL_ARTIFACT}\\s+(?:for|about|of|using|with)\\s+(?:the\\s+)?$`,
       'i',
-    ).test(clause.slice(0, start))
+    ).test(clause.slice(Math.max(0, start - 160), start))
   );
 }
 
-function isGenericWorkspaceArtifact(clause: string, target: RegExpMatchArray): boolean {
-  const end = target.index! + target[0].length;
+function isGenericWorkspaceArtifact(matcher: ClauseMatcher, target: IndexedMatch): boolean {
+  const { clause } = matcher;
+  const { end } = target;
   return (
-    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end)) ||
-    isContentSearchArtifact(clause, target)
+    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end, end + 120)) ||
+    isContentSearchArtifact(matcher, target)
   );
 }
 
-function isContentSearchArtifact(clause: string, target: RegExpMatchArray): boolean {
-  const start = target.index!;
-  const end = start + target[0].length;
+function isContentSearchArtifact(matcher: ClauseMatcher, target: IndexedMatch): boolean {
+  const { clause } = matcher;
+  const { index: start, end } = target;
   return (
-    new RegExp(`^\\s+${CONTENT_SEARCH_TARGET.source}`, 'i').test(clause.slice(end)) ||
+    new RegExp(`^\\s+${CONTENT_SEARCH_TARGET.source}`, 'i').test(clause.slice(end, end + 120)) ||
     new RegExp(
       `${CONTENT_SEARCH_TARGET.source}\\s+(?:(?:to|of|about|for)\\s+)?(?:["']\\s*)?$`,
       'i',
-    ).test(clause.slice(0, start))
+    ).test(clause.slice(Math.max(0, start - 160), start))
   );
 }
 
@@ -203,20 +308,27 @@ function latestResourceState(
     states.set(resource, { resource, index: latest.index, affirmative: !latest.negated });
 }
 
-function explicitGoogleServiceStates(clause: string): ResourceState[] {
+function explicitGoogleServiceStates(matcher: ClauseMatcher): ResourceState[] {
   const states = new Map<string, ResourceState>();
-  EXPLICIT_GOOGLE_SERVICE.lastIndex = 0;
-  for (const target of clause.matchAll(EXPLICIT_GOOGLE_SERVICE)) {
-    const name = explicitServiceIdentity(target[0]);
-    const resource = new RegExp(`\\b${escapeRegExp(target[0])}\\b`, 'gi');
+  const targetsByService = new Map<string, IndexedMatch[]>();
+  for (const target of matcher.explicit) {
+    const service = explicitServiceIdentity(target.text);
+    const targets = targetsByService.get(service) ?? [];
+    targets.push(target);
+    targetsByService.set(service, targets);
+  }
+  const apiOperation =
+    GOOGLE_SERVICE_API_TRANSPORT.test(matcher.clause) ||
+    GOOGLE_SERVICE_API_COMMAND.test(matcher.clause);
+  for (const [name, targets] of targetsByService) {
     const matches = matchingActionsForResource(
-      clause,
-      resource,
-      WORKSPACE_ACTION,
+      matcher,
+      targets,
+      matcher.actions,
       isExplicitGoogleServiceArtifact,
     );
-    if (GOOGLE_SERVICE_API_TRANSPORT.test(clause) || GOOGLE_SERVICE_API_COMMAND.test(clause))
-      matches.push(...matchingActionsForResource(clause, resource, API_DATA_ACTION));
+    if (apiOperation)
+      matches.push(...matchingActionsForResource(matcher, targets, matcher.apiDataActions));
     if (matches.length) latestResourceState(states, name, matches);
   }
   return [...states.values()];
@@ -231,10 +343,6 @@ function explicitServiceIdentity(service: string): string {
   if (normalized === 'google sheets' || normalized === 'google sheet') return 'sheets';
   if (normalized === 'google calendar') return 'calendar';
   return normalized;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function hasClearGenericEmailTarget(clause: string): boolean {
@@ -254,19 +362,15 @@ function hasClearGenericCalendarTarget(clause: string): boolean {
   );
 }
 
-function genericPersonalDataStates(clause: string): ResourceState[] {
+function genericPersonalDataStates(matcher: ClauseMatcher): ResourceState[] {
+  const { clause } = matcher;
   const states = new Map<string, ResourceState>();
-  for (const [identity, resource] of [
-    ['mail', PERSONAL_MAIL],
-    ['calendar', PERSONAL_CALENDAR],
-    ['drive', PERSONAL_DRIVE],
-    ['docs', PERSONAL_DOCS],
-    ['sheets', PERSONAL_SHEETS],
-  ] as const) {
+  for (const identity of ['mail', 'calendar', 'drive', 'docs', 'sheets'] as const) {
+    const targets = matcher.personal[identity];
     const matches = matchingActionsForResource(
-      clause,
-      resource,
-      GENERIC_WORKSPACE_DATA_ACTION,
+      matcher,
+      targets,
+      matcher.genericActions,
       isGenericWorkspaceArtifact,
     );
     if (matches.length) latestResourceState(states, identity, matches);
@@ -286,17 +390,18 @@ function genericPersonalDataStates(clause: string): ResourceState[] {
   return [...states.values()];
 }
 
-function genericEmailOrCalendarStates(clause: string): ResourceState[] {
+function genericEmailOrCalendarStates(matcher: ClauseMatcher): ResourceState[] {
+  const { clause } = matcher;
   const states = new Map<string, ResourceState>();
-  for (const [resource, target, hasClearTarget] of [
-    ['mail', GENERIC_EMAIL, hasClearGenericEmailTarget],
-    ['calendar', GENERIC_CALENDAR, hasClearGenericCalendarTarget],
+  for (const [resource, targets, hasClearTarget] of [
+    ['mail', matcher.generic.mail, hasClearGenericEmailTarget],
+    ['calendar', matcher.generic.calendar, hasClearGenericCalendarTarget],
   ] as const) {
     if (!hasClearTarget(clause)) continue;
     const matches = matchingActionsForResource(
-      clause,
-      target,
-      GENERIC_WORKSPACE_DATA_ACTION,
+      matcher,
+      targets,
+      matcher.genericActions,
       isGenericWorkspaceArtifact,
     );
     if (matches.length) latestResourceState(states, resource, matches);
@@ -318,10 +423,11 @@ export function requestedIntegrationProviders(
   const activeResources = new Set<string>();
   let workspaceAccessRefused = false;
   for (const clause of requestClauses(prompt)) {
+    const matcher = createClauseMatcher(clause);
     const states = [
-      ...explicitGoogleServiceStates(clause),
-      ...genericPersonalDataStates(clause),
-      ...genericEmailOrCalendarStates(clause),
+      ...explicitGoogleServiceStates(matcher),
+      ...genericPersonalDataStates(matcher),
+      ...genericEmailOrCalendarStates(matcher),
     ].sort((left, right) => left.index - right.index);
     for (const { resource, affirmative } of states) {
       if (resource === 'workspace' && !affirmative) {
