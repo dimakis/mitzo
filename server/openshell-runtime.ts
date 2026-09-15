@@ -600,6 +600,34 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
+  /** Capacity admission must outlive the request that initiated a detached
+   * create. Keep observing without the caller's abort/timeout until physical
+   * provisioning reaches a terminal state. */
+  private async waitForProvisioningTerminal(name: string, owner: string) {
+    const signal = new AbortController().signal;
+    let observed = false;
+    for (;;) {
+      try {
+        const sandbox = await this.get(name, signal);
+        if (!sandbox) {
+          if (observed) return;
+        } else {
+          observed = true;
+          if (
+            sandbox.labels?.['mitzo.conversation'] !== owner ||
+            sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
+            ['Ready', 'Stopped', 'Error', 'Deleting'].includes(sandbox.phase)
+          )
+            return;
+        }
+      } catch {
+        // A transient inventory failure is not evidence that detached
+        // provisioning stopped consuming capacity. Continue fail-closed.
+      }
+      await this.delay(signal);
+    }
+  }
+
   private async verifyManagedConnections(name: string, signal: AbortSignal) {
     await this.config.verifyConnections?.(name, signal);
     if (this.config.enforceConnectionAttachments) {
@@ -718,18 +746,26 @@ export class OpenShellRuntimeManager {
         );
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
+      let provisioningPending = false;
       try {
         try {
-          await this.run(args, signal);
+          // Once admitted, do not cancel the physical create with the request.
+          // Detached provisioning can continue even when its caller disconnects.
+          await this.run(args, new AbortController().signal);
         } catch (error) {
           if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
             throw error;
         }
+        provisioningPending = true;
         // Detached create can keep allocating storage after the CLI returns.
         // Hold the global reservation until provisioning reaches a stable state.
         sandbox = await this.waitForReady(name, owner, signal);
+        provisioningPending = false;
       } finally {
-        releaseCapacity();
+        if (provisioningPending) {
+          const terminal = this.waitForProvisioningTerminal(name, owner);
+          void terminal.then(releaseCapacity, releaseCapacity);
+        } else releaseCapacity();
       }
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);

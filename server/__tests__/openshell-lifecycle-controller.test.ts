@@ -139,7 +139,7 @@ it('keeps historical lifecycle audits visible while cleanup is disabled', () => 
     {} as Parameters<typeof configureOpenShellLifecycleInventory>[1],
   )!;
   try {
-    controller.store.appendAudit({
+    recordOpenShellLifecycleAudit({
       at: 1,
       actor: 'operator',
       conversationId: 'historical-conversation',
@@ -740,6 +740,85 @@ it('discovers recordless orphans and reconciles identity-less provisional record
         },
       ],
     });
+  } finally {
+    inventory.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('matches physical inventory only to records from the queried provider', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-provider-scope-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
+    .mockResolvedValue([{ id: 'shared-id', name: 'shared-name', phase: 'Ready' as const }]);
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+      accountProviders: () => [],
+    },
+  )!;
+  const runtime = {
+    sandboxName: 'shared-name',
+    sandboxId: 'shared-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  try {
+    registerOpenShellLifecycleProvisional(
+      'provider-one-conversation',
+      runtime,
+      { kind: 'api', provider: 'provider-one', model: 'model' },
+      'client',
+    );
+    registerOpenShellLifecycleProvisional(
+      'provider-two-conversation',
+      runtime,
+      { kind: 'api', provider: 'provider-two', model: 'model' },
+      'client',
+    );
+
+    const result = await openShellLifecycleInventory(AbortSignal.timeout(100));
+    expect(result.sandboxes).toEqual([
+      expect.objectContaining({
+        status: 'verified',
+        provider: 'provider-one',
+        conversationId: 'provider-one-conversation',
+      }),
+      expect.objectContaining({
+        status: 'verified',
+        provider: 'provider-two',
+        conversationId: 'provider-two-conversation',
+      }),
+    ]);
+    expect(inventory).toHaveBeenCalledTimes(2);
   } finally {
     inventory.mockRestore();
     lifecycle.store.close();

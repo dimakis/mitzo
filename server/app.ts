@@ -764,6 +764,16 @@ app.get('/api/openshell/lifecycle/audit', (_req, res) => {
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: req.params.conversationId,
+      sandboxId: null,
+      generation: null,
+      action: 'preview',
+      outcome: 'failed',
+      error: 'openshell_lifecycle_service_unavailable',
+    });
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
   }
@@ -800,6 +810,16 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
 });
 app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req, res) => {
   if (!openShellLifecycleService) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: 'unknown',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'openshell_lifecycle_service_unavailable',
+    });
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
   }
@@ -852,6 +872,17 @@ app.post(
   operatorAuthMiddleware,
   async (req, res) => {
     if (!openShellLifecycleService) {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId:
+          typeof req.params.conversationId === 'string' ? req.params.conversationId : 'unknown',
+        sandboxId: null,
+        generation: null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'openshell_lifecycle_service_unavailable',
+      });
       res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
       return;
     }

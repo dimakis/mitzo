@@ -197,6 +197,79 @@ describe('OpenShell runtime lifecycle', () => {
     await expect(Promise.all([first, second])).resolves.toHaveLength(2);
   });
 
+  it('keeps detached capacity reserved after caller cancellation until provisioning is terminal', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const response = (conversation: string, phase: 'Creating' | 'Ready') =>
+      JSON.stringify({
+        name: 'sandbox',
+        phase,
+        labels: {
+          'mitzo.conversation': createHash('sha256')
+            .update(conversation)
+            .digest('hex')
+            .slice(0, 63),
+          'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-github',
+        },
+      });
+    let firstCreated = false;
+    let firstReady = false;
+    const firstCreate = vi.fn();
+    const firstRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!firstCreated) throw new Error('sandbox not found');
+        return response('first-cancelled', firstReady ? 'Ready' : 'Creating');
+      }
+      if (args.includes('create')) {
+        firstCreated = true;
+        firstCreate();
+      }
+      return '{}';
+    });
+    let secondCreated = false;
+    const secondCreate = vi.fn();
+    const secondRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!secondCreated) throw new Error('sandbox not found');
+        return response('second-waiting', 'Ready');
+      }
+      if (args.includes('create')) {
+        secondCreated = true;
+        secondCreate();
+      }
+      return '{}';
+    });
+
+    const cancelled = new AbortController();
+    const first = new OpenShellRuntimeManager(config, firstRun, {
+      pollIntervalMs: 1,
+      timeoutMs: 100,
+    }).ensure('first-cancelled', cancelled.signal);
+    await vi.waitFor(() => expect(firstCreate).toHaveBeenCalledOnce());
+    cancelled.abort();
+    await expect(first).rejects.toThrow(/abort/i);
+
+    const second = new OpenShellRuntimeManager(config, secondRun, {
+      pollIntervalMs: 1,
+      timeoutMs: 100,
+    }).ensure('second-waiting', new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(secondCreate).not.toHaveBeenCalled();
+
+    firstReady = true;
+    await vi.waitFor(() => expect(secondCreate).toHaveBeenCalledOnce());
+    await expect(second).resolves.toMatchObject({ sandboxName: expect.any(String) });
+  });
+
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {
     const run = vi
       .fn()

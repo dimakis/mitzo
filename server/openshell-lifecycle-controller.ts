@@ -148,7 +148,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const byPhysicalId = new Map(
     records
       .filter((record) => record.physicalSandboxId)
-      .map((record) => [record.physicalSandboxId!, record]),
+      .map((record) => [`${record.accountProvider}:${record.physicalSandboxId!}`, record]),
   );
   const groups = new Map<string, OpenShellLifecycleRecord>();
   const providerOnlyScopes = new Set<string>();
@@ -185,14 +185,16 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         status: 'available',
       });
       for (const sandbox of physical) {
-        const key = sandbox.id ?? `${routeRecord.workspace}:${sandbox.name}`;
+        const key = `${provider}:${sandbox.id ?? `${routeRecord.workspace}:${sandbox.name}`}`;
         if (seen.has(key)) continue;
         seen.add(key);
         const record = sandbox.id
-          ? byPhysicalId.get(sandbox.id)
+          ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
               (item) =>
-                item.workspace === routeRecord.workspace && item.sandboxName === sandbox.name,
+                item.accountProvider === provider &&
+                item.workspace === routeRecord.workspace &&
+                item.sandboxName === sandbox.name,
             );
         sandboxes.push(
           lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned', provider),
@@ -212,7 +214,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         error: PROVIDER_INVENTORY_UNAVAILABLE,
       });
       for (const record of records.filter((item) => item.accountProvider === provider)) {
-        const key = record.physicalSandboxId ?? record.sandboxName;
+        const key = `${provider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
         if (!seen.has(key)) {
           seen.add(key);
           sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
@@ -232,13 +234,14 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         status: 'available',
       });
       for (const sandbox of physical) {
-        const key = sandbox.id ?? `${inventoryConfigured.config.workspace}:${sandbox.name}`;
+        const key = `${provider}:${sandbox.id ?? `${inventoryConfigured.config.workspace}:${sandbox.name}`}`;
         if (seen.has(key)) continue;
         seen.add(key);
         const record = sandbox.id
-          ? byPhysicalId.get(sandbox.id)
+          ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
               (item) =>
+                item.accountProvider === provider &&
                 item.workspace === inventoryConfigured!.config.workspace &&
                 item.sandboxName === sandbox.name,
             );
@@ -262,7 +265,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     }
   }
   for (const record of records) {
-    const key = record.physicalSandboxId ?? record.sandboxName;
+    const key = `${record.accountProvider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
     if (!seen.has(key)) sandboxes.push(lifecycleInventoryRow(record, undefined, 'missing'));
   }
   return {
@@ -309,7 +312,7 @@ function lifecycleInventoryRow(
 
 export function recordOpenShellLifecycleAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
   try {
-    configured?.store.appendAudit(entry);
+    inventoryConfigured?.store.appendAudit(entry);
   } catch (error) {
     // Audit storage failure must not turn a completed lifecycle mutation into
     // an apparent action failure or trigger a second destructive attempt.
