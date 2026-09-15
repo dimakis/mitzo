@@ -5,12 +5,14 @@ ARG MITZO_SOURCE_COMMIT
 ARG MGMT_SOURCE_COMMIT
 ARG RUNTIME_RESOLUTION_CONTRACT_SHA256
 ARG RUNTIME_TARGET_PLATFORM
+ARG RUNTIME_TARGET_MARKER_ENVIRONMENT_B64
 
 LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
       io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}" \
       io.mitzo.runtime-resolution-contract-sha256="${RUNTIME_RESOLUTION_CONTRACT_SHA256}" \
-      io.mitzo.runtime-target-platform="${RUNTIME_TARGET_PLATFORM}"
+      io.mitzo.runtime-target-platform="${RUNTIME_TARGET_PLATFORM}" \
+      io.mitzo.runtime-target-marker-environment-b64="${RUNTIME_TARGET_MARKER_ENVIRONMENT_B64}"
 
 USER root
 RUN npm install --global @openai/codex@0.153.4 \
@@ -21,7 +23,9 @@ RUN cd /opt/mgmt-deps \
     # The builder requires a fresh, reviewed lock; never rewrite the host
     # checkout or resolve a different lock in this image build.
     && uv lock --locked \
-    && python runtime-resolution-contract.py --pyproject pyproject.toml --lock uv.lock --base-image "$OPENSHELL_BASE_IMAGE" --target-platform "$RUNTIME_TARGET_PLATFORM" --output /opt/mgmt-resolution-contract.json \
+    && if python -c 'import tomllib' >/dev/null 2>&1 || python -c 'import tomli' >/dev/null 2>&1; then contract_python=python; else contract_python='uv run --no-project --with tomli>=2.0.1 python'; fi \
+    && $contract_python runtime-resolution-contract.py --pyproject pyproject.toml --lock uv.lock --base-image "$OPENSHELL_BASE_IMAGE" --target-platform "$RUNTIME_TARGET_PLATFORM" --output /opt/mgmt-resolution-contract.json \
+       --target-marker-environment-b64 "$RUNTIME_TARGET_MARKER_ENVIRONMENT_B64" \
     && test "$(sha256sum /opt/mgmt-resolution-contract.json | awk '{print $1}')" = "$RUNTIME_RESOLUTION_CONTRACT_SHA256" \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server

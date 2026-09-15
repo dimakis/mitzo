@@ -259,6 +259,11 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
       'stack lock runtime dependency projection is invalid or missing',
     );
     invariant(
+      typeof manifest.runtime?.targetMarkerEnvironmentB64 === 'string' &&
+        /^[A-Za-z0-9+/]+={0,2}$/.test(manifest.runtime.targetMarkerEnvironmentB64),
+      'stack lock target marker environment is invalid or missing',
+    );
+    invariant(
       seedBaseline.runtimeDependencyProjectionSha256 ===
         manifest.runtime.dependencyProjectionSha256,
       'prepared seed runtime dependency projection does not match the stack lock',

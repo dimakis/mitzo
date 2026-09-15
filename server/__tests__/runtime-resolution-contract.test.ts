@@ -8,6 +8,21 @@ import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.
 
 let root = '';
 const baseImage = `registry.invalid/runtime@sha256:${'a'.repeat(64)}`;
+const markerEnvironmentB64 = Buffer.from(
+  JSON.stringify({
+    implementation_name: 'cpython',
+    implementation_version: '3.11.9',
+    os_name: 'posix',
+    platform_machine: 'x86_64',
+    platform_release: 'fixture',
+    platform_system: 'Linux',
+    platform_version: 'fixture',
+    platform_python_implementation: 'CPython',
+    python_full_version: '3.11.9',
+    python_version: '3.11',
+    sys_platform: 'linux',
+  }),
+).toString('base64');
 
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
@@ -40,6 +55,8 @@ function contract({
       baseImage,
       '--target-platform',
       'linux/amd64',
+      '--target-marker-environment-b64',
+      markerEnvironmentB64,
       '--sha256',
     ],
     { encoding: 'utf8' },
@@ -54,7 +71,7 @@ function groupedContract(groups: string, nestedSource = 'https://packages.exampl
   );
   writeFileSync(
     join(root, 'uv.lock'),
-    `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\n\n[[package]]\nname = "direct"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\n\n[[package]]\nname = "nested"\nversion = "1"\nsource = { registry = "${nestedSource}" }\ndependencies = [{ name = "transitive" }]\n\n[[package]]\nname = "transitive"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\n`,
+    `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\n\n[[package]]\nname = "direct"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\noptional-dependencies = { extra = [] }\n\n[[package]]\nname = "nested"\nversion = "1"\nsource = { registry = "${nestedSource}" }\ndependencies = [{ name = "transitive" }]\n\n[[package]]\nname = "transitive"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\n`,
   );
   return execFileSync(
     'python3',
@@ -68,6 +85,8 @@ function groupedContract(groups: string, nestedSource = 'https://packages.exampl
       baseImage,
       '--target-platform',
       'linux/amd64',
+      '--target-marker-environment-b64',
+      markerEnvironmentB64,
     ],
     { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
   );
@@ -105,6 +124,8 @@ it('uses byte-identical UTF-8 canonical JSON in Python and Node', () => {
       baseImage,
       '--target-platform',
       'linux/amd64',
+      '--target-marker-environment-b64',
+      markerEnvironmentB64,
     ],
     { encoding: 'utf8' },
   );
@@ -141,6 +162,8 @@ it('excludes dev-only root metadata but retains runtime dependency and source ch
         baseImage,
         '--target-platform',
         'linux/amd64',
+        '--target-marker-environment-b64',
+        markerEnvironmentB64,
       ],
       { encoding: 'utf8' },
     );
@@ -175,12 +198,131 @@ it('follows the platform-qualified lock edge instead of every same-name variant'
         baseImage,
         '--target-platform',
         'linux/amd64',
+        '--target-marker-environment-b64',
+        markerEnvironmentB64,
       ],
       { encoding: 'utf8' },
     );
   };
   expect(qualifiedContract('2')).toBe(qualifiedContract('3'));
   expect(qualifiedContract('2')).not.toBe(qualifiedContract('2', '4'));
+});
+
+it('includes only the requested optional-dependency closure', () => {
+  const withExtras = (selectedVersion: string, unusedVersion: string) => {
+    root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-extras-'));
+    writeFileSync(
+      join(root, 'pyproject.toml'),
+      '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\ndependencies = ["feature[search]==1"]\n',
+    );
+    writeFileSync(
+      join(root, 'uv.lock'),
+      `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\ndependencies = [{ name = "feature", version = "1", extra = ["search"] }]\n\n[[package]]\nname = "feature"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\noptional-dependencies = { search = [{ name = "selected", version = "${selectedVersion}", marker = "extra == 'search'" }], unused = [{ name = "unused", version = "${unusedVersion}", marker = "extra == 'unused'" }] }\n\n[[package]]\nname = "selected"\nversion = "${selectedVersion}"\nsource = { registry = "https://packages.example/selected-${selectedVersion}" }\n\n[[package]]\nname = "unused"\nversion = "${unusedVersion}"\nsource = { registry = "https://packages.example/unused-${unusedVersion}" }\n`,
+    );
+    return execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(root, 'pyproject.toml'),
+        '--lock',
+        join(root, 'uv.lock'),
+        '--base-image',
+        baseImage,
+        '--target-platform',
+        'linux/amd64',
+        '--target-marker-environment-b64',
+        markerEnvironmentB64,
+        '--sha256',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  };
+  const baseline = withExtras('1', '1');
+  expect(withExtras('1', '2')).toBe(baseline);
+  expect(withExtras('2', '2')).not.toBe(baseline);
+});
+
+it('uses the supplied target Python marker environment instead of host defaults', () => {
+  const python312 = Buffer.from(
+    JSON.stringify({
+      implementation_name: 'cpython',
+      implementation_version: '3.12.1',
+      os_name: 'posix',
+      platform_machine: 'x86_64',
+      platform_release: 'fixture',
+      platform_system: 'Linux',
+      platform_version: 'fixture',
+      platform_python_implementation: 'CPython',
+      python_full_version: '3.12.1',
+      python_version: '3.12',
+      sys_platform: 'linux',
+    }),
+  ).toString('base64');
+  root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-marker-'));
+  writeFileSync(
+    join(root, 'pyproject.toml'),
+    '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\ndependencies = ["runtime"]\n',
+  );
+  writeFileSync(
+    join(root, 'uv.lock'),
+    'version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\ndependencies = [{ name = "runtime", marker = "python_version >= \'3.12\'" }]\n\n[[package]]\nname = "runtime"\nversion = "1"\nsource = { registry = "https://packages.example/simple" }\n',
+  );
+  const run = (environment: string) =>
+    execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(root, 'pyproject.toml'),
+        '--lock',
+        join(root, 'uv.lock'),
+        '--base-image',
+        baseImage,
+        '--target-platform',
+        'linux/amd64',
+        '--target-marker-environment-b64',
+        environment,
+      ],
+      { encoding: 'utf8' },
+    );
+  expect(
+    JSON.parse(run(markerEnvironmentB64)).lock.packages.map(
+      (entry: { name: string }) => entry.name,
+    ),
+  ).toEqual(['fixture']);
+  expect(
+    JSON.parse(run(python312))
+      .lock.packages.map((entry: { name: string }) => entry.name)
+      .sort(),
+  ).toEqual(['fixture', 'runtime']);
+});
+
+it('loads the declared tomli fallback when tomllib is unavailable', () => {
+  const tool = resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py');
+  execFileSync('python3', [
+    '-c',
+    `
+import builtins, sys, types, tomllib as native_tomllib
+real_import = builtins.__import__
+def import_without_tomllib(name, *args, **kwargs):
+    if name == 'tomllib':
+        raise ModuleNotFoundError(name)
+    return real_import(name, *args, **kwargs)
+builtins.__import__ = import_without_tomllib
+sys.modules['tomli'] = types.SimpleNamespace(load=native_tomllib.load, loads=native_tomllib.loads)
+namespace = {'__name__': 'runtime_resolution_contract_test'}
+exec(compile(open(sys.argv[1], encoding='utf-8').read(), sys.argv[1], 'exec'), namespace)
+assert namespace['tomllib'] is sys.modules['tomli']
+`,
+    tool,
+  ]);
+  expect(
+    readFileSync(resolve('docs/spikes/openshell-codex/build-mgmt-runtime.sh'), 'utf8'),
+  ).toContain("--with 'tomli>=2.0.1'");
+  expect(
+    readFileSync(resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), 'utf8'),
+  ).toContain("--with 'tomli>=2.0.1'");
 });
 
 it('accepts complete PEP 508 dependency-group requirements and filters their markers', () => {

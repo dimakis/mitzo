@@ -6,17 +6,19 @@ same bytes are produced while building an image, when preparing a descendant
 seed, and are embedded in the image for production preflight to inspect.
 """
 import argparse
+import base64
 import hashlib
 import json
 import re
-import tomllib
 from pathlib import Path
 try:
-    from packaging.markers import default_environment
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+try:
     from packaging.requirements import Requirement
     from packaging.specifiers import SpecifierSet
 except ModuleNotFoundError:  # Python's pip vendors the standards parser.
-    from pip._vendor.packaging.markers import default_environment
     from pip._vendor.packaging.requirements import Requirement
     from pip._vendor.packaging.specifiers import SpecifierSet
 
@@ -46,15 +48,38 @@ def canonical_json_value(value):
     return value
 
 
-def target_environment(target_platform):
+MARKER_ENVIRONMENT_KEYS = {
+    "implementation_name", "implementation_version", "os_name",
+    "platform_machine", "platform_release", "platform_system",
+    "platform_version", "platform_python_implementation", "python_full_version",
+    "python_version", "sys_platform",
+}
+
+
+def target_environment(encoded_environment, target_platform, extra=""):
+    """Use the marker environment observed in the pinned runtime image.
+
+    The image is the only authority for Python-version and implementation
+    markers.  Never fill omitted fields from the host running this helper.
+    """
+    try:
+        environment = json.loads(base64.b64decode(encoded_environment, validate=True))
+    except Exception as error:
+        raise SystemExit("resolution contract requires a valid target marker environment") from error
+    if not isinstance(environment, dict) or set(environment) != MARKER_ENVIRONMENT_KEYS or not all(
+        isinstance(value, str) for value in environment.values()
+    ):
+        raise SystemExit("resolution contract requires a complete target marker environment")
     operating_system, architecture = target_platform.split("/", 1)
-    return {
-        **default_environment(),
-        "sys_platform": operating_system,
-        "platform_system": {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}.get(operating_system, operating_system),
-        "platform_machine": {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture),
-    }
-def parse_pep508_requirement(requirement, target_platform):
+    expected_system = {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}.get(operating_system, operating_system)
+    expected_machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture)
+    expected_os_name = "nt" if operating_system == "win32" else "posix"
+    if environment["sys_platform"] != operating_system or environment["os_name"] != expected_os_name or environment["platform_system"] != expected_system or environment["platform_machine"] != expected_machine:
+        raise SystemExit("target marker environment does not match target platform")
+    return environment | {"extra": extra}
+
+
+def parse_pep508_requirement(requirement, marker_environment):
     """Extract a lock edge from a complete PEP 508 requirement.
 
     Use packaging's standards parser (or pip's vendored identical parser) so
@@ -67,26 +92,35 @@ def parse_pep508_requirement(requirement, target_platform):
         parsed = Requirement(requirement)
     except Exception as error:
         raise SystemExit("unsupported dependency-group requirement") from error
-    if parsed.marker and not parsed.marker.evaluate(target_environment(target_platform)):
+    if parsed.marker and not parsed.marker.evaluate(marker_environment):
         return None
-    return {"name": normalized_name(parsed.name), **({"specifier": str(parsed.specifier)} if parsed.specifier else {})}
+    return {
+        "name": normalized_name(parsed.name),
+        **({"specifier": str(parsed.specifier)} if parsed.specifier else {}),
+        **({"extras": sorted(parsed.extras)} if parsed.extras else {}),
+    }
 
 
-def dependencies(value, target_platform):
+def dependencies(value, marker_environment):
     result = []
     for dependency in value or []:
         if isinstance(dependency, str):
-            edge = parse_pep508_requirement(dependency, target_platform)
+            edge = parse_pep508_requirement(dependency, marker_environment)
             if edge:
                 result.append(edge)
         elif isinstance(dependency, dict) and isinstance(dependency.get("name"), str):
             marker = dependency.get("marker")
-            if not marker or Requirement(f"placeholder; {marker}").marker.evaluate(target_environment(target_platform)):
+            if not marker or Requirement(f"placeholder; {marker}").marker.evaluate(marker_environment):
+                extras = dependency.get("extras", dependency.get("extra", []))
+                if isinstance(extras, str):
+                    extras = [extras]
+                if not isinstance(extras, list) or not all(isinstance(extra, str) for extra in extras):
+                    raise SystemExit("unsupported uv.lock dependency extras")
                 result.append({
                     key: value
                     for key, value in dependency.items()
                     if key != "marker"
-                } | {"name": normalized_name(dependency["name"]), **({"specifier": f"=={dependency['version']}"} if 'version' in dependency else {})})
+                } | {"name": normalized_name(dependency["name"]), **({"specifier": f"=={dependency['version']}"} if 'version' in dependency else {}), **({"extras": sorted(extras)} if extras else {})})
         else:
             raise SystemExit("unsupported uv.lock dependency entry")
     return result
@@ -111,6 +145,7 @@ def main():
     parser.add_argument("--lock", required=True)
     parser.add_argument("--base-image", required=True)
     parser.add_argument("--target-platform", required=True)
+    parser.add_argument("--target-marker-environment-b64", required=True)
     parser.add_argument("--output")
     parser.add_argument("--sha256", action="store_true")
     args = parser.parse_args()
@@ -118,6 +153,7 @@ def main():
         raise SystemExit("resolution contract requires a digest-pinned base image")
     if not re.fullmatch(r"[a-z0-9]+/[a-z0-9][a-z0-9._-]*", args.target_platform):
         raise SystemExit("resolution contract requires an explicit target platform")
+    marker_environment = target_environment(args.target_marker_environment_b64, args.target_platform)
 
     with Path(args.pyproject).open("rb") as handle:
         project = tomllib.load(handle).get("project")
@@ -173,12 +209,14 @@ def main():
     selected_names = {canonical_json({
         key: roots[0][key] for key in ("name", "version", "source") if key in roots[0]
     })}
-    pending = dependencies(roots[0].get("dependencies"), args.target_platform)
+    selected_extras = {}
+    pending = dependencies(roots[0].get("dependencies"), marker_environment)
     # `uv sync --no-dev` still installs explicitly selected non-dev default
     # groups. Include their full lock closures, not just their names in
     # metadata, so a source/version/artifact change cannot evade the contract.
     for values in selected_groups.values():
-        pending.extend(dependencies(values, args.target_platform))
+        pending.extend(dependencies(values, marker_environment))
+    traversed_edges = set()
     while pending:
         edge = pending.pop()
         package = qualified_candidates(by_name, edge)
@@ -186,10 +224,24 @@ def main():
         package_identity = canonical_json({
             key: package[key] for key in ("name", "version", "source") if key in package
         })
-        if package_identity in selected_names:
+        extras = tuple(edge.get("extras", []))
+        traversal = (package_identity, extras)
+        if traversal in traversed_edges:
             continue
+        traversed_edges.add(traversal)
         selected_names.add(package_identity)
-        pending.extend(dependencies(package.get("dependencies"), args.target_platform))
+        selected_extras.setdefault(package_identity, set()).update(extras)
+        pending.extend(dependencies(package.get("dependencies"), marker_environment))
+        optional_dependencies = package.get("optional-dependencies", {})
+        if not isinstance(optional_dependencies, dict):
+            raise SystemExit("uv.lock package optional-dependencies is malformed")
+        for extra in extras:
+            optional = optional_dependencies.get(extra)
+            if optional is None:
+                raise SystemExit(f"uv.lock package {package['name']} is missing selected extra {extra}")
+            if not isinstance(optional, list):
+                raise SystemExit("uv.lock optional dependency entry is malformed")
+            pending.extend(dependencies(optional, marker_environment | {"extra": extra}))
     selected = []
     for package in packages:
         package_identity = canonical_json({
@@ -197,6 +249,17 @@ def main():
         })
         if package_identity in selected_names:
             name = normalized_name(package["name"])
+            projected_package = package
+            if "optional-dependencies" in package:
+                projected_package = dict(package)
+                selected_optional_dependencies = {
+                    extra: package["optional-dependencies"][extra]
+                    for extra in sorted(selected_extras.get(package_identity, set()))
+                }
+                if selected_optional_dependencies:
+                    projected_package["optional-dependencies"] = selected_optional_dependencies
+                else:
+                    projected_package.pop("optional-dependencies")
             # The root's version, dev-dependencies and build metadata are not
             # installed by `uv sync --no-dev --no-install-project`.  Keeping
             # them in the image contract makes a dev-only edit spuriously
@@ -205,20 +268,20 @@ def main():
             if name == root_name:
                 root_dependencies = [
                     dependency
-                    for dependency in package.get("dependencies", [])
+                    for dependency in projected_package.get("dependencies", [])
                     if not isinstance(dependency, dict)
                     or not dependency.get("marker")
-                    or Requirement(f"placeholder; {dependency['marker']}").marker.evaluate(target_environment(args.target_platform))
+                    or Requirement(f"placeholder; {dependency['marker']}").marker.evaluate(marker_environment)
                 ]
                 selected.append(
                     {
                         key: (root_dependencies if key == "dependencies" else package[key])
                         for key in ("name", "source", "dependencies", "requires-python")
-                        if key in package
+                        if key in projected_package
                     }
                 )
             else:
-                selected.append(package)
+                selected.append(projected_package)
     selected.sort(key=canonical_json)
     runtime_dependencies = project.get("dependencies", [])
     if not isinstance(runtime_dependencies, list) or not all(
@@ -247,7 +310,7 @@ def main():
     contract = {
         "schemaVersion": 1,
         "install": {"command": "uv sync --frozen --no-dev --no-install-project"},
-        "target": {"baseImage": args.base_image, "platform": args.target_platform},
+        "target": {"baseImage": args.base_image, "platform": args.target_platform, "markerEnvironment": marker_environment},
         "project": {
             "name": root_name,
             "requiresPython": project["requires-python"],

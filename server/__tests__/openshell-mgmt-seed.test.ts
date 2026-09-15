@@ -36,9 +36,25 @@ const originalProjectionSha = process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SH
 const originalRuntimeProjectionSha = process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
 const originalRuntimeBaseImage = process.env.MGMT_RUNTIME_BASE_IMAGE;
 const originalRuntimePlatform = process.env.MGMT_RUNTIME_TARGET_PLATFORM;
+const originalRuntimeMarkerEnvironment = process.env.MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64;
 const originalDynamicSeed = process.env.MGMT_DYNAMIC_SEED;
 const fixtureBaseImage = `registry.invalid/runtime@sha256:${'a'.repeat(64)}`;
 const fixturePlatform = 'linux/amd64';
+const fixtureMarkerEnvironmentB64 = Buffer.from(
+  JSON.stringify({
+    implementation_name: 'cpython',
+    implementation_version: '3.11.9',
+    os_name: 'posix',
+    platform_machine: 'x86_64',
+    platform_release: 'fixture',
+    platform_system: 'Linux',
+    platform_version: 'fixture',
+    platform_python_implementation: 'CPython',
+    python_full_version: '3.11.9',
+    python_version: '3.11',
+    sys_platform: 'linux',
+  }),
+).toString('base64');
 
 beforeAll(() => {
   // CI does not install uv. This fixture models precisely the test inputs that
@@ -85,6 +101,7 @@ print(lock.removeprefix('# fixture-runtime-export\\n').strip())
     '01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b';
   process.env.MGMT_RUNTIME_BASE_IMAGE = fixtureBaseImage;
   process.env.MGMT_RUNTIME_TARGET_PLATFORM = fixturePlatform;
+  process.env.MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64 = fixtureMarkerEnvironmentB64;
 });
 
 afterAll(() => {
@@ -100,6 +117,9 @@ afterAll(() => {
   else process.env.MGMT_RUNTIME_BASE_IMAGE = originalRuntimeBaseImage;
   if (originalRuntimePlatform === undefined) delete process.env.MGMT_RUNTIME_TARGET_PLATFORM;
   else process.env.MGMT_RUNTIME_TARGET_PLATFORM = originalRuntimePlatform;
+  if (originalRuntimeMarkerEnvironment === undefined)
+    delete process.env.MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64;
+  else process.env.MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64 = originalRuntimeMarkerEnvironment;
   if (originalDynamicSeed === undefined) delete process.env.MGMT_DYNAMIC_SEED;
   else process.env.MGMT_DYNAMIC_SEED = originalDynamicSeed;
   rmSync(uvFixtureRoot, { recursive: true, force: true });
@@ -151,6 +171,8 @@ function setDynamicContract(source: string, ref = 'HEAD') {
         fixtureBaseImage,
         '--target-platform',
         fixturePlatform,
+        '--target-marker-environment-b64',
+        fixtureMarkerEnvironmentB64,
         '--sha256',
       ],
       { encoding: 'utf8' },
@@ -795,6 +817,7 @@ it('emits the complete dynamic contract for a same-commit current release', () =
         mgmtSourceCommit: baseline.runtimeBaseCommit,
         dependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
         seedPayloadSha256: baseline.payloadSha256,
+        targetMarkerEnvironmentB64: fixtureMarkerEnvironmentB64,
       },
     }),
   );

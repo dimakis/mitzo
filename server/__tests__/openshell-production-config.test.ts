@@ -22,6 +22,21 @@ import {
 } from '../../scripts/verify-openshell-production.mjs';
 
 const projectionSha = 'd'.repeat(64);
+const markerEnvironmentB64 = Buffer.from(
+  JSON.stringify({
+    implementation_name: 'cpython',
+    implementation_version: '3.11.9',
+    os_name: 'posix',
+    platform_machine: 'x86_64',
+    platform_release: 'fixture',
+    platform_system: 'Linux',
+    platform_version: 'fixture',
+    platform_python_implementation: 'CPython',
+    python_full_version: '3.11.9',
+    python_version: '3.11',
+    sys_platform: 'linux',
+  }),
+).toString('base64');
 const manifest = {
   runtime: { image: 'localhost/mitzo:release-1', dependencyProjectionSha256: projectionSha },
   defaults: { workspace: 'default', webSearch: 'disabled' },
@@ -103,6 +118,7 @@ function dynamicRuntimeManifest(payloadSha256: string) {
       mgmtSourceCommit: 'a'.repeat(40),
       dependencyProjectionSha256: projectionSha,
       seedPayloadSha256: payloadSha256,
+      targetMarkerEnvironmentB64: markerEnvironmentB64,
     },
   };
 }
@@ -170,7 +186,11 @@ describe('OpenShell production bundle validation', () => {
       validateSeedBaseline(
         baseline,
         {
-          runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+          runtime: {
+            mgmtSourceCommit: 'a'.repeat(40),
+            dependencyProjectionSha256: projectionSha,
+            targetMarkerEnvironmentB64: markerEnvironmentB64,
+          },
         },
         seedPath,
       ),

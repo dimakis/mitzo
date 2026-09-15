@@ -128,6 +128,36 @@ interface DynamicSeedBaseline {
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
+const TARGET_MARKER_ENVIRONMENT_KEYS = [
+  'implementation_name',
+  'implementation_version',
+  'os_name',
+  'platform_machine',
+  'platform_release',
+  'platform_system',
+  'platform_version',
+  'platform_python_implementation',
+  'python_full_version',
+  'python_version',
+  'sys_platform',
+].sort();
+
+function validTargetMarkerEnvironment(value: unknown) {
+  if (typeof value !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return false;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64').toString('utf8'));
+    return (
+      !!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      JSON.stringify(Object.keys(parsed).sort()) ===
+        JSON.stringify(TARGET_MARKER_ENVIRONMENT_KEYS) &&
+      Object.values(parsed).every((entry) => typeof entry === 'string')
+    );
+  } catch {
+    return false;
+  }
+}
 
 function compareUtf8(left: string, right: string) {
   return Buffer.from(left, 'utf8').compare(Buffer.from(right, 'utf8'));
@@ -377,6 +407,7 @@ function dynamicStackLock(value: unknown) {
     !SHA256.test(stack.dependencyProjectionSha256) ||
     typeof stack.seedPayloadSha256 !== 'string' ||
     !SHA256.test(stack.seedPayloadSha256) ||
+    !validTargetMarkerEnvironment(stack.targetMarkerEnvironmentB64) ||
     typeof stack.image !== 'string' ||
     !/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(stack.image)
   )
@@ -385,6 +416,7 @@ function dynamicStackLock(value: unknown) {
     mgmtSourceCommit: string;
     dependencyProjectionSha256: string;
     seedPayloadSha256: string;
+    targetMarkerEnvironmentB64: string;
     image: string;
   };
 }

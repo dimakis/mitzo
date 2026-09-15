@@ -15,6 +15,15 @@ resolution_contract_dir=''
 lock_pid=''
 script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 resolution_contract_tool="$script_root/runtime-resolution-contract.py"
+contract_python() {
+  # Keep the Python 3.9/3.10 tomli path declared and reproducible instead of
+  # relying on an ambient pip vendor directory.
+  if python3 -c 'import tomllib' >/dev/null 2>&1 || python3 -c 'import tomli' >/dev/null 2>&1; then
+    python3 "$@"
+  else
+    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli>=2.0.1' python "$@"
+  fi
+}
 
 cleanup() {
   test -z "$build_root" || rm -rf "$build_root"
@@ -142,8 +151,13 @@ if test "$dynamic_seed" = 1 || test "$runtime_base_commit" != "$starting_commit"
   runtime_projection_sha256="${MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256:-}"
   runtime_base_image="${MGMT_RUNTIME_BASE_IMAGE:-}"
   runtime_target_platform="${MGMT_RUNTIME_TARGET_PLATFORM:-}"
+  runtime_marker_environment_b64="${MGMT_RUNTIME_TARGET_MARKER_ENVIRONMENT_B64:-}"
   if ! [[ "$runtime_projection_sha256" =~ ^[a-f0-9]{64}$ ]]; then
     echo 'runtime dependency projection SHA-256 from the selected stack lock is required for dynamic seed preparation' >&2
+    exit 2
+  fi
+  if ! [[ "$runtime_marker_environment_b64" =~ ^[A-Za-z0-9+/=]+$ ]]; then
+    echo 'target Python marker environment from the selected stack lock is required for dynamic seed preparation' >&2
     exit 2
   fi
   test -f "$resolution_contract_tool" || {
@@ -157,9 +171,10 @@ if test "$dynamic_seed" = 1 || test "$runtime_base_commit" != "$starting_commit"
     echo 'runtime compatibility failed: candidate checked-in lock is stale' >&2
     exit 3
   }
-  candidate_projection_sha256="$(python3 "$resolution_contract_tool" \
+  candidate_projection_sha256="$(contract_python "$resolution_contract_tool" \
     --pyproject "$resolution_contract_dir/pyproject.toml" --lock "$resolution_contract_dir/uv.lock" \
-    --base-image "$runtime_base_image" --target-platform "$runtime_target_platform" --sha256)" || {
+    --base-image "$runtime_base_image" --target-platform "$runtime_target_platform" \
+    --target-marker-environment-b64 "$runtime_marker_environment_b64" --sha256)" || {
     echo 'runtime compatibility failed: could not canonicalize the immutable candidate resolution contract' >&2
     exit 3
   }

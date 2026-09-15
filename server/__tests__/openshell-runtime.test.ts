@@ -49,6 +49,21 @@ const config = {
   account: { kind: 'api' as const, provider: 'openai-work', model: 'test-model' },
 };
 const owner = '8b34dbc2c05eb4d7e25d48efeace82456b16cee760bcae80c157f52a3c2e787';
+const markerEnvironmentB64 = Buffer.from(
+  JSON.stringify({
+    implementation_name: 'cpython',
+    implementation_version: '3.11.9',
+    os_name: 'posix',
+    platform_machine: 'x86_64',
+    platform_release: 'fixture',
+    platform_system: 'Linux',
+    platform_version: 'fixture',
+    platform_python_implementation: 'CPython',
+    python_full_version: '3.11.9',
+    python_version: '3.11',
+    sys_platform: 'linux',
+  }),
+).toString('base64');
 const ready = (phase = 'Ready', providerPolicy = 'state-v2-github') =>
   JSON.stringify({
     name: 'sandbox',
@@ -114,6 +129,7 @@ function dynamicRelease(
           mgmtSourceCommit: 'a'.repeat(40),
           dependencyProjectionSha256: 'b'.repeat(64),
           seedPayloadSha256: payloadSha256,
+          targetMarkerEnvironmentB64: markerEnvironmentB64,
         },
       }),
     );
@@ -1276,6 +1292,7 @@ describe('OpenShell runtime lifecycle', () => {
           mgmtSourceCommit: 'a'.repeat(40),
           dependencyProjectionSha256: 'b'.repeat(64),
           seedPayloadSha256: 'c'.repeat(64),
+          targetMarkerEnvironmentB64: markerEnvironmentB64,
         },
       }),
     );
