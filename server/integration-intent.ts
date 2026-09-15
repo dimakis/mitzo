@@ -271,6 +271,21 @@ function isNegatedAction(matcher: ClauseMatcher, actionIndex: number): boolean {
       ).test(afterNegation)
     )
       return true;
+    // Imperative refusals are permission boundaries. Once one precedes a
+    // Workspace action in this bounded then-segment, fail closed rather than
+    // relying on an ever-growing list of adverbs ("do not under any
+    // circumstances access Gmail"). Contractions stay direct-only so normal
+    // prose such as "I don't remember, please search Gmail" is not poisoned.
+    if (/^(?:do\s+not|must\s+not|should\s+not|never)\b/i.test(match[0])) return true;
+  }
+  return false;
+}
+
+function refusesActiveResourcesByPronoun(matcher: ClauseMatcher): boolean {
+  for (const action of matcher.actions) {
+    if (isQuotedText(matcher, action.index) || !isNegatedAction(matcher, action.index)) continue;
+    if (/^\s+(?:it|that|them)\b/i.test(matcher.clause.slice(action.end, action.end + 32)))
+      return true;
   }
   return false;
 }
@@ -461,6 +476,9 @@ export function requestedIntegrationProviders(
         activeResources.add(resource);
       } else activeResources.delete(resource);
     }
+    // Pronoun-only refusals cannot establish a provider request, but after a
+    // real prior request they safely revoke the active resource(s).
+    if (refusesActiveResourcesByPronoun(matcher)) activeResources.clear();
   }
 
   return !workspaceAccessRefused && activeResources.size ? [GOOGLE_WORKSPACE] : [];
