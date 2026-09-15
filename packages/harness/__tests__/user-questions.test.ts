@@ -146,6 +146,25 @@ it('shows complete approval arguments rather than the notification summary', asy
   }
 });
 
+it('caps approval display input without truncating the SDK resolution input', async () => {
+  const { applyTierOverrides } = await import('../src/tool-tiers.js');
+  applyTierOverrides({ Bash: 'unknown' });
+  try {
+    const { handler, sent, abort } = setup();
+    const command = 'x'.repeat(20_000);
+    const result = handler('Bash', { command }, { signal: abort.signal, toolUseID: 'b-large' });
+    await vi.waitFor(() => expect(sent[0]).toBeDefined());
+    expect(sent[0].toolInput).toBe(`${command.slice(0, 10_000)}\n[… truncated]`);
+    resolvePending(sent[0].permId as string, 'once');
+    await expect(result).resolves.toMatchObject({
+      behavior: 'allow',
+      updatedInput: { command },
+    });
+  } finally {
+    applyTierOverrides({});
+  }
+});
+
 it('keeps an unresolved question replayable when a transport closes during send', async () => {
   const { getPendingRequestsBySession } = await import('../src/permissions.js');
   const { handler, registry, abort } = setup();

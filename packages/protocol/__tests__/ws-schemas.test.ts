@@ -67,6 +67,16 @@ describe('WS message schemas', () => {
     expect(result.success).toBe(true);
   });
 
+  it('rejects whitespace-only permission answers', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'permission_response',
+      permId: 'p1',
+      decision: 'once',
+      answers: { question: ['   '] },
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('accepts set_mode', () => {
     const result = IncomingWsMessage.safeParse({ type: 'set_mode', mode: 'auto' });
     expect(result.success).toBe(true);

@@ -3312,6 +3312,12 @@ textarea:focus {
   max-height: 72dvh;
   overflow: hidden;
 }
+.perm-banner--elevated {
+  border-top-color: var(--warning);
+}
+.perm-banner--unknown {
+  border-top-color: var(--text-dim);
+}
 .perm-banner-heading {
   display: flex;
   justify-content: space-between;

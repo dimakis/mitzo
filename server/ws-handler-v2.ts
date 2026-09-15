@@ -914,7 +914,7 @@ export function handleInterruptV2(
 export function handlePermissionResponseV2(
   connectionId: string,
   msg: PermissionMsg,
-  _ctx: V2HandlerContext,
+  ctx: V2HandlerContext,
 ): void {
   withSpan(
     'ws.permission_response',
@@ -924,7 +924,28 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
-      resolvePending(msg.permId, msg.decision ?? 'deny', msg.answers, msg.sessionId);
+      const resolved = resolvePending(
+        msg.permId,
+        msg.decision ?? 'deny',
+        msg.answers,
+        msg.sessionId,
+      );
+      if (!resolved) {
+        try {
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            error: 'Permission response was invalid or expired. Review the prompt and try again.',
+          });
+        } catch (error) {
+          log.warn('permission response error delivery failed', {
+            connectionId,
+            sessionId: msg.sessionId,
+            permId: msg.permId,
+            error,
+          });
+        }
+      }
       log.info('permission_response', {
         connectionId,
         sessionId: msg.sessionId,

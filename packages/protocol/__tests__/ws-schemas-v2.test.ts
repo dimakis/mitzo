@@ -194,6 +194,17 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
     expect(r.success).toBe(true);
   });
 
+  it('rejects whitespace-only question answers', () => {
+    const r = V2PermissionResponseMessage.safeParse({
+      type: 'permission_response',
+      sessionId: 'sess-1',
+      permId: 'p1',
+      decision: 'once',
+      answers: { question: ['   '] },
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('accepts set_mode with sessionId', () => {
     const r = V2SetModeMessage.safeParse({
       type: 'set_mode',

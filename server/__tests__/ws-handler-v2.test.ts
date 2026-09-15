@@ -50,7 +50,11 @@ import {
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
-import { denyPendingBySession, getPendingRequestsBySession } from '../permissions.js';
+import {
+  denyPendingBySession,
+  getPendingRequestsBySession,
+  resolvePending,
+} from '../permissions.js';
 
 import {
   handleHello,
@@ -1530,6 +1534,25 @@ describe('handlePermissionResponseV2', () => {
         ctx,
       ),
     ).not.toThrow();
+  });
+
+  it('keeps an invalid response retryable and reports the rejection', () => {
+    vi.mocked(resolvePending).mockReturnValueOnce(false);
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handlePermissionResponseV2(
+      'c1',
+      { type: 'permission_response', sessionId: 'sess-1', permId: 'p1', decision: 'once' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'error',
+      sessionId: 'sess-1',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
   });
 });
 

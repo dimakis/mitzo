@@ -1121,12 +1121,27 @@ function handleChatWs(
             'ws.decision': msg.decision || 'deny',
           },
           () => {
-            resolvePending(
+            const resolved = resolvePending(
               msg.permId,
               msg.decision || 'deny',
               msg.answers,
               registry.get(clientId)?.sessionId,
             );
+            if (!resolved) {
+              try {
+                transport.send({
+                  type: 'error',
+                  error:
+                    'Permission response was invalid or expired. Review the prompt and try again.',
+                });
+              } catch (error) {
+                log.warn('permission response error delivery failed', {
+                  clientId,
+                  permId: msg.permId,
+                  error,
+                });
+              }
+            }
           },
           contextFromTraceparent(traceparent),
         );

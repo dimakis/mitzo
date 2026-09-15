@@ -36,6 +36,19 @@ export const UserQuestionsSchema = z
   .max(4)
   .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
 
+const PERMISSION_INPUT_MAX_CHARS = 10_000;
+const PERMISSION_INPUT_TRUNCATED = '\n[… truncated]';
+
+function permissionDisplayInput(toolName: string, input: Record<string, unknown>): string {
+  const full =
+    toolName === 'Bash' && typeof input.command === 'string'
+      ? input.command
+      : JSON.stringify(input, null, 2);
+  return full.length > PERMISSION_INPUT_MAX_CHARS
+    ? full.slice(0, PERMISSION_INPUT_MAX_CHARS) + PERMISSION_INPUT_TRUNCATED
+    : full;
+}
+
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
   try {
     if (transport.isOpen()) transport.send(data);
@@ -207,11 +220,7 @@ export function buildPermissionHandler(
       const request: PermissionRequest = {
         permId,
         toolName,
-        toolInput: questions
-          ? ''
-          : toolName === 'Bash' && typeof _toolInput.command === 'string'
-            ? _toolInput.command
-            : JSON.stringify(_toolInput, null, 2),
+        toolInput: questions ? '' : permissionDisplayInput(toolName, _toolInput),
         title: opts.title,
         description: opts.description,
         displayName: opts.displayName,
