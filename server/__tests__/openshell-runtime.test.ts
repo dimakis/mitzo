@@ -258,8 +258,14 @@ describe('OpenShell runtime lifecycle', () => {
         record = next;
       }),
     };
+    const attached = new Set(['github']);
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes('get')) return ready('Ready', 'grant-v1');
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      if (args.includes('provider') && args.includes('list'))
+        return `NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\n${[...attached]
+          .map((provider) => `${provider} service 0 0`)
+          .join('\n')}`;
       return '{}';
     });
     const migratedConfig = {
@@ -276,10 +282,16 @@ describe('OpenShell runtime lifecycle', () => {
     );
     const signal = new AbortController().signal;
     const runtime = await manager.ensure('conversation', signal);
-    expect(manager.hasServiceProviderAccess(runtime, 'github')).toBe(true);
-    expect(manager.hasServiceProviderAccess(runtime, 'google-workspace')).toBe(false);
+    expect(await manager.hasServiceProviderAccess('conversation', runtime, 'github', signal)).toBe(
+      true,
+    );
+    expect(
+      await manager.hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
+    ).toBe(false);
     await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
-    expect(manager.hasServiceProviderAccess(runtime, 'google-workspace')).toBe(true);
+    expect(
+      await manager.hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
+    ).toBe(true);
     await new OpenShellRuntimeManager(
       migratedConfig,
       run,
@@ -295,6 +307,70 @@ describe('OpenShell runtime lifecycle', () => {
     expect(
       commands.filter((args) => args.includes('attach') && args.includes('google-workspace')),
     ).toHaveLength(1);
+  });
+
+  it('requires a current attachment for a durable grant to be available', async () => {
+    const policyState = {
+      read: vi.fn(() => ({ automatic: ['github'], granted: ['google-workspace'] })),
+      write: vi.fn(),
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list'))
+        return `No providers attached to sandbox ${sandboxNameForConversation('conversation')}.`;
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(config, run, undefined, undefined, policyState);
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+
+    await expect(
+      manager.hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(false);
+  });
+
+  it('verifies a Ready owned sandbox attachment for a durable grant', async () => {
+    const policyState = {
+      read: vi.fn(() => ({ automatic: ['github'], granted: ['google-workspace'] })),
+      write: vi.fn(),
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list'))
+        return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\ngoogle-workspace service 0 0';
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(config, run, undefined, undefined, policyState);
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+
+    await expect(
+      manager.hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(true);
   });
 
   it('revokes a durable grant removed from administrator policy', async () => {
@@ -551,6 +627,7 @@ describe('OpenShell runtime lifecycle', () => {
       .fn()
       .mockResolvedValueOnce(ready())
       .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready('Error'))
       .mockResolvedValueOnce(ready('Error'));
     const runtime = {
       sandboxName: sandboxNameForConversation('conversation'),
@@ -561,14 +638,15 @@ describe('OpenShell runtime lifecycle', () => {
       workspace: config.workspace,
       gatewayInsecure: false,
     };
+    const manager = new OpenShellRuntimeManager(
+      config,
+      grantRun,
+      undefined,
+      undefined,
+      policyState,
+    );
     await expect(
-      new OpenShellRuntimeManager(
-        config,
-        grantRun,
-        undefined,
-        undefined,
-        policyState,
-      ).grantServiceProvider(
+      manager.grantServiceProvider(
         'conversation',
         runtime,
         'google-workspace',
@@ -576,6 +654,14 @@ describe('OpenShell runtime lifecycle', () => {
       ),
     ).rejects.toThrow('is Error');
     expect(record.granted).toEqual(['google-workspace']);
+    await expect(
+      manager.hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toBe(false);
 
     const reconcileRun = vi
       .fn()

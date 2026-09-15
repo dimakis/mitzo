@@ -229,7 +229,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     .mockResolvedValue();
   const hasAccess = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'hasServiceProviderAccess')
-    .mockReturnValue(false);
+    .mockResolvedValue(false);
   const abortController = new AbortController();
   const baseOptions = options(abortController);
   const session = baseOptions.session;
@@ -294,6 +294,12 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     await expect(prepareTurn('look through my emails and Google Docs', signal)).resolves.toBe(
       undefined,
     );
+    expect(hasAccess).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
+      'google-workspace',
+      signal,
+    );
     expect(grant).toHaveBeenCalledWith(
       'conversation',
       expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
@@ -310,7 +316,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     await expect(prepareTurn('draft an email to Cat', signal)).resolves.toBe(undefined);
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 
-    hasAccess.mockReturnValueOnce(true);
+    hasAccess.mockResolvedValueOnce(true);
     await expect(prepareTurn('search Gmail again', signal)).resolves.toBe(undefined);
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 

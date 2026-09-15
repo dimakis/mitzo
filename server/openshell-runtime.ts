@@ -320,10 +320,48 @@ export class OpenShellRuntimeManager {
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
-  hasServiceProviderAccess(runtime: OpenShellRuntime, provider: string): boolean {
+  async hasServiceProviderAccess(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
     if (this.config.serviceProviders.includes(provider)) return true;
     if (!this.config.grantableServiceProviders.includes(provider)) return false;
-    return !!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider);
+    if (!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider))
+      return false;
+
+    const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+    if (!owner) return false;
+    try {
+      signal.throwIfAborted();
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (
+        !sandbox ||
+        sandbox.phase !== 'Ready' ||
+        sandbox.labels?.['mitzo.conversation'] !== owner ||
+        sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider
+      )
+        return false;
+      return parseProviderAttachments(
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'list', runtime.sandboxName],
+          signal,
+        ),
+        runtime.sandboxName,
+      ).includes(provider);
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return false;
+    }
+  }
+
+  private sandboxOwner(conversationId: string, sandboxName: string): string | undefined {
+    const conversationHash = createHash('sha256').update(conversationId).digest('hex');
+    if (sandboxName === sandboxNameForConversation(conversationId, this.config.sandboxIdLength))
+      return conversationHash.slice(0, 63);
+    if (sandboxName === legacySandboxNameForConversation(conversationHash)) return conversationHash;
+    return undefined;
   }
 
   private base() {
@@ -796,13 +834,8 @@ export class OpenShellRuntimeManager {
     if (!this.config.grantableServiceProviders.includes(provider))
       throw new Error('OpenShell service provider is not grantable');
     return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
-      const conversationHash = createHash('sha256').update(conversationId).digest('hex');
-      const currentName = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
-      const legacyName = legacySandboxNameForConversation(conversationHash);
-      const owner =
-        runtime.sandboxName === currentName ? conversationHash.slice(0, 63) : conversationHash;
-      if (runtime.sandboxName !== currentName && runtime.sandboxName !== legacyName)
-        throw new Error('OpenShell sandbox does not belong to this conversation');
+      const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+      if (!owner) throw new Error('OpenShell sandbox does not belong to this conversation');
       const sandbox = await this.get(runtime.sandboxName, signal);
       if (!sandbox || sandbox.phase !== 'Ready')
         throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);

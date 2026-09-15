@@ -24,6 +24,16 @@ describe('requestedIntegrationProviders', () => {
     'allow Google Workspace access',
     'use Google Drive to inspect the budget',
     'schedule a meeting in Google Calendar',
+    'edit my Google Doc',
+    'download a file from Google Drive',
+    'draft this in Gmail',
+    'draft an email in Gmail',
+    'use the Google Drive API to upload this file',
+    'upload this via the Google Drive API',
+    'download the report through the Google Drive API',
+    'copy a file via the Google Drive API',
+    'write this using the Google Docs API',
+    'use the Google Drive API to list files',
   ])('recognizes Google Workspace access intent in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
@@ -39,6 +49,10 @@ describe('requestedIntegrationProviders', () => {
     'find the Gmail handler bug, then write a regression test',
     'Google Calendar API docs explain how to create an event',
     'search the repository for the Google Sheets component',
+    'explain the Google Drive API',
+    'fix the Gmail API client',
+    'write Google Drive API documentation',
+    'copy the Google Drive API docs into this repository',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });

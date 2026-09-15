@@ -13,10 +13,15 @@ const GENERIC_CALENDAR = /\bcalendar\b/gi;
 
 const READ_ACTION =
   /\b(?:access|check|find|fetch|get|inspect|list|look\s+(?:at|in|through)|open|query|read|retrieve|scan|search|show|summari[sz]e|use|view)\b/gi;
-const WRITE_ACTION = /\b(?:archive|create|delete|move|reply|schedule|send|share|update|upload)\b/gi;
+const WRITE_ACTION =
+  /\b(?:archive|copy|create|delete|download|draft|edit|move|reply|schedule|send|share|update|upload|write)\b/gi;
 const ENABLE_ACTION = /\b(?:add|attach|connect|enable|grant|permit|allow)\b/gi;
 const WORKSPACE_ACTION = new RegExp(
   `${READ_ACTION.source}|${WRITE_ACTION.source}|${ENABLE_ACTION.source}`,
+  'gi',
+);
+const GENERIC_WORKSPACE_DATA_ACTION = new RegExp(
+  `${READ_ACTION.source}|\\b(?:create|delete|move|reply|schedule|send|update)\\b`,
   'gi',
 );
 
@@ -32,6 +37,15 @@ const EXPLICIT_GOOGLE_SERVICE_ARTIFACT = new RegExp(
 );
 const GENERIC_WORKSPACE_ARTIFACT = new RegExp(
   `\\b(?:emails?|mail|inbox|calendar)\\s+${TECHNICAL_ARTIFACT}\\b`,
+  'i',
+);
+const API_DATA_ACTION = new RegExp(`${READ_ACTION.source}|${WRITE_ACTION.source}`, 'gi');
+const GOOGLE_SERVICE_API_TRANSPORT = new RegExp(
+  '\\b(?:via|through|with|using)\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+api\\b',
+  'i',
+);
+const GOOGLE_SERVICE_API_COMMAND = new RegExp(
+  '\\buse\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+api\\s+to\\b',
   'i',
 );
 
@@ -53,9 +67,14 @@ function wordCount(text: string): number {
  * mention, while allowing natural resource-first requests such as
  * "In Gmail, find the message".
  */
-function hasActionForResource(clause: string, resource: RegExp): boolean {
+function hasActionForResource(
+  clause: string,
+  resource: RegExp,
+  actionPattern = WORKSPACE_ACTION,
+): boolean {
   resource.lastIndex = 0;
-  for (const action of clause.matchAll(WORKSPACE_ACTION)) {
+  actionPattern.lastIndex = 0;
+  for (const action of clause.matchAll(actionPattern)) {
     for (const target of clause.matchAll(resource)) {
       if (target.index === undefined || action.index === undefined) continue;
       const between =
@@ -71,8 +90,15 @@ function hasActionForResource(clause: string, resource: RegExp): boolean {
 
 function hasExplicitGoogleWorkspaceIntent(clause: string): boolean {
   return (
-    !EXPLICIT_GOOGLE_SERVICE_ARTIFACT.test(clause) &&
-    hasActionForResource(clause, EXPLICIT_GOOGLE_SERVICE)
+    hasActionForResource(clause, EXPLICIT_GOOGLE_SERVICE) &&
+    (!EXPLICIT_GOOGLE_SERVICE_ARTIFACT.test(clause) || hasActiveGoogleServiceApiOperation(clause))
+  );
+}
+
+function hasActiveGoogleServiceApiOperation(clause: string): boolean {
+  return (
+    hasActionForResource(clause, EXPLICIT_GOOGLE_SERVICE, API_DATA_ACTION) &&
+    (GOOGLE_SERVICE_API_TRANSPORT.test(clause) || GOOGLE_SERVICE_API_COMMAND.test(clause))
   );
 }
 
@@ -95,9 +121,9 @@ function hasGenericWorkspaceIntent(clause: string): boolean {
   return (
     !GENERIC_WORKSPACE_ARTIFACT.test(clause) &&
     hasClearGenericEmailOrCalendarTarget(clause) &&
-    (hasActionForResource(clause, PERSONAL_WORKSPACE_DATA) ||
-      hasActionForResource(clause, GENERIC_EMAIL) ||
-      hasActionForResource(clause, GENERIC_CALENDAR))
+    (hasActionForResource(clause, PERSONAL_WORKSPACE_DATA, GENERIC_WORKSPACE_DATA_ACTION) ||
+      hasActionForResource(clause, GENERIC_EMAIL, GENERIC_WORKSPACE_DATA_ACTION) ||
+      hasActionForResource(clause, GENERIC_CALENDAR, GENERIC_WORKSPACE_DATA_ACTION))
   );
 }
 
