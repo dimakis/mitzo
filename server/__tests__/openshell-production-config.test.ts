@@ -182,19 +182,13 @@ describe('OpenShell production bundle validation', () => {
         seedPath,
       ),
     ).toThrow('payload digest is invalid or missing');
-    expect(() =>
-      validateSeedBaseline(
-        baseline,
-        {
-          runtime: {
-            mgmtSourceCommit: 'a'.repeat(40),
-            dependencyProjectionSha256: projectionSha,
-            targetMarkerEnvironmentB64: markerEnvironmentB64,
-          },
-        },
-        seedPath,
-      ),
-    ).toThrow('stack lock dynamic seed payload digest is invalid or missing');
+    const { seedPayloadSha256: ignoredPayloadDigest, ...runtimeWithoutPayloadDigest } =
+      dynamicRuntimeManifest('a'.repeat(64)).runtime;
+    void ignoredPayloadDigest;
+    const missingPayloadDigest = { runtime: runtimeWithoutPayloadDigest };
+    expect(() => validateSeedBaseline(baseline, missingPayloadDigest, seedPath)).toThrow(
+      'stack lock dynamic seed payload digest is invalid or missing',
+    );
     expect(() =>
       validateSeedBaseline(baseline, dynamicRuntimeManifest('b'.repeat(64)), seedPath),
     ).toThrow('does not match the stack lock');
