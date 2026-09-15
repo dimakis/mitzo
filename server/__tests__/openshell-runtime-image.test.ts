@@ -142,7 +142,9 @@ printf 'executed\\n' > "$output_dir/$output_name"
           MITZO_MGMT_WORKDIR: workspace,
           MITZO_MGMT_NOTEBOOK_OUTPUT_DIR: outputRoot,
           MITZO_MGMT_NOTEBOOK_RUN_ID: 'smoke-run',
-          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          // The wrapper calls nbconvert as a module, so this intentionally
+          // omits the image's virtualenv bin directory and console scripts.
+          PATH: '/usr/bin:/bin',
           CAPTURE: capture,
           PYTHONPATH_CAPTURE: join(root, 'pythonpath'),
           CWD_CAPTURE: join(root, 'cwd'),
@@ -158,8 +160,8 @@ printf 'executed\\n' > "$output_dir/$output_name"
       });
 
       expect(readFileSync(capture, 'utf8').trim().split('\n')).toEqual([
+        '-P',
         '-m',
-        'jupyter',
         'nbconvert',
         '--to',
         'notebook',
@@ -257,9 +259,10 @@ exec /bin/mkdir "$@"
     expect(source).toContain('export JUPYTER_PATH="/usr/local/share/jupyter"');
     expect(source).toContain('export JUPYTER_CONFIG_PATH=""');
     expect(source).toContain('cd "$transient"');
-    expect(source).toContain('/usr/bin/python3 -m jupyter nbconvert');
+    expect(source).toContain('/usr/bin/python3 -P -m nbconvert');
     expect(source).toContain('--ExecutePreprocessor.kernel_name=mgmt-jira');
-    expect(source).not.toContain('python -m jupyter nbconvert');
+    expect(source).not.toContain('jupyter nbconvert');
+    expect(source).not.toContain('jupyter-nbconvert');
   });
 
   it('rejects notebook paths outside the mounted Jira runtime', () => {

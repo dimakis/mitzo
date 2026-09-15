@@ -107,7 +107,7 @@ cd "$transient"
 # executed copy gets a unique, writable report location.
 name="${notebook##*/}"
 output_name="${name%.ipynb}.executed.ipynb"
-/usr/bin/python3 -m jupyter nbconvert --to notebook --execute \
+/usr/bin/python3 -P -m nbconvert --to notebook --execute \
   --ExecutePreprocessor.kernel_name=mgmt-jira \
   --output-dir "$run_dir" --output "$output_name" "$path"
 printf '%s\n' "${run_dir}/${output_name}"
