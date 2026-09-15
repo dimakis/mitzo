@@ -243,7 +243,15 @@ export function createChatRestRouter(
     }
     const msg = parsed.data;
     try {
-      handlePermissionResponseV2(connectionId, msg, ctx);
+      if (!handlePermissionResponseV2(connectionId, msg, ctx)) {
+        res.status(409).json({
+          ok: false,
+          type: 'permission_response_rejected',
+          permId: msg.permId,
+          error: 'Permission response was invalid or expired. Review the prompt and try again.',
+        });
+        return;
+      }
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/permission failed', { connectionId, error: String(err) });

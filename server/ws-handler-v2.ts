@@ -941,8 +941,8 @@ export function handlePermissionResponseV2(
   connectionId: string,
   msg: PermissionMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+): boolean {
+  return withSpan(
     'ws.permission_response',
     {
       'ws.connectionId': connectionId,
@@ -969,6 +969,7 @@ export function handlePermissionResponseV2(
         sessionId: msg.sessionId,
         permId: msg.permId,
       });
+      return resolved;
     },
   );
 }

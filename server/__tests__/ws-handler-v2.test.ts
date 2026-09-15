@@ -1542,7 +1542,7 @@ describe('handlePermissionResponseV2', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handlePermissionResponseV2(
+    const resolved = handlePermissionResponseV2(
       'c1',
       { type: 'permission_response', sessionId: 'sess-1', permId: 'p1', decision: 'once' },
       ctx,
@@ -1554,6 +1554,7 @@ describe('handlePermissionResponseV2', () => {
       permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
     });
+    expect(resolved).toBe(false);
   });
 });
 
