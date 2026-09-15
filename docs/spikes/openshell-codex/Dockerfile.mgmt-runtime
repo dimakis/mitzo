@@ -12,20 +12,18 @@ USER root
 RUN npm install --global @openai/codex@0.153.4 \
     && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
-COPY pyproject.toml uv.lock /opt/mgmt-deps/
-RUN cd /opt/mgmt-deps \
-    # MGMT's checked-in lock currently predates a declared dependency. Resolve
-    # only in this disposable build layer; never rewrite the host checkout.
-    && uv lock \
-    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
+COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/
+RUN cd /opt/mgmt-jira-runtime \
+    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
 COPY initialize-mitzo-workspace /sandbox/initialize-mitzo-workspace
+COPY run-mgmt-notebook /sandbox/run-mgmt-notebook
 COPY compile-mgmt-context.mjs /sandbox/compile-mgmt-context.mjs
 COPY mitzo-checkpoint.py /sandbox/mitzo-checkpoint.py
 COPY contexgin /usr/lib/contexgin
-RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/compile-mgmt-context.mjs /sandbox/mitzo-checkpoint.py \
+RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/run-mgmt-notebook /sandbox/compile-mgmt-context.mjs /sandbox/mitzo-checkpoint.py \
     && chmod -R a+rX /usr/lib/contexgin \
     && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server
-ENV PATH="/opt/mgmt-venv/bin:${PATH}"
+ENV PATH="/opt/mgmt-jira-venv/bin:${PATH}"
 USER sandbox

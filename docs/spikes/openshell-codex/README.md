@@ -52,9 +52,14 @@ different filesystem trust domains.
   baseline manifest; save-back is not implemented.
 - `Dockerfile.mgmt-runtime` and `build-mgmt-runtime.sh`: local-only reusable
   Linux runtime image. The builder requires an immutable OpenShell base-image
-  digest and rejects `latest`/`dev` output tags. Because MGMT's checked-in lock
-  currently predates a declared dependency, resolution occurs only in the
-  disposable build context; the host checkout is not rewritten.
+  digest and rejects `latest`/`dev` output tags. It installs the checked-in,
+  frozen `mgmt/jira_process` lock into `/opt/mgmt-jira-venv`; the MGMT seed is
+  uploaded separately at `/sandbox/workspaces/mgmt`.
+- `run-mgmt-notebook`: runs one `jira_process`-relative notebook with the
+  image's Jupyter runtime, for example
+  `/sandbox/run-mgmt-notebook dashboards/weekly-org-status.ipynb`. Provider
+  placeholders supply Jira credentials when a reviewed Jira connection is
+  attached; the image contains no credential material.
 
 Prefer a small set of immutable, versioned runtime images over a custom image
 per conversation. Put common management dependencies such as GWS, GitHub CLI,

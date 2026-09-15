@@ -4,8 +4,6 @@ import { load } from 'js-yaml';
 import { z } from 'zod';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
-export const JIRA_API_ENDPOINT =
-  'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432';
 export const JIRA_TEMPLATE_ID = 'jira-readonly';
 export type ConnectionProbeErrorCode =
   'JIRA_AUTH_REJECTED' | 'JIRA_PERMISSION_DENIED' | 'JIRA_HTTP_ERROR' | 'JIRA_NETWORK_FAILED';
@@ -50,7 +48,7 @@ const JiraProfile = z
       .array(
         z
           .object({
-            host: z.literal('api.atlassian.com'),
+            host: z.literal('redhat.atlassian.net'),
             port: z.literal(443),
             protocol: z.literal('rest'),
             enforcement: z.literal('enforce'),
@@ -61,9 +59,7 @@ const JiraProfile = z
                   allow: z
                     .object({
                       method: z.literal('GET'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-                      ),
+                      path: z.literal('/rest/api/3/**'),
                     })
                     .strict(),
                 })
@@ -73,33 +69,7 @@ const JiraProfile = z
                   allow: z
                     .object({
                       method: z.literal('HEAD'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('GET'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
-                      ),
-                    })
-                    .strict(),
-                })
-                .strict(),
-              z
-                .object({
-                  allow: z
-                    .object({
-                      method: z.literal('HEAD'),
-                      path: z.literal(
-                        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
-                      ),
+                      path: z.literal('/rest/api/3/**'),
                     })
                     .strict(),
                 })
@@ -110,9 +80,16 @@ const JiraProfile = z
       )
       .length(1),
     binaries: z
-      .array(z.enum(['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl']))
-      .length(3)
-      .refine((value) => new Set(value).size === 3, 'Jira profile binaries must be unique'),
+      .array(
+        z.enum([
+          '/usr/bin/python3',
+          '/opt/mgmt-jira-venv/bin/python',
+          '/usr/bin/curl',
+          '/usr/local/bin/curl',
+        ]),
+      )
+      .length(4)
+      .refine((value) => new Set(value).size === 4, 'Jira profile binaries must be unique'),
     // Gateway metadata is not policy input, but must remain a bounded scalar projection.
     source: z.string().max(256).optional(),
     scope: z.string().max(256).optional(),
@@ -545,7 +522,7 @@ except Exception:
             '--label',
             'mitzo.connection_probe=1',
             '--env',
-            `JIRA_URL=${JIRA_API_ENDPOINT}`,
+            `JIRA_URL=${JIRA_ENDPOINT}`,
             '--env',
             `JIRA_EMAIL=${input.email}`,
             '-o',
@@ -597,7 +574,7 @@ except Exception:
           '--timeout',
           '15',
           '--env',
-          `JIRA_URL=${JIRA_API_ENDPOINT}`,
+          `JIRA_URL=${JIRA_ENDPOINT}`,
           '--env',
           `JIRA_EMAIL=${input.email}`,
           '--',

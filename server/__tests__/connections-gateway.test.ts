@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   OpenShellConnectionGateway,
-  JIRA_API_ENDPOINT,
+  JIRA_ENDPOINT,
   parseProviderAttachments,
   validateJiraProfileYaml,
 } from '../connections-gateway.js';
@@ -37,6 +37,9 @@ describe('OpenShellConnectionGateway', () => {
     expect(profile).toContain('protocol: rest');
     expect(profile).toContain('enforcement: enforce');
     expect(profile).toContain('tls: terminate');
+    expect(profile).toContain('host: redhat.atlassian.net');
+    expect(profile).toContain('path: /rest/api/3/**');
+    expect(profile).not.toContain('api.atlassian.com');
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
     expect(() => validateJiraProfileYaml(profile)).not.toThrow();
@@ -58,21 +61,15 @@ describe('OpenShellConnectionGateway', () => {
       'utf8',
     );
     for (const replacement of [
-      ['host: api.atlassian.com', 'host: evil.example'],
+      ['host: redhat.atlassian.net', 'host: evil.example'],
       ['port: 443', 'port: 8443'],
       ['enforcement: enforce', 'enforcement: audit'],
       ['tls: terminate', 'tls: passthrough'],
       ['inference_capable: false', 'inference_capable: true'],
       ['env_vars: [JIRA_API_TOKEN]', 'env_vars: [JIRA_TOKEN]'],
-      ['  - /usr/local/bin/curl', '  - /bin/sh'],
-      [
-        'method: GET, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-        'method: POST, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
-      ],
-      [
-        '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**',
-        '/ex/jira/other-tenant/rest/api/3/**',
-      ],
+      ['  - /opt/mgmt-jira-venv/bin/python', '  - /bin/sh'],
+      ['method: GET, path: /rest/api/3/**', 'method: POST, path: /rest/api/3/**'],
+      ['/rest/api/3/**', '/rest/api/2/**'],
     ]) {
       expect(() =>
         validateJiraProfileYaml(profile.replace(replacement[0], replacement[1])),
@@ -321,8 +318,8 @@ describe('OpenShellConnectionGateway', () => {
     expect(exec.join(' ')).toContain("'Authorization':'Basic '");
     expect(exec.join(' ')).toContain('redirect denied');
     expect(exec.join(' ')).toContain('read(65537)');
-    expect(create).toContain(`JIRA_URL=${JIRA_API_ENDPOINT}`);
-    expect(exec).toContain(`JIRA_URL=${JIRA_API_ENDPOINT}`);
+    expect(create).toContain(`JIRA_URL=${JIRA_ENDPOINT}`);
+    expect(exec).toContain(`JIRA_URL=${JIRA_ENDPOINT}`);
   });
   it('recovers an ambiguous create only for the owned ready probe sandbox', async () => {
     const name = 'mzp-1234567890abcde';

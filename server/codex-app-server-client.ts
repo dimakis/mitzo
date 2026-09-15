@@ -1,4 +1,4 @@
-import { JIRA_API_ENDPOINT } from './connections-gateway.js';
+import { JIRA_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn } from 'node:child_process';
 import type { EventEmitter } from 'node:events';
@@ -34,7 +34,7 @@ export interface OpenShellCodexOptions {
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
-  connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
+  connectionEnv?: { JIRA_URL: typeof JIRA_ENDPOINT; JIRA_EMAIL: string };
 }
 
 /** Build the development transport without forwarding host credentials to the
@@ -175,7 +175,7 @@ function connectionCommand(options: OpenShellCodexOptions, command: string) {
   if (!options.connectionEnv) return command;
   const { JIRA_URL, JIRA_EMAIL } = options.connectionEnv;
   if (
-    JIRA_URL !== JIRA_API_ENDPOINT ||
+    JIRA_URL !== JIRA_ENDPOINT ||
     !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(JIRA_EMAIL)
   )
     throw new Error('Invalid managed Jira connection environment');

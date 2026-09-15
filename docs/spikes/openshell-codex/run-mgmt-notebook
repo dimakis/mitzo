@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+workspace="${MITZO_MGMT_WORKDIR:-/sandbox/workspaces/mgmt}"
+runtime_root="${workspace}/jira_process"
+notebook="${1:-}"
+
+if [[ -z "$notebook" || $# -ne 1 ]]; then
+  echo 'usage: run-mgmt-notebook <jira_process-relative-notebook.ipynb>' >&2
+  exit 2
+fi
+if [[ "$notebook" = /* || "$notebook" == *'..'* || "$notebook" != *.ipynb ]]; then
+  echo 'notebook must be a relative .ipynb path inside jira_process' >&2
+  exit 2
+fi
+
+path="${runtime_root}/${notebook}"
+if [[ ! -f "$path" ]]; then
+  echo 'notebook does not exist in the mounted jira_process runtime' >&2
+  exit 2
+fi
+
+# Keep Jupyter's transient files in the writable mounted workspace. Jira
+# credentials remain provider-injected environment placeholders; this command
+# never accepts or logs them.
+export IPYTHONDIR="${runtime_root}/.ipython"
+export JUPYTER_RUNTIME_DIR="${runtime_root}/.jupyter"
+mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
+exec python -m jupyter nbconvert --to notebook --execute --inplace "$path"
