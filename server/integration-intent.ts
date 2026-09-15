@@ -7,8 +7,6 @@ const GOOGLE_WORKSPACE = 'google-workspace';
 const REQUEST_CLAUSE_BOUNDARY = /[.!?;\n]+|\b(?:but|while)\b/i;
 const EXPLICIT_GOOGLE_SERVICE =
   /\b(?:gmail|gws|google\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\b/gi;
-const PERSONAL_WORKSPACE_DATA =
-  /\b(?:my|our|your)\s+(?:emails?|mail|inbox|calendar|documents?|drive|sheets?|spreadsheets?)\b/gi;
 const GENERIC_EMAIL = /\b(?:emails?|mail|inbox)\b/gi;
 const GENERIC_CALENDAR = /\bcalendar\b/gi;
 const PERSONAL_MAIL = /\b(?:my|our|your)\s+(?:emails?|mail|inbox)\b/gi;
