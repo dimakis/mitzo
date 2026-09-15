@@ -30,6 +30,7 @@ const originalProjectionSha = process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SH
 const originalRuntimeProjectionSha = process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
 const originalRuntimeBaseImage = process.env.MGMT_RUNTIME_BASE_IMAGE;
 const originalRuntimePlatform = process.env.MGMT_RUNTIME_TARGET_PLATFORM;
+const originalDynamicSeed = process.env.MGMT_DYNAMIC_SEED;
 const fixtureBaseImage = `registry.invalid/runtime@sha256:${'a'.repeat(64)}`;
 const fixturePlatform = 'linux/amd64';
 
@@ -93,6 +94,8 @@ afterAll(() => {
   else process.env.MGMT_RUNTIME_BASE_IMAGE = originalRuntimeBaseImage;
   if (originalRuntimePlatform === undefined) delete process.env.MGMT_RUNTIME_TARGET_PLATFORM;
   else process.env.MGMT_RUNTIME_TARGET_PLATFORM = originalRuntimePlatform;
+  if (originalDynamicSeed === undefined) delete process.env.MGMT_DYNAMIC_SEED;
+  else process.env.MGMT_DYNAMIC_SEED = originalDynamicSeed;
   rmSync(uvFixtureRoot, { recursive: true, force: true });
 });
 
@@ -724,6 +727,46 @@ it('records an explicit runtime base ref as its canonical commit', () => {
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toBe(startingCommit);
   expect(baseline.runtimeBaseCommit).toBe(runtimeBaseCommit);
+}, 10_000);
+
+it('emits the complete dynamic contract for a same-commit current release', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-same-commit-dynamic-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  const commit = currentCommit(source);
+  setDynamicContract(source, commit);
+  writeMemoryManifests(source, commit);
+
+  execFileSync(
+    'bash',
+    [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, commit],
+    { cwd: resolve('.'), env: { ...process.env, MGMT_DYNAMIC_SEED: '1' } },
+  );
+
+  const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
+  expect(baseline).toMatchObject({
+    startingCommit: commit,
+    runtimeBaseCommit: commit,
+    runtimeDependencyProjectionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    payloadSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+  });
 }, 10_000);
 
 it('fails closed when a descendant seed is missing its selected stack-lock contract', () => {
@@ -1387,6 +1430,64 @@ it('terminates a delayed lock helper before waiting and permits a later publish'
       'bash',
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
       { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(existsSync(output)).toBe(true);
+}, 10_000);
+
+it('does not let a delayed helper inherit init when its coordinator exits immediately', async () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-orphan-helper-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  const bin = join(root, 'bin');
+  const helperStarted = join(root, 'helper-started');
+  const actualPython = execFileSync('which', ['python3'], { encoding: 'utf8' }).trim();
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(bin);
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+  writeFileSync(
+    join(bin, 'python3'),
+    `#!/bin/sh\ntouch "${helperStarted}"\nsleep 1\nexec "${actualPython}" "$@"\n`,
+  );
+  chmodSync(join(bin, 'python3'), 0o755);
+
+  updater = spawn(
+    'bash',
+    [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+    {
+      cwd: resolve('.'),
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      stdio: 'ignore',
+    },
+  );
+  for (let attempts = 0; attempts < 50 && !existsSync(helperStarted); attempts += 1)
+    execFileSync('sleep', ['0.01']);
+  expect(existsSync(helperStarted)).toBe(true);
+  updater.kill('SIGKILL');
+  updater = undefined;
+  await new Promise((resolve) => setTimeout(resolve, 1_200));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.'), stdio: 'pipe' },
     ),
   ).not.toThrow();
   expect(existsSync(output)).toBe(true);

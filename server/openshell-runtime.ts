@@ -2,9 +2,11 @@ import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -12,6 +14,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
@@ -373,14 +376,62 @@ function dynamicStackLock(value: unknown) {
     typeof stack.dependencyProjectionSha256 !== 'string' ||
     !SHA256.test(stack.dependencyProjectionSha256) ||
     typeof stack.seedPayloadSha256 !== 'string' ||
-    !SHA256.test(stack.seedPayloadSha256)
+    !SHA256.test(stack.seedPayloadSha256) ||
+    typeof stack.image !== 'string' ||
+    !/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(stack.image)
   )
     throw new Error('OpenShell dynamic seed stack lock is malformed');
   return stack as {
     mgmtSourceCommit: string;
     dependencyProjectionSha256: string;
     seedPayloadSha256: string;
+    image: string;
   };
+}
+
+function snapshotDynamicSeed(source: string, baseline: DynamicSeedBaseline) {
+  const parent = mkdtempSync(join(tmpdir(), 'mitzo-dynamic-seed-'));
+  // The source release is writable by the updater.  Only this process may
+  // reach the snapshot after it is created, so no release-path mutation can
+  // race validation with OpenShell's upload.
+  chmodSync(parent, 0o700);
+  const destination = join(parent, 'mgmt');
+  const copy = (from: string, to: string) => {
+    mkdirSync(to, { mode: 0o700 });
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      const input = join(from, entry.name);
+      const output = join(to, entry.name);
+      const before = lstatSync(input);
+      if (before.isSymbolicLink())
+        throw new Error(`OpenShell dynamic seed contains an unsafe symlink: ${entry.name}`);
+      if (before.isDirectory()) {
+        copy(input, output);
+      } else if (before.isFile()) {
+        const contents = readFileSync(input);
+        const after = lstatSync(input);
+        if (after.isSymbolicLink() || !sameIdentity(before, after))
+          throw new Error(
+            `OpenShell dynamic seed changed while it was being copied: ${entry.name}`,
+          );
+        writeFileSync(output, contents, { mode: before.mode & 0o7777 });
+        chmodSync(output, before.mode & 0o7777);
+      } else {
+        throw new Error(`OpenShell dynamic seed contains an unsupported path: ${entry.name}`);
+      }
+    }
+  };
+  try {
+    copy(source, destination);
+    verifyDynamicSeedFiles(destination, baseline);
+    return {
+      path: destination,
+      verify: () => verifyDynamicSeedFiles(destination, baseline),
+      cleanup: () => rmSync(parent, { recursive: true, force: true }),
+    };
+  } catch (error) {
+    rmSync(parent, { recursive: true, force: true });
+    throw error;
+  }
 }
 
 function verifyDynamicSeedFiles(seed: string, baseline: DynamicSeedBaseline) {
@@ -422,7 +473,7 @@ function verifyDynamicSeedFiles(seed: string, baseline: DynamicSeedBaseline) {
  * upload.  This is intentionally one operation: callers retain only the
  * concrete release path it returns and never dereference `current` again.
  */
-export function verifyImmutableDynamicSeed(seed: string, stackManifest: string): string {
+export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, image: string) {
   if (!dynamicSeedReleaseRoot(seed)) return seed;
   if (!isAbsolute(stackManifest))
     throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
@@ -431,6 +482,10 @@ export function verifyImmutableDynamicSeed(seed: string, stackManifest: string):
   const release = resolve(resolvedSeed, '..');
   const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
   const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+  if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image))
+    throw new Error('OpenShell dynamic seed requires a digest-pinned configured image');
+  if (stack.image !== image)
+    throw new Error('OpenShell dynamic seed stack lock image does not match the configured image');
   if (baseline.runtimeBaseCommit !== stack.mgmtSourceCommit)
     throw new Error('OpenShell dynamic seed runtime base does not match the stack lock');
   if (baseline.runtimeDependencyProjectionSha256 !== stack.dependencyProjectionSha256)
@@ -446,7 +501,7 @@ export function verifyImmutableDynamicSeed(seed: string, stackManifest: string):
   const after = lstatSync(resolvedSeed);
   if (!sameIdentity(before, after) || !after.isDirectory())
     throw new Error('OpenShell dynamic seed changed while it was being verified');
-  return resolvedSeed;
+  return snapshotDynamicSeed(resolvedSeed, baseline);
 }
 
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
@@ -930,9 +985,16 @@ export class OpenShellRuntimeManager {
       created = true;
       // Pin and fully validate a dynamic `current` release at the final upload
       // boundary. Do not retain its mutable spelling or dereference it again.
-      const seed = dynamicSeedReleaseRoot(this.config.seed)
-        ? verifyImmutableDynamicSeed(this.config.seed, this.config.stackManifest ?? '')
-        : this.config.seed;
+      const verifiedSeed = dynamicSeedReleaseRoot(this.config.seed)
+        ? verifyImmutableDynamicSeed(
+            this.config.seed,
+            this.config.stackManifest ?? '',
+            this.config.image,
+          )
+        : undefined;
+      if (typeof verifiedSeed === 'string')
+        throw new Error('OpenShell dynamic seed verification did not produce a private snapshot');
+      const seed = verifiedSeed?.path ?? this.config.seed;
       const args = [
         'sandbox',
         ...this.base(),
@@ -975,10 +1037,16 @@ export class OpenShellRuntimeManager {
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
+        // Verify exactly what will be uploaded after all argument preparation.
+        // Its private parent is mode 0700, making this final check race-free
+        // with the untrusted release updater.
+        verifiedSeed?.verify();
         await this.run(args, signal);
       } catch (error) {
         if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
           throw error;
+      } finally {
+        verifiedSeed?.cleanup();
       }
       sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {

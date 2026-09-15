@@ -27,6 +27,11 @@ git -C "$source_repo" rev-parse --is-inside-work-tree >/dev/null
 starting_commit="$(git -C "$source_repo" rev-parse --verify 'HEAD^{commit}')"
 runtime_base_commit="$(git -C "$source_repo" rev-parse --verify "${3:-$starting_commit}^{commit}")"
 runtime_projection_sha256=''
+dynamic_seed="${MGMT_DYNAMIC_SEED:-0}"
+case "$dynamic_seed" in
+  0|1) ;;
+  *) echo 'MGMT_DYNAMIC_SEED must be 0 or 1' >&2; exit 2 ;;
+esac
 git -C "$source_repo" merge-base --is-ancestor "$runtime_base_commit" "$starting_commit" || {
   echo 'runtime base commit must be an ancestor of the seed starting commit' >&2
   exit 2
@@ -35,10 +40,15 @@ test -d "$output_parent" || { echo 'output parent does not exist' >&2; exit 2; }
 # The lock helper watches its original coordinating shell at the kernel level:
 # kqueue on macOS and PR_SET_PDEATHSIG on Linux. This does not leak through
 # build subprocesses, so SIGKILL of the updater releases flock immediately.
-python3 - "$lock_file" "$lock_status" <<'PY' &
+python3 - "$lock_file" "$lock_status" "$$" <<'PY' &
 import ctypes, fcntl, os, pathlib, select, signal, sys
 
-parent_pid = os.getppid()
+parent_pid = int(sys.argv[3])
+# Do not ever bind to a newly adopted parent (usually init).  The coordinator
+# passes its identity explicitly so a SIGKILL before this helper starts cannot
+# leave a lock owned by an orphan that waits forever for init to exit.
+if os.getppid() != parent_pid:
+    raise SystemExit("coordinator exited before lock helper started")
 if sys.platform == "darwin":
     watcher = select.kqueue()
     watcher.control([select.kevent(
@@ -47,6 +57,11 @@ if sys.platform == "darwin":
         flags=select.KQ_EV_ADD,
         fflags=select.KQ_NOTE_EXIT,
     )], 0, 0)
+    # The registration closes the check-to-watch race: if the coordinator
+    # exits before or during registration, either this check fails or kqueue
+    # has a pending NOTE_EXIT before we acquire the lock and announce ready.
+    if os.getppid() != parent_pid:
+        raise SystemExit("parent exited before lock ownership was established")
     def wait_for_parent_exit():
         watcher.control(None, 1, None)
 elif sys.platform.startswith("linux"):
@@ -116,7 +131,11 @@ mkdir -p "$workspace"
 # A descendant must match the immutable checked-in-lock contract released with
 # its selected digest-pinned image.  Re-resolving here would make present-day
 # registry state an input to a claim about an image built in the past.
-if test "$runtime_base_commit" != "$starting_commit"; then
+# A release destined for the documented current/mgmt indirection is dynamic
+# even for its first, same-commit publication.  Static legacy callers retain
+# the historical equality-only baseline unless they explicitly request this
+# contract with MGMT_DYNAMIC_SEED=1.
+if test "$dynamic_seed" = 1 || test "$runtime_base_commit" != "$starting_commit"; then
   runtime_projection_sha256="${MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256:-}"
   runtime_base_image="${MGMT_RUNTIME_BASE_IMAGE:-}"
   runtime_target_platform="${MGMT_RUNTIME_TARGET_PLATFORM:-}"
@@ -592,7 +611,7 @@ git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
 git -C "$workspace" add --all
 git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
 
-SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" IS_DYNAMIC="$([[ "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
+SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
 
 def canonical(value):

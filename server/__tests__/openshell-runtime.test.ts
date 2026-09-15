@@ -34,7 +34,7 @@ afterEach(() => {
 
 const config = {
   cli: '/opt/isolated/bin/openshell',
-  image: 'mitzo-runtime:1',
+  image: `registry.invalid/mitzo-runtime@sha256:${'c'.repeat(64)}`,
   policy: '/config/policy.yaml',
   seed: '/seed/mgmt',
   serviceProviders: ['github'],
@@ -97,6 +97,7 @@ function dynamicRelease(
       stackManifest,
       JSON.stringify({
         runtime: {
+          image: config.image,
           mgmtSourceCommit: 'a'.repeat(40),
           dependencyProjectionSha256: 'b'.repeat(64),
           seedPayloadSha256: payloadSha256,
@@ -123,19 +124,21 @@ describe('OpenShell runtime lifecycle', () => {
     dynamicRelease(releaseB, stackManifest, 'replacement knowledge\n', false);
     const current = join(releases, 'current');
     symlinkSync(releaseA, current);
-    const expectedSeed = realpathSync(join(current, 'mgmt'));
     try {
       let created = false;
+      let uploadedKnowledge = '';
       const run = vi.fn(async (args: readonly string[]) => {
         if (args.includes('get')) {
           if (!created) throw new Error('sandbox not found');
           return ready();
         }
         if (args.includes('create')) {
-          // The updater may switch current after the manager has selected its
-          // release. The command must still use the already-resolved release.
+          // A release writer can change its source immediately after snapshot
+          // creation. OpenShell must still read the frozen private copy.
           unlinkSync(current);
           symlinkSync(releaseB, current);
+          const upload = args[args.indexOf('--upload') + 1] as string;
+          uploadedKnowledge = readFileSync(join(upload.split(':')[0], 'knowledge.md'), 'utf8');
           created = true;
           return '{}';
         }
@@ -148,8 +151,10 @@ describe('OpenShell runtime lifecycle', () => {
       const create = run.mock.calls.find(([args]) =>
         (args as string[]).includes('create'),
       )![0] as string[];
-      expect(create).toContain(`${expectedSeed}:/sandbox/workspaces`);
-      expect(create).not.toContain(`${realpathSync(join(releaseB, 'mgmt'))}:/sandbox/workspaces`);
+      const upload = create[create.indexOf('--upload') + 1];
+      expect(upload).not.toContain(realpathSync(join(releaseA, 'mgmt')));
+      expect(upload).not.toContain(realpathSync(join(releaseB, 'mgmt')));
+      expect(uploadedKnowledge).toBe('immutable knowledge\n');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -185,9 +190,58 @@ describe('OpenShell runtime lifecycle', () => {
     symlinkSync(release, current);
     try {
       writeFileSync(join(release, 'mgmt', 'knowledge.md'), 'tampered\n');
-      expect(() => verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest)).toThrow(
-        'file hash',
+      expect(() =>
+        verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, config.image),
+      ).toThrow('file hash');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('revalidates its private snapshot immediately before upload', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      const snapshot = verifyImmutableDynamicSeed(
+        join(current, 'mgmt'),
+        stackManifest,
+        config.image,
       );
+      if (typeof snapshot === 'string') throw new Error('expected a private dynamic snapshot');
+      writeFileSync(join(snapshot.path, 'knowledge.md'), 'tampered private copy\n');
+      expect(snapshot.verify).toThrow('file hash');
+      snapshot.cleanup();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the dynamic stack lock and sandbox image to be the same digest reference', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      expect(() =>
+        verifyImmutableDynamicSeed(
+          join(current, 'mgmt'),
+          stackManifest,
+          `registry.invalid/mitzo-runtime@sha256:${'d'.repeat(64)}`,
+        ),
+      ).toThrow('does not match the configured image');
+      expect(() =>
+        verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, 'mitzo-runtime:release'),
+      ).toThrow('requires a digest-pinned configured image');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
