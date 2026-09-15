@@ -276,7 +276,10 @@ describe('OpenShell runtime lifecycle', () => {
     );
     const signal = new AbortController().signal;
     const runtime = await manager.ensure('conversation', signal);
+    expect(manager.hasServiceProviderAccess(runtime, 'github')).toBe(true);
+    expect(manager.hasServiceProviderAccess(runtime, 'google-workspace')).toBe(false);
     await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
+    expect(manager.hasServiceProviderAccess(runtime, 'google-workspace')).toBe(true);
     await new OpenShellRuntimeManager(
       migratedConfig,
       run,

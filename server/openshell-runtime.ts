@@ -320,6 +320,12 @@ export class OpenShellRuntimeManager {
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
+  hasServiceProviderAccess(runtime: OpenShellRuntime, provider: string): boolean {
+    if (this.config.serviceProviders.includes(provider)) return true;
+    if (!this.config.grantableServiceProviders.includes(provider)) return false;
+    return !!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider);
+  }
+
   private base() {
     return [
       ...(this.config.gatewayEndpoint

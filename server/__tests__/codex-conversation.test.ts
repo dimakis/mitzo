@@ -23,6 +23,7 @@ async function setup(
   }>,
   beforeReconnect?: () => Promise<void>,
   onActivity?: () => boolean,
+  prepareTurn?: (prompt: string, signal: AbortSignal) => Promise<string | void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -81,6 +82,7 @@ async function setup(
     beforeComplete,
     completionHookTimeoutMs,
     beforeReconnect,
+    prepareTurn,
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -145,6 +147,24 @@ it('runs queued turns sequentially, rechecks account and never uses SDK/provider
   expect(events.find((e) => e.type === 'system')).toMatchObject({ session_id: 'app' });
   await c.send({ id: 'b', prompt: 'next' });
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+});
+it('prepares a turn before sending its prompt to the provider', async () => {
+  const prepareTurn = vi.fn(async (prompt: string) => `prepared: ${prompt}`);
+  const { c, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    prepareTurn,
+  );
+  await c.send({ id: 'a', prompt: 'search my docs' });
+  expect(prepareTurn).toHaveBeenCalledWith('search my docs', expect.any(AbortSignal));
+  expect(requests.find((request) => request.method === 'turn/start')?.params.input).toEqual([
+    { type: 'text', text: 'prepared: search my docs' },
+  ]);
 });
 it('uses the injected binding verifier both at startup and before each turn', async () => {
   const verifyBinding = vi.fn(async () => ({

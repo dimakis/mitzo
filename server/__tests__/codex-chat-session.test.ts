@@ -227,6 +227,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   const grant = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'grantServiceProvider')
     .mockResolvedValue();
+  const hasAccess = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'hasServiceProviderAccess')
+    .mockReturnValue(false);
   const abortController = new AbortController();
   const baseOptions = options(abortController);
   const session = baseOptions.session;
@@ -270,12 +273,53 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       }),
     ]);
     expect(mocks.conversationOptions?.systemPrompt).toContain('GrantIntegrationAccess');
+    expect(mocks.conversationOptions?.systemPrompt).toContain(
+      'Mitzo preflights explicit requests for grantable integrations',
+    );
+    const prepareTurn = mocks.conversationOptions?.prepareTurn as (
+      prompt: string,
+      signal: AbortSignal,
+    ) => Promise<string | void>;
     const executeTool = mocks.conversationOptions?.executeTool as (
       name: string,
       input: Record<string, unknown>,
       signal: AbortSignal,
     ) => Promise<{ content: string; isError: boolean }>;
     const signal = new AbortController().signal;
+
+    mocks.permissionHandler.mockResolvedValueOnce({
+      behavior: 'allow',
+      updatedInput: { provider: 'google-workspace' },
+    });
+    await expect(prepareTurn('look through my emails and Google Docs', signal)).resolves.toBe(
+      undefined,
+    );
+    expect(grant).toHaveBeenCalledWith(
+      'conversation',
+      expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
+      'google-workspace',
+      signal,
+    );
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'GrantIntegrationAccess',
+      { provider: 'google-workspace' },
+      expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+    );
+    vi.clearAllMocks();
+
+    await expect(prepareTurn('draft an email to Cat', signal)).resolves.toBe(undefined);
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    hasAccess.mockReturnValueOnce(true);
+    await expect(prepareTurn('search Gmail again', signal)).resolves.toBe(undefined);
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    await expect(prepareTurn('find a document in Google Drive', signal)).resolves.toContain(
+      'Do not run its CLI or claim a gateway outage',
+    );
+    expect(grant).not.toHaveBeenCalled();
+    vi.clearAllMocks();
 
     await expect(
       executeTool('GrantIntegrationAccess', { provider: 'unreviewed-provider' }, signal),
@@ -330,6 +374,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     ensure.mockRestore();
     compile.mockRestore();
     grant.mockRestore();
+    hasAccess.mockRestore();
     vi.unstubAllEnvs();
   }
 });
