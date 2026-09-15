@@ -1,6 +1,7 @@
 import { basename, dirname, join } from 'node:path';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import { OpenShellCheckpointTransport } from '../openshell-checkpoint-transport.js';
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from '../openshell-runtime.js';
@@ -680,8 +681,26 @@ it('discovers recordless orphans and reconciles identity-less provisional record
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
   vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
   const inventory = vi.spyOn(OpenShellRuntimeManager.prototype, 'inventory').mockResolvedValue([
-    { id: 'provisional-id', name: 'mitzo-provisional', phase: 'Ready' as const },
-    { id: 'orphan-id', name: 'mitzo-orphan', phase: 'Ready' as const },
+    {
+      id: 'provisional-id',
+      name: 'mitzo-provisional',
+      phase: 'Ready' as const,
+      workspace: 'default',
+      labels: {
+        'mitzo.conversation': createHash('sha256').update('provisional-conversation').digest('hex'),
+        'mitzo.account_provider': 'openai-work',
+      },
+    },
+    {
+      id: 'orphan-id',
+      name: 'mitzo-orphan',
+      phase: 'Ready' as const,
+      workspace: 'default',
+      labels: {
+        'mitzo.conversation': 'orphan-owner',
+        'mitzo.account_provider': 'openai-work',
+      },
+    },
   ]);
   const allInventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
@@ -764,7 +783,23 @@ it('matches physical inventory only to records from the queried provider', async
   vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
   const inventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
-    .mockResolvedValue([{ id: 'shared-id', name: 'shared-name', phase: 'Ready' as const }]);
+    .mockImplementation(function () {
+      const provider = (this as unknown as { config: { account: { provider: string } } }).config
+        .account.provider;
+      const conversation = `${provider}-conversation`;
+      return Promise.resolve([
+        {
+          id: 'shared-id',
+          name: 'shared-name',
+          phase: 'Ready' as const,
+          workspace: 'default',
+          labels: {
+            'mitzo.conversation': createHash('sha256').update(conversation).digest('hex'),
+            'mitzo.account_provider': provider,
+          },
+        },
+      ]);
+    });
   const allInventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
     .mockResolvedValue([]);

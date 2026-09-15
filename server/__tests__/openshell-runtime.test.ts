@@ -384,8 +384,21 @@ describe('OpenShell runtime lifecycle', () => {
       ),
     );
     let createIssued = false;
+    let inventoryRecovered = false;
     const invisible = vi.fn(async (args: readonly string[]) => {
       if (args.includes('get')) {
+        if (createIssued && inventoryRecovered)
+          return JSON.stringify({
+            name: 'sandbox',
+            phase: 'Ready',
+            labels: {
+              'mitzo.conversation': createHash('sha256')
+                .update('never-visible')
+                .digest('hex')
+                .slice(0, 63),
+              'mitzo.account_provider': 'openai-work',
+            },
+          });
         if (createIssued) throw new Error('gateway inventory unavailable');
         throw new Error('sandbox not found');
       }
@@ -422,6 +435,16 @@ describe('OpenShell runtime lifecycle', () => {
       }
       return '{}';
     });
+    await expect(
+      new OpenShellRuntimeManager(config, next, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('while-uninspectable', new AbortController().signal),
+    ).rejects.toThrow('provisioning state is unresolved');
+    expect(nextCreate).not.toHaveBeenCalled();
+
+    inventoryRecovered = true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
     await expect(
       new OpenShellRuntimeManager(config, next, {
         pollIntervalMs: 1,

@@ -7,7 +7,10 @@ import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import { reserveOpenShellSandboxCreate } from './openshell-capacity.js';
+import {
+  fenceOpenShellSandboxCreates,
+  reserveOpenShellSandboxCreate,
+} from './openshell-capacity.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -632,9 +635,12 @@ export class OpenShellRuntimeManager {
   /** Capacity admission must outlive the request that initiated a detached
    * create. Keep observing without the caller's abort/timeout until physical
    * provisioning reaches a terminal state. */
-  private async waitForProvisioningTerminal(name: string, owner: string) {
+  private async waitForProvisioningTerminal(
+    name: string,
+    owner: string,
+    deadline = Date.now() + this.readiness.timeoutMs,
+  ) {
     const signal = new AbortController().signal;
-    const absentDeadline = Date.now() + this.readiness.timeoutMs;
     let observed = false;
     for (;;) {
       try {
@@ -643,7 +649,7 @@ export class OpenShellRuntimeManager {
           // A settled create that remains absent for the full readiness window
           // is treated as definitively not provisioned. Once observed, absence
           // also means the allocation was removed.
-          if (observed || Date.now() >= absentDeadline) return;
+          if (observed) return;
         } else {
           observed = true;
           if (
@@ -656,7 +662,17 @@ export class OpenShellRuntimeManager {
       } catch {
         // A transient inventory failure is not evidence that detached
         // provisioning stopped consuming capacity. Continue fail-closed.
-        if (Date.now() >= absentDeadline) return;
+      }
+      if (Date.now() >= deadline) {
+        // Release the queue slot after a bounded wait, but replace it with an
+        // explicit fail-closed fence. A lightweight observer clears that fence
+        // only after physical provisioning becomes terminal or disappears.
+        const clearFence = fenceOpenShellSandboxCreates();
+        void this.waitForProvisioningTerminal(name, owner, Number.POSITIVE_INFINITY).then(
+          clearFence,
+          clearFence,
+        );
+        return;
       }
       await this.delay(signal);
     }

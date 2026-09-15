@@ -124,6 +124,32 @@ it('holds a successful capacity reservation until the physical create caller rel
   releaseSecond();
 });
 
+it('cancels a queued reservation without letting later callers bypass the active holder', async () => {
+  const collector = new OpenShellCapacityCollector('/', {
+    podman: async () => '[]',
+    filesystem: async () =>
+      'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 10000 1 5000 1% /',
+  });
+  const admission = new OpenShellCapacityAdmission(collector, openShellCapacityPolicy({}));
+  const releaseFirst = await admission.reserveNewSandbox(signal());
+  const cancelled = new AbortController();
+  const second = admission.reserveNewSandbox(cancelled.signal);
+  cancelled.abort();
+  await expect(second).rejects.toThrow(/abort/i);
+
+  let thirdGranted = false;
+  const third = admission.reserveNewSandbox(signal()).then((release) => {
+    thirdGranted = true;
+    return release;
+  });
+  await Promise.resolve();
+  expect(thirdGranted).toBe(false);
+  releaseFirst();
+  const releaseThird = await third;
+  expect(thirdGranted).toBe(true);
+  releaseThird();
+});
+
 it('fails closed on collection loss and validates ordered hysteresis thresholds', async () => {
   const collector = new OpenShellCapacityCollector('/', {
     podman: async () => '[]',

@@ -27,6 +27,7 @@ import {
 import { createLogger } from './logger.js';
 import {
   OpenShellRuntimeManager,
+  sandboxNameForConversation,
   type OpenShellAccountRoute,
   type OpenShellRuntime,
   type OpenShellRuntimeConfig,
@@ -214,7 +215,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const key = `${provider}:${sandbox.id ?? `${routeRecord.workspace}:${sandbox.name}`}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const record = sandbox.id
+        const candidate = sandbox.id
           ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
               (item) =>
@@ -222,6 +223,9 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
                 item.workspace === routeRecord.workspace &&
                 item.sandboxName === sandbox.name,
             );
+        const record = lifecycleInventoryOwnershipMatches(candidate, sandbox, provider)
+          ? candidate
+          : undefined;
         sandboxes.push(
           await lifecycleInventoryRow(
             record,
@@ -269,7 +273,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const key = `${provider}:${sandbox.id ?? `${inventoryConfigured.config.workspace}:${sandbox.name}`}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const record = sandbox.id
+        const candidate = sandbox.id
           ? byPhysicalId.get(`${provider}:${sandbox.id}`)
           : records.find(
               (item) =>
@@ -277,6 +281,9 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
                 item.workspace === inventoryConfigured!.config.workspace &&
                 item.sandboxName === sandbox.name,
             );
+        const record = lifecycleInventoryOwnershipMatches(candidate, sandbox, provider)
+          ? candidate
+          : undefined;
         sandboxes.push(
           await lifecycleInventoryRow(
             record,
@@ -314,6 +321,32 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     sandboxes,
     scopes,
   };
+}
+
+function lifecycleInventoryOwnershipMatches(
+  record: OpenShellLifecycleRecord | undefined,
+  sandbox: {
+    id?: string;
+    name: string;
+    workspace?: string;
+    labels?: Record<string, string>;
+  },
+  provider: string,
+) {
+  if (
+    !record ||
+    record.accountProvider !== provider ||
+    record.sandboxName !== sandbox.name ||
+    record.workspace !== sandbox.workspace
+  )
+    return false;
+  const conversationHash = createHash('sha256').update(record.conversationId).digest('hex');
+  const expectedOwner =
+    record.sandboxName ===
+    sandboxNameForConversation(record.conversationId, inventoryConfigured!.config.sandboxIdLength)
+      ? conversationHash.slice(0, 63)
+      : conversationHash;
+  return sandbox.labels?.['mitzo.conversation'] === expectedOwner;
 }
 
 async function lifecycleInventoryRow(

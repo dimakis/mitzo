@@ -165,6 +165,7 @@ export class OpenShellCapacityAdmission {
   // stop until a sample reaches the recovery threshold.
   private hard = true;
   private tail = Promise.resolve();
+  private provisioningFences = new Set<symbol>();
   constructor(
     private readonly collector: OpenShellCapacityCollector,
     private readonly policy: OpenShellCapacityPolicy,
@@ -207,9 +208,32 @@ export class OpenShellCapacityAdmission {
     let release!: () => void;
     let granted = false;
     const previous = this.tail;
-    this.tail = new Promise<void>((resolve) => (release = resolve));
-    await previous;
+    const turn = new Promise<void>((resolve) => (release = resolve));
+    // Keep the predecessor in the chain even if this waiter is cancelled;
+    // otherwise releasing its own gate could let a later caller bypass the
+    // reservation that is still active.
+    this.tail = previous.catch(() => undefined).then(() => turn);
     try {
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        else
+          previous.then(
+            () => {
+              signal.removeEventListener('abort', onAbort);
+              resolve();
+            },
+            (error) => {
+              signal.removeEventListener('abort', onAbort);
+              reject(error);
+            },
+          );
+      });
+      if (this.provisioningFences.size)
+        throw new OpenShellCapacityError(
+          'OpenShell provisioning state is unresolved; retry after inventory recovers',
+        );
       const status = await this.snapshot(signal, true);
       if (status.state === 'unavailable')
         throw new OpenShellCapacityError(
@@ -231,6 +255,11 @@ export class OpenShellCapacityAdmission {
     const release = await this.reserveNewSandbox(signal);
     release();
   }
+  fenceProvisioning(): () => void {
+    const fence = Symbol('openshell-provisioning');
+    this.provisioningFences.add(fence);
+    return () => this.provisioningFences.delete(fence);
+  }
 }
 
 let admission: OpenShellCapacityAdmission | undefined;
@@ -242,6 +271,9 @@ export function admitOpenShellSandboxCreate(signal: AbortSignal) {
 }
 export function reserveOpenShellSandboxCreate(signal: AbortSignal) {
   return admission?.reserveNewSandbox(signal) ?? Promise.resolve(undefined);
+}
+export function fenceOpenShellSandboxCreates() {
+  return admission?.fenceProvisioning() ?? (() => undefined);
 }
 export function openShellCapacityStatus(signal: AbortSignal) {
   return admission?.status(signal);
