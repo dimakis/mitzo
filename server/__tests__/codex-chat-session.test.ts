@@ -694,6 +694,40 @@ it('rejects managed OpenShell API profiles without an account provider binding',
   }
 });
 
+it('rejects a grantable account provider before opening a managed OpenShell chat', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  vi.stubEnv('MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS', 'google-workspace');
+  try {
+    await expect(
+      openCodexChat({
+        ...options(new AbortController()),
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'google-workspace',
+        },
+      }),
+    ).rejects.toThrow('account provider cannot also be grantable: google-workspace');
+    expect(mocks.initialize).not.toHaveBeenCalled();
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});
+
 it('preserves first launch and valid restore while failing closed for a replacement with no lifecycle state', async () => {
   vi.clearAllMocks();
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-openshell-chat-resume-'));

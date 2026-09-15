@@ -54,6 +54,22 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('rejects a grantable account provider before any runtime call', () => {
+    const run = vi.fn();
+    expect(
+      () =>
+        new OpenShellRuntimeManager(
+          {
+            ...config,
+            account: { kind: 'api', provider: 'github', model: 'test-model' },
+            grantableServiceProviders: ['github'],
+          },
+          run,
+        ),
+    ).toThrow('account provider cannot also be grantable: github');
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it('derives a stable non-revealing sandbox identity', () => {
     expect(sandboxNameForConversation('private-conversation-name')).toMatch(/^mitzo-[a-f0-9]{13}$/);
     expect(sandboxNameForConversation('private-conversation-name')).toHaveLength(19);

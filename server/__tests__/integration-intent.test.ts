@@ -82,6 +82,7 @@ describe('requestedIntegrationProviders', () => {
     'write Google Drive API documentation',
     'copy the Google Drive API docs into this repository',
     'do not access Gmail',
+    'don’t access Gmail',
     "don't search my email",
     'never search my email',
     'without accessing Google Drive',
@@ -90,6 +91,11 @@ describe('requestedIntegrationProviders', () => {
     'without directly accessing Google Drive',
     'avoid accessing Gmail',
     'refrain from using Google Drive',
+    'prevent access to Gmail',
+    'prevented access to Gmail',
+    'stop accessing Gmail',
+    'stopped accessing Gmail',
+    'you can’t access Gmail',
     'you must not access Gmail',
     'you should not access Gmail',
     'you cannot access Gmail',
@@ -136,6 +142,7 @@ describe('requestedIntegrationProviders', () => {
     'do not search the repo; then search Gmail for Cat',
     'search Gmail for Cat but do not open Google Drive',
     'do not open Drive, but search Gmail for Cat',
+    'stop discussing Gmail and search Gmail for Cat',
     "do not show any emails from Cat, but show what's on my calendar",
   ])('keeps affirmative access intent in a different clause for %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);

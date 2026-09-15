@@ -241,7 +241,7 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   const scopedLead = lead.slice(resetEnd);
   const scopedStart = leadStart + resetEnd;
   const negation =
-    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid|refrain\s+from)\b/gi;
+    /\b(?:do\s+not|must\s+not|should\s+not|don['’]t|can(?:not|['’]t)|never|without|avoid|refrain\s+from|prevent(?:ing|ed)?|stop(?:ping|ped)?)\b/gi;
   for (const match of scopedLead.matchAll(negation)) {
     const afterNegation = clause.slice(
       scopedStart + (match.index ?? 0) + match[0].length,

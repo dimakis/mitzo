@@ -319,6 +319,10 @@ export class OpenShellRuntimeManager {
     runSsh?: Run,
     private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
+    if (config.grantableServiceProviders.includes(config.account.provider))
+      throw new Error(
+        `OpenShell account provider cannot also be grantable: ${config.account.provider}`,
+      );
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
