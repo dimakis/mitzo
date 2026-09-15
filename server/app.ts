@@ -121,6 +121,13 @@ import { SessionSseRegistry } from './session-sse-registry.js';
 import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { WorkloadStore, type WorkSignal, type TodoItemUpdateInput } from './workload-store.js';
 import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
+import {
+  openShellLifecycleAudit,
+  openShellLifecycleInventory,
+  openShellLifecycleRecord,
+  recordOpenShellLifecycleAudit,
+} from './openshell-lifecycle-controller.js';
+import { openShellCapacityStatus } from './openshell-capacity.js';
 
 const log = createLogger('server');
 
@@ -671,42 +678,199 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.use('/api', authMiddleware);
 
+const lifecycleActor = (res: express.Response) =>
+  res.locals.authSession?.id && typeof res.locals.authSession.id === 'string'
+    ? `session:${res.locals.authSession.id}`
+    : 'internal';
+const operatorFailureCode = (code: string, error: unknown) => {
+  // Provider and CLI exception text is intentionally server-only: it can carry
+  // bearer tokens, grant IDs, response bodies, paths, or remote endpoints.
+  log.warn('OpenShell operator request failed', {
+    code,
+    errorType: error instanceof Error ? error.name : typeof error,
+  });
+  return code;
+};
+const safePreview = (preview: Awaited<ReturnType<OpenShellLifecycleService['preview']>>) => ({
+  token: preview.token,
+  expiresAt: preview.expiresAt,
+  action: preview.action,
+  blockers: preview.blockers,
+  target: {
+    conversationId: preview.record.conversationId,
+    physicalId: preview.record.physicalSandboxId,
+    sandboxName: preview.record.sandboxName,
+    generation: preview.record.generation,
+  },
+  checkpoint: preview.record.checkpoint
+    ? {
+        status: 'present',
+        digest: preview.record.checkpoint.digest,
+        version: preview.record.checkpoint.version,
+      }
+    : { status: 'absent' },
+  retentionConsent: preview.record.retentionConsent === true,
+});
+
+app.get('/api/openshell/inventory', async (_req, res) => {
+  try {
+    const inventory = await openShellLifecycleInventory(AbortSignal.timeout(30_000));
+    // Unavailable rows are evidence of an interrupted collection, not a healthy
+    // inventory result. A mixed result remains available+partial and returns 200.
+    res.status(inventory.available ? 200 : 503).json(inventory);
+  } catch (error) {
+    const code = operatorFailureCode('openshell_inventory_unavailable', error);
+    res.status(503).json({
+      available: false,
+      partial: false,
+      collectedAt: Date.now(),
+      sandboxes: [],
+      scopes: [
+        {
+          provider: 'configured',
+          workspace: 'unknown',
+          status: 'unavailable',
+          error: code,
+        },
+      ],
+    });
+  }
+});
+app.get('/api/openshell/capacity', async (_req, res) => {
+  try {
+    const status = await openShellCapacityStatus(AbortSignal.timeout(20_000));
+    if (!status) {
+      res.status(503).json({
+        available: false,
+        collectedAt: Date.now(),
+        state: 'unavailable',
+        podman: { available: false },
+        filesystem: { available: false },
+        error: 'OpenShell capacity is not configured',
+      });
+      return;
+    }
+    res
+      .status(status.filesystem.available ? 200 : 503)
+      .json({ available: status.filesystem.available, ...status });
+  } catch (error) {
+    res.status(503).json({
+      available: false,
+      collectedAt: Date.now(),
+      state: 'unavailable',
+      podman: { available: false },
+      filesystem: { available: false },
+      error: operatorFailureCode('openshell_capacity_unavailable', error),
+    });
+  }
+});
+app.get('/api/openshell/lifecycle/audit', (_req, res) => {
+  res.json({ entries: openShellLifecycleAudit() });
+});
+
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: req.params.conversationId,
+      sandboxId: null,
+      generation: null,
+      action: 'preview',
+      outcome: 'failed',
+      error: 'openshell_lifecycle_service_unavailable',
+    });
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
   }
   try {
-    res.json(
-      await openShellLifecycleService.preview(
-        req.params.conversationId,
-        AbortSignal.timeout(120_000),
-      ),
+    const preview = await openShellLifecycleService.preview(
+      req.params.conversationId,
+      AbortSignal.timeout(120_000),
     );
-  } catch (error) {
-    res.status(409).json({
-      error: error instanceof Error ? error.message : 'OpenShell lifecycle preview failed',
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: preview.record.conversationId,
+      sandboxId: preview.record.physicalSandboxId,
+      generation: preview.record.generation,
+      action: 'preview',
+      outcome: preview.action === 'none' ? 'blocked' : 'allowed',
+      error: preview.blockers.length ? preview.blockers.join(',') : null,
     });
+    res.json(safePreview(preview));
+  } catch (error) {
+    const code = operatorFailureCode('openshell_lifecycle_preview_failed', error);
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: req.params.conversationId,
+      sandboxId: null,
+      generation: null,
+      action: 'preview',
+      outcome: 'failed',
+      error: code,
+    });
+    res.status(409).json({ error: code });
   }
 });
 app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req, res) => {
   if (!openShellLifecycleService) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: 'unknown',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'openshell_lifecycle_service_unavailable',
+    });
     res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
     return;
   }
   const token = req.body?.token;
   if (typeof token !== 'string' || !token) {
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: 'unknown',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'Lifecycle preview token is required',
+    });
     res.status(400).json({ error: 'Lifecycle preview token is required' });
     return;
   }
+  const target = openShellLifecycleService.auditTarget(token);
   try {
-    res.json({
-      action: await openShellLifecycleService.confirm(token, AbortSignal.timeout(120_000)),
+    const action = await openShellLifecycleService.confirm(token, AbortSignal.timeout(120_000));
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: target?.conversationId ?? 'unknown',
+      sandboxId: target?.sandboxId ?? null,
+      generation: target?.generation ?? null,
+      action: 'confirm',
+      outcome: 'confirmed',
+      error: null,
     });
+    res.json({ action });
   } catch (error) {
-    res.status(409).json({
-      error: error instanceof Error ? error.message : 'OpenShell lifecycle confirmation failed',
+    const code = operatorFailureCode('openshell_lifecycle_confirmation_failed', error);
+    recordOpenShellLifecycleAudit({
+      at: Date.now(),
+      actor: lifecycleActor(res),
+      conversationId: target?.conversationId ?? 'unknown',
+      sandboxId: target?.sandboxId ?? null,
+      generation: target?.generation ?? null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: code,
     });
+    res.status(409).json({ error: code });
   }
 });
 app.post(
@@ -714,25 +878,77 @@ app.post(
   operatorAuthMiddleware,
   async (req, res) => {
     if (!openShellLifecycleService) {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId:
+          typeof req.params.conversationId === 'string' ? req.params.conversationId : 'unknown',
+        sandboxId: null,
+        generation: null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'openshell_lifecycle_service_unavailable',
+      });
       res.status(503).json({ error: 'OpenShell lifecycle service is unavailable' });
-      return;
-    }
-    if (typeof req.body?.enabled !== 'boolean') {
-      res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
       return;
     }
     const conversationId = req.params.conversationId;
     if (typeof conversationId !== 'string') {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId: 'unknown',
+        sandboxId: null,
+        generation: null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'Lifecycle conversation ID is required',
+      });
       res.status(400).json({ error: 'Lifecycle conversation ID is required' });
+      return;
+    }
+    const before = openShellLifecycleRecord(conversationId);
+    if (typeof req.body?.enabled !== 'boolean') {
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId,
+        sandboxId: before?.physicalSandboxId ?? null,
+        generation: before?.generation ?? null,
+        action: 'consent',
+        outcome: 'failed',
+        error: 'Retention consent enabled must be a boolean',
+      });
+      res.status(400).json({ error: 'Retention consent enabled must be a boolean' });
       return;
     }
     try {
       await openShellLifecycleService.setRetentionConsent(conversationId, req.body.enabled);
+      const after = openShellLifecycleRecord(conversationId) ?? before;
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId,
+        sandboxId: after?.physicalSandboxId ?? null,
+        generation: after?.generation ?? null,
+        action: 'consent',
+        outcome: 'confirmed',
+        error: null,
+      });
       res.json({ enabled: req.body.enabled });
     } catch (error) {
-      res
-        .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Retention consent failed' });
+      const code = operatorFailureCode('openshell_retention_consent_failed', error);
+      recordOpenShellLifecycleAudit({
+        at: Date.now(),
+        actor: lifecycleActor(res),
+        conversationId,
+        sandboxId: before?.physicalSandboxId ?? null,
+        generation: before?.generation ?? null,
+        action: 'consent',
+        outcome: 'failed',
+        error: code,
+      });
+      res.status(409).json({ error: code });
     }
   },
 );

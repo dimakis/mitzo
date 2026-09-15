@@ -66,6 +66,17 @@ export interface OpenShellLifecycleIdentity {
         model: string;
       };
 }
+export interface OpenShellLifecycleAuditEntry {
+  id: number;
+  at: number;
+  actor: string;
+  conversationId: string;
+  sandboxId: string | null;
+  generation: number | null;
+  action: 'preview' | 'confirm' | 'consent';
+  outcome: 'allowed' | 'blocked' | 'confirmed' | 'failed';
+  error: string | null;
+}
 
 export interface OpenShellLifecyclePolicy {
   idleMs: number;
@@ -79,6 +90,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const MINUTE = 60 * 1000;
 const MAX_RETENTION_DAYS = Math.floor(Number.MAX_SAFE_INTEGER / DAY);
+const MAX_AUDIT_ENTRIES = 500;
 function positiveInteger(value: string | undefined, fallback: number, label: string, minimum = 1) {
   if (value === undefined || value === '') return fallback;
   const parsed = Number(value);
@@ -196,6 +208,11 @@ export class OpenShellLifecycleStore {
       generation INTEGER NOT NULL, last_activity_at REAL, idle_since REAL, stopped_at REAL,
       checkpoint TEXT, failure TEXT, stopped_resource_version TEXT, identity TEXT, retention_consent INTEGER NOT NULL DEFAULT 0
     )`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS openshell_lifecycle_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, actor TEXT NOT NULL,
+      conversation_id TEXT NOT NULL, sandbox_id TEXT, generation INTEGER, action TEXT NOT NULL,
+      outcome TEXT NOT NULL, error TEXT
+    )`);
     const columns = this.db
       .prepare("SELECT name FROM pragma_table_info('openshell_lifecycle')")
       .all() as Array<{ name: string }>;
@@ -223,6 +240,29 @@ export class OpenShellLifecycleStore {
   }
   list(): OpenShellLifecycleRecord[] {
     return (this.db.prepare('SELECT * FROM openshell_lifecycle').all() as Row[]).map(fromRow);
+  }
+  appendAudit(entry: Omit<OpenShellLifecycleAuditEntry, 'id'>) {
+    // Keep the durable audit itself bounded, atomically with the append. The
+    // read limit below is a defense in depth measure, not the retention policy.
+    this.db.transaction(() => {
+      this.db
+        .prepare(
+          'INSERT INTO openshell_lifecycle_audit (at,actor,conversation_id,sandbox_id,generation,action,outcome,error) VALUES (@at,@actor,@conversationId,@sandboxId,@generation,@action,@outcome,@error)',
+        )
+        .run(entry);
+      this.db
+        .prepare(
+          'DELETE FROM openshell_lifecycle_audit WHERE id NOT IN (SELECT id FROM openshell_lifecycle_audit ORDER BY id DESC LIMIT ?)',
+        )
+        .run(MAX_AUDIT_ENTRIES);
+    })();
+  }
+  listAudit(limit = 200): OpenShellLifecycleAuditEntry[] {
+    return this.db
+      .prepare(
+        'SELECT id,at,actor,conversation_id AS conversationId,sandbox_id AS sandboxId,generation,action,outcome,error FROM openshell_lifecycle_audit ORDER BY id DESC LIMIT ?',
+      )
+      .all(Math.max(1, Math.min(limit, MAX_AUDIT_ENTRIES))) as OpenShellLifecycleAuditEntry[];
   }
   upsert(record: OpenShellLifecycleRecord) {
     const existing = this.get(record.conversationId);

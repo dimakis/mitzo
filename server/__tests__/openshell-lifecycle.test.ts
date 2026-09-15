@@ -138,6 +138,58 @@ it('persists records across restart and uses a generation CAS for mutations', ()
   reopened.close();
 });
 
+it('keeps a durable append-only operator action audit without changing lifecycle state', () => {
+  const store = setup();
+  store.upsert(record());
+  store.appendAudit({
+    at: 123,
+    actor: 'session:operator',
+    conversationId: 'conversation',
+    sandboxId: 'physical-1',
+    generation: 1,
+    action: 'preview',
+    outcome: 'blocked',
+    error: 'inventory_unavailable',
+  });
+  store.appendAudit({
+    at: 124,
+    actor: 'session:operator',
+    conversationId: 'conversation',
+    sandboxId: 'physical-1',
+    generation: 1,
+    action: 'consent',
+    outcome: 'confirmed',
+    error: null,
+  });
+  expect(store.listAudit()).toMatchObject([
+    { at: 124, action: 'consent', outcome: 'confirmed' },
+    { at: 123, action: 'preview', outcome: 'blocked', error: 'inventory_unavailable' },
+  ]);
+  expect(store.get('conversation')).toMatchObject({ generation: 1, phase: 'stopped' });
+  store.close();
+});
+
+it('bounds durable audit storage while retaining the newest operator actions', () => {
+  const store = setup();
+  for (let at = 0; at <= 500; at++) {
+    store.appendAudit({
+      at,
+      actor: 'session:operator',
+      conversationId: 'conversation',
+      sandboxId: null,
+      generation: null,
+      action: 'confirm',
+      outcome: 'failed',
+      error: 'invalid token',
+    });
+  }
+  const entries = store.listAudit(500);
+  expect(entries).toHaveLength(500);
+  expect(entries[0]).toMatchObject({ at: 500 });
+  expect(entries.at(-1)).toMatchObject({ at: 1 });
+  store.close();
+});
+
 it('does not lose explicit failure state during startup reconciliation', () => {
   const store = setup();
   store.upsert(record({ phase: 'deleting' }));

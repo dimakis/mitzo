@@ -7,6 +7,10 @@ import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import {
+  fenceOpenShellSandboxCreates,
+  reserveOpenShellSandboxCreate,
+} from './openshell-capacity.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -198,6 +202,24 @@ function identifier(value: string, label: string) {
   return value;
 }
 
+function raceWithAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntimeConfig | undefined {
   if (env.MITZO_OPENSHELL_ENABLED !== '1') return undefined;
   if (env.MITZO_OPENSHELL_PROVIDERS)
@@ -370,7 +392,7 @@ export class OpenShellRuntimeManager {
   }
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
-  async inventory(signal: AbortSignal) {
+  private async managedInventory(signal: AbortSignal) {
     const sandboxes: z.infer<typeof Sandbox>[] = [];
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
@@ -398,8 +420,19 @@ export class OpenShellRuntimeManager {
     return sandboxes.filter(
       (sandbox) =>
         sandbox.labels?.['mitzo.conversation'] &&
-        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
         (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+    );
+  }
+
+  /** Workspace-wide managed inventory preserves provider labels so operators
+   * can discover orphaned sandboxes after an account profile is removed. */
+  inventoryAll(signal: AbortSignal) {
+    return this.managedInventory(signal);
+  }
+
+  async inventory(signal: AbortSignal) {
+    return (await this.managedInventory(signal)).filter(
+      (sandbox) => sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider,
     );
   }
 
@@ -599,6 +632,57 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
+  /** Capacity admission must outlive the request that initiated a detached
+   * create. Keep observing without the caller's abort/timeout until physical
+   * provisioning reaches a terminal state. */
+  private async waitForProvisioningTerminal(
+    name: string,
+    owner: string,
+    deadline = Date.now() + this.readiness.timeoutMs,
+  ) {
+    const signal = new AbortController().signal;
+    let observed = false;
+    let absentObservations = 0;
+    for (;;) {
+      try {
+        const sandbox = await this.get(name, signal);
+        if (!sandbox) {
+          absentObservations++;
+          // A settled create that remains absent for the full readiness window
+          // is treated as definitively not provisioned. Once observed, absence
+          // also means the allocation was removed.
+          if (observed) return;
+        } else {
+          observed = true;
+          if (
+            sandbox.labels?.['mitzo.conversation'] !== owner ||
+            sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
+            ['Ready', 'Stopped', 'Error', 'Deleting'].includes(sandbox.phase)
+          )
+            return;
+        }
+      } catch {
+        // A transient inventory failure is not evidence that detached
+        // provisioning stopped consuming capacity. Continue fail-closed.
+      }
+      if (Date.now() >= deadline) {
+        // Repeated successful inventory reads proving absence are an
+        // authoritative terminal result for a rejected/failed create.
+        if (!observed && absentObservations >= 2) return;
+        // Release the queue slot after a bounded wait, but replace it with an
+        // explicit fail-closed fence. A lightweight observer clears that fence
+        // only after physical provisioning becomes terminal or disappears.
+        const clearFence = fenceOpenShellSandboxCreates();
+        void this.waitForProvisioningTerminal(name, owner, Number.POSITIVE_INFINITY).then(
+          clearFence,
+          clearFence,
+        );
+        return;
+      }
+      await this.delay(signal);
+    }
+  }
+
   private async verifyManagedConnections(name: string, signal: AbortSignal) {
     await this.config.verifyConnections?.(name, signal);
     if (this.config.enforceConnectionAttachments) {
@@ -672,6 +756,15 @@ export class OpenShellRuntimeManager {
     if (sandbox) await this.verifyManagedConnections(name, signal);
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {
+      // This is intentionally immediately before the only physical-create command.
+      // Reattach/start paths above stay available during a capacity hard stop.
+      const capacityReservation = await reserveOpenShellSandboxCreate(signal);
+      let released = false;
+      const releaseCapacity = () => {
+        if (released) return;
+        released = true;
+        capacityReservation?.();
+      };
       created = true;
       const args = [
         'sandbox',
@@ -714,13 +807,53 @@ export class OpenShellRuntimeManager {
         );
       }
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
+      const guardedDetached = Boolean(capacityReservation && this.config.createDetached);
+      let releaseInBackground = false;
+      const releaseAfterTerminal = () => {
+        releaseInBackground = true;
+        const terminal = this.waitForProvisioningTerminal(name, owner);
+        void terminal.then(releaseCapacity, releaseCapacity);
+      };
       try {
-        await this.run(args, signal);
-      } catch (error) {
-        if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+        const create = async (createSignal: AbortSignal) => {
+          try {
+            await this.run(args, createSignal);
+          } catch (error) {
+            if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+              throw error;
+          }
+        };
+        if (guardedDetached) {
+          const createOperation = create(new AbortController().signal);
+          try {
+            await raceWithAbort(createOperation, signal);
+          } catch (error) {
+            releaseInBackground = true;
+            // Even an error response is ambiguous: the gateway may have
+            // accepted the detached create. Begin observation after the CLI
+            // settles while returning caller cancellation immediately.
+            void createOperation
+              .then(
+                () => this.waitForProvisioningTerminal(name, owner),
+                () => this.waitForProvisioningTerminal(name, owner),
+              )
+              .then(releaseCapacity, releaseCapacity);
+            throw error;
+          }
+        } else {
+          await create(signal);
+        }
+        // Detached create can keep allocating storage after the CLI returns.
+        // Hold the global reservation until provisioning reaches a stable state.
+        try {
+          sandbox = await this.waitForReady(name, owner, signal);
+        } catch (error) {
+          if (guardedDetached) releaseAfterTerminal();
           throw error;
+        }
+      } finally {
+        if (!releaseInBackground) releaseCapacity();
       }
-      sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
       sandbox = await this.waitForReady(name, owner, signal);

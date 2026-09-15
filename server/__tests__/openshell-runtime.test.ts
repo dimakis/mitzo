@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,15 +9,23 @@ import {
   openShellRuntimeConfig,
   sandboxNameForConversation,
 } from '../openshell-runtime.js';
+import {
+  OpenShellCapacityAdmission,
+  OpenShellCapacityCollector,
+  configureOpenShellCapacityAdmission,
+  openShellCapacityPolicy,
+} from '../openshell-capacity.js';
 
 let privateRoot: string;
 beforeEach(() => {
   privateRoot = mkdtempSync(join(tmpdir(), 'mitzo-provider-policy-'));
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+  configureOpenShellCapacityAdmission(undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(privateRoot, { recursive: true, force: true });
+  configureOpenShellCapacityAdmission(undefined);
 });
 
 const config = {
@@ -82,6 +91,422 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).not.toContain('--inference-provider');
     expect(create).not.toContain('--inference-model');
     expect(create).not.toContain('auto-providers');
+  });
+
+  it('checks capacity only immediately before a new physical sandbox create', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 99 1 99% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const missing = vi.fn().mockRejectedValue(new Error('sandbox not found'));
+    await expect(
+      new OpenShellRuntimeManager(config, missing).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('hard stop');
+    expect(missing.mock.calls.flat().flat()).not.toContain('create');
+
+    const retained = vi.fn().mockResolvedValue(ready());
+    await expect(
+      new OpenShellRuntimeManager(config, retained).ensure(
+        'conversation',
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ sandboxName: expect.any(String) });
+    expect(retained.mock.calls.flat().flat()).not.toContain('create');
+  });
+
+  it('keeps capacity admission reserved until each physical create becomes Ready', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const readyFor = (conversation: string) =>
+      JSON.stringify({
+        name: 'sandbox',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': createHash('sha256')
+            .update(conversation)
+            .digest('hex')
+            .slice(0, 63),
+          'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-github',
+        },
+      });
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const createFirst = vi.fn();
+    const createSecond = vi.fn();
+    const runner = (
+      conversation: string,
+      created: () => void,
+      waitForRelease: () => Promise<void>,
+    ) => {
+      let gets = 0;
+      return async (args: readonly string[], _signal: AbortSignal) => {
+        if (args.includes('get')) {
+          gets++;
+          if (gets <= 2) throw new Error('sandbox not found');
+          return readyFor(conversation);
+        }
+        if (args.includes('create')) {
+          created();
+          await waitForRelease();
+        }
+        return '{}';
+      };
+    };
+    const firstRun = runner(
+      'first-conversation',
+      createFirst,
+      () => new Promise<void>((resolve) => (releaseFirst = resolve)),
+    );
+    const secondRun = runner(
+      'second-conversation',
+      createSecond,
+      () => new Promise<void>((resolve) => (releaseSecond = resolve)),
+    );
+    const first = new OpenShellRuntimeManager(config, firstRun).ensure(
+      'first-conversation',
+      new AbortController().signal,
+    );
+    await vi.waitFor(() => expect(createFirst).toHaveBeenCalledOnce());
+    const second = new OpenShellRuntimeManager(config, secondRun).ensure(
+      'second-conversation',
+      new AbortController().signal,
+    );
+    await Promise.resolve();
+    expect(createSecond).not.toHaveBeenCalled();
+    releaseFirst();
+    await vi.waitFor(() => expect(createSecond).toHaveBeenCalledOnce());
+    releaseSecond();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
+  it('keeps detached capacity reserved after caller cancellation until provisioning is terminal', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    const response = (conversation: string, phase: 'Creating' | 'Ready') =>
+      JSON.stringify({
+        name: 'sandbox',
+        phase,
+        labels: {
+          'mitzo.conversation': createHash('sha256')
+            .update(conversation)
+            .digest('hex')
+            .slice(0, 63),
+          'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-github',
+        },
+      });
+    let firstCreated = false;
+    let firstReady = false;
+    const firstCreate = vi.fn();
+    const firstRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!firstCreated) throw new Error('sandbox not found');
+        return response('first-cancelled', firstReady ? 'Ready' : 'Creating');
+      }
+      if (args.includes('create')) {
+        firstCreated = true;
+        firstCreate();
+      }
+      return '{}';
+    });
+    let secondCreated = false;
+    const secondCreate = vi.fn();
+    const secondRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!secondCreated) throw new Error('sandbox not found');
+        return response('second-waiting', 'Ready');
+      }
+      if (args.includes('create')) {
+        secondCreated = true;
+        secondCreate();
+      }
+      return '{}';
+    });
+
+    const cancelled = new AbortController();
+    const first = new OpenShellRuntimeManager(config, firstRun, {
+      pollIntervalMs: 1,
+      timeoutMs: 100,
+    }).ensure('first-cancelled', cancelled.signal);
+    await vi.waitFor(() => expect(firstCreate).toHaveBeenCalledOnce());
+    cancelled.abort();
+    await expect(first).rejects.toThrow(/abort/i);
+
+    const second = new OpenShellRuntimeManager(config, secondRun, {
+      pollIntervalMs: 1,
+      timeoutMs: 100,
+    }).ensure('second-waiting', new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(secondCreate).not.toHaveBeenCalled();
+
+    firstReady = true;
+    await vi.waitFor(() => expect(secondCreate).toHaveBeenCalledOnce());
+    await expect(second).resolves.toMatchObject({ sandboxName: expect.any(String) });
+  });
+
+  it('uses the caller signal for creates without detached capacity admission', async () => {
+    let createSignal: AbortSignal | undefined;
+    const createStarted = vi.fn();
+    const run = vi.fn((args: readonly string[], signal: AbortSignal) => {
+      if (args.includes('get')) return Promise.reject(new Error('sandbox not found'));
+      if (args.includes('create')) {
+        createSignal = signal;
+        createStarted();
+        return new Promise<string>((_resolve, reject) =>
+          signal.addEventListener('abort', () => reject(new Error('create aborted')), {
+            once: true,
+          }),
+        );
+      }
+      return Promise.resolve('{}');
+    });
+    const controller = new AbortController();
+    const pending = new OpenShellRuntimeManager(config, run).ensure(
+      'uncapacitated-create',
+      controller.signal,
+    );
+    await vi.waitFor(() => expect(createStarted).toHaveBeenCalledOnce());
+    expect(createSignal).toBe(controller.signal);
+    controller.abort();
+    await expect(pending).rejects.toThrow('create aborted');
+  });
+
+  it('keeps ambiguous detached create errors reserved until physical provisioning is terminal', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    let attempted = false;
+    let terminal = false;
+    const firstRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!attempted) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: 'sandbox',
+          phase: terminal ? 'Ready' : 'Creating',
+          labels: {
+            'mitzo.conversation': createHash('sha256')
+              .update('ambiguous-create')
+              .digest('hex')
+              .slice(0, 63),
+            'mitzo.account_provider': 'openai-work',
+          },
+        });
+      }
+      if (args.includes('create')) {
+        attempted = true;
+        throw new Error('gateway response lost');
+      }
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, firstRun, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('ambiguous-create', new AbortController().signal),
+    ).rejects.toThrow('gateway response lost');
+
+    let secondCreated = false;
+    const secondCreate = vi.fn();
+    const secondRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!secondCreated) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': createHash('sha256')
+              .update('after-ambiguous')
+              .digest('hex')
+              .slice(0, 63),
+            'mitzo.account_provider': 'openai-work',
+          },
+        });
+      }
+      if (args.includes('create')) {
+        secondCreated = true;
+        secondCreate();
+      }
+      return '{}';
+    });
+    const second = new OpenShellRuntimeManager(config, secondRun, {
+      pollIntervalMs: 1,
+      timeoutMs: 100,
+    }).ensure('after-ambiguous', new AbortController().signal);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(secondCreate).not.toHaveBeenCalled();
+    terminal = true;
+    await vi.waitFor(() => expect(secondCreate).toHaveBeenCalledOnce());
+    await expect(second).resolves.toMatchObject({ sandboxName: expect.any(String) });
+  });
+
+  it('releases a failed detached create after repeated successful absence checks', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    let attempted = false;
+    const failed = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) throw new Error('sandbox not found');
+      if (args.includes('create')) {
+        attempted = true;
+        throw new Error('invalid sandbox policy');
+      }
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, failed, {
+        pollIntervalMs: 1,
+        timeoutMs: 5,
+      }).ensure('failed-create', new AbortController().signal),
+    ).rejects.toThrow('invalid sandbox policy');
+    expect(attempted).toBe(true);
+
+    let created = false;
+    const next = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': createHash('sha256')
+              .update('after-failed-create')
+              .digest('hex')
+              .slice(0, 63),
+            'mitzo.account_provider': 'openai-work',
+          },
+        });
+      }
+      if (args.includes('create')) created = true;
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, next, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('after-failed-create', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxName: expect.any(String) });
+  });
+
+  it('bounds the reservation when a successful detached create remains uninspectable', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    let createIssued = false;
+    let inventoryRecovered = false;
+    const invisible = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (createIssued && inventoryRecovered)
+          return JSON.stringify({
+            name: 'sandbox',
+            phase: 'Ready',
+            labels: {
+              'mitzo.conversation': createHash('sha256')
+                .update('never-visible')
+                .digest('hex')
+                .slice(0, 63),
+              'mitzo.account_provider': 'openai-work',
+            },
+          });
+        if (createIssued) throw new Error('gateway inventory unavailable');
+        throw new Error('sandbox not found');
+      }
+      if (args.includes('create')) createIssued = true;
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, invisible, {
+        pollIntervalMs: 1,
+        timeoutMs: 5,
+      }).ensure('never-visible', new AbortController().signal),
+    ).rejects.toThrow('gateway inventory unavailable');
+
+    let created = false;
+    const nextCreate = vi.fn();
+    const next = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': createHash('sha256')
+              .update('after-invisible')
+              .digest('hex')
+              .slice(0, 63),
+            'mitzo.account_provider': 'openai-work',
+          },
+        });
+      }
+      if (args.includes('create')) {
+        created = true;
+        nextCreate();
+      }
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, next, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('while-uninspectable', new AbortController().signal),
+    ).rejects.toThrow('provisioning state is unresolved');
+    expect(nextCreate).not.toHaveBeenCalled();
+
+    inventoryRecovered = true;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await expect(
+      new OpenShellRuntimeManager(config, next, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('after-invisible', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxName: expect.any(String) });
+    expect(nextCreate).toHaveBeenCalledOnce();
   });
 
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {

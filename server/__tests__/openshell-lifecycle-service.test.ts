@@ -117,6 +117,16 @@ it('allows a manual stop without granting retention consent', async () => {
   expect(preview.action).toBe('stop');
   await expect(service.confirm(preview.token, AbortSignal.timeout(100))).resolves.toBe('stopped');
 });
+it('fails closed for an unsupported lifecycle provider before preview can mint an action token', async () => {
+  const { service, adapters } = setup('retained');
+  Object.assign(adapters, { lifecycleSupported: () => false });
+  const preview = await service.preview('c', AbortSignal.timeout(100));
+  expect(preview.action).toBe('none');
+  expect(preview.blockers).toContain('unsupported_provider');
+  expect(adapters.checkpoint).not.toHaveBeenCalled();
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
 it('rechecks consent before a manual deletion', async () => {
   const { service, adapters } = setup();
   const preview = await service.preview('c', AbortSignal.timeout(100));

@@ -79,9 +79,17 @@ import {
 import { createConnectionsRuntime } from './connections-runtime.js';
 import { readCodexLifecycleQueue } from './codex-chat-session.js';
 import {
+  configureOpenShellLifecycleInventory,
   initializeOpenShellLifecycle,
   openShellLifecyclePhaseCounts,
 } from './openshell-lifecycle-controller.js';
+import {
+  OpenShellCapacityAdmission,
+  OpenShellCapacityCollector,
+  openShellCapacityEnabled,
+  configureOpenShellCapacityAdmission,
+  openShellCapacityPolicy,
+} from './openshell-capacity.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { openShellLifecycleEnabled } from './openshell-lifecycle.js';
 import {
@@ -179,6 +187,14 @@ setConnectionRegistry(connRegistry);
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
 const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
+configureOpenShellCapacityAdmission(
+  configuredOpenShellRuntime && openShellCapacityEnabled(process.env)
+    ? new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector(process.env.MITZO_OPENSHELL_CAPACITY_PATH!.trim()),
+        openShellCapacityPolicy(process.env),
+      )
+    : undefined,
+);
 const lifecycleObservability = lifecycleEnabled
   ? new OpenShellLifecycleObservability({
       ...openShellLifecycleObservabilityThresholds(process.env),
@@ -188,7 +204,7 @@ const lifecycleObservability = lifecycleEnabled
       },
     })
   : undefined;
-const openShellLifecycle = initializeOpenShellLifecycle(configuredOpenShellRuntime, {
+const openShellProtectionSources = {
   registry,
   eventStore,
   taskStore,
@@ -204,7 +220,15 @@ const openShellLifecycle = initializeOpenShellLifecycle(configuredOpenShellRunti
   },
   accountProviders: () => loadAccountProfiles().openShellSandboxProviders(),
   onOutcome: (action) => lifecycleObservability?.recordOutcome(action),
-});
+} satisfies Parameters<typeof initializeOpenShellLifecycle>[1];
+const openShellInventory = configureOpenShellLifecycleInventory(
+  configuredOpenShellRuntime,
+  openShellProtectionSources,
+);
+const openShellLifecycle = initializeOpenShellLifecycle(
+  configuredOpenShellRuntime,
+  openShellProtectionSources,
+);
 setOpenShellLifecycleService(openShellLifecycle?.service ?? null);
 const lifecycleAbort = new AbortController();
 let lifecycleReconciling = false;
@@ -1213,7 +1237,7 @@ async function shutdown(signal: string) {
   server.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
-  openShellLifecycle?.store.close();
+  openShellInventory?.store.close();
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();

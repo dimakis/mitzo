@@ -342,7 +342,25 @@ describe('OpenShell lifecycle destructive authorization', () => {
 
   function lifecycleService() {
     return {
-      preview: vi.fn().mockResolvedValue({ action: 'stop' }),
+      preview: vi.fn().mockResolvedValue({
+        token: 'preview-token',
+        expiresAt: Date.now() + 60_000,
+        action: 'stop',
+        blockers: [],
+        record: {
+          conversationId: 'conversation',
+          physicalSandboxId: 'physical-id',
+          sandboxName: 'sandbox',
+          generation: 1,
+          checkpoint: null,
+          retentionConsent: false,
+        },
+      }),
+      auditTarget: vi.fn().mockReturnValue({
+        conversationId: 'conversation',
+        sandboxId: 'physical-id',
+        generation: 1,
+      }),
       confirm: vi.fn().mockResolvedValue('stopped'),
       setRetentionConsent: vi.fn().mockResolvedValue(undefined),
     } as unknown as import('../openshell-lifecycle-service.js').OpenShellLifecycleService;
@@ -399,6 +417,22 @@ describe('OpenShell lifecycle destructive authorization', () => {
       .send({ enabled: true });
     expect(consent.status).toBe(200);
     expect(lifecycle.setRetentionConsent).toHaveBeenCalledWith('conversation', true);
+  });
+
+  it('never returns raw lifecycle provider diagnostics to an operator', async () => {
+    const lifecycle = lifecycleService();
+    vi.mocked(lifecycle.preview).mockRejectedValue(
+      new Error('Bearer secret-token grant-123 https://provider.invalid/raw-response'),
+    );
+    setOpenShellLifecycleService(lifecycle);
+
+    const response = await request(app)
+      .get('/api/openshell/lifecycle/conversation/preview')
+      .set('Cookie', authCookie);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'openshell_lifecycle_preview_failed' });
+    expect(JSON.stringify(response.body)).not.toMatch(/secret-token|grant-123|provider\.invalid/);
   });
 });
 

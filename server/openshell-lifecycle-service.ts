@@ -20,6 +20,7 @@ export type LifecycleBlocker =
   | 'unknown_activity'
   | 'dirty_or_uncheckpointed'
   | 'checkpoint_unavailable'
+  | 'unsupported_provider'
   | 'transitional_sandbox'
   | 'inventory_unavailable';
 export interface LifecycleProtection {
@@ -59,6 +60,8 @@ export interface LifecycleAdapters {
   now?(): number;
   /** Explicit persisted operator consent. It is never inferred from an env var. */
   consent?(record: OpenShellLifecycleRecord): boolean;
+  /** False disables lifecycle mutation even if a generic runtime route exists. */
+  lifecycleSupported?(record: OpenShellLifecycleRecord): boolean;
   /** Called when an isolated reconciliation failure leaves a record fenced. */
   onReconcileError?(record: OpenShellLifecycleRecord, error: unknown): void;
   /** Called only after a stop or deletion has been durably recorded. */
@@ -72,7 +75,7 @@ export interface LifecyclePreview {
   blockers: LifecycleBlocker[];
 }
 
-function blockersFor(
+export function openShellLifecyclePreservationBlockers(
   record: OpenShellLifecycleRecord,
   sandbox: LifecycleSandbox | undefined,
   protection: LifecycleProtection,
@@ -162,7 +165,9 @@ export class OpenShellLifecycleService {
   private async state(record: OpenShellLifecycleRecord, signal: AbortSignal) {
     const sandbox = await this.adapters.inspect(record, signal);
     const protection = await this.adapters.protect(record, signal);
-    return { sandbox, blockers: blockersFor(record, sandbox, protection) };
+    const blockers = openShellLifecyclePreservationBlockers(record, sandbox, protection);
+    if (this.adapters.lifecycleSupported?.(record) === false) blockers.push('unsupported_provider');
+    return { sandbox, blockers: [...new Set(blockers)] };
   }
   async preview(conversationId: string, signal: AbortSignal): Promise<LifecyclePreview> {
     this.prunePreviews();
@@ -189,6 +194,17 @@ export class OpenShellLifecycleService {
         used: false,
       });
     return { token, expiresAt, record, action, blockers };
+  }
+  /** Only for audit attribution; it reveals no capability beyond a token the
+   * caller already holds and does not consume or validate the preview. */
+  auditTarget(token: string) {
+    const preview = this.previews.get(token);
+    if (!preview) return undefined;
+    return {
+      conversationId: preview.conversationId,
+      sandboxId: preview.sandboxId,
+      generation: preview.generation,
+    };
   }
   async confirm(token: string, signal: AbortSignal) {
     const preview = this.previews.get(token);
