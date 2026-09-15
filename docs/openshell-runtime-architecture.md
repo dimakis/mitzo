@@ -65,10 +65,12 @@ the forward/backlink inverse before accepting the overlay.
 
 The host-side baseline records both the seed content commit (`startingCommit`) and
 the runtime-base commit whose executable dependency set it uses, plus hashes and
-normalized modes for the exact non-`.git` seed payload. Production preflight checks that exact path set,
-rejects payload symlinks, and requires all four manifest provenance markers to
-match `startingCommit` before it accepts a dynamic baseline. The portable local
-Git metadata is intentionally excluded because it is not seed content.
+normalized modes for the exact seed payload, including the freshly created
+portable `.git` repository that OpenShell uploads with the workspace. Production
+preflight checks that exact path set, rejects payload symlinks, and requires all
+four manifest provenance markers to match `startingCommit` before it accepts a
+dynamic baseline. This binds the portable Git metadata too, so a local hook,
+configuration, or object change cannot be smuggled into a future sandbox.
 The production lock and runtime image labels must continue to match that runtime
 base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
 without rebuilding the immutable runtime image; dependency changes still require a

@@ -149,8 +149,6 @@ function validateSeedContents(seedBaseline, seedPath) {
       typeof path === 'string' &&
         path.length > 0 &&
         !path.startsWith('/') &&
-        !path.startsWith('.git/') &&
-        path !== '.git' &&
         !path.split('/').includes('..') &&
         resolve(root, path).startsWith(`${root}${sep}`),
       'prepared seed file manifest contains an unsafe path',
@@ -170,9 +168,6 @@ function validateSeedContents(seedBaseline, seedPath) {
   const actual = new Map();
   const walk = (directory, prefix = '') => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      // The builder creates a portable local Git repository for sandbox
-      // ergonomics. It is deliberately outside the immutable seed payload.
-      if (!prefix && entry.name === '.git') continue;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name;
       const absolutePath = resolve(directory, entry.name);
       const stat = lstatSync(absolutePath);

@@ -111,9 +111,10 @@ baseline="$build_root/baseline.json"
 mkdir -p "$workspace"
 
 # Mirror Dockerfile.mgmt-runtime exactly: each historical pyproject.toml and
-# uv.lock pair is copied into an otherwise empty build context, then the frozen
-# `uv sync --no-dev --no-install-project` input is represented by a
-# normalized no-dev export plus its effective Python constraint. This includes
+# uv.lock pair is copied into an otherwise empty build context, then `uv lock`
+# resolves that isolated input before its frozen
+# `uv sync --no-dev --no-install-project` input is represented by a normalized
+# no-dev export plus its effective Python constraint. This includes
 # default dependency groups, sources, indexes, constraints, resolver settings,
 # and locked artifacts to the extent that they alter the packages installed in
 # the runtime image. A dev-only lockfile refresh whose no-dev projection is
@@ -142,6 +143,7 @@ if not isinstance(project, dict) or not isinstance(project.get('requires-python'
     raise SystemExit('pyproject.toml must declare project.requires-python')
 print(f"requires-python={project['requires-python']}")
 PY
+      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" lock
       UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" export --frozen --no-dev --no-emit-project --no-annotate --no-header \
         | LC_ALL=C sort
     )
@@ -574,10 +576,26 @@ if links.get('total_links') != sum(len(targets) for targets in forward.values())
 # the four JSON files agree with one another.
 import re
 link_pattern = re.compile(r'\[\[([^\]]+)\]\]')
+def markdown_body(path):
+    """Return Markdown content after a YAML front-matter document, if any.
+
+    build_index.py parses links from post.metadata/content rather than from raw
+    YAML. A literal ``[[slug]]`` in a title or description must not become a
+    knowledge-graph edge merely because this independent verifier scans it.
+    """
+    content = path.read_text()
+    lines = content.splitlines(keepends=True)
+    if not lines or lines[0].strip() != '---':
+        return content
+    closing = next((index for index, line in enumerate(lines[1:], 1)
+                    if line.strip() in ('---', '...')), None)
+    if closing is None:
+        raise SystemExit(f'cannot verify front matter in archived memory: {path}')
+    return ''.join(lines[closing + 1:])
 expected_forward = {}
 slug_by_lower = {slug.lower(): slug for slug in slugs}
 for slug, entry in memory_by_slug.items():
-    content = (memory_root / entry['path']).read_text()
+    content = markdown_body(memory_root / entry['path'])
     raw_targets = {
         target.split('#', 1)[0].split('|', 1)[0].strip()
         for target in link_pattern.findall(content)
@@ -639,11 +657,6 @@ workspace = pathlib.Path(os.environ['WORKSPACE'])
 entries = {}
 for path in sorted(p for p in workspace.rglob('*') if p.is_file() and not p.is_symlink()):
     rel = path.relative_to(workspace).as_posix()
-    # The fresh portable repository is an implementation detail of seed
-    # construction. Its mutable Git internals are not seed payload and must
-    # never participate in the verifier's immutable content manifest.
-    if rel == '.git' or rel.startswith('.git/'):
-        continue
     entries[rel] = {
         'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
         'mode': format(path.stat().st_mode & 0o777, '04o'),

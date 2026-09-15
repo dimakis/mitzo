@@ -37,10 +37,6 @@ beforeAll(() => {
 import sys, tomllib
 
 command = sys.argv[1]
-if command == 'lock':
-    raise SystemExit(0)
-if command != 'export':
-    raise SystemExit(f'unsupported uv fixture command: {command}')
 with open('pyproject.toml', 'rb') as handle:
     project = tomllib.load(handle)
 requirements = list(project.get('project', {}).get('dependencies', []))
@@ -48,7 +44,21 @@ uv = project.get('tool', {}).get('uv', {})
 for group in uv.get('default-groups', ['dev']):
     if group != 'dev':
         requirements.extend(project.get('dependency-groups', {}).get(group, []))
-print('\\n'.join(sorted(set(requirements))))
+resolved = '\\n'.join(sorted(set(requirements)))
+if command == 'lock':
+    # The runtime Dockerfile resolves the copied project before frozen sync.
+    # Model that resolution in the fixture, so export cannot accidentally
+    # succeed if prepare-mgmt-seed.sh omits the lock step.
+    with open('uv.lock', 'w') as handle:
+        handle.write('# fixture-runtime-export\\n' + resolved + '\\n')
+    raise SystemExit(0)
+if command != 'export':
+    raise SystemExit(f'unsupported uv fixture command: {command}')
+with open('uv.lock') as handle:
+    lock = handle.read()
+if not lock.startswith('# fixture-runtime-export\\n'):
+    raise SystemExit('export requires the fixture lock resolution')
+print(lock.removeprefix('# fixture-runtime-export\\n').strip())
 `,
   );
   chmodSync(uvFixture, 0o755);
@@ -256,7 +266,7 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   expect(baseline.runtimeBaseCommit).toBe(baseline.startingCommit);
   expect(
     Object.keys(baseline.files).some((path) => path === '.git' || path.startsWith('.git/')),
-  ).toBe(false);
+  ).toBe(true);
   expect(baseline.saveBack).toBe('not-implemented');
 });
 
@@ -312,7 +322,7 @@ it('accepts generated manifests for linked, tagged knowledge files', () => {
   chmodSync(join(pythonBin, 'python3'), 0o755);
   writeFileSync(
     join(source, 'memory', 'notes', 'alpha.md'),
-    '---\nname: Alpha\ndescription: Runtime decision\ntype: decision\nstate: active\nconfidence: high\ntags:\n  - runtime\n---\n# Alpha\n[[beta]]\n',
+    '---\nname: Alpha\ndescription: "Runtime decision [[beta]]"\ntype: decision\nstate: active\nconfidence: high\ntags:\n  - runtime\n---\n# Alpha\n[[beta]]\n',
   );
   writeFileSync(
     join(source, 'memory', 'notes', 'beta.md'),
@@ -453,6 +463,68 @@ it('rebuilds ignored manifest entries from archived front matter instead of copy
     { path: 'notes/alpha.md', type: 'decision', tags: ['runtime'] },
   ]);
   expect(JSON.stringify(rebuilt)).not.toContain('SYNTHETIC_SECRET');
+});
+
+it('does not turn wikilinks in YAML front matter into knowledge-graph edges', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-frontmatter-links-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  mkdirSync(join(source, 'memory', 'notes'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, 'memory', 'manifest', '.gitignore'), '*.json\n');
+  writeFileSync(
+    join(source, 'memory', 'notes', 'alpha.md'),
+    '---\ntype: decision\ntags: [runtime]\ndescription: "mentions [[beta]] only as metadata"\n---\n# Alpha\n',
+  );
+  writeFileSync(join(source, 'memory', 'notes', 'beta.md'), '# Beta\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'knowledge',
+  ]);
+  const sourceCommit = currentCommit(source);
+  const memories = [
+    { path: 'notes/alpha.md', slug: 'alpha', type: 'decision', tags: ['runtime'], wikilinks: [] },
+    { path: 'notes/beta.md', slug: 'beta', type: 'unknown', tags: [], wikilinks: [] },
+  ];
+  const manifest = join(source, 'memory', 'manifest');
+  writeFileSync(
+    join(manifest, 'index.json'),
+    JSON.stringify({ sourceCommit, total_memories: memories.length, memories }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'wikilinks.json'),
+    JSON.stringify({ sourceCommit, forward_links: {}, backlinks: {}, total_links: 0 }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'by_type.json'),
+    JSON.stringify({ sourceCommit, types: { decision: ['alpha'], unknown: ['beta'] } }) + '\n',
+  );
+  writeFileSync(
+    join(manifest, 'by_tag.json'),
+    JSON.stringify({ sourceCommit, tags: { runtime: ['alpha'] } }) + '\n',
+  );
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(
+    JSON.parse(readFileSync(join(output, 'mgmt', 'memory', 'manifest', 'wikilinks.json'), 'utf8')),
+  ).toMatchObject({ forward_links: {}, backlinks: {}, total_links: 0 });
 });
 
 it('rejects manifest provenance that does not attest to the archived starting commit', () => {

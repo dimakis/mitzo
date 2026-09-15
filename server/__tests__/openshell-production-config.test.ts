@@ -51,7 +51,10 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
   preparedSeed = mkdtempSync(join(tmpdir(), 'mitzo-prepared-seed-'));
   const manifestDirectory = join(preparedSeed, 'memory', 'manifest');
   mkdirSync(manifestDirectory, { recursive: true });
-  const files: Record<string, string> = { 'knowledge.md': 'immutable knowledge\n' };
+  const files: Record<string, string> = {
+    'knowledge.md': 'immutable knowledge\n',
+    '.git/config': '[core]\nrepositoryformatversion = 0\n',
+  };
   for (const name of ['index.json', 'wikilinks.json', 'by_type.json', 'by_tag.json']) {
     files[`memory/manifest/${name}`] = JSON.stringify({ sourceCommit }) + '\n';
   }
@@ -151,6 +154,25 @@ describe('OpenShell production bundle validation', () => {
     fixture = makePreparedSeed();
     symlinkSync(join(fixture.seedPath, 'knowledge.md'), join(fixture.seedPath, 'escaped-link'));
     expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
+      'unsafe symlink',
+    );
+  });
+
+  it('binds the uploaded portable Git repository to the dynamic baseline', () => {
+    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const fixture = makePreparedSeed();
+    mkdirSync(join(fixture.seedPath, '.git', 'hooks'));
+    writeFileSync(join(fixture.seedPath, '.git', 'hooks', 'post-commit'), '#!/bin/sh\nexit 0\n');
+    expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
+      'exactly match',
+    );
+
+    rmSync(fixture.seedPath, { recursive: true, force: true });
+    preparedSeed = '';
+    const linked = makePreparedSeed();
+    unlinkSync(join(linked.seedPath, '.git', 'config'));
+    symlinkSync(join(linked.seedPath, 'knowledge.md'), join(linked.seedPath, '.git', 'config'));
+    expect(() => validateSeedBaseline(linked.baseline, runtimeManifest, linked.seedPath)).toThrow(
       'unsafe symlink',
     );
   });
