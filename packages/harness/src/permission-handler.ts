@@ -37,16 +37,16 @@ export const UserQuestionsSchema = z
   .refine((questions) => new Set(questions.map((q) => q.question)).size === questions.length);
 
 const PERMISSION_INPUT_MAX_CHARS = 10_000;
-const PERMISSION_INPUT_TRUNCATED = '\n[… truncated]';
 
-function permissionDisplayInput(toolName: string, input: Record<string, unknown>): string {
+function permissionDisplayInput(
+  toolName: string,
+  input: Record<string, unknown>,
+): string | undefined {
   const full =
     toolName === 'Bash' && typeof input.command === 'string'
       ? input.command
       : JSON.stringify(input, null, 2);
-  return full.length > PERMISSION_INPUT_MAX_CHARS
-    ? full.slice(0, PERMISSION_INPUT_MAX_CHARS) + PERMISSION_INPUT_TRUNCATED
-    : full;
+  return full.length <= PERMISSION_INPUT_MAX_CHARS ? full : undefined;
 }
 
 function transportSend(transport: SessionTransport, data: Record<string, unknown>): void {
@@ -177,6 +177,12 @@ export function buildPermissionHandler(
 
     const inputSummary = summarizeToolInput(toolName, _toolInput);
     const tier = getToolTier(toolName);
+    const displayInput = questions ? '' : permissionDisplayInput(toolName, _toolInput);
+    if (displayInput === undefined)
+      return {
+        behavior: 'deny',
+        message: 'Tool input is too large to review safely. Split it into smaller operations.',
+      };
 
     return new Promise<PermissionResult>((resolve) => {
       if (opts.signal.aborted) {
@@ -220,7 +226,7 @@ export function buildPermissionHandler(
       const request: PermissionRequest = {
         permId,
         toolName,
-        toolInput: questions ? '' : permissionDisplayInput(toolName, _toolInput),
+        toolInput: displayInput,
         title: opts.title,
         description: opts.description,
         displayName: opts.displayName,

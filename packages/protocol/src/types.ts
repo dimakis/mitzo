@@ -190,6 +190,7 @@ export interface PermissionRequest {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation';
+  responseError?: string;
 }
 
 // --- Image attachment ---

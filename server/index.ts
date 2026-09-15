@@ -1130,7 +1130,8 @@ function handleChatWs(
             if (!resolved) {
               try {
                 transport.send({
-                  type: 'error',
+                  type: 'permission_response_rejected',
+                  permId: msg.permId,
                   error:
                     'Permission response was invalid or expired. Review the prompt and try again.',
                 });

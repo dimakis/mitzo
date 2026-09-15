@@ -933,8 +933,9 @@ export function handlePermissionResponseV2(
       if (!resolved) {
         try {
           ctx.connRegistry.get(connectionId)?.transport.send({
-            type: 'error',
+            type: 'permission_response_rejected',
             sessionId: msg.sessionId,
+            permId: msg.permId,
             error: 'Permission response was invalid or expired. Review the prompt and try again.',
           });
         } catch (error) {

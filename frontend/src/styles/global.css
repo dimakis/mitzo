@@ -3378,6 +3378,13 @@ textarea:focus {
   border-top: 1px solid var(--border);
   padding-top: 14px;
 }
+
+.perm-banner-response-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--error, #f87171);
+  font-size: 0.8rem;
+}
 .perm-banner-btn {
   flex: 1;
   min-height: 44px;

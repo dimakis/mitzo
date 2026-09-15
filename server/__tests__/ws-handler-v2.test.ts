@@ -1549,8 +1549,9 @@ describe('handlePermissionResponseV2', () => {
     );
 
     expect(transport.sent).toContainEqual({
-      type: 'error',
+      type: 'permission_response_rejected',
       sessionId: 'sess-1',
+      permId: 'p1',
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
     });
   });

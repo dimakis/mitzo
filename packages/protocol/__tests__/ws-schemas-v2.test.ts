@@ -205,6 +205,19 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
     expect(r.success).toBe(false);
   });
 
+  it('validates nonblank answers without changing provider keys or values', () => {
+    const answers = { ' question ': [' option '] };
+    const r = V2PermissionResponseMessage.safeParse({
+      type: 'permission_response',
+      sessionId: 'sess-1',
+      permId: 'p1',
+      decision: 'once',
+      answers,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.answers).toEqual(answers);
+  });
+
   it('accepts set_mode with sessionId', () => {
     const r = V2SetModeMessage.safeParse({
       type: 'set_mode',
