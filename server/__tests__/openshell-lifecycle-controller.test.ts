@@ -100,6 +100,20 @@ it('keeps read-only inventory available while lifecycle cleanup is disabled', as
       sandboxes: [{ status: 'orphaned', physicalId: 'physical-id' }],
     });
     expect(inventory).toHaveBeenCalledOnce();
+    allInventory.mockRejectedValueOnce(new Error('workspace discovery offline'));
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: true,
+      partial: true,
+      scopes: [
+        {
+          provider: 'configured',
+          workspace: 'default',
+          status: 'unavailable',
+          error: 'provider_inventory_unavailable',
+        },
+        { provider: 'openai-work', workspace: 'default', status: 'available' },
+      ],
+    });
     inventory.mockRejectedValueOnce(new Error('provider offline'));
     await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
       available: false,
@@ -685,7 +699,6 @@ it('discovers recordless orphans and reconciles identity-less provisional record
       id: 'provisional-id',
       name: 'mitzo-provisional',
       phase: 'Ready' as const,
-      workspace: 'default',
       labels: {
         'mitzo.conversation': createHash('sha256').update('provisional-conversation').digest('hex'),
         'mitzo.account_provider': 'openai-work',

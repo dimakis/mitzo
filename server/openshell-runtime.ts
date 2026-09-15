@@ -642,9 +642,11 @@ export class OpenShellRuntimeManager {
   ) {
     const signal = new AbortController().signal;
     let observed = false;
+    let inventoryQueried = false;
     for (;;) {
       try {
         const sandbox = await this.get(name, signal);
+        inventoryQueried = true;
         if (!sandbox) {
           // A settled create that remains absent for the full readiness window
           // is treated as definitively not provisioned. Once observed, absence
@@ -664,6 +666,9 @@ export class OpenShellRuntimeManager {
         // provisioning stopped consuming capacity. Continue fail-closed.
       }
       if (Date.now() >= deadline) {
+        // Repeated successful inventory reads proving absence are an
+        // authoritative terminal result for a rejected/failed create.
+        if (!observed && inventoryQueried) return;
         // Release the queue slot after a bounded wait, but replace it with an
         // explicit fail-closed fence. A lightweight observer clears that fence
         // only after physical provisioning becomes terminal or disappears.

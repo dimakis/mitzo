@@ -162,7 +162,6 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const seen = new Set<string>();
   const sandboxes: Array<Awaited<ReturnType<typeof lifecycleInventoryRow>>> = [];
   const scopes: Array<Record<string, string>> = [];
-  let providerDiscoveryUnavailable = false;
   for (const record of records) {
     // Inventory needs only the persisted provider route, not a lifecycle
     // identity. Provisional records must therefore keep retired providers in
@@ -176,9 +175,14 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
     }
   } catch (error) {
     if (signal.aborted) throw error;
-    providerDiscoveryUnavailable = true;
     log.warn('OpenShell workspace provider discovery unavailable', {
       errorType: error instanceof Error ? error.name : typeof error,
+    });
+    scopes.push({
+      provider: 'configured',
+      workspace: inventoryConfigured.config.workspace,
+      status: 'unavailable',
+      error: PROVIDER_INVENTORY_UNAVAILABLE,
     });
   }
   try {
@@ -196,13 +200,6 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       error: PROVIDER_INVENTORY_UNAVAILABLE,
     });
   }
-  if (providerDiscoveryUnavailable && !groups.size && !providerOnlyScopes.size && !scopes.length)
-    scopes.push({
-      provider: 'configured',
-      workspace: inventoryConfigured.config.workspace,
-      status: 'unavailable',
-      error: PROVIDER_INVENTORY_UNAVAILABLE,
-    });
   for (const [provider, routeRecord] of groups) {
     try {
       const physical = await managerForProvider(provider).inventory(signal);
@@ -337,7 +334,7 @@ function lifecycleInventoryOwnershipMatches(
     !record ||
     record.accountProvider !== provider ||
     record.sandboxName !== sandbox.name ||
-    record.workspace !== sandbox.workspace
+    (sandbox.workspace !== undefined && record.workspace !== sandbox.workspace)
   )
     return false;
   const conversationHash = createHash('sha256').update(record.conversationId).digest('hex');

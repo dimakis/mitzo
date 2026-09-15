@@ -372,6 +372,61 @@ describe('OpenShell runtime lifecycle', () => {
     await expect(second).resolves.toMatchObject({ sandboxName: expect.any(String) });
   });
 
+  it('releases a failed detached create after repeated successful absence checks', async () => {
+    configureOpenShellCapacityAdmission(
+      new OpenShellCapacityAdmission(
+        new OpenShellCapacityCollector('/', {
+          podman: async () => '[]',
+          filesystem: async () =>
+            'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vm 100 50 50 50% /',
+        }),
+        openShellCapacityPolicy({}),
+      ),
+    );
+    let attempted = false;
+    const failed = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) throw new Error('sandbox not found');
+      if (args.includes('create')) {
+        attempted = true;
+        throw new Error('invalid sandbox policy');
+      }
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, failed, {
+        pollIntervalMs: 1,
+        timeoutMs: 5,
+      }).ensure('failed-create', new AbortController().signal),
+    ).rejects.toThrow('invalid sandbox policy');
+    expect(attempted).toBe(true);
+
+    let created = false;
+    const next = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({
+          name: 'sandbox',
+          phase: 'Ready',
+          labels: {
+            'mitzo.conversation': createHash('sha256')
+              .update('after-failed-create')
+              .digest('hex')
+              .slice(0, 63),
+            'mitzo.account_provider': 'openai-work',
+          },
+        });
+      }
+      if (args.includes('create')) created = true;
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(config, next, {
+        pollIntervalMs: 1,
+        timeoutMs: 100,
+      }).ensure('after-failed-create', new AbortController().signal),
+    ).resolves.toMatchObject({ sandboxName: expect.any(String) });
+  });
+
   it('bounds the reservation when a successful detached create remains uninspectable', async () => {
     configureOpenShellCapacityAdmission(
       new OpenShellCapacityAdmission(
