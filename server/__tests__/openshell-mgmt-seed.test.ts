@@ -27,6 +27,11 @@ const uvFixtureRoot = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-uv-fixture-'))
 const uvFixture = join(uvFixtureRoot, 'uv');
 const originalUvBin = process.env.MITZO_UV_BIN;
 const originalProjectionSha = process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
+const originalRuntimeProjectionSha = process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
+const originalRuntimeBaseImage = process.env.MGMT_RUNTIME_BASE_IMAGE;
+const originalRuntimePlatform = process.env.MGMT_RUNTIME_TARGET_PLATFORM;
+const fixtureBaseImage = `registry.invalid/runtime@sha256:${'a'.repeat(64)}`;
+const fixturePlatform = 'linux/amd64';
 
 beforeAll(() => {
   // CI does not install uv. This fixture models precisely the test inputs that
@@ -66,6 +71,8 @@ print(lock.removeprefix('# fixture-runtime-export\\n').strip())
   process.env.MITZO_UV_BIN = uvFixture;
   process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256 =
     '01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b';
+  process.env.MGMT_RUNTIME_BASE_IMAGE = fixtureBaseImage;
+  process.env.MGMT_RUNTIME_TARGET_PLATFORM = fixturePlatform;
 });
 
 afterAll(() => {
@@ -74,6 +81,13 @@ afterAll(() => {
   if (originalProjectionSha === undefined)
     delete process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
   else process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256 = originalProjectionSha;
+  if (originalRuntimeProjectionSha === undefined)
+    delete process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
+  else process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256 = originalRuntimeProjectionSha;
+  if (originalRuntimeBaseImage === undefined) delete process.env.MGMT_RUNTIME_BASE_IMAGE;
+  else process.env.MGMT_RUNTIME_BASE_IMAGE = originalRuntimeBaseImage;
+  if (originalRuntimePlatform === undefined) delete process.env.MGMT_RUNTIME_TARGET_PLATFORM;
+  else process.env.MGMT_RUNTIME_TARGET_PLATFORM = originalRuntimePlatform;
   rmSync(uvFixtureRoot, { recursive: true, force: true });
 });
 
@@ -91,7 +105,45 @@ function writeRuntimeInputs(source: string, dependencies: string[] = [], extra =
     join(source, 'pyproject.toml'),
     `[project]\nname = "fixture"\nversion = "0.0.0"\nrequires-python = ">=3.11"\ndependencies = [${dependencies.map((item) => `"${item}"`).join(', ')}]\n\n[build-system]\nrequires = ["setuptools>=1"]\n${extra}`,
   );
-  writeFileSync(join(source, 'uv.lock'), 'version = 1\nrevision = 1\nrequires-python = ">=3.11"\n');
+  const packages = dependencies.map((item) => {
+    const [rawName, rawVersion = '1'] = item.split('==', 2);
+    return `\n[[package]]\nname = "${rawName}"\nversion = "${rawVersion}"\nsource = { registry = "https://example.invalid/simple" }\n`;
+  });
+  const rootDependencies = dependencies
+    .map((item) => `{ name = "${item.split(/[<>=!~ ]/, 1)[0]}" }`)
+    .join(', ');
+  writeFileSync(
+    join(source, 'uv.lock'),
+    `version = 1\nrevision = 1\nrequires-python = ">=3.11"\nresolution-markers = ["sys_platform == 'linux'"]\n\n[[package]]\nname = "fixture"\nversion = "0.0.0"\nsource = { editable = "." }\ndependencies = [${rootDependencies}]\n${packages.join('')}`,
+  );
+}
+
+function setDynamicContract(source: string, ref = 'HEAD') {
+  const contents = execFileSync('git', ['-C', source, 'show', `${ref}:pyproject.toml`]);
+  const lock = execFileSync('git', ['-C', source, 'show', `${ref}:uv.lock`]);
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-'));
+  try {
+    writeFileSync(join(dir, 'pyproject.toml'), contents);
+    writeFileSync(join(dir, 'uv.lock'), lock);
+    process.env.MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256 = execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(dir, 'pyproject.toml'),
+        '--lock',
+        join(dir, 'uv.lock'),
+        '--base-image',
+        fixtureBaseImage,
+        '--target-platform',
+        fixturePlatform,
+        '--sha256',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function currentCommit(source: string) {
@@ -269,7 +321,7 @@ it('builds a versioned MGMT seed without host credentials or repository administ
   ).toBe('chore: seed isolated MGMT workspace');
   const baseline = JSON.parse(readFileSync(join(output, 'baseline.json'), 'utf8'));
   expect(baseline.startingCommit).toMatch(/^[a-f0-9]{40,64}$/);
-  expect(baseline.runtimeBaseCommit).toBe(baseline.startingCommit);
+  expect(baseline.runtimeBaseCommit).toBeUndefined();
   expect(
     Object.keys(baseline.files).some((path) => path === '.git' || path.startsWith('.git/')),
   ).toBe(true);
@@ -633,6 +685,7 @@ it('records an explicit runtime base ref as its canonical commit', () => {
   const runtimeBaseCommit = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
     encoding: 'utf8',
   }).trim();
+  setDynamicContract(source, runtimeBaseCommit);
   writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
@@ -661,7 +714,7 @@ it('records an explicit runtime base ref as its canonical commit', () => {
   expect(baseline.runtimeBaseCommit).toBe(runtimeBaseCommit);
 }, 10_000);
 
-it('fails closed with an actionable error when a descendant seed cannot run uv', () => {
+it('fails closed when a descendant seed is missing its selected stack-lock contract', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-missing-uv-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -702,11 +755,11 @@ it('fails closed with an actionable error when a descendant seed cannot run uv',
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
       {
         cwd: resolve('.'),
-        env: { ...process.env, MITZO_UV_BIN: join(root, 'missing-uv') },
+        env: { ...process.env, MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256: '' },
         stdio: 'pipe',
       },
     ),
-  ).toThrow(/uv is required to compare a descendant seed with its runtime base/);
+  ).toThrow(/stack lock is required/);
   expect(existsSync(output)).toBe(false);
 });
 
@@ -731,6 +784,7 @@ it('rejects runtime dependency changes after the runtime base commit', () => {
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeRuntimeInputs(source, ['requests==2.32.5']);
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
@@ -751,7 +805,7 @@ it('rejects runtime dependency changes after the runtime base commit', () => {
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
       { cwd: resolve('.'), stdio: 'pipe' },
     ),
-  ).toThrow(/effective no-dev uv install set changed/);
+  ).toThrow(/resolution contract does not match/);
   expect(existsSync(output)).toBe(false);
 });
 
@@ -776,9 +830,10 @@ it('allows a dev-only uv.lock refresh after the runtime base commit', () => {
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeFileSync(
     join(source, 'uv.lock'),
-    'version = 1\nrevision = 1\nrequires-python = ">=3.11"\n# dev-only lock refresh\n',
+    `${readFileSync(join(source, 'uv.lock'), 'utf8')}\n# dev-only lock refresh\n`,
   );
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
@@ -824,6 +879,7 @@ it('allows a dev or build-system-only change after the runtime base commit', () 
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeFileSync(
     join(source, 'pyproject.toml'),
     readFileSync(join(source, 'pyproject.toml'), 'utf8').replace('setuptools>=1', 'setuptools>=2'),
@@ -871,6 +927,7 @@ it('allows a changed dev-only dependency and lock refresh', () => {
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeFileSync(
     join(source, 'pyproject.toml'),
     readFileSync(join(source, 'pyproject.toml'), 'utf8').replace(
@@ -926,6 +983,7 @@ it('rejects a changed default dependency group that alters the runtime install s
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeFileSync(
     join(source, 'pyproject.toml'),
     readFileSync(join(source, 'pyproject.toml'), 'utf8').replace(
@@ -952,7 +1010,7 @@ it('rejects a changed default dependency group that alters the runtime install s
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
       { cwd: resolve('.'), stdio: 'pipe' },
     ),
-  ).toThrow(/effective no-dev uv install set changed/);
+  ).toThrow(/resolution contract does not match/);
   expect(existsSync(output)).toBe(false);
 });
 
@@ -1208,8 +1266,8 @@ it('releases an updater-owned lock after the updater is killed without cleanup',
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-updater-sigkill-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
-  const slowUv = join(root, 'slow-uv');
-  const uvStarted = join(root, 'slow-uv-started');
+  const slowPython = join(root, 'bin');
+  const uvStarted = join(root, 'slow-contract-started');
   mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
   writeRuntimeInputs(source);
   execFileSync('git', ['init', '-q', source]);
@@ -1227,6 +1285,7 @@ it('releases an updater-owned lock after the updater is killed without cleanup',
     '-m',
     'runtime base',
   ]);
+  setDynamicContract(source);
   writeFileSync(join(source, 'knowledge.md'), '# New knowledge\n');
   execFileSync('git', ['-C', source, 'add', '.']);
   execFileSync('git', [
@@ -1240,13 +1299,21 @@ it('releases an updater-owned lock after the updater is killed without cleanup',
     'knowledge update',
   ]);
   writeMemoryManifests(source, currentCommit(source));
-  writeFileSync(slowUv, `#!/bin/sh\ntouch "${uvStarted}"\nsleep 60\n`);
-  chmodSync(slowUv, 0o755);
+  mkdirSync(slowPython);
+  writeFileSync(
+    join(slowPython, 'python3'),
+    `#!/bin/sh\ntouch "${uvStarted}"\nsleep 60\nexec "${process.execPath}" "$@"\n`,
+  );
+  chmodSync(join(slowPython, 'python3'), 0o755);
 
   updater = spawn(
     'bash',
     [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output, 'HEAD~1'],
-    { cwd: resolve('.'), env: { ...process.env, MITZO_UV_BIN: slowUv }, stdio: 'ignore' },
+    {
+      cwd: resolve('.'),
+      env: { ...process.env, PATH: `${slowPython}:${process.env.PATH}` },
+      stdio: 'ignore',
+    },
   );
   for (let attempts = 0; attempts < 50 && !existsSync(uvStarted); attempts += 1) {
     execFileSync('sleep', ['0.01']);
@@ -1272,10 +1339,9 @@ it('releases an updater-owned lock after the updater is killed without cleanup',
   }
   expect(published).toBe(true);
   expect(existsSync(output)).toBe(true);
-  // SIGKILL cannot run the original updater's cleanup trap; the abandoned temp
-  // directory proves the replacement publisher did not need manual cleanup to
-  // acquire the released lock and publish its own immutable destination.
-  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(1);
+  // The lock helper was interrupted before an output staging directory was
+  // allocated; the replacement publisher still acquired the released lock.
+  expect(readdirSync(root).filter((entry) => entry.startsWith('.output.tmp.'))).toHaveLength(0);
 });
 
 it('rejects a tracked symlink before an overlay can write through it', () => {

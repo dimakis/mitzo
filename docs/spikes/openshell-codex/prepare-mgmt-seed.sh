@@ -8,12 +8,14 @@ output_name="$(basename "$output_root")"
 lock_file="$output_parent/.${output_name}.lock"
 lock_status="$output_parent/.${output_name}.lock-status.$$"
 build_root=''
-runtime_projection_dir=''
+resolution_contract_dir=''
 lock_pid=''
+script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+resolution_contract_tool="$script_root/runtime-resolution-contract.py"
 
 cleanup() {
   test -z "$build_root" || rm -rf "$build_root"
-  test -z "$runtime_projection_dir" || rm -rf "$runtime_projection_dir"
+  test -z "$resolution_contract_dir" || rm -rf "$resolution_contract_dir"
   test -z "$lock_pid" || kill "$lock_pid" 2>/dev/null || true
   test -z "$lock_pid" || wait "$lock_pid" 2>/dev/null || true
   rm -f "$lock_status"
@@ -24,11 +26,7 @@ test "${output_root#/}" != "$output_root" || { echo 'output must be absolute' >&
 git -C "$source_repo" rev-parse --is-inside-work-tree >/dev/null
 starting_commit="$(git -C "$source_repo" rev-parse --verify 'HEAD^{commit}')"
 runtime_base_commit="$(git -C "$source_repo" rev-parse --verify "${3:-$starting_commit}^{commit}")"
-runtime_projection_sha256="${MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256:-}"
-if ! [[ "$runtime_projection_sha256" =~ ^[a-f0-9]{64}$ ]]; then
-  echo 'runtime dependency projection SHA-256 is required for dynamic seed preparation' >&2
-  exit 2
-fi
+runtime_projection_sha256=''
 git -C "$source_repo" merge-base --is-ancestor "$runtime_base_commit" "$starting_commit" || {
   echo 'runtime base commit must be an ancestor of the seed starting commit' >&2
   exit 2
@@ -115,63 +113,34 @@ workspace="$build_root/mgmt"
 baseline="$build_root/baseline.json"
 mkdir -p "$workspace"
 
-# Mirror Dockerfile.mgmt-runtime exactly: each historical pyproject.toml and
-# uv.lock pair is copied into an otherwise empty build context, then `uv lock`
-# resolves that isolated input before its frozen
-# `uv sync --no-dev --no-install-project` input is represented by a normalized
-# no-dev export plus its effective Python constraint. This includes
-# default dependency groups, sources, indexes, constraints, resolver settings,
-# and locked artifacts to the extent that they alter the packages installed in
-# the runtime image. A dev-only lockfile refresh whose no-dev projection is
-# unchanged is intentionally compatible.
+# A descendant must match the immutable checked-in-lock contract released with
+# its selected digest-pinned image.  Re-resolving here would make present-day
+# registry state an input to a claim about an image built in the past.
 if test "$runtime_base_commit" != "$starting_commit"; then
-  uv_bin="${MITZO_UV_BIN:-uv}"
-  command -v "$uv_bin" >/dev/null 2>&1 || {
-    echo 'runtime compatibility failed: uv is required to compare a descendant seed with its runtime base' >&2
-    exit 3
-  }
-  runtime_projection_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
-  runtime_projection() {
-    local commit="$1"
-    local projection_dir="$runtime_projection_dir/$commit"
-    mkdir -p "$projection_dir"
-    git -C "$source_repo" show "$commit:pyproject.toml" > "$projection_dir/pyproject.toml"
-    git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
-    (
-      cd "$projection_dir"
-      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" lock
-      UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" export --frozen --no-dev --no-emit-project --no-annotate --no-header \
-        | python3 -c 'import re,sys; values=set();
-for line in sys.stdin:
- line=line.strip()
- if not line or line.startswith("#"): continue
- match=re.match(r"([A-Za-z0-9_.-]+)==([^ ;\\\\]+)", line)
- if not match: raise SystemExit(f"cannot canonicalize runtime dependency export: {line}")
- values.add(re.sub(r"[-_.]+", "-", match.group(1).lower()) + "==" + match.group(2))
-print("\\n".join(sorted(values)))'
-    )
-  }
-  runtime_base_projection="$(runtime_projection "$runtime_base_commit")" || {
-    echo 'runtime compatibility failed: could not compute the runtime-base uv projection' >&2
-    exit 3
-  }
-  starting_projection="$(runtime_projection "$starting_commit")" || {
-    echo 'runtime compatibility failed: could not compute the seed uv projection' >&2
-    exit 3
-  }
-  rm -rf "$runtime_projection_dir"
-  runtime_projection_dir=''
-  if test "$runtime_base_projection" != "$starting_projection"; then
-    echo 'runtime compatibility failed: effective no-dev uv install set changed since the runtime base commit' >&2
-    exit 3
+  runtime_projection_sha256="${MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256:-}"
+  runtime_base_image="${MGMT_RUNTIME_BASE_IMAGE:-}"
+  runtime_target_platform="${MGMT_RUNTIME_TARGET_PLATFORM:-}"
+  if ! [[ "$runtime_projection_sha256" =~ ^[a-f0-9]{64}$ ]]; then
+    echo 'runtime dependency projection SHA-256 from the selected stack lock is required for dynamic seed preparation' >&2
+    exit 2
   fi
-  if command -v sha256sum >/dev/null 2>&1; then
-    candidate_projection_sha256="$(printf '%s\n' "$starting_projection" | sha256sum | awk '{print $1}')"
-  else
-    candidate_projection_sha256="$(printf '%s\n' "$starting_projection" | shasum -a 256 | awk '{print $1}')"
-  fi
+  test -f "$resolution_contract_tool" || {
+    echo 'runtime compatibility failed: canonical resolution-contract tool is missing' >&2
+    exit 3
+  }
+  resolution_contract_dir="$(mktemp -d "$output_parent/.${output_name}.runtime.XXXXXX")"
+  git -C "$source_repo" show "$starting_commit:pyproject.toml" > "$resolution_contract_dir/pyproject.toml"
+  git -C "$source_repo" show "$starting_commit:uv.lock" > "$resolution_contract_dir/uv.lock"
+  candidate_projection_sha256="$(python3 "$resolution_contract_tool" \
+    --pyproject "$resolution_contract_dir/pyproject.toml" --lock "$resolution_contract_dir/uv.lock" \
+    --base-image "$runtime_base_image" --target-platform "$runtime_target_platform" --sha256)" || {
+    echo 'runtime compatibility failed: could not canonicalize the immutable candidate resolution contract' >&2
+    exit 3
+  }
+  rm -rf "$resolution_contract_dir"
+  resolution_contract_dir=''
   if test "$candidate_projection_sha256" != "$runtime_projection_sha256"; then
-    echo 'runtime compatibility failed: candidate dependency projection does not match the trusted runtime image projection' >&2
+    echo 'runtime compatibility failed: candidate resolution contract does not match the trusted stack-lock runtime contract' >&2
     exit 3
   fi
 fi
@@ -619,7 +588,7 @@ git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
 git -C "$workspace" add --all
 git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
 
-SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" python3 - <<'PY'
+SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" IS_DYNAMIC="$([[ "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
 source = pathlib.Path(os.environ['SOURCE_REPO'])
 workspace = pathlib.Path(os.environ['WORKSPACE'])
@@ -633,11 +602,12 @@ for path in sorted(p for p in workspace.rglob('*') if p.is_file() and not p.is_s
 payload = {
     'source': str(source),
     'startingCommit': os.environ['STARTING_COMMIT'],
-    'runtimeBaseCommit': os.environ['RUNTIME_BASE_COMMIT'],
-    'runtimeDependencyProjectionSha256': os.environ['RUNTIME_PROJECTION_SHA256'],
     'files': entries,
     'saveBack': 'not-implemented',
 }
+if os.environ['IS_DYNAMIC'] == '1':
+    payload['runtimeBaseCommit'] = os.environ['RUNTIME_BASE_COMMIT']
+    payload['runtimeDependencyProjectionSha256'] = os.environ['RUNTIME_PROJECTION_SHA256']
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2) + '\n')
 PY
 

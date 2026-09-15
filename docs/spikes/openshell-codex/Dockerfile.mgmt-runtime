@@ -3,20 +3,26 @@ FROM ${OPENSHELL_BASE_IMAGE}
 ARG OPENSHELL_BASE_IMAGE
 ARG MITZO_SOURCE_COMMIT
 ARG MGMT_SOURCE_COMMIT
+ARG RUNTIME_RESOLUTION_CONTRACT_SHA256
+ARG RUNTIME_TARGET_PLATFORM
 
 LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.source-commit="${MITZO_SOURCE_COMMIT}" \
-      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}"
+      io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}" \
+      io.mitzo.runtime-resolution-contract-sha256="${RUNTIME_RESOLUTION_CONTRACT_SHA256}" \
+      io.mitzo.runtime-target-platform="${RUNTIME_TARGET_PLATFORM}"
 
 USER root
 RUN npm install --global @openai/codex@0.153.4 \
     && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
-COPY pyproject.toml uv.lock /opt/mgmt-deps/
+COPY pyproject.toml uv.lock runtime-resolution-contract.py /opt/mgmt-deps/
 RUN cd /opt/mgmt-deps \
     # MGMT's checked-in lock currently predates a declared dependency. Resolve
     # only in this disposable build layer; never rewrite the host checkout.
-    && uv lock \
+    && uv lock --locked \
+    && python runtime-resolution-contract.py --pyproject pyproject.toml --lock uv.lock --base-image "$OPENSHELL_BASE_IMAGE" --target-platform "$RUNTIME_TARGET_PLATFORM" --output /opt/mgmt-resolution-contract.json \
+    && test "$(sha256sum /opt/mgmt-resolution-contract.json | awk '{print $1}')" = "$RUNTIME_RESOLUTION_CONTRACT_SHA256" \
     && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server

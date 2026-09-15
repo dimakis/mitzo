@@ -40,34 +40,43 @@ cp "$root/run-mitzo-subscription-app-server" "$context/run-mitzo-subscription-ap
 cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
 cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
 cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
+cp "$root/runtime-resolution-contract.py" "$context/runtime-resolution-contract.py"
 mkdir -p "$context/contexgin/dist"
 cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.json"
 cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
 cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
 cp "$mgmt_repo/uv.lock" "$context/uv.lock"
+# This is a checked-in-lock projection, not a fresh host resolution.  The
+# Dockerfile validates the same inputs with `uv lock --locked` before syncing.
+target_platform="$(podman image inspect "$base_image" --format '{{.Os}}/{{.Architecture}}')"
+if [[ ! "$target_platform" =~ ^[a-z0-9]+/[a-z0-9][a-z0-9._-]*$ ]]; then
+  echo 'could not determine an explicit runtime target platform from the pinned base image' >&2
+  exit 2
+fi
+runtime_contract_sha256="$(python3 "$context/runtime-resolution-contract.py" \
+  --pyproject "$context/pyproject.toml" --lock "$context/uv.lock" \
+  --base-image "$base_image" --target-platform "$target_platform" --sha256)"
 podman build --pull=never \
   --build-arg "OPENSHELL_BASE_IMAGE=$base_image" \
   --build-arg "MITZO_SOURCE_COMMIT=$mitzo_source_commit" \
   --build-arg "MGMT_SOURCE_COMMIT=$mgmt_source_commit" \
+  --build-arg "RUNTIME_RESOLUTION_CONTRACT_SHA256=$runtime_contract_sha256" \
+  --build-arg "RUNTIME_TARGET_PLATFORM=$target_platform" \
   --tag "$tag" "$context"
 image_id="$(podman image inspect "$tag" --format '{{.Id}}')"
-runtime_projection="$(podman run --rm --entrypoint /opt/mgmt-venv/bin/python "$image_id" -c '
-import importlib.metadata as metadata, re
-packages = {
-    f"{re.sub(r\"[-_.]+\", \"-\", distribution.metadata[\"Name\"].lower())}=={distribution.version}"
-    for distribution in metadata.distributions()
-    if distribution.metadata.get("Name")
+# The image contains the exact canonical bytes built from the checked-in lock.
+# Read it back after the build so release plumbing cannot accidentally publish a
+# host-side value for a different image.
+image_contract_sha256="$(podman run --rm --entrypoint /usr/bin/sha256sum "$image_id" /opt/mgmt-resolution-contract.json | awk '{print $1}')"
+test "$image_contract_sha256" = "$runtime_contract_sha256" || {
+  echo 'runtime image resolution contract does not match the build contract' >&2
+  exit 3
 }
-print("\\n".join(sorted(packages)))
-')"
-if command -v sha256sum >/dev/null 2>&1; then
-  runtime_projection_sha256="$(printf '%s\\n' "$runtime_projection" | sha256sum | awk '{print $1}')"
-else
-  runtime_projection_sha256="$(printf '%s\\n' "$runtime_projection" | shasum -a 256 | awk '{print $1}')"
-fi
 printf 'MGMT_RUNTIME_IMAGE=%s\n' "$tag"
 printf 'MGMT_RUNTIME_IMAGE_ID=%s\n' "$image_id"
-printf 'MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256=%s\n' "$runtime_projection_sha256"
+printf 'MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256=%s\n' "$runtime_contract_sha256"
+printf 'MGMT_RUNTIME_BASE_IMAGE=%s\n' "$base_image"
+printf 'MGMT_RUNTIME_TARGET_PLATFORM=%s\n' "$target_platform"
 printf 'OPENSHELL_BASE_IMAGE=%s\n' "$base_image"
 printf 'MITZO_SOURCE_COMMIT=%s\n' "$mitzo_source_commit"
 printf 'MGMT_SOURCE_COMMIT=%s\n' "$mgmt_source_commit"

@@ -31,3 +31,9 @@ export function validateRuntimeDependencyProjection(
   projection: string,
   manifest: { runtime: { dependencyProjectionSha256: string } },
 ): void;
+
+export function validateRuntimeResolutionContract(
+  contract: string,
+  manifest: { runtime: { dependencyProjectionSha256: string; baseImage: string } },
+  imageLabels: Record<string, string | undefined>,
+): void;

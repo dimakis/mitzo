@@ -74,19 +74,22 @@ configuration, or object change cannot be smuggled into a future sandbox.
 The production lock and runtime image labels must continue to match that runtime
 base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
 without rebuilding the immutable runtime image; dependency changes still require a
-new image release. The runtime-image builder emits a SHA-256 of its canonical,
-sorted installed-package projection; a release records that value as
-`runtime.dependencyProjectionSha256` in the stack lock. New dynamic baselines
-carry the same value, and production preflight recomputes it inside the selected
-digest-pinned image. This one-time lock-field migration is required before a
+new image release. The runtime-image builder emits a SHA-256 of one canonical,
+newline-terminated resolution-contract JSON document. It is derived from the
+checked-in no-dev reachable `uv.lock` graph—not an ambient re-resolution—and
+includes package dependency entries, markers, sources, artifact URLs, lock
+resolver metadata, the effective Python constraint/default groups, and the
+digest-pinned base image plus target platform. The image embeds those exact bytes
+and labels their hash; a release records that value as
+`runtime.dependencyProjectionSha256` in the stack lock and passes the builder's
+exact `MGMT_RUNTIME_*` output names to seed preparation. New dynamic baselines
+carry the same value, and production preflight reads the contract from the
+selected digest-pinned image and checks its hash, labels, base image, and platform
+against the stack lock. This one-time lock-field migration is required before a
 descendant knowledge seed may be published; legacy equality-only baselines retain
-their historical path. Compatibility is calculated from the normalized effective
-`uv lock` plus `uv sync --frozen --no-dev --no-install-project` package set used by
-the runtime Dockerfile, so a dev-only lockfile change may proceed while any changed
-runtime package, default dependency group, source, constraint, or resolver effect
-requires an image release. A seed at the same commit as its runtime base needs no
-compatibility calculation; a newer seed fails closed unless its updater has `uv`
-available to calculate that projection. The mgmt updater alone validates dependency compatibility and
+their historical path. A seed at the same commit as its runtime base needs no
+compatibility calculation; a newer seed fails closed unless its checked-in
+contract directly matches the trusted stack lock. The mgmt updater alone validates dependency compatibility and
 atomically repoints its `current` symlink after a successful seed build. Existing
 sandboxes retain their workspace; only future sandbox creation resolves that current
 seed path.
