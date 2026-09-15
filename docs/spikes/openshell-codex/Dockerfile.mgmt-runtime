@@ -14,7 +14,21 @@ RUN npm install --global @openai/codex@0.153.4 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/
 RUN cd /opt/mgmt-jira-runtime \
-    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project
+    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project \
+    && site_packages="$(find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print)" \
+    && [ "$(printf '%s\n' "$site_packages" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] \
+    && case "$site_packages" in /opt/mgmt-jira-venv/lib/python*/site-packages) ;; *) exit 1 ;; esac \
+    && printf 'MGMT_JIRA_PYTHONPATH=%s\n' "$site_packages" > /etc/mitzo-mgmt-jira.env \
+    && chmod 0444 /etc/mitzo-mgmt-jira.env \
+    && mkdir -p /usr/local/share/jupyter/kernels/mgmt-jira \
+    && printf '%s\n' \
+      '{' \
+      '  "argv": ["/usr/bin/python3", "-m", "ipykernel_launcher", "-f", "{connection_file}"],' \
+      '  "display_name": "Mitzo Jira",' \
+      '  "language": "python",' \
+      "  \"env\": {\"PYTHONPATH\": \"$site_packages\"}" \
+      '}' > /usr/local/share/jupyter/kernels/mgmt-jira/kernel.json \
+    && chmod 0444 /usr/local/share/jupyter/kernels/mgmt-jira/kernel.json
 COPY run-mitzo-app-server /sandbox/run-mitzo-app-server
 COPY run-mitzo-subscription-app-server /sandbox/run-mitzo-subscription-app-server
 COPY initialize-mitzo-workspace /sandbox/initialize-mitzo-workspace
@@ -25,5 +39,4 @@ COPY contexgin /usr/lib/contexgin
 RUN chmod 0755 /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server /sandbox/initialize-mitzo-workspace /sandbox/run-mgmt-notebook /sandbox/compile-mgmt-context.mjs /sandbox/mitzo-checkpoint.py \
     && chmod -R a+rX /usr/lib/contexgin \
     && chown sandbox:sandbox /sandbox/run-mitzo-app-server /sandbox/run-mitzo-subscription-app-server
-ENV PATH="/opt/mgmt-jira-venv/bin:${PATH}"
 USER sandbox

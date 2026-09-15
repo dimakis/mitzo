@@ -21,17 +21,6 @@ const Provider = z.object({
   type: z.string().min(1),
   credential_keys: z.array(z.string()).optional(),
 });
-const LegacyJiraBinaries = z.tuple([
-  z.literal('/usr/bin/python3'),
-  z.literal('/usr/bin/curl'),
-  z.literal('/usr/local/bin/curl'),
-]);
-const RuntimeJiraBinaries = z.tuple([
-  z.literal('/usr/bin/python3'),
-  z.literal('/opt/mgmt-jira-venv/bin/python'),
-  z.literal('/usr/bin/curl'),
-  z.literal('/usr/local/bin/curl'),
-]);
 const JiraProfile = z
   .object({
     id: z.literal('jira-readonly'),
@@ -120,10 +109,10 @@ const JiraProfile = z
           .strict(),
       )
       .length(1),
-    // Existing gateways keep the prior exact three-binary policy. It remains
-    // compatible rather than requiring a mutable-profile migration; fresh
-    // imports receive the additional venv interpreter required by notebooks.
-    binaries: z.union([LegacyJiraBinaries, RuntimeJiraBinaries]),
+    binaries: z
+      .array(z.enum(['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl']))
+      .length(3)
+      .refine((value) => new Set(value).size === 3, 'Jira profile binaries must be unique'),
     // Gateway metadata is not policy input, but must remain a bounded scalar projection.
     source: z.string().max(256).optional(),
     scope: z.string().max(256).optional(),

@@ -59,8 +59,10 @@ different filesystem trust domains.
   image's Jupyter runtime, for example
   `/sandbox/run-mgmt-notebook dashboards/weekly-org-status.ipynb`. Provider
   placeholders supply Jira credentials when a reviewed Jira connection is
-  attached; the image contains no credential material. It never modifies the
-  source notebook: it prints the path of an executed copy under
+  attached; the image contains no credential material. The wrapper uses the
+  provider-approved system Python with a fixed image-owned Jupyter kernel, so
+  do not invoke the virtual-environment interpreter directly. It never modifies
+  the source notebook: it prints the path of an executed copy under
   `jira_process/reports/notebook-runs/<unique-run>/` and removes temporary
   Jupyter state after execution.
 

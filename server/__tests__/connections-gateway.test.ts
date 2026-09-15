@@ -32,6 +32,7 @@ describe('OpenShellConnectionGateway', () => {
       resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
       'utf8',
     );
+    expect(profile).toMatch(/^id: jira-readonly\nresource_version: 1\n/);
     expect(profile).toContain('resource_version: 1');
     expect(profile).toContain('env_vars: [JIRA_API_TOKEN]');
     expect(profile).toContain('protocol: rest');
@@ -39,13 +40,11 @@ describe('OpenShellConnectionGateway', () => {
     expect(profile).toContain('tls: terminate');
     expect(profile).toContain('host: api.atlassian.com');
     expect(profile).toContain('path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/3/**');
-    expect(profile).toContain('/opt/mgmt-jira-venv/bin/python');
+    expect(profile).toContain('  - /usr/bin/python3\n  - /usr/bin/curl\n  - /usr/local/bin/curl\n');
+    expect(profile).not.toContain('/opt/mgmt-jira-venv/bin/python');
     expect(profile).not.toContain('credential_keys:');
     expect(profile).not.toContain('inspect_tls:');
     expect(() => validateJiraProfileYaml(profile)).not.toThrow();
-    expect(() =>
-      validateJiraProfileYaml(profile.replace('  - /opt/mgmt-jira-venv/bin/python\n', '')),
-    ).not.toThrow();
     expect(() =>
       validateJiraProfileYaml(
         profile
@@ -70,7 +69,7 @@ describe('OpenShellConnectionGateway', () => {
       ['tls: terminate', 'tls: passthrough'],
       ['inference_capable: false', 'inference_capable: true'],
       ['env_vars: [JIRA_API_TOKEN]', 'env_vars: [JIRA_TOKEN]'],
-      ['  - /opt/mgmt-jira-venv/bin/python', '  - /bin/sh'],
+      ['  - /usr/bin/python3', '  - /bin/sh'],
       [
         'method: GET, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
         'method: POST, path: /ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api/2/**',
@@ -143,24 +142,6 @@ describe('OpenShellConnectionGateway', () => {
     expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('lint');
     expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
     expect(runner.mock.calls[1]![0]).toContain('export');
-  });
-  it('accepts the exact legacy Jira policy after a runtime-image upgrade', async () => {
-    const current = readFileSync(
-      resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
-      'utf8',
-    );
-    const runner = vi
-      .fn()
-      .mockResolvedValueOnce(JSON.stringify([{ id: 'jira-readonly' }]))
-      .mockResolvedValueOnce(current.replace('  - /opt/mgmt-jira-venv/bin/python\n', ''));
-    const gateway = new OpenShellConnectionGateway(runner, {
-      workspace: 'default',
-      profilePath: resolve('infra/openshell/providers/mitzo-jira-readonly.yaml'),
-    });
-
-    await expect(gateway.verifyCompatibility(signal)).resolves.toBeUndefined();
-    expect(runner.mock.calls).toHaveLength(2);
-    expect(runner.mock.calls.flatMap((call) => call[0])).not.toContain('import');
   });
   it('fails closed when an existing profile differs from the reviewed policy', async () => {
     const runner = vi

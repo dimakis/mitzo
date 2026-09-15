@@ -3,6 +3,7 @@ set -euo pipefail
 
 workspace="${MITZO_MGMT_WORKDIR:-/sandbox/workspaces/mgmt}"
 runtime_root="${workspace}/jira_process"
+runtime_environment="/etc/mitzo-mgmt-jira.env"
 notebook="${1:-}"
 
 if [[ -z "$notebook" || $# -ne 1 ]]; then
@@ -82,11 +83,22 @@ trap cleanup EXIT
 export IPYTHONDIR="${transient}/ipython"
 export JUPYTER_RUNTIME_DIR="${transient}/runtime"
 mkdir -p "$IPYTHONDIR" "$JUPYTER_RUNTIME_DIR"
+if [[ ! -r "$runtime_environment" ]]; then
+  echo 'mgmt Jira runtime environment is unavailable' >&2
+  exit 2
+fi
+# This image-owned file is generated from the frozen environment at build time.
+# It replaces, rather than extends, any caller-controlled PYTHONPATH.
+# shellcheck source=/etc/mitzo-mgmt-jira.env
+. "$runtime_environment"
+export PYTHONPATH="$MGMT_JIRA_PYTHONPATH"
 
 # Jira credentials remain provider-injected environment placeholders; this
 # command never accepts or logs them. The source notebook is input-only: its
 # executed copy gets a unique, writable report location.
 name="${notebook##*/}"
 output_name="${name%.ipynb}.executed.ipynb"
-python -m jupyter nbconvert --to notebook --execute --output-dir "$run_dir" --output "$output_name" "$path"
+/usr/bin/python3 -m jupyter nbconvert --to notebook --execute \
+  --ExecutePreprocessor.kernel_name=mgmt-jira \
+  --output-dir "$run_dir" --output "$output_name" "$path"
 printf '%s\n' "${run_dir}/${output_name}"
