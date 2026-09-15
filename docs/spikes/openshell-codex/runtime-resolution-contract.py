@@ -11,6 +11,14 @@ import json
 import re
 import tomllib
 from pathlib import Path
+try:
+    from packaging.markers import default_environment
+    from packaging.requirements import Requirement
+    from packaging.specifiers import SpecifierSet
+except ModuleNotFoundError:  # Python's pip vendors the standards parser.
+    from pip._vendor.packaging.markers import default_environment
+    from pip._vendor.packaging.requirements import Requirement
+    from pip._vendor.packaging.specifiers import SpecifierSet
 
 
 def normalized_name(value):
@@ -38,66 +46,30 @@ def canonical_json_value(value):
     return value
 
 
-def marker_applies(marker, target_platform):
-    """Evaluate the platform-only lock markers relevant to this projection."""
-    if marker is None:
-        return True
-    if not isinstance(marker, str):
-        raise SystemExit("uv.lock dependency marker is malformed")
+def target_environment(target_platform):
     operating_system, architecture = target_platform.split("/", 1)
-    environment = {
+    return {
+        **default_environment(),
         "sys_platform": operating_system,
         "platform_system": {"linux": "Linux", "darwin": "Darwin", "win32": "Windows"}.get(operating_system, operating_system),
         "platform_machine": {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture),
     }
-    # Lock markers are conjunctions/disjunctions of quoted PEP 508 atoms. Be
-    # deliberately conservative for anything outside the platform keys: keep
-    # it in the contract rather than dropping a potentially installed edge.
-    def atom_matches(atom):
-        match = re.fullmatch(r"\s*(sys_platform|platform_system|platform_machine)\s*(==|!=)\s*['\"]([^'\"]+)['\"]\s*", atom)
-        if not match:
-            return True
-        key, operator, value = match.groups()
-        return (environment[key] == value) == (operator == "==")
-    return any(all(atom_matches(atom) for atom in clause.split(" and ")) for clause in marker.split(" or "))
-
-
 def parse_pep508_requirement(requirement, target_platform):
     """Extract a lock edge from a complete PEP 508 requirement.
 
-    `packaging` is intentionally not an undeclared build dependency of the
-    runtime image tooling. This small scanner accepts PEP 508's name, extras,
-    version-specifier, direct-reference, and marker forms while retaining only
-    the two fields uv.lock can use to qualify an edge (name and an exact ==
-    version). Other valid specifiers correlate by normalized name to the
-    already-resolved lock edge.
+    Use packaging's standards parser (or pip's vendored identical parser) so
+    grouping, extras, direct references, and PEP 440 specifiers retain uv's
+    own accepted semantics.
     """
     if not isinstance(requirement, str):
         raise SystemExit("unsupported dependency-group requirement")
-    specification, separator, marker = requirement.partition(";")
-    if separator and not marker_applies(marker.strip(), target_platform):
+    try:
+        parsed = Requirement(requirement)
+    except Exception as error:
+        raise SystemExit("unsupported dependency-group requirement") from error
+    if parsed.marker and not parsed.marker.evaluate(target_environment(target_platform)):
         return None
-    text = specification.strip()
-    name_match = re.match(r"[A-Za-z0-9][A-Za-z0-9_.-]*", text)
-    if not name_match:
-        raise SystemExit("unsupported dependency-group requirement")
-    name = name_match.group(0)
-    remainder = text[len(name):].lstrip()
-    if remainder.startswith("["):
-        close = remainder.find("]")
-        if close < 1 or not all(character.isalnum() or character in "._,- " for character in remainder[1:close]):
-            raise SystemExit("unsupported dependency-group requirement")
-        remainder = remainder[close + 1:].lstrip()
-    if remainder.startswith("@"):
-        if not remainder[1:].strip():
-            raise SystemExit("unsupported dependency-group requirement")
-        return {"name": normalized_name(name)}
-    if remainder:
-        if not all(character.isalnum() or character in ".!<>=~,*+_- \t" for character in remainder):
-            raise SystemExit("unsupported dependency-group requirement")
-        exact = re.search(r"(?:^|,)\s*==\s*([^,\s]+)", remainder)
-        return {"name": normalized_name(name), **({"version": exact.group(1)} if exact else {})}
-    return {"name": normalized_name(name)}
+    return {"name": normalized_name(parsed.name), **({"specifier": str(parsed.specifier)} if parsed.specifier else {})}
 
 
 def dependencies(value, target_platform):
@@ -108,12 +80,13 @@ def dependencies(value, target_platform):
             if edge:
                 result.append(edge)
         elif isinstance(dependency, dict) and isinstance(dependency.get("name"), str):
-            if marker_applies(dependency.get("marker"), target_platform):
+            marker = dependency.get("marker")
+            if not marker or Requirement(f"placeholder; {marker}").marker.evaluate(target_environment(target_platform)):
                 result.append({
                     key: value
                     for key, value in dependency.items()
                     if key != "marker"
-                } | {"name": normalized_name(dependency["name"])})
+                } | {"name": normalized_name(dependency["name"]), **({"specifier": f"=={dependency['version']}"} if 'version' in dependency else {})})
         else:
             raise SystemExit("unsupported uv.lock dependency entry")
     return result
@@ -121,9 +94,10 @@ def dependencies(value, target_platform):
 
 def qualified_candidates(by_name, edge):
     candidates = by_name.get(edge["name"], [])
-    for key in ("version", "source"):
-        if key in edge:
-            candidates = [candidate for candidate in candidates if candidate.get(key) == edge[key]]
+    if edge.get("specifier"):
+        candidates = [candidate for candidate in candidates if isinstance(candidate.get("version"), str) and SpecifierSet(edge["specifier"]).contains(candidate["version"], prereleases=True)]
+    if "source" in edge:
+        candidates = [candidate for candidate in candidates if candidate.get("source") == edge["source"]]
     if not candidates:
         raise SystemExit(f"uv.lock is missing selected dependency {edge['name']}")
     if len(candidates) != 1:
@@ -233,7 +207,8 @@ def main():
                     dependency
                     for dependency in package.get("dependencies", [])
                     if not isinstance(dependency, dict)
-                    or marker_applies(dependency.get("marker"), args.target_platform)
+                    or not dependency.get("marker")
+                    or Requirement(f"placeholder; {dependency['marker']}").marker.evaluate(target_environment(args.target_platform))
                 ]
                 selected.append(
                     {

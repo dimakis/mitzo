@@ -608,11 +608,12 @@ test -z "$(find "$workspace" \( -name '.env*' -o -name .npmrc -o -name .netrc -o
 # Create a fresh portable repository rather than copying the host's .git data.
 # This gives the isolated task ordinary diff/commit semantics without access to
 # host worktrees, hooks, remotes, credential helpers, or repository config.
-git -C "$workspace" init -q
-git -C "$workspace" config user.name 'Mitzo Sandbox'
-git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
-git -C "$workspace" add --all
-git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
+git_isolated=(git -c core.hooksPath=/dev/null -c init.templateDir= -c filter.required=false)
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" init -q
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" config user.name 'Mitzo Sandbox'
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" config user.email 'sandbox@mitzo.invalid'
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" add --all
+GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null "${git_isolated[@]}" -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
 
 SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" IS_DYNAMIC="$([[ "$dynamic_seed" = 1 || "$runtime_base_commit" != "$starting_commit" ]] && printf 1 || printf 0)" python3 - <<'PY'
 import hashlib, json, os, pathlib
