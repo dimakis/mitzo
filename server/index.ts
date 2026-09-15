@@ -897,6 +897,21 @@ function handleChatWs(
       const result = IncomingWsMessage.safeParse(parsed);
 
       if (!result.success) {
+        if (parsed?.type === 'permission_response' && typeof parsed.permId === 'string') {
+          try {
+            transport.send({
+              type: 'permission_response_rejected',
+              permId: parsed.permId,
+              error: 'Permission response was invalid or expired. Review the prompt and try again.',
+            });
+          } catch (error) {
+            log.warn('permission response error delivery failed', {
+              clientId,
+              permId: parsed.permId,
+              error,
+            });
+          }
+        }
         log.debug('unrecognized WS message', { clientId, type: parsed?.type });
         return;
       }

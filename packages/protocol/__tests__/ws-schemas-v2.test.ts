@@ -206,7 +206,8 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
   });
 
   it('validates nonblank answers without changing provider keys or values', () => {
-    const answers = { ' question ': [' option '] };
+    const opaqueId = 'x'.repeat(4001);
+    const answers = { '   ': [' option '], [opaqueId]: ['value'] };
     const r = V2PermissionResponseMessage.safeParse({
       type: 'permission_response',
       sessionId: 'sess-1',

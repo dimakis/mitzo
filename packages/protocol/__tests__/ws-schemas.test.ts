@@ -78,7 +78,8 @@ describe('WS message schemas', () => {
   });
 
   it('validates nonblank answers without changing provider keys or values', () => {
-    const answers = { ' question ': [' option '] };
+    const opaqueId = 'x'.repeat(4001);
+    const answers = { '   ': [' option '], [opaqueId]: ['value'] };
     const result = IncomingWsMessage.safeParse({
       type: 'permission_response',
       permId: 'p1',

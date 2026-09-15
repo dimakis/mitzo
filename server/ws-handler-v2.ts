@@ -911,6 +911,32 @@ export function handleInterruptV2(
   );
 }
 
+const PERMISSION_RESPONSE_REJECTED_MESSAGE =
+  'Permission response was invalid or expired. Review the prompt and try again.';
+
+function sendPermissionResponseRejected(
+  transport: SessionTransport | undefined,
+  connectionId: string,
+  permId: string,
+  sessionId?: string,
+) {
+  try {
+    transport?.send({
+      type: 'permission_response_rejected',
+      sessionId,
+      permId,
+      error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
+    });
+  } catch (error) {
+    log.warn('permission response error delivery failed', {
+      connectionId,
+      sessionId,
+      permId,
+      error,
+    });
+  }
+}
+
 export function handlePermissionResponseV2(
   connectionId: string,
   msg: PermissionMsg,
@@ -931,21 +957,12 @@ export function handlePermissionResponseV2(
         msg.sessionId,
       );
       if (!resolved) {
-        try {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            type: 'permission_response_rejected',
-            sessionId: msg.sessionId,
-            permId: msg.permId,
-            error: 'Permission response was invalid or expired. Review the prompt and try again.',
-          });
-        } catch (error) {
-          log.warn('permission response error delivery failed', {
-            connectionId,
-            sessionId: msg.sessionId,
-            permId: msg.permId,
-            error,
-          });
-        }
+        sendPermissionResponseRejected(
+          ctx.connRegistry.get(connectionId)?.transport,
+          connectionId,
+          msg.permId,
+          msg.sessionId,
+        );
       }
       log.info('permission_response', {
         connectionId,
@@ -1288,9 +1305,17 @@ export async function dispatchV2Message(
 
   const result = IncomingWsMessageV2.safeParse(parsed);
   if (!result.success) {
+    const candidate = parsed as Record<string, unknown>;
+    if (candidate?.type === 'permission_response' && typeof candidate.permId === 'string')
+      sendPermissionResponseRejected(
+        transport,
+        connectionId,
+        candidate.permId,
+        typeof candidate.sessionId === 'string' ? candidate.sessionId : undefined,
+      );
     log.debug('unrecognized v2 message', {
       connectionId,
-      type: (parsed as Record<string, unknown>)?.type,
+      type: candidate?.type,
     });
     return;
   }
@@ -1351,12 +1376,11 @@ export function scheduleV2Message(
 ): Promise<void> {
   let isControl = false;
   try {
-    const parsed = IncomingWsMessageV2.safeParse(JSON.parse(raw));
+    const rawMessage = JSON.parse(raw) as Record<string, unknown>;
+    const parsed = IncomingWsMessageV2.safeParse(rawMessage);
     isControl =
-      parsed.success &&
-      (parsed.data.type === 'stop' ||
-        parsed.data.type === 'interrupt' ||
-        parsed.data.type === 'permission_response');
+      rawMessage.type === 'permission_response' ||
+      (parsed.success && (parsed.data.type === 'stop' || parsed.data.type === 'interrupt'));
   } catch {
     // Malformed messages stay on the ordinary FIFO and are ignored by dispatch.
   }

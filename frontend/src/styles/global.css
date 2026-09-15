@@ -3373,6 +3373,7 @@ textarea:focus {
 }
 .perm-banner-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
