@@ -21,7 +21,10 @@ def dependency_names(value):
     result = []
     for dependency in value or []:
         if isinstance(dependency, str):
-            result.append(normalized_name(dependency.split("[", 1)[0].split(";", 1)[0].split()[0]))
+            match = re.match(r"[A-Za-z0-9_.-]+", dependency)
+            if not match:
+                raise SystemExit("unsupported dependency-group requirement")
+            result.append(normalized_name(match.group(0)))
         elif isinstance(dependency, dict) and isinstance(dependency.get("name"), str):
             result.append(normalized_name(dependency["name"]))
         else:
@@ -64,11 +67,30 @@ def main():
     roots = by_name.get(root_name, [])
     if len(roots) != 1:
         raise SystemExit("uv.lock must contain exactly one root project package")
+    pyproject = tomllib.loads(Path(args.pyproject).read_text())
+    uv_config = pyproject.get("tool", {}).get("uv", {})
+    if not isinstance(uv_config, dict):
+        raise SystemExit("pyproject.toml tool.uv is malformed")
+    default_groups = uv_config.get("default-groups", ["dev"])
+    if not isinstance(default_groups, list) or not all(isinstance(group, str) for group in default_groups):
+        raise SystemExit("pyproject.toml tool.uv.default-groups is malformed")
+    dependency_groups = pyproject.get("dependency-groups", {})
+    if not isinstance(dependency_groups, dict):
+        raise SystemExit("pyproject.toml dependency-groups is malformed")
+    selected_groups = {group: dependency_groups.get(group, []) for group in sorted(default_groups) if group != "dev"}
+    if not all(isinstance(values, list) for values in selected_groups.values()):
+        raise SystemExit("selected dependency group is malformed")
 
     # uv sync --no-dev starts at the root's ordinary dependencies.  Do not
     # traverse dependency-groups/dev-dependencies, but retain each selected
     # package verbatim so markers, sources, URLs and wheels stay meaningful.
-    selected_names, pending = {root_name}, dependency_names(roots[0].get("dependencies"))
+    selected_names = {root_name}
+    pending = dependency_names(roots[0].get("dependencies"))
+    # `uv sync --no-dev` still installs explicitly selected non-dev default
+    # groups. Include their full lock closures, not just their names in
+    # metadata, so a source/version/artifact change cannot evade the contract.
+    for values in selected_groups.values():
+        pending.extend(dependency_names(values))
     while pending:
         name = pending.pop()
         if name in selected_names:
@@ -83,22 +105,6 @@ def main():
     for name in sorted(selected_names):
         selected.extend(by_name[name])
     selected.sort(key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")))
-    uv_config = (tomllib.loads(Path(args.pyproject).read_text()).get("tool", {}).get("uv", {}))
-    if not isinstance(uv_config, dict):
-        raise SystemExit("pyproject.toml tool.uv is malformed")
-    default_groups = uv_config.get("default-groups", ["dev"])
-    if not isinstance(default_groups, list) or not all(isinstance(group, str) for group in default_groups):
-        raise SystemExit("pyproject.toml tool.uv.default-groups is malformed")
-    dependency_groups = tomllib.loads(Path(args.pyproject).read_text()).get("dependency-groups", {})
-    if not isinstance(dependency_groups, dict):
-        raise SystemExit("pyproject.toml dependency-groups is malformed")
-    selected_groups = {
-        group: dependency_groups.get(group, [])
-        for group in sorted(default_groups)
-        if group != "dev"
-    }
-    if not all(isinstance(values, list) for values in selected_groups.values()):
-        raise SystemExit("selected dependency group is malformed")
     contract = {
         "schemaVersion": 1,
         "install": {"command": "uv sync --frozen --no-dev --no-install-project"},

@@ -965,7 +965,7 @@ it('rejects a changed default dependency group that alters the runtime install s
   mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
   writeRuntimeInputs(
     source,
-    [],
+    ['requests==2.32.5'],
     '\n[dependency-groups]\nruntime = ["requests==2.32.5"]\n\n[tool.uv]\ndefault-groups = ["runtime"]\n',
   );
   execFileSync('git', ['init', '-q', source]);

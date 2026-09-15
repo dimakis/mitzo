@@ -46,8 +46,11 @@ cp "$repo_root/node_modules/contexgin/package.json" "$context/contexgin/package.
 cp -R "$repo_root/node_modules/contexgin/dist/." "$context/contexgin/dist/"
 cp "$mgmt_repo/pyproject.toml" "$context/pyproject.toml"
 cp "$mgmt_repo/uv.lock" "$context/uv.lock"
+# Resolve only the disposable build context. This is the approved one-time
+# image/lock migration path; it never rewrites the checked-in production lock.
+(cd "$context" && UV_CACHE_DIR="$context/.uv-cache" uv lock)
 # This is a checked-in-lock projection, not a fresh host resolution.  The
-# Dockerfile validates the same inputs with `uv lock --locked` before syncing.
+# Dockerfile validates these exact resolved context inputs before syncing.
 target_platform="$(podman image inspect "$base_image" --format '{{.Os}}/{{.Architecture}}')"
 if [[ ! "$target_platform" =~ ^[a-z0-9]+/[a-z0-9][a-z0-9._-]*$ ]]; then
   echo 'could not determine an explicit runtime target platform from the pinned base image' >&2

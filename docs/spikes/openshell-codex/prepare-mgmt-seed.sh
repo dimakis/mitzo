@@ -107,7 +107,7 @@ case "$lock_result" in
     ;;
 esac
 trap cleanup EXIT
-test ! -e "$output_root" || { echo 'output already exists' >&2; exit 2; }
+test ! -e "$output_root" && test ! -L "$output_root" || { echo 'output already exists' >&2; exit 2; }
 build_root="$(mktemp -d "$output_parent/.${output_name}.tmp.XXXXXX")"
 workspace="$build_root/mgmt"
 baseline="$build_root/baseline.json"
@@ -614,7 +614,7 @@ PY
 # The versioned destination is not visible until its contents, portable Git
 # repository, and baseline have all been created and validated. The mgmt updater
 # owns switching its separate `current` symlink after this script returns.
-test ! -e "$output_root" || {
+test ! -e "$output_root" && test ! -L "$output_root" || {
   echo 'output was created while the seed was being prepared' >&2
   exit 2
 }
