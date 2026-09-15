@@ -133,6 +133,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       .map((record) => [record.physicalSandboxId!, record]),
   );
   const groups = new Map<string, OpenShellLifecycleRecord>();
+  const routedProviders = new Set<string>();
+  const providerOnlyScopes = new Set<string>();
   const seen = new Set<string>();
   const sandboxes: Array<ReturnType<typeof lifecycleInventoryRow>> = [];
   const scopes: Array<Record<string, string>> = [];
@@ -148,7 +150,23 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       seen.add(record.physicalSandboxId ?? record.sandboxName);
     } else if (!groups.has(JSON.stringify(record.identity.route))) {
       groups.set(JSON.stringify(record.identity.route), record);
+      routedProviders.add(record.accountProvider);
     }
+  }
+  try {
+    for (const provider of configured.sources.accountProviders?.() ?? []) {
+      if (!routedProviders.has(provider)) providerOnlyScopes.add(provider);
+    }
+  } catch (error) {
+    log.warn('OpenShell configured provider inventory unavailable', {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    scopes.push({
+      provider: 'configured',
+      workspace: configured.config.workspace,
+      status: 'unavailable',
+      error: PROVIDER_INVENTORY_UNAVAILABLE,
+    });
   }
   for (const routeRecord of groups.values()) {
     const routeKey = JSON.stringify(routeRecord.identity!.route);
@@ -194,6 +212,34 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       }
     }
   }
+  // Account profiles are authoritative even before a lifecycle row exists.
+  // Query recordless providers so sandboxes created before registration (or
+  // before lifecycle tracking existed) are surfaced as orphaned.
+  for (const provider of providerOnlyScopes) {
+    try {
+      const physical = await managerForProvider(provider).inventory(signal);
+      scopes.push({ provider, workspace: configured.config.workspace, status: 'available' });
+      for (const sandbox of physical) {
+        const key = sandbox.id ?? `${configured.config.workspace}:${sandbox.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        sandboxes.push(lifecycleInventoryRow(undefined, sandbox, 'orphaned', provider));
+      }
+    } catch (error) {
+      if (signal.aborted) throw error;
+      log.warn('OpenShell lifecycle inventory unavailable', {
+        provider,
+        workspace: configured.config.workspace,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
+      scopes.push({
+        provider,
+        workspace: configured.config.workspace,
+        status: 'unavailable',
+        error: PROVIDER_INVENTORY_UNAVAILABLE,
+      });
+    }
+  }
   for (const record of records) {
     const key = record.physicalSandboxId ?? record.sandboxName;
     if (!seen.has(key)) sandboxes.push(lifecycleInventoryRow(record, undefined, 'missing'));
@@ -211,13 +257,15 @@ function lifecycleInventoryRow(
   record: OpenShellLifecycleRecord | undefined,
   sandbox: { id?: string; name: string; phase: string; workspace?: string } | undefined,
   status: 'verified' | 'orphaned' | 'unavailable' | 'missing',
+  providerOverride?: string,
 ) {
   const now = Date.now();
   return {
     status,
     name: sandbox?.name ?? record?.sandboxName ?? 'unknown',
     physicalId: sandbox?.id ?? record?.physicalSandboxId ?? null,
-    provider: record?.identity?.route.provider ?? record?.accountProvider ?? 'unknown',
+    provider:
+      record?.identity?.route.provider ?? record?.accountProvider ?? providerOverride ?? 'unknown',
     conversationId: record?.conversationId ?? null,
     workspace: sandbox?.workspace ?? record?.workspace ?? null,
     runtimePhase: sandbox?.phase ?? null,

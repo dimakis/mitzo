@@ -418,6 +418,22 @@ describe('OpenShell lifecycle destructive authorization', () => {
     expect(consent.status).toBe(200);
     expect(lifecycle.setRetentionConsent).toHaveBeenCalledWith('conversation', true);
   });
+
+  it('never returns raw lifecycle provider diagnostics to an operator', async () => {
+    const lifecycle = lifecycleService();
+    vi.mocked(lifecycle.preview).mockRejectedValue(
+      new Error('Bearer secret-token grant-123 https://provider.invalid/raw-response'),
+    );
+    setOpenShellLifecycleService(lifecycle);
+
+    const response = await request(app)
+      .get('/api/openshell/lifecycle/conversation/preview')
+      .set('Cookie', authCookie);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'openshell_lifecycle_preview_failed' });
+    expect(JSON.stringify(response.body)).not.toMatch(/secret-token|grant-123|provider\.invalid/);
+  });
 });
 
 // --- Security: CSP Headers ---

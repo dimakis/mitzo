@@ -3,10 +3,28 @@ import {
   OpenShellCapacityAdmission,
   OpenShellCapacityCollector,
   OpenShellCapacityError,
+  openShellCapacityEnabled,
   openShellCapacityPolicy,
 } from '../openshell-capacity.js';
 
 const signal = () => new AbortController().signal;
+
+it('keeps capacity admission behind an explicit rollout with an authoritative path', () => {
+  expect(openShellCapacityEnabled({})).toBe(false);
+  expect(openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: '0' })).toBe(false);
+  expect(
+    openShellCapacityEnabled({
+      MITZO_OPENSHELL_CAPACITY_ENABLED: '1',
+      MITZO_OPENSHELL_CAPACITY_PATH: '/podman/storage',
+    }),
+  ).toBe(true);
+  expect(() => openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: '1' })).toThrow(
+    'MITZO_OPENSHELL_CAPACITY_PATH',
+  );
+  expect(() => openShellCapacityEnabled({ MITZO_OPENSHELL_CAPACITY_ENABLED: 'yes' })).toThrow(
+    'must be 0 or 1',
+  );
+});
 
 it('keeps Podman usage/reclaimable separate from authoritative filesystem free capacity', async () => {
   const collector = new OpenShellCapacityCollector('/', {

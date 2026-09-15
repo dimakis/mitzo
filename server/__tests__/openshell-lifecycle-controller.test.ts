@@ -566,6 +566,62 @@ it('counts configured recordless providers once while retaining partial inventor
   }
 });
 
+it('discovers orphaned sandboxes from configured providers without lifecycle records', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-orphans-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
+    .mockResolvedValue([{ id: 'orphan-id', name: 'mitzo-orphan', phase: 'Ready' as const }]);
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+      accountProviders: () => ['openai-work'],
+    },
+  )!;
+  try {
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: true,
+      partial: false,
+      scopes: [{ provider: 'openai-work', workspace: 'default', status: 'available' }],
+      sandboxes: [
+        {
+          status: 'orphaned',
+          physicalId: 'orphan-id',
+          provider: 'openai-work',
+          conversationId: null,
+          capabilities: { lifecycleActions: 'unsupported' },
+        },
+      ],
+    });
+  } finally {
+    inventory.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('keeps raw provider and lifecycle diagnostics out of operator inventory', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-redaction-'));
   const policy = join(directory, 'policy.yaml');

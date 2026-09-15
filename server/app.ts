@@ -682,11 +682,15 @@ const lifecycleActor = (res: express.Response) =>
   res.locals.authSession?.id && typeof res.locals.authSession.id === 'string'
     ? `session:${res.locals.authSession.id}`
     : 'internal';
-const lifecycleError = (error: unknown) =>
-  (error instanceof Error ? error.message : String(error))
-    .replace(/(?:\/[^\s:]+)+/g, '<path>')
-    .replace(/https?:\/\/[^\s]+/g, '<endpoint>')
-    .slice(0, 180);
+const operatorFailureCode = (code: string, error: unknown) => {
+  // Provider and CLI exception text is intentionally server-only: it can carry
+  // bearer tokens, grant IDs, response bodies, paths, or remote endpoints.
+  log.warn('OpenShell operator request failed', {
+    code,
+    errorType: error instanceof Error ? error.name : typeof error,
+  });
+  return code;
+};
 const safePreview = (preview: Awaited<ReturnType<OpenShellLifecycleService['preview']>>) => ({
   token: preview.token,
   expiresAt: preview.expiresAt,
@@ -715,11 +719,12 @@ app.get('/api/openshell/inventory', async (_req, res) => {
     // inventory result. A mixed result remains available+partial and returns 200.
     res.status(inventory.available ? 200 : 503).json(inventory);
   } catch (error) {
+    const code = operatorFailureCode('openshell_inventory_unavailable', error);
     res.status(503).json({
       available: false,
       partial: false,
       sandboxes: [],
-      scopes: [{ status: 'unavailable', error: lifecycleError(error) }],
+      scopes: [{ status: 'unavailable', error: code }],
     });
   }
 });
@@ -738,7 +743,11 @@ app.get('/api/openshell/capacity', async (_req, res) => {
       .status(status.filesystem.available ? 200 : 503)
       .json({ available: status.filesystem.available, ...status });
   } catch (error) {
-    res.status(503).json({ available: false, state: 'unavailable', error: lifecycleError(error) });
+    res.status(503).json({
+      available: false,
+      state: 'unavailable',
+      error: operatorFailureCode('openshell_capacity_unavailable', error),
+    });
   }
 });
 app.get('/api/openshell/lifecycle/audit', (_req, res) => {
@@ -767,6 +776,7 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
     });
     res.json(safePreview(preview));
   } catch (error) {
+    const code = operatorFailureCode('openshell_lifecycle_preview_failed', error);
     recordOpenShellLifecycleAudit({
       at: Date.now(),
       actor: lifecycleActor(res),
@@ -775,11 +785,9 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
       generation: null,
       action: 'preview',
       outcome: 'failed',
-      error: lifecycleError(error),
+      error: code,
     });
-    res.status(409).json({
-      error: lifecycleError(error) || 'OpenShell lifecycle preview failed',
-    });
+    res.status(409).json({ error: code });
   }
 });
 app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req, res) => {
@@ -817,6 +825,7 @@ app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req,
     });
     res.json({ action });
   } catch (error) {
+    const code = operatorFailureCode('openshell_lifecycle_confirmation_failed', error);
     recordOpenShellLifecycleAudit({
       at: Date.now(),
       actor: lifecycleActor(res),
@@ -825,11 +834,9 @@ app.post('/api/openshell/lifecycle/confirm', operatorAuthMiddleware, async (req,
       generation: target?.generation ?? null,
       action: 'confirm',
       outcome: 'failed',
-      error: lifecycleError(error),
+      error: code,
     });
-    res.status(409).json({
-      error: lifecycleError(error) || 'OpenShell lifecycle confirmation failed',
-    });
+    res.status(409).json({ error: code });
   }
 });
 app.post(
@@ -885,6 +892,7 @@ app.post(
       });
       res.json({ enabled: req.body.enabled });
     } catch (error) {
+      const code = operatorFailureCode('openshell_retention_consent_failed', error);
       recordOpenShellLifecycleAudit({
         at: Date.now(),
         actor: lifecycleActor(res),
@@ -893,9 +901,9 @@ app.post(
         generation: before?.generation ?? null,
         action: 'consent',
         outcome: 'failed',
-        error: lifecycleError(error),
+        error: code,
       });
-      res.status(409).json({ error: lifecycleError(error) || 'Retention consent failed' });
+      res.status(409).json({ error: code });
     }
   },
 );

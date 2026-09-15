@@ -42,6 +42,17 @@ export function openShellCapacityPolicy(env: NodeJS.ProcessEnv): OpenShellCapaci
   return { warningFreePercent, hardFreePercent, recoverFreePercent };
 }
 
+export function openShellCapacityEnabled(env: NodeJS.ProcessEnv) {
+  const raw = env.MITZO_OPENSHELL_CAPACITY_ENABLED;
+  if (raw === undefined || raw === '' || raw === '0') return false;
+  if (raw !== '1') throw new Error('MITZO_OPENSHELL_CAPACITY_ENABLED must be 0 or 1');
+  if (!env.MITZO_OPENSHELL_CAPACITY_PATH?.trim())
+    throw new Error(
+      'MITZO_OPENSHELL_CAPACITY_PATH is required when OpenShell capacity admission is enabled',
+    );
+  return true;
+}
+
 function scrub(value: unknown) {
   const text = value instanceof Error ? value.message : String(value);
   return text

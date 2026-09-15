@@ -85,6 +85,7 @@ import {
 import {
   OpenShellCapacityAdmission,
   OpenShellCapacityCollector,
+  openShellCapacityEnabled,
   configureOpenShellCapacityAdmission,
   openShellCapacityPolicy,
 } from './openshell-capacity.js';
@@ -186,9 +187,9 @@ setConnectionRegistry(connRegistry);
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
 const lifecycleEnabled = configuredOpenShellRuntime && openShellLifecycleEnabled(process.env);
 configureOpenShellCapacityAdmission(
-  configuredOpenShellRuntime
+  configuredOpenShellRuntime && openShellCapacityEnabled(process.env)
     ? new OpenShellCapacityAdmission(
-        new OpenShellCapacityCollector(process.env.MITZO_OPENSHELL_CAPACITY_PATH),
+        new OpenShellCapacityCollector(process.env.MITZO_OPENSHELL_CAPACITY_PATH!.trim()),
         openShellCapacityPolicy(process.env),
       )
     : undefined,
