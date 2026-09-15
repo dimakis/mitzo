@@ -794,25 +794,23 @@ it('matches physical inventory only to records from the queried provider', async
   writeFileSync(policy, 'reviewed: policy\n');
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
   vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const providerInventory = (provider: string) => [
+    {
+      id: 'shared-id',
+      name: 'shared-name',
+      phase: 'Ready' as const,
+      workspace: 'default',
+      labels: {
+        'mitzo.conversation': createHash('sha256').update(`${provider}-conversation`).digest('hex'),
+        'mitzo.account_provider': provider,
+      },
+    },
+  ];
   const inventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
-    .mockImplementation(function () {
-      const provider = (this as unknown as { config: { account: { provider: string } } }).config
-        .account.provider;
-      const conversation = `${provider}-conversation`;
-      return Promise.resolve([
-        {
-          id: 'shared-id',
-          name: 'shared-name',
-          phase: 'Ready' as const,
-          workspace: 'default',
-          labels: {
-            'mitzo.conversation': createHash('sha256').update(conversation).digest('hex'),
-            'mitzo.account_provider': provider,
-          },
-        },
-      ]);
-    });
+    .mockResolvedValue(providerInventory('provider-two'))
+    .mockResolvedValueOnce(providerInventory('provider-one'))
+    .mockResolvedValueOnce(providerInventory('provider-two'));
   const allInventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
     .mockResolvedValue([]);
