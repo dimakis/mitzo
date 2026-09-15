@@ -11,6 +11,8 @@ const PERSONAL_WORKSPACE_DATA =
   /\b(?:my|our|your)\s+(?:emails?|mail|inbox|calendar|documents?|drive|sheets?|spreadsheets?)\b/gi;
 const GENERIC_EMAIL = /\b(?:emails?|mail|inbox)\b/gi;
 const GENERIC_CALENDAR = /\bcalendar\b/gi;
+const PERSONAL_MAIL = /\b(?:my|our|your)\s+(?:emails?|mail|inbox)\b/gi;
+const PERSONAL_CALENDAR = /\b(?:my|our|your)\s+calendar\b/gi;
 
 const READ_ACTION =
   /\b(?:access(?:ing|ed)?|check(?:ing|ed)?|find(?:ing)?|fetch(?:ing|ed)?|get(?:ting)?|inspect(?:ing|ed)?|list(?:ing|ed)?|look\s+(?:at|in|through)|open(?:ing|ed)?|quer(?:y|ying|ied)|read(?:ing)?|retriev(?:e|ing|ed)|scan(?:ning|ned)?|search(?:ing|ed)?|show(?:ing|n)?|summari[sz](?:e|ing|ed)|use|using|used|view(?:ing|ed)?)\b/gi;
@@ -44,6 +46,7 @@ const GOOGLE_SERVICE_API_COMMAND = new RegExp(
 const CAPABILITY_HOW_TO = /\bhow\s+(?:to|do|can|should)\b/i;
 const CAPABILITY_WHAT_CAN_USE = /\bwhat\s+can\s+(?:i|we|you)\s+use\b/i;
 const CONTENT_SEARCH_TARGET = /\b(?:mentions?|occurrences?|references?|strings?|usages?)\b/i;
+const QUOTED_TEXT = /“[^”]*”|‘[^’]*’|"[^"]*"|`[^`]*`|(?<![\p{L}\p{N}])'[^'\n]+'/gu;
 
 function requestClauses(prompt: string): string[] {
   return prompt
@@ -69,13 +72,25 @@ function hasActionForResource(
   actionPattern = WORKSPACE_ACTION,
   isTechnicalArtifact?: (clause: string, target: RegExpMatchArray) => boolean,
 ): boolean {
+  return matchingActionsForResource(clause, resource, actionPattern, isTechnicalArtifact).some(
+    ({ negated }) => !negated,
+  );
+}
+
+function matchingActionsForResource(
+  clause: string,
+  resource: RegExp,
+  actionPattern = WORKSPACE_ACTION,
+  isTechnicalArtifact?: (clause: string, target: RegExpMatchArray) => boolean,
+): Array<{ index: number; negated: boolean }> {
+  const matches: Array<{ index: number; negated: boolean }> = [];
   resource.lastIndex = 0;
   actionPattern.lastIndex = 0;
   for (const action of clause.matchAll(actionPattern)) {
     for (const target of clause.matchAll(resource)) {
       if (target.index === undefined || action.index === undefined) continue;
       if (isTechnicalArtifact?.(clause, target)) continue;
-      if (isNegatedAction(clause, action.index)) continue;
+      if (isQuotedText(clause, action.index) || isQuotedText(clause, target.index)) continue;
       if (isCapabilityHowTo(clause, action, target)) continue;
       const between =
         action.index < target.index
@@ -83,8 +98,17 @@ function hasActionForResource(
           : clause.slice(target.index + target[0].length, action.index);
       if (wordCount(between) > 6 || /\b(?:about|documentation|docs?|and|or)\b/i.test(between))
         continue;
-      return true;
+      matches.push({ index: action.index, negated: isNegatedAction(clause, action.index) });
     }
+  }
+  return matches;
+}
+
+function isQuotedText(clause: string, index: number): boolean {
+  QUOTED_TEXT.lastIndex = 0;
+  for (const quoted of clause.matchAll(QUOTED_TEXT)) {
+    const start = quoted.index ?? 0;
+    if (index >= start && index < start + quoted[0].length) return true;
   }
   return false;
 }
@@ -160,22 +184,40 @@ function isContentSearchArtifact(clause: string, target: RegExpMatchArray): bool
   );
 }
 
-function hasExplicitGoogleWorkspaceIntent(clause: string): boolean {
-  return (
-    hasActionForResource(
+function explicitGoogleServiceStates(clause: string): Map<string, boolean> {
+  const states = new Map<string, boolean>();
+  EXPLICIT_GOOGLE_SERVICE.lastIndex = 0;
+  for (const target of clause.matchAll(EXPLICIT_GOOGLE_SERVICE)) {
+    const name = explicitServiceIdentity(target[0]);
+    const resource = new RegExp(`\\b${escapeRegExp(target[0])}\\b`, 'gi');
+    const matches = matchingActionsForResource(
       clause,
-      EXPLICIT_GOOGLE_SERVICE,
+      resource,
       WORKSPACE_ACTION,
       isExplicitGoogleServiceArtifact,
-    ) || hasActiveGoogleServiceApiOperation(clause)
-  );
+    );
+    if (GOOGLE_SERVICE_API_TRANSPORT.test(clause) || GOOGLE_SERVICE_API_COMMAND.test(clause))
+      matches.push(...matchingActionsForResource(clause, resource, API_DATA_ACTION));
+    if (!matches.length) continue;
+    const latest = matches.reduce((last, match) => (match.index > last.index ? match : last));
+    states.set(name, !latest.negated);
+  }
+  return states;
 }
 
-function hasActiveGoogleServiceApiOperation(clause: string): boolean {
-  return (
-    hasActionForResource(clause, EXPLICIT_GOOGLE_SERVICE, API_DATA_ACTION) &&
-    (GOOGLE_SERVICE_API_TRANSPORT.test(clause) || GOOGLE_SERVICE_API_COMMAND.test(clause))
-  );
+function explicitServiceIdentity(service: string): string {
+  const normalized = service.toLowerCase().replace(/\s+/g, ' ');
+  if (normalized === 'gmail' || normalized === 'google mail') return 'mail';
+  if (normalized === 'gws' || normalized === 'google workspace') return 'workspace';
+  if (normalized === 'google drive') return 'drive';
+  if (normalized === 'google docs' || normalized === 'google doc') return 'docs';
+  if (normalized === 'google sheets' || normalized === 'google sheet') return 'sheets';
+  if (normalized === 'google calendar') return 'calendar';
+  return normalized;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function hasClearGenericEmailOrCalendarTarget(clause: string): boolean {
@@ -217,6 +259,29 @@ function hasGenericWorkspaceIntent(clause: string): boolean {
   );
 }
 
+function genericPersonalDataStates(clause: string): Map<'mail' | 'calendar', boolean> {
+  const states = new Map<'mail' | 'calendar', boolean>();
+  for (const [identity, resource] of [
+    ['mail', PERSONAL_MAIL],
+    ['calendar', PERSONAL_CALENDAR],
+  ] as const) {
+    const matches = matchingActionsForResource(
+      clause,
+      resource,
+      GENERIC_WORKSPACE_DATA_ACTION,
+      isGenericWorkspaceArtifact,
+    );
+    if (!matches.length) continue;
+    const latest = matches.reduce((last, match) => (match.index > last.index ? match : last));
+    states.set(identity, !latest.negated);
+  }
+  if (/\bwhat(?:'s|\s+is)\s+on\s+(?:my|our|your)\s+calendar\b/i.test(clause))
+    states.set('calendar', true);
+  if (/\bany\s+(?:new\s+)?(?:emails?|mail)\s+(?:from|by|about|to)\b/i.test(clause))
+    states.set('mail', true);
+  return states;
+}
+
 /**
  * Maps a user's ordinary request to integrations that must be attached before
  * model execution. Keep this conservative: asking to draft an email or discuss
@@ -228,9 +293,31 @@ export function requestedIntegrationProviders(
 ): string[] {
   if (!grantableProviders.includes(GOOGLE_WORKSPACE)) return [];
 
-  const asksForWorkspaceData = requestClauses(prompt).some(
-    (clause) => hasExplicitGoogleWorkspaceIntent(clause) || hasGenericWorkspaceIntent(clause),
-  );
+  const activeExplicitServices = new Set<string>();
+  const activeGenericPersonalData = new Set<'mail' | 'calendar'>();
+  let workspaceAccessRefused = false;
+  let asksForOtherGenericWorkspaceData = false;
+  for (const clause of requestClauses(prompt)) {
+    for (const [service, affirmative] of explicitGoogleServiceStates(clause)) {
+      if (service === 'workspace' && !affirmative) {
+        workspaceAccessRefused = true;
+        activeExplicitServices.clear();
+      } else if (affirmative) activeExplicitServices.add(service);
+      else activeExplicitServices.delete(service);
+    }
+    const genericStates = genericPersonalDataStates(clause);
+    for (const [resource, affirmative] of genericStates) {
+      if (affirmative) activeGenericPersonalData.add(resource);
+      else activeGenericPersonalData.delete(resource);
+    }
+    if (!genericStates.size && hasGenericWorkspaceIntent(clause))
+      asksForOtherGenericWorkspaceData = true;
+  }
 
-  return asksForWorkspaceData ? [GOOGLE_WORKSPACE] : [];
+  return !workspaceAccessRefused &&
+    (activeExplicitServices.size ||
+      activeGenericPersonalData.size ||
+      asksForOtherGenericWorkspaceData)
+    ? [GOOGLE_WORKSPACE]
+    : [];
 }
