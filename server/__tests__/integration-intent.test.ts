@@ -34,6 +34,8 @@ describe('requestedIntegrationProviders', () => {
     'copy a file via the Google Drive API',
     'write this using the Google Docs API',
     'use the Google Drive API to list files',
+    "Don't edit the code, just search Gmail for Cat",
+    'Fix the Gmail handler and then search Gmail for Cat',
   ])('recognizes Google Workspace access intent in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });

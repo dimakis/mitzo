@@ -32,14 +32,6 @@ const GENERIC_WORKSPACE_DATA_ACTION = new RegExp(
 // must still request account access.
 const TECHNICAL_ARTIFACT =
   '(?:api|backend|code|codebase|component|css|database|docs?|documentation|endpoint|frontend|handler|html|implementation|module|parser|repository|repo|schema|source|test(?:s|ing)?|ui)';
-const EXPLICIT_GOOGLE_SERVICE_ARTIFACT = new RegExp(
-  `\\b(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+${TECHNICAL_ARTIFACT}\\b|\\b${TECHNICAL_ARTIFACT}\\s+(?:for|about|of|using|with)\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\b`,
-  'i',
-);
-const GENERIC_WORKSPACE_ARTIFACT = new RegExp(
-  `\\b(?:emails?|mail|inbox|calendar)\\s+${TECHNICAL_ARTIFACT}\\b`,
-  'i',
-);
 const API_DATA_ACTION = new RegExp(`${READ_ACTION.source}|${WRITE_ACTION.source}`, 'gi');
 const GOOGLE_SERVICE_API_TRANSPORT = new RegExp(
   '\\b(?:via|through|with|using)\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+api\\b',
@@ -72,12 +64,14 @@ function hasActionForResource(
   clause: string,
   resource: RegExp,
   actionPattern = WORKSPACE_ACTION,
+  isTechnicalArtifact?: (clause: string, target: RegExpMatchArray) => boolean,
 ): boolean {
   resource.lastIndex = 0;
   actionPattern.lastIndex = 0;
   for (const action of clause.matchAll(actionPattern)) {
     for (const target of clause.matchAll(resource)) {
       if (target.index === undefined || action.index === undefined) continue;
+      if (isTechnicalArtifact?.(clause, target)) continue;
       if (isNegatedAction(clause, action.index)) continue;
       const between =
         action.index < target.index
@@ -96,16 +90,45 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   // as governing later coordinated verbs until a sentence or contrast boundary
   // starts a new clause; ambiguous coordination must not request access.
   const lead = clause.slice(Math.max(0, actionIndex - 120), actionIndex);
+  // A comma followed by an explicit limiter starts a fresh affirmative action
+  // phrase ("don't edit code, just search Gmail"). A bare comma remains
+  // ambiguous and therefore stays inside the refusal scope.
+  let resetEnd = 0;
+  for (const reset of lead.matchAll(/(?:^|,)\s*(?:just|instead|rather)\s*/gi))
+    resetEnd = (reset.index ?? 0) + reset[0].length;
+  const scopedLead = lead.slice(resetEnd);
   return (
-    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid)\b/i.test(lead) ||
-    /\brefrain\s+from\b/i.test(lead)
+    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid)\b/i.test(
+      scopedLead,
+    ) || /\brefrain\s+from\b/i.test(scopedLead)
   );
+}
+
+function isExplicitGoogleServiceArtifact(clause: string, target: RegExpMatchArray): boolean {
+  const start = target.index!;
+  const end = start + target[0].length;
+  return (
+    new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end)) ||
+    new RegExp(
+      `\\b${TECHNICAL_ARTIFACT}\\s+(?:for|about|of|using|with)\\s+(?:the\\s+)?$`,
+      'i',
+    ).test(clause.slice(0, start))
+  );
+}
+
+function isGenericWorkspaceArtifact(clause: string, target: RegExpMatchArray): boolean {
+  const end = target.index! + target[0].length;
+  return new RegExp(`^\\s+${TECHNICAL_ARTIFACT}\\b`, 'i').test(clause.slice(end));
 }
 
 function hasExplicitGoogleWorkspaceIntent(clause: string): boolean {
   return (
-    hasActionForResource(clause, EXPLICIT_GOOGLE_SERVICE) &&
-    (!EXPLICIT_GOOGLE_SERVICE_ARTIFACT.test(clause) || hasActiveGoogleServiceApiOperation(clause))
+    hasActionForResource(
+      clause,
+      EXPLICIT_GOOGLE_SERVICE,
+      WORKSPACE_ACTION,
+      isExplicitGoogleServiceArtifact,
+    ) || hasActiveGoogleServiceApiOperation(clause)
   );
 }
 
@@ -133,11 +156,25 @@ function hasClearGenericEmailOrCalendarTarget(clause: string): boolean {
 
 function hasGenericWorkspaceIntent(clause: string): boolean {
   return (
-    !GENERIC_WORKSPACE_ARTIFACT.test(clause) &&
     hasClearGenericEmailOrCalendarTarget(clause) &&
-    (hasActionForResource(clause, PERSONAL_WORKSPACE_DATA, GENERIC_WORKSPACE_DATA_ACTION) ||
-      hasActionForResource(clause, GENERIC_EMAIL, GENERIC_WORKSPACE_DATA_ACTION) ||
-      hasActionForResource(clause, GENERIC_CALENDAR, GENERIC_WORKSPACE_DATA_ACTION))
+    (hasActionForResource(
+      clause,
+      PERSONAL_WORKSPACE_DATA,
+      GENERIC_WORKSPACE_DATA_ACTION,
+      isGenericWorkspaceArtifact,
+    ) ||
+      hasActionForResource(
+        clause,
+        GENERIC_EMAIL,
+        GENERIC_WORKSPACE_DATA_ACTION,
+        isGenericWorkspaceArtifact,
+      ) ||
+      hasActionForResource(
+        clause,
+        GENERIC_CALENDAR,
+        GENERIC_WORKSPACE_DATA_ACTION,
+        isGenericWorkspaceArtifact,
+      ))
   );
 }
 
