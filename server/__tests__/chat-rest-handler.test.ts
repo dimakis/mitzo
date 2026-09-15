@@ -302,6 +302,28 @@ describe('chat-rest-handler', () => {
     expect(handlePermissionResponseV2).toHaveBeenCalledOnce();
   });
 
+  it('POST /permission returns a retryable rejection for schema-invalid answers', async () => {
+    const res = await request(testApp)
+      .post('/api/chat/permission')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'permission_response',
+        sessionId: 'sess-1',
+        permId: 'perm-1',
+        decision: 'once',
+        answers: { question: ['   '] },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      ok: false,
+      type: 'permission_response_rejected',
+      permId: 'perm-1',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
+    expect(handlePermissionResponseV2).not.toHaveBeenCalled();
+  });
+
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
 
   it('POST /mode calls handleSetModeV2', async () => {

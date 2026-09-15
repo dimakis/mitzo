@@ -42,10 +42,15 @@ function permissionDisplayInput(
   toolName: string,
   input: Record<string, unknown>,
 ): string | undefined {
-  const full =
-    toolName === 'Bash' && typeof input.command === 'string'
-      ? input.command
-      : JSON.stringify(input, null, 2);
+  let full: string | undefined;
+  try {
+    full =
+      toolName === 'Bash' && typeof input.command === 'string'
+        ? input.command
+        : JSON.stringify(input, null, 2);
+  } catch {
+    return undefined;
+  }
   if (full === undefined) return undefined;
   return full.length <= PERMISSION_INPUT_MAX_CHARS ? full : undefined;
 }

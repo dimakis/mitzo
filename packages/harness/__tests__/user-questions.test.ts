@@ -168,11 +168,12 @@ it('rejects approval input that cannot be serialized for review', async () => {
   applyTierOverrides({ CustomWrite: 'unknown' });
   try {
     const { handler, sent, abort } = setup();
-    const result = handler(
-      'CustomWrite',
-      { toJSON: () => undefined },
-      { signal: abort.signal, toolUseID: 'custom-large' },
-    );
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const result = handler('CustomWrite', circular, {
+      signal: abort.signal,
+      toolUseID: 'custom-large',
+    });
     await expect(result).resolves.toMatchObject({
       behavior: 'deny',
       message: expect.stringContaining('too large to review safely'),
