@@ -16,7 +16,13 @@ export function hasExactGlobalSetting(
 
 export function validateSeedBaseline(
   seedBaseline: Record<string, unknown> | null,
-  manifest: { runtime: { mgmtSourceCommit: string } },
+  manifest: {
+    runtime: {
+      mgmtSourceCommit: string;
+      dependencyProjectionSha256?: string;
+      seedPayloadSha256?: string;
+    };
+  },
   seedPath?: string,
 ): void;
 
