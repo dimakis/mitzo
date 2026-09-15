@@ -39,6 +39,26 @@ export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
 };
+
+/**
+ * `intent` was added after command rows were already durable. Compare it for
+ * modern rows, but omit it from both sides when a historical row truly lacks
+ * the field. Its old provider prompt may be rendered/context-expanded, so it
+ * cannot reconstruct raw intent safely. Do not rewrite the row: a missing
+ * historical intent must still remain conservative at turn preflight.
+ */
+function idempotencyInput(input: CodexCommandInput, includeIntent: boolean): string {
+  return JSON.stringify({
+    id: input.id,
+    prompt: input.prompt,
+    ...(includeIntent ? { intent: input.intent } : {}),
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
+    ...(input.images !== undefined ? { images: input.images } : {}),
+    ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+  });
+}
+
 interface Conversation {
   conversationId: string;
   cwd: string;
@@ -120,7 +140,11 @@ export class CodexConversationStore {
       .prepare('SELECT input FROM codex_commands WHERE conversation_id=? AND id=?')
       .get(id, data.id) as { input: string } | undefined;
     if (old) {
-      if (old.input !== json) throw new Error('Codex message ID reused with different input');
+      const stored = JSON.parse(old.input) as Record<string, unknown>;
+      const oldInput = CommandInput.parse(stored);
+      const includesIntent = Object.hasOwn(stored, 'intent');
+      if (idempotencyInput(oldInput, includesIntent) !== idempotencyInput(data, includesIntent))
+        throw new Error('Codex message ID reused with different input');
       return false;
     }
     this.db

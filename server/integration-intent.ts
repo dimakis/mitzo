@@ -1,9 +1,10 @@
 const GOOGLE_WORKSPACE = 'google-workspace';
 
-// Split coordination as well as sentences. A request such as "write the docs
-// and search Gmail" should associate `search` with Gmail, but a verb in the
-// first half must not authorize an integration named in the second half.
-const REQUEST_CLAUSE_BOUNDARY = /[.!?;\n]+|\b(?:and|or|then|but|while)\b/i;
+// Keep coordinated verbs in one clause so a leading refusal governs each of
+// them ("do not search or access Gmail"). `hasActionForResource` rejects a
+// coordinating connector between a verb and target, so unrelated verbs still
+// cannot bind across the coordination.
+const REQUEST_CLAUSE_BOUNDARY = /[.!?;\n]+|\b(?:but|while)\b/i;
 const EXPLICIT_GOOGLE_SERVICE =
   /\b(?:gmail|gws|google\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\b/gi;
 const PERSONAL_WORKSPACE_DATA =
@@ -82,7 +83,8 @@ function hasActionForResource(
         action.index < target.index
           ? clause.slice(action.index + action[0].length, target.index)
           : clause.slice(target.index + target[0].length, action.index);
-      if (wordCount(between) > 6 || /\b(?:about|documentation|docs?)\b/i.test(between)) continue;
+      if (wordCount(between) > 6 || /\b(?:about|documentation|docs?|and|or)\b/i.test(between))
+        continue;
       return true;
     }
   }
@@ -90,10 +92,13 @@ function hasActionForResource(
 }
 
 function isNegatedAction(clause: string, actionIndex: number): boolean {
-  const lead = clause.slice(Math.max(0, actionIndex - 40), actionIndex);
+  // Coordination remains in a single clause. Treat a prior explicit refusal
+  // as governing later coordinated verbs until a sentence or contrast boundary
+  // starts a new clause; ambiguous coordination must not request access.
+  const lead = clause.slice(Math.max(0, actionIndex - 120), actionIndex);
   return (
-    /\b(?:do\s+not|don't|never|without|avoid)(?:\s+\w+){0,3}\s*$/i.test(lead) ||
-    /\brefrain\s+from(?:\s+\w+){0,2}\s*$/i.test(lead)
+    /\b(?:do\s+not|must\s+not|should\s+not|don't|cannot|can't|never|without|avoid)\b/i.test(lead) ||
+    /\brefrain\s+from\b/i.test(lead)
   );
 }
 

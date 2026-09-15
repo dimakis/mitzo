@@ -62,13 +62,24 @@ describe('requestedIntegrationProviders', () => {
     'without directly accessing Google Drive',
     'avoid accessing Gmail',
     'refrain from using Google Drive',
+    'you must not access Gmail',
+    'you should not access Gmail',
+    'you cannot access Gmail',
+    "you can't access Gmail",
+    'do not search or access Gmail',
+    "please don't search or open Gmail",
+    'do not search Gmail or open Google Drive',
+    'do not search Gmail then open Google Drive',
+    'you must not search and then access Gmail',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });
 
   it.each([
     'do not search the repo; search Gmail for Cat',
+    'do not search the repo; then search Gmail for Cat',
     'search Gmail for Cat but do not open Google Drive',
+    'do not open Drive, but search Gmail for Cat',
   ])('keeps affirmative access intent in a different clause for %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual(['google-workspace']);
   });
