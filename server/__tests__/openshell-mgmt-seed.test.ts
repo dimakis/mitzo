@@ -26,6 +26,7 @@ let updater: ReturnType<typeof spawn> | undefined;
 const uvFixtureRoot = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-uv-fixture-'));
 const uvFixture = join(uvFixtureRoot, 'uv');
 const originalUvBin = process.env.MITZO_UV_BIN;
+const originalProjectionSha = process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
 
 beforeAll(() => {
   // CI does not install uv. This fixture models precisely the test inputs that
@@ -63,11 +64,16 @@ print(lock.removeprefix('# fixture-runtime-export\\n').strip())
   );
   chmodSync(uvFixture, 0o755);
   process.env.MITZO_UV_BIN = uvFixture;
+  process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256 =
+    '01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b';
 });
 
 afterAll(() => {
   if (originalUvBin === undefined) delete process.env.MITZO_UV_BIN;
   else process.env.MITZO_UV_BIN = originalUvBin;
+  if (originalProjectionSha === undefined)
+    delete process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256;
+  else process.env.MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256 = originalProjectionSha;
   rmSync(uvFixtureRoot, { recursive: true, force: true });
 });
 
@@ -304,7 +310,40 @@ it('fails closed when a required rebuilt memory manifest is missing', () => {
   expect(existsSync(output)).toBe(false);
 });
 
-it('accepts generated manifests for linked, tagged knowledge files', () => {
+it('creates the ignored manifest destination when no manifest directory was archived', () => {
+  root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-untracked-manifest-dir-'));
+  const source = join(root, 'source');
+  const output = join(root, 'output');
+  mkdirSync(join(source, 'memory', 'manifest'), { recursive: true });
+  writeRuntimeInputs(source);
+  execFileSync('git', ['init', '-q', source]);
+  execFileSync('git', ['-C', source, 'config', 'user.name', 'Fixture']);
+  execFileSync('git', ['-C', source, 'config', 'user.email', 'fixture@example.invalid']);
+  writeFileSync(join(source, '.gitignore'), 'memory/manifest/*.json\n');
+  execFileSync('git', ['-C', source, 'add', '.']);
+  execFileSync('git', [
+    '-C',
+    source,
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '-q',
+    '-m',
+    'fixture without tracked manifest directory',
+  ]);
+  writeMemoryManifests(source, currentCommit(source));
+
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
+    ),
+  ).not.toThrow();
+  expect(existsSync(join(output, 'mgmt', 'memory', 'manifest', 'index.json'))).toBe(true);
+});
+
+it('fails closed without PyYAML rather than reinterpreting YAML front matter', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-linked-manifests-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -347,6 +386,14 @@ it('accepts generated manifests for linked, tagged knowledge files', () => {
       'bash',
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
       { cwd: resolve('.'), env: { ...process.env, PATH: `${pythonBin}:${process.env.PATH}` } },
+    ),
+  ).toThrow(/PyYAML is required/);
+  expect(existsSync(output)).toBe(false);
+  expect(() =>
+    execFileSync(
+      'bash',
+      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
+      { cwd: resolve('.') },
     ),
   ).not.toThrow();
   expect(

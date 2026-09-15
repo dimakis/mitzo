@@ -74,7 +74,13 @@ configuration, or object change cannot be smuggled into a future sandbox.
 The production lock and runtime image labels must continue to match that runtime
 base. This lets reviewed knowledge-only mgmt updates refresh future sandboxes
 without rebuilding the immutable runtime image; dependency changes still require a
-new image release. Compatibility is calculated from the normalized effective
+new image release. The runtime-image builder emits a SHA-256 of its canonical,
+sorted installed-package projection; a release records that value as
+`runtime.dependencyProjectionSha256` in the stack lock. New dynamic baselines
+carry the same value, and production preflight recomputes it inside the selected
+digest-pinned image. This one-time lock-field migration is required before a
+descendant knowledge seed may be published; legacy equality-only baselines retain
+their historical path. Compatibility is calculated from the normalized effective
 `uv lock` plus `uv sync --frozen --no-dev --no-install-project` package set used by
 the runtime Dockerfile, so a dev-only lockfile change may proceed while any changed
 runtime package, default dependency group, source, constraint, or resolver effect

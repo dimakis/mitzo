@@ -24,6 +24,11 @@ test "${output_root#/}" != "$output_root" || { echo 'output must be absolute' >&
 git -C "$source_repo" rev-parse --is-inside-work-tree >/dev/null
 starting_commit="$(git -C "$source_repo" rev-parse --verify 'HEAD^{commit}')"
 runtime_base_commit="$(git -C "$source_repo" rev-parse --verify "${3:-$starting_commit}^{commit}")"
+runtime_projection_sha256="${MITZO_RUNTIME_DEPENDENCY_PROJECTION_SHA256:-}"
+if ! [[ "$runtime_projection_sha256" =~ ^[a-f0-9]{64}$ ]]; then
+  echo 'runtime dependency projection SHA-256 is required for dynamic seed preparation' >&2
+  exit 2
+fi
 git -C "$source_repo" merge-base --is-ancestor "$runtime_base_commit" "$starting_commit" || {
   echo 'runtime base commit must be an ancestor of the seed starting commit' >&2
   exit 2
@@ -134,18 +139,16 @@ if test "$runtime_base_commit" != "$starting_commit"; then
     git -C "$source_repo" show "$commit:uv.lock" > "$projection_dir/uv.lock"
     (
       cd "$projection_dir"
-      python3 - <<'PY'
-import tomllib
-
-with open('pyproject.toml', 'rb') as handle:
-    project = tomllib.load(handle).get('project')
-if not isinstance(project, dict) or not isinstance(project.get('requires-python'), str):
-    raise SystemExit('pyproject.toml must declare project.requires-python')
-print(f"requires-python={project['requires-python']}")
-PY
       UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" lock
       UV_CACHE_DIR="$projection_dir/.uv-cache" "$uv_bin" export --frozen --no-dev --no-emit-project --no-annotate --no-header \
-        | LC_ALL=C sort
+        | python3 -c 'import re,sys; values=set();
+for line in sys.stdin:
+ line=line.strip()
+ if not line or line.startswith("#"): continue
+ match=re.match(r"([A-Za-z0-9_.-]+)==([^ ;\\\\]+)", line)
+ if not match: raise SystemExit(f"cannot canonicalize runtime dependency export: {line}")
+ values.add(re.sub(r"[-_.]+", "-", match.group(1).lower()) + "==" + match.group(2))
+print("\\n".join(sorted(values)))'
     )
   }
   runtime_base_projection="$(runtime_projection "$runtime_base_commit")" || {
@@ -160,6 +163,15 @@ PY
   runtime_projection_dir=''
   if test "$runtime_base_projection" != "$starting_projection"; then
     echo 'runtime compatibility failed: effective no-dev uv install set changed since the runtime base commit' >&2
+    exit 3
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    candidate_projection_sha256="$(printf '%s\n' "$starting_projection" | sha256sum | awk '{print $1}')"
+  else
+    candidate_projection_sha256="$(printf '%s\n' "$starting_projection" | shasum -a 256 | awk '{print $1}')"
+  fi
+  if test "$candidate_projection_sha256" != "$runtime_projection_sha256"; then
+    echo 'runtime compatibility failed: candidate dependency projection does not match the trusted runtime image projection' >&2
     exit 3
   fi
 fi
@@ -256,6 +268,7 @@ from collections import defaultdict
 workspace = pathlib.Path(os.environ['WORKSPACE'])
 memory_root = workspace / 'memory'
 manifest = memory_root / 'manifest'
+manifest.mkdir(parents=True, exist_ok=True)
 source_repo = os.environ['SOURCE_REPO']
 starting = os.environ['STARTING_COMMIT']
 link_pattern = re.compile(r'\[\[([^\]]+)\]\]')
@@ -311,12 +324,11 @@ def parse_memory(path):
         try:
             import yaml
         except ImportError:
-            metadata = fallback_metadata(lines[1:closing], path)
-        else:
-            try:
-                metadata = yaml.safe_load(raw) or {}
-            except yaml.YAMLError as error:
-                raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
+            raise SystemExit('PyYAML is required to rebuild memory front matter safely')
+        try:
+            metadata = yaml.safe_load(raw) or {}
+        except yaml.YAMLError as error:
+            raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
         if not isinstance(metadata, dict):
             raise SystemExit(f'cannot verify front matter in archived memory: {path}')
         content_lines = lines[closing + 1:]
@@ -487,54 +499,11 @@ def archived_metadata(path):
     try:
         import yaml
     except ImportError:
-        metadata = {}
-        front_matter = lines[1:closing]
-        index = 0
-        while index < len(front_matter):
-            line = front_matter[index]
-            if not line.strip() or line.lstrip().startswith('#'):
-                index += 1
-                continue
-            if line.startswith((' ', '\t')) or ':' not in line:
-                raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
-            key, value = (part.strip() for part in line.split(':', 1))
-            if key not in ('type', 'tags'):
-                # Unrelated front-matter fields are recreated by the archive
-                # manifest builder above; this verifier only needs type/tags.
-                index += 1
-                while index < len(front_matter) and front_matter[index].startswith((' ', '\t')):
-                    index += 1
-                continue
-            if key == 'type':
-                if not value or value.startswith(('[', '{', '&', '*', '|', '>')):
-                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
-                metadata[key] = value.strip('"\'')
-            elif value.startswith('[') and value.endswith(']'):
-                items = [item.strip().strip('"\'') for item in value[1:-1].split(',')]
-                if any(not item for item in items):
-                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
-                metadata[key] = items
-            elif value:
-                if value.startswith(('{', '&', '*', '|', '>')):
-                    raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
-                metadata[key] = value.strip('"\'')
-            else:
-                items = []
-                index += 1
-                while index < len(front_matter) and front_matter[index].startswith((' ', '\t')):
-                    item = front_matter[index].strip()
-                    if not item.startswith('- ') or not item[2:].strip():
-                        raise SystemExit(f'PyYAML is unavailable for complex front matter: {path}')
-                    items.append(item[2:].strip().strip('"\''))
-                    index += 1
-                metadata[key] = items
-                continue
-            index += 1
-    else:
-        try:
-            metadata = yaml.safe_load(raw) or {}
-        except yaml.YAMLError as error:
-            raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
+        raise SystemExit('PyYAML is required to verify memory front matter safely')
+    try:
+        metadata = yaml.safe_load(raw) or {}
+    except yaml.YAMLError as error:
+        raise SystemExit(f'cannot verify front matter in archived memory: {path}: {error}')
     if not isinstance(metadata, dict):
         raise SystemExit(f'cannot verify front matter in archived memory: {path}')
     memory_type = metadata.get('type', 'unknown')
@@ -650,7 +619,7 @@ git -C "$workspace" config user.email 'sandbox@mitzo.invalid'
 git -C "$workspace" add --all
 git -C "$workspace" -c commit.gpgsign=false commit -q -m 'chore: seed isolated MGMT workspace'
 
-SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" python3 - <<'PY'
+SOURCE_REPO="$source_repo" WORKSPACE="$workspace" BASELINE="$baseline" STARTING_COMMIT="$starting_commit" RUNTIME_BASE_COMMIT="$runtime_base_commit" RUNTIME_PROJECTION_SHA256="$runtime_projection_sha256" python3 - <<'PY'
 import hashlib, json, os, pathlib
 source = pathlib.Path(os.environ['SOURCE_REPO'])
 workspace = pathlib.Path(os.environ['WORKSPACE'])
@@ -659,12 +628,13 @@ for path in sorted(p for p in workspace.rglob('*') if p.is_file() and not p.is_s
     rel = path.relative_to(workspace).as_posix()
     entries[rel] = {
         'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-        'mode': format(path.stat().st_mode & 0o777, '04o'),
+        'mode': format(path.stat().st_mode & 0o7777, '04o'),
     }
 payload = {
     'source': str(source),
     'startingCommit': os.environ['STARTING_COMMIT'],
     'runtimeBaseCommit': os.environ['RUNTIME_BASE_COMMIT'],
+    'runtimeDependencyProjectionSha256': os.environ['RUNTIME_PROJECTION_SHA256'],
     'files': entries,
     'saveBack': 'not-implemented',
 }

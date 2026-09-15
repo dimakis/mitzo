@@ -51,8 +51,23 @@ podman build --pull=never \
   --build-arg "MGMT_SOURCE_COMMIT=$mgmt_source_commit" \
   --tag "$tag" "$context"
 image_id="$(podman image inspect "$tag" --format '{{.Id}}')"
+runtime_projection="$(podman run --rm --entrypoint /opt/mgmt-venv/bin/python "$image_id" -c '
+import importlib.metadata as metadata, re
+packages = {
+    f"{re.sub(r\"[-_.]+\", \"-\", distribution.metadata[\"Name\"].lower())}=={distribution.version}"
+    for distribution in metadata.distributions()
+    if distribution.metadata.get("Name")
+}
+print("\\n".join(sorted(packages)))
+')"
+if command -v sha256sum >/dev/null 2>&1; then
+  runtime_projection_sha256="$(printf '%s\\n' "$runtime_projection" | sha256sum | awk '{print $1}')"
+else
+  runtime_projection_sha256="$(printf '%s\\n' "$runtime_projection" | shasum -a 256 | awk '{print $1}')"
+fi
 printf 'MGMT_RUNTIME_IMAGE=%s\n' "$tag"
 printf 'MGMT_RUNTIME_IMAGE_ID=%s\n' "$image_id"
+printf 'MGMT_RUNTIME_DEPENDENCY_PROJECTION_SHA256=%s\n' "$runtime_projection_sha256"
 printf 'OPENSHELL_BASE_IMAGE=%s\n' "$base_image"
 printf 'MITZO_SOURCE_COMMIT=%s\n' "$mitzo_source_commit"
 printf 'MGMT_SOURCE_COMMIT=%s\n' "$mgmt_source_commit"

@@ -176,7 +176,7 @@ function validateSeedContents(seedBaseline, seedPath) {
       else if (stat.isFile()) {
         actual.set(path, {
           sha256: sha256(absolutePath),
-          mode: (stat.mode & 0o777).toString(8).padStart(4, '0'),
+          mode: (stat.mode & 0o7777).toString(8).padStart(4, '0'),
         });
       } else invariant(false, `prepared seed contains an unsupported path: ${path}`);
     }
@@ -232,6 +232,23 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
       'prepared seed runtime base commit is invalid',
     );
   }
+  if (hasRuntimeBase && seedPath !== undefined) {
+    invariant(
+      typeof seedBaseline.runtimeDependencyProjectionSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(seedBaseline.runtimeDependencyProjectionSha256),
+      'prepared dynamic seed runtime dependency projection is invalid or missing',
+    );
+    invariant(
+      typeof manifest.runtime?.dependencyProjectionSha256 === 'string' &&
+        /^[a-f0-9]{64}$/.test(manifest.runtime.dependencyProjectionSha256),
+      'stack lock runtime dependency projection is invalid or missing',
+    );
+    invariant(
+      seedBaseline.runtimeDependencyProjectionSha256 ===
+        manifest.runtime.dependencyProjectionSha256,
+      'prepared seed runtime dependency projection does not match the stack lock',
+    );
+  }
   invariant(
     hasRuntimeBase
       ? seedBaseline.runtimeBaseCommit === manifest.runtime.mgmtSourceCommit
@@ -242,6 +259,20 @@ export function validateSeedBaseline(seedBaseline, manifest, seedPath) {
   // historical exact-commit comparison above. Every baseline with an explicit
   // runtime base is dynamically generated and must bind to its selected seed.
   if (hasRuntimeBase && seedPath !== undefined) validateSeedContents(seedBaseline, seedPath);
+}
+
+export function validateRuntimeDependencyProjection(projection, manifest) {
+  invariant(
+    typeof manifest.runtime?.dependencyProjectionSha256 === 'string' &&
+      /^[a-f0-9]{64}$/.test(manifest.runtime.dependencyProjectionSha256),
+    'stack lock runtime dependency projection is invalid or missing',
+  );
+  const canonical = `${String(projection).trim()}\n`;
+  invariant(
+    createHash('sha256').update(canonical).digest('hex') ===
+      manifest.runtime.dependencyProjectionSha256,
+    'runtime image dependency projection does not match the stack lock',
+  );
 }
 
 export function validateRuntimeImageLabels(imageLabels, manifest) {
@@ -338,6 +369,16 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     run(podman, ['image', 'inspect', staticResult.image, '--format', '{{json .Labels}}']),
   );
   validateRuntimeImageLabels(imageLabels, manifest);
+  const runtimeProjection = run(podman, [
+    'run',
+    '--rm',
+    '--entrypoint',
+    '/opt/mgmt-venv/bin/python',
+    staticResult.image,
+    '-c',
+    'import importlib.metadata as m,re; print("\\n".join(sorted({f"{re.sub(r\"[-_.]+\", \"-\", d.metadata[\"Name\"].lower())}=={d.version}" for d in m.distributions() if d.metadata.get("Name")})))',
+  ]);
+  validateRuntimeDependencyProjection(runtimeProjection, manifest);
   for (const binary of manifest.runtime.requiredBinaries ?? []) {
     run(podman, ['run', '--rm', '--entrypoint', '/usr/bin/test', staticResult.image, '-x', binary]);
   }

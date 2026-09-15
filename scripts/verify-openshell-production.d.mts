@@ -26,3 +26,8 @@ export function validateRuntimeImageLabels(
     runtime: { mitzoSourceCommit: string; mgmtSourceCommit: string; baseImage: string };
   },
 ): void;
+
+export function validateRuntimeDependencyProjection(
+  projection: string,
+  manifest: { runtime: { dependencyProjectionSha256: string } },
+): void;

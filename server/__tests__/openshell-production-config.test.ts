@@ -20,8 +20,9 @@ import {
   verifyAccountBindings,
 } from '../../scripts/verify-openshell-production.mjs';
 
+const projectionSha = 'd'.repeat(64);
 const manifest = {
-  runtime: { image: 'localhost/mitzo:release-1' },
+  runtime: { image: 'localhost/mitzo:release-1', dependencyProjectionSha256: projectionSha },
   defaults: { workspace: 'default', webSearch: 'disabled' },
   serviceProviders: [{ name: 'google-workspace' }, { name: 'github' }],
   providerPolicy: { automatic: ['github'], grantable: ['google-workspace'] },
@@ -68,6 +69,7 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
     baseline: {
       startingCommit: sourceCommit,
       runtimeBaseCommit: sourceCommit,
+      runtimeDependencyProjectionSha256: projectionSha,
       files: Object.fromEntries(
         Object.entries(files).map(([path, contents]) => [
           path,
@@ -80,7 +82,9 @@ function makePreparedSeed(sourceCommit = 'a'.repeat(40)) {
 
 describe('OpenShell production bundle validation', () => {
   it('allows a newer knowledge seed against its compatible runtime base', () => {
-    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
     expect(() =>
       validateSeedBaseline(
         { startingCommit: 'b'.repeat(40), runtimeBaseCommit: 'a'.repeat(40) },
@@ -108,7 +112,9 @@ describe('OpenShell production bundle validation', () => {
 
   it('binds a dynamic baseline to the selected immutable seed contents', () => {
     const { baseline, seedPath } = makePreparedSeed();
-    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).not.toThrow();
 
     expect(() =>
@@ -128,13 +134,26 @@ describe('OpenShell production bundle validation', () => {
 
   it('rejects dynamic seeds whose payload mode differs from the baseline', () => {
     const { baseline, seedPath } = makePreparedSeed();
-    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
     chmodSync(join(seedPath, 'knowledge.md'), 0o755);
     expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('hash or mode');
   });
 
+  it('rejects a setuid mode added after seed publication', () => {
+    const { baseline, seedPath } = makePreparedSeed();
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
+    chmodSync(join(seedPath, 'knowledge.md'), 0o4755);
+    expect(() => validateSeedBaseline(baseline, runtimeManifest, seedPath)).toThrow('hash or mode');
+  });
+
   it('rejects dynamic seeds with extra, missing, or symlinked payload files', () => {
-    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
     let fixture = makePreparedSeed();
     writeFileSync(join(fixture.seedPath, 'extra.txt'), 'extra\n');
     expect(() => validateSeedBaseline(fixture.baseline, runtimeManifest, fixture.seedPath)).toThrow(
@@ -159,7 +178,9 @@ describe('OpenShell production bundle validation', () => {
   });
 
   it('binds the uploaded portable Git repository to the dynamic baseline', () => {
-    const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+    const runtimeManifest = {
+      runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+    };
     const fixture = makePreparedSeed();
     mkdirSync(join(fixture.seedPath, '.git', 'hooks'));
     writeFileSync(join(fixture.seedPath, '.git', 'hooks', 'post-commit'), '#!/bin/sh\nexit 0\n');
@@ -181,7 +202,9 @@ describe('OpenShell production bundle validation', () => {
     'requires %s to attest to the baseline source commit',
     (name) => {
       const { baseline, seedPath } = makePreparedSeed();
-      const runtimeManifest = { runtime: { mgmtSourceCommit: 'a'.repeat(40) } };
+      const runtimeManifest = {
+        runtime: { mgmtSourceCommit: 'a'.repeat(40), dependencyProjectionSha256: projectionSha },
+      };
       const path = join(seedPath, 'memory', 'manifest', name);
       const contents = JSON.stringify({ sourceCommit: 'b'.repeat(40) }) + '\n';
       writeFileSync(path, contents);
