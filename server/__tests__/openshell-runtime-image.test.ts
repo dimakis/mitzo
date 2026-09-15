@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import {
   existsSync,
   chmodSync,
@@ -120,6 +120,60 @@ printf 'executed\\n' > "$output_dir/$output_name"
       expect(readdirSync(root).filter((name) => name.startsWith('mitzo-mgmt-jupyter.'))).toEqual(
         [],
       );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('allows concurrent first notebook runs to create shared report directories', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-jira-notebook-concurrent-'));
+    const workspace = join(root, 'mgmt');
+    const runtime = join(workspace, 'jira_process');
+    const bin = join(root, 'bin');
+    const barrier = join(root, 'mkdir-barrier');
+    try {
+      mkdirSync(join(runtime, 'dashboards'), { recursive: true });
+      mkdirSync(bin);
+      writeFileSync(join(runtime, 'dashboards', 'smoke.ipynb'), '{}\n');
+      writeFileSync(join(bin, 'python'), '#!/usr/bin/env bash\nexit 0\n');
+      writeFileSync(
+        join(bin, 'mkdir'),
+        `#!/usr/bin/env bash
+target="\${!#}"
+if [[ "$target" == "$REPORTS_DIR" ]]; then
+  /bin/mkdir -p "$BARRIER"
+  touch "$BARRIER/$$"
+  for ((attempt = 0; attempt < 200; attempt++)); do
+    [[ "$(find "$BARRIER" -type f | wc -l | tr -d ' ')" == 2 ]] && break
+    sleep 0.01
+  done
+fi
+exec /bin/mkdir "$@"
+`,
+      );
+      chmodSync(join(bin, 'python'), 0o700);
+      chmodSync(join(bin, 'mkdir'), 0o700);
+
+      const run = (runId: string) =>
+        new Promise<number | null>((resolveRun) => {
+          const child = spawn('bash', [notebookRunner, 'dashboards/smoke.ipynb'], {
+            env: {
+              ...process.env,
+              MITZO_MGMT_WORKDIR: workspace,
+              MITZO_MGMT_NOTEBOOK_RUN_ID: runId,
+              PATH: `${bin}:${process.env.PATH ?? ''}`,
+              BARRIER: barrier,
+              REPORTS_DIR: join(realpathSync(runtime), 'reports'),
+              TMPDIR: root,
+            },
+            stdio: 'ignore',
+          });
+          child.on('close', resolveRun);
+        });
+
+      expect(await Promise.all([run('first'), run('second')])).toEqual([0, 0]);
+      expect(existsSync(join(runtime, 'reports', 'notebook-runs', 'first'))).toBe(true);
+      expect(existsSync(join(runtime, 'reports', 'notebook-runs', 'second'))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

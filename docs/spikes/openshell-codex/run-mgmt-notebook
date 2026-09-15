@@ -33,24 +33,26 @@ case "$path" in
 esac
 
 reports_root="${runtime_root}/reports"
-if [[ -e "$reports_root" ]]; then
-  reports_root="$(realpath "$reports_root")"
-  if [[ "$reports_root" != "${runtime_root}/reports" ]]; then
-    echo 'jira_process reports directory must not resolve outside the runtime' >&2
-    exit 2
-  fi
-else
-  mkdir "$reports_root"
+if [[ -L "$reports_root" && ! -e "$reports_root" ]]; then
+  echo 'jira_process reports directory must not be a dangling symlink' >&2
+  exit 2
+fi
+mkdir -p "$reports_root"
+reports_root="$(realpath "$reports_root")"
+if [[ "$reports_root" != "${runtime_root}/reports" ]]; then
+  echo 'jira_process reports directory must not resolve outside the runtime' >&2
+  exit 2
 fi
 output_root="${reports_root}/notebook-runs"
-if [[ -e "$output_root" ]]; then
-  output_root="$(realpath "$output_root")"
-  if [[ "$output_root" != "${reports_root}/notebook-runs" ]]; then
-    echo 'notebook output directory must not resolve outside the reports tree' >&2
-    exit 2
-  fi
-else
-  mkdir "$output_root"
+if [[ -L "$output_root" && ! -e "$output_root" ]]; then
+  echo 'notebook output directory must not be a dangling symlink' >&2
+  exit 2
+fi
+mkdir -p "$output_root"
+output_root="$(realpath "$output_root")"
+if [[ "$output_root" != "${reports_root}/notebook-runs" ]]; then
+  echo 'notebook output directory must not resolve outside the reports tree' >&2
+  exit 2
 fi
 requested_output_root="${MITZO_MGMT_NOTEBOOK_OUTPUT_DIR:-${output_root}}"
 requested_output_root="$(realpath "$requested_output_root" 2>/dev/null || true)"
