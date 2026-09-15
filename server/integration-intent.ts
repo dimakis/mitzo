@@ -188,6 +188,17 @@ function isCapabilityHowTo(
   return capability !== undefined && capability >= scopeStart;
 }
 
+function crossesThenBoundary(
+  matcher: ClauseMatcher,
+  action: IndexedMatch,
+  target: IndexedMatch,
+): boolean {
+  const lowerEnd = Math.min(action.end, target.end);
+  const upperStart = Math.max(action.index, target.index);
+  const boundary = matcher.thenBoundaries[indexBefore(matcher.thenBoundaries, upperStart)];
+  return boundary !== undefined && boundary > lowerEnd;
+}
+
 /**
  * Finds only actions in the six-word neighborhood of each resource match.
  * All regex scans are pre-indexed once per clause; this avoids the former
@@ -210,6 +221,7 @@ function matchingActionsForResource(
     for (const action of nearby) {
       if (isQuotedText(matcher, action.index) || isCapabilityHowTo(matcher, action, target))
         continue;
+      if (crossesThenBoundary(matcher, action, target)) continue;
       const betweenWords =
         action.index < target.index
           ? target.firstWord - action.lastWord - 1
@@ -220,18 +232,20 @@ function matchingActionsForResource(
           ? matcher.clause.slice(action.end, target.index)
           : matcher.clause.slice(target.end, action.index);
       if (/\b(?:about|documentation|docs?|and|or)\b/i.test(between)) continue;
-      matches.push({ index: action.index, negated: isNegatedAction(matcher.clause, action.index) });
+      matches.push({ index: action.index, negated: isNegatedAction(matcher, action.index) });
     }
   }
   return matches;
 }
 
-function isNegatedAction(clause: string, actionIndex: number): boolean {
+function isNegatedAction(matcher: ClauseMatcher, actionIndex: number): boolean {
   // Coordination remains in a single clause. Treat a prior explicit refusal
-  // as governing later coordinated verbs until a sentence or contrast boundary
-  // starts a new clause; ambiguous coordination must not request access.
-  const leadStart = Math.max(0, actionIndex - 120);
-  const lead = clause.slice(leadStart, actionIndex);
+  // as governing later coordinated verbs until a contrast or sequential
+  // boundary starts a new action phrase; ambiguous coordination must not
+  // request access.
+  const thenStart = matcher.thenBoundaries[indexBefore(matcher.thenBoundaries, actionIndex)] ?? 0;
+  const leadStart = Math.max(thenStart, actionIndex - 120);
+  const lead = matcher.clause.slice(leadStart, actionIndex);
   // A comma followed by an explicit limiter starts a fresh affirmative action
   // phrase ("don't edit code, just search Gmail"). A bare comma remains
   // ambiguous and therefore stays inside the refusal scope.
@@ -243,7 +257,7 @@ function isNegatedAction(clause: string, actionIndex: number): boolean {
   const negation =
     /\b(?:do\s+not|must\s+not|should\s+not|don['’]t|can(?:not|['’]t)|never|without|avoid|refrain\s+from|prevent(?:ing|ed)?|stop(?:ping|ped)?)\b/gi;
   for (const match of scopedLead.matchAll(negation)) {
-    const afterNegation = clause.slice(
+    const afterNegation = matcher.clause.slice(
       scopedStart + (match.index ?? 0) + match[0].length,
       actionIndex + 40,
     );
