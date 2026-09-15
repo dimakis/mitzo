@@ -50,7 +50,11 @@ import {
 } from '../chat.js';
 import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
-import { denyPendingBySession, getPendingRequestsBySession } from '../permissions.js';
+import {
+  denyPendingBySession,
+  getPendingRequestsBySession,
+  resolvePending,
+} from '../permissions.js';
 
 import {
   handleHello,
@@ -1531,6 +1535,27 @@ describe('handlePermissionResponseV2', () => {
       ),
     ).not.toThrow();
   });
+
+  it('keeps an invalid response retryable and reports the rejection', () => {
+    vi.mocked(resolvePending).mockReturnValueOnce(false);
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    const resolved = handlePermissionResponseV2(
+      'c1',
+      { type: 'permission_response', sessionId: 'sess-1', permId: 'p1', decision: 'once' },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'permission_response_rejected',
+      sessionId: 'sess-1',
+      permId: 'p1',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
+    expect(resolved).toBe(false);
+  });
 });
 
 // ─── handleReconnect — no running field in summary ──────────────────────────
@@ -2022,6 +2047,32 @@ describe('dispatchV2Message', () => {
     await dispatchV2Message('c1', transport, JSON.stringify({ type: 'unknown_type' }), ctx);
 
     expect(transport.sent).toHaveLength(0);
+  });
+
+  it('reports a malformed permission response as a retryable rejection', async () => {
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'permission_response',
+        sessionId: 'sess-1',
+        permId: 'p1',
+        decision: 'once',
+        answers: { question: ['   '] },
+      }),
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'permission_response_rejected',
+      sessionId: 'sess-1',
+      permId: 'p1',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
   });
 
   it('ignores duplicate hello messages', async () => {

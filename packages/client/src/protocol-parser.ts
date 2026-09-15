@@ -397,6 +397,14 @@ export function parseServerMessage(
       });
       break;
 
+    case 'permission_response_rejected':
+      result.messagesActions.push({
+        type: 'PERMISSION_REJECTED',
+        permId: msg.permId as string,
+        error: msg.error as string,
+      });
+      break;
+
     case 'native_command_result':
       result.messagesActions.push({
         type: 'NATIVE_COMMAND_RESULT',

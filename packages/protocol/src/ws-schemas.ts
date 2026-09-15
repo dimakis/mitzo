@@ -48,13 +48,17 @@ export const StopMessage = z.object({
   traceparent,
 });
 
+const NonBlankPermissionText = z
+  .string()
+  .min(1)
+  .max(4000)
+  .refine((value) => value.trim().length > 0, 'Must not be blank');
+
 export const PermissionResponseMessage = z.object({
   type: z.literal('permission_response'),
   permId: z.string(),
   decision: z.enum(['once', 'always', 'deny']).optional(),
-  answers: z
-    .record(z.string().min(1).max(4000), z.array(z.string().min(1).max(4000)).min(1).max(9))
-    .optional(),
+  answers: z.record(z.string(), z.array(NonBlankPermissionText).min(1).max(9)).optional(),
   traceparent,
 });
 

@@ -485,14 +485,32 @@ export class SseConnection implements ChatConnection {
         headers: { 'Content-Type': 'application/json', 'X-Connection-ID': this._connectionId },
         body: JSON.stringify(body),
       });
-      if (!res.ok)
+      if (!res.ok) {
+        if (endpoint === 'permission' && typeof body.permId === 'string') {
+          this.listener?.({
+            type: 'permission_response_rejected',
+            ...scope,
+            permId: body.permId,
+            error: `Could not submit the permission response (${res.status}). Review the prompt and try again.`,
+          });
+          return;
+        }
         this.listener?.({
           type: 'error',
           ...scope,
           error: `Could not ${endpoint} (${res.status}). Please retry.`,
         });
+      }
     } catch {
-      this.listener?.({ type: 'error', ...scope, error: `Could not ${endpoint}. Please retry.` });
+      if (endpoint === 'permission' && typeof body.permId === 'string')
+        this.listener?.({
+          type: 'permission_response_rejected',
+          ...scope,
+          permId: body.permId,
+          error: 'Could not submit the permission response. Review the prompt and try again.',
+        });
+      else
+        this.listener?.({ type: 'error', ...scope, error: `Could not ${endpoint}. Please retry.` });
     }
   }
 

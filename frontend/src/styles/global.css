@@ -3312,6 +3312,12 @@ textarea:focus {
   max-height: 72dvh;
   overflow: hidden;
 }
+.perm-banner--elevated {
+  border-top-color: var(--warning);
+}
+.perm-banner--unknown {
+  border-top-color: var(--text-dim);
+}
 .perm-banner-heading {
   display: flex;
   justify-content: space-between;
@@ -3367,10 +3373,18 @@ textarea:focus {
 }
 .perm-banner-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding-top: 14px;
+}
+
+.perm-banner-response-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--error, #f87171);
+  font-size: 0.8rem;
 }
 .perm-banner-btn {
   flex: 1;
