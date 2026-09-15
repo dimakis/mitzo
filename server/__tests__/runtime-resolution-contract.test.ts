@@ -361,6 +361,41 @@ it('recursively includes selected PEP 735 groups and their lock closure', () => 
   expect(changed).not.toBe(baseline);
 });
 
+it('follows qualified uv.lock default-group edges instead of universal variants', () => {
+  const contractFor = (linuxVersion: string, darwinVersion: string) => {
+    root = mkdtempSync(join(tmpdir(), 'mitzo-resolution-contract-group-variants-'));
+    writeFileSync(
+      join(root, 'pyproject.toml'),
+      '[project]\nname = "fixture"\nversion = "0"\nrequires-python = ">=3.11"\n\n[tool.uv]\ndefault-groups = ["runtime"]\n\n[dependency-groups]\nruntime = ["shared"]\n',
+    );
+    writeFileSync(
+      join(root, 'uv.lock'),
+      `version = 1\nrevision = 1\nrequires-python = ">=3.11"\n\n[[package]]\nname = "fixture"\nversion = "0"\nsource = { editable = "." }\n\n[package.dev-dependencies]\nruntime = [{ name = "shared", version = "${linuxVersion}", marker = "sys_platform == 'linux'" }, { name = "shared", version = "${darwinVersion}", marker = "sys_platform == 'darwin'" }]\n\n[[package]]\nname = "shared"\nversion = "${linuxVersion}"\nsource = { registry = "https://packages.example/linux" }\n\n[[package]]\nname = "shared"\nversion = "${darwinVersion}"\nsource = { registry = "https://packages.example/darwin" }\n`,
+    );
+    return execFileSync(
+      'python3',
+      [
+        resolve('docs/spikes/openshell-codex/runtime-resolution-contract.py'),
+        '--pyproject',
+        join(root, 'pyproject.toml'),
+        '--lock',
+        join(root, 'uv.lock'),
+        '--base-image',
+        baseImage,
+        '--target-platform',
+        'linux/amd64',
+        '--target-marker-environment-b64',
+        markerEnvironmentB64,
+        '--sha256',
+      ],
+      { encoding: 'utf8' },
+    ).trim();
+  };
+  const baseline = contractFor('1', '2');
+  expect(contractFor('1', '3')).toBe(baseline);
+  expect(contractFor('4', '3')).not.toBe(baseline);
+});
+
 it('rejects missing and cyclic selected PEP 735 groups', () => {
   expect(() => groupedContract('[{ include-group = "missing" }]')).toThrow('missing');
   expect(() => groupedContract('[{ include-group = "runtime" }]')).toThrow('cycle');
