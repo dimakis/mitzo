@@ -636,6 +636,17 @@ function sameDynamicSeedIdentity(left: DynamicSeedIdentity, right: DynamicSeedId
   );
 }
 
+function verifyPrivateDynamicSeedParent(parent: string) {
+  const stat = lstatSync(parent, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory() || (stat.mode & 0o777n) !== 0o700n)
+    throw new Error('OpenShell dynamic seed private snapshot parent is unsafe');
+  // OpenShell deployments use a local POSIX temporary directory. Refuse a
+  // snapshot parent owned by another account rather than treating its 0700
+  // bits as sufficient proof of privacy.
+  if (typeof process.getuid === 'function' && stat.uid !== BigInt(process.getuid()))
+    throw new Error('OpenShell dynamic seed private snapshot parent has another owner');
+}
+
 function workerModuleUrl() {
   // Vitest and development run the TypeScript entrypoint via tsx. Production
   // executes the emitted .js sibling from dist.
@@ -712,6 +723,7 @@ export async function prepareVerifiedDynamicSeedSnapshot(
     const expectedPath = join(parent, `snapshot-${result.token}`, 'mgmt');
     if (result.path !== expectedPath)
       throw new Error('OpenShell dynamic seed worker returned an invalid snapshot path');
+    verifyPrivateDynamicSeedParent(parent);
     if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result.path), result.identity))
       throw new Error('OpenShell dynamic seed private snapshot changed before upload');
     return {
@@ -721,6 +733,7 @@ export async function prepareVerifiedDynamicSeedSnapshot(
       // handing the snapshot to OpenShell.
       verify: () => verifyDynamicSeedFiles(result!.path, baseline),
       verifyIdentity: () => {
+        verifyPrivateDynamicSeedParent(parent);
         if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result!.path), result!.identity))
           throw new Error('OpenShell dynamic seed private snapshot changed before upload');
       },
