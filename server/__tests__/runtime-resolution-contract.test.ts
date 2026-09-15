@@ -319,10 +319,10 @@ assert namespace['tomllib'] is sys.modules['tomli']
   ]);
   expect(
     readFileSync(resolve('docs/spikes/openshell-codex/build-mgmt-runtime.sh'), 'utf8'),
-  ).toContain("--with 'tomli>=2.0.1'");
+  ).toContain("--with 'tomli==2.2.1' --with 'packaging==24.2'");
   expect(
     readFileSync(resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), 'utf8'),
-  ).toContain("--with 'tomli>=2.0.1'");
+  ).toContain("--with 'tomli==2.2.1' --with 'packaging==24.2'");
 });
 
 it('accepts complete PEP 508 dependency-group requirements and filters their markers', () => {
