@@ -33,7 +33,7 @@ contract_python() {
   if python3 -c 'import tomllib' >/dev/null 2>&1 || python3 -c 'import tomli' >/dev/null 2>&1; then
     python3 "$@"
   else
-    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli>=2.0.1' python "$@"
+    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python "$@"
   fi
 }
 mitzo_source_commit="$(git -C "$repo_root" rev-parse HEAD)"

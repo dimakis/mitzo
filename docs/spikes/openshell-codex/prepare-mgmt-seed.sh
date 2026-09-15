@@ -21,7 +21,19 @@ contract_python() {
   if python3 -c 'import tomllib' >/dev/null 2>&1 || python3 -c 'import tomli' >/dev/null 2>&1; then
     python3 "$@"
   else
-    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli>=2.0.1' python "$@"
+    "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python "$@"
+  fi
+}
+seed_python() {
+  # Front-matter rebuilding and its final attestation both need the same
+  # pinned YAML parser; never depend on a host-installed PyYAML.
+  if python3 -c 'import yaml' >/dev/null 2>&1; then
+    python3 "$@"
+  else
+    "${MITZO_UV_BIN:-uv}" run --no-project --with 'PyYAML==6.0.2' python "$@" || {
+      echo 'PyYAML is required to rebuild memory front matter safely' >&2
+      return 1
+    }
   fi
 }
 
@@ -270,7 +282,7 @@ done
 # manifests are only provenance gates; no entry data crosses the working-tree
 # boundary. This mirrors build_index.py's metadata/link semantics while using a
 # deterministic Git timestamp for the portable seed's `modified` field.
-WORKSPACE="$workspace" SOURCE_REPO="$source_repo" STARTING_COMMIT="$starting_commit" python3 - <<'PY'
+WORKSPACE="$workspace" SOURCE_REPO="$source_repo" STARTING_COMMIT="$starting_commit" seed_python - <<'PY'
 import json, os, pathlib, re, subprocess
 from datetime import date, datetime
 from collections import defaultdict
@@ -421,7 +433,7 @@ PY
 # working tree. Their explicit sourceCommit marker binds every artifact to the
 # archived startingCommit. Validate their schema, source paths, indexes, and
 # graph inverse before publishing so stale or cross-tree artifacts fail closed.
-WORKSPACE="$workspace" STARTING_COMMIT="$starting_commit" python3 - <<'PY'
+WORKSPACE="$workspace" STARTING_COMMIT="$starting_commit" seed_python - <<'PY'
 import json, os, pathlib
 
 workspace = pathlib.Path(os.environ['WORKSPACE'])

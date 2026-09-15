@@ -202,6 +202,9 @@ def main():
                 raise SystemExit("unsupported dependency-group requirement")
         return expanded
     selected_groups = {group: expand_group(group) for group in sorted(default_groups) if group != "dev"}
+    locked_dependency_groups = roots[0].get("dev-dependencies", {})
+    if not isinstance(locked_dependency_groups, dict):
+        raise SystemExit("uv.lock root dependency groups are malformed")
 
     # uv sync --no-dev starts at the root's ordinary dependencies.  Do not
     # traverse dependency-groups/dev-dependencies, but retain each selected
@@ -211,11 +214,19 @@ def main():
     })}
     selected_extras = {}
     pending = dependencies(roots[0].get("dependencies"), marker_environment)
-    # `uv sync --no-dev` still installs explicitly selected non-dev default
-    # groups. Include their full lock closures, not just their names in
-    # metadata, so a source/version/artifact change cannot evade the contract.
-    for values in selected_groups.values():
-        pending.extend(dependencies(values, marker_environment))
+    # Select groups via PEP 735 pyproject metadata, but follow the qualified
+    # target-specific edges persisted by uv.lock.  Raw requirements can name
+    # more than one universal-lock variant and are metadata only.
+    for group, values in selected_groups.items():
+        locked_edges = locked_dependency_groups.get(group)
+        if locked_edges is None:
+            # Older uv locks did not serialize dependency-group edges; retain
+            # compatibility for those locks while modern locks stay qualified.
+            pending.extend(dependencies(values, marker_environment))
+        elif isinstance(locked_edges, list):
+            pending.extend(dependencies(locked_edges, marker_environment))
+        else:
+            raise SystemExit(f"uv.lock selected dependency group is malformed: {group}")
     traversed_edges = set()
     while pending:
         edge = pending.pop()
