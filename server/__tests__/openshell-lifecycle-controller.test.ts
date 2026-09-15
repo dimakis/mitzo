@@ -8,6 +8,7 @@ import {
   checkpointDirectoryForConversation,
   initializeOpenShellLifecycle,
   openShellLifecycleCapability,
+  openShellLifecycleInventory,
   openShellLifecyclePhaseCounts,
   registerOpenShellLifecycle,
   registerOpenShellLifecycleProvisional,
@@ -563,6 +564,86 @@ it('counts configured recordless providers once while retaining partial inventor
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it('keeps raw provider and lifecycle diagnostics out of operator inventory', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-controller-redaction-'));
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: policy\n');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
+    .mockRejectedValue(new Error('Bearer secret-token grant-123 response-body'));
+  const lifecycle = initializeOpenShellLifecycle(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy,
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+    },
+  )!;
+  const runtime = {
+    sandboxName: 'mitzo-sandbox',
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  const account = { kind: 'api' as const, provider: 'openai-work', model: 'model' };
+  const binding = {
+    accountId: 'account',
+    accountLabel: 'Account',
+    provider: 'openai',
+    model: 'model',
+    profileRevision: '1',
+  };
+  try {
+    registerOpenShellLifecycle('conversation', runtime, binding, account, 'thread', 'client');
+    const record = lifecycle.store.get('conversation')!;
+    lifecycle.store.upsert({
+      ...record,
+      generation: record.generation + 1,
+      failure: 'Bearer stored-secret grant-456 provider-response',
+    });
+
+    const result = await openShellLifecycleInventory(AbortSignal.timeout(100));
+    expect(result.scopes).toEqual([
+      expect.objectContaining({
+        status: 'unavailable',
+        error: 'provider_inventory_unavailable',
+      }),
+    ]);
+    expect(result.sandboxes).toEqual([
+      expect.objectContaining({ lastFailure: 'lifecycle_operation_failed' }),
+    ]);
+    expect(JSON.stringify(result)).not.toMatch(/secret-token|stored-secret|grant-123|grant-456/);
+  } finally {
+    inventory.mockRestore();
+    lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 it('fails closed for Vertex lifecycle/checkpoint capabilities until an adapter exists', () => {
   const common = {
     conversationId: 'c',

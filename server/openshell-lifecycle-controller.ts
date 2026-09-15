@@ -47,13 +47,8 @@ let configured:
   | undefined;
 const log = createLogger('openshell-lifecycle');
 
-function sanitizeLifecycleError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
-  return message
-    .replace(/(?:\/[^\s:]+)+/g, '<path>')
-    .replace(/https?:\/\/[^\s]+/g, '<endpoint>')
-    .slice(0, 180);
-}
+const PROVIDER_INVENTORY_UNAVAILABLE = 'provider_inventory_unavailable';
+const LIFECYCLE_OPERATION_FAILED = 'lifecycle_operation_failed';
 
 export function openShellLifecycleCapability(record: OpenShellLifecycleRecord) {
   const route = record.identity?.route;
@@ -177,11 +172,16 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         sandboxes.push(lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned'));
       }
     } catch (error) {
+      log.warn('OpenShell lifecycle inventory unavailable', {
+        provider: routeRecord.identity!.route.provider,
+        workspace: routeRecord.workspace,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
       scopes.push({
         provider: routeRecord.identity!.route.provider,
         workspace: routeRecord.workspace,
         status: 'unavailable',
-        error: sanitizeLifecycleError(error),
+        error: PROVIDER_INVENTORY_UNAVAILABLE,
       });
       for (const record of records.filter(
         (item) => item.identity && JSON.stringify(item.identity.route) === routeKey,
@@ -231,7 +231,7 @@ function lifecycleInventoryRow(
     retentionConsent: record?.retentionConsent ?? false,
     preservationBlockers:
       status === 'unavailable' || status === 'missing' ? ['inventory_unavailable'] : [],
-    lastFailure: record?.failure ? sanitizeLifecycleError(record.failure) : null,
+    lastFailure: record?.failure ? LIFECYCLE_OPERATION_FAILED : null,
     capabilities: record
       ? openShellLifecycleCapability(record)
       : { runtime: true, checkpoint: 'unsupported', lifecycleActions: 'unsupported' },

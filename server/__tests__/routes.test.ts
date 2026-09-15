@@ -342,7 +342,25 @@ describe('OpenShell lifecycle destructive authorization', () => {
 
   function lifecycleService() {
     return {
-      preview: vi.fn().mockResolvedValue({ action: 'stop' }),
+      preview: vi.fn().mockResolvedValue({
+        token: 'preview-token',
+        expiresAt: Date.now() + 60_000,
+        action: 'stop',
+        blockers: [],
+        record: {
+          conversationId: 'conversation',
+          physicalSandboxId: 'physical-id',
+          sandboxName: 'sandbox',
+          generation: 1,
+          checkpoint: null,
+          retentionConsent: false,
+        },
+      }),
+      auditTarget: vi.fn().mockReturnValue({
+        conversationId: 'conversation',
+        sandboxId: 'physical-id',
+        generation: 1,
+      }),
       confirm: vi.fn().mockResolvedValue('stopped'),
       setRetentionConsent: vi.fn().mockResolvedValue(undefined),
     } as unknown as import('../openshell-lifecycle-service.js').OpenShellLifecycleService;

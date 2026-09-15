@@ -12,6 +12,13 @@ vi.mock('../auth.js', () => ({
     }
     return res.status(401).json({ error: 'Not authenticated' });
   },
+  operatorAuthMiddleware: (req: Request, res: Response, next: NextFunction) => {
+    if (req.header('x-operator') === 'yes') {
+      res.locals.authSession = { id: 'operator-session', expiresAt: Date.now() + 60_000 };
+      return next();
+    }
+    return res.status(401).json({ error: 'Not authenticated' });
+  },
   registerAuthSession: vi.fn(() => () => undefined),
   revokeAuthSession: vi.fn(),
   verifyPassphrase: vi.fn(),
