@@ -1,6 +1,7 @@
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { Worker } from 'node:worker_threads';
 import {
   chmodSync,
   existsSync,
@@ -124,6 +125,60 @@ interface DynamicSeedBaseline {
   runtimeDependencyProjectionSha256: string;
   payloadSha256: string;
   files: Record<string, DynamicSeedBaselineFile>;
+}
+
+interface DynamicSeedIdentity {
+  dev: string;
+  ino: string;
+  mode: string;
+  uid: string;
+  gid: string;
+  size: string;
+  mtimeNs: string;
+  ctimeNs: string;
+}
+
+interface DynamicSeedWorkerResult {
+  ok: true;
+  path: string;
+  token: string;
+  identity: DynamicSeedIdentity;
+}
+
+interface DynamicSeedWorkerFailure {
+  ok: false;
+  message: string;
+}
+
+type DynamicSeedWorkerMessage = DynamicSeedWorkerResult | DynamicSeedWorkerFailure;
+type DynamicSeedWorker = Pick<Worker, 'once' | 'terminate'>;
+type DynamicSeedWorkerFactory = (
+  filename: URL,
+  options: ConstructorParameters<typeof Worker>[1],
+) => DynamicSeedWorker;
+
+let dynamicSeedWorkerFactory: DynamicSeedWorkerFactory = (filename, options) =>
+  new Worker(filename, options);
+
+/** Test-only injection seam for deterministic worker failure/cancellation tests. */
+export function setDynamicSeedWorkerFactoryForTests(factory?: DynamicSeedWorkerFactory) {
+  const previous = dynamicSeedWorkerFactory;
+  dynamicSeedWorkerFactory = factory ?? ((filename, options) => new Worker(filename, options));
+  return () => {
+    dynamicSeedWorkerFactory = previous;
+  };
+}
+
+export interface VerifiedDynamicSeedSnapshot {
+  path: string;
+  /**
+   * The synchronous verifier is retained for callers which explicitly need a
+   * complete re-scan. Runtime creation instead uses its constant-cost check.
+   */
+  verify: () => void;
+  /** Constant-cost ownership and identity fence for the upload boundary. */
+  verifyIdentity: () => void;
+  cleanup: () => void;
 }
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -458,6 +513,11 @@ function snapshotDynamicSeed(source: string, baseline: DynamicSeedBaseline) {
     return {
       path: destination,
       verify: () => verifyDynamicSeedFiles(destination, baseline),
+      verifyIdentity: () => {
+        const stat = lstatSync(destination);
+        if (stat.isSymbolicLink() || !stat.isDirectory())
+          throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+      },
       cleanup: () => rmSync(parent, { recursive: true, force: true }),
     };
   } catch (error) {
@@ -525,20 +585,11 @@ function dynamicSeedPayload(baseline: DynamicSeedBaseline) {
   };
 }
 
-/**
- * Resolve and validate a dynamic seed at the last possible point before its
- * upload.  This is intentionally one operation: callers retain only the
- * concrete release path it returns and never dereference `current` again.
- */
-export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, image: string) {
-  if (!dynamicSeedReleaseRoot(seed)) return seed;
-  if (!isAbsolute(stackManifest))
-    throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
-  const resolvedSeed = resolveImmutableSeed(seed);
-  const before = lstatSync(resolvedSeed);
-  const release = resolve(resolvedSeed, '..');
-  const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
-  const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+function validateDynamicSeedContract(
+  baseline: DynamicSeedBaseline,
+  stack: ReturnType<typeof dynamicStackLock>,
+  image: string,
+) {
   if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image))
     throw new Error('OpenShell dynamic seed requires a digest-pinned configured image');
   if (stack.image !== image)
@@ -554,6 +605,151 @@ export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, 
     throw new Error('OpenShell dynamic seed payload digest does not match baseline');
   if (manifestDigest !== stack.seedPayloadSha256)
     throw new Error('OpenShell dynamic seed payload digest does not match the stack lock');
+}
+
+function dynamicSeedIdentity(path: string): DynamicSeedIdentity {
+  const stat = lstatSync(path, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory())
+    throw new Error('OpenShell dynamic seed private snapshot is not a directory');
+  return {
+    dev: String(stat.dev),
+    ino: String(stat.ino),
+    mode: String(stat.mode),
+    uid: String(stat.uid),
+    gid: String(stat.gid),
+    size: String(stat.size),
+    mtimeNs: String(stat.mtimeNs),
+    ctimeNs: String(stat.ctimeNs),
+  };
+}
+
+function sameDynamicSeedIdentity(left: DynamicSeedIdentity, right: DynamicSeedIdentity) {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.mode === right.mode &&
+    left.uid === right.uid &&
+    left.gid === right.gid &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
+}
+
+function workerModuleUrl() {
+  // Vitest and development run the TypeScript entrypoint via tsx. Production
+  // executes the emitted .js sibling from dist.
+  return new URL(
+    import.meta.url.endsWith('.ts')
+      ? './openshell-dynamic-seed-worker.ts'
+      : './openshell-dynamic-seed-worker.js',
+    import.meta.url,
+  );
+}
+
+/**
+ * Copy and validate a dynamic seed off the server event loop. The caller owns
+ * the 0700 parent and removes it on every completion path; the worker returns
+ * only a concrete child path plus an identity fence which makes the final
+ * pre-upload check constant cost.
+ */
+export async function prepareVerifiedDynamicSeedSnapshot(
+  seed: string,
+  stackManifest: string,
+  image: string,
+  signal?: AbortSignal,
+  timeoutMs = 120_000,
+): Promise<VerifiedDynamicSeedSnapshot | string> {
+  if (!dynamicSeedReleaseRoot(seed)) return seed;
+  if (!isAbsolute(stackManifest))
+    throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
+  const resolvedSeed = resolveImmutableSeed(seed);
+  const release = resolve(resolvedSeed, '..');
+  const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
+  const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+  // Reject a bad lock before allocating a worker, but deliberately leave the
+  // payload tree scan and manifest provenance validation to that worker.
+  validateDynamicSeedContract(baseline, stack, image);
+  const parent = mkdtempSync(join(tmpdir(), 'mitzo-dynamic-seed-'));
+  chmodSync(parent, 0o700);
+  let worker: DynamicSeedWorker | undefined;
+  let result: DynamicSeedWorkerResult | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const cleanup = () => rmSync(parent, { recursive: true, force: true });
+  try {
+    const execArgv = import.meta.url.endsWith('.ts') ? ['--import', 'tsx'] : undefined;
+    worker = dynamicSeedWorkerFactory(workerModuleUrl(), {
+      workerData: { source: resolvedSeed, parent, baseline, stack, image },
+      ...(execArgv ? { execArgv } : {}),
+    });
+    result = await new Promise<DynamicSeedWorkerResult>((resolveResult, reject) => {
+      let receivedMessage = false;
+      const abort = () => reject(new Error('OpenShell dynamic seed preparation was cancelled'));
+      const expire = () => reject(new Error('OpenShell dynamic seed preparation timed out'));
+      timeout = setTimeout(expire, timeoutMs);
+      const remove = () => {
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener('abort', abort);
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+      worker!.once('message', (message: DynamicSeedWorkerMessage) => {
+        receivedMessage = true;
+        remove();
+        if (message.ok) resolveResult(message);
+        else reject(new Error(message.message));
+      });
+      worker!.once('error', (error) => {
+        remove();
+        reject(new Error('OpenShell dynamic seed preparation failed', { cause: error }));
+      });
+      worker!.once('exit', (code) => {
+        if (receivedMessage) return;
+        remove();
+        reject(new Error(`OpenShell dynamic seed worker exited unexpectedly (${code})`));
+      });
+    });
+    const expectedPath = join(parent, `snapshot-${result.token}`, 'mgmt');
+    if (result.path !== expectedPath)
+      throw new Error('OpenShell dynamic seed worker returned an invalid snapshot path');
+    if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result.path), result.identity))
+      throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+    return {
+      path: result.path,
+      // This full verifier exists for explicit unit/preflight callers. The
+      // server runtime below uses only its identity fence immediately before
+      // handing the snapshot to OpenShell.
+      verify: () => verifyDynamicSeedFiles(result!.path, baseline),
+      verifyIdentity: () => {
+        if (!sameDynamicSeedIdentity(dynamicSeedIdentity(result!.path), result!.identity))
+          throw new Error('OpenShell dynamic seed private snapshot changed before upload');
+      },
+      cleanup,
+    };
+  } catch (error) {
+    cleanup();
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (worker) await worker.terminate();
+  }
+}
+
+/**
+ * Resolve and validate a dynamic seed at the last possible point before its
+ * upload.  This is intentionally one operation: callers retain only the
+ * concrete release path it returns and never dereference `current` again.
+ */
+export function verifyImmutableDynamicSeed(seed: string, stackManifest: string, image: string) {
+  if (!dynamicSeedReleaseRoot(seed)) return seed;
+  if (!isAbsolute(stackManifest))
+    throw new Error('OpenShell dynamic seed requires an absolute stack manifest path');
+  const resolvedSeed = resolveImmutableSeed(seed);
+  const before = lstatSync(resolvedSeed);
+  const release = resolve(resolvedSeed, '..');
+  const baseline = dynamicBaseline(readJson(join(release, 'baseline.json'), 'baseline'));
+  const stack = dynamicStackLock(readJson(stackManifest, 'stack lock'));
+  validateDynamicSeedContract(baseline, stack, image);
   verifyDynamicSeedFiles(resolvedSeed, baseline);
   const after = lstatSync(resolvedSeed);
   if (!sameIdentity(before, after) || !after.isDirectory())
@@ -1050,12 +1246,14 @@ export class OpenShellRuntimeManager {
     if (!sandbox) {
       created = true;
       // Pin and fully validate a dynamic `current` release at the final upload
-      // boundary. Do not retain its mutable spelling or dereference it again.
+      // boundary. Its full copy/hash walk runs in a worker so a cold sandbox
+      // cannot stall API/SSE work on the Node event loop.
       const verifiedSeed = dynamicSeedReleaseRoot(this.config.seed)
-        ? verifyImmutableDynamicSeed(
+        ? await prepareVerifiedDynamicSeedSnapshot(
             this.config.seed,
             this.config.stackManifest ?? '',
             this.config.image,
+            signal,
           )
         : undefined;
       if (typeof verifiedSeed === 'string')
@@ -1104,9 +1302,10 @@ export class OpenShellRuntimeManager {
       for (const provider of this.config.serviceProviders) args.push('--provider', provider);
       try {
         // Verify exactly what will be uploaded after all argument preparation.
-        // Its private parent is mode 0700, making this final check race-free
-        // with the untrusted release updater.
-        verifiedSeed?.verify();
+        // The worker already performed the one full scan; this final fence is
+        // intentionally constant-cost and guards replacement/tampering of its
+        // private 0700 snapshot without blocking the event loop again.
+        verifiedSeed?.verifyIdentity();
         await this.run(args, signal);
       } catch (error) {
         if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))

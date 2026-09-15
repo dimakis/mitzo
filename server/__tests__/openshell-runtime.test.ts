@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   mkdtempSync,
+  existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -16,8 +17,10 @@ import {
   OpenShellRuntimeManager,
   openShellCodexRuntimeConfig,
   openShellRuntimeConfig,
+  prepareVerifiedDynamicSeedSnapshot,
   resolveImmutableSeed,
   sandboxNameForConversation,
+  setDynamicSeedWorkerFactoryForTests,
   verifyImmutableDynamicSeed,
 } from '../openshell-runtime.js';
 import { createHash } from 'node:crypto';
@@ -301,6 +304,143 @@ describe('OpenShell runtime lifecycle', () => {
       writeFileSync(join(snapshot.path, 'knowledge.md'), 'tampered private copy\n');
       expect(snapshot.verify).toThrow('file hash');
       snapshot.cleanup();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('prepares and hashes a large dynamic seed in a worker without stalling the event loop', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const replacement = join(releases, 'release-b');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    dynamicRelease(replacement, stackManifest, 'replacement knowledge\n', false);
+    // Enough data to make this a meaningful full-tree copy/hash, while the
+    // setImmediate proves the main loop remains available before it finishes.
+    const large = Buffer.alloc(8 * 1024 * 1024, 7);
+    writeFileSync(join(release, 'mgmt', 'large.bin'), large);
+    const baseline = JSON.parse(readFileSync(join(release, 'baseline.json'), 'utf8'));
+    baseline.files['large.bin'] = {
+      sha256: createHash('sha256').update(large).digest('hex'),
+      mode: '0644',
+    };
+    baseline.payloadSha256 = sha256(canonicalSeedJson(dynamicPayload(baseline)));
+    writeFileSync(join(release, 'baseline.json'), JSON.stringify(baseline));
+    writeFileSync(
+      stackManifest,
+      JSON.stringify({
+        runtime: {
+          ...JSON.parse(readFileSync(stackManifest, 'utf8')).runtime,
+          seedPayloadSha256: baseline.payloadSha256,
+        },
+      }),
+    );
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      let yielded = false;
+      const prepared = prepareVerifiedDynamicSeedSnapshot(
+        join(current, 'mgmt'),
+        stackManifest,
+        config.image,
+      );
+      await new Promise<void>((resolve) =>
+        setImmediate(() => {
+          yielded = true;
+          resolve();
+        }),
+      );
+      // `current` is intentionally no longer consulted by the worker: it
+      // received release-a's resolved path before this updater swap.
+      unlinkSync(current);
+      symlinkSync(replacement, current);
+      expect(yielded).toBe(true);
+      const snapshot = await prepared;
+      if (typeof snapshot === 'string') throw new Error('expected a private dynamic snapshot');
+      expect(readFileSync(join(snapshot.path, 'large.bin'))).toEqual(large);
+      expect(readFileSync(join(snapshot.path, 'knowledge.md'), 'utf8')).toBe(
+        'immutable knowledge\n',
+      );
+      snapshot.cleanup();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it('rejects async preparation of tampered sources and tampered private snapshots', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      writeFileSync(join(release, 'mgmt', 'knowledge.md'), 'tampered\n');
+      await expect(
+        prepareVerifiedDynamicSeedSnapshot(join(current, 'mgmt'), stackManifest, config.image),
+      ).rejects.toThrow('file hash');
+      dynamicRelease(release, stackManifest);
+      const snapshot = await prepareVerifiedDynamicSeedSnapshot(
+        join(current, 'mgmt'),
+        stackManifest,
+        config.image,
+      );
+      if (typeof snapshot === 'string') throw new Error('expected a private dynamic snapshot');
+      rmSync(snapshot.path, { recursive: true, force: true });
+      mkdirSync(snapshot.path);
+      expect(snapshot.verifyIdentity).toThrow('private snapshot changed');
+      snapshot.cleanup();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('terminates failed or timed-out seed workers and cleans their private roots', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-seed-releases-'));
+    const releases = join(root, 'releases');
+    const release = join(releases, 'release-a');
+    const stackManifest = join(root, 'stack.lock.json');
+    mkdirSync(releases);
+    dynamicRelease(release, stackManifest);
+    const current = join(releases, 'current');
+    symlinkSync(release, current);
+    try {
+      for (const outcome of ['error', 'timeout'] as const) {
+        let parent = '';
+        const terminate = vi.fn(async () => 0);
+        const restore = setDynamicSeedWorkerFactoryForTests((_, options) => {
+          parent = (options?.workerData as { parent: string }).parent;
+          const fake = {
+            once(event: string, callback: (...args: unknown[]) => void) {
+              if (outcome === 'error' && event === 'error')
+                queueMicrotask(() => callback(new Error('intentional worker failure')));
+              return fake;
+            },
+            terminate,
+          };
+          return fake as never;
+        });
+        try {
+          await expect(
+            prepareVerifiedDynamicSeedSnapshot(
+              join(current, 'mgmt'),
+              stackManifest,
+              config.image,
+              undefined,
+              5,
+            ),
+          ).rejects.toThrow(outcome === 'error' ? 'preparation failed' : 'timed out');
+          expect(terminate).toHaveBeenCalledOnce();
+          expect(existsSync(parent)).toBe(false);
+        } finally {
+          restore();
+        }
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

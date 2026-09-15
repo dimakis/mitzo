@@ -18,7 +18,7 @@ resolution_contract_tool="$script_root/runtime-resolution-contract.py"
 contract_python() {
   # Keep the Python 3.9/3.10 tomli path declared and reproducible instead of
   # relying on an ambient pip vendor directory.
-  if python3 -c 'import tomllib' >/dev/null 2>&1 || python3 -c 'import tomli' >/dev/null 2>&1; then
+  if python3 -c 'import tomllib, packaging' >/dev/null 2>&1 || python3 -c 'import tomli, packaging' >/dev/null 2>&1; then
     python3 "$@"
   else
     "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python "$@"

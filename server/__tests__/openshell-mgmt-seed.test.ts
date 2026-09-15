@@ -63,9 +63,15 @@ beforeAll(() => {
   writeFileSync(
     uvFixture,
     `#!/usr/bin/env python3
-import sys, tomllib
+import os, sys, tomllib
 
 command = sys.argv[1]
+if command == 'run':
+    # The fallback is deliberately pinned by the shell script. The fixture
+    # need not resolve packages, but must execute the requested Python tool
+    # without consulting a project in the caller's working directory.
+    python = sys.argv.index('python')
+    os.execv(sys.executable, [sys.executable, *sys.argv[python + 1:]])
 with open('pyproject.toml', 'rb') as handle:
     project = tomllib.load(handle)
 requirements = list(project.get('project', {}).get('dependencies', []))
@@ -438,7 +444,7 @@ it('creates the ignored manifest destination when no manifest directory was arch
   expect(existsSync(join(output, 'mgmt', 'memory', 'manifest', 'index.json'))).toBe(true);
 });
 
-it('fails closed without PyYAML rather than reinterpreting YAML front matter', () => {
+it('uses the pinned uv fallback when host Python lacks PyYAML', () => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-mgmt-seed-linked-manifests-'));
   const source = join(root, 'source');
   const output = join(root, 'output');
@@ -482,15 +488,8 @@ it('fails closed without PyYAML rather than reinterpreting YAML front matter', (
       [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
       { cwd: resolve('.'), env: { ...process.env, PATH: `${pythonBin}:${process.env.PATH}` } },
     ),
-  ).toThrow(/PyYAML is required/);
-  expect(existsSync(output)).toBe(false);
-  expect(() =>
-    execFileSync(
-      'bash',
-      [resolve('docs/spikes/openshell-codex/prepare-mgmt-seed.sh'), source, output],
-      { cwd: resolve('.') },
-    ),
   ).not.toThrow();
+  expect(existsSync(join(output, 'mgmt', 'memory', 'manifest', 'index.json'))).toBe(true);
   expect(
     JSON.parse(readFileSync(join(output, 'mgmt', 'memory', 'manifest', 'wikilinks.json'), 'utf8')),
   ).toMatchObject({

@@ -30,7 +30,7 @@ contract_python() {
   # Python 3.9/3.10 need the declared tomli compatibility parser.  uv keeps
   # that provisioning explicit rather than borrowing whichever pip happens to
   # be installed on the release host.
-  if python3 -c 'import tomllib' >/dev/null 2>&1 || python3 -c 'import tomli' >/dev/null 2>&1; then
+  if python3 -c 'import tomllib, packaging' >/dev/null 2>&1 || python3 -c 'import tomli, packaging' >/dev/null 2>&1; then
     python3 "$@"
   else
     "${MITZO_UV_BIN:-uv}" run --no-project --with 'tomli==2.2.1' --with 'packaging==24.2' python "$@"
@@ -61,7 +61,7 @@ git -C "$mgmt_repo" show "$mgmt_source_commit:uv.lock" > "$context/uv.lock"
 # the MGMT commit recorded in its provenance labels. Operators must run the
 # documented migration command in the MGMT checkout, review and commit its lock,
 # then invoke this builder.
-(cd "$context" && UV_CACHE_DIR="$context/.uv-cache" uv lock --locked)
+(cd "$context" && UV_CACHE_DIR="$context/.uv-cache" "${MITZO_UV_BIN:-uv}" lock --locked)
 # This is a checked-in-lock projection, not a fresh host resolution. The
 # Dockerfile validates the same immutable inputs before syncing.
 target_platform="$(podman image inspect "$base_image" --format '{{.Os}}/{{.Architecture}}')"
