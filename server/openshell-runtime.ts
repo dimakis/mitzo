@@ -169,6 +169,9 @@ export type OpenShellAccountRoute =
       model: string;
     };
 
+export type ServiceProviderAccess =
+  { state: 'available' } | { state: 'absent' } | { state: 'indeterminate'; error: Error };
+
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
 function command(binary: string, args: readonly string[], signal: AbortSignal): Promise<string> {
@@ -325,34 +328,65 @@ export class OpenShellRuntimeManager {
     runtime: OpenShellRuntime,
     provider: string,
     signal: AbortSignal,
-  ): Promise<boolean> {
-    if (this.config.serviceProviders.includes(provider)) return true;
-    if (!this.config.grantableServiceProviders.includes(provider)) return false;
-    if (!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider))
-      return false;
+  ): Promise<ServiceProviderAccess> {
+    if (this.config.serviceProviders.includes(provider)) return { state: 'available' };
+    if (!this.config.grantableServiceProviders.includes(provider)) return { state: 'absent' };
 
     const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
-    if (!owner) return false;
+    if (!owner)
+      return {
+        state: 'indeterminate',
+        error: new Error('OpenShell sandbox does not belong to this conversation'),
+      };
     try {
       signal.throwIfAborted();
       const sandbox = await this.get(runtime.sandboxName, signal);
-      if (
-        !sandbox ||
-        sandbox.phase !== 'Ready' ||
-        sandbox.labels?.['mitzo.conversation'] !== owner ||
-        sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider
-      )
-        return false;
-      return parseProviderAttachments(
+      if (!sandbox || sandbox.phase !== 'Ready')
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} is ${sandbox?.phase ?? 'unavailable'}`,
+          ),
+        };
+      if (sandbox.labels?.['mitzo.conversation'] !== owner)
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} is not owned by this conversation`,
+          ),
+        };
+      if (sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider)
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
+          ),
+        };
+      const attached = parseProviderAttachments(
         await this.run(
           ['sandbox', ...this.base(), 'provider', 'list', runtime.sandboxName],
           signal,
         ),
         runtime.sandboxName,
-      ).includes(provider);
+      );
+      if (!attached.includes(provider)) return { state: 'absent' };
+      if (!this.providerPolicyState.read(runtime.sandboxName)?.granted.includes(provider))
+        return {
+          state: 'indeterminate',
+          error: new Error(
+            `OpenShell sandbox ${runtime.sandboxName} has an unapproved ${provider} attachment`,
+          ),
+        };
+      return { state: 'available' };
     } catch (error) {
       if (signal.aborted) throw error;
-      return false;
+      return {
+        state: 'indeterminate',
+        error:
+          error instanceof Error
+            ? error
+            : new Error('OpenShell service provider availability could not be verified'),
+      };
     }
   }
 

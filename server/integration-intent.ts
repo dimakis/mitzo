@@ -41,6 +41,8 @@ const GOOGLE_SERVICE_API_COMMAND = new RegExp(
   '\\buse\\s+(?:the\\s+)?(?:gmail|gws|google\\s+(?:workspace|mail|docs?|drive|sheets?|calendar))\\s+api\\s+to\\b',
   'i',
 );
+const CAPABILITY_HOW_TO = /\bhow\s+(?:to|do|can|should)\b/i;
+const CAPABILITY_WHAT_CAN_USE = /\bwhat\s+can\s+(?:i|we|you)\s+use\b/i;
 
 function requestClauses(prompt: string): string[] {
   return prompt
@@ -73,6 +75,7 @@ function hasActionForResource(
       if (target.index === undefined || action.index === undefined) continue;
       if (isTechnicalArtifact?.(clause, target)) continue;
       if (isNegatedAction(clause, action.index)) continue;
+      if (isCapabilityHowTo(clause, action, target)) continue;
       const between =
         action.index < target.index
           ? clause.slice(action.index + action[0].length, target.index)
@@ -83,6 +86,25 @@ function hasActionForResource(
     }
   }
   return false;
+}
+
+function isCapabilityHowTo(
+  clause: string,
+  action: RegExpMatchArray,
+  target: RegExpMatchArray,
+): boolean {
+  // Keep explanation/capability framing bound to its own action phrase. In
+  // "explain how to use Gmail and then search Gmail", the second operation is
+  // a separate request and must not inherit the explanation's suppression.
+  const pairStart = Math.min(action.index!, target.index!);
+  let scopeStart = 0;
+  for (const boundary of clause.slice(0, pairStart).matchAll(/\b(?:and\s+)?then\b/gi))
+    scopeStart = (boundary.index ?? 0) + boundary[0].length;
+  const scope = clause.slice(
+    scopeStart,
+    Math.max(action.index! + action[0].length, target.index! + target[0].length),
+  );
+  return CAPABILITY_HOW_TO.test(scope) || CAPABILITY_WHAT_CAN_USE.test(scope);
 }
 
 function isNegatedAction(clause: string, actionIndex: number): boolean {

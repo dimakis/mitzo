@@ -282,16 +282,18 @@ describe('OpenShell runtime lifecycle', () => {
     );
     const signal = new AbortController().signal;
     const runtime = await manager.ensure('conversation', signal);
-    expect(await manager.hasServiceProviderAccess('conversation', runtime, 'github', signal)).toBe(
-      true,
-    );
+    expect(
+      await manager.hasServiceProviderAccess('conversation', runtime, 'github', signal),
+    ).toEqual({
+      state: 'available',
+    });
     expect(
       await manager.hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
-    ).toBe(false);
+    ).toEqual({ state: 'absent' });
     await manager.grantServiceProvider('conversation', runtime, 'google-workspace', signal);
     expect(
       await manager.hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
-    ).toBe(true);
+    ).toEqual({ state: 'available' });
     await new OpenShellRuntimeManager(
       migratedConfig,
       run,
@@ -338,7 +340,7 @@ describe('OpenShell runtime lifecycle', () => {
         'google-workspace',
         new AbortController().signal,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toEqual({ state: 'absent' });
   });
 
   it('verifies a Ready owned sandbox attachment for a durable grant', async () => {
@@ -370,7 +372,62 @@ describe('OpenShell runtime lifecycle', () => {
         'google-workspace',
         new AbortController().signal,
       ),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({ state: 'available' });
+  });
+
+  it('keeps unavailable, misbound, and unreadable provider state distinct from absence', async () => {
+    const policyState = {
+      read: vi.fn(() => ({ automatic: ['github'], granted: ['google-workspace'] })),
+      write: vi.fn(),
+    };
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    const signal = new AbortController().signal;
+
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        vi.fn().mockResolvedValue(ready('Creating')),
+        undefined,
+        undefined,
+        policyState,
+      ).hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
+    ).resolves.toMatchObject({ state: 'indeterminate', error: expect.any(Error) });
+
+    const foreign = JSON.parse(ready());
+    foreign.labels['mitzo.conversation'] = 'different';
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        vi.fn().mockResolvedValue(JSON.stringify(foreign)),
+        undefined,
+        undefined,
+        policyState,
+      ).hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
+    ).resolves.toMatchObject({ state: 'indeterminate', error: expect.any(Error) });
+
+    const listFailure = new Error('provider list failed');
+    const listFailingRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list')) throw listFailure;
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        listFailingRun,
+        undefined,
+        undefined,
+        policyState,
+      ).hasServiceProviderAccess('conversation', runtime, 'google-workspace', signal),
+    ).resolves.toEqual({ state: 'indeterminate', error: listFailure });
   });
 
   it('revokes a durable grant removed from administrator policy', async () => {
@@ -661,7 +718,7 @@ describe('OpenShell runtime lifecycle', () => {
         'google-workspace',
         new AbortController().signal,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toMatchObject({ state: 'indeterminate', error: expect.any(Error) });
 
     const reconcileRun = vi
       .fn()

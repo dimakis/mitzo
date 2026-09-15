@@ -229,7 +229,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     .mockResolvedValue();
   const hasAccess = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'hasServiceProviderAccess')
-    .mockResolvedValue(false);
+    .mockResolvedValue({ state: 'absent' });
   const abortController = new AbortController();
   const baseOptions = options(abortController);
   const session = baseOptions.session;
@@ -320,6 +320,23 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     );
     vi.clearAllMocks();
 
+    hasAccess.mockResolvedValueOnce({
+      state: 'indeterminate',
+      error: new Error('OpenShell provider list failed'),
+    });
+    await expect(
+      prepareTurn(
+        {
+          providerPrompt: 'search Gmail for Cat',
+          userIntent: 'search Gmail for Cat',
+          turnId: 'provider-list-failed',
+        },
+        signal,
+      ),
+    ).rejects.toThrow('OpenShell provider list failed');
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+    expect(grant).not.toHaveBeenCalled();
+
     await expect(
       prepareTurn(
         {
@@ -352,7 +369,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     ).resolves.toBe(undefined);
     expect(mocks.permissionHandler).not.toHaveBeenCalled();
 
-    hasAccess.mockResolvedValueOnce(true);
+    hasAccess.mockResolvedValueOnce({ state: 'available' });
     await expect(
       prepareTurn(
         {

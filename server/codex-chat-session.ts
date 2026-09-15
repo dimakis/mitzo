@@ -354,18 +354,18 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   ) => {
     if (!runtimeManager || !managedOpenShell)
       return { content: 'Integration provider is not grantable', isError: true };
-    if (
-      await runtimeManager.hasServiceProviderAccess(
-        options.conversationId,
-        managedOpenShell,
-        provider,
-        signal,
-      )
-    )
+    const access = await runtimeManager.hasServiceProviderAccess(
+      options.conversationId,
+      managedOpenShell,
+      provider,
+      signal,
+    );
+    if (access.state === 'available')
       return {
         content: `Integration provider ${provider} is already available to this chat`,
         isError: false,
       };
+    if (access.state === 'indeterminate') throw access.error;
     const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
     const approvedInput = { provider };
     const owner = options.registry.findBySessionId(options.conversationId);
@@ -565,15 +565,14 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               rawUserIntent,
               grantableProviders,
             )) {
-              if (
-                await runtimeManager.hasServiceProviderAccess(
-                  options.conversationId,
-                  managedOpenShell,
-                  provider,
-                  signal,
-                )
-              )
-                continue;
+              const access = await runtimeManager.hasServiceProviderAccess(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              );
+              if (access.state === 'available') continue;
+              if (access.state === 'indeterminate') throw access.error;
               const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
               const result = await requestIntegrationAccess(provider, signal);
               if (result.isError)
