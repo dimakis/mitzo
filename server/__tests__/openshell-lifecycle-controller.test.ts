@@ -66,6 +66,9 @@ it('keeps read-only inventory available while lifecycle cleanup is disabled', as
   const inventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
     .mockResolvedValue([{ id: 'physical-id', name: 'sandbox', phase: 'Ready' as const }]);
+  const allInventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
+    .mockResolvedValue([]);
   const controller = configureOpenShellLifecycleInventory(
     {
       cli: 'openshell',
@@ -110,6 +113,7 @@ it('keeps read-only inventory available while lifecycle cleanup is disabled', as
       ],
     });
   } finally {
+    allInventory.mockRestore();
     inventory.mockRestore();
     controller.store.close();
     vi.unstubAllEnvs();
@@ -679,6 +683,9 @@ it('discovers recordless orphans and reconciles identity-less provisional record
     { id: 'provisional-id', name: 'mitzo-provisional', phase: 'Ready' as const },
     { id: 'orphan-id', name: 'mitzo-orphan', phase: 'Ready' as const },
   ]);
+  const allInventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
+    .mockResolvedValue([]);
   const lifecycle = initializeOpenShellLifecycle(
     {
       cli: 'openshell',
@@ -741,6 +748,7 @@ it('discovers recordless orphans and reconciles identity-less provisional record
       ],
     });
   } finally {
+    allInventory.mockRestore();
     inventory.mockRestore();
     lifecycle.store.close();
     vi.unstubAllEnvs();
@@ -757,6 +765,9 @@ it('matches physical inventory only to records from the queried provider', async
   const inventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
     .mockResolvedValue([{ id: 'shared-id', name: 'shared-name', phase: 'Ready' as const }]);
+  const allInventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
+    .mockResolvedValue([]);
   const lifecycle = initializeOpenShellLifecycle(
     {
       cli: 'openshell',
@@ -820,8 +831,83 @@ it('matches physical inventory only to records from the queried provider', async
     ]);
     expect(inventory).toHaveBeenCalledTimes(2);
   } finally {
+    allInventory.mockRestore();
     inventory.mockRestore();
     lifecycle.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('discovers recordless sandboxes after their provider profile is removed', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-removed-provider-'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  const allInventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
+    .mockResolvedValue([
+      {
+        id: 'removed-provider-id',
+        name: 'removed-provider-sandbox',
+        phase: 'Ready' as const,
+        labels: {
+          'mitzo.conversation': 'removed-provider-owner',
+          'mitzo.account_provider': 'removed-provider',
+        },
+      },
+    ]);
+  const inventory = vi.spyOn(OpenShellRuntimeManager.prototype, 'inventory').mockResolvedValue([
+    {
+      id: 'removed-provider-id',
+      name: 'removed-provider-sandbox',
+      phase: 'Ready' as const,
+      labels: {
+        'mitzo.conversation': 'removed-provider-owner',
+        'mitzo.account_provider': 'removed-provider',
+      },
+    },
+  ]);
+  const controller = configureOpenShellLifecycleInventory(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy: '/unavailable/lifecycle-policy.yaml',
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+      accountProviders: () => [],
+    },
+  )!;
+  try {
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: true,
+      sandboxes: [
+        {
+          status: 'orphaned',
+          physicalId: 'removed-provider-id',
+          provider: 'removed-provider',
+          preservationBlockers: ['ambiguous_ownership'],
+        },
+      ],
+    });
+    expect(allInventory).toHaveBeenCalledOnce();
+    expect(inventory).toHaveBeenCalledOnce();
+  } finally {
+    allInventory.mockRestore();
+    inventory.mockRestore();
+    controller.store.close();
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
   }
@@ -888,6 +974,9 @@ it('keeps raw provider and lifecycle diagnostics out of operator inventory', asy
   const inventory = vi
     .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
     .mockRejectedValue(new Error('Bearer secret-token grant-123 response-body'));
+  const allInventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventoryAll')
+    .mockResolvedValue([]);
   const lifecycle = initializeOpenShellLifecycle(
     {
       cli: 'openshell',
@@ -956,6 +1045,7 @@ it('keeps raw provider and lifecycle diagnostics out of operator inventory', asy
     aborted.abort();
     await expect(openShellLifecycleInventory(aborted.signal)).rejects.toThrow();
   } finally {
+    allInventory.mockRestore();
     inventory.mockRestore();
     lifecycle.store.close();
     vi.unstubAllEnvs();

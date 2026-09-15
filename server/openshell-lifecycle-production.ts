@@ -54,6 +54,49 @@ function flatten(
 ): typeof tasks {
   return tasks.flatMap((task) => [task, ...flatten(task.children as typeof tasks)]);
 }
+
+export async function openShellLifecycleProtection(
+  deps: Pick<LifecycleProductionDependencies, 'registry' | 'eventStore' | 'taskStore' | 'queue'>,
+  record: OpenShellLifecycleRecord,
+): Promise<{ blockers: LifecycleBlocker[] }> {
+  try {
+    if (!record.identity) return { blockers: ['ambiguous_ownership'] };
+    const blockers: LifecycleBlocker[] = [];
+    if (deps.registry.findBySessionId(record.conversationId)) blockers.push('active_session');
+    const q = deps.queue(record);
+    if (q.recovery || q.queued || q.running) blockers.push('queued_work');
+    // Task Board persists client IDs. Resolve those through the registry;
+    // direct conversation IDs remain supported for records written before
+    // the client/conversation split. An unresolvable non-terminal owner is
+    // ambiguous and therefore blocks mutation.
+    const clients = new Map<string, string | undefined>(
+      [...deps.registry.entries()].map(([clientId, session]) => [clientId, session.sessionId]),
+    );
+    if (
+      flatten(deps.taskStore.getTree()).some((task) => {
+        if (terminal.has(task.status)) return false;
+        const owner = task.sessionId;
+        if (!owner) return false;
+        const isConversation = owner === record.conversationId;
+        const isDurableClient = owner === record.ownerClientId;
+        const isLiveClient = clients.get(owner) === record.conversationId;
+        if (!isConversation && !isDurableClient && !isLiveClient) return false;
+        if (isDurableClient && !clients.has(owner)) blockers.push('ambiguous_ownership');
+        return true;
+      })
+    )
+      blockers.push('task_board');
+    const session = deps.eventStore.getSession(record.conversationId);
+    // Missing event history means we cannot prove this is an ordinary,
+    // single-owner chat. Treat it as unavailable rather than an empty row.
+    if (!session) blockers.push('inventory_unavailable');
+    else if (session.sessionType === 'symposium' || session.symposiumConfig)
+      blockers.push('symposium');
+    return { blockers };
+  } catch {
+    return { blockers: ['inventory_unavailable'] };
+  }
+}
 /** Real adapter composition; every reader failure is intentionally a blocker. */
 export function createOpenShellLifecycleProductionAdapter(
   deps: LifecycleProductionDependencies,
@@ -68,44 +111,6 @@ export function createOpenShellLifecycleProductionAdapter(
     lifecycleSupported: deps.lifecycleSupported,
     onOutcome: (record, action) => deps.onOutcome?.(action),
     onReconcileError: deps.onReconcileError,
-    async protect(record): Promise<{ blockers: LifecycleBlocker[] }> {
-      try {
-        if (!record.identity) return { blockers: ['ambiguous_ownership'] };
-        const blockers: LifecycleBlocker[] = [];
-        if (deps.registry.findBySessionId(record.conversationId)) blockers.push('active_session');
-        const q = deps.queue(record);
-        if (q.recovery || q.queued || q.running) blockers.push('queued_work');
-        // Task Board persists client IDs. Resolve those through the registry;
-        // direct conversation IDs remain supported for records written before
-        // the client/conversation split. An unresolvable non-terminal owner is
-        // ambiguous and therefore blocks mutation.
-        const clients = new Map<string, string | undefined>(
-          [...deps.registry.entries()].map(([clientId, session]) => [clientId, session.sessionId]),
-        );
-        if (
-          flatten(deps.taskStore.getTree()).some((task) => {
-            if (terminal.has(task.status)) return false;
-            const owner = task.sessionId;
-            if (!owner) return false;
-            const isConversation = owner === record.conversationId;
-            const isDurableClient = owner === record.ownerClientId;
-            const isLiveClient = clients.get(owner) === record.conversationId;
-            if (!isConversation && !isDurableClient && !isLiveClient) return false;
-            if (isDurableClient && !clients.has(owner)) blockers.push('ambiguous_ownership');
-            return true;
-          })
-        )
-          blockers.push('task_board');
-        const session = deps.eventStore.getSession(record.conversationId);
-        // Missing event history means we cannot prove this is an ordinary,
-        // single-owner chat. Treat it as unavailable rather than an empty row.
-        if (!session) blockers.push('inventory_unavailable');
-        else if (session.sessionType === 'symposium' || session.symposiumConfig)
-          blockers.push('symposium');
-        return { blockers };
-      } catch {
-        return { blockers: ['inventory_unavailable'] };
-      }
-    },
+    protect: (record) => openShellLifecycleProtection(deps, record),
   };
 }

@@ -75,7 +75,7 @@ export interface LifecyclePreview {
   blockers: LifecycleBlocker[];
 }
 
-function blockersFor(
+export function openShellLifecyclePreservationBlockers(
   record: OpenShellLifecycleRecord,
   sandbox: LifecycleSandbox | undefined,
   protection: LifecycleProtection,
@@ -165,7 +165,7 @@ export class OpenShellLifecycleService {
   private async state(record: OpenShellLifecycleRecord, signal: AbortSignal) {
     const sandbox = await this.adapters.inspect(record, signal);
     const protection = await this.adapters.protect(record, signal);
-    const blockers = blockersFor(record, sandbox, protection);
+    const blockers = openShellLifecyclePreservationBlockers(record, sandbox, protection);
     if (this.adapters.lifecycleSupported?.(record) === false) blockers.push('unsupported_provider');
     return { sandbox, blockers: [...new Set(blockers)] };
   }

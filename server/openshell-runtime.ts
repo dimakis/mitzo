@@ -389,7 +389,7 @@ export class OpenShellRuntimeManager {
   }
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
-  async inventory(signal: AbortSignal) {
+  private async managedInventory(signal: AbortSignal) {
     const sandboxes: z.infer<typeof Sandbox>[] = [];
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
@@ -417,8 +417,19 @@ export class OpenShellRuntimeManager {
     return sandboxes.filter(
       (sandbox) =>
         sandbox.labels?.['mitzo.conversation'] &&
-        sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
         (!sandbox.workspace || sandbox.workspace === this.config.workspace),
+    );
+  }
+
+  /** Workspace-wide managed inventory preserves provider labels so operators
+   * can discover orphaned sandboxes after an account profile is removed. */
+  inventoryAll(signal: AbortSignal) {
+    return this.managedInventory(signal);
+  }
+
+  async inventory(signal: AbortSignal) {
+    return (await this.managedInventory(signal)).filter(
+      (sandbox) => sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider,
     );
   }
 
@@ -645,6 +656,7 @@ export class OpenShellRuntimeManager {
       } catch {
         // A transient inventory failure is not evidence that detached
         // provisioning stopped consuming capacity. Continue fail-closed.
+        if (Date.now() >= absentDeadline) return;
       }
       await this.delay(signal);
     }

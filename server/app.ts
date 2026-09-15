@@ -742,7 +742,10 @@ app.get('/api/openshell/capacity', async (_req, res) => {
     if (!status) {
       res.status(503).json({
         available: false,
+        collectedAt: Date.now(),
         state: 'unavailable',
+        podman: { available: false },
+        filesystem: { available: false },
         error: 'OpenShell capacity is not configured',
       });
       return;
@@ -753,7 +756,10 @@ app.get('/api/openshell/capacity', async (_req, res) => {
   } catch (error) {
     res.status(503).json({
       available: false,
+      collectedAt: Date.now(),
       state: 'unavailable',
+      podman: { available: false },
+      filesystem: { available: false },
       error: operatorFailureCode('openshell_capacity_unavailable', error),
     });
   }

@@ -47,5 +47,11 @@ it('requires authentication and represents unconfigured operations honestly', as
 
   const capacity = await request(app).get('/api/openshell/capacity').set('x-operator', 'yes');
   expect(capacity.status).toBe(503);
-  expect(capacity.body).toMatchObject({ available: false, state: 'unavailable' });
+  expect(capacity.body).toMatchObject({
+    available: false,
+    collectedAt: expect.any(Number),
+    state: 'unavailable',
+    podman: { available: false },
+    filesystem: { available: false },
+  });
 });

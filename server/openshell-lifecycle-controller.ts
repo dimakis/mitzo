@@ -16,8 +16,14 @@ import {
   type OpenShellLifecycleIdentity,
   type OpenShellLifecycleRecord,
 } from './openshell-lifecycle.js';
-import { createOpenShellLifecycleProductionAdapter } from './openshell-lifecycle-production.js';
-import { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
+import {
+  createOpenShellLifecycleProductionAdapter,
+  openShellLifecycleProtection,
+} from './openshell-lifecycle-production.js';
+import {
+  OpenShellLifecycleService,
+  openShellLifecyclePreservationBlockers,
+} from './openshell-lifecycle-service.js';
 import { createLogger } from './logger.js';
 import {
   OpenShellRuntimeManager,
@@ -153,13 +159,26 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   const groups = new Map<string, OpenShellLifecycleRecord>();
   const providerOnlyScopes = new Set<string>();
   const seen = new Set<string>();
-  const sandboxes: Array<ReturnType<typeof lifecycleInventoryRow>> = [];
+  const sandboxes: Array<Awaited<ReturnType<typeof lifecycleInventoryRow>>> = [];
   const scopes: Array<Record<string, string>> = [];
+  let providerDiscoveryUnavailable = false;
   for (const record of records) {
     // Inventory needs only the persisted provider route, not a lifecycle
     // identity. Provisional records must therefore keep retired providers in
     // scope even after the account-profile callback stops returning them.
     if (!groups.has(record.accountProvider)) groups.set(record.accountProvider, record);
+  }
+  try {
+    for (const sandbox of await managerForProvider('configured').inventoryAll(signal)) {
+      const provider = sandbox.labels?.['mitzo.account_provider'];
+      if (provider && !groups.has(provider)) providerOnlyScopes.add(provider);
+    }
+  } catch (error) {
+    if (signal.aborted) throw error;
+    providerDiscoveryUnavailable = true;
+    log.warn('OpenShell workspace provider discovery unavailable', {
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
   }
   try {
     for (const provider of inventoryConfigured.sources.accountProviders?.() ?? []) {
@@ -176,6 +195,13 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
       error: PROVIDER_INVENTORY_UNAVAILABLE,
     });
   }
+  if (providerDiscoveryUnavailable && !groups.size && !providerOnlyScopes.size && !scopes.length)
+    scopes.push({
+      provider: 'configured',
+      workspace: inventoryConfigured.config.workspace,
+      status: 'unavailable',
+      error: PROVIDER_INVENTORY_UNAVAILABLE,
+    });
   for (const [provider, routeRecord] of groups) {
     try {
       const physical = await managerForProvider(provider).inventory(signal);
@@ -197,7 +223,13 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
                 item.sandboxName === sandbox.name,
             );
         sandboxes.push(
-          lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned', provider),
+          await lifecycleInventoryRow(
+            record,
+            sandbox,
+            record ? 'verified' : 'orphaned',
+            signal,
+            provider,
+          ),
         );
       }
     } catch (error) {
@@ -217,7 +249,7 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
         const key = `${provider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
         if (!seen.has(key)) {
           seen.add(key);
-          sandboxes.push(lifecycleInventoryRow(record, undefined, 'unavailable'));
+          sandboxes.push(await lifecycleInventoryRow(record, undefined, 'unavailable', signal));
         }
       }
     }
@@ -246,7 +278,13 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
                 item.sandboxName === sandbox.name,
             );
         sandboxes.push(
-          lifecycleInventoryRow(record, sandbox, record ? 'verified' : 'orphaned', provider),
+          await lifecycleInventoryRow(
+            record,
+            sandbox,
+            record ? 'verified' : 'orphaned',
+            signal,
+            provider,
+          ),
         );
       }
     } catch (error) {
@@ -266,7 +304,8 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   }
   for (const record of records) {
     const key = `${record.accountProvider}:${record.physicalSandboxId ?? `${record.workspace}:${record.sandboxName}`}`;
-    if (!seen.has(key)) sandboxes.push(lifecycleInventoryRow(record, undefined, 'missing'));
+    if (!seen.has(key))
+      sandboxes.push(await lifecycleInventoryRow(record, undefined, 'missing', signal));
   }
   return {
     available: scopes.some((scope) => scope.status === 'available'),
@@ -277,13 +316,49 @@ export async function openShellLifecycleInventory(signal: AbortSignal) {
   };
 }
 
-function lifecycleInventoryRow(
+async function lifecycleInventoryRow(
   record: OpenShellLifecycleRecord | undefined,
-  sandbox: { id?: string; name: string; phase: string; workspace?: string } | undefined,
+  sandbox:
+    | {
+        id?: string;
+        name: string;
+        phase: string;
+        workspace?: string;
+        resource_version?: string;
+        revision?: string;
+      }
+    | undefined,
   status: 'verified' | 'orphaned' | 'unavailable' | 'missing',
+  signal: AbortSignal,
   providerOverride?: string,
 ) {
   const now = Date.now();
+  let preservationBlockers: string[];
+  if (!record) preservationBlockers = ['ambiguous_ownership'];
+  else {
+    signal.throwIfAborted();
+    const protection = await openShellLifecycleProtection(inventoryConfigured!.sources, record);
+    const physical =
+      sandbox?.id &&
+      ['Ready', 'Stopped', 'Error', 'Pending', 'Creating', 'Starting', 'Deleting'].includes(
+        sandbox.phase,
+      )
+        ? {
+            id: sandbox.id,
+            phase: sandbox.phase as
+              'Ready' | 'Stopped' | 'Error' | 'Pending' | 'Creating' | 'Starting' | 'Deleting',
+            ...(sandbox.resource_version || sandbox.revision
+              ? { resourceVersion: sandbox.resource_version ?? sandbox.revision }
+              : {}),
+          }
+        : undefined;
+    preservationBlockers = openShellLifecyclePreservationBlockers(record, physical, protection);
+    if (openShellLifecycleCapability(record).lifecycleActions === 'unsupported')
+      preservationBlockers.push('unsupported_provider');
+    preservationBlockers = [...new Set(preservationBlockers)];
+  }
+  if (status === 'unavailable' || status === 'missing')
+    preservationBlockers = [...new Set([...preservationBlockers, 'inventory_unavailable'])];
   return {
     status,
     name: sandbox?.name ?? record?.sandboxName ?? 'unknown',
@@ -301,8 +376,7 @@ function lifecycleInventoryRow(
       ? { status: 'present', digest: record.checkpoint.digest, version: record.checkpoint.version }
       : { status: 'absent' },
     retentionConsent: record?.retentionConsent ?? false,
-    preservationBlockers:
-      status === 'unavailable' || status === 'missing' ? ['inventory_unavailable'] : [],
+    preservationBlockers,
     lastFailure: record?.failure ? LIFECYCLE_OPERATION_FAILED : null,
     capabilities: record
       ? openShellLifecycleCapability(record)

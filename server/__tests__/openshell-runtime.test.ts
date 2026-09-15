@@ -372,7 +372,7 @@ describe('OpenShell runtime lifecycle', () => {
     await expect(second).resolves.toMatchObject({ sandboxName: expect.any(String) });
   });
 
-  it('bounds the reservation when a successful detached create never becomes visible', async () => {
+  it('bounds the reservation when a successful detached create remains uninspectable', async () => {
     configureOpenShellCapacityAdmission(
       new OpenShellCapacityAdmission(
         new OpenShellCapacityCollector('/', {
@@ -383,8 +383,13 @@ describe('OpenShell runtime lifecycle', () => {
         openShellCapacityPolicy({}),
       ),
     );
+    let createIssued = false;
     const invisible = vi.fn(async (args: readonly string[]) => {
-      if (args.includes('get')) throw new Error('sandbox not found');
+      if (args.includes('get')) {
+        if (createIssued) throw new Error('gateway inventory unavailable');
+        throw new Error('sandbox not found');
+      }
+      if (args.includes('create')) createIssued = true;
       return '{}';
     });
     await expect(
@@ -392,7 +397,7 @@ describe('OpenShell runtime lifecycle', () => {
         pollIntervalMs: 1,
         timeoutMs: 5,
       }).ensure('never-visible', new AbortController().signal),
-    ).rejects.toThrow('did not become Ready');
+    ).rejects.toThrow('gateway inventory unavailable');
 
     let created = false;
     const nextCreate = vi.fn();
