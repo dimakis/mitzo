@@ -163,6 +163,26 @@ it('rejects approval input that cannot be displayed in full', async () => {
   }
 });
 
+it('rejects approval input that cannot be serialized for review', async () => {
+  const { applyTierOverrides } = await import('../src/tool-tiers.js');
+  applyTierOverrides({ CustomWrite: 'unknown' });
+  try {
+    const { handler, sent, abort } = setup();
+    const result = handler(
+      'CustomWrite',
+      { toJSON: () => undefined },
+      { signal: abort.signal, toolUseID: 'custom-large' },
+    );
+    await expect(result).resolves.toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('too large to review safely'),
+    });
+    expect(sent).toEqual([]);
+  } finally {
+    applyTierOverrides({});
+  }
+});
+
 it('keeps an unresolved question replayable when a transport closes during send', async () => {
   const { getPendingRequestsBySession } = await import('../src/permissions.js');
   const { handler, registry, abort } = setup();

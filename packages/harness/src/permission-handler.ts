@@ -46,6 +46,7 @@ function permissionDisplayInput(
     toolName === 'Bash' && typeof input.command === 'string'
       ? input.command
       : JSON.stringify(input, null, 2);
+  if (full === undefined) return undefined;
   return full.length <= PERMISSION_INPUT_MAX_CHARS ? full : undefined;
 }
 
@@ -175,14 +176,14 @@ export function buildPermissionHandler(
       };
     }
 
-    const inputSummary = summarizeToolInput(toolName, _toolInput);
-    const tier = getToolTier(toolName);
     const displayInput = questions ? '' : permissionDisplayInput(toolName, _toolInput);
     if (displayInput === undefined)
       return {
         behavior: 'deny',
         message: 'Tool input is too large to review safely. Split it into smaller operations.',
       };
+    const inputSummary = summarizeToolInput(toolName, _toolInput);
+    const tier = getToolTier(toolName);
 
     return new Promise<PermissionResult>((resolve) => {
       if (opts.signal.aborted) {
