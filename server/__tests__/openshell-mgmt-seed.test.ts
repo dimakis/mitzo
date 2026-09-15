@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -14,6 +15,11 @@ import {
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
+import {
+  canonicalJsonPayload,
+  validateSeedBaseline,
+} from '../../scripts/verify-openshell-production.mjs';
+import { verifyImmutableDynamicSeed } from '../openshell-runtime.js';
 
 // Seed fixtures launch several short-lived Git/Python processes. The complete
 // suite runs many files concurrently, so a five-second unit-test default is
@@ -767,6 +773,43 @@ it('emits the complete dynamic contract for a same-commit current release', () =
     runtimeDependencyProjectionSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     payloadSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
   });
+  expect(baseline.payloadSha256).toBe(
+    createHash('sha256')
+      .update(
+        canonicalJsonPayload({
+          startingCommit: baseline.startingCommit,
+          runtimeBaseCommit: baseline.runtimeBaseCommit,
+          runtimeDependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
+          files: baseline.files,
+        }),
+      )
+      .digest('hex'),
+  );
+  const runtimeImage = `registry.invalid/runtime@sha256:${'c'.repeat(64)}`;
+  const stackManifest = join(root, 'dynamic-stack.json');
+  writeFileSync(
+    stackManifest,
+    JSON.stringify({
+      runtime: {
+        image: runtimeImage,
+        mgmtSourceCommit: baseline.runtimeBaseCommit,
+        dependencyProjectionSha256: baseline.runtimeDependencyProjectionSha256,
+        seedPayloadSha256: baseline.payloadSha256,
+      },
+    }),
+  );
+  expect(() =>
+    validateSeedBaseline(
+      baseline,
+      JSON.parse(readFileSync(stackManifest, 'utf8')),
+      join(output, 'mgmt'),
+    ),
+  ).not.toThrow();
+  const current = join(root, 'current');
+  symlinkSync(output, current);
+  const snapshot = verifyImmutableDynamicSeed(join(current, 'mgmt'), stackManifest, runtimeImage);
+  if (typeof snapshot === 'string') throw new Error('expected a private dynamic snapshot');
+  snapshot.cleanup();
 }, 10_000);
 
 it('fails closed when a descendant seed is missing its selected stack-lock contract', () => {

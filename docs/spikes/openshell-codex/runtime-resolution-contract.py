@@ -62,15 +62,51 @@ def marker_applies(marker, target_platform):
     return any(all(atom_matches(atom) for atom in clause.split(" and ")) for clause in marker.split(" or "))
 
 
+def parse_pep508_requirement(requirement, target_platform):
+    """Extract a lock edge from a complete PEP 508 requirement.
+
+    `packaging` is intentionally not an undeclared build dependency of the
+    runtime image tooling. This small scanner accepts PEP 508's name, extras,
+    version-specifier, direct-reference, and marker forms while retaining only
+    the two fields uv.lock can use to qualify an edge (name and an exact ==
+    version). Other valid specifiers correlate by normalized name to the
+    already-resolved lock edge.
+    """
+    if not isinstance(requirement, str):
+        raise SystemExit("unsupported dependency-group requirement")
+    specification, separator, marker = requirement.partition(";")
+    if separator and not marker_applies(marker.strip(), target_platform):
+        return None
+    text = specification.strip()
+    name_match = re.match(r"[A-Za-z0-9][A-Za-z0-9_.-]*", text)
+    if not name_match:
+        raise SystemExit("unsupported dependency-group requirement")
+    name = name_match.group(0)
+    remainder = text[len(name):].lstrip()
+    if remainder.startswith("["):
+        close = remainder.find("]")
+        if close < 1 or not all(character.isalnum() or character in "._,- " for character in remainder[1:close]):
+            raise SystemExit("unsupported dependency-group requirement")
+        remainder = remainder[close + 1:].lstrip()
+    if remainder.startswith("@"):
+        if not remainder[1:].strip():
+            raise SystemExit("unsupported dependency-group requirement")
+        return {"name": normalized_name(name)}
+    if remainder:
+        if not all(character.isalnum() or character in ".!<>=~,*+_- \t" for character in remainder):
+            raise SystemExit("unsupported dependency-group requirement")
+        exact = re.search(r"(?:^|,)\s*==\s*([^,\s]+)", remainder)
+        return {"name": normalized_name(name), **({"version": exact.group(1)} if exact else {})}
+    return {"name": normalized_name(name)}
+
+
 def dependencies(value, target_platform):
     result = []
     for dependency in value or []:
         if isinstance(dependency, str):
-            match = re.fullmatch(r"\s*([A-Za-z0-9_.-]+)(?:\s*==\s*([A-Za-z0-9_.+!-]+))?\s*", dependency)
-            if not match:
-                raise SystemExit("unsupported dependency-group requirement")
-            name, version = match.groups()
-            result.append({"name": normalized_name(name), **({"version": version} if version else {})})
+            edge = parse_pep508_requirement(dependency, target_platform)
+            if edge:
+                result.append(edge)
         elif isinstance(dependency, dict) and isinstance(dependency.get("name"), str):
             if marker_applies(dependency.get("marker"), target_platform):
                 result.append({

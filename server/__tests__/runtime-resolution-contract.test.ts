@@ -183,6 +183,26 @@ it('follows the platform-qualified lock edge instead of every same-name variant'
   expect(qualifiedContract('2')).not.toBe(qualifiedContract('2', '4'));
 });
 
+it('accepts complete PEP 508 dependency-group requirements and filters their markers', () => {
+  const selected = JSON.parse(
+    groupedContract(
+      '["nested>=1,<2", "direct[extra] ; sys_platform == \'linux\'", "transitive @ https://packages.example/transitive.whl"]',
+    ),
+  );
+  expect(selected.lock.packages.map((entry: { name: string }) => entry.name).sort()).toEqual([
+    'direct',
+    'fixture',
+    'nested',
+    'transitive',
+  ]);
+  const unselected = JSON.parse(groupedContract('["nested ; sys_platform == \'darwin\'"]'));
+  expect(unselected.lock.packages.map((entry: { name: string }) => entry.name).sort()).toEqual([
+    'direct',
+    'fixture',
+  ]);
+  expect(() => groupedContract('["@@"]')).toThrow('unsupported dependency-group requirement');
+});
+
 it('recursively includes selected PEP 735 groups and their lock closure', () => {
   const contract = JSON.parse(groupedContract('["nested==1"]'));
   expect(contract.project.selectedDependencyGroups).toEqual({

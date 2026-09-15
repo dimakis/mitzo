@@ -647,9 +647,16 @@ payload = {
 if os.environ['IS_DYNAMIC'] == '1':
     payload['runtimeBaseCommit'] = os.environ['RUNTIME_BASE_COMMIT']
     payload['runtimeDependencyProjectionSha256'] = os.environ['RUNTIME_PROJECTION_SHA256']
-    # Pin every release-control field, not merely the file tree. Otherwise a
-    # later startingCommit/projection edit could retain the old tree digest.
-    payload['payloadSha256'] = hashlib.sha256(canonical_json(payload).encode('utf-8')).hexdigest()
+    # Pin every release-control field, not merely the file tree. Keep this
+    # explicit subobject byte-identical to the Node preflight/runtime
+    # validators; source/saveBack are informational host metadata and do not
+    # affect the uploaded tree or sandbox behavior.
+    payload['payloadSha256'] = hashlib.sha256(canonical_json({
+        'startingCommit': payload['startingCommit'],
+        'runtimeBaseCommit': payload['runtimeBaseCommit'],
+        'runtimeDependencyProjectionSha256': payload['runtimeDependencyProjectionSha256'],
+        'files': payload['files'],
+    }).encode('utf-8')).hexdigest()
 pathlib.Path(os.environ['BASELINE']).write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 PY
 
