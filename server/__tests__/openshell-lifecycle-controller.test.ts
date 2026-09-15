@@ -6,6 +6,7 @@ import { OpenShellCheckpointTransport } from '../openshell-checkpoint-transport.
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from '../openshell-runtime.js';
 import {
   checkpointDirectoryForConversation,
+  configureOpenShellLifecycleInventory,
   initializeOpenShellLifecycle,
   openShellLifecycleCapability,
   openShellLifecycleInventory,
@@ -54,6 +55,51 @@ it('does not read the checkpoint policy when lifecycle is disabled', () => {
     ).toBeUndefined();
   } finally {
     vi.unstubAllEnvs();
+  }
+});
+
+it('keeps read-only inventory available while lifecycle cleanup is disabled', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-inventory-only-'));
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', directory);
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '0');
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inventory')
+    .mockResolvedValue([{ id: 'physical-id', name: 'sandbox', phase: 'Ready' as const }]);
+  const controller = configureOpenShellLifecycleInventory(
+    {
+      cli: 'openshell',
+      image: 'mitzo-runtime:1',
+      policy: '/unavailable/lifecycle-policy.yaml',
+      seed: '/seed/mgmt',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      workspace: 'default',
+      gateway: 'openshell',
+      gatewayInsecure: false,
+      createDetached: true,
+      sandboxIdLength: 13,
+      workdir: '/sandbox/workspaces/mgmt',
+      webSearch: 'disabled',
+    },
+    {
+      registry: { findBySessionId: () => undefined, entries: function* () {} },
+      eventStore: { getSession: () => ({}) },
+      taskStore: { getTree: () => [] },
+      queue: () => ({ queued: 0, running: 0, recovery: false }),
+      accountProviders: () => ['openai-work'],
+    },
+  )!;
+  try {
+    await expect(openShellLifecycleInventory(AbortSignal.timeout(100))).resolves.toMatchObject({
+      available: true,
+      sandboxes: [{ status: 'orphaned', physicalId: 'physical-id' }],
+    });
+    expect(inventory).toHaveBeenCalledOnce();
+  } finally {
+    inventory.mockRestore();
+    controller.store.close();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
@@ -755,6 +801,7 @@ it('keeps raw provider and lifecycle diagnostics out of operator inventory', asy
       ...record,
       generation: record.generation + 1,
       failure: 'Bearer stored-secret grant-456 provider-response',
+      identity: { ...record.identity!, image: 'retired-image', policyDigest: 'retired-policy' },
     });
 
     const result = await openShellLifecycleInventory(AbortSignal.timeout(100));
@@ -767,7 +814,12 @@ it('keeps raw provider and lifecycle diagnostics out of operator inventory', asy
     expect(result.sandboxes).toEqual([
       expect.objectContaining({ lastFailure: 'lifecycle_operation_failed' }),
     ]);
+    expect(inventory).toHaveBeenCalledOnce();
     expect(JSON.stringify(result)).not.toMatch(/secret-token|stored-secret|grant-123|grant-456/);
+
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(openShellLifecycleInventory(aborted.signal)).rejects.toThrow();
   } finally {
     inventory.mockRestore();
     lifecycle.store.close();

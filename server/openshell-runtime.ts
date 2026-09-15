@@ -725,10 +725,12 @@ export class OpenShellRuntimeManager {
           if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
             throw error;
         }
+        // Detached create can keep allocating storage after the CLI returns.
+        // Hold the global reservation until provisioning reaches a stable state.
+        sandbox = await this.waitForReady(name, owner, signal);
       } finally {
         releaseCapacity();
       }
-      sandbox = await this.waitForReady(name, owner, signal);
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
       sandbox = await this.waitForReady(name, owner, signal);

@@ -123,7 +123,7 @@ describe('OpenShell runtime lifecycle', () => {
     expect(retained.mock.calls.flat().flat()).not.toContain('create');
   });
 
-  it('keeps capacity admission reserved until each physical create command returns', async () => {
+  it('keeps capacity admission reserved until each physical create becomes Ready', async () => {
     configureOpenShellCapacityAdmission(
       new OpenShellCapacityAdmission(
         new OpenShellCapacityCollector('/', {
