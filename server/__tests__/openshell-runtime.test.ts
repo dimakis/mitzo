@@ -529,6 +529,73 @@ describe('OpenShell runtime lifecycle', () => {
     ]);
   });
 
+  it('records an approved grant before an attach crash and verifies the missing attachment as absent', async () => {
+    let record: { automatic: string[]; granted: string[] } | undefined;
+    const events: string[] = [];
+    const policyState = {
+      read: vi.fn(() => record),
+      write: vi.fn((_name: string, next: NonNullable<typeof record>) => {
+        events.push('write');
+        record = next;
+      }),
+    };
+    const runtime = {
+      sandboxName: sandboxNameForConversation('conversation'),
+      workdir: config.workdir,
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: config.cli,
+      gateway: config.gateway,
+      workspace: config.workspace,
+      gatewayInsecure: false,
+    };
+    const crashingRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('attach')) {
+        events.push('attach');
+        throw new Error('connection dropped during attach');
+      }
+      return '{}';
+    });
+
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        crashingRun,
+        undefined,
+        undefined,
+        policyState,
+      ).grantServiceProvider(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('grant failed');
+    expect(events).toEqual(['write', 'attach']);
+    expect(record).toEqual({ automatic: ['github'], granted: ['google-workspace'] });
+
+    const recoveredRun = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list'))
+        return `No providers attached to sandbox ${runtime.sandboxName}.`;
+      return '{}';
+    });
+    await expect(
+      new OpenShellRuntimeManager(
+        config,
+        recoveredRun,
+        undefined,
+        undefined,
+        policyState,
+      ).hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        'google-workspace',
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ state: 'absent' });
+  });
+
   it('serializes concurrent grants so durable provider state cannot be overwritten', async () => {
     let record = { automatic: [] as string[], granted: [] as string[] };
     const policyState = {

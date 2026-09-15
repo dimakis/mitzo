@@ -1074,7 +1074,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
-                  resolution.arguments,
+                  msg.prompt,
                 );
               } else if (
                 !tryRouteToActiveSession(
@@ -1084,7 +1084,7 @@ function handleChatWs(
                   msg.images,
                   msg.contextBlocks,
                   msg.clientMsgId,
-                  resolution.arguments,
+                  msg.prompt,
                 )
               ) {
                 startChat(transport, clientId, resolution.renderedPrompt, {
@@ -1097,7 +1097,7 @@ function handleChatWs(
                   images: msg.images,
                   contextBlocks: msg.contextBlocks,
                   clientMsgId: msg.clientMsgId,
-                  userIntent: resolution.arguments,
+                  userIntent: msg.prompt,
                 });
               }
             } else {

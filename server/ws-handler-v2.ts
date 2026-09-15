@@ -574,7 +574,9 @@ export function handleSendV2(
         }
 
         const prompt = resolution.type === 'skill' ? resolution.renderedPrompt : msg.prompt;
-        const userIntent = resolution.type === 'skill' ? resolution.arguments : msg.prompt;
+        // Preflight sees exactly what the user typed, including a meaningful
+        // slash-command name, never the rendered skill body.
+        const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
         if (resolution.type === 'skill') {

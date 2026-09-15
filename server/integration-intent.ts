@@ -13,6 +13,9 @@ const GENERIC_EMAIL = /\b(?:emails?|mail|inbox)\b/gi;
 const GENERIC_CALENDAR = /\bcalendar\b/gi;
 const PERSONAL_MAIL = /\b(?:my|our|your)\s+(?:emails?|mail|inbox)\b/gi;
 const PERSONAL_CALENDAR = /\b(?:my|our|your)\s+calendar\b/gi;
+const PERSONAL_DRIVE = /\b(?:my|our|your)\s+drive\b/gi;
+const PERSONAL_DOCS = /\b(?:my|our|your)\s+documents?\b/gi;
+const PERSONAL_SHEETS = /\b(?:my|our|your)\s+(?:sheets?|spreadsheets?)\b/gi;
 
 const READ_ACTION =
   /\b(?:access(?:ing|ed)?|check(?:ing|ed)?|find(?:ing)?|fetch(?:ing|ed)?|get(?:ting)?|inspect(?:ing|ed)?|list(?:ing|ed)?|look\s+(?:at|in|through)|open(?:ing|ed)?|quer(?:y|ying|ied)|read(?:ing)?|retriev(?:e|ing|ed)|scan(?:ning|ned)?|search(?:ing|ed)?|show(?:ing|n)?|summari[sz](?:e|ing|ed)|use|using|used|view(?:ing|ed)?)\b/gi;
@@ -259,11 +262,14 @@ function hasGenericWorkspaceIntent(clause: string): boolean {
   );
 }
 
-function genericPersonalDataStates(clause: string): Map<'mail' | 'calendar', boolean> {
-  const states = new Map<'mail' | 'calendar', boolean>();
+function genericPersonalDataStates(clause: string): Map<string, boolean> {
+  const states = new Map<string, boolean>();
   for (const [identity, resource] of [
     ['mail', PERSONAL_MAIL],
     ['calendar', PERSONAL_CALENDAR],
+    ['drive', PERSONAL_DRIVE],
+    ['docs', PERSONAL_DOCS],
+    ['sheets', PERSONAL_SHEETS],
   ] as const) {
     const matches = matchingActionsForResource(
       clause,
@@ -293,31 +299,27 @@ export function requestedIntegrationProviders(
 ): string[] {
   if (!grantableProviders.includes(GOOGLE_WORKSPACE)) return [];
 
-  const activeExplicitServices = new Set<string>();
-  const activeGenericPersonalData = new Set<'mail' | 'calendar'>();
+  const activeResources = new Set<string>();
   let workspaceAccessRefused = false;
   let asksForOtherGenericWorkspaceData = false;
   for (const clause of requestClauses(prompt)) {
     for (const [service, affirmative] of explicitGoogleServiceStates(clause)) {
       if (service === 'workspace' && !affirmative) {
         workspaceAccessRefused = true;
-        activeExplicitServices.clear();
-      } else if (affirmative) activeExplicitServices.add(service);
-      else activeExplicitServices.delete(service);
+        activeResources.clear();
+      } else if (affirmative) activeResources.add(service);
+      else activeResources.delete(service);
     }
     const genericStates = genericPersonalDataStates(clause);
     for (const [resource, affirmative] of genericStates) {
-      if (affirmative) activeGenericPersonalData.add(resource);
-      else activeGenericPersonalData.delete(resource);
+      if (affirmative) activeResources.add(resource);
+      else activeResources.delete(resource);
     }
     if (!genericStates.size && hasGenericWorkspaceIntent(clause))
       asksForOtherGenericWorkspaceData = true;
   }
 
-  return !workspaceAccessRefused &&
-    (activeExplicitServices.size ||
-      activeGenericPersonalData.size ||
-      asksForOtherGenericWorkspaceData)
+  return !workspaceAccessRefused && (activeResources.size || asksForOtherGenericWorkspaceData)
     ? [GOOGLE_WORKSPACE]
     : [];
 }

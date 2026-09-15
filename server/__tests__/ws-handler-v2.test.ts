@@ -1370,7 +1370,7 @@ describe('handleSendV2 skill policy', () => {
       undefined,
       undefined,
       undefined,
-      '',
+      '/test-skill',
     );
   });
 

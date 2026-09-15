@@ -881,6 +881,15 @@ export class OpenShellRuntimeManager {
         throw new Error(
           `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
         );
+      // Record desired policy before attach. A crash can only leave an
+      // approved-but-missing attachment, which is safely verified as absent.
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic ?? [
+          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
+        ],
+        granted: [...new Set([...(previous?.granted ?? []), provider])],
+      });
       try {
         await this.run(
           ['sandbox', ...this.base(), 'provider', 'attach', runtime.sandboxName, provider],
@@ -891,13 +900,6 @@ export class OpenShellRuntimeManager {
         if (!/already attached|conflict|409/i.test(message))
           throw new Error('OpenShell service provider grant failed', { cause: error });
       }
-      const previous = this.providerPolicyState.read(runtime.sandboxName);
-      this.providerPolicyState.write(runtime.sandboxName, {
-        automatic: previous?.automatic ?? [
-          ...new Set(this.config.serviceProviders.filter((p) => SERVICE_PROVIDERS.has(p))),
-        ],
-        granted: [...new Set([...(previous?.granted ?? []), provider])],
-      });
       await this.waitForReady(runtime.sandboxName, owner, signal);
     });
   }

@@ -102,6 +102,9 @@ describe('requestedIntegrationProviders', () => {
     'search Google Mail, but do not access Gmail',
     'search Gmail, but do not access Google Workspace',
     'check my email, but do not access my email',
+    'search Gmail. Do not access my email',
+    'check my drive, but do not access my drive',
+    'open my documents, but do not access my documents',
   ])('does not grant account access for content or technical work in %j', (prompt) => {
     expect(requestedIntegrationProviders(prompt, grantable)).toEqual([]);
   });

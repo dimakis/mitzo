@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, writeFileSync, rmSync, mkdtempSync } from 'fs';
+import { mkdirSync, writeFileSync, rmSync, mkdtempSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { SkillRegistry } from '../skills.js';
@@ -61,6 +61,26 @@ describe('parseSlashCommand', () => {
   it('returns null for bare slash', () => {
     expect(parseSlashCommand('/')).toBeNull();
     expect(parseSlashCommand('/ ')).toBeNull();
+  });
+});
+
+describe('legacy WebSocket slash intent forwarding', () => {
+  it('keeps the original typed command, including its name, as user intent rather than skill body or args', () => {
+    const typedCommand = '/search-gmail Cat';
+    expect(parseSlashCommand(typedCommand)).toEqual({ name: 'search-gmail', arguments: 'Cat' });
+
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+    const handlerStart = source.indexOf('function handleChatWs(');
+    const skillStart = source.indexOf("} else if (resolution.type === 'skill')", handlerStart);
+    const skillEnd = source.indexOf('} else {\n              clearSkillPolicy', skillStart);
+    const skillBranch = source.slice(skillStart, skillEnd);
+
+    // /search-gmail Cat must retain both its name and Cat;
+    // resolution.arguments would retain only Cat and renderedPrompt is skill-authored.
+    expect(skillBranch).toContain('resolution.renderedPrompt');
+    expect(skillBranch.match(/\bmsg\.prompt\b/g)).toHaveLength(3);
+    expect(skillBranch).toMatch(/userIntent:\s*msg\.prompt/);
+    expect(skillBranch).not.toContain('userIntent: resolution.arguments');
   });
 });
 
