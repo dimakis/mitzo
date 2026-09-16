@@ -232,6 +232,22 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Authentication: bearer token');
     expect(container.textContent).toContain('GitHub (operator-managed)');
   });
+  it('keeps existing connection controls available when the setup catalog fails', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('Template catalog unavailable'),
+    );
+    await render();
+    expect(container.textContent).toContain('Connection setup is temporarily unavailable');
+    expect(container.textContent).toContain('me@example.com');
+    expect(button('Test identity')).toBeTruthy();
+    expect(button('Revoke')).toBeTruthy();
+    expect(button('Remove connection')).toBeTruthy();
+    await reauthorize();
+    await act(async () => button('Test identity').click());
+    expect(connections.testConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jira-1', revision: 2 }),
+    );
+  });
   it('uses native keyboard-focusable service controls to progress through the wizard', async () => {
     await render();
     const choose = button('Choose Jira');
@@ -371,6 +387,24 @@ describe('ConnectionsView', () => {
     act(() => button('Cancel').click());
     expect(container.querySelector('[aria-label="Replacement API token"]')).toBeNull();
     expect(container.textContent).not.toContain('replacement');
+  });
+  it('submits active rotations with generic credential maps and clears secrets on failure', async () => {
+    vi.mocked(connections.rotateConnection).mockRejectedValue(new Error('Rotation failed'));
+    await render();
+    await reauthorize();
+    await act(async () => button('Rotate credentials').click());
+    act(() =>
+      fireEvent.change(input('Replacement API token'), { target: { value: 'rotate-secret' } }),
+    );
+    await act(async () => button('Verify and rotate').click());
+    expect(connections.rotateConnection).toHaveBeenCalledWith({
+      id: 'jira-1',
+      revision: 2,
+      credentials: { token: 'rotate-secret' },
+      csrf: 'c'.repeat(32),
+    });
+    expect(container.textContent).toContain('Rotation failed');
+    expect(container.textContent).not.toContain('rotate-secret');
   });
   it('clears rotation credentials before rejecting expired reauthorization', async () => {
     vi.mocked(connections.reauthorize).mockResolvedValue({

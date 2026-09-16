@@ -87,6 +87,7 @@ export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
   const [templates, setTemplates] = useState<ConnectionTemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState('');
+  const [templateError, setTemplateError] = useState('');
   const [message, setMessage] = useState('');
   const [csrf, setCsrf] = useState('');
   const [csrfExpiresAt, setCsrfExpiresAt] = useState(0);
@@ -104,19 +105,32 @@ export function ConnectionsView() {
   const stepHeading = useRef<HTMLHeadingElement>(null);
   const refresh = useCallback(async () => {
     setLoadError('');
-    try {
-      const [nextData, nextTemplates] = await Promise.all([
-        getConnections(),
-        getConnectionTemplates(),
-      ]);
-      setData(nextData);
+    setTemplateError('');
+    const [connectionsResult, templatesResult] = await Promise.allSettled([
+      getConnections(),
+      getConnectionTemplates(),
+    ]);
+    if (connectionsResult.status === 'fulfilled') {
+      setData(connectionsResult.value);
+    } else {
+      setLoadError(
+        connectionsResult.reason instanceof Error
+          ? connectionsResult.reason.message
+          : 'Unable to load connections.',
+      );
+    }
+    if (templatesResult.status === 'fulfilled') {
+      const nextTemplates = templatesResult.value;
       setTemplates(nextTemplates);
       const preferred =
         nextTemplates.templates.find((item) => item.id === 'jira-readonly' && item.available) ??
         nextTemplates.templates.find((item) => item.available);
       setSelectedTemplateKey((current) => current || (preferred ? templateKey(preferred) : ''));
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Unable to load connections.');
+    } else {
+      setTemplates(null);
+      setTemplateError(
+        'Connection setup is temporarily unavailable. Existing connections remain manageable.',
+      );
     }
   }, []);
   useEffect(() => {
@@ -173,8 +187,8 @@ export function ConnectionsView() {
     setCredentials({});
     setStep('authenticate');
   };
-  if ((!data || !templates) && !loadError) return <PageState text="Loading connections…" />;
-  if (!data || !templates) return <PageState text={loadError} error retry={refresh} />;
+  if (!data && !loadError) return <PageState text="Loading connections…" />;
+  if (!data) return <PageState text={loadError} error retry={refresh} />;
   return (
     <main className="workspace-page connections-page">
       <WorkspacePageHeading
@@ -208,112 +222,123 @@ export function ConnectionsView() {
         <p className="workspace-muted">
           Choose a reviewed service, then verify its effective access before activation.
         </p>
-        <ol className="connections-steps" aria-label="Connection setup steps">
-          {steps.map((item) => (
-            <li key={item} aria-current={step === item ? 'step' : undefined}>
-              {stepLabel[item]}
-            </li>
-          ))}
-        </ol>
-        <h3 className="connections-step-heading" ref={stepHeading} tabIndex={-1}>
-          {stepLabel[step]}
-        </h3>
-        {step === 'service' && (
-          <ServiceCatalog templates={templates.templates} onChoose={chooseTemplate} />
-        )}
-        {template && step === 'authenticate' && (
-          <Authentication
-            template={template}
-            label={label}
-            onLabel={setLabel}
-            credentials={credentials}
-            onCredentials={setCredentials}
-          />
-        )}
-        {template && step === 'scope' && (
-          <Scope template={template} values={scope} onValues={setScope} />
-        )}
-        {template && step === 'capabilities' && (
-          <CapabilityNotice hasCapabilities={template.capabilityIds.length > 0} />
-        )}
-        {template && step === 'assignments' && (
-          <Assignments
-            accounts={data.eligibleAccounts}
-            selected={accounts}
-            onToggle={(id) => toggle(id, accounts, setAccounts)}
-          />
-        )}
-        {template && step === 'review' && (
-          <Review
-            template={template}
-            label={label}
-            scope={scopeValues(template, scope)}
-            accounts={accounts}
-          />
-        )}
-        {template && (
-          <div className="connections-wizard-actions">
-            {step !== 'service' && (
-              <button
-                type="button"
-                disabled={busy !== null}
-                onClick={() => setStep(steps[Math.max(0, steps.indexOf(step) - 1)]!)}
-              >
-                Back
-              </button>
+        {templates ? (
+          <>
+            <ol className="connections-steps" aria-label="Connection setup steps">
+              {steps.map((item) => (
+                <li key={item} aria-current={step === item ? 'step' : undefined}>
+                  {stepLabel[item]}
+                </li>
+              ))}
+            </ol>
+            <h3 className="connections-step-heading" ref={stepHeading} tabIndex={-1}>
+              {stepLabel[step]}
+            </h3>
+            {step === 'service' && (
+              <ServiceCatalog templates={templates.templates} onChoose={chooseTemplate} />
             )}
-            {step !== 'review' ? (
-              <button
-                type="button"
-                className="workspace-primary"
-                disabled={
-                  busy !== null ||
-                  (step === 'authenticate' &&
-                    !secretValid(template.credentialFields, credentials)) ||
-                  (step === 'scope' && !scopeValid(template, scope)) ||
-                  (step === 'assignments' && !accounts.length)
-                }
-                onClick={() => setStep(steps[steps.indexOf(step) + 1] ?? step)}
-              >
-                Continue
-              </button>
-            ) : (
-              <button
-                className="workspace-primary"
-                disabled={
-                  busy === 'create' ||
-                  !label.trim() ||
-                  !accounts.length ||
-                  !secretValid(template.credentialFields, credentials) ||
-                  !scopeValid(template, scope)
-                }
-                onClick={() => {
-                  const oneShot = credentials;
-                  setCredentials({});
-                  if (!requireReauthorization()) return;
-                  void run(
-                    'create',
-                    () =>
-                      createConnection({
-                        templateId: template.id,
-                        templateVersion: template.version,
-                        label: label.trim(),
-                        fields: scopeValues(template, scope),
-                        credentials: oneShot,
-                        accountIds: accounts,
-                        csrf,
-                      }),
-                    `${template.label} connection verified and activated.`,
-                    () => setCredentials({}),
-                  );
-                }}
-              >
-                {busy === 'create'
-                  ? 'Verifying connection…'
-                  : `Verify and connect ${template.label}`}
-              </button>
+            {template && step === 'authenticate' && (
+              <Authentication
+                template={template}
+                label={label}
+                onLabel={setLabel}
+                credentials={credentials}
+                onCredentials={setCredentials}
+              />
             )}
-          </div>
+            {template && step === 'scope' && (
+              <Scope template={template} values={scope} onValues={setScope} />
+            )}
+            {template && step === 'capabilities' && (
+              <CapabilityNotice hasCapabilities={template.capabilityIds.length > 0} />
+            )}
+            {template && step === 'assignments' && (
+              <Assignments
+                accounts={data.eligibleAccounts}
+                selected={accounts}
+                onToggle={(id) => toggle(id, accounts, setAccounts)}
+              />
+            )}
+            {template && step === 'review' && (
+              <Review
+                template={template}
+                label={label}
+                scope={scopeValues(template, scope)}
+                accounts={accounts}
+              />
+            )}
+            {template && (
+              <div className="connections-wizard-actions">
+                {step !== 'service' && (
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={() => setStep(steps[Math.max(0, steps.indexOf(step) - 1)]!)}
+                  >
+                    Back
+                  </button>
+                )}
+                {step !== 'review' ? (
+                  <button
+                    type="button"
+                    className="workspace-primary"
+                    disabled={
+                      busy !== null ||
+                      (step === 'authenticate' &&
+                        !secretValid(template.credentialFields, credentials)) ||
+                      (step === 'scope' && !scopeValid(template, scope)) ||
+                      (step === 'assignments' && !accounts.length)
+                    }
+                    onClick={() => setStep(steps[steps.indexOf(step) + 1] ?? step)}
+                  >
+                    Continue
+                  </button>
+                ) : (
+                  <button
+                    className="workspace-primary"
+                    disabled={
+                      busy === 'create' ||
+                      !label.trim() ||
+                      !accounts.length ||
+                      !secretValid(template.credentialFields, credentials) ||
+                      !scopeValid(template, scope)
+                    }
+                    onClick={() => {
+                      const oneShot = credentials;
+                      setCredentials({});
+                      if (!requireReauthorization()) return;
+                      void run(
+                        'create',
+                        () =>
+                          createConnection({
+                            templateId: template.id,
+                            templateVersion: template.version,
+                            label: label.trim(),
+                            fields: scopeValues(template, scope),
+                            credentials: oneShot,
+                            accountIds: accounts,
+                            csrf,
+                          }),
+                        `${template.label} connection verified and activated.`,
+                        () => setCredentials({}),
+                      );
+                    }}
+                  >
+                    {busy === 'create'
+                      ? 'Verifying connection…'
+                      : `Verify and connect ${template.label}`}
+                  </button>
+                )}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="connections-notice" role="alert">
+            {templateError || 'Connection setup is temporarily unavailable.'}{' '}
+            <button type="button" onClick={() => void refresh()}>
+              Retry setup
+            </button>
+          </p>
         )}
       </section>
       <section className="today-section" aria-labelledby="managed-heading">
@@ -325,7 +350,7 @@ export function ConnectionsView() {
             <ConnectionCard
               key={connection.id}
               connection={connection}
-              template={templates.templates.find(
+              template={templates?.templates.find(
                 (item) =>
                   item.id === connection.templateId && item.version === connection.templateVersion,
               )}
