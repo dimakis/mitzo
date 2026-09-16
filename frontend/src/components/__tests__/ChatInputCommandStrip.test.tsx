@@ -36,10 +36,10 @@ const noop = () => true;
 const noopVoid = () => {};
 
 describe('ChatInput command strip', () => {
-  it('keeps skills in the strip and moves attachments into the session tray', () => {
+  it('keeps image attachment directly available while retaining the session tray source action', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
     expect(screen.getByTitle('Skills')).toBeTruthy();
-    expect(screen.queryByTitle('Attach image')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
     expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
   });

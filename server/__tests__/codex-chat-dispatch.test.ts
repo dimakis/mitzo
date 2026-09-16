@@ -434,6 +434,7 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
       model: 'gpt-test',
       accountProfiles: profiles,
       initialSessionId: 'subscription-app',
+      images: [{ data: 'aGVsbG8=', mediaType: 'image/png' }],
     });
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(codexLaunch).not.toHaveBeenCalled();
@@ -444,6 +445,9 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
       sandboxProviderId: 'provider-object-1',
       sandboxGrantId: 'grant-generation-1',
     });
+    expect(vi.mocked(openCodexChat).mock.calls[0][0].images).toEqual([
+      { data: 'aGVsbG8=', mediaType: 'image/png' },
+    ]);
     expect(chat.eventStore.getSession('subscription-app')?.accountBinding).toEqual(
       profiles.resolve('personal', 'gpt-test'),
     );

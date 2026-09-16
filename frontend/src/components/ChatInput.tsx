@@ -406,16 +406,15 @@ export function ChatInput({
               <span aria-hidden="true">/</span>
               <span className="chat-input-command-label">Commands</span>
             </button>
-            {useExternal && (
-              <button
-                className="chat-input-btn chat-input-btn--attach"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
-                title="Attach image"
-              >
-                +
-              </button>
-            )}
+            <button
+              className="chat-input-btn chat-input-btn--attach"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={images.length >= MAX_IMAGE_ATTACHMENTS}
+              title="Attach image"
+              aria-label="Attach image"
+            >
+              +
+            </button>
             <input
               ref={fileInputRef}
               type="file"
