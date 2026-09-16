@@ -6,13 +6,42 @@ import {
 } from './connections-store.js';
 import { randomUUID } from 'node:crypto';
 import {
-  JIRA_TEMPLATE_ID,
   ConnectionProbeError,
   type ConnectionGateway,
   type GatewayProvider,
 } from './connections-gateway.js';
+import { connectionTemplateRegistry } from './connections/registry.js';
+import type { ProviderPolicy } from './connections/types.js';
 
 type CreateInput = Parameters<ConnectionStore['create']>[0];
+export interface GenericConnectionCreateInput {
+  ownerId: string;
+  templateId: string;
+  templateVersion: number;
+  label: string;
+  fields: Record<string, string | string[]>;
+  desiredAccountIds: string[];
+  gateway?: string;
+  workspace?: string;
+}
+type Credentials = Record<string, string>;
+
+function endpointFromPolicy(policy: ProviderPolicy) {
+  const first = policy.endpoints[0];
+  if (!first) throw new Error('Provider policy has no endpoints');
+  return `https://${first.host}`;
+}
+
+function isGenericCreateInput(
+  input: CreateInput | GenericConnectionCreateInput,
+): input is GenericConnectionCreateInput {
+  return 'fields' in input;
+}
+
+function legacyCredentials(value: Credentials | string) {
+  if (typeof value === 'string') return { token: value };
+  return value;
+}
 /** One control-plane gate orders runtime creation against consent/credential changes.
  * Durable intent is written before gateway effects, so restart can complete cleanup. */
 export class ConnectionsService {
@@ -89,11 +118,17 @@ export class ConnectionsService {
     if (
       p.name !== c.gatewayProviderName ||
       p.workspace !== c.workspace ||
-      p.type !== JIRA_TEMPLATE_ID ||
-      (c.gatewayProviderId && p.id !== c.gatewayProviderId) ||
-      !p.credentialKeys.includes('JIRA_API_TOKEN')
+      p.type !== c.templateId ||
+      (c.gatewayProviderId && p.id !== c.gatewayProviderId)
     )
       throw new Error('Managed provider binding changed');
+  }
+  private policyFor(c: Connection) {
+    return connectionTemplateRegistry.compileProviderPolicy({
+      templateId: c.templateId,
+      templateVersion: c.templateVersion,
+      fields: c.publicConfig,
+    });
   }
   private async boundProvider(c: Connection, signal: AbortSignal, allowMissing = false) {
     this.current(c.id);
@@ -194,10 +229,52 @@ export class ConnectionsService {
     this.validateAccounts(accountIds);
     this.store.completeAssignment(c.id, accountIds, c.ownerId);
   }
-  async createAndProvision(input: CreateInput, token: string, signal: AbortSignal) {
+  async createAndProvision(
+    input: CreateInput | GenericConnectionCreateInput,
+    credentials: Credentials | string,
+    signal: AbortSignal,
+  ) {
     this.validateAccounts(input.desiredAccountIds);
-    const c = this.store.create(input);
-    return this.provision(c, token, signal);
+    if (!isGenericCreateInput(input)) {
+      // Database callers from pre-registry releases remain supported during migration.
+      const c = this.store.create(input);
+      return this.provision(c, legacyCredentials(credentials), signal);
+    }
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      fields: input.fields,
+    });
+    const template = connectionTemplateRegistry.getProviderTemplate(
+      input.templateId,
+      input.templateVersion,
+    );
+    if (!template) throw new Error('Unknown provider template version');
+    if (
+      this.gateway.supportsTemplate &&
+      !this.gateway.supportsTemplate(input.templateId, input.templateVersion)
+    )
+      throw new Error('Provider template is not available');
+    const supplied = legacyCredentials(credentials);
+    const allowedCredentialKeys = new Set(template.credentialFields.map((field) => field.key));
+    if (
+      Object.keys(supplied).some((key) => !allowedCredentialKeys.has(key)) ||
+      template.credentialFields.some((field) => field.required && !supplied[field.key])
+    )
+      throw new Error('Connection credentials are invalid');
+    const c = this.store.create({
+      ownerId: input.ownerId,
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      label: input.label,
+      endpoint: endpointFromPolicy(policy),
+      publicConfig: input.fields,
+      gatewayProviderName: `mitzo-conn-${randomUUID()}`,
+      gateway: input.gateway,
+      workspace: input.workspace,
+      desiredAccountIds: input.desiredAccountIds,
+    });
+    return this.provision(c, supplied, signal, policy);
   }
   private async runProbe(c: Connection, signal: AbortSignal) {
     const sandboxName = `mzp-${randomUUID().replaceAll('-', '').slice(0, 15)}`;
@@ -206,7 +283,13 @@ export class ConnectionsService {
     let failure: unknown;
     try {
       result = await this.gateway.probe(
-        { providerName: c.gatewayProviderName, email: c.submittedEmail, sandboxName },
+        {
+          providerName: c.gatewayProviderName,
+          templateId: c.templateId,
+          templateVersion: c.templateVersion,
+          publicConfig: c.publicConfig,
+          sandboxName,
+        },
         signal,
       );
     } catch (error) {
@@ -227,9 +310,16 @@ export class ConnectionsService {
     return result;
   }
 
-  async retry(id: string, revision: number, token: string, signal: AbortSignal) {
+  async retry(
+    id: string,
+    revision: number,
+    credentials: Credentials | string,
+    signal: AbortSignal,
+  ) {
     const c = this.current(id, revision);
-    return c.identity ? this.rotate(id, revision, token, signal) : this.provision(c, token, signal);
+    return c.identity
+      ? this.rotate(id, revision, credentials, signal)
+      : this.provision(c, legacyCredentials(credentials), signal);
   }
   private async cleanupConnection(c: Connection) {
     for (const op of this.store.pendingProbes().filter((x) => x.connectionId === c.id)) {
@@ -251,8 +341,14 @@ export class ConnectionsService {
       this.store.finishCandidate(op.name);
     }
   }
-  async provision(connection: Connection, token: string, signal: AbortSignal) {
+  async provision(
+    connection: Connection,
+    credentials: Credentials | string,
+    signal: AbortSignal,
+    policy?: ProviderPolicy,
+  ) {
     return this.serial(async () => {
+      const supplied = legacyCredentials(credentials);
       let c = this.current(connection.id, connection.revision);
       if (
         !['provisioning', 'needs_attention'].includes(c.status) ||
@@ -262,18 +358,40 @@ export class ConnectionsService {
       )
         throw new Error('Connection cannot be provisioned');
       try {
+        const resolvedPolicy = policy ?? this.policyFor(c);
         await this.cleanupConnection(c);
-        await this.gateway.verifyCompatibility(signal);
+        await this.gateway.verifyCompatibility(
+          { templateId: c.templateId, templateVersion: c.templateVersion, policy: resolvedPolicy },
+          signal,
+        );
         let p = await this.gateway.get(c.gatewayProviderName, signal);
         if (p) {
           this.checkProvider(c, p);
           // The generated durable name recovers a create whose response was lost.
           if (!c.gatewayProviderId)
             c = this.change(c, { gatewayProviderId: p.id }, 'provision', 'provider_recovered');
-          await this.gateway.rotate({ name: c.gatewayProviderName, token }, signal);
+          await this.gateway.rotate(
+            {
+              name: c.gatewayProviderName,
+              templateId: c.templateId,
+              templateVersion: c.templateVersion,
+              policy: resolvedPolicy,
+              credentials: supplied,
+            },
+            signal,
+          );
         } else {
           if (c.gatewayProviderId) throw new Error('Managed provider unavailable');
-          p = await this.gateway.provision({ name: c.gatewayProviderName, token }, signal);
+          p = await this.gateway.provision(
+            {
+              name: c.gatewayProviderName,
+              templateId: c.templateId,
+              templateVersion: c.templateVersion,
+              policy: resolvedPolicy,
+              credentials: supplied,
+            },
+            signal,
+          );
           this.checkProvider(c, p);
           c = this.change(c, { gatewayProviderId: p.id }, 'provision', 'provider_created');
         }
@@ -322,10 +440,18 @@ export class ConnectionsService {
         throw new Error('Connection cannot be tested');
       try {
         await this.cleanupConnection(c);
-        await this.gateway.verifyCompatibility(signal);
+        await this.gateway.verifyCompatibility(
+          {
+            templateId: c.templateId,
+            templateVersion: c.templateVersion,
+            policy: this.policyFor(c),
+          },
+          signal,
+        );
         await this.boundProvider(c, signal);
         const result = await this.runProbe(c, signal);
-        if (c.identity && c.identity !== result.identity) throw new Error('Jira identity changed');
+        if (c.identity && c.identity !== result.identity)
+          throw new Error('Connection identity changed');
         return this.change(
           c,
           { status: 'active', identity: result.identity, verifiedAt: Date.now(), errorCode: null },
@@ -356,7 +482,12 @@ export class ConnectionsService {
       }
     });
   }
-  async rotate(id: string, revision: number, token: string, signal: AbortSignal) {
+  async rotate(
+    id: string,
+    revision: number,
+    credentials: Credentials | string,
+    signal: AbortSignal,
+  ) {
     return this.serial(async () => {
       let c = this.current(id, revision);
       if (
@@ -366,20 +497,34 @@ export class ConnectionsService {
       )
         throw new Error('Connection cannot be rotated');
       await this.cleanupConnection(c);
-      await this.gateway.verifyCompatibility(signal);
+      const policy = this.policyFor(c);
+      const supplied = legacyCredentials(credentials);
+      await this.gateway.verifyCompatibility(
+        { templateId: c.templateId, templateVersion: c.templateVersion, policy },
+        signal,
+      );
       await this.boundProvider(c, signal);
       const name = `mitzo-conn-${randomUUID()}`;
       this.store.startCandidate(id, name);
       let candidate = { ...c, gatewayProviderName: name, gatewayProviderId: null as string | null };
       let swapped = false;
       try {
-        const provider = await this.gateway.provision({ name, token }, signal);
+        const provider = await this.gateway.provision(
+          {
+            name,
+            templateId: c.templateId,
+            templateVersion: c.templateVersion,
+            policy,
+            credentials: supplied,
+          },
+          signal,
+        );
         this.checkProvider(candidate, provider);
         this.store.bindCandidate(name, provider.id);
         candidate = { ...candidate, gatewayProviderId: provider.id };
         const identity = await this.runProbe(candidate, signal);
         if (c.identity && identity.identity !== c.identity)
-          throw new Error('Jira identity changed');
+          throw new Error('Connection identity changed');
         c = this.change(c, { status: 'rotating', errorCode: null }, 'rotate', 'started');
         // Pause attached workloads before replacing the credential. Retained sessions keep their grant.
         for (const sandbox of await this.gateway.attachments(c.gatewayProviderName, signal)) {
@@ -388,7 +533,16 @@ export class ConnectionsService {
             throw new Error('Sandbox shutdown pending');
         }
         swapped = true;
-        await this.gateway.rotate({ name: c.gatewayProviderName, token }, signal);
+        await this.gateway.rotate(
+          {
+            name: c.gatewayProviderName,
+            templateId: c.templateId,
+            templateVersion: c.templateVersion,
+            policy,
+            credentials: supplied,
+          },
+          signal,
+        );
         await this.gateway.delete(name, AbortSignal.timeout(30_000));
         this.store.finishCandidate(name);
         return this.change(

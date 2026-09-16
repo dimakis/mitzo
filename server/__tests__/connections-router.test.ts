@@ -151,6 +151,11 @@ describe('connections router', () => {
     expect(
       (await request(app).get('/api/connections').set('x-browser', 'yes')).body.connections,
     ).toHaveLength(1);
+    const templates = await request(app).get('/api/connections/templates').set('x-browser', 'yes');
+    expect(templates.status).toBe(200);
+    expect(templates.body.templates).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'jira-readonly', version: 1 })]),
+    );
     const failedCreate = await request(app)
       .post('/api/connections')
       .set('x-browser', 'yes')
@@ -163,6 +168,30 @@ describe('connections router', () => {
       });
     expect(failedCreate.status).toBe(422);
     expect(JSON.stringify(failedCreate.body)).not.toContain('SENTINEL_DO_NOT_LEAK');
+    service.createAndProvision.mockResolvedValue(connection);
+    const genericCreate = await request(app)
+      .post('/api/connections')
+      .set('x-browser', 'yes')
+      .set('x-csrf-token', csrf)
+      .send({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        label: 'Generic Jira',
+        fields: { email: 'person@example.com' },
+        credentials: { token: 'SENTINEL_GENERIC_CREATE' },
+        accountIds: ['work'],
+      });
+    expect(genericCreate.status).toBe(201);
+    expect(JSON.stringify(genericCreate.body)).not.toContain('SENTINEL_GENERIC_CREATE');
+    expect(service.createAndProvision).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        fields: { email: 'person@example.com' },
+      }),
+      { token: 'SENTINEL_GENERIC_CREATE' },
+      expect.anything(),
+    );
     const tested = await request(app)
       .post(`/api/connections/${connection.id}/test`)
       .set('x-browser', 'yes')
@@ -185,7 +214,23 @@ describe('connections router', () => {
     expect(service.rotate).toHaveBeenCalledWith(
       connection.id,
       connection.revision,
-      'SENTINEL_ROTATE',
+      { token: 'SENTINEL_ROTATE' },
+      expect.anything(),
+    );
+    const genericRotate = await request(app)
+      .post(`/api/connections/${connection.id}/rotate`)
+      .set('x-browser', 'yes')
+      .send({
+        csrf,
+        revision: connection.revision,
+        credentials: { token: 'SENTINEL_GENERIC_ROTATE' },
+      });
+    expect(genericRotate.status).toBe(200);
+    expect(JSON.stringify(genericRotate.body)).not.toContain('SENTINEL_GENERIC_ROTATE');
+    expect(service.rotate).toHaveBeenLastCalledWith(
+      connection.id,
+      connection.revision,
+      { token: 'SENTINEL_GENERIC_ROTATE' },
       expect.anything(),
     );
 
@@ -210,7 +255,7 @@ describe('connections router', () => {
     expect(service.retry).toHaveBeenCalledWith(
       connection.id,
       retryable.revision,
-      'SENTINEL_RETRY',
+      { token: 'SENTINEL_RETRY' },
       expect.anything(),
     );
     const oversized = await request(app)

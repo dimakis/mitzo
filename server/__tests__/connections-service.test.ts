@@ -2,10 +2,160 @@ import { describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
 import { ConnectionProbeError, OpenShellConnectionGateway } from '../connections-gateway.js';
 describe('ConnectionsService', () => {
+  it('provisions through the template-neutral contract and never persists request credentials', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = {
+      verifyCompatibility: vi.fn(),
+      provision: vi.fn(async ({ name }: { name: string }) => ({
+        id: 'provider-1',
+        name,
+        workspace: 'default',
+        type: 'jira-readonly',
+        credentialKeys: ['JIRA_API_TOKEN'],
+      })),
+      rotate: vi.fn(),
+      get: vi.fn().mockResolvedValue(undefined),
+      list: vi.fn(),
+      delete: vi.fn(),
+      attachments: vi.fn().mockResolvedValue([]),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn().mockResolvedValue(true),
+      detach: vi.fn(),
+      probe: vi.fn().mockResolvedValue({ identity: 'account-1' }),
+      deleteSandbox: vi.fn().mockResolvedValue(undefined),
+      sandbox: vi.fn(),
+      sandboxProviders: vi.fn(),
+    };
+    const service = new ConnectionsService(store, gateway as never, {
+      eligibleAccountIds: () => ['work'],
+    });
+    const connection = await service.createAndProvision(
+      {
+        ownerId: 'operator',
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        label: 'Work Jira',
+        fields: { email: 'person@example.test' },
+        desiredAccountIds: ['work'],
+      },
+      { token: 'SENTINEL_PROVIDER_SECRET' },
+      AbortSignal.timeout(500),
+    );
+    expect(connection).toMatchObject({
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      endpoint: 'https://api.atlassian.com',
+      publicConfig: { email: 'person@example.test' },
+      status: 'active',
+    });
+    expect(JSON.stringify(store.get(connection.id))).not.toContain('SENTINEL_PROVIDER_SECRET');
+    expect(gateway.provision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        credentials: { token: 'SENTINEL_PROVIDER_SECRET' },
+      }),
+      expect.anything(),
+    );
+    expect(gateway.probe).toHaveBeenCalledWith(
+      expect.objectContaining({ publicConfig: { email: 'person@example.test' } }),
+      expect.anything(),
+    );
+    const database = new Database(join(dir, 'db'));
+    const raw = {
+      connections: database.prepare('SELECT * FROM connections').all(),
+      audit: database.prepare('SELECT * FROM connection_audit').all(),
+    };
+    database.close();
+    expect(JSON.stringify(raw)).not.toContain('SENTINEL_PROVIDER_SECRET');
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects unknown public fields before gateway provisioning', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = { provision: vi.fn() };
+    const service = new ConnectionsService(store, gateway as never);
+    await expect(
+      service.createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          label: 'Work Jira',
+          fields: { email: 'person@example.test', injected: 'no' },
+          desiredAccountIds: [],
+        },
+        { token: 'ok' },
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow();
+    expect(gateway.provision).not.toHaveBeenCalled();
+    expect(store.list('operator')).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects unknown credential keys before gateway provisioning', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = { provision: vi.fn() };
+    const service = new ConnectionsService(store, gateway as never);
+    await expect(
+      service.createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          label: 'Work Jira',
+          fields: { email: 'person@example.test' },
+          desiredAccountIds: [],
+        },
+        { token: 'ok', unexpected: 'SENTINEL_REJECTED' },
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Connection credentials are invalid');
+    expect(gateway.provision).not.toHaveBeenCalled();
+    expect(store.list('operator')).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('does not create a row for a catalog template whose gateway adapter is not available', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = {
+      supportsTemplate: vi.fn().mockReturnValue(false),
+      provision: vi.fn(),
+    };
+    const service = new ConnectionsService(store, gateway as never);
+    await expect(
+      service.createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'github-readonly',
+          templateVersion: 1,
+          label: 'GitHub',
+          fields: {},
+          desiredAccountIds: [],
+        },
+        { token: 'SENTINEL_GITHUB_SECRET' },
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Provider template is not available');
+    expect(gateway.provision).not.toHaveBeenCalled();
+    expect(store.list('operator')).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('retains a typed probe error after rotation candidate cleanup', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
@@ -216,7 +366,11 @@ describe('ConnectionsService', () => {
       service.retry(failed.id, failed.revision, 'second-token', AbortSignal.timeout(500)),
     ).resolves.toMatchObject({ status: 'active', identity: 'operator@example.test' });
     expect(gateway.rotate).toHaveBeenCalledWith(
-      { name: failed.gatewayProviderName, token: 'second-token' },
+      expect.objectContaining({
+        name: failed.gatewayProviderName,
+        templateId: 'jira-readonly',
+        credentials: { token: 'second-token' },
+      }),
       expect.anything(),
     );
     store.close();

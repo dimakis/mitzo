@@ -12,6 +12,7 @@ import {
   ConnectionRotateBody,
 } from './api-schemas.js';
 import { verifyPassphrase, type AuthSession } from './auth.js';
+import { connectionTemplateRegistry } from './connections/registry.js';
 
 const OWNER = 'operator',
   TTL = 5 * 60_000,
@@ -24,6 +25,7 @@ type PublicConnection = Pick<
   | 'templateVersion'
   | 'label'
   | 'endpoint'
+  | 'publicConfig'
   | 'status'
   | 'revision'
   | 'desiredAccountIds'
@@ -40,6 +42,7 @@ const publicConnection = (c: Connection): PublicConnection => {
     templateVersion,
     label,
     endpoint,
+    publicConfig,
     status,
     revision,
     desiredAccountIds,
@@ -55,6 +58,7 @@ const publicConnection = (c: Connection): PublicConnection => {
     templateVersion,
     label,
     endpoint,
+    publicConfig,
     status,
     revision,
     desiredAccountIds,
@@ -157,6 +161,12 @@ export function createConnectionsRouter(options: {
       appliesTo: 'new conversations only',
     });
   });
+  router.get('/templates', (_req, res) => {
+    return res.json({
+      templates: connectionTemplateRegistry.providerTemplates(),
+      capabilities: connectionTemplateRegistry.capabilityTemplates(),
+    });
+  });
   router.get('/:id/audit', (req, res) => {
     const c = options.store.get(connectionId(req));
     return !c || c.ownerId !== OWNER
@@ -182,22 +192,31 @@ export function createConnectionsRouter(options: {
     if (!parsed.success) return res.status(400).json({ error: 'Invalid connection request' });
     if (!requireCapability(res, req.header('x-csrf-token') ?? '')) return;
     if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
-      return res.status(400).json({ error: 'Account is not eligible for managed Jira access' });
+      return res.status(400).json({ error: 'Account is not eligible for managed access' });
     try {
+      const generic =
+        'templateId' in parsed.data
+          ? parsed.data
+          : {
+              templateId: 'jira-readonly',
+              templateVersion: 1,
+              label: parsed.data.label,
+              fields: { email: parsed.data.email },
+              credentials: { token: parsed.data.token },
+              accountIds: parsed.data.accountIds,
+            };
       const c = await options.service.createAndProvision(
         {
           ownerId: OWNER,
-          templateId: 'jira-readonly',
-          templateVersion: 1,
-          label: parsed.data.label,
-          endpoint: 'https://redhat.atlassian.net',
-          gatewayProviderName: `mitzo-conn-${randomUUID()}`,
+          templateId: generic.templateId,
+          templateVersion: generic.templateVersion,
+          label: generic.label,
+          fields: generic.fields,
           gateway: options.gateway,
           workspace: options.workspace,
-          submittedEmail: parsed.data.email,
-          desiredAccountIds: parsed.data.accountIds,
+          desiredAccountIds: generic.accountIds,
         },
-        parsed.data.token,
+        generic.credentials,
         AbortSignal.timeout(120_000),
       );
       return res.status(201).json({ connection: publicConnection(c) });
@@ -233,7 +252,7 @@ export function createConnectionsRouter(options: {
           await options.service.rotate(
             c.id,
             parsed.data.revision,
-            parsed.data.token,
+            'credentials' in parsed.data ? parsed.data.credentials : { token: parsed.data.token },
             AbortSignal.timeout(120_000),
           ),
         ),
@@ -254,7 +273,7 @@ export function createConnectionsRouter(options: {
           await options.service.retry(
             c.id,
             parsed.data.revision,
-            parsed.data.token,
+            'credentials' in parsed.data ? parsed.data.credentials : { token: parsed.data.token },
             AbortSignal.timeout(120_000),
           ),
         ),

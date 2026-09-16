@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { join } from 'node:path';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import {
   ConnectionStore,
   ConnectionAssignmentConflictError,
   RevisionConflictError,
 } from '../connections-store.js';
+import { connectionTemplateRegistry } from '../connections/registry.js';
 
 describe('ConnectionStore', () => {
   let directory: string;
@@ -139,6 +141,65 @@ describe('ConnectionStore', () => {
     store.close();
     store = new ConnectionStore(join(directory, 'connections.db'));
     expect(store.incomplete().map((item) => item.status)).toEqual(['revoking']);
+  });
+
+  it('migrates legacy Jira email metadata into public config without changing effective policy', () => {
+    store.close();
+    const dbPath = join(directory, 'connections.db');
+    const db = new Database(dbPath);
+    db.exec('DROP TABLE connections');
+    db.exec(`CREATE TABLE connections (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL,
+      template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL,
+      gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT,
+      gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default',
+      submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL,
+      revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL,
+      identity TEXT, verified_at INTEGER, error_code TEXT, archived_at INTEGER,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`);
+    const now = Date.now();
+    db.prepare(
+      'INSERT INTO connections VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(
+      'legacy-jira',
+      'operator',
+      'jira-readonly',
+      1,
+      'Legacy Jira',
+      'https://redhat.atlassian.net',
+      'mitzo-conn-legacy',
+      'provider-legacy',
+      'openshell',
+      'default',
+      'submitted@example.com',
+      'active',
+      7,
+      '["work"]',
+      'account-legacy',
+      now,
+      null,
+      null,
+      now,
+      now,
+    );
+    db.close();
+    store = new ConnectionStore(dbPath);
+    const legacy = store.get('legacy-jira')!;
+    const expected = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: legacy.templateId,
+      templateVersion: legacy.templateVersion,
+      fields: { email: legacy.submittedEmail },
+    });
+    const migrated = store.get(legacy.id)!;
+    expect(migrated.publicConfig).toEqual({ email: 'submitted@example.com' });
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: migrated.templateId,
+        templateVersion: migrated.templateVersion,
+        fields: migrated.publicConfig,
+      }),
+    ).toEqual(expected);
   });
 
   it('archives only a revoked connection while retaining its audit record', () => {

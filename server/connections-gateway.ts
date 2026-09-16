@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { z } from 'zod';
+import type { ProviderPolicy } from './connections/types.js';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
 export const JIRA_API_ENDPOINT =
@@ -143,10 +144,25 @@ export interface GatewayProvider {
   type: string;
   credentialKeys: string[];
 }
+export interface GatewayProviderOperation {
+  name: string;
+  templateId: string;
+  templateVersion: number;
+  policy: ProviderPolicy;
+  /** One-shot secrets: gateway methods must not retain this object. */
+  credentials: Record<string, string>;
+}
+export interface GatewayCompatibilityInput {
+  templateId: string;
+  templateVersion: number;
+  policy: ProviderPolicy;
+}
 export interface ConnectionGateway {
-  verifyCompatibility(signal: AbortSignal): Promise<void>;
-  provision(input: { name: string; token: string }, signal: AbortSignal): Promise<GatewayProvider>;
-  rotate(input: { name: string; token: string }, signal: AbortSignal): Promise<void>;
+  /** A registered template may be visible before its gateway adapter ships. */
+  supportsTemplate?(templateId: string, templateVersion: number): boolean;
+  verifyCompatibility(input: GatewayCompatibilityInput, signal: AbortSignal): Promise<void>;
+  provision(input: GatewayProviderOperation, signal: AbortSignal): Promise<GatewayProvider>;
+  rotate(input: GatewayProviderOperation, signal: AbortSignal): Promise<void>;
   get(name: string, signal: AbortSignal): Promise<GatewayProvider | undefined>;
   list(signal: AbortSignal): Promise<GatewayProvider[]>;
   delete(name: string, signal: AbortSignal): Promise<void>;
@@ -155,7 +171,13 @@ export interface ConnectionGateway {
   sandboxStopped(name: string, signal: AbortSignal): Promise<boolean>;
   detach(sandbox: string, providerName: string, signal: AbortSignal): Promise<void>;
   probe(
-    input: { providerName: string; email: string; sandboxName?: string },
+    input: {
+      providerName: string;
+      templateId: string;
+      templateVersion: number;
+      publicConfig: Record<string, string | string[]>;
+      sandboxName?: string;
+    },
     signal: AbortSignal,
   ): Promise<{ identity: string }>;
   deleteSandbox(name: string, signal: AbortSignal): Promise<void>;
@@ -200,6 +222,22 @@ function safeName(name: string) {
   if (!/^mitzo-conn-[a-f0-9-]{8,64}$/.test(name)) throw new Error('Invalid managed provider name');
   return name;
 }
+type LegacyGatewayProviderOperation = { name: string; token: string };
+type LegacyProbeInput = { providerName: string; email: string; sandboxName?: string };
+function jiraOperation(input: GatewayProviderOperation | LegacyGatewayProviderOperation) {
+  if ('token' in input) return { name: safeName(input.name), token: input.token };
+  if (
+    input.templateId !== JIRA_TEMPLATE_ID ||
+    input.templateVersion !== 1 ||
+    input.policy.templateId !== input.templateId ||
+    input.policy.templateVersion !== input.templateVersion ||
+    Object.keys(input.credentials).length !== 1 ||
+    typeof input.credentials.token !== 'string' ||
+    input.credentials.token.length === 0
+  )
+    throw new Error('Unsupported or invalid reviewed provider template');
+  return { name: safeName(input.name), token: input.credentials.token };
+}
 function safeOutput(value: string) {
   try {
     return Provider.array()
@@ -230,6 +268,9 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       workspace: 'default',
     },
   ) {}
+  supportsTemplate(templateId: string, templateVersion: number) {
+    return templateId === JIRA_TEMPLATE_ID && templateVersion === 1;
+  }
   private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     try {
       // The pinned Podman driver allows 45 seconds to stop a container before removal.
@@ -244,7 +285,18 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       throw new Error('Gateway command failed');
     }
   }
-  async verifyCompatibility(signal: AbortSignal) {
+  async verifyCompatibility(input: GatewayCompatibilityInput | AbortSignal, signal?: AbortSignal) {
+    const actualSignal = signal ?? (input as AbortSignal);
+    if (signal) {
+      const compatibility = input as GatewayCompatibilityInput;
+      if (
+        compatibility.templateId !== JIRA_TEMPLATE_ID ||
+        compatibility.templateVersion !== 1 ||
+        compatibility.policy.templateId !== compatibility.templateId ||
+        compatibility.policy.templateVersion !== compatibility.templateVersion
+      )
+        throw new Error('Unsupported reviewed provider template');
+    }
     if (!this.options.profilePath) throw new Error('Reviewed Jira profile path is required');
     // Validate the exact reviewed source before asking the gateway to accept it.
     try {
@@ -261,7 +313,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       JSON.parse(
         await this.run(
           ['provider', '--workspace', this.options.workspace, 'list-profiles', '-o', 'json'],
-          signal,
+          actualSignal,
         ),
       ),
     );
@@ -277,7 +329,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           '--file',
           this.options.profilePath,
         ],
-        signal,
+        actualSignal,
       );
       await this.run(
         [
@@ -289,7 +341,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           '--file',
           this.options.profilePath,
         ],
-        signal,
+        actualSignal,
       );
     }
     // Import only follows a positive missing-profile result. Export failures are never a reason to import.
@@ -304,12 +356,15 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         '-o',
         'yaml',
       ],
-      signal,
+      actualSignal,
     );
     validateJiraProfileYaml(exported);
   }
-  async provision(input: { name: string; token: string }, signal: AbortSignal) {
-    const name = safeName(input.name);
+  async provision(
+    input: GatewayProviderOperation | LegacyGatewayProviderOperation,
+    signal: AbortSignal,
+  ) {
+    const { name, token } = jiraOperation(input);
     // The key-only spelling makes the CLI read the secret only from this child environment.
     await this.run(
       [
@@ -325,25 +380,29 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         'JIRA_API_TOKEN',
       ],
       signal,
-      { JIRA_API_TOKEN: input.token },
+      { JIRA_API_TOKEN: token },
     );
     const provider = await this.get(name, signal);
     if (!provider) throw new Error('Gateway did not create managed provider');
     return provider;
   }
-  async rotate(input: { name: string; token: string }, signal: AbortSignal) {
+  async rotate(
+    input: GatewayProviderOperation | LegacyGatewayProviderOperation,
+    signal: AbortSignal,
+  ) {
+    const { name, token } = jiraOperation(input);
     await this.run(
       [
         'provider',
         '--workspace',
         this.options.workspace,
         'update',
-        safeName(input.name),
+        name,
         '--credential',
         'JIRA_API_TOKEN',
       ],
       signal,
-      { JIRA_API_TOKEN: input.token },
+      { JIRA_API_TOKEN: token },
     );
   }
   async list(signal: AbortSignal) {
@@ -502,16 +561,39 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     );
   }
   async probe(
-    input: { providerName: string; email: string; sandboxName?: string },
+    input:
+      | {
+          providerName: string;
+          templateId: string;
+          templateVersion: number;
+          publicConfig: Record<string, string | string[]>;
+          sandboxName?: string;
+        }
+      | LegacyProbeInput,
     signal: AbortSignal,
   ) {
     if (!this.options.probeImage || !this.options.probePolicy)
       throw new Error('Gateway identity probe is not configured');
-    if (!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(input.email))
+    const normalized =
+      'email' in input
+        ? {
+            ...input,
+            templateId: JIRA_TEMPLATE_ID,
+            templateVersion: 1,
+            publicConfig: { email: input.email },
+          }
+        : input;
+    const email = normalized.publicConfig.email;
+    if (
+      normalized.templateId !== JIRA_TEMPLATE_ID ||
+      normalized.templateVersion !== 1 ||
+      typeof email !== 'string' ||
+      !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(email)
+    )
       throw new Error('Gateway identity probe is invalid');
     const name =
-      input.sandboxName ??
-      `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
+      normalized.sandboxName ??
+      `mzp-${createHash('sha256').update(`${normalized.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
     if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     const probe = `import base64,json,os,urllib.error,urllib.request
 u=os.environ['JIRA_URL']+'/rest/api/3/myself';a=base64.b64encode((os.environ['JIRA_EMAIL']+':'+os.environ['JIRA_API_TOKEN']).encode()).decode()
@@ -541,13 +623,13 @@ except Exception:
             '--from',
             this.options.probeImage,
             '--provider',
-            safeName(input.providerName),
+            safeName(normalized.providerName),
             '--label',
             'mitzo.connection_probe=1',
             '--env',
             `JIRA_URL=${JIRA_API_ENDPOINT}`,
             '--env',
-            `JIRA_EMAIL=${input.email}`,
+            `JIRA_EMAIL=${email}`,
             '-o',
             'json',
           ],
@@ -583,7 +665,7 @@ except Exception:
       }
       if (!ready) throw new Error('Probe sandbox is not Ready');
       const attached = await this.sandboxProviders(name, signal);
-      if (attached.length !== 1 || attached[0] !== safeName(input.providerName))
+      if (attached.length !== 1 || attached[0] !== safeName(normalized.providerName))
         throw new Error('Probe sandbox provider attachment mismatch');
       const output = await this.run(
         [
@@ -599,7 +681,7 @@ except Exception:
           '--env',
           `JIRA_URL=${JIRA_API_ENDPOINT}`,
           '--env',
-          `JIRA_EMAIL=${input.email}`,
+          `JIRA_EMAIL=${email}`,
           '--',
           '/usr/bin/python3',
           '-c',
