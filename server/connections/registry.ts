@@ -65,6 +65,20 @@ const ConnectionFieldSchema = z
     if (field.kind !== 'enum-list' && field.choices)
       ctx.addIssue({ code: 'custom', message: 'only enum-list fields may have choices' });
   });
+const GuidanceSchema = z
+  .object({
+    body: z.string().min(1).max(500),
+    href: z
+      .string()
+      .url()
+      .max(2_048)
+      .refine((value) => {
+        const url = new URL(value);
+        return url.protocol === 'https:' && !url.username && !url.password;
+      }, 'guidance URLs must be credential-free HTTPS'),
+    linkLabel: z.string().min(1).max(120),
+  })
+  .strict();
 const ProviderTemplateSchema = z
   .object({
     id: SymbolicIdentifier,
@@ -78,6 +92,7 @@ const ProviderTemplateSchema = z
     policyCompiler: SymbolicIdentifier,
     probe: SymbolicIdentifier,
     capabilityTemplates: z.array(TemplateReferenceSchema).max(20),
+    guidance: GuidanceSchema.optional(),
   })
   .strict();
 const JsonSchemaSchema = z
@@ -261,6 +276,7 @@ function parseProviderTemplate(value: unknown): ProviderTemplate {
     capabilityTemplates: Object.freeze(
       template.capabilityTemplates.map((reference) => Object.freeze({ ...reference })),
     ),
+    ...(template.guidance ? { guidance: Object.freeze({ ...template.guidance }) } : {}),
   });
 }
 function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
@@ -331,6 +347,7 @@ export function projectProviderTemplate(template: ProviderTemplate): PublicProvi
       ...(field.choices ? { choices: [...field.choices] } : {}),
     })),
     capabilityTemplates: template.capabilityTemplates.map((reference) => ({ ...reference })),
+    ...(template.guidance ? { guidance: { ...template.guidance } } : {}),
   };
 }
 export function projectCapabilityTemplate(template: CapabilityTemplate): PublicCapabilityTemplate {
@@ -503,6 +520,11 @@ const providers: readonly ProviderTemplate[] = [
     policyCompiler: 'jira-readonly-v1',
     probe: 'jira-readonly-v1',
     capabilityTemplates: [],
+    guidance: {
+      body: 'Use a scoped Jira Cloud API token for redhat.atlassian.net. The email must match the Atlassian account that created the token. Include the Jira read permission needed for the /myself identity check; this connection does not request write access.',
+      href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+      linkLabel: 'Atlassian token and scope guidance',
+    },
   },
   {
     id: 'github-readonly',

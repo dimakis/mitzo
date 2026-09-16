@@ -50,6 +50,8 @@ export interface ProviderTemplate {
   /** Code-owned symbolic key, never a path or command. */
   probe: string;
   capabilityTemplates: readonly TemplateReference[];
+  /** Reviewed browser help text. The URL is HTTPS-only and has no credentials. */
+  guidance?: { body: string; href: string; linkLabel: string };
 }
 
 export interface JsonSchema {
@@ -85,6 +87,7 @@ export interface PublicProviderTemplate {
   credentialFields: readonly CredentialField[];
   connectionFields: readonly ConnectionField[];
   capabilityTemplates: readonly TemplateReference[];
+  guidance?: { body: string; href: string; linkLabel: string };
 }
 
 export interface PublicCapabilityTemplate {

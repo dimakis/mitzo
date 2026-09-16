@@ -97,8 +97,9 @@ describe('connection template registry', () => {
   });
 
   it('projects only public metadata, never secrets or code-owned execution identifiers', () => {
+    const publicProvider = projectProviderTemplate(github);
     const wire = JSON.stringify({
-      provider: projectProviderTemplate(github),
+      provider: publicProvider,
       capability: projectCapabilityTemplate(githubPublish),
     });
     for (const forbidden of [
@@ -112,6 +113,15 @@ describe('connection template registry', () => {
       'SENTINEL_SECRET',
     ])
       expect(wire).not.toContain(forbidden);
+    expect(publicProvider.credentialFields[0]).toEqual(
+      expect.objectContaining({ key: 'token', secret: true }),
+    );
+    expect(projectProviderTemplate(jira).guidance).toEqual(
+      expect.objectContaining({
+        href: expect.stringMatching(/^https:\/\//),
+        linkLabel: 'Atlassian token and scope guidance',
+      }),
+    );
   });
 
   it('compiles independently inspected endpoints and canonical immutable connection fields', () => {
@@ -674,6 +684,12 @@ describe('connection template registry', () => {
         capabilities: [githubPublish],
       }),
     ).toThrow('Duplicate credential field key');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [{ ...jira, guidance: { ...jira.guidance!, href: 'http://example.test' } }],
+        capabilities: [],
+      }),
+    ).toThrow('Invalid provider template');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [github],

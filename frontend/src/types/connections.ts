@@ -49,6 +49,7 @@ export interface ConnectionTemplate {
   capabilityIds: string[];
   /** Set by the server from the active gateway's supported template versions. */
   available: boolean;
+  guidance?: { body: string; href: string; linkLabel: string };
 }
 
 export interface ConnectionCapability {

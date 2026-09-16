@@ -55,6 +55,11 @@ const templates: ConnectionTemplateCatalog = {
       risk: 'read-only',
       available: true,
       capabilityIds: [],
+      guidance: {
+        body: 'Use a scoped token with Jira read permission.',
+        href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+        linkLabel: 'Atlassian token and scope guidance',
+      },
       credentialFields: [
         {
           key: 'token',
@@ -232,6 +237,11 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Authentication: bearer token');
     expect(container.textContent).toContain('GitHub (operator-managed)');
   });
+  it('does not expose wizard navigation until a service is explicitly chosen', async () => {
+    await render();
+    expect(button('Continue')).toBeUndefined();
+    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Service');
+  });
   it('keeps existing connection controls available when the setup catalog fails', async () => {
     vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
       new Error('Template catalog unavailable'),
@@ -271,6 +281,39 @@ describe('ConnectionsView', () => {
     expect(input('API token').value).toBe('');
     expect(container.textContent).not.toContain('first-secret');
   });
+  it('blocks Authenticate with accessible label validation and renders reviewed provider guidance', async () => {
+    await render();
+    await act(async () => button('Choose Jira').click());
+    act(() => fireEvent.change(input('Connection label'), { target: { value: '  ' } }));
+    expect(input('Connection label').getAttribute('aria-invalid')).toBe('true');
+    expect(container.textContent).toContain('Enter a connection label before continuing.');
+    expect(button('Continue').disabled).toBe(true);
+    expect(container.textContent).toContain('Use a scoped token with Jira read permission.');
+    const help = Array.from(container.querySelectorAll('a')).find(
+      (item) => item.textContent === 'Atlassian token and scope guidance',
+    );
+    expect(help?.getAttribute('href')).toMatch(/^https:\/\//);
+  });
+  it('resets selected profiles when changing the template', async () => {
+    await render();
+    await chooseJiraToAssignments();
+    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Choose Jira v2').click());
+    act(() => fireEvent.change(input('API token'), { target: { value: 'v2-secret' } }));
+    await continueWizard();
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
+    );
+    await continueWizard();
+    await continueWizard();
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
   it('does not retain secret component state across unmount and re-entry', async () => {
     await render();
     await act(async () => button('Choose Jira').click());
@@ -302,6 +345,10 @@ describe('ConnectionsView', () => {
       }),
     );
     expect(container.textContent).not.toContain('secret');
+    await act(async () => button('Back').click());
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
   });
   it('clears credentials after a failed submission and refreshes authoritative state', async () => {
     vi.mocked(connections.createConnection).mockRejectedValue(

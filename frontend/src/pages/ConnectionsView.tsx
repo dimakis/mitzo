@@ -122,10 +122,9 @@ export function ConnectionsView() {
     if (templatesResult.status === 'fulfilled') {
       const nextTemplates = templatesResult.value;
       setTemplates(nextTemplates);
-      const preferred =
-        nextTemplates.templates.find((item) => item.id === 'jira-readonly' && item.available) ??
-        nextTemplates.templates.find((item) => item.available);
-      setSelectedTemplateKey((current) => current || (preferred ? templateKey(preferred) : ''));
+      setSelectedTemplateKey((current) =>
+        nextTemplates.templates.some((item) => templateKey(item) === current) ? current : '',
+      );
     } else {
       setTemplates(null);
       setTemplateError(
@@ -155,12 +154,14 @@ export function ConnectionsView() {
     action: () => Promise<unknown>,
     success: string,
     onFailure?: () => void,
+    onSuccess?: () => void,
   ) => {
     setBusy(name);
     setMessage('');
     try {
       await action();
       setMessage(success);
+      onSuccess?.();
       await refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The request failed. Refresh and retry.');
@@ -185,6 +186,7 @@ export function ConnectionsView() {
     setLabel(next.label);
     setScope({});
     setCredentials({});
+    setAccounts([]);
     setStep('authenticate');
   };
   if (!data && !loadError) return <PageState text="Loading connections…" />;
@@ -285,7 +287,7 @@ export function ConnectionsView() {
                     disabled={
                       busy !== null ||
                       (step === 'authenticate' &&
-                        !secretValid(template.credentialFields, credentials)) ||
+                        (!label.trim() || !secretValid(template.credentialFields, credentials))) ||
                       (step === 'scope' && !scopeValid(template, scope)) ||
                       (step === 'assignments' && !accounts.length)
                     }
@@ -321,6 +323,7 @@ export function ConnectionsView() {
                           }),
                         `${template.label} connection verified and activated.`,
                         () => setCredentials({}),
+                        () => setAccounts([]),
                       );
                     }}
                   >
@@ -551,6 +554,7 @@ function Authentication({
   credentials: Record<string, string>;
   onCredentials: (next: Record<string, string>) => void;
 }) {
+  const labelInvalid = !label.trim();
   return (
     <div>
       <h3>Authenticate with {template.label}</h3>
@@ -558,11 +562,18 @@ function Authentication({
         Connection label
         <input
           aria-label="Connection label"
+          aria-invalid={labelInvalid}
+          aria-describedby={labelInvalid ? 'connection-label-error' : undefined}
           maxLength={100}
           value={label}
           onChange={(event) => onLabel(event.target.value)}
         />
       </label>
+      {labelInvalid && (
+        <p id="connection-label-error" role="alert">
+          Enter a connection label before continuing.
+        </p>
+      )}
       <p className="workspace-muted">
         Secrets are one-shot gateway inputs. They are cleared after submission succeeds or fails,
         when this service changes, and when you leave this page.
@@ -575,8 +586,35 @@ function Authentication({
           onChange={(value) => onCredentials({ ...credentials, [field.key]: value })}
         />
       ))}
+      <ProviderGuidance guidance={template.guidance} />
     </div>
   );
+}
+function ProviderGuidance({
+  guidance,
+}: {
+  guidance?: { body: string; href: string; linkLabel: string };
+}) {
+  if (!guidance) return null;
+  const href = safeHelpUrl(guidance.href);
+  return (
+    <p className="workspace-muted">
+      {guidance.body}{' '}
+      {href && (
+        <a href={href} target="_blank" rel="noreferrer">
+          {guidance.linkLabel}
+        </a>
+      )}
+    </p>
+  );
+}
+function safeHelpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 function Scope({
   template,
