@@ -25,6 +25,10 @@ function setup() {
     { name: string; phase: string; labels: Record<string, string> }
   >();
   const gateway: ConnectionGateway = {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
     validateBinding: vi.fn(({ provider }: { provider: GatewayProvider }) => {
       if (
         provider.type !== 'jira-readonly' ||

@@ -10,6 +10,18 @@ function setup() {
   const providers = new Map<string, GatewayProvider>();
   const attachments = new Map<string, string[]>();
   const gateway: ConnectionGateway = {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
+    validateBinding: vi.fn(({ provider }: { provider: GatewayProvider }) => {
+      if (
+        provider.type !== 'jira-readonly' ||
+        provider.credentialKeys.length !== 1 ||
+        provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+      )
+        throw new Error('Managed provider credential binding changed');
+    }),
     verifyCompatibility: vi.fn(),
     provision: vi.fn(async ({ name }) => {
       const p = {

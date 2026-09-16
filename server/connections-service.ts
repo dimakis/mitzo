@@ -122,7 +122,9 @@ export class ConnectionsService {
       (c.gatewayProviderId && p.id !== c.gatewayProviderId)
     )
       throw new Error('Managed provider binding changed');
-    this.gateway.validateBinding?.({
+    const validateBinding = this.gateway.validateBinding;
+    if (typeof validateBinding !== 'function') throw new Error('Managed provider binding changed');
+    validateBinding.call(this.gateway, {
       templateId: c.templateId,
       templateVersion: c.templateVersion,
       provider: p,
@@ -271,9 +273,10 @@ export class ConnectionsService {
       input.templateVersion,
     );
     if (!template) throw new Error('Unknown provider template version');
+    const supportsTemplate = this.gateway.supportsTemplate;
     if (
-      this.gateway.supportsTemplate &&
-      !this.gateway.supportsTemplate(input.templateId, input.templateVersion)
+      typeof supportsTemplate !== 'function' ||
+      !supportsTemplate.call(this.gateway, input.templateId, input.templateVersion)
     )
       throw new Error('Provider template is not available');
     const supplied = this.validateCredentials(input.templateId, input.templateVersion, credentials);

@@ -6,11 +6,42 @@ import Database from 'better-sqlite3';
 import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
 import { ConnectionProbeError, OpenShellConnectionGateway } from '../connections-gateway.js';
+
+function jiraAdapter() {
+  return {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
+    validateBinding: vi.fn(
+      ({
+        templateId,
+        templateVersion,
+        provider,
+      }: {
+        templateId: string;
+        templateVersion: number;
+        provider: { type: string; credentialKeys: string[] };
+      }) => {
+        if (
+          templateId !== 'jira-readonly' ||
+          templateVersion !== 1 ||
+          provider.type !== 'jira-readonly' ||
+          provider.credentialKeys.length !== 1 ||
+          provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+        )
+          throw new Error('Managed provider credential binding changed');
+      },
+    ),
+  };
+}
+
 describe('ConnectionsService', () => {
   it('provisions through the template-neutral contract and never persists request credentials', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
     const gateway = {
+      ...jiraAdapter(),
       verifyCompatibility: vi.fn(),
       provision: vi.fn(async ({ name }: { name: string }) => ({
         id: 'provider-1',
@@ -106,7 +137,7 @@ describe('ConnectionsService', () => {
   it('rejects unknown credential keys before gateway provisioning', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
-    const gateway = { provision: vi.fn() };
+    const gateway = { ...jiraAdapter(), provision: vi.fn() };
     const service = new ConnectionsService(store, gateway as never);
     await expect(
       service.createAndProvision(
@@ -204,6 +235,78 @@ describe('ConnectionsService', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('fails closed when a gateway omits the template adapter contract', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = { provision: vi.fn() };
+    const service = new ConnectionsService(store, gateway as never);
+    await expect(
+      service.createAndProvision(
+        {
+          ownerId: 'operator',
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          label: 'Work Jira',
+          fields: { email: 'person@example.test' },
+          desiredAccountIds: [],
+        },
+        { token: 'SENTINEL_PROVIDER_SECRET' },
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Provider template is not available');
+    expect(gateway.provision).not.toHaveBeenCalled();
+    expect(store.list('operator')).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('fails closed when a gateway omits managed-provider binding validation', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const created = store.create({
+      ownerId: 'operator',
+      templateId: 'jira-readonly',
+      templateVersion: 1,
+      label: 'Work Jira',
+      endpoint: 'https://redhat.atlassian.net',
+      gatewayProviderName: 'mitzo-conn-12345678',
+      submittedEmail: 'person@example.test',
+      desiredAccountIds: ['work'],
+    });
+    const active = store.transition(
+      created.id,
+      created.revision,
+      {
+        status: 'active',
+        gatewayProviderId: 'provider-1',
+        identity: 'person@example.test',
+        verifiedAt: 1,
+      },
+      { operation: 'provision', outcome: 'success', actor: 'operator' },
+    );
+    const gateway = {
+      supportsTemplate: vi.fn().mockReturnValue(true),
+      get: vi.fn().mockResolvedValue({
+        id: 'provider-1',
+        name: active.gatewayProviderName,
+        workspace: 'default',
+        type: 'jira-readonly',
+        credentialKeys: ['JIRA_API_TOKEN'],
+      }),
+    };
+    const work = vi.fn();
+    await expect(
+      new ConnectionsService(store, gateway as never).withAccountRuntime(
+        'work',
+        work,
+        AbortSignal.timeout(500),
+      ),
+    ).rejects.toThrow('Managed provider binding changed');
+    expect(work).not.toHaveBeenCalled();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('retains a typed probe error after rotation candidate cleanup', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
@@ -231,6 +334,7 @@ describe('ConnectionsService', () => {
       credentialKeys: ['JIRA_API_TOKEN'],
     };
     const gateway = {
+      ...jiraAdapter(),
       verifyCompatibility: vi.fn(),
       provision: vi.fn(async ({ name }: { name: string }) => ({
         ...original,
@@ -285,6 +389,7 @@ describe('ConnectionsService', () => {
       { operation: 'provision', outcome: 'success', actor: 'operator' },
     );
     const gateway = {
+      ...jiraAdapter(),
       verifyCompatibility: vi.fn(),
       provision: vi.fn(),
       rotate: vi.fn(),
@@ -362,6 +467,7 @@ describe('ConnectionsService', () => {
     const store = new ConnectionStore(join(dir, 'db'));
     const adapter = new OpenShellConnectionGateway(vi.fn().mockResolvedValue('[]'));
     const gateway = {
+      ...jiraAdapter(),
       verifyCompatibility: vi.fn(),
       provision: vi.fn().mockResolvedValue({
         id: 'provider-1',
@@ -437,6 +543,7 @@ describe('ConnectionsService', () => {
       desiredAccountIds: [],
     });
     const gateway = {
+      ...jiraAdapter(),
       verifyCompatibility: vi.fn(),
       provision: vi.fn().mockRejectedValue(new Error('untrusted CLI output')),
       rotate: vi.fn(),

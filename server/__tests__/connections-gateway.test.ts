@@ -9,6 +9,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
 describe('OpenShellConnectionGateway', () => {
+  it('supports only the reviewed Jira adapter version', () => {
+    const gateway = new OpenShellConnectionGateway(vi.fn());
+    expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);
+    expect(gateway.supportsTemplate('jira-readonly', 2)).toBe(false);
+    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(false);
+  });
   it.each([
     { label: 'missing', credentialKeys: [] },
     { label: 'wrong', credentialKeys: ['WRONG_TOKEN'] },

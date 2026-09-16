@@ -159,9 +159,9 @@ export interface GatewayCompatibilityInput {
 }
 export interface ConnectionGateway {
   /** A registered template may be visible before its gateway adapter ships. */
-  supportsTemplate?(templateId: string, templateVersion: number): boolean;
+  supportsTemplate(templateId: string, templateVersion: number): boolean;
   /** Adapter-owned binding checks include credential injection invariants. */
-  validateBinding?(input: {
+  validateBinding(input: {
     templateId: string;
     templateVersion: number;
     provider: GatewayProvider;
