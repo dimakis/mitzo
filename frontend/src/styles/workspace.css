@@ -360,6 +360,110 @@
   background: var(--workspace-bg);
   color: var(--workspace-text);
 }
+.connections-field textarea {
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+  resize: vertical;
+}
+.connections-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0;
+  padding: 0;
+  list-style: none;
+}
+.connections-steps li {
+  padding: 5px 9px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 999px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+}
+.connections-steps li[aria-current='step'] {
+  border-color: var(--workspace-accent);
+  color: var(--workspace-text);
+}
+.connections-catalog {
+  display: grid;
+  gap: 12px;
+}
+.connections-template {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+}
+.connections-template h3,
+.connections-template p {
+  margin: 0 0 8px;
+}
+.connections-risk {
+  font-weight: 550;
+}
+.connections-risk--bounded-write {
+  color: #ffc978;
+}
+.connections-risk--operator-defined {
+  color: #ffb4ab;
+}
+.connections-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 18px;
+}
+.connections-wizard-actions button {
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  color: var(--workspace-text);
+  background: var(--workspace-panel);
+}
+.connections-wizard-actions .workspace-primary {
+  border: 0;
+  color: var(--workspace-bg);
+}
+.connections-capability {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.connections-capability input {
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+}
+.connections-capability strong,
+.connections-capability small {
+  display: block;
+}
+.connections-review dl {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.4fr) minmax(0, 1fr);
+  gap: 8px 14px;
+  margin: 18px 0;
+}
+.connections-review dt {
+  color: var(--workspace-muted);
+}
+.connections-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .connections-profiles {
   display: grid;
   gap: 8px;
@@ -440,6 +544,24 @@
 .connections-rotate {
   width: 100%;
   margin-top: 14px;
+}
+@media (max-width: 520px) {
+  .connections-template {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .connections-template .workspace-primary {
+    width: 100%;
+  }
+  .connections-review dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+  .connections-review dd {
+    margin: 0 0 10px;
+  }
+  .connections-wizard-actions > button {
+    flex: 1 1 0;
+  }
 }
 .task-node:target {
   outline: 2px solid var(--workspace-accent);
