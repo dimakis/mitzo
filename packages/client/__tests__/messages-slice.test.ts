@@ -1703,3 +1703,19 @@ it('queues concurrent prompts and deduplicates reconnect replay', () => {
   state = messagesReducer(state, { type: 'PERMISSION_TIMEOUT', permId: 'p2' });
   expect(state.permission).toBeNull();
 });
+
+it('keeps streaming state and the prompt when a permission response is rejected', () => {
+  const permission = { permId: 'p1', toolName: 'Bash', toolInput: 'pwd' };
+  const state = messagesReducer(
+    {
+      ...INITIAL_MESSAGES_STATE,
+      running: true,
+      current: { messageId: 'm1', blocks: new Map(), blockOrder: [] },
+      permission,
+    },
+    { type: 'PERMISSION_REJECTED', permId: 'p1', error: 'Try again' },
+  );
+  expect(state.running).toBe(true);
+  expect(state.current?.messageId).toBe('m1');
+  expect(state.permission).toEqual({ ...permission, responseError: 'Try again' });
+});

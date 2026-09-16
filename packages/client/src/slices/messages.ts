@@ -161,6 +161,7 @@ export type MessagesAction =
   | { type: 'SESSION_STATE_CHANGED'; state: ClientSessionState }
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
+  | { type: 'PERMISSION_REJECTED'; permId: string; error: string }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
   | {
@@ -402,6 +403,18 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       return state.permission
         ? { ...state, permissionQueue: [...queue, action.payload] }
         : { ...state, permission: action.payload };
+    }
+
+    case 'PERMISSION_REJECTED': {
+      const update = (permission: PermissionRequest) =>
+        permission.permId === action.permId
+          ? { ...permission, responseError: action.error }
+          : permission;
+      return {
+        ...state,
+        permission: state.permission ? update(state.permission) : null,
+        permissionQueue: state.permissionQueue?.map(update),
+      };
     }
 
     case 'PERMISSION_TIMEOUT': {

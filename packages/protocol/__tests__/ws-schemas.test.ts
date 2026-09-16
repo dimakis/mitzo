@@ -67,6 +67,30 @@ describe('WS message schemas', () => {
     expect(result.success).toBe(true);
   });
 
+  it('rejects whitespace-only permission answers', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'permission_response',
+      permId: 'p1',
+      decision: 'once',
+      answers: { question: ['   '] },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('validates nonblank answers without changing provider keys or values', () => {
+    const opaqueId = 'x'.repeat(4001);
+    const answers = { '   ': [' option '], [opaqueId]: ['value'] };
+    const result = IncomingWsMessage.safeParse({
+      type: 'permission_response',
+      permId: 'p1',
+      decision: 'once',
+      answers,
+    });
+    expect(result.success).toBe(true);
+    if (result.success && result.data.type === 'permission_response')
+      expect(result.data.answers).toEqual(answers);
+  });
+
   it('accepts set_mode', () => {
     const result = IncomingWsMessage.safeParse({ type: 'set_mode', mode: 'auto' });
     expect(result.success).toBe(true);

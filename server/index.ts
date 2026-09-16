@@ -920,6 +920,21 @@ function handleChatWs(
       const result = IncomingWsMessage.safeParse(parsed);
 
       if (!result.success) {
+        if (parsed?.type === 'permission_response' && typeof parsed.permId === 'string') {
+          try {
+            transport.send({
+              type: 'permission_response_rejected',
+              permId: parsed.permId,
+              error: 'Permission response was invalid or expired. Review the prompt and try again.',
+            });
+          } catch (error) {
+            log.warn('permission response error delivery failed', {
+              clientId,
+              permId: parsed.permId,
+              error,
+            });
+          }
+        }
         log.debug('unrecognized WS message', { clientId, type: parsed?.type });
         return;
       }
@@ -1141,12 +1156,28 @@ function handleChatWs(
             'ws.decision': msg.decision || 'deny',
           },
           () => {
-            resolvePending(
+            const resolved = resolvePending(
               msg.permId,
               msg.decision || 'deny',
               msg.answers,
               registry.get(clientId)?.sessionId,
             );
+            if (!resolved) {
+              try {
+                transport.send({
+                  type: 'permission_response_rejected',
+                  permId: msg.permId,
+                  error:
+                    'Permission response was invalid or expired. Review the prompt and try again.',
+                });
+              } catch (error) {
+                log.warn('permission response error delivery failed', {
+                  clientId,
+                  permId: msg.permId,
+                  error,
+                });
+              }
+            }
           },
           contextFromTraceparent(traceparent),
         );

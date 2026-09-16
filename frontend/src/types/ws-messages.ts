@@ -136,6 +136,13 @@ interface PermissionResolvedMsg {
   sessionId?: string;
 }
 
+interface PermissionResponseRejectedMsg {
+  type: 'permission_response_rejected';
+  permId: string;
+  sessionId?: string;
+  error: string;
+}
+
 interface ErrorMsg {
   type: 'error';
   error: string;
@@ -246,6 +253,7 @@ export type ServerMessage =
   | PermissionRequestMsg
   | PermissionTimeoutMsg
   | PermissionResolvedMsg
+  | PermissionResponseRejectedMsg
   | ErrorMsg
   | SessionTakeoverMsg
   | ModeChangedMsg

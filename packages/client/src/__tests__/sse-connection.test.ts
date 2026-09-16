@@ -485,6 +485,34 @@ describe('SseConnection', () => {
     }
   });
 
+  it('reports permission POST failures as nonterminal permission rejections', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 400 });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    listener.mockClear();
+
+    conn.send({
+      type: 'permission_response',
+      sessionId: 'sess-1',
+      permId: 'perm-1',
+      decision: 'once',
+      answers: { question: ['   '] },
+    });
+
+    await vi.waitFor(() =>
+      expect(listener).toHaveBeenCalledWith({
+        type: 'permission_response_rejected',
+        sessionId: 'sess-1',
+        permId: 'perm-1',
+        error: 'Could not submit the permission response (400). Review the prompt and try again.',
+      }),
+    );
+    expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+  });
+
   it.each([
     ['switch_session', 'selected'],
     ['switch_session', null],

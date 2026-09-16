@@ -353,6 +353,17 @@ describe('permission events', () => {
     );
     expect(r.messagesActions).toEqual([{ type: 'PERMISSION_TIMEOUT', permId: 'p1' }]);
   });
+  it('permission_response_rejected dispatches a nonterminal permission rejection', () => {
+    const r = parseServerMessage(
+      { type: 'permission_response_rejected', permId: 'p1', error: 'Try again' },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(r.messagesActions).toEqual([
+      { type: 'PERMISSION_REJECTED', permId: 'p1', error: 'Try again' },
+    ]);
+  });
 });
 
 // ─── Error handling ──────────────────────────────────────────────────────────

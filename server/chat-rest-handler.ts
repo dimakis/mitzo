@@ -231,10 +231,27 @@ export function createChatRestRouter(
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
-    const msg = validateBody(V2PermissionResponseMessage, req.body, res);
-    if (!msg) return;
+    const parsed = V2PermissionResponseMessage.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        type: 'permission_response_rejected',
+        permId: typeof req.body?.permId === 'string' ? req.body.permId : '',
+        error: 'Permission response was invalid or expired. Review the prompt and try again.',
+      });
+      return;
+    }
+    const msg = parsed.data;
     try {
-      handlePermissionResponseV2(connectionId, msg, ctx);
+      if (!handlePermissionResponseV2(connectionId, msg, ctx)) {
+        res.status(409).json({
+          ok: false,
+          type: 'permission_response_rejected',
+          permId: msg.permId,
+          error: 'Permission response was invalid or expired. Review the prompt and try again.',
+        });
+        return;
+      }
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/permission failed', { connectionId, error: String(err) });

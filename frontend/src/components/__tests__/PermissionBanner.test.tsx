@@ -74,6 +74,12 @@ describe('PermissionBanner', () => {
     expect(container.querySelector('.perm-banner-btn--deny')).toBeTruthy();
   });
 
+  it('shows a retryable permission response error without dismissing the prompt', () => {
+    render(<PermissionBanner {...defaultProps} responseError="Review the prompt and try again." />);
+    expect(screen.getByRole('alert').textContent).toContain('Review the prompt and try again.');
+    expect(screen.getByText('Allow Once')).toBeTruthy();
+  });
+
   it('adds perm-banner--visible class after mount', () => {
     const rafSpy = vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation((cb) => {
       cb(0);

@@ -11,6 +11,7 @@ interface Props {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation';
+  responseError?: string;
   expiresAt?: number;
   questions?: UserQuestion[];
   onRespond: (
@@ -36,6 +37,7 @@ export function PermissionBanner({
   displayName,
   tier,
   approvalScope,
+  responseError,
   questions,
   expiresAt,
   onRespond,
@@ -184,6 +186,11 @@ export function PermissionBanner({
         )}
       </div>
       <div className="perm-banner-actions">
+        {responseError && (
+          <p className="perm-banner-response-error" role="alert">
+            {responseError}
+          </p>
+        )}
         {questions ? (
           <button
             className="perm-banner-btn perm-banner-btn--once"

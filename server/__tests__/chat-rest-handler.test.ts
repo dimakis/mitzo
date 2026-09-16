@@ -17,7 +17,7 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleSendV2: vi.fn(),
     handleStopV2: vi.fn(),
     handleInterruptV2: vi.fn(),
-    handlePermissionResponseV2: vi.fn(),
+    handlePermissionResponseV2: vi.fn().mockReturnValue(true),
     handleSetModeV2: vi
       .fn()
       .mockResolvedValue({ ok: true, applied: true, persisted: true, mode: 'agent' }),
@@ -300,6 +300,49 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
     expect(handlePermissionResponseV2).toHaveBeenCalledOnce();
+  });
+
+  it('POST /permission returns a retryable rejection for schema-invalid answers', async () => {
+    const res = await request(testApp)
+      .post('/api/chat/permission')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'permission_response',
+        sessionId: 'sess-1',
+        permId: 'perm-1',
+        decision: 'once',
+        answers: { question: ['   '] },
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({
+      ok: false,
+      type: 'permission_response_rejected',
+      permId: 'perm-1',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
+    expect(handlePermissionResponseV2).not.toHaveBeenCalled();
+  });
+
+  it('POST /permission returns a retryable rejection when the request expired', async () => {
+    vi.mocked(handlePermissionResponseV2).mockReturnValueOnce(false);
+    const res = await request(testApp)
+      .post('/api/chat/permission')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'permission_response',
+        sessionId: 'sess-1',
+        permId: 'expired-perm',
+        decision: 'once',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      ok: false,
+      type: 'permission_response_rejected',
+      permId: 'expired-perm',
+      error: 'Permission response was invalid or expired. Review the prompt and try again.',
+    });
   });
 
   // ─── POST /api/chat/mode ───────────────────────────────────────────────

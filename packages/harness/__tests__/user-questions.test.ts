@@ -146,6 +146,44 @@ it('shows complete approval arguments rather than the notification summary', asy
   }
 });
 
+it('rejects approval input that cannot be displayed in full', async () => {
+  const { applyTierOverrides } = await import('../src/tool-tiers.js');
+  applyTierOverrides({ Bash: 'unknown' });
+  try {
+    const { handler, sent, abort } = setup();
+    const command = 'x'.repeat(20_000);
+    const result = handler('Bash', { command }, { signal: abort.signal, toolUseID: 'b-large' });
+    await expect(result).resolves.toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('too large to review safely'),
+    });
+    expect(sent).toEqual([]);
+  } finally {
+    applyTierOverrides({});
+  }
+});
+
+it('rejects approval input that cannot be serialized for review', async () => {
+  const { applyTierOverrides } = await import('../src/tool-tiers.js');
+  applyTierOverrides({ CustomWrite: 'unknown' });
+  try {
+    const { handler, sent, abort } = setup();
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const result = handler('CustomWrite', circular, {
+      signal: abort.signal,
+      toolUseID: 'custom-large',
+    });
+    await expect(result).resolves.toMatchObject({
+      behavior: 'deny',
+      message: expect.stringContaining('too large to review safely'),
+    });
+    expect(sent).toEqual([]);
+  } finally {
+    applyTierOverrides({});
+  }
+});
+
 it('keeps an unresolved question replayable when a transport closes during send', async () => {
   const { getPendingRequestsBySession } = await import('../src/permissions.js');
   const { handler, registry, abort } = setup();
