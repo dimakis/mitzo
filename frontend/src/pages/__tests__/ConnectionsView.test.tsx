@@ -53,6 +53,7 @@ const templates: ConnectionTemplateCatalog = {
       category: 'data',
       description: 'Read Jira metadata.',
       risk: 'read-only',
+      available: true,
       capabilityIds: [],
       credentialFields: [
         {
@@ -81,6 +82,7 @@ const templates: ConnectionTemplateCatalog = {
       category: 'source-control',
       description: 'Read GitHub repositories.',
       risk: 'read-only',
+      available: false,
       capabilityIds: ['github.publish-pr'],
       credentialFields: [
         {
@@ -95,12 +97,42 @@ const templates: ConnectionTemplateCatalog = {
       connectionFields: [],
     },
     {
+      id: 'jira-readonly',
+      version: 2,
+      label: 'Jira v2',
+      category: 'data',
+      description: 'Read Jira metadata through v2.',
+      risk: 'read-only',
+      available: true,
+      capabilityIds: [],
+      credentialFields: [
+        {
+          key: 'token',
+          label: 'API token',
+          description: 'One-shot secret.',
+          style: 'api-token',
+          secret: true,
+          required: true,
+        },
+      ],
+      connectionFields: [
+        {
+          key: 'email',
+          label: 'Atlassian account email',
+          description: 'Account identity.',
+          kind: 'string',
+          required: true,
+        },
+      ],
+    },
+    {
       id: 'custom-rest-readonly',
       version: 1,
       label: 'Custom REST API',
       category: 'custom-api',
       description: 'Operator-defined HTTPS REST reads.',
       risk: 'operator-defined',
+      available: false,
       capabilityIds: [],
       credentialFields: [
         {
@@ -171,6 +203,7 @@ beforeEach(() => {
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
+  vi.clearAllMocks();
   vi.mocked(connections.getConnections).mockResolvedValue(catalog);
   vi.mocked(connections.getConnectionTemplates).mockResolvedValue(templates);
   vi.mocked(connections.reauthorize).mockResolvedValue({
@@ -201,13 +234,14 @@ describe('ConnectionsView', () => {
   });
   it('uses native keyboard-focusable service controls to progress through the wizard', async () => {
     await render();
-    const choose = button('Choose GitHub');
+    const choose = button('Choose Jira');
     const user = userEvent.setup();
     choose.focus();
     expect(document.activeElement).toBe(choose);
     await user.keyboard('{Enter}');
-    expect(container.textContent).toContain('Authenticate with GitHub');
+    expect(container.textContent).toContain('Authenticate with Jira');
     expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Authenticate');
+    expect(document.activeElement?.textContent).toBe('Authenticate');
   });
   it('validates required fields, clears secrets on template change, and never renders the old secret', async () => {
     await render();
@@ -217,8 +251,8 @@ describe('ConnectionsView', () => {
     act(() => fireEvent.change(input('API token'), { target: { value: 'first-secret' } }));
     expect(continueButton.disabled).toBe(false);
     await act(async () => button('Back').click());
-    await act(async () => button('Choose GitHub').click());
-    expect(input('Access token').value).toBe('');
+    await act(async () => button('Choose Jira v2').click());
+    expect(input('API token').value).toBe('');
     expect(container.textContent).not.toContain('first-secret');
   });
   it('does not retain secret component state across unmount and re-entry', async () => {
@@ -267,16 +301,53 @@ describe('ConnectionsView', () => {
     expect(container.textContent).not.toContain('secret');
     expect(vi.mocked(connections.getConnections).mock.calls.length).toBeGreaterThan(1);
   });
-  it('describes capability selection as non-durable intent until capability grants land', async () => {
+  it('clears create credentials before rejecting an expired reauthorization', async () => {
+    vi.mocked(connections.reauthorize).mockResolvedValue({
+      csrf: 'c'.repeat(32),
+      expiresAt: Date.now() - 1,
+    });
     await render();
-    await act(async () => button('Choose GitHub').click());
-    act(() => fireEvent.change(input('Access token'), { target: { value: 'secret' } }));
+    await chooseJiraToAssignments();
+    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
     await continueWizard();
+    await reauthorize();
+    await act(async () => button('Verify and connect Jira').click());
+    expect(connections.createConnection).not.toHaveBeenCalled();
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    expect(input('API token').value).toBe('');
+  });
+  it('shows unsupported templates as forthcoming and prevents them entering the wizard', async () => {
+    await render();
+    expect(container.textContent).toContain('Forthcoming: this gateway does not yet support');
+    expect(button('Coming soon').disabled).toBe(true);
+    expect(container.textContent).not.toContain('Authenticate with GitHub');
+  });
+  it('keeps template versions distinct in selection and connection-card metadata', async () => {
+    await render();
+    await act(async () => button('Choose Jira v2').click());
+    act(() => fireEvent.change(input('API token'), { target: { value: 'v2-secret' } }));
     await continueWizard();
-    expect(container.textContent).toContain(
-      'does not activate capabilities during connection creation',
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
     );
-    expect(container.textContent).toContain('Publish pull request');
+    await continueWizard();
+    await continueWizard();
+    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    await continueWizard();
+    await reauthorize();
+    await act(async () => button('Verify and connect Jira v2').click());
+    expect(connections.createConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: 'jira-readonly', templateVersion: 2 }),
+    );
+    vi.mocked(connections.getConnections).mockResolvedValue({
+      ...catalog,
+      connections: [{ ...catalog.connections[0], templateVersion: 2 }],
+    });
+    await act(async () => button('Test identity').click());
+    expect(container.textContent).toContain('Jira v2 v2');
   });
   it('recovers from a stale revision by refreshing after the server conflict', async () => {
     vi.mocked(connections.updateAssignments).mockRejectedValue(
@@ -300,6 +371,57 @@ describe('ConnectionsView', () => {
     act(() => button('Cancel').click());
     expect(container.querySelector('[aria-label="Replacement API token"]')).toBeNull();
     expect(container.textContent).not.toContain('replacement');
+  });
+  it('clears rotation credentials before rejecting expired reauthorization', async () => {
+    vi.mocked(connections.reauthorize).mockResolvedValue({
+      csrf: 'c'.repeat(32),
+      expiresAt: Date.now() - 1,
+    });
+    await render();
+    await reauthorize();
+    await act(async () => button('Rotate credentials').click());
+    act(() =>
+      fireEvent.change(input('Replacement API token'), { target: { value: 'rotate-secret' } }),
+    );
+    await act(async () => button('Verify and rotate').click());
+    expect(input('Replacement API token').value).toBe('');
+    expect(connections.rotateConnection).not.toHaveBeenCalled();
+  });
+  it('keeps retry and removal behind the existing Jira lifecycle safeguards', async () => {
+    vi.mocked(connections.getConnections).mockResolvedValue({
+      ...catalog,
+      connections: [
+        { ...catalog.connections[0], status: 'needs_attention', errorCode: 'PROVISION_FAILED' },
+      ],
+    });
+    await render();
+    await reauthorize();
+    await act(async () => button('Retry credentials').click());
+    act(() =>
+      fireEvent.change(input('Replacement API token'), { target: { value: 'retry-secret' } }),
+    );
+    await act(async () => button('Verify and rotate').click());
+    expect(connections.retryConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jira-1', credentials: { token: 'retry-secret' } }),
+    );
+    await act(async () => button('Remove connection').click());
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
+    await act(async () => button('Confirm removal').click());
+    expect(connections.deleteConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jira-1', revision: 2 }),
+    );
+  });
+  it('does not send a removal request after reauthorization expires', async () => {
+    vi.mocked(connections.reauthorize).mockResolvedValue({
+      csrf: 'c'.repeat(32),
+      expiresAt: Date.now() - 1,
+    });
+    await render();
+    await reauthorize();
+    await act(async () => button('Remove connection').click());
+    await act(async () => button('Confirm removal').click());
+    expect(connections.deleteConnection).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Reauthorize with your passphrase');
   });
   it('retains existing recovery wording and has a narrow mobile layout rule', () => {
     expect(connectionErrorMessage('JIRA_AUTH_REJECTED')).toContain('email matches');

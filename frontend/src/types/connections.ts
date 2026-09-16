@@ -47,6 +47,8 @@ export interface ConnectionTemplate {
   credentialFields: ConnectionCredentialField[];
   connectionFields: ConnectionField[];
   capabilityIds: string[];
+  /** Set by the server from the active gateway's supported template versions. */
+  available: boolean;
 }
 
 export interface ConnectionCapability {

@@ -389,6 +389,10 @@
   border-color: var(--workspace-accent);
   color: var(--workspace-text);
 }
+.connections-step-heading:focus {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 4px;
+}
 .connections-catalog {
   display: grid;
   gap: 12px;

@@ -163,7 +163,10 @@ export function createConnectionsRouter(options: {
   });
   router.get('/templates', (_req, res) => {
     return res.json({
-      templates: connectionTemplateRegistry.providerTemplates(),
+      templates: connectionTemplateRegistry.providerTemplates().map((template) => ({
+        ...template,
+        available: options.service.supportsTemplate(template.id, template.version),
+      })),
       capabilities: connectionTemplateRegistry.capabilityTemplates(),
     });
   });

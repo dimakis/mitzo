@@ -12,7 +12,7 @@ describe('connections router', () => {
   it('denies internal-only mutations and requires recent csrf reauthorization', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-router-'));
     const store = new ConnectionStore(join(dir, 'db'));
-    const service = { provision: vi.fn(), revoke: vi.fn() };
+    const service = { provision: vi.fn(), revoke: vi.fn(), supportsTemplate: vi.fn() };
     const app = express();
     app.use((req, res, next) => {
       if (req.header('x-browser') === 'yes')
@@ -74,6 +74,10 @@ describe('connections router', () => {
       }),
       revoke: vi.fn().mockResolvedValue(connection),
       archive: vi.fn().mockResolvedValue(undefined),
+      supportsTemplate: vi.fn(
+        (templateId: string, templateVersion: number) =>
+          templateId === 'jira-readonly' && templateVersion === 1,
+      ),
     };
     const app = express();
     app.use((req, res, next) => {
@@ -154,7 +158,10 @@ describe('connections router', () => {
     const templates = await request(app).get('/api/connections/templates').set('x-browser', 'yes');
     expect(templates.status).toBe(200);
     expect(templates.body.templates).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'jira-readonly', version: 1 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'jira-readonly', version: 1, available: true }),
+        expect.objectContaining({ id: 'github-readonly', version: 1, available: false }),
+      ]),
     );
     const failedCreate = await request(app)
       .post('/api/connections')

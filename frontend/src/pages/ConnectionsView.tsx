@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
   createConnection,
@@ -15,7 +15,6 @@ import {
 } from '../lib/connections-api';
 import type {
   ConnectionAuditEntry,
-  ConnectionCapability,
   ConnectionCredentialField,
   ConnectionTemplate,
   ConnectionsCatalog,
@@ -81,6 +80,8 @@ const scopeValues = (template: ConnectionTemplate, values: Record<string, string
       ])
       .filter(([, value]) => (Array.isArray(value) ? value.length : value)),
   );
+const templateKey = (template: Pick<ConnectionTemplate, 'id' | 'version'>) =>
+  `${template.id}@${template.version}`;
 
 export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
@@ -90,17 +91,17 @@ export function ConnectionsView() {
   const [csrf, setCsrf] = useState('');
   const [csrfExpiresAt, setCsrfExpiresAt] = useState(0);
   const [passphrase, setPassphrase] = useState('');
-  const [templateId, setTemplateId] = useState('');
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('');
   const [label, setLabel] = useState('');
   const [scope, setScope] = useState<Record<string, string>>({});
   const [credentials, setCredentials] = useState<Record<string, string>>({});
   const [accounts, setAccounts] = useState<string[]>([]);
-  const [capabilities, setCapabilities] = useState<string[]>([]);
   const [step, setStep] = useState<WizardStep>('service');
   const [busy, setBusy] = useState<string | null>(null);
   const [audit, setAudit] = useState<Record<string, ConnectionAuditEntry[]>>({});
   const [rotateId, setRotateId] = useState<string | null>(null);
   const [rotationCredentials, setRotationCredentials] = useState<Record<string, string>>({});
+  const stepHeading = useRef<HTMLHeadingElement>(null);
   const refresh = useCallback(async () => {
     setLoadError('');
     try {
@@ -110,13 +111,10 @@ export function ConnectionsView() {
       ]);
       setData(nextData);
       setTemplates(nextTemplates);
-      setTemplateId(
-        (current) =>
-          current ||
-          nextTemplates.templates.find((item) => item.id === 'jira-readonly')?.id ||
-          nextTemplates.templates[0]?.id ||
-          '',
-      );
+      const preferred =
+        nextTemplates.templates.find((item) => item.id === 'jira-readonly' && item.available) ??
+        nextTemplates.templates.find((item) => item.available);
+      setSelectedTemplateKey((current) => current || (preferred ? templateKey(preferred) : ''));
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : 'Unable to load connections.');
     }
@@ -131,16 +129,12 @@ export function ConnectionsView() {
     },
     [],
   );
+  useEffect(() => {
+    stepHeading.current?.focus();
+  }, [step]);
   const template = useMemo(
-    () => templates?.templates.find((item) => item.id === templateId) ?? null,
-    [templates, templateId],
-  );
-  const availableCapabilities = useMemo(
-    () =>
-      template
-        ? (templates?.capabilities.filter((item) => template.capabilityIds.includes(item.id)) ?? [])
-        : [],
-    [template, templates],
+    () => templates?.templates.find((item) => templateKey(item) === selectedTemplateKey) ?? null,
+    [templates, selectedTemplateKey],
   );
   const run = async (
     name: string,
@@ -172,11 +166,11 @@ export function ConnectionsView() {
   const toggle = (id: string, values: string[], setter: (next: string[]) => void) =>
     setter(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
   const chooseTemplate = (next: ConnectionTemplate) => {
-    setTemplateId(next.id);
+    if (!next.available) return;
+    setSelectedTemplateKey(templateKey(next));
     setLabel(next.label);
     setScope({});
     setCredentials({});
-    setCapabilities([]);
     setStep('authenticate');
   };
   if ((!data || !templates) && !loadError) return <PageState text="Loading connections…" />;
@@ -221,6 +215,9 @@ export function ConnectionsView() {
             </li>
           ))}
         </ol>
+        <h3 className="connections-step-heading" ref={stepHeading} tabIndex={-1}>
+          {stepLabel[step]}
+        </h3>
         {step === 'service' && (
           <ServiceCatalog templates={templates.templates} onChoose={chooseTemplate} />
         )}
@@ -237,11 +234,7 @@ export function ConnectionsView() {
           <Scope template={template} values={scope} onValues={setScope} />
         )}
         {template && step === 'capabilities' && (
-          <CapabilitySelection
-            items={availableCapabilities}
-            selected={capabilities}
-            onToggle={(id) => toggle(id, capabilities, setCapabilities)}
-          />
+          <CapabilityNotice hasCapabilities={template.capabilityIds.length > 0} />
         )}
         {template && step === 'assignments' && (
           <Assignments
@@ -255,7 +248,6 @@ export function ConnectionsView() {
             template={template}
             label={label}
             scope={scopeValues(template, scope)}
-            capabilities={availableCapabilities.filter((item) => capabilities.includes(item.id))}
             accounts={accounts}
           />
         )}
@@ -296,9 +288,9 @@ export function ConnectionsView() {
                   !scopeValid(template, scope)
                 }
                 onClick={() => {
-                  if (!requireReauthorization()) return;
                   const oneShot = credentials;
                   setCredentials({});
+                  if (!requireReauthorization()) return;
                   void run(
                     'create',
                     () =>
@@ -333,7 +325,10 @@ export function ConnectionsView() {
             <ConnectionCard
               key={connection.id}
               connection={connection}
-              template={templates.templates.find((item) => item.id === connection.templateId)}
+              template={templates.templates.find(
+                (item) =>
+                  item.id === connection.templateId && item.version === connection.templateVersion,
+              )}
               accounts={data.eligibleAccounts}
               csrf={csrf}
               busy={busy}
@@ -472,9 +467,19 @@ function ServiceCatalog({
                 .join(', ') || 'none'}{' '}
               · Capabilities: {template.capabilityIds.length || 'none'}
             </p>
+            {!template.available && (
+              <p className="workspace-muted">
+                Forthcoming: this gateway does not yet support this reviewed template version.
+              </p>
+            )}
           </div>
-          <button className="workspace-primary" type="button" onClick={() => onChoose(template)}>
-            Choose {template.label}
+          <button
+            className="workspace-primary"
+            type="button"
+            disabled={!template.available}
+            onClick={() => onChoose(template)}
+          >
+            {template.available ? `Choose ${template.label}` : 'Coming soon'}
           </button>
         </article>
       ))}
@@ -571,11 +576,13 @@ function Scope({
     <div>
       <h3>Scope</h3>
       {template.connectionFields.map((field) => (
-        <label className="connections-field" key={field.key}>
-          {field.label}
+        <div className="connections-field" key={field.key}>
           {field.kind === 'enum-list' ? (
             <fieldset className="connections-profiles">
-              <legend>{field.description}</legend>
+              <legend>
+                {field.label}
+                <small>{field.description}</small>
+              </legend>
               {field.choices?.map((choice) => (
                 <label className="connections-profile-option" key={choice}>
                   <input
@@ -594,7 +601,9 @@ function Scope({
             </fieldset>
           ) : (
             <>
+              <label htmlFor={`connection-field-${field.key}`}>{field.label}</label>
               <textarea
+                id={`connection-field-${field.key}`}
                 aria-label={field.label}
                 required={field.required}
                 rows={field.kind === 'string-list' ? 4 : undefined}
@@ -607,49 +616,20 @@ function Scope({
               </small>
             </>
           )}
-        </label>
+        </div>
       ))}
     </div>
   );
 }
-function CapabilitySelection({
-  items,
-  selected,
-  onToggle,
-}: {
-  items: ConnectionCapability[];
-  selected: string[];
-  onToggle: (id: string) => void;
-}) {
+function CapabilityNotice({ hasCapabilities }: { hasCapabilities: boolean }) {
   return (
     <div>
       <h3>Capabilities</h3>
-      {items.length ? (
-        <>
-          <p className="workspace-muted">
-            These are controller-mediated mutations, separately approved from sandbox egress.
-            Selection records intent for review; this release does not activate capabilities during
-            connection creation.
-          </p>
-          {items.map((item) => (
-            <label className="connections-capability" key={item.id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(item.id)}
-                onChange={() => onToggle(item.id)}
-              />
-              <span>
-                <strong>{item.label}</strong>
-                <small>
-                  {item.description} Approval: {item.approval}.
-                </small>
-              </span>
-            </label>
-          ))}
-        </>
-      ) : (
-        <p className="workspace-muted">This service exposes no reviewed mutation capabilities.</p>
-      )}
+      <p className="workspace-muted">
+        {hasCapabilities
+          ? 'This template has reviewed controller-mediated capabilities, but capability grants and their audit records are not available in this release. No mutation access is enabled by this connection.'
+          : 'This service exposes no reviewed mutation capabilities.'}
+      </p>
     </div>
   );
 }
@@ -692,13 +672,11 @@ function Review({
   template,
   label,
   scope,
-  capabilities,
   accounts,
 }: {
   template: ConnectionTemplate;
   label: string;
   scope: Record<string, string | string[]>;
-  capabilities: ConnectionCapability[];
   accounts: string[];
 }) {
   return (
@@ -723,11 +701,7 @@ function Review({
             : 'Template-defined only'}
         </dd>
         <dt>Mutation capabilities</dt>
-        <dd>
-          {capabilities.length
-            ? capabilities.map((item) => item.label).join(', ')
-            : 'None selected'}
-        </dd>
+        <dd>Not enabled by this connection.</dd>
         <dt>Assigned profiles</dt>
         <dd>{accounts.join(', ') || 'None'}</dd>
       </dl>
@@ -916,10 +890,10 @@ function ConnectionCard({
           className="connections-rotate"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!requireReauthorization() || !secretValid(credentialFields, rotationCredentials))
-              return;
+            if (!secretValid(credentialFields, rotationCredentials)) return;
             const oneShot = rotationCredentials;
             onRotationCredentials({});
+            if (!requireReauthorization()) return;
             onRotateClose();
             void onAction(
               `rotate:${connection.id}`,
