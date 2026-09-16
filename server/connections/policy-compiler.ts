@@ -7,17 +7,13 @@ const safePath =
 
 function policy(
   template: ProviderTemplate,
-  endpoint: ProviderPolicy['endpoint'],
-  rules: ProviderPolicy['rules'],
-  allowedBinaries: readonly string[] = [],
+  endpoints: ProviderPolicy['endpoints'],
 ): ProviderPolicy {
   return {
     templateId: template.id,
     templateVersion: template.version,
-    endpoint,
-    rules,
+    endpoints,
     credentialFieldKeys: template.credentialFields.map((field) => field.key),
-    allowedBinaries,
   };
 }
 
@@ -29,27 +25,58 @@ function fieldsMustBeEmpty(fields: Readonly<Record<string, string | string[]>>) 
 export const compileJiraReadonly: PolicyCompiler = (template, fields) => {
   fieldsMustBeEmpty(fields);
   const base = '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api';
-  return policy(
-    template,
-    { host: 'api.atlassian.com', port: 443, protocol: 'rest', tls: 'terminate', redirects: 'deny' },
-    [
-      { method: 'GET', path: `${base}/2/**` },
-      { method: 'HEAD', path: `${base}/2/**` },
-      { method: 'GET', path: `${base}/3/**` },
-      { method: 'HEAD', path: `${base}/3/**` },
-    ],
-    ['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl'],
-  );
+  return policy(template, [
+    {
+      host: 'api.atlassian.com',
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [
+        { method: 'GET', path: `${base}/2/**` },
+        { method: 'HEAD', path: `${base}/2/**` },
+        { method: 'GET', path: `${base}/3/**` },
+        { method: 'HEAD', path: `${base}/3/**` },
+      ],
+      allowedBinaries: ['/usr/bin/python3', '/usr/bin/curl', '/usr/local/bin/curl'],
+    },
+  ]);
 };
 
 export const compileGithubReadonly: PolicyCompiler = (template, fields) => {
   fieldsMustBeEmpty(fields);
-  return policy(
-    template,
-    { host: 'github.com', port: 443, protocol: 'git', tls: 'terminate', redirects: 'deny' },
-    [{ method: 'GIT_UPLOAD_PACK', path: '/**' }],
-    ['/usr/bin/git'],
-  );
+  return policy(template, [
+    {
+      host: 'api.github.com',
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [
+        { method: 'GET', path: '/**' },
+        { method: 'HEAD', path: '/**' },
+      ],
+      allowedBinaries: ['/usr/bin/curl', '/usr/local/bin/curl'],
+    },
+    {
+      host: 'api.github.com',
+      port: 443,
+      protocol: 'graphql',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [{ method: 'GRAPHQL_QUERY', path: '/graphql' }],
+      allowedBinaries: ['/usr/bin/curl', '/usr/local/bin/curl'],
+    },
+    {
+      host: 'github.com',
+      port: 443,
+      protocol: 'git',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [{ method: 'GIT_UPLOAD_PACK', path: '/**' }],
+      allowedBinaries: ['/usr/bin/git'],
+    },
+  ]);
 };
 
 function customEndpoint(value: string) {
@@ -100,12 +127,17 @@ export const compileCustomRestReadonly: PolicyCompiler = (template, fields) => {
   )
     throw new Error('Custom REST fields are invalid');
   const host = customEndpoint(endpoint);
-  return policy(
-    template,
-    { host, port: 443, protocol: 'rest', tls: 'terminate', redirects: 'deny' },
-    methods.flatMap((method) =>
-      paths.map((path) => ({ method: method as 'GET' | 'HEAD' | 'OPTIONS', path })),
-    ),
-    ['/usr/bin/curl', '/usr/local/bin/curl'],
-  );
+  return policy(template, [
+    {
+      host,
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: methods.flatMap((method) =>
+        paths.map((path) => ({ method: method as 'GET' | 'HEAD' | 'OPTIONS', path })),
+      ),
+      allowedBinaries: ['/usr/bin/curl', '/usr/local/bin/curl'],
+    },
+  ]);
 };

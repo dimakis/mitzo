@@ -1,7 +1,7 @@
 # Provider and Capability Platform
 
-Status: proposed implementation design  
-Primary implementation model: Terra  
+Status: proposed implementation design
+Primary implementation model: Terra
 Suitable Luna work: isolated UI components, schema fixtures, documentation, and bounded unit tests
 
 ## Problem

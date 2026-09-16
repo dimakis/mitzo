@@ -91,16 +91,20 @@ export interface PublicCapabilityTemplate {
 export interface ProviderPolicy {
   templateId: string;
   templateVersion: number;
-  endpoint: {
+  /** Each endpoint is inspected and constrained independently. */
+  endpoints: readonly {
     host: string;
     port: 443;
-    protocol: 'rest' | 'git';
+    protocol: 'rest' | 'graphql' | 'git';
     tls: 'terminate';
     redirects: 'deny';
-  };
-  rules: readonly { method: 'GET' | 'HEAD' | 'OPTIONS' | 'GIT_UPLOAD_PACK'; path: string }[];
+    rules: readonly {
+      method: 'GET' | 'HEAD' | 'OPTIONS' | 'GRAPHQL_QUERY' | 'GIT_UPLOAD_PACK';
+      path: string;
+    }[];
+    allowedBinaries: readonly string[];
+  }[];
   credentialFieldKeys: readonly string[];
-  allowedBinaries: readonly string[];
 }
 
 export interface CompileProviderPolicyInput {
