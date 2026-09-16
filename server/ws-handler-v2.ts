@@ -574,6 +574,9 @@ export function handleSendV2(
         }
 
         const prompt = resolution.type === 'skill' ? resolution.renderedPrompt : msg.prompt;
+        // Preflight sees exactly what the user typed, including a meaningful
+        // slash-command name, never the rendered skill body.
+        const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
         if (resolution.type === 'skill') {
@@ -660,15 +663,28 @@ export function handleSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            const accepted = await sendToChat(
-              activeClientId,
-              prompt,
-              msg.images,
-              msg.contextBlocks,
-              msg.clientMsgId,
-              msg.accountId ? msg.model : undefined,
-              msg.accountId ? msg.reasoningEffort : undefined,
-            );
+            const accepted =
+              resolution.type === 'skill'
+                ? await sendToChat(
+                    activeClientId,
+                    prompt,
+                    msg.images,
+                    msg.contextBlocks,
+                    msg.clientMsgId,
+                    msg.accountId ? msg.model : undefined,
+                    msg.accountId ? msg.reasoningEffort : undefined,
+                    undefined,
+                    userIntent,
+                  )
+                : await sendToChat(
+                    activeClientId,
+                    prompt,
+                    msg.images,
+                    msg.contextBlocks,
+                    msg.clientMsgId,
+                    msg.accountId ? msg.model : undefined,
+                    msg.accountId ? msg.reasoningEffort : undefined,
+                  );
             if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
@@ -715,6 +731,7 @@ export function handleSendV2(
             clientMsgId: msg.clientMsgId,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
+            userIntent,
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
@@ -746,6 +763,7 @@ export function handleSendV2(
             onSessionResolved,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
+            userIntent,
           }).catch((err: unknown) =>
             transport.send({
               type: 'error',
