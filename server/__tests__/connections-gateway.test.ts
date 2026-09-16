@@ -9,6 +9,26 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
 describe('OpenShellConnectionGateway', () => {
+  it.each([
+    { label: 'missing', credentialKeys: [] },
+    { label: 'wrong', credentialKeys: ['WRONG_TOKEN'] },
+    { label: 'extra', credentialKeys: ['JIRA_API_TOKEN', 'EXTRA'] },
+  ])('rejects an invalid Jira credential binding: $label', ({ credentialKeys }) => {
+    const gateway = new OpenShellConnectionGateway(vi.fn());
+    expect(() =>
+      gateway.validateBinding({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        provider: {
+          id: 'provider-1',
+          name: 'mitzo-conn-12345678',
+          workspace: 'default',
+          type: 'jira-readonly',
+          credentialKeys: [...credentialKeys],
+        },
+      }),
+    ).toThrow('credential binding changed');
+  });
   it('parses only the pinned attachment table and fails closed on unknown output', () => {
     expect(parseProviderAttachments('No providers attached to sandbox probe.', 'probe')).toEqual(
       [],

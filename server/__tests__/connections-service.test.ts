@@ -128,6 +128,54 @@ describe('ConnectionsService', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it.each([
+    ['rotate', {}],
+    ['rotate', { token: 'ok', unexpected: 'SENTINEL_EXTRA' }],
+    ['retry', {}],
+    ['retry', { token: 'ok', unexpected: 'SENTINEL_EXTRA' }],
+  ] as const)(
+    '%s rejects incomplete credential maps before any gateway or candidate action',
+    async (method, credentials) => {
+      const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+      const store = new ConnectionStore(join(dir, 'db'));
+      const created = store.create({
+        ownerId: 'operator',
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        label: 'Jira',
+        endpoint: 'https://redhat.atlassian.net',
+        gatewayProviderName: 'mitzo-conn-12345678',
+        submittedEmail: 'person@example.test',
+        desiredAccountIds: [],
+      });
+      const active = store.transition(
+        created.id,
+        created.revision,
+        { status: 'active', gatewayProviderId: 'provider-1', identity: 'account-1', verifiedAt: 1 },
+        { operation: 'provision', outcome: 'success', actor: 'operator' },
+      );
+      const gateway = {
+        verifyCompatibility: vi.fn(),
+        provision: vi.fn(),
+        rotate: vi.fn(),
+        get: vi.fn(),
+      };
+      const service = new ConnectionsService(store, gateway as never);
+      const operation =
+        method === 'rotate'
+          ? service.rotate(active.id, active.revision, credentials, AbortSignal.timeout(500))
+          : service.retry(active.id, active.revision, credentials, AbortSignal.timeout(500));
+      await expect(operation).rejects.toThrow('Connection credentials are invalid');
+      expect(gateway.verifyCompatibility).not.toHaveBeenCalled();
+      expect(gateway.get).not.toHaveBeenCalled();
+      expect(gateway.provision).not.toHaveBeenCalled();
+      expect(gateway.rotate).not.toHaveBeenCalled();
+      expect(store.candidates()).toEqual([]);
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    },
+  );
+
   it('does not create a row for a catalog template whose gateway adapter is not available', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));

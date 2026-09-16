@@ -160,6 +160,12 @@ export interface GatewayCompatibilityInput {
 export interface ConnectionGateway {
   /** A registered template may be visible before its gateway adapter ships. */
   supportsTemplate?(templateId: string, templateVersion: number): boolean;
+  /** Adapter-owned binding checks include credential injection invariants. */
+  validateBinding?(input: {
+    templateId: string;
+    templateVersion: number;
+    provider: GatewayProvider;
+  }): void;
   verifyCompatibility(input: GatewayCompatibilityInput, signal: AbortSignal): Promise<void>;
   provision(input: GatewayProviderOperation, signal: AbortSignal): Promise<GatewayProvider>;
   rotate(input: GatewayProviderOperation, signal: AbortSignal): Promise<void>;
@@ -270,6 +276,21 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   ) {}
   supportsTemplate(templateId: string, templateVersion: number) {
     return templateId === JIRA_TEMPLATE_ID && templateVersion === 1;
+  }
+  validateBinding(input: {
+    templateId: string;
+    templateVersion: number;
+    provider: GatewayProvider;
+  }) {
+    const { provider } = input;
+    if (
+      input.templateId !== JIRA_TEMPLATE_ID ||
+      input.templateVersion !== 1 ||
+      provider.type !== JIRA_TEMPLATE_ID ||
+      provider.credentialKeys.length !== 1 ||
+      provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+    )
+      throw new Error('Managed provider credential binding changed');
   }
   private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     try {

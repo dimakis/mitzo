@@ -370,7 +370,6 @@ export class ConnectionStore {
       | 'templateVersion'
       | 'label'
       | 'endpoint'
-      | 'publicConfig'
       | 'gatewayProviderName'
       | 'desiredAccountIds'
     > &

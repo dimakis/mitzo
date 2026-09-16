@@ -122,6 +122,27 @@ export class ConnectionsService {
       (c.gatewayProviderId && p.id !== c.gatewayProviderId)
     )
       throw new Error('Managed provider binding changed');
+    this.gateway.validateBinding?.({
+      templateId: c.templateId,
+      templateVersion: c.templateVersion,
+      provider: p,
+    });
+  }
+  private validateCredentials(
+    templateId: string,
+    templateVersion: number,
+    credentials: Credentials | string,
+  ) {
+    const template = connectionTemplateRegistry.getProviderTemplate(templateId, templateVersion);
+    if (!template) throw new Error('Connection credentials are invalid');
+    const supplied = legacyCredentials(credentials);
+    const allowedCredentialKeys = new Set(template.credentialFields.map((field) => field.key));
+    if (
+      Object.keys(supplied).some((key) => !allowedCredentialKeys.has(key)) ||
+      template.credentialFields.some((field) => field.required && !supplied[field.key])
+    )
+      throw new Error('Connection credentials are invalid');
+    return supplied;
   }
   private policyFor(c: Connection) {
     return connectionTemplateRegistry.compileProviderPolicy({
@@ -255,13 +276,7 @@ export class ConnectionsService {
       !this.gateway.supportsTemplate(input.templateId, input.templateVersion)
     )
       throw new Error('Provider template is not available');
-    const supplied = legacyCredentials(credentials);
-    const allowedCredentialKeys = new Set(template.credentialFields.map((field) => field.key));
-    if (
-      Object.keys(supplied).some((key) => !allowedCredentialKeys.has(key)) ||
-      template.credentialFields.some((field) => field.required && !supplied[field.key])
-    )
-      throw new Error('Connection credentials are invalid');
+    const supplied = this.validateCredentials(input.templateId, input.templateVersion, credentials);
     const c = this.store.create({
       ownerId: input.ownerId,
       templateId: input.templateId,
@@ -348,7 +363,6 @@ export class ConnectionsService {
     policy?: ProviderPolicy,
   ) {
     return this.serial(async () => {
-      const supplied = legacyCredentials(credentials);
       let c = this.current(connection.id, connection.revision);
       if (
         !['provisioning', 'needs_attention'].includes(c.status) ||
@@ -357,6 +371,7 @@ export class ConnectionsService {
         this.hasQuarantine(c.id)
       )
         throw new Error('Connection cannot be provisioned');
+      const supplied = this.validateCredentials(c.templateId, c.templateVersion, credentials);
       try {
         const resolvedPolicy = policy ?? this.policyFor(c);
         await this.cleanupConnection(c);
@@ -496,9 +511,9 @@ export class ConnectionsService {
         this.hasQuarantine(id)
       )
         throw new Error('Connection cannot be rotated');
+      const supplied = this.validateCredentials(c.templateId, c.templateVersion, credentials);
       await this.cleanupConnection(c);
       const policy = this.policyFor(c);
-      const supplied = legacyCredentials(credentials);
       await this.gateway.verifyCompatibility(
         { templateId: c.templateId, templateVersion: c.templateVersion, policy },
         signal,

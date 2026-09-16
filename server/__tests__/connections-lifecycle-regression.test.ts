@@ -15,6 +15,7 @@ function setup() {
     label: 'Jira',
     endpoint: 'https://redhat.atlassian.net',
     gatewayProviderName: 'mitzo-conn-12345678',
+    submittedEmail: 'person@example.test',
     desiredAccountIds: ['work'],
   });
   const gateway = {

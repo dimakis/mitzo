@@ -188,7 +188,11 @@ describe('durable connection recovery', () => {
       x.service.retry(failed.id, failed.revision, 'NEXT', AbortSignal.timeout(1000)),
     ).resolves.toMatchObject({ status: 'active', identity: 'same-account' });
     expect(x.gateway.rotate).toHaveBeenCalledWith(
-      { name: active.gatewayProviderName, token: 'NEXT' },
+      expect.objectContaining({
+        name: active.gatewayProviderName,
+        templateId: 'jira-readonly',
+        credentials: { token: 'NEXT' },
+      }),
       expect.anything(),
     );
   });
