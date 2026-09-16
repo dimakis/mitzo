@@ -319,7 +319,7 @@ export function ChatInput({
           onRemoveImage={removeImage}
         />
       )}
-      {useExternal && images.length > 0 && (
+      {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (
             <div key={index} className="chat-input-preview">

@@ -21,9 +21,17 @@ afterEach(() => {
 });
 
 describe('PermissionBanner', () => {
+  it('renders at the document root so mobile navigation cannot cover its actions', () => {
+    render(<PermissionBanner {...defaultProps} />);
+
+    expect(screen.getByLabelText('Approval required').parentElement).toBe(document.body);
+  });
+
   it('renders tier badge with correct class for elevated tier', () => {
-    const { container } = render(<PermissionBanner {...defaultProps} tier="elevated" />);
-    expect(container.querySelector('.perm-banner--elevated')).toBeTruthy();
+    render(<PermissionBanner {...defaultProps} tier="elevated" />);
+    expect(
+      screen.getByLabelText('Approval required').classList.contains('perm-banner--elevated'),
+    ).toBe(true);
     expect(screen.getByText('Shell Access')).toBeTruthy();
   });
 
@@ -68,10 +76,10 @@ describe('PermissionBanner', () => {
   });
 
   it('renders all action buttons with correct CSS classes', () => {
-    const { container } = render(<PermissionBanner {...defaultProps} />);
-    expect(container.querySelector('.perm-banner-btn--once')).toBeTruthy();
-    expect(container.querySelector('.perm-banner-btn--always')).toBeTruthy();
-    expect(container.querySelector('.perm-banner-btn--deny')).toBeTruthy();
+    render(<PermissionBanner {...defaultProps} />);
+    expect(document.querySelector('.perm-banner-btn--once')).toBeTruthy();
+    expect(document.querySelector('.perm-banner-btn--always')).toBeTruthy();
+    expect(document.querySelector('.perm-banner-btn--deny')).toBeTruthy();
   });
 
   it('shows a retryable permission response error without dismissing the prompt', () => {
@@ -86,8 +94,8 @@ describe('PermissionBanner', () => {
       return 0;
     });
     try {
-      const { container } = render(<PermissionBanner {...defaultProps} />);
-      expect(container.querySelector('.perm-banner--visible')).toBeTruthy();
+      render(<PermissionBanner {...defaultProps} />);
+      expect(document.querySelector('.perm-banner--visible')).toBeTruthy();
     } finally {
       rafSpy.mockRestore();
     }
@@ -212,7 +220,7 @@ describe('PermissionBanner', () => {
 });
 
 it('hides free text for restricted choices and masks secret input', () => {
-  const { container } = render(
+  render(
     <PermissionBanner
       {...defaultProps}
       questions={[
@@ -235,6 +243,6 @@ it('hides free text for restricted choices and masks secret input', () => {
       ]}
     />,
   );
-  expect(container.querySelectorAll('textarea')).toHaveLength(0);
-  expect(container.querySelector('input[type="password"]')).toBeTruthy();
+  expect(document.querySelectorAll('.perm-banner textarea')).toHaveLength(0);
+  expect(document.querySelector('.perm-banner input[type="password"]')).toBeTruthy();
 });

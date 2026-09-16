@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import type { QuestionAnswers, UserQuestion } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
@@ -90,7 +91,7 @@ export function PermissionBanner({
       : tier === 'unknown'
         ? ' perm-banner--unknown'
         : '';
-  return (
+  return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}
       aria-label={questions ? 'Agent questions' : 'Approval required'}
@@ -226,6 +227,7 @@ export function PermissionBanner({
           {questions ? 'Cancel' : 'Deny'}
         </button>
       </div>
-    </section>
+    </section>,
+    document.body,
   );
 }
