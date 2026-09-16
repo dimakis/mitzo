@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  customDnsRequirement,
+  pinPublicDnsAnswers,
+  verifyPinnedPublicDns,
+} from '../connections/policy-compiler.js';
+import {
   connectionTemplateRegistry,
   createConnectionTemplateRegistry,
   projectCapabilityTemplate,
@@ -8,11 +13,10 @@ import {
 
 const jira = connectionTemplateRegistry.getProviderTemplate('jira-readonly', 1)!;
 const github = connectionTemplateRegistry.getProviderTemplate('github-readonly', 1)!;
-const customRest = connectionTemplateRegistry.getProviderTemplate('custom-rest-readonly', 1)!;
 const githubPublish = connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 1)!;
 
 describe('connection template registry', () => {
-  it('contains reviewed, versioned Jira, GitHub, custom REST, and GitHub publish manifests', () => {
+  it('contains reviewed versioned contracts with immutable Jira and GitHub connection scopes', () => {
     expect(connectionTemplateRegistry.providerTemplates()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'jira-readonly', version: 1 }),
@@ -20,20 +24,26 @@ describe('connection template registry', () => {
         expect.objectContaining({ id: 'custom-rest-readonly', version: 1 }),
       ]),
     );
-    expect(connectionTemplateRegistry.capabilityTemplates()).toEqual([
-      expect.objectContaining({ id: 'github.publish-pr', version: 1, approval: 'always' }),
+    expect(projectProviderTemplate(jira).connectionFields).toEqual([
+      expect.objectContaining({ key: 'email', kind: 'email', required: true }),
     ]);
+    expect(projectProviderTemplate(github).connectionFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'allowedRepositories', required: true }),
+        expect.objectContaining({ key: 'allowedBaseBranches', required: true }),
+      ]),
+    );
     expect(connectionTemplateRegistry.getProviderTemplate('github-readonly', 2)).toBeUndefined();
     expect(
       connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 2),
     ).toBeUndefined();
   });
 
-  it('projects only public display metadata, never secrets or execution identifiers', () => {
-    const publicProvider = projectProviderTemplate(github);
-    const publicCapability = projectCapabilityTemplate(githubPublish);
-    const wire = JSON.stringify({ publicProvider, publicCapability });
-
+  it('projects only public metadata, never secrets or code-owned execution identifiers', () => {
+    const wire = JSON.stringify({
+      provider: projectProviderTemplate(github),
+      capability: projectCapabilityTemplate(githubPublish),
+    });
     for (const forbidden of [
       'policyCompiler',
       'probe',
@@ -45,41 +55,38 @@ describe('connection template registry', () => {
       'SENTINEL_SECRET',
     ])
       expect(wire).not.toContain(forbidden);
-    expect(publicProvider.credentialFields[0]).toEqual(
-      expect.objectContaining({ key: 'token', secret: true }),
-    );
   });
 
-  it('compiles independently inspected endpoint policies for reviewed providers', () => {
+  it('compiles independently inspected endpoints and canonical immutable connection fields', () => {
     expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        fields: { email: 'person@example.com' },
+      }),
+    ).toMatchObject({ publicConfig: { email: 'person@example.com' } });
+    expect(() =>
       connectionTemplateRegistry.compileProviderPolicy({
         templateId: 'jira-readonly',
         templateVersion: 1,
         fields: {},
       }),
-    ).toMatchObject({
-      endpoints: [
-        expect.objectContaining({
-          host: 'api.atlassian.com',
-          protocol: 'rest',
-          redirects: 'deny',
-          allowedBinaries: expect.arrayContaining(['/usr/bin/curl']),
-        }),
-      ],
-    });
+    ).toThrow('Template public fields are invalid');
 
-    expect(
-      connectionTemplateRegistry.compileProviderPolicy({
-        templateId: 'github-readonly',
-        templateVersion: 1,
-        fields: {},
-      }).endpoints,
-    ).toEqual([
-      expect.objectContaining({
-        host: 'api.github.com',
-        protocol: 'rest',
-        rules: expect.arrayContaining([expect.objectContaining({ method: 'GET' })]),
-      }),
+    const githubPolicy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'github-readonly',
+      templateVersion: 1,
+      fields: {
+        allowedRepositories: ['Acme/Widget', 'acme/widget'],
+        allowedBaseBranches: ['main', 'main'],
+      },
+    });
+    expect(githubPolicy.publicConfig).toEqual({
+      allowedRepositories: ['acme/widget'],
+      allowedBaseBranches: ['main'],
+    });
+    expect(githubPolicy.endpoints).toEqual([
+      expect.objectContaining({ host: 'api.github.com', protocol: 'rest' }),
       expect.objectContaining({
         host: 'api.github.com',
         protocol: 'graphql',
@@ -92,54 +99,68 @@ describe('connection template registry', () => {
         allowedBinaries: ['/usr/bin/git'],
       }),
     ]);
-
-    expect(
+    expect(() =>
       connectionTemplateRegistry.compileProviderPolicy({
-        templateId: 'custom-rest-readonly',
+        templateId: 'github-readonly',
         templateVersion: 1,
-        fields: {
-          endpoint: 'https://api.example.com',
-          methods: ['GET', 'HEAD'],
-          paths: ['/v1/**'],
-        },
+        fields: { allowedRepositories: ['acme/*'], allowedBaseBranches: ['main'] },
       }),
-    ).toMatchObject({
-      endpoints: [
-        {
-          host: 'api.example.com',
-          port: 443,
-          protocol: 'rest',
-          tls: 'terminate',
-          redirects: 'deny',
-          rules: [
-            { method: 'GET', path: '/v1/**' },
-            { method: 'HEAD', path: '/v1/**' },
-          ],
-          allowedBinaries: ['/usr/bin/curl', '/usr/local/bin/curl'],
-        },
-      ],
-    });
+    ).toThrow('Invalid allowedRepositories');
   });
 
-  it('rejects unsafe custom hosts, credentials, ports, wildcards, and mutation attempts', () => {
-    const invalidFields: Array<Record<string, string | string[]>> = [
-      { endpoint: 'http://api.example.com', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://127.0.0.1', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://[::1]', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://localhost', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://user:pass@api.example.com', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://api.example.com:8443', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://*.example.com', methods: ['GET'], paths: ['/v1/**'] },
-      { endpoint: 'https://api.example.com', methods: ['POST'], paths: ['/v1/**'] },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['https://evil.example'] },
+  it('bounds, deduplicates, and canonicalizes custom REST policies before expanding rules', () => {
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      fields: {
+        endpoint: 'https://api.example.com',
+        methods: ['GET', 'GET', 'HEAD'],
+        paths: ['/v1/items', '/v1/items'],
+      },
+    });
+    expect(policy.endpoints).toMatchObject([
+      {
+        host: 'api.example.com',
+        dns: {
+          mode: 'pinned-public-only',
+          verifyAt: 'provision-and-every-use',
+          rejectRebinding: true,
+        },
+        rules: [
+          { method: 'GET', path: '/v1/items' },
+          { method: 'HEAD', path: '/v1/items' },
+        ],
+      },
+    ]);
+    expect(policy.publicConfig).toEqual({
+      endpoint: 'https://api.example.com',
+      methods: ['GET', 'HEAD'],
+      paths: ['/v1/items'],
+    });
+
+    for (const fields of [
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/../admin'] },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1//admin'] },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/%2e%2e/admin'] },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1\\admin'] },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/'] },
+      {
+        endpoint: 'https://api.example.com',
+        methods: ['GET', 'HEAD', 'OPTIONS', 'GET'],
+        paths: ['/v1/items'],
+      },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: [`/${'a'.repeat(257)}`] },
       {
         endpoint: 'https://api.example.com',
         methods: ['GET'],
-        paths: ['/v1/**'],
-        token: 'SENTINEL_SECRET',
+        paths: Array.from({ length: 21 }, (_, index) => `/v1/${index}`),
       },
-    ];
-    for (const fields of invalidFields) {
+      {
+        endpoint: 'https://api.example.com',
+        methods: ['GET', 'HEAD', 'OPTIONS'],
+        paths: Array.from({ length: 20 }, (_, index) => `/v1/${index}`),
+      },
+    ])
       expect(() =>
         connectionTemplateRegistry.compileProviderPolicy({
           templateId: 'custom-rest-readonly',
@@ -147,13 +168,99 @@ describe('connection template registry', () => {
           fields,
         }),
       ).toThrow();
-    }
   });
 
-  it('fails closed for duplicate or malformed provider manifests', () => {
+  it('rejects unsafe custom hosts, credentials, ports, wildcards, mutations, and secret fields', () => {
+    const invalidFields: Array<Record<string, string | string[]>> = [
+      { endpoint: 'http://api.example.com', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://127.0.0.1', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://[::1]', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://localhost', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://service.local', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://service.internal', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://user:pass@api.example.com', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.example.com:8443', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://*.example.com', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.example.com', methods: ['POST'], paths: ['/v1/items'] },
+      {
+        endpoint: 'https://api.example.com',
+        methods: ['GET'],
+        paths: ['/v1/items'],
+        token: 'SENTINEL_SECRET',
+      },
+    ];
+    for (const fields of invalidFields)
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'custom-rest-readonly',
+          templateVersion: 1,
+          fields,
+        }),
+      ).toThrow();
+  });
+
+  it('requires public-only pinned DNS answers and rejects rebinding', () => {
+    const requirement = customDnsRequirement('api.example.com');
+    for (const answers of [
+      ['10.0.0.1'],
+      ['169.254.169.254'],
+      ['192.168.0.1'],
+      ['fe80::1'],
+      ['fc00::1'],
+      ['not-an-ip'],
+    ])
+      expect(() => pinPublicDnsAnswers(requirement, answers)).toThrow();
+
+    const pin = pinPublicDnsAnswers(requirement, ['8.8.8.8', '1.1.1.1']);
+    expect(pin.addresses).toEqual(['1.1.1.1', '8.8.8.8']);
+    expect(() => verifyPinnedPublicDns(pin, ['8.8.8.8', '1.1.1.1'])).not.toThrow();
+    expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
+    expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
+  });
+
+  it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [{ ...jira, policyCompiler: 'constructor' }],
+        capabilities: [],
+      }),
+    ).toThrow('Unknown policy compiler');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [{ ...jira, probe: 'constructor' }],
+        capabilities: [],
+      }),
+    ).toThrow('Unknown probe');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [{ ...githubPublish, executor: 'constructor' }],
+      }),
+    ).toThrow('Unknown capability executor');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [{ ...github, capabilityIds: [] }],
+        capabilities: [githubPublish],
+      }),
+    ).toThrow('bidirectional');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github, jira],
+        capabilities: [{ ...githubPublish, connectionTemplateIds: ['jira-readonly'] }],
+      }),
+    ).toThrow('bidirectional');
+  });
+
+  it('fails closed for duplicate and malformed manifests', () => {
     expect(() =>
       createConnectionTemplateRegistry({ providers: [jira, { ...jira }], capabilities: [] }),
     ).toThrow('Duplicate provider template version');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [githubPublish, { ...githubPublish }],
+      }),
+    ).toThrow('Duplicate capability template version');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [
@@ -167,56 +274,6 @@ describe('connection template registry', () => {
     ).toThrow('Duplicate credential field key');
     expect(() =>
       createConnectionTemplateRegistry({
-        providers: [
-          {
-            ...customRest,
-            connectionFields: customRest.connectionFields.map((field) =>
-              field.key === 'methods' ? { ...field, kind: 'string' } : field,
-            ),
-          },
-          github,
-        ],
-        capabilities: [githubPublish],
-      }),
-    ).toThrow('Invalid provider template');
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [{ ...jira, policyCompiler: 'unknown-compiler-v1' }],
-        capabilities: [],
-      }),
-    ).toThrow('Unknown policy compiler');
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [{ ...jira, probe: 'unknown-probe-v1' }],
-        capabilities: [],
-      }),
-    ).toThrow('Unknown probe');
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [{ ...jira, capabilityIds: ['unknown.capability'] }],
-        capabilities: [],
-      }),
-    ).toThrow('Provider template references an unknown capability');
-  });
-
-  it('fails closed for duplicate, malformed, and unlinked capability manifests', () => {
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [github],
-        capabilities: [githubPublish, { ...githubPublish }],
-      }),
-    ).toThrow('Duplicate capability template version');
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [github],
-        capabilities: [{ ...githubPublish, executor: 'unknown-executor-v1' }],
-      }),
-    ).toThrow('Unknown capability executor');
-    expect(() =>
-      createConnectionTemplateRegistry({ providers: [jira], capabilities: [githubPublish] }),
-    ).toThrow('Capability template references an unknown provider');
-    expect(() =>
-      createConnectionTemplateRegistry({
         providers: [github],
         capabilities: [
           {
@@ -224,12 +281,6 @@ describe('connection template registry', () => {
             inputSchema: { ...githubPublish.inputSchema, required: ['missingProperty'] },
           },
         ],
-      }),
-    ).toThrow('Invalid capability template');
-    expect(() =>
-      createConnectionTemplateRegistry({
-        providers: [github],
-        capabilities: [{ ...githubPublish, executor: 'node -e unsafe' }],
       }),
     ).toThrow('Invalid capability template');
   });

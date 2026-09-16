@@ -33,7 +33,7 @@ const ConnectionFieldSchema = z
     key: z.string().regex(/^[a-z][A-Za-z0-9]*$/),
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
-    kind: z.enum(['string', 'url', 'string-list', 'enum-list']),
+    kind: z.enum(['string', 'email', 'url', 'string-list', 'enum-list']),
     required: z.boolean(),
     choices: z.array(z.string().min(1).max(120)).min(1).max(20).optional(),
   })
@@ -93,19 +93,24 @@ const CapabilityTemplateSchema = z
   })
   .strict();
 
-const compilers: Readonly<Record<string, PolicyCompiler>> = Object.freeze({
+function nullPrototypeHandlers<T>(
+  entries: Readonly<Record<string, T>>,
+): Readonly<Record<string, T>> {
+  return Object.freeze(Object.assign(Object.create(null) as Record<string, T>, entries));
+}
+const compilers: Readonly<Record<string, PolicyCompiler>> = nullPrototypeHandlers({
   'jira-readonly-v1': compileJiraReadonly,
   'github-readonly-v1': compileGithubReadonly,
   'custom-rest-readonly-v1': compileCustomRestReadonly,
 });
 const identityProbe: Probe = () => ({ kind: 'identity-and-scope' });
-const probes: Readonly<Record<string, Probe>> = Object.freeze({
+const probes: Readonly<Record<string, Probe>> = nullPrototypeHandlers({
   'jira-readonly-v1': identityProbe,
   'github-readonly-v1': identityProbe,
   'custom-rest-readonly-v1': identityProbe,
 });
 const approvalRequiredExecutor: CapabilityExecutor = () => ({ kind: 'approval-required' });
-const executors: Readonly<Record<string, CapabilityExecutor>> = Object.freeze({
+const executors: Readonly<Record<string, CapabilityExecutor>> = nullPrototypeHandlers({
   'github-publish-pr-v1': approvalRequiredExecutor,
 });
 
@@ -169,7 +174,7 @@ function requireSymbolicHandler(
   kind: string,
 ) {
   if (!symbolicIdentifier.test(name)) throw new Error(`${kind} must be a safe symbolic identifier`);
-  if (!(name in handlers)) throw new Error(`Unknown ${kind}`);
+  if (!Object.hasOwn(handlers, name)) throw new Error(`Unknown ${kind}`);
 }
 
 export function projectProviderTemplate(template: ProviderTemplate): PublicProviderTemplate {
@@ -229,6 +234,26 @@ export function createConnectionTemplateRegistry(input: {
     if (capability.connectionTemplateIds.some((id) => !providerIds.has(id)))
       throw new Error('Capability template references an unknown provider');
   }
+  for (const provider of providers) {
+    for (const capabilityId of provider.capabilityIds) {
+      const capability = capabilities.filter((candidate) => candidate.id === capabilityId);
+      if (
+        capability.length === 0 ||
+        capability.some((candidate) => !candidate.connectionTemplateIds.includes(provider.id))
+      )
+        throw new Error('Provider and capability relationship must be bidirectional');
+    }
+  }
+  for (const capability of capabilities) {
+    for (const providerId of capability.connectionTemplateIds) {
+      const provider = providers.filter((candidate) => candidate.id === providerId);
+      if (
+        provider.length === 0 ||
+        provider.some((candidate) => !candidate.capabilityIds.includes(capability.id))
+      )
+        throw new Error('Provider and capability relationship must be bidirectional');
+    }
+  }
 
   return Object.freeze({
     providerTemplates: (): readonly PublicProviderTemplate[] =>
@@ -280,7 +305,15 @@ const providers: readonly ProviderTemplate[] = [
         required: true,
       },
     ],
-    connectionFields: [],
+    connectionFields: [
+      {
+        key: 'email',
+        label: 'Jira email',
+        description: 'The account email used with the one-shot Jira API token.',
+        kind: 'email',
+        required: true,
+      },
+    ],
     policyCompiler: 'jira-readonly-v1',
     probe: 'jira-readonly-v1',
     capabilityIds: [],
@@ -302,7 +335,23 @@ const providers: readonly ProviderTemplate[] = [
         required: true,
       },
     ],
-    connectionFields: [],
+    connectionFields: [
+      {
+        key: 'allowedRepositories',
+        label: 'Allowed repositories',
+        description:
+          'Exact owner/repository pairs eligible for the publish pull request capability.',
+        kind: 'string-list',
+        required: true,
+      },
+      {
+        key: 'allowedBaseBranches',
+        label: 'Allowed base branches',
+        description: 'Exact base branches eligible for the publish pull request capability.',
+        kind: 'string-list',
+        required: true,
+      },
+    ],
     policyCompiler: 'github-readonly-v1',
     probe: 'github-readonly-v1',
     capabilityIds: ['github.publish-pr'],

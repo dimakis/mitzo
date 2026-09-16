@@ -105,7 +105,11 @@ interface CapabilityTemplate {
 }
 ```
 
-The template registry maps symbolic compiler, probe, and executor names to code-owned implementations. Configuration cannot name filesystem paths or shell commands.
+The template registry maps symbolic compiler, probe, and executor names to code-owned implementations through null-prototype, own-property lookup. Configuration cannot name filesystem paths or shell commands. Provider and capability declarations must reference each other bidirectionally.
+
+`jira-readonly@1` records its validated Jira email as an immutable public field. `github-readonly@1` records non-empty, canonical allowlists of exact `owner/repository` pairs and base branches; `github.publish-pr@1` must use those recorded allowlists when it is implemented. These fields constrain later work but do not enable writes in a sandbox.
+
+Every custom REST policy carries a `pinned-public-only` DNS requirement. The gateway adapter must resolve and pin only public IP answers before provisioning, repeat resolution before every use, and fail closed if any answer is private, link-local, local/internal, invalid, or differs from the pin. This contract is mandatory even though the adapter wiring lands in Phase 1/5.
 
 ### CapabilityGrant and CapabilityOperation
 
@@ -133,7 +137,7 @@ Initial reviewed templates:
 
 - `jira-readonly@1`: migrate existing behavior without semantic changes.
 - `github-readonly@1`: wrap the built-in GitHub read profile and repository scope metadata.
-- `custom-rest-readonly@1`: Operator-only HTTPS REST template with bounded methods, paths, credentials, and binaries.
+- `custom-rest-readonly@1`: Operator-only HTTPS REST template with bounded, deduplicated methods and canonical paths, a capped rule expansion, credentials, binaries, and a public-only pinned-DNS requirement.
 
 Initial capability:
 

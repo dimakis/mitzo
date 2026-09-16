@@ -7,7 +7,7 @@
 export type ProviderCategory = 'source-control' | 'productivity' | 'data' | 'custom-api';
 export type ProviderRisk = 'read-only' | 'bounded-write' | 'operator-defined';
 export type CredentialStyle = 'bearer-token' | 'api-token' | 'basic' | 'oauth2';
-export type ConnectionFieldKind = 'string' | 'url' | 'string-list' | 'enum-list';
+export type ConnectionFieldKind = 'string' | 'email' | 'url' | 'string-list' | 'enum-list';
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
@@ -98,6 +98,8 @@ export interface ProviderPolicy {
     protocol: 'rest' | 'graphql' | 'git';
     tls: 'terminate';
     redirects: 'deny';
+    /** Required for custom endpoints before provisioning and on every use. */
+    dns?: PublicOnlyPinnedDnsRequirement;
     rules: readonly {
       method: 'GET' | 'HEAD' | 'OPTIONS' | 'GRAPHQL_QUERY' | 'GIT_UPLOAD_PACK';
       path: string;
@@ -105,6 +107,20 @@ export interface ProviderPolicy {
     allowedBinaries: readonly string[];
   }[];
   credentialFieldKeys: readonly string[];
+  /** Canonical, validated, non-secret connection fields retained with this template version. */
+  publicConfig: Readonly<Record<string, string | readonly string[]>>;
+}
+
+/** The Phase 1 gateway adapter must pin public answers at provision time and compare them on every use. */
+export interface PublicOnlyPinnedDnsRequirement {
+  mode: 'pinned-public-only';
+  hostname: string;
+  verifyAt: 'provision-and-every-use';
+  rejectRebinding: true;
+}
+
+export interface PinnedPublicDnsAnswers extends PublicOnlyPinnedDnsRequirement {
+  addresses: readonly string[];
 }
 
 export interface CompileProviderPolicyInput {
