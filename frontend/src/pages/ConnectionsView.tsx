@@ -81,15 +81,41 @@ const scopeFieldValid = (field: ConnectionTemplate['connectionFields'][number], 
   if (field.kind === 'url') {
     try {
       const url = new URL(trimmed);
-      return url.protocol === 'https:' || url.protocol === 'http:';
+      return url.protocol === 'https:';
     } catch {
       return false;
     }
   }
   return true;
 };
+const customScopeValid = (values: Record<string, string>) => {
+  const methods = (values.methods ?? '').split('\n').filter(Boolean);
+  const paths = (values.paths ?? '').split('\n').filter(Boolean);
+  const protocol = values.protocol;
+  const credentialStyle = values.credentialStyle;
+  const credentialLocation = values.credentialLocation;
+  const credentialName = values.credentialName;
+  const credentialsValid =
+    (credentialStyle === 'bearer-token' &&
+      credentialLocation === 'header' &&
+      credentialName === 'authorization') ||
+    (credentialStyle === 'api-token' &&
+      ((credentialLocation === 'header' && credentialName === 'x-api-key') ||
+        (credentialLocation === 'query' && ['api_key', 'access_token'].includes(credentialName))));
+  return (
+    credentialsValid &&
+    (protocol === 'rest'
+      ? methods.length > 0 && methods.every((method) => ['GET', 'HEAD', 'OPTIONS'].includes(method))
+      : protocol === 'graphql' &&
+        methods.length === 1 &&
+        methods[0] === 'GRAPHQL_QUERY' &&
+        paths.length === 1 &&
+        paths[0] === '/graphql')
+  );
+};
 const scopeValid = (template: ConnectionTemplate, values: Record<string, string>) =>
-  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? ''));
+  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? '')) &&
+  (template.id !== 'custom-rest-readonly' || customScopeValid(values));
 const scopeValues = (template: ConnectionTemplate, values: Record<string, string>) =>
   Object.fromEntries(
     template.connectionFields
@@ -685,6 +711,27 @@ function Scope({
   values: Record<string, string>;
   onValues: (next: Record<string, string>) => void;
 }) {
+  const updateCustomChoice = (key: string, choice: string) => {
+    const next = { ...values, [key]: choice };
+    if (template.id !== 'custom-rest-readonly') return onValues(next);
+    if (key === 'protocol') {
+      if (choice === 'graphql')
+        Object.assign(next, { methods: 'GRAPHQL_QUERY', paths: '/graphql' });
+      else Object.assign(next, { methods: 'GET', paths: '' });
+    }
+    if (key === 'credentialStyle')
+      Object.assign(
+        next,
+        choice === 'bearer-token'
+          ? { credentialLocation: 'header', credentialName: 'authorization' }
+          : { credentialLocation: 'header', credentialName: 'x-api-key' },
+      );
+    if (key === 'credentialLocation' && next.credentialStyle === 'bearer-token')
+      Object.assign(next, { credentialLocation: 'header', credentialName: 'authorization' });
+    if (key === 'credentialLocation' && next.credentialStyle === 'api-token')
+      Object.assign(next, { credentialName: choice === 'header' ? 'x-api-key' : 'api_key' });
+    onValues(next);
+  };
   if (!template.connectionFields.length)
     return (
       <div>
@@ -722,7 +769,7 @@ function Scope({
                     }
                     onChange={() => {
                       if (singleChoiceCustomFields.has(field.key)) {
-                        onValues({ ...values, [field.key]: choice });
+                        updateCustomChoice(field.key, choice);
                         return;
                       }
                       const next = new Set((values[field.key] ?? '').split('\n').filter(Boolean));

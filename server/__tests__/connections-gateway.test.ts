@@ -219,6 +219,16 @@ describe('OpenShellConnectionGateway', () => {
     expect(runner.mock.calls.flatMap(([args]) => args)).toContain('export');
     expect(runner.mock.calls.flatMap(([args]) => args)).not.toContain('import');
   });
+  it("accepts only the compiler's exact paths and terminal wildcard form", () => {
+    const terminalWildcard = customPolicy();
+    terminalWildcard.endpoints[0]!.rules = [{ method: 'GET', path: '/v1/**' }];
+    expect(() => renderCustomRestProfile(terminalWildcard)).not.toThrow();
+    for (const path of ['/v1/*', '/v1/**/items', '/v1/items*']) {
+      const invalid = customPolicy();
+      invalid.endpoints[0]!.rules = [{ method: 'GET', path }];
+      expect(() => renderCustomRestProfile(invalid)).toThrow('Invalid custom REST policy');
+    }
+  });
   it('supports only the reviewed Jira adapter version', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn());
     expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);

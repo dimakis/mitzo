@@ -99,18 +99,19 @@ export class ConnectionsService {
     );
   }
   resolveForAccount(accountId: string, ownerId = 'operator') {
-    return (
-      this.catalog(ownerId).find(
-        (c) =>
-          c.status === 'active' &&
-          c.verifiedAt !== null &&
-          c.gatewayProviderId &&
-          c.desiredAccountIds.includes(accountId) &&
-          // On-demand custom providers must be explicitly granted to a chat;
-          // they are never selected by the automatic new-conversation path.
-          (c.templateId !== 'custom-rest-readonly' ||
-            c.publicConfig.attachmentMode === 'automatic'),
-      ) ?? null
+    return this.resolveAutomaticForAccount(accountId, ownerId)[0] ?? null;
+  }
+  /** All independently reviewed automatic providers assigned to this account. */
+  resolveAutomaticForAccount(accountId: string, ownerId = 'operator') {
+    return this.catalog(ownerId).filter(
+      (c) =>
+        c.status === 'active' &&
+        c.verifiedAt !== null &&
+        c.gatewayProviderId &&
+        c.desiredAccountIds.includes(accountId) &&
+        // On-demand custom providers must be explicitly granted to a chat;
+        // they are never selected by the automatic new-conversation path.
+        (c.templateId !== 'custom-rest-readonly' || c.publicConfig.attachmentMode === 'automatic'),
     );
   }
   /** Candidate custom providers for explicit per-conversation grants only. */
@@ -283,6 +284,15 @@ export class ConnectionsService {
     this.checkProvider(c, p);
     return p;
   }
+  /** Cleanup uses the durable controller binding, never live policy usability. */
+  private async boundProviderForCleanup(c: Connection, signal: AbortSignal) {
+    this.current(c.id);
+    const p = await this.gateway.get(c.gatewayProviderName, signal);
+    if (!p) return undefined;
+    if (p.name !== c.gatewayProviderName || (c.gatewayProviderId && p.id !== c.gatewayProviderId))
+      throw new Error('Managed provider binding changed');
+    return p;
+  }
   async withAccountRuntime<T>(
     accountId: string,
     work: (connection: Connection | null) => Promise<T>,
@@ -295,13 +305,25 @@ export class ConnectionsService {
       return work(c);
     });
   }
+  async withAccountRuntimes<T>(
+    accountId: string,
+    work: (connections: readonly Connection[]) => Promise<T>,
+    signal = AbortSignal.timeout(120_000),
+  ) {
+    return this.serial(async () => {
+      signal.throwIfAborted();
+      const connections = this.resolveAutomaticForAccount(accountId);
+      for (const connection of connections) await this.boundProvider(connection, signal);
+      return work(connections);
+    });
+  }
   /** Called inside withAccountRuntime before ensure. Existing sessions cannot gain new grants. */
   async verifyRuntimeSandbox(
     name: string,
-    connection: Connection | null,
+    connection: Connection | readonly Connection[] | null,
     accountId: string,
     signal: AbortSignal,
-    onDemandConnections: readonly Connection[] = [],
+    _onDemandConnections: readonly Connection[] = [],
     approvedOnDemandProviderNames: readonly string[] = [],
   ) {
     const sandbox = await this.gateway.sandbox(name, signal);
@@ -311,10 +333,15 @@ export class ConnectionsService {
     const managedOnDemandProviderNames = approvedOnDemandProviderNames.filter((provider) =>
       provider.startsWith('mitzo-conn-'),
     );
+    const automaticConnections = connection
+      ? Array.isArray(connection)
+        ? connection
+        : [connection]
+      : [];
     const expected = [
-      ...(connection?.gatewayProviderName.startsWith('mitzo-conn-')
-        ? [connection.gatewayProviderName]
-        : []),
+      ...automaticConnections
+        .filter((item) => item.gatewayProviderName.startsWith('mitzo-conn-'))
+        .map((item) => item.gatewayProviderName),
       ...managedOnDemandProviderNames,
     ];
     if (managed.length !== expected.length || managed.some((p) => !expected.includes(p)))
@@ -323,16 +350,17 @@ export class ConnectionsService {
     // remains active for this account. This also repeats the custom DNS pin
     // verification before every retained-sandbox use.
     for (const providerName of managedOnDemandProviderNames) {
-      const candidate = onDemandConnections.find(
-        (connection) => connection.gatewayProviderName === providerName,
-      );
+      const candidate = this.catalog().find((item) => item.gatewayProviderName === providerName);
       if (!candidate) throw new Error('Connection permissions changed. Start a new conversation.');
-      await this.authorizeOnDemandLocked(candidate.id, candidate.revision, accountId, signal);
+      try {
+        await this.authorizeOnDemandLocked(candidate.id, candidate.revision, accountId, signal);
+      } catch {
+        throw new Error('Connection permissions changed. Start a new conversation.');
+      }
     }
   }
   private async drain(c: Connection, signal: AbortSignal, removedAccounts?: string[]) {
-    const p = await this.boundProvider(c, signal, true);
-    if (!p) return;
+    await this.boundProviderForCleanup(c, signal);
     for (const name of await this.gateway.attachments(c.gatewayProviderName, signal)) {
       if (removedAccounts) {
         const info = await this.gateway.sandbox(name, signal);
@@ -764,7 +792,7 @@ export class ConnectionsService {
     try {
       await this.cleanupConnection(pending);
       await this.drain(pending, signal);
-      if (await this.boundProvider(pending, signal, true))
+      if (await this.boundProviderForCleanup(pending, signal))
         await this.gateway.delete(pending.gatewayProviderName, signal);
       this.store.finishAssignment(c.id);
       return this.change(

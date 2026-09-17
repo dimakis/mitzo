@@ -673,6 +673,12 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     publicConfig: {},
   } as unknown as import('../connections-store.js').Connection;
   const service = {
+    withAccountRuntimes: vi.fn(
+      async (
+        _account: string,
+        work: (connections: (typeof managedConnection)[]) => Promise<unknown>,
+      ) => work([managedConnection]),
+    ),
     withAccountRuntime: vi.fn(
       async (_account: string, work: (connection: typeof managedConnection) => Promise<unknown>) =>
         work(managedConnection),

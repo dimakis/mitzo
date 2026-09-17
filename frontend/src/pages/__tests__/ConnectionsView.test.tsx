@@ -157,6 +157,77 @@ const templates: ConnectionTemplateCatalog = {
           kind: 'url',
           required: true,
         },
+        {
+          key: 'port',
+          label: 'HTTPS port',
+          description: 'Reviewed ports.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['443', '8443'],
+        },
+        {
+          key: 'protocol',
+          label: 'Inspection protocol',
+          description: 'Reviewed protocols.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['rest', 'graphql'],
+        },
+        {
+          key: 'methods',
+          label: 'Read methods',
+          description: 'Reviewed methods.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['GET', 'HEAD', 'OPTIONS', 'GRAPHQL_QUERY'],
+        },
+        {
+          key: 'paths',
+          label: 'Allowed paths',
+          description: 'Paths.',
+          kind: 'string-list',
+          required: true,
+        },
+        {
+          key: 'credentialStyle',
+          label: 'Credential style',
+          description: 'Style.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['bearer-token', 'api-token'],
+        },
+        {
+          key: 'credentialLocation',
+          label: 'Credential location',
+          description: 'Location.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['header', 'query'],
+        },
+        {
+          key: 'credentialName',
+          label: 'Credential mapping',
+          description: 'Name.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['authorization', 'x-api-key', 'api_key', 'access_token'],
+        },
+        {
+          key: 'binaries',
+          label: 'Approved sandbox binaries',
+          description: 'Binaries.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['curl', 'jq', 'python3'],
+        },
+        {
+          key: 'attachmentMode',
+          label: 'Attachment mode',
+          description: 'Attachment.',
+          kind: 'enum-list',
+          required: true,
+          choices: ['automatic', 'on-demand'],
+        },
       ],
     },
   ],
@@ -388,8 +459,46 @@ describe('ConnectionsView', () => {
     act(() =>
       fireEvent.change(input('HTTPS endpoint'), { target: { value: 'https://api.example.com' } }),
     );
+    expect(button('Continue').disabled).toBe(true);
+    act(() => fireEvent.change(input('Allowed paths'), { target: { value: '/v1/items' } }));
     expect(button('Continue').disabled).toBe(false);
     expect(input('HTTPS endpoint').type).toBe('url');
+    act(() =>
+      fireEvent.change(input('HTTPS endpoint'), { target: { value: 'http://api.example.com' } }),
+    );
+    expect(button('Continue').disabled).toBe(true);
+  });
+  it('gates custom protocol combinations and normalizes dependent selections', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockResolvedValue({
+      ...templates,
+      templates: templates.templates.map((template) =>
+        template.id === 'custom-rest-readonly' ? { ...template, available: true } : template,
+      ),
+    });
+    await render();
+    await act(async () => button('Choose Custom REST API').click());
+    act(() => fireEvent.change(input('Access token'), { target: { value: 'secret' } }));
+    await continueWizard();
+    act(() =>
+      fireEvent.change(input('HTTPS endpoint'), { target: { value: 'https://api.openai.com' } }),
+    );
+    act(() => fireEvent.change(input('Allowed paths'), { target: { value: '/v1/items' } }));
+    expect(button('Continue').disabled).toBe(false);
+    const graphql = Array.from(container.querySelectorAll('label')).find(
+      (label) => label.textContent?.trim() === 'graphql',
+    )!;
+    await act(async () => (graphql.querySelector('input') as HTMLInputElement).click());
+    expect(input('Allowed paths').value).toBe('/graphql');
+    expect(button('Continue').disabled).toBe(false);
+    const query = Array.from(container.querySelectorAll('label')).find(
+      (label) => label.textContent?.trim() === 'GRAPHQL_QUERY',
+    )!;
+    await act(async () => (query.querySelector('input') as HTMLInputElement).click());
+    expect(button('Continue').disabled).toBe(true);
+    await act(async () => (query.querySelector('input') as HTMLInputElement).click());
+    expect(button('Continue').disabled).toBe(false);
+    act(() => fireEvent.change(input('Allowed paths'), { target: { value: '/v1/items' } }));
+    expect(button('Continue').disabled).toBe(true);
   });
   it('resets selected profiles when changing the template', async () => {
     await render();

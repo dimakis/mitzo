@@ -320,6 +320,20 @@ function assertPinnedDnsSupported(policy: ProviderPolicy) {
   }
 }
 
+const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
+function isCanonicalCustomPath(path: string) {
+  if (path === '/') return true;
+  const segments = path.slice(1).split('/');
+  return (
+    path.startsWith('/') &&
+    !path.endsWith('/') &&
+    segments.every(
+      (segment, index) =>
+        (segment === '**' && index === segments.length - 1) ||
+        (segment !== '**' && customPathLiteralSegment.test(segment)),
+    )
+  );
+}
 function customEndpoint(policy: ProviderPolicy) {
   if (
     policy.templateId !== CUSTOM_REST_TEMPLATE_ID ||
@@ -358,10 +372,7 @@ function customEndpoint(policy: ProviderPolicy) {
     endpoint.rules.length > 24 ||
     endpoint.rules.some(
       (rule) =>
-        !rule.path.startsWith('/') ||
-        rule.path.includes('*') ||
-        rule.path.includes('%') ||
-        rule.path.includes('..') ||
+        !isCanonicalCustomPath(rule.path) ||
         (endpoint.protocol === 'rest' && !['GET', 'HEAD', 'OPTIONS'].includes(rule.method)) ||
         (endpoint.protocol === 'graphql' &&
           (rule.method !== 'GRAPHQL_QUERY' || rule.path !== '/graphql')),

@@ -296,23 +296,27 @@ export async function openCodexChat(options: Options) {
   if (service && openShellRuntimeConfig(process.env))
     // On-demand connections are supplied only as grant candidates. They are
     // intentionally excluded from withAccountRuntime's automatic selection.
-    return service.withAccountRuntime(
+    return service.withAccountRuntimes(
       options.binding.accountId,
-      (connection) =>
+      (connections) =>
         openCodexChatBound(
           options,
-          connection,
+          connections,
           service.onDemandForAccount(options.binding.accountId),
         ),
       options.session.abortController.signal,
     );
-  return openCodexChatBound(options, null);
+  return openCodexChatBound(options);
 }
 async function openCodexChatBound(
   options: Options,
-  managedConnection: Connection | null,
+  managedConnections: readonly Connection[] = [],
   onDemandConnections: readonly Connection[] = [],
 ) {
+  const managedConnection =
+    managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
+    managedConnections[0] ??
+    null;
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -338,9 +342,10 @@ async function openCodexChatBound(
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
-        serviceProviders: managedConnection
-          ? [...configuredRuntime.serviceProviders, managedConnection.gatewayProviderName]
-          : configuredRuntime.serviceProviders,
+        serviceProviders: [
+          ...configuredRuntime.serviceProviders,
+          ...managedConnections.map((connection) => connection.gatewayProviderName),
+        ],
         grantableServiceProviders: [
           ...configuredRuntime.grantableServiceProviders,
           ...onDemandConnections.map((connection) => connection.gatewayProviderName),
@@ -352,7 +357,7 @@ async function openCodexChatBound(
           ? (name, signal, approvedGrantableProviders = []) =>
               connectionService.verifyRuntimeSandbox(
                 name,
-                managedConnection,
+                managedConnections,
                 options.binding.accountId,
                 signal,
                 onDemandConnections,
@@ -609,8 +614,9 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
-  const managedCapabilityConnection =
-    options.binding?.accountId && managedConnection ? managedConnection : null;
+  const managedCapabilityConnection = options.binding?.accountId
+    ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
+    : null;
   const capabilityTools = capabilityToolsForConversation(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
@@ -658,12 +664,19 @@ async function openCodexChatBound(
       ? {
           reconnectGuard: connectionService
             ? (work: () => Promise<void>) =>
-                connectionService.withAccountRuntime(
+                connectionService.withAccountRuntimes(
                   options.binding.accountId,
                   async (current) => {
                     if (
-                      current?.id !== managedConnection?.id ||
-                      current?.gatewayProviderId !== managedConnection?.gatewayProviderId
+                      current.length !== managedConnections.length ||
+                      current.some(
+                        (connection) =>
+                          !managedConnections.some(
+                            (original) =>
+                              original.id === connection.id &&
+                              original.gatewayProviderId === connection.gatewayProviderId,
+                          ),
+                      )
                     )
                       throw new Error('Connection permissions changed. Start a new conversation.');
                     await work();

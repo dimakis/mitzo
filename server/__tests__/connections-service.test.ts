@@ -42,6 +42,159 @@ function jiraAdapter() {
 }
 
 describe('ConnectionsService', () => {
+  it('drains custom attachments for revoke, quarantine, and assignment removal even after compatibility drift', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const create = (suffix: string) => {
+      const item = store.create({
+        ownerId: 'operator',
+        templateId: 'custom-rest-readonly',
+        templateVersion: 1,
+        label: `Custom ${suffix}`,
+        endpoint: 'https://api.openai.com',
+        publicConfig: {
+          endpoint: 'https://api.openai.com',
+          port: '443',
+          protocol: 'rest',
+          methods: ['GET'],
+          paths: ['/v1'],
+          credentialStyle: 'bearer-token',
+          credentialLocation: 'header',
+          credentialName: 'authorization',
+          binaries: ['curl'],
+          attachmentMode: 'automatic',
+          dnsPin: ['1.1.1.1'],
+        },
+        gatewayProviderName: `mitzo-conn-${suffix}`,
+        desiredAccountIds: [suffix],
+      });
+      return store.transition(
+        item.id,
+        item.revision,
+        {
+          status: 'active',
+          gatewayProviderId: `provider-${suffix}`,
+          identity: suffix,
+          verifiedAt: 1,
+        },
+        { operation: 'provision', outcome: 'success', actor: 'operator' },
+      );
+    };
+    const revoke = create('revoke');
+    const quarantine = create('quarantine');
+    const assignment = create('assignment');
+    const attached = new Set([
+      revoke.gatewayProviderName,
+      quarantine.gatewayProviderName,
+      assignment.gatewayProviderName,
+    ]);
+    const gateway = {
+      verifyCompatibility: vi
+        .fn()
+        .mockRejectedValue(new Error('Custom endpoint DNS rebinding detected')),
+      get: vi.fn(async (name: string) => ({
+        id: `provider-${name.slice('mitzo-conn-'.length)}`,
+        name,
+        workspace: 'default',
+        type: 'invalid-installed-profile',
+        credentialKeys: [],
+      })),
+      attachments: vi.fn(async (provider: string) =>
+        attached.has(provider) ? [`sandbox-${provider}`] : [],
+      ),
+      sandbox: vi.fn(async (name: string) => ({ name, labels: {} })),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn().mockResolvedValue(true),
+      detach: vi.fn(async (_sandbox: string, provider: string) => {
+        attached.delete(provider);
+      }),
+      delete: vi.fn(),
+      deleteSandbox: vi.fn(),
+    };
+    const service = new ConnectionsService(store, gateway as never);
+    await expect(
+      service.revoke(revoke.id, revoke.revision, 'operator', AbortSignal.timeout(500)),
+    ).resolves.toMatchObject({ status: 'revoked' });
+    await expect(
+      service.test(quarantine.id, quarantine.revision, AbortSignal.timeout(500)),
+    ).rejects.toThrow('verification failed');
+    await expect(
+      service.setAssignments(
+        assignment.id,
+        assignment.revision,
+        [],
+        'operator',
+        AbortSignal.timeout(500),
+      ),
+    ).resolves.toMatchObject({ desiredAccountIds: [] });
+    expect(gateway.stopSandbox).toHaveBeenCalledTimes(3);
+    expect(gateway.detach).toHaveBeenCalledTimes(3);
+    expect(gateway.delete).toHaveBeenCalledWith(revoke.gatewayProviderName, expect.anything());
+    expect(store.pendingQuarantines()).toEqual([]);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('resolves and verifies every automatic provider assigned across templates', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const active = (templateId: 'jira-readonly' | 'github-readonly', name: string) => {
+      const item = store.create({
+        ownerId: 'operator',
+        templateId,
+        templateVersion: 1,
+        label: templateId,
+        endpoint: 'https://example.com',
+        gatewayProviderName: name,
+        desiredAccountIds: ['work'],
+        ...(templateId === 'jira-readonly' ? { submittedEmail: 'person@example.test' } : {}),
+      });
+      return store.transition(
+        item.id,
+        item.revision,
+        {
+          status: 'active',
+          gatewayProviderId: `${name}-id`,
+          identity: name,
+          verifiedAt: 1,
+        },
+        { operation: 'provision', outcome: 'success', actor: 'operator' },
+      );
+    };
+    const jira = active('jira-readonly', 'mitzo-conn-jira');
+    const github = active('github-readonly', 'mitzo-conn-github');
+    const gateway = {
+      verifyCompatibility: vi.fn(),
+      validateBinding: vi.fn(),
+      get: vi.fn(async (name: string) => ({
+        id: `${name}-id`,
+        name,
+        workspace: 'default',
+        type: name.endsWith('github') ? 'github' : 'jira-readonly',
+        credentialKeys: [name.endsWith('github') ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN'],
+      })),
+    };
+    const service = new ConnectionsService(store, gateway as never);
+    expect(
+      service
+        .resolveAutomaticForAccount('work')
+        .map((connection) => connection.id)
+        .sort(),
+    ).toEqual([jira.id, github.id].sort());
+    await service.withAccountRuntimes(
+      'work',
+      async (connections) => {
+        expect(connections.map((connection) => connection.id).sort()).toEqual(
+          [jira.id, github.id].sort(),
+        );
+      },
+      AbortSignal.timeout(500),
+    );
+    expect(gateway.get).toHaveBeenCalledTimes(2);
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('keeps on-demand custom providers out of automatic selection and binds explicit grants', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
@@ -149,19 +302,43 @@ describe('ConnectionsService', () => {
         'work',
         signal,
         async () => {
-          // Simulate an out-of-band lifecycle mutation after physical attach;
-          // the service must revalidate and revoke the just-created grant.
-          store.transition(
-            active.id,
-            active.revision,
-            { status: 'needs_attention' },
-            { operation: 'test', outcome: 'changed', actor: 'operator' },
-          );
+          throw new Error('physical attach failed');
         },
         rollback,
       ),
-    ).rejects.toThrow('Connection changed');
+    ).rejects.toThrow('physical attach failed');
     expect(rollback).toHaveBeenCalledOnce();
+
+    // Retained grants identify the managed provider, not the opening revision:
+    // a successful rotation/test revision may reconnect, while unassignment may not.
+    const rotated = store.transition(
+      active.id,
+      active.revision,
+      { verifiedAt: Date.now() + 1 },
+      { operation: 'rotate', outcome: 'success', actor: 'operator' },
+    );
+    await expect(
+      service.verifyRuntimeSandbox(
+        'sandbox',
+        null,
+        'work',
+        signal,
+        [active],
+        [active.gatewayProviderName],
+      ),
+    ).resolves.toBeUndefined();
+    store.setAssignments(rotated.id, rotated.revision, [], 'operator');
+    await expect(
+      service.verifyRuntimeSandbox(
+        'sandbox',
+        null,
+        'work',
+        signal,
+        [active],
+        [active.gatewayProviderName],
+      ),
+    ).rejects.toThrow('Connection permissions changed');
+
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
