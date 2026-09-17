@@ -25,6 +25,18 @@ function setup() {
     { name: string; phase: string; labels: Record<string, string> }
   >();
   const gateway: ConnectionGateway = {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
+    validateBinding: vi.fn(({ provider }: { provider: GatewayProvider }) => {
+      if (
+        provider.type !== 'jira-readonly' ||
+        provider.credentialKeys.length !== 1 ||
+        provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+      )
+        throw new Error('Managed provider credential binding changed');
+    }),
     verifyCompatibility: vi.fn(),
     provision: vi.fn(async ({ name }) => {
       const value = provider(name);
@@ -81,7 +93,16 @@ function setup() {
       { operation: 'provision', outcome: 'success', actor: 'operator' },
     );
   };
-  return { directory, store, service, gateway, sandboxes, sandboxProviders, createActive };
+  return {
+    directory,
+    store,
+    service,
+    gateway,
+    providers,
+    sandboxes,
+    sandboxProviders,
+    createActive,
+  };
 }
 
 describe('connections runtime integration', () => {
@@ -116,6 +137,27 @@ describe('connections runtime integration', () => {
       test.service.verifyRuntimeSandbox('retained', connection, AbortSignal.timeout(500)),
     ).rejects.toThrow('permissions changed');
   });
+
+  it.each([
+    { label: 'missing', credentialKeys: [] },
+    { label: 'wrong', credentialKeys: ['WRONG_TOKEN'] },
+  ])(
+    'blocks runtime use when the managed Jira provider has invalid credential keys: $label',
+    async ({ credentialKeys }) => {
+      const test = setup();
+      cleanups.push(test);
+      const connection = test.createActive();
+      test.providers.set(connection.gatewayProviderName, {
+        ...provider(connection.gatewayProviderName),
+        credentialKeys: [...credentialKeys],
+      });
+      const work = vi.fn();
+      await expect(
+        test.service.withAccountRuntime('work', work, AbortSignal.timeout(500)),
+      ).rejects.toThrow('credential binding changed');
+      expect(work).not.toHaveBeenCalled();
+    },
+  );
 
   it('serializes revoke behind an in-flight runtime ensure callback', async () => {
     const test = setup();
