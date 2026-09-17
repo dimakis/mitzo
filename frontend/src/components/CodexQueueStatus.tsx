@@ -48,6 +48,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const [collapsed, setCollapsed] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [continuing, setContinuing] = useState(false);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const statusTab = useRef<HTMLButtonElement>(null);
   const hideButton = useRef<HTMLButtonElement>(null);
@@ -70,6 +71,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setError('');
     setNotice('');
     setCancelling(null);
+    setContinuing(false);
     setDrawerOpen(false);
     consumeCancelClick.current = false;
     setCollapsed(sessionId ? isHidden(sessionId) : false);
@@ -174,6 +176,40 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     if (sessionId) setHidden(sessionId, false);
     setCollapsed(false);
   };
+  const continueQueue = async () => {
+    if (!sessionId || continuing) return;
+    const epoch = sessionEpoch.current;
+    setContinuing(true);
+    setError('');
+    setNotice('');
+    try {
+      const response = await apiFetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/continue`,
+        { method: 'POST', signal: AbortSignal.timeout(15000) },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(
+          typeof body.error === 'string'
+            ? body.error
+            : 'Could not reconnect. Your saved message is still queued.',
+        );
+      }
+      if (epoch === sessionEpoch.current) {
+        setNotice('Reconnected. Continuing saved messages.');
+        await refresh.current();
+      }
+    } catch (error) {
+      if (epoch === sessionEpoch.current)
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : 'Could not reconnect. Your saved message is still queued.',
+        );
+    } finally {
+      if (epoch === sessionEpoch.current) setContinuing(false);
+    }
+  };
   const cancel = async (commandId: string) => {
     if (!sessionId || cancelling) return;
     const epoch = sessionEpoch.current;
@@ -261,6 +297,16 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
             </span>
           )}
           <strong>{status}</strong>
+          {queue.paused && queue.connected && !queue.recovering && queue.queued > 0 && (
+            <button
+              type="button"
+              className="codex-queue-status-continue"
+              disabled={continuing}
+              onClick={() => void continueQueue()}
+            >
+              {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
+            </button>
+          )}
           {queue.queued > 0 && (
             <button
               type="button"

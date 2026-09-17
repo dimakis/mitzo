@@ -600,6 +600,126 @@ it('does not reconnect or replay interrupted work until a new send explicitly re
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
 });
 
+it('restarts a disconnected provider and runs an already queued follow-up exactly once', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, requests, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  await c.send({ id: 'failed-turn', prompt: 'first' });
+  await c.send({ id: 'saved-follow-up', prompt: 'second' });
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+
+  await vi.waitFor(() =>
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(rpc.close).toHaveBeenCalledOnce();
+  expect(c.isPaused()).toBe(false);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'failed-turn', status: 'failed' },
+    { id: 'saved-follow-up', status: 'running' },
+  ]);
+  expect(
+    requests.filter((request) => request.method === 'turn/start').map((request) => request.params),
+  ).toEqual([
+    expect.objectContaining({ input: [{ type: 'text', text: 'first' }] }),
+    expect.objectContaining({ input: [{ type: 'text', text: 'second' }] }),
+  ]);
+});
+
+it('automatically probes only one saved follow-up during a persistent provider outage', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, requests, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  await c.send({ id: 'first', prompt: 'first' });
+  await c.send({ id: 'probe', prompt: 'second' });
+  await c.send({ id: 'preserved', prompt: 'third' });
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await vi.waitFor(() =>
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await Promise.resolve();
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(rpc.close).toHaveBeenCalledTimes(2);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'first', status: 'failed' },
+    { id: 'probe', status: 'failed' },
+    { id: 'preserved', status: 'queued' },
+  ]);
+
+  await c.acknowledgeRecovery();
+  expect(beforeReconnect).toHaveBeenCalledTimes(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
+  expect(c.isPaused()).toBe(false);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'first', status: 'failed' },
+    { id: 'probe', status: 'failed' },
+    { id: 'preserved', status: 'running' },
+  ]);
+});
+
+it('keeps non-transport provider failures paused for explicit review', async () => {
+  const { c, callbacks, requests, rpc } = await setup();
+  await c.send({ id: 'failed-turn', prompt: 'first' });
+  await c.send({ id: 'saved-follow-up', prompt: 'second' });
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'context_length_exceeded' },
+    },
+  });
+  await Promise.resolve();
+
+  expect(rpc.close).not.toHaveBeenCalled();
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
+});
+
 it('tolerates the transport closing while interrupt is in flight', async () => {
   const { c, rpc } = await setup();
   await c.send({ id: 'first', prompt: 'hello' });
