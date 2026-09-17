@@ -103,6 +103,14 @@ export function ConnectionsView() {
   const [rotateId, setRotateId] = useState<string | null>(null);
   const [rotationCredentials, setRotationCredentials] = useState<Record<string, string>>({});
   const stepHeading = useRef<HTMLHeadingElement>(null);
+  const resetWizard = useCallback(() => {
+    setSelectedTemplateKey('');
+    setLabel('');
+    setScope({});
+    setCredentials({});
+    setAccounts([]);
+    setStep('service');
+  }, []);
   const refresh = useCallback(async () => {
     setLoadError('');
     setTemplateError('');
@@ -120,13 +128,8 @@ export function ConnectionsView() {
       );
     }
     if (templatesResult.status === 'fulfilled') {
-      const nextTemplates = templatesResult.value;
-      setTemplates(nextTemplates);
-      setSelectedTemplateKey((current) =>
-        nextTemplates.templates.some((item) => templateKey(item) === current) ? current : '',
-      );
+      setTemplates(templatesResult.value);
     } else {
-      setTemplates(null);
       setTemplateError(
         'Connection setup is temporarily unavailable. Existing connections remain manageable.',
       );
@@ -145,9 +148,20 @@ export function ConnectionsView() {
   useEffect(() => {
     stepHeading.current?.focus();
   }, [step]);
+  useEffect(() => {
+    if (
+      selectedTemplateKey &&
+      templates &&
+      !templates.templates.some((item) => templateKey(item) === selectedTemplateKey)
+    ) {
+      resetWizard();
+    }
+  }, [resetWizard, selectedTemplateKey, templates]);
+  const setupTemplates = templateError ? null : templates;
   const template = useMemo(
-    () => templates?.templates.find((item) => templateKey(item) === selectedTemplateKey) ?? null,
-    [templates, selectedTemplateKey],
+    () =>
+      setupTemplates?.templates.find((item) => templateKey(item) === selectedTemplateKey) ?? null,
+    [selectedTemplateKey, setupTemplates],
   );
   const run = async (
     name: string,
@@ -224,7 +238,7 @@ export function ConnectionsView() {
         <p className="workspace-muted">
           Choose a reviewed service, then verify its effective access before activation.
         </p>
-        {templates ? (
+        {setupTemplates ? (
           <>
             <ol className="connections-steps" aria-label="Connection setup steps">
               {steps.map((item) => (
@@ -237,7 +251,7 @@ export function ConnectionsView() {
               {stepLabel[step]}
             </h3>
             {step === 'service' && (
-              <ServiceCatalog templates={templates.templates} onChoose={chooseTemplate} />
+              <ServiceCatalog templates={setupTemplates.templates} onChoose={chooseTemplate} />
             )}
             {template && step === 'authenticate' && (
               <Authentication

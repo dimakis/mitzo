@@ -258,6 +258,24 @@ describe('ConnectionsView', () => {
       expect.objectContaining({ id: 'jira-1', revision: 2 }),
     );
   });
+  it('retains cached credential metadata for active rotations during a template outage', async () => {
+    await render();
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('Template catalog unavailable'),
+    );
+    await reauthorize();
+    await act(async () => button('Test identity').click());
+    expect(container.textContent).toContain('Connection setup is temporarily unavailable');
+    await act(async () => button('Rotate credentials').click());
+    expect(input('Replacement API token')).toBeTruthy();
+    act(() =>
+      fireEvent.change(input('Replacement API token'), { target: { value: 'replacement' } }),
+    );
+    await act(async () => button('Verify and rotate').click());
+    expect(connections.rotateConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jira-1', credentials: { token: 'replacement' } }),
+    );
+  });
   it('uses native keyboard-focusable service controls to progress through the wizard', async () => {
     await render();
     const choose = button('Choose Jira');
@@ -305,6 +323,36 @@ describe('ConnectionsView', () => {
     await act(async () => button('Choose Jira v2').click());
     act(() => fireEvent.change(input('API token'), { target: { value: 'v2-secret' } }));
     await continueWizard();
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
+    );
+    await continueWizard();
+    await continueWizard();
+    expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+  it('resets the complete wizard when a refreshed catalog removes its selected template', async () => {
+    await render();
+    await chooseJiraToAssignments();
+    act(() => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    vi.mocked(connections.getConnectionTemplates).mockResolvedValue({
+      ...templates,
+      templates: templates.templates.filter(
+        (item) => item.id !== 'jira-readonly' || item.version !== 1,
+      ),
+    });
+    await reauthorize();
+    await act(async () => button('Test identity').click());
+    await flush();
+    expect(container.querySelector('[aria-current="step"]')?.textContent).toBe('Service');
+    expect(container.textContent).toContain('Choose Jira v2');
+    expect(container.textContent).not.toContain('Authenticate with Jira');
+    await act(async () => button('Choose Jira v2').click());
+    expect(input('API token').value).toBe('');
+    act(() => fireEvent.change(input('API token'), { target: { value: 'v2-token' } }));
+    await continueWizard();
+    expect(input('Atlassian account email').value).toBe('');
     act(() =>
       fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
     );
@@ -476,7 +524,12 @@ describe('ConnectionsView', () => {
       ],
     });
     await render();
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('Template catalog unavailable'),
+    );
     await reauthorize();
+    await act(async () => button('Test identity').click());
+    expect(container.textContent).toContain('Connection setup is temporarily unavailable');
     await act(async () => button('Retry credentials').click());
     act(() =>
       fireEvent.change(input('Replacement API token'), { target: { value: 'retry-secret' } }),
