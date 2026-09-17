@@ -903,11 +903,32 @@ it('preserves first launch and valid restore while failing closed for a replacem
       'thread',
       'client',
     );
+    const checkpointed = lifecycle.store.get('valid-lifecycle-state')!;
+    lifecycle.store.upsert({
+      ...checkpointed,
+      generation: checkpointed.generation + 1,
+      checkpoint: {
+        path: '/private/checkpoint',
+        digest: 'digest',
+        version: 1,
+        sandboxId: 'restored-id',
+        sourceResourceVersion: 'ready-v1',
+      },
+    });
     const chat = await openCodexChat(chatOptions('valid-lifecycle-state', true));
     expect(mocks.initialize).toHaveBeenCalled();
     expect(lifecycle.store.get('valid-lifecycle-state')).toMatchObject({
       physicalSandboxId: 'restored-id',
+      checkpoint: expect.objectContaining({ digest: 'digest' }),
       identity: expect.objectContaining({ threadId: 'thread' }),
+    });
+    const onThreadChanged = mocks.conversationOptions?.onThreadChanged as
+      ((threadId: string) => void) | undefined;
+    expect(onThreadChanged).toBeTypeOf('function');
+    onThreadChanged!('thread-generation-2');
+    expect(lifecycle.store.get('valid-lifecycle-state')).toMatchObject({
+      checkpoint: null,
+      identity: expect.objectContaining({ threadId: 'thread-generation-2' }),
     });
     chat.close();
   } finally {
