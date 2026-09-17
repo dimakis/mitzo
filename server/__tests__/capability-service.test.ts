@@ -300,6 +300,29 @@ describe('CapabilityService', () => {
     expect(f.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves verification pending when a restart has no compatible executor yet', async () => {
+    const f = await fixture();
+    f.execute.mockImplementationOnce(async () => {
+      throw new Error('remote write completed before the response disconnected');
+    });
+    const initial = await f.service.invoke(request(), new AbortController().signal);
+    expect(initial.status).toBe('verification_pending');
+
+    const unavailable = new CapabilityService({
+      store: f.store,
+      executorRegistry: new CapabilityExecutorRegistry({}),
+      getTemplate: (id, version) => (id === template.id && version === 1 ? template : undefined),
+      getConnection: (id) => (id === f.connection.id ? f.connection : undefined),
+      listConnections: () => [f.connection],
+      isConnectionActiveForConversation: () => true,
+      approve: f.approve,
+    });
+    const [recovered] = await unavailable.recoverPending(new AbortController().signal);
+    expect(recovered).toMatchObject({ id: initial.id, status: 'verification_pending' });
+    expect(f.recover).not.toHaveBeenCalled();
+    expect(f.store.get(initial.id)).toMatchObject({ status: 'verification_pending' });
+  });
+
   it('settles concurrent reconnect recovery without turning one success into a failure', async () => {
     const f = await fixture();
     const controller = new AbortController();
@@ -361,7 +384,7 @@ describe('CapabilityService', () => {
         },
         forcePrompt: true,
       }),
-    ).toEqual({
+    ).toMatchObject({
       input: {
         connectionId: 'model-selected-connection',
         operationId: 'model-selected-operation',
@@ -371,5 +394,73 @@ describe('CapabilityService', () => {
       connectionId: 'trusted-connection',
       operationId: 'trusted-operation',
     });
+    expect(
+      capabilityApprovalPayload({
+        capabilityId: template.id,
+        capabilityVersion: 1,
+        connectionId: 'trusted-connection',
+        operationId: 'trusted-operation',
+        input: { value: 'hello' },
+        forcePrompt: true,
+      }).inputSha256,
+    ).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('keeps a valid 64KiB capability body reviewable within the permission-card limit', () => {
+    const body = 'x'.repeat(65_536);
+    const payload = capabilityApprovalPayload({
+      capabilityId: 'github.publish-pr',
+      capabilityVersion: 1,
+      connectionId: 'trusted-connection',
+      operationId: 'trusted-operation',
+      input: {
+        repositoryPath: '/repo',
+        baseBranch: 'main',
+        title: 'Publish the reviewed change',
+        body,
+        draft: false,
+      },
+      forcePrompt: true,
+    });
+    expect(JSON.stringify(payload).length).toBeLessThan(10_000);
+    expect(payload.input).toMatchObject({
+      body: {
+        chars: body.length,
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        preview: body.slice(0, 2_000),
+        truncated: true,
+      },
+    });
+    expect(payload.inputSha256).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('bounds an unusually wide valid capability input without changing its digest', () => {
+    const input = Object.fromEntries(
+      Array.from({ length: 20 }, (_, index) => [`field-${index}`, 'x'.repeat(2_000)]),
+    );
+    const payload = capabilityApprovalPayload({
+      capabilityId: 'wide-test',
+      capabilityVersion: 1,
+      connectionId: 'trusted-connection',
+      operationId: 'trusted-operation',
+      input,
+      forcePrompt: true,
+    });
+    expect(JSON.stringify(payload).length).toBeLessThan(10_000);
+    expect(payload.input).toMatchObject({
+      truncated: true,
+      fieldCount: 20,
+      inputSha256: payload.inputSha256,
+    });
+    expect((payload.input as { sampledFields: unknown[] }).sampledFields).toContainEqual(
+      expect.objectContaining({
+        name: 'field-0',
+        value: expect.objectContaining({
+          chars: 2_000,
+          preview: 'x'.repeat(300),
+          truncated: true,
+        }),
+      }),
+    );
   });
 });

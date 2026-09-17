@@ -43,6 +43,8 @@ vi.mock('@mitzo/harness', async (importOriginal) => ({
   buildPermissionHandler: () => mocks.permissionHandler,
 }));
 import {
+  capabilityIdempotencyKey,
+  managedJiraConnectionEnv,
   openCodexChat,
   publicCodexRuntimeError,
   selectedOpenShellAccountRoute,
@@ -64,6 +66,36 @@ it('forwards only recognized sanitized Codex diagnostics', () => {
   );
   expect(publicCodexRuntimeError(new Error('Bearer sk-secret at https://private.example'))).toBe(
     'Codex turn failed. Inspect queued work before retrying.',
+  );
+});
+it('scopes capability idempotency to the authoritative conversation identity', () => {
+  const binding = {
+    capabilityId: 'github.publish-pr',
+    capabilityVersion: 1,
+    connectionId: 'connection-1',
+    connectionRevision: 3,
+  };
+  const call = { turnId: 'turn-1', callId: 'tool-call-1' };
+  expect(capabilityIdempotencyKey('conversation-a', binding, call)).not.toBe(
+    capabilityIdempotencyKey('conversation-b', binding, call),
+  );
+});
+it('builds managed Jira runtime context from versioned public configuration, not legacy email', () => {
+  const connection = {
+    templateId: 'jira-readonly',
+    templateVersion: 1,
+    publicConfig: { email: 'person@example.com' },
+    submittedEmail: 'legacy-invalid-value',
+  } as unknown as import('../connections-store.js').Connection;
+  expect(managedJiraConnectionEnv(connection)).toMatchObject({ JIRA_EMAIL: 'person@example.com' });
+  expect(() =>
+    managedJiraConnectionEnv({
+      ...connection,
+      publicConfig: { email: 'person@.' },
+    }),
+  ).toThrow('Unsupported managed Jira connection configuration');
+  expect(() => managedJiraConnectionEnv({ ...connection, templateVersion: 2 })).toThrow(
+    'Unsupported managed Jira connection configuration',
   );
 });
 function options(abortController: AbortController) {

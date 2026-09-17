@@ -385,6 +385,10 @@ export class CapabilityService {
     operation: CapabilityOperation,
     signal: AbortSignal,
   ): Promise<CapabilityOperation> {
+    // A rollout can encounter records produced by a newer/older executable
+    // registry. Leave them durable and ambiguous until a compatible executor
+    // is installed; turning that into failed would lose the safe retry path.
+    if (!this.options.executorRegistry.supports(template)) return operation;
     try {
       signal.throwIfAborted();
       const executor = this.options.executorRegistry.resolve(template);

@@ -86,6 +86,19 @@ type CapabilityToolBinding = {
   connectionRevision: number;
 };
 
+/** Provider call IDs are only unique within a provider turn/thread. */
+export function capabilityIdempotencyKey(
+  conversationId: string,
+  binding: CapabilityToolBinding,
+  call: { turnId: string; callId: string },
+): string {
+  return createHash('sha256')
+    .update(
+      `${conversationId}\u0000${binding.connectionId}\u0000${binding.connectionRevision}\u0000${binding.capabilityId}\u0000${binding.capabilityVersion}\u0000${call.turnId}\u0000${call.callId}`,
+    )
+    .digest('hex');
+}
+
 /** Dynamic definitions bind a reviewed grant at startup; model input never picks an account or grant. */
 function capabilityToolsForConversation(
   accountId: string,
@@ -672,9 +685,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
             turnId: callContext.turnId,
             // Provider call IDs are verified by CodexConversation before this
             // callback. Hash them so a model cannot control idempotency.
-            idempotencyKey: createHash('sha256')
-              .update(`${callContext.turnId}\u0000${callContext.callId}`)
-              .digest('hex'),
+            idempotencyKey: capabilityIdempotencyKey(
+              options.conversationId,
+              capability,
+              callContext,
+            ),
             input,
           },
           signal,
