@@ -496,10 +496,11 @@ export class CodexConversation {
     const completedTurnIds = snapshot.thread.turns
       .filter((turn) => turn.status === 'completed')
       .map((turn) => turn.id);
-    const lastCompletedTurnId =
-      state.lastCompletedTurnId && completedTurnIds.includes(state.lastCompletedTurnId)
-        ? state.lastCompletedTurnId
-        : completedTurnIds.at(-1);
+    // The provider snapshot is authoritative: Mitzo can crash after the
+    // provider commits a completion but before its notification is persisted.
+    // Fall back to the ledger only when the provider returns no completed
+    // turns, rather than truncating newer provider-owned context.
+    const lastCompletedTurnId = completedTurnIds.at(-1) ?? state.lastCompletedTurnId ?? undefined;
     const result = z
       .object({
         thread: z.object({ id: z.string().min(1) }),

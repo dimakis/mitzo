@@ -741,6 +741,57 @@ it('moves an old conversation to a new thread generation before accepting the ne
   ]);
 });
 
+it('forks from the provider latest completion when the durable ledger missed its notification', async () => {
+  const { c, callbacks, rpc, requests, store } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    async () => {},
+  );
+  await c.send({ id: 'persisted', prompt: 'persist this completion' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await c.send({ id: 'failed', prompt: 'trigger recovery' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    const result = await request(method, params);
+    if (method !== 'thread/read') return result;
+    return {
+      thread: {
+        id: 'provider-thread',
+        turns: [
+          { id: 'turn-1', status: 'completed' },
+          { id: 'provider-only-completion', status: 'completed' },
+          { id: 'turn-2', status: 'failed' },
+        ],
+      },
+    };
+  });
+
+  await c.send({ id: 'after-rollover', prompt: 'continue from provider truth' });
+
+  expect(requests.find(({ method }) => method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'provider-only-completion',
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-fork-1',
+    lastCompletedTurnId: 'provider-only-completion',
+  });
+});
+
 it('replaces provider thread state after a rejected turn admission', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, rpc, requests, store } = await setup(
