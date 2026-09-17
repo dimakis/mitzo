@@ -58,7 +58,7 @@ async function setup(
   const rpc = {
     initialize: async () => {},
     close: vi.fn(),
-    request: vi.fn(async (method: string, params: Record<string, unknown>) => {
+    request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
       requests.push({ method, params });
       if (method === 'config/read') return { config: {} };
       if (method === 'account/read')
