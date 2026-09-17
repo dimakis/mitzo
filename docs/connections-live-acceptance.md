@@ -20,6 +20,7 @@ Use the reviewed `0.0.116-mitzo.2` CLI and the normal OpenShell gateway/account 
 - `MITZO_CONNECTIONS_JIRA_PROFILE_PATH`: absolute path to `infra/openshell/providers/mitzo-jira-readonly.yaml`
 - `MITZO_CONNECTIONS_PROBE_IMAGE`: reviewed runtime image containing `/usr/bin/python3`
 - `MITZO_CONNECTIONS_PROBE_POLICY`: absolute path to `infra/openshell/providers/mitzo-jira-probe-policy.yaml`
+- `MITZO_CONNECTIONS_GITHUB_PROBE_POLICY`: absolute path to `infra/openshell/providers/mitzo-github-probe-policy.yaml`; without it GitHub is not advertised.
 
 The controller validates the local profile and gateway-exported policy. It imports the profile only after an authoritative profile list confirms that it is absent. Broader policies, other endpoints, credentials, and enforcement modes are rejected. The SQLite metadata lives in `.mitzo/connections.db`; preserve it with gateway backups. Reconciliation runs at startup and every 30 seconds. Disabling the control plane does not permit retained managed grants to bypass runtime attachment checks.
 

@@ -49,6 +49,7 @@ function inspection(overrides: Partial<GithubSandboxInspection> = {}): GithubSan
     commitsAhead: 2,
     changedFiles: ['src/index.ts'],
     sourceBranchProtected: false,
+    symlinkFree: true,
     ...overrides,
   };
 }
@@ -99,6 +100,27 @@ describe('github.publish-pr capability', () => {
       'not GitHub',
     );
   });
+  it('allows the trusted workspace itself when it is the repository', async () => {
+    const f = fixture();
+    vi.mocked(f.sandbox.inspect).mockResolvedValue(
+      inspection({ canonicalRepositoryPath: '/sandbox/workspaces/mgmt' }),
+    );
+    const result = await f.executor.execute(
+      context({ input: { ...input, repositoryPath: '/sandbox/workspaces/mgmt' } }),
+    );
+    expect(result.externalResultId).toBe(f.pull.url);
+  });
+  it('accepts mixed-case GitHub HTML URLs for the verified repository', async () => {
+    const f = fixture();
+    vi.mocked(f.host.create).mockResolvedValueOnce({
+      ...f.pull,
+      repository: 'Acme/Widgets',
+      url: 'https://GitHub.com/Acme/Widgets/pull/12',
+    });
+    await expect(f.executor.execute(context())).resolves.toMatchObject({
+      externalResultId: 'https://GitHub.com/Acme/Widgets/pull/12',
+    });
+  });
   it.each([
     ['dirty tree', { status: ' M src/index.ts' }, 'dirty'],
     ['detached HEAD', { sourceBranch: null }, 'detached'],
@@ -139,6 +161,32 @@ describe('github.publish-pr capability', () => {
     await expect(disallowed.execute(context())).rejects.toThrow('not allowed');
     expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
   });
+  it('renders the complete trusted preflight card and fails closed when it changes after approval', async () => {
+    const f = fixture();
+    const preflight = await f.executor.preflight!(context());
+    expect(preflight.approvalInput).toMatchObject({
+      repository: 'acme/widgets',
+      sourceBranch: 'feature/safe',
+      baseBranch: 'main',
+      commitCount: '2',
+      changedFiles: '["src/index.ts"]',
+      existingPullRequest: 'create',
+    });
+    await expect(
+      f.executor.execute(
+        context({ approvalInput: { ...preflight.approvalInput, commitCount: '1' } }),
+      ),
+    ).rejects.toThrow('changed after approval');
+    expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['reviewed protected pattern', { sourceBranch: 'release/4.0' }, 'protected'],
+    ['symlink component', { symlinkFree: false }, 'ambiguous'],
+  ])('fails before export for %s', async (_label, changed, message) => {
+    const f = fixture({ inspection: changed });
+    await expect(f.executor.execute(context())).rejects.toThrow(message);
+    expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
+  });
   it('bounds binary exports and cleans a reconstructed checkout after an apply conflict', async () => {
     const overflow = fixture({ bundle: Buffer.alloc(GITHUB_PUBLISH_MAX_BUNDLE_BYTES + 1) });
     await expect(overflow.executor.execute(context())).rejects.toThrow('exceeds');
@@ -169,7 +217,7 @@ describe('github.publish-pr capability', () => {
   });
   it('uses an existing open pull request rather than creating a duplicate', async () => {
     const f = fixture();
-    vi.mocked(f.host.findOpen).mockResolvedValueOnce(f.pull);
+    vi.mocked(f.host.findOpen).mockResolvedValue(f.pull);
     const result = await f.executor.execute(context());
     expect(result.externalResultId).toBe(f.pull.url);
     expect(f.host.create).not.toHaveBeenCalled();
@@ -201,7 +249,7 @@ describe('github.publish-pr capability', () => {
     const recovered: CapabilityOperation = {
       ...operation,
       externalResultId: f.pull.url,
-      result: {
+      recoveryIntent: {
         repository: f.pull.repository,
         sourceBranch: f.pull.sourceBranch,
         baseBranch: f.pull.baseBranch,
@@ -211,6 +259,26 @@ describe('github.publish-pr capability', () => {
     expect(f.host.read).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: operation.id, externalResultId: f.pull.url }),
     );
+    expect(f.host.push).not.toHaveBeenCalled();
+    expect(f.host.create).not.toHaveBeenCalled();
+  });
+  it('keeps a response-loss operation pending when read-only recovery cannot yet find its PR', async () => {
+    const f = fixture();
+    vi.mocked(f.host.read).mockResolvedValueOnce(null);
+    await expect(
+      f.executor.recover(
+        {
+          ...operation,
+          recoveryIntent: {
+            repository: 'acme/widgets',
+            sourceBranch: 'feature/safe',
+            baseBranch: 'main',
+            operationId: operation.id,
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ name: 'Error' });
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).not.toHaveBeenCalled();
   });

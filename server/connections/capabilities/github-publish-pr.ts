@@ -6,6 +6,8 @@ import type {
   CapabilityExecutor,
   CapabilityOperation,
 } from './types.js';
+import { CapabilityRecoveryPendingError } from './types.js';
+import { canonicalJson } from './input-validation.js';
 
 /** A deliberately small binary budget. The sandbox must not become a data exfiltration channel. */
 export const GITHUB_PUBLISH_MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
@@ -29,6 +31,8 @@ export interface GithubSandboxInspection {
   changedFiles: readonly string[];
   /** A controller-supplied protected-branch decision, evaluated before export/network. */
   sourceBranchProtected: boolean;
+  /** Control transport proved every component beneath the trusted workspace is non-symlink. */
+  symlinkFree: boolean;
 }
 
 /**
@@ -72,7 +76,7 @@ export interface GithubHostPublisher {
     bundle: Buffer;
     operationId: string;
     signal: AbortSignal;
-  }): Promise<{ directory: string }>;
+  }): Promise<{ directory: string; cleanupDirectory?: string }>;
   push(input: {
     directory: string;
     sourceBranch: string;
@@ -162,7 +166,7 @@ export function canonicalRepositoryPath(workspace: string, submitted: string): s
     return reject('Repository path is invalid');
   const root = path.resolve(workspace);
   const resolved = path.resolve(submitted);
-  if (resolved === root || !resolved.startsWith(root + '/'))
+  if (resolved !== root && !resolved.startsWith(root + '/'))
     return reject('Repository path escapes workspace');
   // A noncanonical spelling would make a later symlink/repository check harder
   // to reason about. Require the model to use the exact workspace path.
@@ -190,13 +194,22 @@ function assertPullRequest(
   value: GithubPullRequest,
   expected: { repository: string; sourceBranch: string; baseBranch: string },
 ) {
+  let url: URL | undefined;
+  try {
+    url = new URL(value.url);
+  } catch {
+    /* rejected below */
+  }
   if (
     !value ||
-    value.repository !== expected.repository ||
+    value.repository.toLowerCase() !== expected.repository.toLowerCase() ||
     value.sourceBranch !== expected.sourceBranch ||
     value.baseBranch !== expected.baseBranch ||
     typeof value.id !== 'string' ||
-    !/^https:\/\/github\.com\/[a-z0-9._-]+\/[a-z0-9._-]+\/pull\/[1-9][0-9]*$/.test(value.url)
+    !url ||
+    url.protocol !== 'https:' ||
+    url.hostname.toLowerCase() !== 'github.com' ||
+    url.pathname.toLowerCase() !== `/${expected.repository}/pull/${value.id}`.toLowerCase()
   )
     return reject('GitHub pull request result is invalid');
   return value;
@@ -236,7 +249,7 @@ export function createGithubPublishPrExecutor(
       signal: context.signal,
     });
     context.signal.throwIfAborted();
-    if (inspection.canonicalRepositoryPath !== repositoryPath)
+    if (inspection.canonicalRepositoryPath !== repositoryPath || !inspection.symlinkFree)
       reject('Repository path is ambiguous');
     if (inspection.status !== '') reject('Repository working tree is dirty');
     if (!inspection.sourceBranch || !validBranch(inspection.sourceBranch))
@@ -244,7 +257,8 @@ export function createGithubPublishPrExecutor(
     if (
       inspection.sourceBranch === inspection.defaultBranch ||
       inspection.sourceBranch === input.baseBranch ||
-      inspection.sourceBranchProtected
+      inspection.sourceBranchProtected ||
+      isProtectedGithubSourceBranch(inspection.sourceBranch)
     )
       reject('Source branch is protected');
     if (!Number.isSafeInteger(inspection.commitsAhead) || inspection.commitsAhead < 1)
@@ -260,9 +274,66 @@ export function createGithubPublishPrExecutor(
       reject('Base branch is not allowed');
     return { input, conversation, repositoryPath, inspection, repository: repo };
   };
+  const approval = (
+    state: Awaited<ReturnType<typeof inspect>>,
+    existing: GithubPullRequest | null,
+  ) => ({
+    repository: state.repository,
+    sourceBranch: state.inspection.sourceBranch!,
+    baseBranch: state.input.baseBranch,
+    commitCount: String(state.inspection.commitsAhead),
+    changedFiles: JSON.stringify(state.inspection.changedFiles.slice(0, 64)),
+    existingPullRequest: existing ? 'update' : 'create',
+  });
+  const assertApproved = (
+    context: CapabilityExecutionContext,
+    state: Awaited<ReturnType<typeof inspect>>,
+    existing: GithubPullRequest | null,
+  ) => {
+    // CapabilityService always supplies this field after durable preflight.
+    // Keeping direct executor unit tests possible does not weaken that service boundary.
+    if (
+      context.approvalInput &&
+      canonicalJson(context.approvalInput) !== canonicalJson(approval(state, existing))
+    )
+      reject('GitHub repository changed after approval');
+  };
   return {
+    async preflight(context) {
+      const state = await inspect(context);
+      const existing = await deps.host.findOpen({
+        repository: state.repository,
+        sourceBranch: state.inspection.sourceBranch!,
+        baseBranch: state.input.baseBranch,
+        operationId: context.operation.id,
+        signal: context.signal,
+      });
+      if (existing)
+        assertPullRequest(existing, {
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          baseBranch: state.input.baseBranch,
+        });
+      return {
+        approvalInput: approval(state, existing),
+        recoveryIntent: {
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          baseBranch: state.input.baseBranch,
+          operationId: context.operation.id,
+        },
+      };
+    },
     async execute(context) {
       const state = await inspect(context);
+      const existingBeforeWrite = await deps.host.findOpen({
+        repository: state.repository,
+        sourceBranch: state.inspection.sourceBranch!,
+        baseBranch: state.input.baseBranch,
+        operationId: context.operation.id,
+        signal: context.signal,
+      });
+      assertApproved(context, state, existingBeforeWrite);
       const bundle = await deps.sandbox.exportBundle({
         sandboxName: state.conversation.sandboxName,
         repositoryPath: state.repositoryPath,
@@ -279,17 +350,18 @@ export function createGithubPublishPrExecutor(
       )
         reject('Committed change export exceeds the safety limit');
       let directory: string | undefined;
+      let cleanupDirectory: string | undefined;
       try {
-        directory = (
-          await deps.host.reconstruct({
-            repository: state.repository,
-            sourceBranch: state.inspection.sourceBranch!,
-            baseBranch: state.input.baseBranch,
-            bundle,
-            operationId: context.operation.id,
-            signal: context.signal,
-          })
-        ).directory;
+        const reconstructed = await deps.host.reconstruct({
+          repository: state.repository,
+          sourceBranch: state.inspection.sourceBranch!,
+          baseBranch: state.input.baseBranch,
+          bundle,
+          operationId: context.operation.id,
+          signal: context.signal,
+        });
+        directory = reconstructed.directory;
+        cleanupDirectory = reconstructed.cleanupDirectory ?? directory;
         if (!directory) reject('Host reconstruction failed');
         await deps.host.push({
           directory,
@@ -325,7 +397,7 @@ export function createGithubPublishPrExecutor(
         );
         return { output: output(pr, state.inspection), externalResultId: pr.url };
       } finally {
-        if (directory) await deps.host.cleanup(directory);
+        if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
       }
     },
     async verify(context, result) {
@@ -349,7 +421,7 @@ export function createGithubPublishPrExecutor(
       if (pr.url !== externalResultId) reject('GitHub pull request verification failed');
     },
     async recover(operation, signal) {
-      const result = operation.result;
+      const result = operation.recoveryIntent;
       if (!result || Array.isArray(result) || typeof result !== 'object')
         reject('GitHub recovery result is unavailable');
       const repository = result.repository;
@@ -359,20 +431,32 @@ export function createGithubPublishPrExecutor(
         typeof repository !== 'string' ||
         typeof sourceBranch !== 'string' ||
         typeof baseBranch !== 'string' ||
-        typeof operation.externalResultId !== 'string'
+        (operation.externalResultId !== null && typeof operation.externalResultId !== 'string')
       )
         reject('GitHub recovery result is unavailable');
       const pr = await deps.host.read({
         repository,
         sourceBranch,
         baseBranch,
-        externalResultId: operation.externalResultId,
+        externalResultId: operation.externalResultId ?? undefined,
         operationId: operation.id,
         signal,
       });
-      if (!pr) reject('GitHub recovery verification failed');
+      if (!pr) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
       assertPullRequest(pr, { repository, sourceBranch, baseBranch });
-      if (pr.url !== operation.externalResultId) reject('GitHub recovery verification failed');
+      if (operation.externalResultId && pr.url !== operation.externalResultId)
+        reject('GitHub recovery verification failed');
     },
   };
+}
+export const GITHUB_PROTECTED_SOURCE_BRANCH_PATTERNS = Object.freeze([
+  'main',
+  'master',
+  'release/*',
+  'hotfix/*',
+]);
+export function isProtectedGithubSourceBranch(value: string): boolean {
+  return GITHUB_PROTECTED_SOURCE_BRANCH_PATTERNS.some((pattern) =>
+    pattern.endsWith('*') ? value.startsWith(pattern.slice(0, -1)) : value === pattern,
+  );
 }

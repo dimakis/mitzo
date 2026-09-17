@@ -316,9 +316,12 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     },
   ) {}
   supportsTemplate(templateId: string, templateVersion: number) {
+    if (templateVersion !== 1) return false;
+    if (templateId === JIRA_TEMPLATE_ID) return true;
     return (
-      (templateId === JIRA_TEMPLATE_ID || templateId === GITHUB_TEMPLATE_ID) &&
-      templateVersion === 1
+      templateId === GITHUB_TEMPLATE_ID &&
+      !!this.options.probeImage &&
+      !!this.options.githubProbePolicy
     );
   }
   validateBinding(input: {
@@ -825,9 +828,9 @@ except Exception:
     if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
     // The script is code-owned and keeps the response compact. It neither
     // reads nor prints a token; OpenShell injects it only into its provider.
-    const probe = `import json,urllib.error,urllib.request
+    const probe = `import json,os,urllib.error,urllib.request
 try:
- r=urllib.request.Request('https://api.github.com/user',headers={'Accept':'application/vnd.github+json'});x=urllib.request.urlopen(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'login':d['login']},separators=(',',':')))
+ r=urllib.request.Request('https://api.github.com/user',headers={'Accept':'application/vnd.github+json','Authorization':'Bearer '+os.environ['GITHUB_TOKEN']});x=urllib.request.urlopen(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'login':d['login']},separators=(',',':')))
 except urllib.error.HTTPError as e: print(json.dumps({'error':'GITHUB_AUTH_REJECTED' if e.code==401 else 'GITHUB_PERMISSION_DENIED' if e.code==403 else 'GITHUB_HTTP_ERROR'},separators=(',',':')))
 except Exception: print(json.dumps({'error':'GITHUB_NETWORK_FAILED'},separators=(',',':')))`;
     try {

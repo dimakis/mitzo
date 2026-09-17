@@ -55,6 +55,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   ) {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
+    await this.assertSymlinkFree(sandboxName, repositoryPath, signal);
     try {
       return await this.run(
         [
@@ -77,6 +78,39 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       );
     } catch {
       return commandFailure();
+    }
+  }
+  private async assertSymlinkFree(
+    sandboxName: string,
+    repositoryPath: string,
+    signal: AbortSignal,
+  ) {
+    const script =
+      'set -eu; root="$1"; repo="$2"; [ "$(realpath -e "$repo")" = "$repo" ]; p="$repo"; while [ "$p" != "$root" ]; do [ ! -L "$p" ]; p="${p%/*}"; done; [ ! -L "$root" ]';
+    try {
+      await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.workspace,
+          'exec',
+          '--name',
+          sandboxName,
+          '--no-tty',
+          '--timeout',
+          '15',
+          '--',
+          '/bin/sh',
+          '-c',
+          script,
+          'mitzo-github-path',
+          '/sandbox/workspaces',
+          repositoryPath,
+        ],
+        { signal, maxOutputBytes: 1024 },
+      );
+    } catch {
+      throw new Error('Repository path is ambiguous');
     }
   }
   async inspect(input: {
@@ -156,6 +190,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       changedFiles,
       sourceBranchProtected:
         sourceBranch === defaultBranch || sourceBranch === 'main' || sourceBranch === 'master',
+      symlinkFree: true,
     };
   }
   async exportBundle(input: {
@@ -172,6 +207,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
     if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1)
       throw new Error('Bundle limit is invalid');
+    await this.assertSymlinkFree(input.sandboxName, input.repositoryPath, input.signal);
     // `git bundle -` is binary. Encode inside the sandbox so the control CLI
     // only transports bounded text and cannot corrupt NUL-containing objects.
     const script = 'set -eu; git -C "$1" bundle create - "origin/$2..$3" | base64 | tr -d "\\n"';
@@ -213,6 +249,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
 }
 
 function gitEnvironment() {
+  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
   return {
     PATH: process.env.PATH ?? '/usr/bin:/bin',
     HOME: process.env.HOME ?? '',
@@ -220,9 +257,20 @@ function gitEnvironment() {
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_TERMINAL_PROMPT: '0',
-    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_COUNT: token ? '2' : '1',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
     GIT_CONFIG_VALUE_0: '/dev/null',
+    ...(token
+      ? {
+          // Git reads this controller-only environment through a fixed helper;
+          // the token is never an argv value, remote URL, log, or sandbox input.
+          GITHUB_TOKEN: token,
+          GH_TOKEN: token,
+          GIT_CONFIG_KEY_1: 'credential.helper',
+          GIT_CONFIG_VALUE_1:
+            '!f() { echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
+        }
+      : {}),
   };
 }
 async function host(
@@ -277,10 +325,11 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-publish-'));
-    await chmod(directory, 0o700);
+    const parent = await mkdtemp(join(tmpdir(), 'mitzo-github-publish-'));
+    await chmod(parent, 0o700);
+    const directory = join(parent, 'checkout');
     try {
-      const bundlePath = join(directory, 'commits.bundle');
+      const bundlePath = join(parent, 'commits.bundle');
       await writeFile(bundlePath, input.bundle, { mode: 0o600 });
       await host(
         'git',
@@ -306,9 +355,9 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       // Do not checkout repository content. Fetching the verified bundle into
       // a clean clone applies the commits without running smudge filters,
       // hooks, package scripts, or repository-controlled code.
-      return { directory };
+      return { directory, cleanupDirectory: parent };
     } catch (error) {
-      await rm(directory, { recursive: true, force: true });
+      await rm(parent, { recursive: true, force: true });
       throw error;
     }
   }
@@ -405,7 +454,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     return existing;
   }
   async cleanup(directory: string) {
-    if (!directory.startsWith(join(tmpdir(), 'mitzo-github-publish-')))
+    const root = join(tmpdir(), 'mitzo-github-publish-');
+    if (!directory.startsWith(root) || directory === root)
       throw new Error('Host checkout cleanup refused');
     await rm(directory, { recursive: true, force: true });
   }

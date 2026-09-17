@@ -13,7 +13,14 @@ describe('OpenShellConnectionGateway', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn());
     expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);
     expect(gateway.supportsTemplate('jira-readonly', 2)).toBe(false);
-    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(true);
+    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(false);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(true);
   });
   it.each([
     { label: 'missing', credentialKeys: [] },
