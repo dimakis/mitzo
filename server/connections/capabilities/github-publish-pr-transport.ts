@@ -329,6 +329,10 @@ function assertPullRequestScope(
     value.id !== expected.id ||
     !url ||
     url.protocol !== 'https:' ||
+    !!url.username ||
+    !!url.password ||
+    !!url.search ||
+    !!url.hash ||
     url.hostname.toLowerCase() !== 'github.com' ||
     url.pathname.toLowerCase() !== `/${expected.repository}/pull/${expected.id}`.toLowerCase()
   )
@@ -611,6 +615,10 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     const expected = `/${input.repository}/pull/`;
     if (
       url.protocol !== 'https:' ||
+      !!url.username ||
+      !!url.password ||
+      !!url.search ||
+      !!url.hash ||
       url.hostname.toLowerCase() !== 'github.com' ||
       !url.pathname.toLowerCase().startsWith(expected.toLowerCase())
     )

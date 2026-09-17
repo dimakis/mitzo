@@ -306,6 +306,9 @@ describe('github.publish-pr capability', () => {
     { url: 'https://evil.test/acme/widgets/pull/12' },
     { repository: 'evil/widgets' },
     { id: '99', url: 'https://github.com/acme/widgets/pull/12' },
+    { url: 'https://github.com/acme/widgets/pull/12?state=open' },
+    { url: 'https://github.com/acme/widgets/pull/12#comment' },
+    { url: 'https://user:password@github.com/acme/widgets/pull/12' },
   ])('rejects hostile existing PR identity before PATCH or readiness mutation', async (hostile) => {
     const runner = vi.fn();
     await expect(
@@ -327,6 +330,24 @@ describe('github.publish-pr capability', () => {
         title: input.title,
         body: input.body,
         draft: false,
+        operationId: 'op',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('invalid');
+    expect(runner).not.toHaveBeenCalled();
+  });
+  it.each([
+    'https://github.com/acme/widgets/pull/12?state=open',
+    'https://github.com/acme/widgets/pull/12#comment',
+    'https://user:password@github.com/acme/widgets/pull/12',
+  ])('rejects impure PR read URLs before host GET', async (externalResultId) => {
+    const runner = vi.fn();
+    await expect(
+      new GitHubCliHostPublisher(runner).read({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        externalResultId,
         operationId: 'op',
         signal: new AbortController().signal,
       }),
