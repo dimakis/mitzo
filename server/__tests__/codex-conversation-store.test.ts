@@ -157,6 +157,48 @@ it('durably pauses same-process replacement without requiring startup recovery',
   expect(() => s.claimNext('c', binding)).toThrow('recovery');
   s.close();
 });
+
+it('tracks provider thread generations and their last known-good turn atomically', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.bindThread('c', binding, 'thread-0');
+  s.enqueue('c', binding, { id: 'good', prompt: 'good' });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'good', 'completed', 'turn-good');
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-0',
+    threadGeneration: 0,
+    lastCompletedTurnId: 'turn-good',
+  });
+
+  s.enqueue('c', binding, { id: 'failed', prompt: 'uncertain' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'failed', 'failed', 'fork');
+  expect(s.read('c', binding).recoveryStrategy).toBe('fork');
+  expect(
+    s.replaceThread(
+      'c',
+      binding,
+      'thread-0',
+      'thread-1',
+      'provider_transport_failure',
+      'turn-good',
+    ),
+  ).toBe(1);
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-1',
+    threadGeneration: 1,
+    lastCompletedTurnId: 'turn-good',
+    recoveryStrategy: 'fork',
+  });
+  expect(() =>
+    s.replaceThread('c', binding, 'thread-0', 'thread-2', 'provider_transport_failure'),
+  ).toThrow('generation changed');
+  s.acknowledgeRecovery('c', binding);
+  expect(s.read('c', binding).recoveryStrategy).toBe('resume');
+  s.close();
+});
 it('exposes raw queued, running, and recovery state for lifecycle protection', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
@@ -302,6 +344,7 @@ it('migrates legacy recovery flags into acknowledged and unacknowledged command 
   expect(s.read('acknowledged', binding).recovery).toBe(0);
 
   s.enqueue('uncertain', binding, { id: 'later', prompt: 'saved' });
+  expect(s.read('uncertain', binding).recoveryStrategy).toBe('fork');
   expect(s.cancelQueued('uncertain', binding, 'later')).toBe('cancelled');
   expect(s.read('uncertain', binding).recovery).toBe(1);
   s.close();

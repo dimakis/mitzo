@@ -63,7 +63,10 @@ interface Conversation {
   conversationId: string;
   cwd: string;
   threadId: string | null;
+  threadGeneration: number;
+  lastCompletedTurnId: string | null;
   recovery: number;
+  recoveryStrategy: 'resume' | 'fork';
 }
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
@@ -75,7 +78,10 @@ export class CodexConversationStore {
     this.db.pragma('synchronous = FULL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_conversations (
-      id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT, recovery INTEGER NOT NULL DEFAULT 0);
+      id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
+      thread_generation INTEGER NOT NULL DEFAULT 0,
+      recovery INTEGER NOT NULL DEFAULT 0,
+      recovery_strategy TEXT NOT NULL DEFAULT 'resume');
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
@@ -86,21 +92,61 @@ export class CodexConversationStore {
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
     this.db.transaction(() => {
+      const conversationColumns = this.db
+        .prepare('PRAGMA table_info(codex_conversations)')
+        .all() as Array<{ name: string }>;
+      if (!conversationColumns.some((column) => column.name === 'thread_generation'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN thread_generation INTEGER NOT NULL DEFAULT 0',
+        );
+      const addsRecoveryStrategy = !conversationColumns.some(
+        (column) => column.name === 'recovery_strategy',
+      );
+      if (addsRecoveryStrategy)
+        this.db.exec(
+          "ALTER TABLE codex_conversations ADD COLUMN recovery_strategy TEXT NOT NULL DEFAULT 'resume'",
+        );
+      this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_generations (
+        conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+        generation INTEGER NOT NULL,
+        thread_id TEXT NOT NULL,
+        parent_thread_id TEXT,
+        reason TEXT NOT NULL,
+        last_completed_turn_id TEXT,
+        created_at INTEGER NOT NULL,
+        retired_at INTEGER,
+        PRIMARY KEY(conversation_id,generation),
+        UNIQUE(conversation_id,thread_id));
+        INSERT OR IGNORE INTO codex_thread_generations(
+          conversation_id,generation,thread_id,parent_thread_id,reason,created_at)
+        SELECT id,thread_generation,thread_id,NULL,'legacy',unixepoch('now') * 1000
+        FROM codex_conversations WHERE thread_id IS NOT NULL;`);
       const columns = this.db.prepare('PRAGMA table_info(codex_commands)').all() as Array<{
         name: string;
       }>;
-      if (columns.some((column) => column.name === 'recovery_acknowledged')) return;
-      this.db.exec(
-        'ALTER TABLE codex_commands ADD COLUMN recovery_acknowledged INTEGER NOT NULL DEFAULT 0',
-      );
-      // Before this column existed, a cleared conversation recovery flag was
-      // the only durable evidence that its interrupted work was acknowledged.
-      // Keep recovery=1 rows conservative because their individual history is
-      // ambiguous until the user acknowledges it after this upgrade.
-      this.db.exec(`UPDATE codex_commands
-        SET recovery_acknowledged=1
-        WHERE status IN ('interrupted','failed')
-          AND conversation_id IN (SELECT id FROM codex_conversations WHERE recovery=0)`);
+      if (!columns.some((column) => column.name === 'recovery_acknowledged')) {
+        this.db.exec(
+          'ALTER TABLE codex_commands ADD COLUMN recovery_acknowledged INTEGER NOT NULL DEFAULT 0',
+        );
+        // Before this column existed, a cleared conversation recovery flag was
+        // the only durable evidence that its interrupted work was acknowledged.
+        // Keep recovery=1 rows conservative because their individual history is
+        // ambiguous until the user acknowledges it after this upgrade.
+        this.db.exec(`UPDATE codex_commands
+          SET recovery_acknowledged=1
+          WHERE status IN ('interrupted','failed')
+            AND conversation_id IN (SELECT id FROM codex_conversations WHERE recovery=0)`);
+      }
+      // Legacy recovery rows could not persist a failure class. A failed (not
+      // merely interrupted) active command is the conservative signal that the
+      // provider thread, rather than only its process transport, needs a new
+      // generation before more user intent is admitted.
+      if (addsRecoveryStrategy)
+        this.db.exec(`UPDATE codex_conversations SET recovery_strategy='fork'
+          WHERE recovery=1 AND id IN (
+            SELECT conversation_id FROM codex_commands
+            WHERE status='failed' AND recovery_acknowledged=0
+          )`);
     })();
   }
   private key(b: AccountBinding) {
@@ -109,7 +155,14 @@ export class CodexConversationStore {
   read(id: string, b: AccountBinding): Conversation {
     const row = this.db
       .prepare(
-        'SELECT id AS conversationId,binding,cwd,thread_id AS threadId,recovery FROM codex_conversations WHERE id=?',
+        `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
+          c.thread_generation AS threadGeneration,c.recovery,
+          c.recovery_strategy AS recoveryStrategy,
+          g.last_completed_turn_id AS lastCompletedTurnId
+        FROM codex_conversations c
+        LEFT JOIN codex_thread_generations g
+          ON g.conversation_id=c.id AND g.generation=c.thread_generation
+        WHERE c.id=?`,
       )
       .get(id) as (Conversation & { binding: string }) | undefined;
     if (!row || row.binding !== this.key(b))
@@ -118,7 +171,10 @@ export class CodexConversationStore {
       conversationId: row.conversationId,
       cwd: row.cwd,
       threadId: row.threadId,
+      threadGeneration: row.threadGeneration,
+      lastCompletedTurnId: row.lastCompletedTurnId,
       recovery: row.recovery,
+      recoveryStrategy: row.recoveryStrategy,
     };
   }
   create(id: string, b: AccountBinding, cwd: string) {
@@ -128,9 +184,52 @@ export class CodexConversationStore {
     if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
   }
   bindThread(id: string, b: AccountBinding, threadId: string) {
-    const old = this.read(id, b).threadId;
-    if (!threadId || (old && old !== threadId)) throw new Error('Codex provider thread changed');
-    this.db.prepare('UPDATE codex_conversations SET thread_id=? WHERE id=?').run(threadId, id);
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      if (!threadId || (current.threadId && current.threadId !== threadId))
+        throw new Error('Codex provider thread changed');
+      this.db.prepare('UPDATE codex_conversations SET thread_id=? WHERE id=?').run(threadId, id);
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO codex_thread_generations(
+            conversation_id,generation,thread_id,parent_thread_id,reason,created_at)
+          VALUES (?,?,?,?,?,?)`,
+        )
+        .run(id, current.threadGeneration, threadId, null, 'initial', Date.now());
+    })();
+  }
+  replaceThread(
+    id: string,
+    b: AccountBinding,
+    expectedThreadId: string,
+    threadId: string,
+    reason: 'provider_transport_failure',
+    lastCompletedTurnId?: string,
+  ) {
+    return this.db.transaction(() => {
+      const current = this.read(id, b);
+      if (!threadId || threadId === expectedThreadId || current.threadId !== expectedThreadId)
+        throw new Error('Codex provider thread generation changed');
+      const generation = current.threadGeneration + 1;
+      const now = Date.now();
+      this.db
+        .prepare(
+          'UPDATE codex_thread_generations SET retired_at=? WHERE conversation_id=? AND generation=?',
+        )
+        .run(now, id, current.threadGeneration);
+      this.db
+        .prepare(
+          `INSERT INTO codex_thread_generations(
+            conversation_id,generation,thread_id,parent_thread_id,reason,
+            last_completed_turn_id,created_at)
+          VALUES (?,?,?,?,?,?,?)`,
+        )
+        .run(id, generation, threadId, expectedThreadId, reason, lastCompletedTurnId ?? null, now);
+      this.db
+        .prepare('UPDATE codex_conversations SET thread_id=?,thread_generation=? WHERE id=?')
+        .run(threadId, generation, id);
+      return generation;
+    })();
   }
   enqueue(id: string, b: AccountBinding, input: CodexCommandInput): boolean {
     this.read(id, b);
@@ -285,19 +384,30 @@ export class CodexConversationStore {
     b: AccountBinding,
     commandId: string,
     status: 'completed' | 'interrupted' | 'failed',
+    providerTurnId?: string,
   ) {
-    this.read(id, b);
-    this.db
-      .prepare(
-        "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
-      )
-      .run(status, id, commandId);
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
+        )
+        .run(status, id, commandId);
+      if (status === 'completed' && providerTurnId)
+        this.db
+          .prepare(
+            `UPDATE codex_thread_generations SET last_completed_turn_id=?
+            WHERE conversation_id=? AND generation=?`,
+          )
+          .run(providerTurnId, id, current.threadGeneration);
+    })();
   }
   pauseForRecovery(
     id: string,
     b: AccountBinding,
     commandId?: string,
     status: 'interrupted' | 'failed' = 'interrupted',
+    recoveryStrategy: 'resume' | 'fork' = 'resume',
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -312,7 +422,17 @@ export class CodexConversationStore {
             "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
           )
           .run(status, id, commandId);
-      if (pending) this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
+      if (pending)
+        this.db
+          .prepare(
+            `UPDATE codex_conversations SET recovery=1,
+              recovery_strategy=CASE
+                WHEN recovery_strategy='fork' OR ?='fork' THEN 'fork'
+                ELSE 'resume'
+              END
+            WHERE id=?`,
+          )
+          .run(recoveryStrategy, id);
     })();
   }
   claimTool(id: string, b: AccountBinding, commandId: string, callId: string): boolean {
@@ -348,7 +468,9 @@ export class CodexConversationStore {
           "UPDATE codex_commands SET recovery_acknowledged=1 WHERE conversation_id=? AND status IN ('interrupted','failed')",
         )
         .run(id);
-      this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
+      this.db
+        .prepare("UPDATE codex_conversations SET recovery=0,recovery_strategy='resume' WHERE id=?")
+        .run(id);
     })();
   }
   close() {

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import {
@@ -332,6 +333,17 @@ export function registerOpenShellLifecycle(
   if (existing?.phase === 'failed')
     throw new Error('OpenShell lifecycle recovery must be verified before registration');
   const now = Date.now();
+  const identity: OpenShellLifecycleIdentity = {
+    threadId,
+    accountId: binding.accountId,
+    provider: binding.provider,
+    model: binding.model,
+    profileRevision: binding.profileRevision,
+    image: configured.config.image,
+    policyDigest: configured.policyDigest,
+    runtimeScope: configured.config.workspace,
+    route: account,
+  };
   configured.store.upsert({
     conversationId,
     workspace: configured!.config.workspace,
@@ -346,19 +358,15 @@ export function registerOpenShellLifecycle(
     lastActivityAt: now,
     idleSince: null,
     stoppedAt: null,
-    checkpoint: existing?.checkpoint ?? null,
+    // A checkpoint manifest is cryptographically bound to this entire
+    // identity, including the provider thread generation. Updating identity
+    // and invalidating an incompatible archive happen in the same durable row
+    // replacement, so restore can never observe a cross-generation checkpoint.
+    checkpoint: isDeepStrictEqual(existing?.identity, identity)
+      ? (existing?.checkpoint ?? null)
+      : null,
     retentionConsent: existing?.retentionConsent ?? false,
-    identity: {
-      threadId,
-      accountId: binding.accountId,
-      provider: binding.provider,
-      model: binding.model,
-      profileRevision: binding.profileRevision,
-      image: configured!.config.image,
-      policyDigest: configured!.policyDigest,
-      runtimeScope: configured!.config.workspace,
-      route: account,
-    },
+    identity,
   });
 }
 
