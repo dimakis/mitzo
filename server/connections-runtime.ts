@@ -51,6 +51,8 @@ export function createConnectionsRuntime(options: {
   probeImage?: string;
   probePolicy?: string;
   githubProbePolicy?: string;
+  /** Test-only explicit override; production derives this from controller env. */
+  githubPublishEnabled?: boolean;
   /** Authoritative conversation metadata, injected by server startup. */
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
   /** Tests may replace a reviewed built-in executor with a deterministic fake. */
@@ -106,6 +108,8 @@ export function createConnectionsRuntime(options: {
       probeImage: options.probeImage,
       probePolicy: options.probePolicy,
       githubProbePolicy: options.githubProbePolicy,
+      githubPublishEnabled:
+        options.githubPublishEnabled ?? Boolean(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN),
     },
   );
   const service = new ConnectionsService(store, gateway, {
@@ -169,8 +173,10 @@ export function createConnectionsRuntime(options: {
         : undefined;
     },
   });
+  const githubPublishEnabled =
+    options.githubPublishEnabled ?? Boolean(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN);
   const executorRegistry = new CapabilityExecutorRegistry({
-    'github-publish-pr-v1': githubExecutor,
+    ...(githubPublishEnabled ? { 'github-publish-pr-v1': githubExecutor } : {}),
     ...(options.capabilityExecutors ?? {}),
   });
   const capabilities = new CapabilityService({

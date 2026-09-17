@@ -12,6 +12,9 @@ import { canonicalJson } from './input-validation.js';
 /** A deliberately small binary budget. The sandbox must not become a data exfiltration channel. */
 export const GITHUB_PUBLISH_MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
 export const GITHUB_PUBLISH_MAX_CHANGED_FILES = 500;
+/** The complete list is shown in the shared approval card; oversized scope is rejected. */
+export const GITHUB_PUBLISH_MAX_APPROVAL_CHANGED_FILES = 64;
+export const GITHUB_PUBLISH_MAX_APPROVAL_PATH_CHARS = 120;
 
 export interface GithubPublishConversation {
   /** Trusted OpenShell workdir, supplied by lifecycle state rather than tool input. */
@@ -24,6 +27,7 @@ export interface GithubSandboxInspection {
   /** Empty means clean. This is deliberately not a user-provided porcelain string. */
   status: string;
   sourceBranch: string | null;
+  sourceOid: string;
   defaultBranch: string;
   /** The exact origin URL observed by Git, not an arbitrary configured URL. */
   originUrl: string;
@@ -50,6 +54,7 @@ export interface GithubSandboxTransport {
     sandboxName: string;
     repositoryPath: string;
     sourceBranch: string;
+    sourceOid: string;
     baseBranch: string;
     maxBytes: number;
     signal: AbortSignal;
@@ -69,9 +74,15 @@ export interface GithubPullRequest {
  * forbidden from placing them in an argument, result, error, or sandbox call.
  */
 export interface GithubHostPublisher {
+  policy(input: {
+    repository: string;
+    sourceBranch: string;
+    signal: AbortSignal;
+  }): Promise<{ defaultBranch: string; sourceBranchProtected: boolean }>;
   reconstruct(input: {
     repository: string;
     sourceBranch: string;
+    sourceOid: string;
     baseBranch: string;
     bundle: Buffer;
     operationId: string;
@@ -108,6 +119,12 @@ export interface GithubHostPublisher {
     operationId: string;
     signal: AbortSignal;
   }): Promise<GithubPullRequest | null>;
+  readBranch(input: {
+    repository: string;
+    sourceBranch: string;
+    operationId: string;
+    signal: AbortSignal;
+  }): Promise<string | null>;
   cleanup(directory: string): Promise<void>;
 }
 
@@ -254,35 +271,47 @@ export function createGithubPublishPrExecutor(
     if (inspection.status !== '') reject('Repository working tree is dirty');
     if (!inspection.sourceBranch || !validBranch(inspection.sourceBranch))
       reject('Repository HEAD is detached');
-    if (
-      inspection.sourceBranch === inspection.defaultBranch ||
-      inspection.sourceBranch === input.baseBranch ||
-      inspection.sourceBranchProtected ||
-      isProtectedGithubSourceBranch(inspection.sourceBranch)
-    )
-      reject('Source branch is protected');
     if (!Number.isSafeInteger(inspection.commitsAhead) || inspection.commitsAhead < 1)
       reject('Repository has no commits ahead of base');
     if (
-      inspection.changedFiles.length > GITHUB_PUBLISH_MAX_CHANGED_FILES ||
-      inspection.changedFiles.some((file) => typeof file !== 'string' || file.length > 1024)
+      inspection.changedFiles.length > GITHUB_PUBLISH_MAX_APPROVAL_CHANGED_FILES ||
+      inspection.changedFiles.some(
+        (file) => typeof file !== 'string' || file.length > GITHUB_PUBLISH_MAX_APPROVAL_PATH_CHARS,
+      ) ||
+      !/^[a-f0-9]{40,64}$/i.test(inspection.sourceOid)
     )
       reject('Changed-file summary is invalid');
     const repo = githubRepositoryFromOrigin(inspection.originUrl);
     if (!allowlist(config, 'allowedRepositories').has(repo)) reject('Repository is not allowed');
     if (!allowlist(config, 'allowedBaseBranches').has(input.baseBranch))
       reject('Base branch is not allowed');
+    const policy = await deps.host.policy({
+      repository: repo,
+      sourceBranch: inspection.sourceBranch,
+      signal: context.signal,
+    });
+    if (
+      !validBranch(policy.defaultBranch) ||
+      inspection.sourceBranch === policy.defaultBranch ||
+      inspection.sourceBranch === input.baseBranch ||
+      policy.sourceBranchProtected ||
+      inspection.sourceBranchProtected ||
+      isProtectedGithubSourceBranch(inspection.sourceBranch)
+    )
+      reject('Source branch is protected');
     return { input, conversation, repositoryPath, inspection, repository: repo };
   };
   const approval = (
     state: Awaited<ReturnType<typeof inspect>>,
     existing: GithubPullRequest | null,
   ) => ({
+    ...state.input,
     repository: state.repository,
     sourceBranch: state.inspection.sourceBranch!,
+    sourceOid: state.inspection.sourceOid,
     baseBranch: state.input.baseBranch,
     commitCount: String(state.inspection.commitsAhead),
-    changedFiles: JSON.stringify(state.inspection.changedFiles.slice(0, 64)),
+    changedFiles: JSON.stringify(state.inspection.changedFiles),
     existingPullRequest: existing ? 'update' : 'create',
   });
   const assertApproved = (
@@ -319,7 +348,11 @@ export function createGithubPublishPrExecutor(
         recoveryIntent: {
           repository: state.repository,
           sourceBranch: state.inspection.sourceBranch!,
+          sourceOid: state.inspection.sourceOid,
           baseBranch: state.input.baseBranch,
+          title: state.input.title,
+          body: state.input.body,
+          draft: state.input.draft,
           operationId: context.operation.id,
         },
       };
@@ -338,6 +371,7 @@ export function createGithubPublishPrExecutor(
         sandboxName: state.conversation.sandboxName,
         repositoryPath: state.repositoryPath,
         sourceBranch: state.inspection.sourceBranch!,
+        sourceOid: state.inspection.sourceOid,
         baseBranch: state.input.baseBranch,
         maxBytes: GITHUB_PUBLISH_MAX_BUNDLE_BYTES,
         signal: context.signal,
@@ -355,6 +389,7 @@ export function createGithubPublishPrExecutor(
         const reconstructed = await deps.host.reconstruct({
           repository: state.repository,
           sourceBranch: state.inspection.sourceBranch!,
+          sourceOid: state.inspection.sourceOid,
           baseBranch: state.input.baseBranch,
           bundle,
           operationId: context.operation.id,
@@ -426,15 +461,32 @@ export function createGithubPublishPrExecutor(
         reject('GitHub recovery result is unavailable');
       const repository = result.repository;
       const sourceBranch = result.sourceBranch;
+      const sourceOid = result.sourceOid;
       const baseBranch = result.baseBranch;
+      const title = result.title;
+      const body = result.body;
+      const draft = result.draft;
       if (
         typeof repository !== 'string' ||
         typeof sourceBranch !== 'string' ||
+        typeof sourceOid !== 'string' ||
         typeof baseBranch !== 'string' ||
+        typeof title !== 'string' ||
+        typeof body !== 'string' ||
+        typeof draft !== 'boolean' ||
+        !/^[a-f0-9]{40,64}$/i.test(sourceOid) ||
         (operation.externalResultId !== null && typeof operation.externalResultId !== 'string')
       )
         reject('GitHub recovery result is unavailable');
-      const pr = await deps.host.read({
+      const branchOid = await deps.host.readBranch({
+        repository,
+        sourceBranch,
+        operationId: operation.id,
+        signal,
+      });
+      if (!branchOid || branchOid !== sourceOid)
+        throw new CapabilityRecoveryPendingError('GitHub branch recovery remains pending');
+      const existing = await deps.host.read({
         repository,
         sourceBranch,
         baseBranch,
@@ -442,10 +494,43 @@ export function createGithubPublishPrExecutor(
         operationId: operation.id,
         signal,
       });
-      if (!pr) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
+      const pr =
+        existing ??
+        (await deps.host.create({
+          repository,
+          sourceBranch,
+          baseBranch,
+          title,
+          body,
+          draft,
+          operationId: operation.id,
+          signal,
+        }));
       assertPullRequest(pr, { repository, sourceBranch, baseBranch });
       if (operation.externalResultId && pr.url !== operation.externalResultId)
         reject('GitHub recovery verification failed');
+      const verified = await deps.host.read({
+        repository,
+        sourceBranch,
+        baseBranch,
+        externalResultId: pr.url,
+        operationId: operation.id,
+        signal,
+      });
+      if (!verified) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
+      assertPullRequest(verified, { repository, sourceBranch, baseBranch });
+      return {
+        output: {
+          repository: verified.repository,
+          sourceBranch: verified.sourceBranch,
+          baseBranch: verified.baseBranch,
+          pullRequestUrl: verified.url,
+          pullRequestId: verified.id,
+          sourceOid,
+          recovered: true,
+        },
+        externalResultId: verified.url,
+      };
     },
   };
 }

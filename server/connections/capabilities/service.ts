@@ -475,8 +475,8 @@ export class CapabilityService {
         throw new Error('Invalid capability recovery result');
       try {
         return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
-          result: operation.result ?? { recovered: true },
-          externalResultId: operation.externalResultId ?? undefined,
+          result: recovered?.output ?? operation.result ?? { recovered: true },
+          externalResultId: recovered?.externalResultId ?? operation.externalResultId ?? undefined,
         });
       } catch {
         // Another reconnect may have settled the same read-only recovery

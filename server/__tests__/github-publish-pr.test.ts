@@ -1,4 +1,7 @@
 import { Buffer } from 'node:buffer';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   GITHUB_PUBLISH_MAX_BUNDLE_BYTES,
@@ -7,6 +10,11 @@ import {
   type GithubHostPublisher,
   type GithubSandboxInspection,
 } from '../connections/capabilities/github-publish-pr.js';
+import {
+  OpenShellGithubSandboxTransport,
+  parseGithubPullRequest,
+  GitHubCliHostPublisher,
+} from '../connections/capabilities/github-publish-pr-transport.js';
 import type {
   CapabilityExecutionContext,
   CapabilityOperation,
@@ -42,6 +50,7 @@ const input = {
 function inspection(overrides: Partial<GithubSandboxInspection> = {}): GithubSandboxInspection {
   return {
     canonicalRepositoryPath: input.repositoryPath,
+    sourceOid: 'a'.repeat(40),
     status: '',
     sourceBranch: 'feature/safe',
     defaultBranch: 'main',
@@ -71,11 +80,13 @@ function fixture(
     id: '12',
   };
   const host: GithubHostPublisher = {
+    policy: vi.fn(async () => ({ defaultBranch: 'main', sourceBranchProtected: false })),
     reconstruct: vi.fn(async () => ({ directory: '/tmp/mitzo-github-publish-test' })),
     push: vi.fn(async () => {}),
     findOpen: vi.fn(async () => null),
     create: vi.fn(async () => pull),
     read: vi.fn(async () => pull),
+    readBranch: vi.fn(async () => 'a'.repeat(40)),
     cleanup: vi.fn(async () => {}),
   };
   const executor = createGithubPublishPrExecutor({
@@ -94,6 +105,94 @@ function fixture(
 }
 
 describe('github.publish-pr capability', () => {
+  it('uses GitHub repository-local PR numbers rather than opaque database IDs', () => {
+    expect(
+      parseGithubPullRequest({
+        id: 99887766,
+        number: 12,
+        html_url: 'https://github.com/acme/widgets/pull/12',
+        state: 'closed',
+        head: { ref: 'feature/safe' },
+        base: { ref: 'main', repo: { full_name: 'Acme/Widgets' } },
+      }),
+    ).toMatchObject({ id: '12', repository: 'acme/widgets' });
+  });
+  it('reads a known closed PR by its URL number instead of searching only open PRs', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mitzo-fake-gh-'));
+    const gh = join(directory, 'gh');
+    const payload = JSON.stringify({
+      id: 99887766,
+      number: 12,
+      html_url: 'https://github.com/acme/widgets/pull/12',
+      state: 'closed',
+      head: { ref: 'feature/safe' },
+      base: { ref: 'main', repo: { full_name: 'acme/widgets' } },
+    });
+    await writeFile(
+      gh,
+      `#!/bin/sh\ncase "$*" in *'repos/acme/widgets/pulls/12'*) printf '%s' '${payload}' ;; *) exit 1 ;; esac\n`,
+      { mode: 0o700 },
+    );
+    await chmod(gh, 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = directory;
+    try {
+      await expect(
+        new GitHubCliHostPublisher().read({
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          baseBranch: 'main',
+          externalResultId: 'https://github.com/acme/widgets/pull/12',
+          operationId: 'op',
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({ id: '12', sourceBranch: 'feature/safe' });
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('binds sandbox path validation and every Git action in one control invocation', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      const joined = args.join(' ');
+      if (joined.includes('status --porcelain')) return '';
+      if (joined.includes('symbolic-ref --quiet --short HEAD')) return 'feature/safe\n';
+      if (joined.includes('rev-parse HEAD')) return `${'a'.repeat(40)}\n`;
+      if (joined.includes('remote get-url origin')) return 'https://github.com/acme/widgets.git\n';
+      if (joined.includes('rev-list --count')) return '1\n';
+      if (joined.includes('refs/remotes/origin/HEAD')) return 'origin/main\n';
+      return 'src/index.ts\n';
+    });
+    const transport = new OpenShellGithubSandboxTransport(run, 'mgmt');
+    await transport.inspect({
+      sandboxName: 'sandbox-1',
+      repositoryPath: input.repositoryPath,
+      baseBranch: 'main',
+      signal: new AbortController().signal,
+    });
+    for (const call of run.mock.calls) {
+      const args = call[0] as readonly string[];
+      expect(args).toContain('/bin/sh');
+      const script = args[args.indexOf('-c') + 1] as string;
+      expect(script).toContain('realpath -e');
+      expect(script).toContain('cd -P');
+      expect(script).toContain('exec /usr/bin/git');
+    }
+    run.mockClear();
+    run.mockResolvedValueOnce('YnVuZGxl');
+    await transport.exportBundle({
+      sandboxName: 'sandbox-1',
+      repositoryPath: input.repositoryPath,
+      sourceBranch: 'feature/safe',
+      sourceOid: 'a'.repeat(40),
+      baseBranch: 'main',
+      maxBytes: 1024,
+      signal: new AbortController().signal,
+    });
+    const exportArgs = run.mock.calls[0]![0] as readonly string[];
+    expect(exportArgs).toContain('a'.repeat(40));
+    expect(exportArgs[exportArgs.indexOf('-c') + 1]).toContain('rev-parse HEAD');
+  });
   it('accepts only canonical GitHub origins', () => {
     expect(githubRepositoryFromOrigin('git@github.com:Acme/Widgets.git')).toBe('acme/widgets');
     expect(() => githubRepositoryFromOrigin('https://evil.test/acme/widgets.git')).toThrow(
@@ -165,6 +264,7 @@ describe('github.publish-pr capability', () => {
     const f = fixture();
     const preflight = await f.executor.preflight!(context());
     expect(preflight.approvalInput).toMatchObject({
+      ...input,
       repository: 'acme/widgets',
       sourceBranch: 'feature/safe',
       baseBranch: 'main',
@@ -178,6 +278,34 @@ describe('github.publish-pr capability', () => {
       ),
     ).rejects.toThrow('changed after approval');
     expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
+  });
+  it('binds the exact approved source OID and rejects approval-card overflow before export', async () => {
+    const f = fixture();
+    const preflight = await f.executor.preflight!(context());
+    vi.mocked(f.sandbox.inspect).mockResolvedValueOnce(inspection({ sourceOid: 'b'.repeat(40) }));
+    await expect(
+      f.executor.execute(context({ approvalInput: preflight.approvalInput })),
+    ).rejects.toThrow('changed after approval');
+    const many = fixture({
+      inspection: { changedFiles: Array.from({ length: 65 }, (_, i) => `src/${i}`) },
+    });
+    await expect(many.executor.preflight!(context())).rejects.toThrow('summary');
+    expect(many.sandbox.exportBundle).not.toHaveBeenCalled();
+  });
+  it('uses host-authoritative default and protection policy before any export', async () => {
+    const f = fixture();
+    vi.mocked(f.host.policy).mockResolvedValueOnce({
+      defaultBranch: 'trunk',
+      sourceBranchProtected: false,
+    });
+    vi.mocked(f.sandbox.inspect).mockResolvedValueOnce(inspection({ sourceBranch: 'trunk' }));
+    await expect(f.executor.execute(context())).rejects.toThrow('protected');
+    const protectedSource = fixture();
+    vi.mocked(protectedSource.host.policy).mockResolvedValueOnce({
+      defaultBranch: 'main',
+      sourceBranchProtected: true,
+    });
+    await expect(protectedSource.executor.execute(context())).rejects.toThrow('protected');
   });
   it.each([
     ['reviewed protected pattern', { sourceBranch: 'release/4.0' }, 'protected'],
@@ -252,17 +380,25 @@ describe('github.publish-pr capability', () => {
       recoveryIntent: {
         repository: f.pull.repository,
         sourceBranch: f.pull.sourceBranch,
+        sourceOid: 'a'.repeat(40),
         baseBranch: f.pull.baseBranch,
+        title: input.title,
+        body: input.body,
+        draft: input.draft,
       },
     };
-    await f.executor.recover(recovered, new AbortController().signal);
+    await expect(
+      f.executor.recover(recovered, new AbortController().signal),
+    ).resolves.toMatchObject({
+      externalResultId: f.pull.url,
+    });
     expect(f.host.read).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: operation.id, externalResultId: f.pull.url }),
     );
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).not.toHaveBeenCalled();
   });
-  it('keeps a response-loss operation pending when read-only recovery cannot yet find its PR', async () => {
+  it('recreates a missing PR only after the durable branch OID is verified', async () => {
     const f = fixture();
     vi.mocked(f.host.read).mockResolvedValueOnce(null);
     await expect(
@@ -272,14 +408,18 @@ describe('github.publish-pr capability', () => {
           recoveryIntent: {
             repository: 'acme/widgets',
             sourceBranch: 'feature/safe',
+            sourceOid: 'a'.repeat(40),
             baseBranch: 'main',
+            title: input.title,
+            body: input.body,
+            draft: false,
             operationId: operation.id,
           },
         },
         new AbortController().signal,
       ),
-    ).rejects.toMatchObject({ name: 'Error' });
+    ).resolves.toMatchObject({ externalResultId: f.pull.url });
     expect(f.host.push).not.toHaveBeenCalled();
-    expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.create).toHaveBeenCalledTimes(1);
   });
 });

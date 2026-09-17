@@ -55,8 +55,9 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   ) {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
-    await this.assertSymlinkFree(sandboxName, repositoryPath, signal);
     try {
+      const script =
+        'set -eu; repo="$1"; shift; [ "$(realpath -e "$repo")" = "$repo" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; exec /usr/bin/git "$@"';
       return await this.run(
         [
           'sandbox',
@@ -69,8 +70,10 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '--timeout',
           '30',
           '--',
-          '/usr/bin/git',
-          '-C',
+          '/bin/sh',
+          '-c',
+          script,
+          'mitzo-github-git',
           repositoryPath,
           ...args,
         ],
@@ -80,39 +83,6 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       return commandFailure();
     }
   }
-  private async assertSymlinkFree(
-    sandboxName: string,
-    repositoryPath: string,
-    signal: AbortSignal,
-  ) {
-    const script =
-      'set -eu; root="$1"; repo="$2"; [ "$(realpath -e "$repo")" = "$repo" ]; p="$repo"; while [ "$p" != "$root" ]; do [ ! -L "$p" ]; p="${p%/*}"; done; [ ! -L "$root" ]';
-    try {
-      await this.run(
-        [
-          'sandbox',
-          '--workspace',
-          this.workspace,
-          'exec',
-          '--name',
-          sandboxName,
-          '--no-tty',
-          '--timeout',
-          '15',
-          '--',
-          '/bin/sh',
-          '-c',
-          script,
-          'mitzo-github-path',
-          '/sandbox/workspaces',
-          repositoryPath,
-        ],
-        { signal, maxOutputBytes: 1024 },
-      );
-    } catch {
-      throw new Error('Repository path is ambiguous');
-    }
-  }
   async inspect(input: {
     sandboxName: string;
     repositoryPath: string;
@@ -120,13 +90,14 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     signal: AbortSignal;
   }): Promise<GithubSandboxInspection> {
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    const [status, source, origin, count, defaultRef, files] = await Promise.all([
+    const [status, source, sourceOid, origin, count, defaultRef, files] = await Promise.all([
       this.git(
         input.sandboxName,
         input.repositoryPath,
         ['status', '--porcelain=v1', '--untracked-files=all'],
         input.signal,
       ),
+      this.git(input.sandboxName, input.repositoryPath, ['rev-parse', 'HEAD'], input.signal),
       this.git(
         input.sandboxName,
         input.repositoryPath,
@@ -184,6 +155,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       canonicalRepositoryPath: input.repositoryPath,
       status,
       sourceBranch,
+      sourceOid: sourceOid.trim(),
       defaultBranch,
       originUrl: origin.trim(),
       commitsAhead,
@@ -197,6 +169,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     sandboxName: string;
     repositoryPath: string;
     sourceBranch: string;
+    sourceOid: string;
     baseBranch: string;
     maxBytes: number;
     signal: AbortSignal;
@@ -205,12 +178,13 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     checked(input.repositoryPath, safePath, 'Repository path is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
+    if (!/^[a-f0-9]{40,64}$/i.test(input.sourceOid)) throw new Error('Source commit is invalid');
     if (!Number.isSafeInteger(input.maxBytes) || input.maxBytes < 1)
       throw new Error('Bundle limit is invalid');
-    await this.assertSymlinkFree(input.sandboxName, input.repositoryPath, input.signal);
     // `git bundle -` is binary. Encode inside the sandbox so the control CLI
     // only transports bounded text and cannot corrupt NUL-containing objects.
-    const script = 'set -eu; git -C "$1" bundle create - "origin/$2..$3" | base64 | tr -d "\\n"';
+    const script =
+      'set -eu; repo="$1"; base="$2"; branch="$3"; oid="$4"; [ "$(realpath -e "$repo")" = "$repo" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; [ "$(/usr/bin/git rev-parse HEAD)" = "$oid" ]; /usr/bin/git bundle create - "origin/$base..$branch" | base64 | tr -d "\\n"';
     let encoded: string;
     try {
       encoded = await this.run(
@@ -232,6 +206,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           input.repositoryPath,
           input.baseBranch,
           input.sourceBranch,
+          input.sourceOid,
         ],
         // Base64 expansion plus a short command envelope.
         { signal: input.signal, maxOutputBytes: Math.ceil(input.maxBytes * 1.37) + 4096 },
@@ -292,11 +267,11 @@ async function host(
     throw new Error('GitHub host operation failed');
   }
 }
-function pr(value: unknown): GithubPullRequest | null {
+export function parseGithubPullRequest(value: unknown): GithubPullRequest | null {
   const parsed = z
     .object({
       html_url: z.string(),
-      id: z.union([z.string(), z.number()]).transform(String),
+      number: z.number().int().positive(),
       head: z.object({ ref: z.string() }),
       base: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }) }),
     })
@@ -304,7 +279,9 @@ function pr(value: unknown): GithubPullRequest | null {
   return parsed.success
     ? {
         url: parsed.data.html_url,
-        id: parsed.data.id,
+        // REST /pulls/{number} is addressed by the repository-local PR number;
+        // GitHub's opaque database `id` is not a valid path identifier.
+        id: String(parsed.data.number),
         sourceBranch: parsed.data.head.ref,
         baseBranch: parsed.data.base.ref,
         repository: parsed.data.base.repo.full_name.toLowerCase(),
@@ -314,9 +291,30 @@ function pr(value: unknown): GithubPullRequest | null {
 
 /** Host adapter: isolated checkout, no hooks/local config, explicit non-force push. */
 export class GitHubCliHostPublisher implements GithubHostPublisher {
+  async policy(input: { repository: string; sourceBranch: string; signal: AbortSignal }) {
+    checked(input.repository, safeRepository, 'Repository is invalid');
+    checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
+    const [repository, branch] = await Promise.all([
+      host('gh', ['api', '--method', 'GET', `repos/${input.repository}`], input.signal),
+      host(
+        'gh',
+        ['api', '--method', 'GET', `repos/${input.repository}/branches/${input.sourceBranch}`],
+        input.signal,
+      ),
+    ]);
+    const repo = z.object({ default_branch: z.string() }).safeParse(JSON.parse(repository.stdout));
+    const source = z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout));
+    if (!repo.success || !source.success || !safeBranch.test(repo.data.default_branch))
+      throw new Error('GitHub repository policy is invalid');
+    return {
+      defaultBranch: repo.data.default_branch,
+      sourceBranchProtected: source.data.protected,
+    };
+  }
   async reconstruct(input: {
     repository: string;
     sourceBranch: string;
+    sourceOid: string;
     baseBranch: string;
     bundle: Buffer;
     operationId: string;
@@ -347,6 +345,13 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         ],
         input.signal,
       );
+      const fetched = await host(
+        'git',
+        ['-C', directory, 'rev-parse', `refs/heads/${input.sourceBranch}`],
+        input.signal,
+      );
+      if (fetched.stdout.trim() !== input.sourceOid)
+        throw new Error('Host bundle source does not match approved commit');
       await host(
         'git',
         ['-C', directory, 'symbolic-ref', 'HEAD', `refs/heads/${input.sourceBranch}`],
@@ -396,14 +401,14 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         '-f',
         `base=${input.baseBranch}`,
         '-f',
-        'state=open',
+        'state=all',
       ],
       input.signal,
     );
     const list = z.array(z.unknown()).safeParse(JSON.parse(stdout));
     if (!list.success || list.data.length > 1)
       throw new Error('GitHub pull request lookup is invalid');
-    return list.data.length === 0 ? null : pr(list.data[0]);
+    return list.data.length === 0 ? null : parseGithubPullRequest(list.data[0]);
   }
   async create(input: {
     repository: string;
@@ -436,7 +441,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       ],
       input.signal,
     );
-    const value = pr(JSON.parse(stdout));
+    const value = parseGithubPullRequest(JSON.parse(stdout));
     if (!value) throw new Error('GitHub pull request result is invalid');
     return value;
   }
@@ -448,10 +453,53 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     operationId: string;
     signal: AbortSignal;
   }) {
-    const existing = await this.findOpen(input);
-    if (!existing || (input.externalResultId && existing.url !== input.externalResultId))
-      return null;
+    if (!input.externalResultId) return this.findOpen(input);
+    let url: URL;
+    try {
+      url = new URL(input.externalResultId);
+    } catch {
+      throw new Error('GitHub pull request result is invalid');
+    }
+    const expected = `/${input.repository}/pull/`;
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname.toLowerCase() !== 'github.com' ||
+      !url.pathname.toLowerCase().startsWith(expected.toLowerCase())
+    )
+      throw new Error('GitHub pull request result is invalid');
+    const number = url.pathname.slice(expected.length);
+    if (!/^[1-9][0-9]*$/.test(number)) throw new Error('GitHub pull request result is invalid');
+    const { stdout } = await host(
+      'gh',
+      ['api', '--method', 'GET', `repos/${input.repository}/pulls/${number}`],
+      input.signal,
+    );
+    const existing = parseGithubPullRequest(JSON.parse(stdout));
+    if (!existing || existing.url !== input.externalResultId) return null;
     return existing;
+  }
+  async readBranch(input: {
+    repository: string;
+    sourceBranch: string;
+    operationId: string;
+    signal: AbortSignal;
+  }) {
+    checked(input.repository, safeRepository, 'Repository is invalid');
+    checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
+    const { stdout } = await host(
+      'git',
+      [
+        'ls-remote',
+        `https://github.com/${input.repository}.git`,
+        `refs/heads/${input.sourceBranch}`,
+      ],
+      input.signal,
+    );
+    const row = stdout.trim();
+    if (!row) return null;
+    const oid = row.split(/\s+/)[0];
+    if (!oid || !/^[a-f0-9]{40,64}$/i.test(oid)) throw new Error('GitHub branch lookup is invalid');
+    return oid;
   }
   async cleanup(directory: string) {
     const root = join(tmpdir(), 'mitzo-github-publish-');

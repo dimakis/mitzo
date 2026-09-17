@@ -19,8 +19,16 @@ describe('OpenShellConnectionGateway', () => {
         workspace: 'default',
         probeImage: 'image',
         githubProbePolicy: 'policy',
+        githubPublishEnabled: true,
       }).supportsTemplate('github-readonly', 1),
     ).toBe(true);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(false);
   });
   it.each([
     { label: 'missing', credentialKeys: [] },
