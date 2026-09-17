@@ -667,6 +667,14 @@ describe('connection template registry', () => {
         sources['policy-compiler.ts'].replace('ambiguousGithubBaseBranches.has(value)', 'false'),
       ),
     ).not.toBe(reviewedHandlerSourceArtifacts['policy-compiler.ts']);
+    expect(
+      reviewedHandlerSourceFingerprint(
+        sources['capabilities/github-publish-pr-transport.ts'].replace(
+          'exec /usr/bin/git "$@"',
+          'exec /bin/sh "$@"',
+        ),
+      ),
+    ).not.toBe(reviewedHandlerSourceArtifacts['capabilities/github-publish-pr-transport.ts']);
   });
 
   it('fails closed for duplicate and malformed manifests', () => {

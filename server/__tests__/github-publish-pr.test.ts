@@ -1,6 +1,16 @@
 import { Buffer } from 'node:buffer';
 import { execFile } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  realpath,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,6 +24,7 @@ import {
 } from '../connections/capabilities/github-publish-pr.js';
 import {
   OpenShellGithubSandboxTransport,
+  githubGitBoundaryScript,
   parseGithubPullRequest,
   GitHubCliHostPublisher,
 } from '../connections/capabilities/github-publish-pr-transport.js';
@@ -21,6 +32,10 @@ import type {
   CapabilityExecutionContext,
   CapabilityOperation,
 } from '../connections/capabilities/types.js';
+import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
+import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
+import { CapabilityService } from '../connections/capabilities/service.js';
+import type { CapabilityTemplate } from '../connections/types.js';
 
 const exec = promisify(execFile);
 
@@ -113,6 +128,125 @@ function fixture(
 }
 
 describe('github.publish-pr capability', () => {
+  it('uses the production service preflight card for approval, execution, and durable ambiguous recovery', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-service-'));
+    const f = fixture({ inspection: { changedFiles: ['deleted.ts', 'src/index.ts'] } });
+    const capability: CapabilityTemplate = {
+      id: 'github.publish-pr',
+      version: 1,
+      label: 'Publish pull request',
+      description: 'test',
+      connectionTemplates: [{ id: 'github-readonly', version: 1 }],
+      executor: 'github-publish-pr-v1',
+      approval: 'always',
+      idempotency: 'required',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          connectionId: { type: 'string', minLength: 1, maxLength: 128 },
+          repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
+          baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
+          title: { type: 'string', minLength: 1, maxLength: 128 },
+          body: { type: 'string', maxLength: 512 },
+          draft: { type: 'boolean' },
+        },
+        required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
+        additionalProperties: false,
+      },
+    };
+    const store = new CapabilityOperationStore(join(directory, 'operations.db'));
+    const connection = {
+      id: 'connection-1',
+      templateId: 'github-readonly',
+      templateVersion: 1,
+      revision: 2,
+      status: 'active',
+      desiredAccountIds: ['account-1'],
+    };
+    store.upsertGrant({
+      connectionId: connection.id,
+      connectionRevision: connection.revision,
+      capabilityId: capability.id,
+      capabilityVersion: capability.version,
+      accountIds: ['account-1'],
+      status: 'active',
+    });
+    const approve = vi.fn(async () => true);
+    const service = new CapabilityService({
+      store,
+      executorRegistry: new CapabilityExecutorRegistry({ 'github-publish-pr-v1': f.executor }),
+      getTemplate: () => capability,
+      getConnection: () => connection,
+      listConnections: () => [connection],
+      isConnectionActiveForConversation: () => true,
+      approve,
+    });
+    const existing = { ...f.pull, id: '12', url: 'https://github.com/acme/widgets/pull/12' };
+    vi.mocked(f.host.findOpen).mockResolvedValue(existing);
+    const oldNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const completed = await service.invoke(
+        {
+          capabilityId: capability.id,
+          capabilityVersion: capability.version,
+          connectionId: connection.id,
+          connectionRevision: connection.revision,
+          accountId: 'account-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-1',
+          idempotencyKey: 'approved',
+          input,
+        },
+        new AbortController().signal,
+      );
+      expect(approve).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({
+            repository: 'acme/widgets',
+            sourceBranch: 'feature/safe',
+            sourceOid: 'a'.repeat(40),
+            commitCount: '2',
+            changedFiles: '["deleted.ts","src/index.ts"]',
+            existingPullRequest: 'update',
+          }),
+        }),
+        expect.any(AbortSignal),
+      );
+      expect(completed).toMatchObject({ status: 'succeeded', recoveryIntent: expect.any(Object) });
+      expect(f.host.update).toHaveBeenCalledTimes(1);
+
+      vi.mocked(f.host.create).mockRejectedValueOnce(new Error('lost response'));
+      vi.mocked(f.host.findOpen).mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+      const ambiguous = await service.invoke(
+        {
+          capabilityId: capability.id,
+          capabilityVersion: capability.version,
+          connectionId: connection.id,
+          connectionRevision: connection.revision,
+          accountId: 'account-1',
+          conversationId: 'conversation-1',
+          turnId: 'turn-2',
+          idempotencyKey: 'ambiguous',
+          input,
+        },
+        new AbortController().signal,
+      );
+      expect(ambiguous).toMatchObject({
+        status: 'verification_pending',
+        recoveryIntent: expect.objectContaining({
+          repository: 'acme/widgets',
+          sourceOid: 'a'.repeat(40),
+        }),
+      });
+      expect(store.get(ambiguous.id)?.recoveryIntent).toEqual(ambiguous.recoveryIntent);
+    } finally {
+      if (oldNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = oldNodeEnv;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('uses GitHub repository-local PR numbers rather than opaque database IDs', () => {
     expect(
       parseGithubPullRequest({
@@ -171,7 +305,7 @@ describe('github.publish-pr capability', () => {
     const gh = join(directory, 'gh');
     await writeFile(
       gh,
-      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\",\"full_name\":\"Acme/Widgets\"}' ;; esac\n",
       { mode: 0o700 },
     );
     await chmod(gh, 0o700);
@@ -195,7 +329,7 @@ describe('github.publish-pr capability', () => {
     const gh = join(directory, 'gh');
     await writeFile(
       gh,
-      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[{\"type\":\"pull_request\"}]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[{\"type\":\"pull_request\"}]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\",\"full_name\":\"Acme/Widgets\"}' ;; esac\n",
       { mode: 0o700 },
     );
     await chmod(gh, 0o700);
@@ -211,7 +345,7 @@ describe('github.publish-pr capability', () => {
       ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: true });
       await writeFile(
         gh,
-        "#!/bin/sh\ncase \"$*\" in *'/branches/feature%2Fsafe'*|*'/rules/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+        "#!/bin/sh\ncase \"$*\" in *'/branches/feature%2Fsafe'*|*'/rules/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\",\"full_name\":\"Acme/Widgets\"}' ;; esac\n",
         { mode: 0o700 },
       );
       await expect(
@@ -255,7 +389,7 @@ describe('github.publish-pr capability', () => {
     ).rejects.toThrow('lookup is invalid');
   });
   it('uses an all-state head/base lookup when recovery has no PR URL', async () => {
-    const runner = vi.fn(async () => ({
+    const runner = vi.fn(async (_command: string, _args: readonly string[]) => ({
       stdout: JSON.stringify([
         {
           number: 12,
@@ -444,7 +578,7 @@ describe('github.publish-pr capability', () => {
     const runner = vi.fn(async (_command: string, args: readonly string[]) => ({
       stdout: args.at(-1)?.includes('/branches/')
         ? '{"protected":true}'
-        : '{"default_branch":"main"}',
+        : '{"default_branch":"main","full_name":"acme/widgets"}',
       stderr: '',
     }));
     await expect(
@@ -454,6 +588,21 @@ describe('github.publish-pr capability', () => {
         signal: new AbortController().signal,
       }),
     ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: true });
+  });
+  it('fails closed on a GitHub rename or redirect before querying branch policy', async () => {
+    const runner = vi.fn(async (_command: string, _args: readonly string[]) => ({
+      stdout: '{"default_branch":"main","full_name":"acme/renamed"}',
+      stderr: '',
+    }));
+    await expect(
+      new GitHubCliHostPublisher(runner).policy({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('GitHub repository policy is invalid');
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(runner.mock.calls[0]![1]).toEqual(expect.arrayContaining(['repos/acme/widgets']));
   });
   it('reconstructs through an empty checkout sibling and removes only its tracked parent', async () => {
     const oid = 'a'.repeat(40);
@@ -512,8 +661,11 @@ describe('github.publish-pr capability', () => {
       const args = call[0] as readonly string[];
       expect(args).toContain('/bin/sh');
       const script = args[args.indexOf('-c') + 1] as string;
-      expect(script).toContain('realpath -e');
+      expect(script).toContain('realpath');
       expect(script).toContain('cd -P');
+      expect(script).toContain('--absolute-git-dir');
+      expect(script).toContain('--git-common-dir');
+      expect(script).toContain('[ ! -L "$repo/.git" ]');
       expect(script).toContain('exec /usr/bin/git');
     }
     expect(JSON.stringify(run.mock.calls)).not.toContain('refs/remotes/origin/HEAD');
@@ -536,6 +688,59 @@ describe('github.publish-pr capability', () => {
     const exportArgs = run.mock.calls[0]![0] as readonly string[];
     expect(exportArgs).toContain('a'.repeat(40));
     expect(exportArgs[exportArgs.indexOf('-c') + 1]).toContain('rev-parse HEAD');
+  });
+  it('rejects a symlinked git directory and a gitfile whose effective dir escapes the workspace', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'mitzo-github-workspace-'));
+    const outside = await mkdtemp(join(tmpdir(), 'mitzo-github-outside-'));
+    const repository = join(workspace, 'repo');
+    try {
+      await exec('git', ['init', '--quiet', repository]);
+      const canonicalWorkspace = await realpath(workspace);
+      const canonicalRepository = await realpath(repository);
+      await expect(
+        exec('/bin/sh', [
+          '-c',
+          githubGitBoundaryScript,
+          'mitzo-github-git',
+          canonicalWorkspace,
+          canonicalRepository,
+          'status',
+          '--porcelain=v1',
+        ]),
+      ).resolves.toMatchObject({ stdout: '' });
+
+      const internalGitDir = join(workspace, 'inside.git');
+      await rename(join(repository, '.git'), internalGitDir);
+      await symlink(internalGitDir, join(repository, '.git'));
+      await expect(
+        exec('/bin/sh', [
+          '-c',
+          githubGitBoundaryScript,
+          'mitzo-github-git',
+          canonicalWorkspace,
+          canonicalRepository,
+          'status',
+        ]),
+      ).rejects.toThrow();
+
+      await rm(join(repository, '.git'));
+      const externalGitDir = join(outside, 'gitdir');
+      await rename(internalGitDir, externalGitDir);
+      await writeFile(join(repository, '.git'), `gitdir: ${externalGitDir}\n`);
+      await expect(
+        exec('/bin/sh', [
+          '-c',
+          githubGitBoundaryScript,
+          'mitzo-github-git',
+          canonicalWorkspace,
+          canonicalRepository,
+          'status',
+        ]),
+      ).rejects.toThrow();
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
   });
   it('inspects a repository with an origin remote but no origin HEAD symbolic ref', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-no-origin-head-'));

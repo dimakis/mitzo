@@ -22,4 +22,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
+  // The capability binding is not trusted merely because its manifest is
+  // reviewed: both the production executor and its OpenShell/Git transport
+  // must match this revision before the registry can advertise the action.
+  'capabilities/github-publish-pr.ts':
+    '1c1004179f27f984182348bc9cbd163a7892da41c8cf3e20328685b0bdfbcb66',
+  'capabilities/github-publish-pr-transport.ts':
+    '1ff5e9bc4fb6ea45f1f6055cde47aa9ff63f93cd56a20a33467fb64fbf8ba7f7',
 });

@@ -29,12 +29,33 @@ function checked(value: string, expression: RegExp, message: string) {
   if (!expression.test(value)) throw new Error(message);
   return value;
 }
+function canonicalGithubRepositoryName(value: string) {
+  return checked(value.toLowerCase(), safeRepository, 'GitHub repository policy is invalid');
+}
 function lines(value: string) {
   return value.replace(/\r/g, '').split('\n').filter(Boolean);
 }
 function commandFailure(): never {
   throw new Error('OpenShell Git control command failed');
 }
+
+/**
+ * All repository-local Git commands cross this boundary check before Git reads
+ * config, refs, or object storage. A regular worktree gitfile is permitted
+ * only when both the effective git dir and common dir remain in the approved
+ * workspace; a symlinked `.git` is never trusted.
+ */
+export const githubGitBoundaryScript =
+  'set -eu; root="$1"; repo="$2"; shift 2; ' +
+  '[ -e "$root" ]; [ -e "$repo" ]; [ "$(realpath "$root")" = "$root" ]; [ "$(realpath "$repo")" = "$repo" ]; ' +
+  'case "$repo" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
+  '[ ! -L "$repo/.git" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; ' +
+  'gitdir=$(/usr/bin/git rev-parse --absolute-git-dir); common=$(/usr/bin/git rev-parse --git-common-dir); ' +
+  'case "$common" in /*) ;; *) common="$repo/$common" ;; esac; ' +
+  '[ -e "$gitdir" ]; [ -e "$common" ]; gitdir=$(realpath "$gitdir"); common=$(realpath "$common"); ' +
+  'case "$gitdir" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
+  'case "$common" in "$root"|"$root"/*) ;; *) exit 1 ;; esac; ' +
+  'exec /usr/bin/git "$@"';
 
 /**
  * Controller transport for a retained OpenShell sandbox. Every executable and
@@ -55,9 +76,8 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   ) {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
     checked(repositoryPath, safePath, 'Repository path is invalid');
+    checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
     try {
-      const script =
-        'set -eu; repo="$1"; shift; [ "$(realpath -e "$repo")" = "$repo" ]; cd -P "$repo"; [ "$PWD" = "$repo" ]; exec /usr/bin/git "$@"';
       return await this.run(
         [
           'sandbox',
@@ -72,8 +92,9 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '--',
           '/bin/sh',
           '-c',
-          script,
+          githubGitBoundaryScript,
           'mitzo-github-git',
+          `/sandbox/workspaces/${this.workspace}`,
           repositoryPath,
           ...args,
         ],
@@ -372,6 +393,15 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       ['api', '--method', 'GET', `repos/${input.repository}`],
       input.signal,
     );
+    const repo = z
+      .object({ default_branch: z.string(), full_name: z.string() })
+      .safeParse(JSON.parse(repository.stdout));
+    if (
+      !repo.success ||
+      !safeBranch.test(repo.data.default_branch) ||
+      canonicalGithubRepositoryName(repo.data.full_name) !== input.repository
+    )
+      throw new Error('GitHub repository policy is invalid');
     const sourceBranch = encodeURIComponent(input.sourceBranch);
     let sourceBranchProtected: boolean;
     try {
@@ -406,9 +436,6 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         throw new Error('GitHub source branch protection cannot be established', { cause: error });
       sourceBranchProtected = applicable.data.length > 0;
     }
-    const repo = z.object({ default_branch: z.string() }).safeParse(JSON.parse(repository.stdout));
-    if (!repo.success || !safeBranch.test(repo.data.default_branch))
-      throw new Error('GitHub repository policy is invalid');
     return {
       defaultBranch: repo.data.default_branch,
       sourceBranchProtected,

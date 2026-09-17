@@ -375,7 +375,11 @@ export function createGithubPublishPrExecutor(
     existing: GithubPullRequest | null,
   ) => {
     // CapabilityService always supplies this field after durable preflight.
-    // Keeping direct executor unit tests possible does not weaken that service boundary.
+    // Production must never permit a direct executor caller to skip the same
+    // reviewed action card. Development-only direct unit fixtures remain
+    // useful, while the service contract is enforced in every environment.
+    if (!context.approvalInput && process.env.NODE_ENV === 'production')
+      reject('GitHub publish approval is required');
     if (
       context.approvalInput &&
       canonicalJson(context.approvalInput) !== canonicalJson(approval(state, existing))

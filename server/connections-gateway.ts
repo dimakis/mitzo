@@ -131,6 +131,12 @@ const JiraProfile = z
 const ProfileList = z.array(z.object({ id: z.string().min(1) }).passthrough());
 const ProbeSandboxName = /^mzp-[a-f0-9]{15}$/;
 const CleanupProbeSandboxName = /^(?:mzp-[a-f0-9]{15}|mitzo-probe-[a-f0-9]{16})$/;
+const ReviewedProfileFingerprint = /^[a-f0-9]{64}$/;
+
+/** The deployment-supplied value is a reviewed SHA-256 of exact exported YAML. */
+export function githubProfileFingerprint(value: string) {
+  return createHash('sha256').update(value.replace(/\r\n/g, '\n')).digest('hex');
+}
 
 /** The profile is a security policy, so approximate matches are unsafe. */
 export function validateJiraProfileYaml(value: string): void {
@@ -310,6 +316,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       probeImage?: string;
       probePolicy?: string;
       githubProbePolicy?: string;
+      /** Reviewed SHA-256 for the effective built-in `github` profile export. */
+      githubProfileFingerprint?: string;
       profilePath?: string;
     } = {
       workspace: 'default',
@@ -321,7 +329,9 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     return (
       templateId === GITHUB_TEMPLATE_ID &&
       !!this.options.probeImage &&
-      !!this.options.githubProbePolicy
+      !!this.options.githubProbePolicy &&
+      !!this.options.githubProfileFingerprint &&
+      ReviewedProfileFingerprint.test(this.options.githubProfileFingerprint)
     );
   }
   validateBinding(input: {
@@ -371,8 +381,27 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         compatibility.templateVersion === 1 &&
         compatibility.policy.templateId === compatibility.templateId &&
         compatibility.policy.templateVersion === compatibility.templateVersion
-      )
+      ) {
+        const expected = this.options.githubProfileFingerprint;
+        if (!expected || !ReviewedProfileFingerprint.test(expected))
+          throw new Error('Reviewed GitHub profile fingerprint is required');
+        const exported = await this.run(
+          [
+            'provider',
+            '--workspace',
+            this.options.workspace,
+            'profile',
+            'export',
+            'github',
+            '-o',
+            'yaml',
+          ],
+          actualSignal,
+        );
+        if (githubProfileFingerprint(exported) !== expected)
+          throw new Error('Effective GitHub profile differs from reviewed policy');
         return;
+      }
       if (
         compatibility.templateId !== JIRA_TEMPLATE_ID ||
         compatibility.templateVersion !== 1 ||

@@ -37,7 +37,14 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-async function fixture(options: { approved?: boolean; active?: boolean; revision?: number } = {}) {
+async function fixture(
+  options: {
+    approved?: boolean;
+    active?: boolean;
+    revision?: number;
+    preflight?: CapabilityExecutor['preflight'];
+  } = {},
+) {
   const dir = await mkdtemp(join(tmpdir(), 'mitzo-capability-'));
   directories.push(dir);
   const store = new CapabilityOperationStore(join(dir, 'capabilities.db'));
@@ -68,7 +75,12 @@ async function fixture(options: { approved?: boolean; active?: boolean; revision
   const service = new CapabilityService({
     store,
     executorRegistry: new CapabilityExecutorRegistry({
-      'test-mutate-v1': { execute, verify, recover },
+      'test-mutate-v1': {
+        ...(options.preflight ? { preflight: options.preflight } : {}),
+        execute,
+        verify,
+        recover,
+      },
     }),
     getTemplate: (id, version) =>
       id === template.id && version === template.version ? template : undefined,
@@ -89,6 +101,7 @@ async function fixture(options: { approved?: boolean; active?: boolean; revision
     execute,
     verify,
     recover,
+    preflight: options.preflight,
     approve,
     setActive: (next: boolean) => {
       active = next;
@@ -111,6 +124,42 @@ function request(overrides: Record<string, unknown> = {}) {
 }
 
 describe('CapabilityService', () => {
+  it('persists the executor preflight projection and recovery intent before approval', async () => {
+    const approvalInput = {
+      repository: 'acme/widget',
+      sourceBranch: 'feature/safe',
+      sourceOid: '0123456789abcdef',
+      commitCount: '2',
+      changedFiles: '["deleted.txt","src/safe.ts"]',
+      existingPullRequest: 'create',
+    };
+    const recoveryIntent = {
+      repository: 'acme/widget',
+      sourceBranch: 'feature/safe',
+      sourceOid: '0123456789abcdef',
+    };
+    const preflight = vi.fn(async () => ({
+      approvalInput,
+      recoveryIntent,
+    }));
+    const f = await fixture({ preflight });
+
+    const operation = await f.service.invoke(request(), new AbortController().signal);
+
+    expect(preflight).toHaveBeenCalledWith(
+      expect.objectContaining({ input: { value: 'hello', flag: true } }),
+    );
+    expect(f.approve).toHaveBeenCalledWith(
+      expect.objectContaining({ input: approvalInput, forcePrompt: true }),
+      expect.any(AbortSignal),
+    );
+    expect(f.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ approvalInput, input: { value: 'hello', flag: true } }),
+    );
+    expect(operation).toMatchObject({ approvalInput, recoveryIntent, status: 'succeeded' });
+    expect(f.store.get(operation.id)).toMatchObject({ approvalInput, recoveryIntent });
+  });
+
   it('atomically replays an idempotency key without duplicating a mutation and reconnect reads one result', async () => {
     const f = await fixture();
     const [first, second] = await Promise.all([

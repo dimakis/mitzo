@@ -51,6 +51,7 @@ export function createConnectionsRuntime(options: {
   probeImage?: string;
   probePolicy?: string;
   githubProbePolicy?: string;
+  githubProfileFingerprint?: string;
   /** Test-only explicit override; production derives this from controller env. */
   githubPublishEnabled?: boolean;
   /** Authoritative conversation metadata, injected by server startup. */
@@ -108,6 +109,7 @@ export function createConnectionsRuntime(options: {
       probeImage: options.probeImage,
       probePolicy: options.probePolicy,
       githubProbePolicy: options.githubProbePolicy,
+      githubProfileFingerprint: options.githubProfileFingerprint,
     },
   );
   const service = new ConnectionsService(store, gateway, {
