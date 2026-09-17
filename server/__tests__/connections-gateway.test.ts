@@ -2,18 +2,93 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   OpenShellConnectionGateway,
   JIRA_API_ENDPOINT,
+  githubProfileFingerprint,
   parseProviderAttachments,
   validateJiraProfileYaml,
 } from '../connections-gateway.js';
+import type { ProviderPolicy } from '../connections/types.js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 const signal = new AbortController().signal;
+const githubPolicy: ProviderPolicy = {
+  templateId: 'github-readonly',
+  templateVersion: 1,
+  credentialFieldKeys: ['token'],
+  publicConfig: {},
+  endpoints: [
+    {
+      host: 'api.github.com',
+      port: 443,
+      protocol: 'rest',
+      tls: 'terminate',
+      redirects: 'deny',
+      rules: [{ method: 'GET', path: '/user' }],
+      allowedBinaries: [],
+    },
+  ],
+};
 describe('OpenShellConnectionGateway', () => {
   it('supports only the reviewed Jira adapter version', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn());
     expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);
     expect(gateway.supportsTemplate('jira-readonly', 2)).toBe(false);
     expect(gateway.supportsTemplate('github-readonly', 1)).toBe(false);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: 'a'.repeat(64),
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(true);
+    expect(
+      new OpenShellConnectionGateway(vi.fn(), {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: 'a'.repeat(64),
+      }).supportsTemplate('github-readonly', 1),
+    ).toBe(true);
+  });
+  it('requires and verifies the reviewed effective built-in GitHub profile before use', async () => {
+    const profile = 'id: github\nendpoints:\n  - host: api.github.com\n';
+    const runner = vi.fn().mockResolvedValue(profile);
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      githubProbePolicy: 'policy',
+      githubProfileFingerprint: githubProfileFingerprint(profile),
+    });
+    expect(gateway.supportsTemplate('github-readonly', 1)).toBe(true);
+    await gateway.verifyCompatibility(
+      { templateId: 'github-readonly', templateVersion: 1, policy: githubPolicy },
+      signal,
+    );
+    expect(runner.mock.calls[0]![0]).toEqual([
+      'provider',
+      '--workspace',
+      'default',
+      'profile',
+      'export',
+      'github',
+      '-o',
+      'yaml',
+    ]);
+    const broadened = new OpenShellConnectionGateway(
+      vi.fn().mockResolvedValue(`${profile}binaries:\n  - /bin/sh\n`),
+      {
+        workspace: 'default',
+        probeImage: 'image',
+        githubProbePolicy: 'policy',
+        githubProfileFingerprint: githubProfileFingerprint(profile),
+      },
+    );
+    await expect(
+      broadened.verifyCompatibility(
+        { templateId: 'github-readonly', templateVersion: 1, policy: githubPolicy },
+        signal,
+      ),
+    ).rejects.toThrow('differs');
   });
   it.each([
     { label: 'missing', credentialKeys: [] },

@@ -797,7 +797,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,
         gatewayProviderId: managedCapabilityConnection.gatewayProviderId,
-        ...(managedOpenShell ? { sandboxName: managedOpenShell.sandboxName } : {}),
+        ...(managedOpenShell
+          ? { sandboxName: managedOpenShell.sandboxName, workspace: managedOpenShell.workdir }
+          : {}),
       });
       await capabilityTools.service?.recoverPendingForConversation(
         options.binding.accountId,

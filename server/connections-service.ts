@@ -144,7 +144,7 @@ export class ConnectionsService {
     if (
       p.name !== c.gatewayProviderName ||
       p.workspace !== c.workspace ||
-      p.type !== c.templateId ||
+      p.type !== (c.templateId === 'github-readonly' ? 'github' : c.templateId) ||
       (c.gatewayProviderId && p.id !== c.gatewayProviderId)
     )
       throw new Error('Managed provider binding changed');

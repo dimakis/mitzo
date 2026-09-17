@@ -54,6 +54,20 @@ function redact(value: JsonValue, sensitiveValues: readonly string[]): JsonValue
 function resultIsBounded(value: JsonValue): boolean {
   return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_RESULT_BYTES;
 }
+function persistedApprovalProjection(
+  value: JsonValue | null | undefined,
+): Readonly<Record<string, string | boolean>> | undefined {
+  if (value === null || value === undefined) return undefined;
+  if (Array.isArray(value) || typeof value !== 'object')
+    throw new Error('Capability approval projection is invalid');
+  const projection: Record<string, string | boolean> = Object.create(null);
+  for (const [key, item] of Object.entries(value)) {
+    if (!key || (typeof item !== 'string' && typeof item !== 'boolean'))
+      throw new Error('Capability approval projection is invalid');
+    projection[key] = item;
+  }
+  return Object.freeze(projection);
+}
 
 export interface CapabilityServiceOptions {
   store: CapabilityOperationStore;
@@ -337,13 +351,29 @@ export class CapabilityService {
     let operation = begun.operation;
     this.inFlight.add(operation.id);
     try {
+      const executor = this.options.executorRegistry.resolve(template);
+      // An executor may turn the validated request into a narrower, reviewed
+      // action card. Persist that exact projection and recovery lookup before
+      // the human approval boundary so neither a restart nor a later execute
+      // can silently widen what was approved.
+      if (executor.preflight) {
+        const preflight = await executor.preflight({ operation, input, signal });
+        const approvalInput = persistedApprovalProjection(preflight.approvalInput);
+        if (!approvalInput) throw new Error('Capability preflight is invalid');
+        operation = this.options.store.recordPreflight(operation.id, {
+          approvalInput,
+          approvalHash: createHash('sha256').update(canonicalJson(approvalInput)).digest('hex'),
+          recoveryIntent: preflight.recoveryIntent,
+        });
+      }
+      const approvalInput = persistedApprovalProjection(operation.approvalInput) ?? input;
       const approved = await approve(
         {
           capabilityId: template.id,
           capabilityVersion: template.version,
           connectionId: connection.id,
           operationId: operation.id,
-          input,
+          input: approvalInput,
           forcePrompt: true,
         },
         signal,
@@ -388,12 +418,16 @@ export class CapabilityService {
           failureCode: 'STALE_ACCESS',
         });
       signal.throwIfAborted();
-      const executor = this.options.executorRegistry.resolve(template);
       // Mark dispatch before the executor call. A remote provider can commit a
       // mutation and then throw/timeout before responding; from this point
       // onward the only safe path is read-after-write recovery.
       operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
-      const executed = await executor.execute({ operation, input, signal });
+      const executed = await executor.execute({
+        operation,
+        input,
+        approvalInput: persistedApprovalProjection(operation.approvalInput),
+        signal,
+      });
       const sensitive = Object.values(input).filter(
         (value): value is string => typeof value === 'string',
       );
@@ -408,7 +442,15 @@ export class CapabilityService {
         externalResultId: executed.externalResultId,
       });
       signal.throwIfAborted();
-      await executor.verify({ operation, input, signal }, executed);
+      await executor.verify(
+        {
+          operation,
+          input,
+          approvalInput: persistedApprovalProjection(operation.approvalInput),
+          signal,
+        },
+        executed,
+      );
       return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
         result: output,
         externalResultId: executed.externalResultId,
