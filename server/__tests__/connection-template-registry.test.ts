@@ -1,16 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import {
   customDnsRequirement,
-  ianaAllocatedPublicIpv6Prefixes,
   pinPublicDnsAnswers,
   verifyPinnedPublicDns,
 } from '../connections/policy-compiler.js';
+import {
+  ianaAddressDataIntegrity,
+  ianaIpv4SpecialPurposeCidrs,
+  ianaIpv6AllocatedGlobalUnicastCidrs,
+  ianaIpv6SpecialPurposeCidrs,
+} from '../connections/iana-address-data.generated.js';
+import {
+  canonicalPublicDnsAddress,
+  cidrContains,
+  parseCidr,
+  parseIpAddress,
+} from '../connections/iana-address-policy.js';
 import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
 } from '../connections/reviewed-handler-artifacts.js';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { renderIanaAddressData } from '../../scripts/generate-iana-address-data.mjs';
+import { loadIanaAddressData } from '../../scripts/iana-address-data.mjs';
 import {
   connectionTemplateRegistry,
   createConnectionTemplateRegistry,
@@ -344,6 +357,7 @@ describe('connection template registry', () => {
       ['192.0.0.1'],
       ['192.0.2.1'],
       ['192.88.99.1'],
+      ['192.175.48.1'],
       ['198.51.100.1'],
       ['203.0.113.1'],
       ['fe80::1'],
@@ -352,6 +366,7 @@ describe('connection template registry', () => {
       ['0:0:0:0:0:ffff:7f00:1'],
       ['2001:db8::1'],
       ['2002:0a00:0001::1'],
+      ['2620:4f:8000::1'],
       ['3fff:0000::1'],
       ['3fff:0fff::1'],
       ['3ffe::1'],
@@ -400,39 +415,64 @@ describe('connection template registry', () => {
     expect(() => pinPublicDnsAnswers(requirement, ['192.2.0.1'])).not.toThrow();
   });
 
-  it('covers both bounds and immediate neighbors of every reviewed IPv6 allocation', () => {
-    const requirement = customDnsRequirement('api.openai.com');
-    const maxIpv6 = (1n << 128n) - 1n;
+  it('covers both bounds and immediate neighbors of every generated IANA CIDR', () => {
+    const allCidrs = [
+      ...ianaIpv4SpecialPurposeCidrs,
+      ...ianaIpv6SpecialPurposeCidrs,
+      ...ianaIpv6AllocatedGlobalUnicastCidrs,
+    ];
+    const ipv4Special = ianaIpv4SpecialPurposeCidrs.map(parseCidr);
+    const ipv6Special = ianaIpv6SpecialPurposeCidrs.map(parseCidr);
+    const ipv6Allocated = ianaIpv6AllocatedGlobalUnicastCidrs.map(parseCidr);
     const addressText = (address: bigint) =>
       Array.from({ length: 8 }, (_, index) =>
         Number((address >> BigInt((7 - index) * 16)) & 0xffffn).toString(16),
       ).join(':');
-    const range = ([
-      first,
-      second,
-      prefixLength,
-    ]: (typeof ianaAllocatedPublicIpv6Prefixes)[number]) => {
-      const lower = (BigInt(first) << 112n) | (BigInt(second) << 96n);
-      return [lower, lower | ((1n << BigInt(128 - prefixLength)) - 1n)] as const;
+    const ipv4Text = (address: bigint) =>
+      [24n, 16n, 8n, 0n].map((shift) => Number((address >> shift) & 0xffn)).join('.');
+    const expectedPublic = (address: bigint, family: 4 | 6) => {
+      const parsed = parseIpAddress(family === 4 ? ipv4Text(address) : addressText(address));
+      if (!parsed) throw new Error('test address failed to parse');
+      if (parsed.family === 4) return !ipv4Special.some((cidr) => cidrContains(parsed, cidr));
+      return (
+        ipv6Allocated.some((cidr) => cidrContains(parsed, cidr)) &&
+        !ipv6Special.some((cidr) => cidrContains(parsed, cidr))
+      );
     };
-    const isAllocated = (address: bigint) =>
-      ianaAllocatedPublicIpv6Prefixes.some((prefix) => {
-        const [lower, upper] = range(prefix);
-        return address >= lower && address <= upper;
-      });
-    const expectAddress = (address: bigint, allowed: boolean) => {
-      const pin = () => pinPublicDnsAnswers(requirement, [addressText(address)]);
-      if (allowed) expect(pin).not.toThrow();
-      else expect(pin).toThrow('public IP addresses');
+    const expectAddress = (address: bigint, family: 4 | 6) => {
+      const text = family === 4 ? ipv4Text(address) : addressText(address);
+      expect(canonicalPublicDnsAddress(text) !== undefined).toBe(expectedPublic(address, family));
     };
 
-    for (const prefix of ianaAllocatedPublicIpv6Prefixes) {
-      const [lower, upper] = range(prefix);
-      expectAddress(lower, true);
-      expectAddress(upper, true);
-      if (lower > 0n) expectAddress(lower - 1n, isAllocated(lower - 1n));
-      if (upper < maxIpv6) expectAddress(upper + 1n, isAllocated(upper + 1n));
+    for (const entry of allCidrs) {
+      const cidr = parseCidr(entry);
+      const bits = cidr.family === 4 ? 32 : 128;
+      const hostBits = BigInt(bits - cidr.prefixLength);
+      const lower = cidr.network;
+      const upper = lower | ((1n << hostBits) - 1n);
+      const max = (1n << BigInt(bits)) - 1n;
+      expectAddress(lower, cidr.family);
+      expectAddress(upper, cidr.family);
+      if (lower > 0n) expectAddress(lower - 1n, cidr.family);
+      if (upper < max) expectAddress(upper + 1n, cidr.family);
     }
+  });
+
+  it('keeps generated IANA data byte-integral with its checked-in snapshots', async () => {
+    const expected = await loadIanaAddressData(process.cwd());
+    expect(ianaAddressDataIntegrity.sourceDigests).toEqual(expected.sourceDigests);
+    expect(ianaIpv4SpecialPurposeCidrs).toEqual(expected.ipv4SpecialPurposeCidrs);
+    expect(ianaIpv6SpecialPurposeCidrs).toEqual(expected.ipv6SpecialPurposeCidrs);
+    expect(ianaIpv6AllocatedGlobalUnicastCidrs).toEqual(expected.ipv6AllocatedGlobalUnicastCidrs);
+  });
+
+  it('reproduces the checked-in offline IANA table from its snapshots', async () => {
+    const snapshots = await loadIanaAddressData(process.cwd());
+    const generated = await readFile(
+      fileURLToPath(new URL('../connections/iana-address-data.generated.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(renderIanaAddressData(snapshots, '2026-09-17')).toBe(generated);
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
@@ -577,26 +617,24 @@ describe('connection template registry', () => {
   });
 
   it('binds handler source outside golden inputs to reviewed artifacts', async () => {
-    const policyCompilerSource = await readFile(
-      fileURLToPath(new URL('../connections/policy-compiler.ts', import.meta.url)),
-      'utf8',
-    );
-    const registrySource = await readFile(
-      fileURLToPath(new URL('../connections/registry.ts', import.meta.url)),
-      'utf8',
-    );
-    expect(reviewedHandlerSourceFingerprint(policyCompilerSource)).toBe(
-      reviewedHandlerSourceArtifacts['policy-compiler.ts'],
-    );
-    expect(reviewedHandlerSourceFingerprint(registrySource)).toBe(
-      reviewedHandlerSourceArtifacts['registry.ts'],
-    );
+    const sources = Object.fromEntries(
+      await Promise.all(
+        Object.keys(reviewedHandlerSourceArtifacts).map(async (file) => [
+          file,
+          await readFile(fileURLToPath(new URL(`../connections/${file}`, import.meta.url)), 'utf8'),
+        ]),
+      ),
+    ) as Record<keyof typeof reviewedHandlerSourceArtifacts, string>;
+    for (const [file, expected] of Object.entries(reviewedHandlerSourceArtifacts))
+      expect(reviewedHandlerSourceFingerprint(sources[file as keyof typeof sources])).toBe(
+        expected,
+      );
 
     // HEAD rejection is deliberately absent from the GitHub golden output.
     // A source-only validation change must still invalidate the reviewed artifact.
     expect(
       reviewedHandlerSourceFingerprint(
-        policyCompilerSource.replace('ambiguousGithubBaseBranches.has(value)', 'false'),
+        sources['policy-compiler.ts'].replace('ambiguousGithubBaseBranches.has(value)', 'false'),
       ),
     ).not.toBe(reviewedHandlerSourceArtifacts['policy-compiler.ts']);
   });

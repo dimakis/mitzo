@@ -1,6 +1,7 @@
 import { isIP } from 'node:net';
 import { parse as parseDomain } from 'tldts';
 import { z } from 'zod';
+import { canonicalPublicDnsAddress } from './iana-address-policy.js';
 import type {
   PinnedPublicDnsAnswers,
   PolicyCompiler,
@@ -16,61 +17,6 @@ const maxCustomPathLength = 256;
 const maxCustomRules = 24;
 const maxGithubScopeEntries = 50;
 const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
-export type IanaIpv6Allocation = readonly [
-  firstWord: number,
-  secondWord: number,
-  prefixLength: number,
-];
-
-/**
- * IANA's IPv6 Global Unicast Address Space registry, reviewed 2026-09-17:
- * https://www.iana.org/assignments/ipv6-unicast-address-assignments/
- *
- * This is deliberately an allowlist, rather than accepting all of 2000::/3:
- * IANA reserves every prefix absent from that registry for future allocation.
- * Review the registry and update this list (with boundary tests) whenever this
- * policy is changed or released; a newly allocated range remains unavailable
- * until that review is complete.
- *
- * The IANA 2001::/23 and 2002::/16 rows are intentionally omitted. They carry
- * special-purpose/transition assignments, not a general public DNS allowance.
- */
-export const ianaAllocatedPublicIpv6Prefixes: readonly IanaIpv6Allocation[] = [
-  [0x2001, 0x0200, 23],
-  [0x2001, 0x0400, 23],
-  [0x2001, 0x0600, 23],
-  [0x2001, 0x0800, 22],
-  [0x2001, 0x0c00, 23],
-  [0x2001, 0x0e00, 23],
-  [0x2001, 0x1200, 23],
-  [0x2001, 0x1400, 22],
-  [0x2001, 0x1800, 23],
-  [0x2001, 0x1a00, 23],
-  [0x2001, 0x1c00, 22],
-  [0x2001, 0x2000, 19],
-  [0x2001, 0x4000, 23],
-  [0x2001, 0x4200, 23],
-  [0x2001, 0x4400, 23],
-  [0x2001, 0x4600, 23],
-  [0x2001, 0x4800, 23],
-  [0x2001, 0x4a00, 23],
-  [0x2001, 0x4c00, 23],
-  [0x2001, 0x5000, 20],
-  [0x2001, 0x8000, 19],
-  [0x2001, 0xa000, 20],
-  [0x2001, 0xb000, 20],
-  [0x2003, 0x0000, 18],
-  [0x2400, 0x0000, 12],
-  [0x2410, 0x0000, 12],
-  [0x2600, 0x0000, 12],
-  [0x2610, 0x0000, 23],
-  [0x2620, 0x0000, 23],
-  [0x2630, 0x0000, 12],
-  [0x2800, 0x0000, 12],
-  [0x2a00, 0x0000, 12],
-  [0x2a10, 0x0000, 12],
-  [0x2c00, 0x0000, 12],
-];
 // Keep the compiler in lockstep with the schema validator used for connection
 // fields. A permissive local/domain regexp admits invalid DNS labels and dots.
 const Email = z.string().email();
@@ -342,88 +288,6 @@ export function customDnsRequirement(hostname: string): PublicOnlyPinnedDnsRequi
     verifyAt: 'provision-and-every-use',
     rejectRebinding: true,
   };
-}
-function ipv6Words(address: string) {
-  const lower = address.toLowerCase();
-  const ipv4Suffix = lower.lastIndexOf(':');
-  let normalized = lower;
-  if (ipv4Suffix !== -1 && lower.slice(ipv4Suffix + 1).includes('.')) {
-    const ipv4 = lower.slice(ipv4Suffix + 1);
-    if (isIP(ipv4) !== 4) return undefined;
-    const octets = ipv4.split('.').map(Number);
-    normalized = `${lower.slice(0, ipv4Suffix)}:${((octets[0]! << 8) | octets[1]!).toString(16)}:${((octets[2]! << 8) | octets[3]!).toString(16)}`;
-  }
-  const compressed = normalized.split('::');
-  if (compressed.length > 2) return undefined;
-  const words = (part: string) =>
-    part ? part.split(':').map((word) => Number.parseInt(word, 16)) : [];
-  const left = words(compressed[0]!);
-  const right = words(compressed[1] ?? '');
-  if (
-    [...left, ...right].some((word) => !Number.isInteger(word) || word < 0 || word > 0xffff) ||
-    (!normalized.includes('::') && left.length !== 8) ||
-    (normalized.includes('::') && left.length + right.length > 7)
-  )
-    return undefined;
-  return normalized.includes('::')
-    ? [...left, ...Array(8 - left.length - right.length).fill(0), ...right]
-    : left;
-}
-
-function hasIpv6Prefix(words: readonly number[], prefix: IanaIpv6Allocation) {
-  const [firstWord, secondWord, prefixLength] = prefix;
-  if (prefixLength <= 16) {
-    const mask = (0xffff << (16 - prefixLength)) & 0xffff;
-    return (words[0]! & mask) === firstWord;
-  }
-  const suffixLength = prefixLength - 16;
-  const mask = (0xffff << (16 - suffixLength)) & 0xffff;
-  return words[0] === firstWord && (words[1]! & mask) === secondWord;
-}
-
-/**
- * Canonicalize and allow only globally-routable addresses. DNS text can spell
- * one IPv6 address many ways, so range checks must use parsed words rather
- * than prefixes of its original representation.
- */
-function canonicalPublicDnsAddress(address: string) {
-  const family = isIP(address);
-  if (family === 4) {
-    const octets = address.split('.').map(Number);
-    const [a, b] = octets;
-    if (
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0 && octets[2] === 0) ||
-      (a === 192 && b === 0 && octets[2] === 2) ||
-      (a === 192 && b === 31 && octets[2] === 196) ||
-      (a === 192 && b === 52 && octets[2] === 193) ||
-      (a === 192 && b === 88 && octets[2] === 99) ||
-      (a === 198 && (b === 18 || b === 19)) ||
-      (a === 198 && b === 51 && octets[2] === 100) ||
-      (a === 203 && b === 0 && octets[2] === 113) ||
-      a >= 224
-    )
-      return undefined;
-    return octets.join('.');
-  }
-  if (family === 6) {
-    const words = ipv6Words(address);
-    if (!words) return undefined;
-    // Do not treat all of 2000::/3 as public. The unlisted portions are
-    // IANA-reserved future space, so only the reviewed allocation list passes.
-    if (!ianaAllocatedPublicIpv6Prefixes.some((prefix) => hasIpv6Prefix(words, prefix)))
-      return undefined;
-    // IANA special-purpose allocations can live inside an allocated RIR block.
-    if (words[0] === 0x2001 && words[1] === 0x0db8) return undefined; // documentation
-    return words.map((word) => word.toString(16).padStart(4, '0')).join(':');
-  }
-  return undefined;
 }
 
 /** Called by the future gateway adapter before provisioning, then compared before every use. */
