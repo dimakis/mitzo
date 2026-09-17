@@ -351,12 +351,12 @@ export function pinPublicDnsAnswers(
     answers.some((answer) => !canonicalPublicDnsAddress(answer))
   )
     throw new Error('Custom endpoint DNS answers must be public IP addresses');
-  return {
+  return Object.freeze({
     ...requirement,
     addresses: Object.freeze(
       orderedUnique(answers.map((answer) => canonicalPublicDnsAddress(answer)!)).sort(),
     ),
-  };
+  });
 }
 /** Any DNS answer change, including a new public answer, is a fail-closed rebind. */
 export function verifyPinnedPublicDns(pin: PinnedPublicDnsAnswers, answers: readonly string[]) {

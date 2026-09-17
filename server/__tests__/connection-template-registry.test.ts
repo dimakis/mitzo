@@ -307,6 +307,14 @@ describe('connection template registry', () => {
       '2606:4700:4700:0000:0000:0000:0000:1111',
       '8.8.8.8',
     ]);
+    expect(Object.isFrozen(pin)).toBe(true);
+    expect(Object.isFrozen(pin.addresses)).toBe(true);
+    expect(() => {
+      (pin as { hostname: string }).hostname = 'evil.test';
+    }).toThrow();
+    expect(() => {
+      (pin as unknown as { addresses: string[] }).addresses = ['9.9.9.9'];
+    }).toThrow();
     expect(() =>
       verifyPinnedPublicDns(pin, ['8.8.8.8', '1.1.1.1', '2606:4700:4700:0:0:0:0:1111']),
     ).not.toThrow();
