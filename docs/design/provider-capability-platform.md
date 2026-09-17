@@ -111,6 +111,8 @@ The template registry maps symbolic compiler, probe, and executor names to code-
 
 Every custom REST policy carries a `pinned-public-only` DNS requirement. The gateway adapter must resolve and pin only public IP answers before provisioning, repeat resolution before every use, and fail closed if any answer is private, link-local, local/internal, invalid, or differs from the pin. This contract is mandatory even though the adapter wiring lands in Phase 1/5.
 
+IPv6 publicness is also fail-closed: the compiler accepts only a reviewed static allowlist of allocations from IANA's [IPv6 Global Unicast Address Space](https://www.iana.org/assignments/ipv6-unicast-address-assignments/), not all of `2000::/3`. The list is reviewed against that registry whenever the policy changes or ships; a newly allocated prefix remains unavailable until it is explicitly added with boundary tests. This prevents a stale classifier from silently treating IANA-reserved future space as public.
+
 ### CapabilityGrant and CapabilityOperation
 
 `CapabilityGrant` records which capability versions a connection exposes and which account profiles may request them. `CapabilityOperation` is the durable audit/idempotency record for an invocation, including connection revision, conversation, requesting turn, approved input hash, status, external result identifier, and redacted failure code.

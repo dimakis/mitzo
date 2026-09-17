@@ -322,6 +322,13 @@ describe('connection template registry', () => {
       ['3fff:0000::1'],
       ['3fff:0fff::1'],
       ['3ffe::1'],
+      ['3ffd::1'],
+      ['2001:1ff::1'],
+      ['23ff:ffff::1'],
+      ['2420::1'],
+      ['2612::1'],
+      ['2622::1'],
+      ['2d00::1'],
       ['not-an-ip'],
     ])
       expect(() => pinPublicDnsAnswers(requirement, answers)).toThrow();
@@ -345,8 +352,13 @@ describe('connection template registry', () => {
     ).not.toThrow();
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
-    expect(() => pinPublicDnsAnswers(requirement, ['3fff:1000::1'])).not.toThrow();
-    expect(() => pinPublicDnsAnswers(requirement, ['3ffd::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['2001:200::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['2400::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['241f:ffff::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['260f:ffff::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['2610::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['2620::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['2c00::1'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['198.51.99.255'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['198.51.101.0'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['203.0.112.255'])).not.toThrow();

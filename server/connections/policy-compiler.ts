@@ -15,6 +15,57 @@ const maxCustomPaths = 20;
 const maxCustomPathLength = 256;
 const maxCustomRules = 24;
 const maxGithubScopeEntries = 50;
+type IanaIpv6Allocation = readonly [firstWord: number, secondWord: number, prefixLength: number];
+
+/**
+ * IANA's IPv6 Global Unicast Address Space registry, reviewed 2026-09-17:
+ * https://www.iana.org/assignments/ipv6-unicast-address-assignments/
+ *
+ * This is deliberately an allowlist, rather than accepting all of 2000::/3:
+ * IANA reserves every prefix absent from that registry for future allocation.
+ * Review the registry and update this list (with boundary tests) whenever this
+ * policy is changed or released; a newly allocated range remains unavailable
+ * until that review is complete.
+ *
+ * The IANA 2001::/23 and 2002::/16 rows are intentionally omitted. They carry
+ * special-purpose/transition assignments, not a general public DNS allowance.
+ */
+const ianaAllocatedPublicIpv6Prefixes: readonly IanaIpv6Allocation[] = [
+  [0x2001, 0x0200, 23],
+  [0x2001, 0x0400, 23],
+  [0x2001, 0x0600, 23],
+  [0x2001, 0x0800, 22],
+  [0x2001, 0x0c00, 23],
+  [0x2001, 0x0e00, 23],
+  [0x2001, 0x1200, 23],
+  [0x2001, 0x1400, 22],
+  [0x2001, 0x1800, 23],
+  [0x2001, 0x1a00, 23],
+  [0x2001, 0x1c00, 22],
+  [0x2001, 0x2000, 19],
+  [0x2001, 0x4000, 23],
+  [0x2001, 0x4200, 23],
+  [0x2001, 0x4400, 23],
+  [0x2001, 0x4600, 23],
+  [0x2001, 0x4800, 23],
+  [0x2001, 0x4a00, 23],
+  [0x2001, 0x4c00, 23],
+  [0x2001, 0x5000, 20],
+  [0x2001, 0x8000, 19],
+  [0x2001, 0xa000, 20],
+  [0x2001, 0xb000, 20],
+  [0x2003, 0x0000, 18],
+  [0x2400, 0x0000, 12],
+  [0x2410, 0x0000, 12],
+  [0x2600, 0x0000, 12],
+  [0x2610, 0x0000, 23],
+  [0x2620, 0x0000, 23],
+  [0x2630, 0x0000, 12],
+  [0x2800, 0x0000, 12],
+  [0x2a00, 0x0000, 12],
+  [0x2a10, 0x0000, 12],
+  [0x2c00, 0x0000, 12],
+];
 // Keep the compiler in lockstep with the schema validator used for connection
 // fields. A permissive local/domain regexp admits invalid DNS labels and dots.
 const Email = z.string().email();
@@ -301,6 +352,17 @@ function ipv6Words(address: string) {
     : left;
 }
 
+function hasIpv6Prefix(words: readonly number[], prefix: IanaIpv6Allocation) {
+  const [firstWord, secondWord, prefixLength] = prefix;
+  if (prefixLength <= 16) {
+    const mask = (0xffff << (16 - prefixLength)) & 0xffff;
+    return (words[0]! & mask) === firstWord;
+  }
+  const suffixLength = prefixLength - 16;
+  const mask = (0xffff << (16 - suffixLength)) & 0xffff;
+  return words[0] === firstWord && (words[1]! & mask) === secondWord;
+}
+
 /**
  * Canonicalize and allow only globally-routable addresses. DNS text can spell
  * one IPv6 address many ways, so range checks must use parsed words rather
@@ -335,18 +397,12 @@ function canonicalPublicDnsAddress(address: string) {
   if (family === 6) {
     const words = ipv6Words(address);
     if (!words) return undefined;
-    // Global unicast is 2000::/3. This rejects unspecified, loopback,
-    // IPv4-compatible/mapped, ULA, link/site-local, and multicast ranges.
-    if ((words[0]! & 0xe000) !== 0x2000) return undefined;
-    // IANA special-purpose allocations within global-unicast space.
-    if (
-      (words[0] === 0x2001 && (words[1]! & 0xfe00) === 0x0000) || // 2001::/23
-      (words[0] === 0x2001 && words[1] === 0x0db8) || // documentation
-      words[0] === 0x2002 || // 6to4, including embedded private IPv4 forms
-      words[0] === 0x3ffe || // former 6bone allocation
-      (words[0] === 0x3fff && (words[1]! & 0xf000) === 0) // documentation
-    )
+    // Do not treat all of 2000::/3 as public. The unlisted portions are
+    // IANA-reserved future space, so only the reviewed allocation list passes.
+    if (!ianaAllocatedPublicIpv6Prefixes.some((prefix) => hasIpv6Prefix(words, prefix)))
       return undefined;
+    // IANA special-purpose allocations can live inside an allocated RIR block.
+    if (words[0] === 0x2001 && words[1] === 0x0db8) return undefined; // documentation
     return words.map((word) => word.toString(16).padStart(4, '0')).join(':');
   }
   return undefined;
