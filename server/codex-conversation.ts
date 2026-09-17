@@ -227,16 +227,7 @@ export class CodexConversation {
               ...(state.threadId ? { threadId: state.threadId } : {}),
               ...threadOptions,
               allowProviderModelFallback: false,
-              ...(this.opts.tools.length
-                ? {
-                    dynamicTools: this.opts.tools.map((t) => ({
-                      type: 'function',
-                      name: t.name,
-                      description: t.description,
-                      inputSchema: t.input_schema,
-                    })),
-                  }
-                : {}),
+              ...this.dynamicToolsOption(),
             }),
           );
     if (
@@ -439,16 +430,7 @@ export class CodexConversation {
                   threadId: this.threadId,
                   ...threadOptions,
                   allowProviderModelFallback: false,
-                  ...(this.opts.tools.length
-                    ? {
-                        dynamicTools: this.opts.tools.map((tool) => ({
-                          type: 'function',
-                          name: tool.name,
-                          description: tool.description,
-                          inputSchema: tool.input_schema,
-                        })),
-                      }
-                    : {}),
+                  ...this.dynamicToolsOption(),
                 }),
               );
       if (
@@ -476,6 +458,19 @@ export class CodexConversation {
       sandbox: 'read-only',
       developerInstructions: this.opts.systemPrompt,
     };
+  }
+
+  private dynamicToolsOption() {
+    return this.opts.tools.length
+      ? {
+          dynamicTools: this.opts.tools.map((tool) => ({
+            type: 'function',
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.input_schema,
+          })),
+        }
+      : {};
   }
 
   /**
@@ -521,6 +516,7 @@ export class CodexConversation {
           : await client.request('thread/start', {
               ...threadOptions,
               allowProviderModelFallback: false,
+              ...this.dynamicToolsOption(),
             }),
       );
     if (

@@ -775,6 +775,16 @@ it('replaces provider thread state after a rejected turn admission', async () =>
     threadGeneration: 1,
     recoveryStrategy: 'resume',
   });
+  expect(requests.filter(({ method }) => method === 'thread/start')[1]?.params).toMatchObject({
+    dynamicTools: [
+      {
+        type: 'function',
+        name: 'Read',
+        description: 'Read',
+        inputSchema: { type: 'object' },
+      },
+    ],
+  });
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'rejected', status: 'failed' },
     { id: 'after-rejection', status: 'running' },
