@@ -59,6 +59,8 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -240,6 +242,7 @@ app.use(cookieParser());
 // is injected from index after explicit feature configuration; importing app
 // never creates a database or starts a gateway process.
 let connectionsRouter: express.Router | null = null;
+let capabilityOperationsRouter: express.Router | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
   setActiveConnectionsRuntime(runtime);
   connectionsRouter = runtime
@@ -250,6 +253,22 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         gateway: runtime.gateway,
         workspace: runtime.workspace,
         legacyProviders: runtime.legacyProviders,
+        capabilities: runtime.capabilities,
+      })
+    : null;
+  capabilityOperationsRouter = runtime
+    ? createCapabilityOperationsRouter({
+        service: runtime.capabilities,
+        // Mitzo is intentionally a single authenticated operator. The
+        // browser never provides accountId; only persisted conversation state
+        // supplies it to the capability boundary.
+        resolveConversationBinding: (_sessionId, conversationId) => {
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
+        sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+        approveForConversation: (conversationId) =>
+          capabilityApprovalForConversation(registry, conversationId),
       })
     : null;
 }
@@ -260,6 +279,11 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
         'Connections is not configured. Set MITZO_CONNECTIONS_ENABLED=1 with the reviewed OpenShell Jira profile before enabling it.',
     });
   return connectionsRouter(req, res, next);
+});
+app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+  if (!capabilityOperationsRouter)
+    return res.status(503).json({ error: 'Capability operations are not configured.' });
+  return capabilityOperationsRouter(req, res, next);
 });
 app.use(express.json({ limit: '10mb' }));
 

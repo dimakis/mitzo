@@ -5,7 +5,7 @@ import { requestCodexUserInput } from './codex-user-input.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -31,6 +31,8 @@ import {
 } from './openshell-runtime.js';
 import type { Connection } from './connections-store.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
+import { connectionTemplateRegistry } from './connections/registry.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 import {
   registerOpenShellLifecycle,
@@ -71,6 +73,47 @@ function grantIntegrationTools(providers: string[]) {
       },
     },
   ];
+}
+
+type CapabilityToolBinding = {
+  capabilityId: string;
+  capabilityVersion: number;
+  connectionId: string;
+  connectionRevision: number;
+};
+
+/** Dynamic definitions bind a reviewed grant at startup; model input never picks an account or grant. */
+function capabilityToolsForConversation(
+  accountId: string,
+  conversationId: string,
+  managedConnection: Pick<Connection, 'id' | 'revision'> | null,
+) {
+  const capabilityService = getConnectionsRuntime()?.capabilities;
+  const bindings = new Map<string, CapabilityToolBinding>();
+  if (!capabilityService || !managedConnection)
+    return { definitions: [], bindings, service: undefined };
+  const definitions = capabilityService
+    .eligibleToolsForConversation(accountId, conversationId, managedConnection)
+    .flatMap((grant) => {
+      const template = connectionTemplateRegistry.getCapabilityTemplate(
+        grant.capabilityId,
+        grant.capabilityVersion,
+      );
+      if (!template) return [];
+      const name = `Capability_${grant.capabilityId.replace(/[^A-Za-z0-9_]/g, '_')}_${grant.connectionId.replace(/[^A-Za-z0-9_]/g, '_')}_v${grant.capabilityVersion}`;
+      // The dynamic tool list is provider-controlled code, but still prevent a
+      // malformed persisted connection id from creating an unsafe tool name.
+      if (name.length > 120 || bindings.has(name)) return [];
+      bindings.set(name, grant);
+      return [
+        {
+          name,
+          description: `${template.label}. This always opens a Mitzo approval card before execution.`,
+          input_schema: template.inputSchema as unknown as Record<string, unknown>,
+        },
+      ];
+    });
+  return { definitions, bindings, service: capabilityService };
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
@@ -478,6 +521,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         startupReservation?.();
         throw error;
       });
+  const capabilityTools = capabilityToolsForConversation(
+    options.binding.accountId,
+    options.conversationId,
+    managedConnection,
+  );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
   function finish() {
@@ -548,7 +596,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     validateModel: (model, reasoningEffort) => {
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: connectedOpenShell ? integrationTools : [...nativeToolDefinitions, ...mcp.definitions],
+    tools: connectedOpenShell
+      ? [...integrationTools, ...capabilityTools.definitions]
+      : [...nativeToolDefinitions, ...mcp.definitions, ...capabilityTools.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       connectedOpenShell
@@ -602,7 +652,34 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           },
         }
       : {}),
-    executeTool: async (name, input, signal) => {
+    executeTool: async (name, input, signal, callContext) => {
+      const capability = capabilityTools.bindings.get(name);
+      if (capability && capabilityTools.service) {
+        const operation = await capabilityTools.service.invoke(
+          {
+            ...capability,
+            accountId: options.binding.accountId,
+            conversationId: options.conversationId,
+            turnId: callContext.turnId,
+            // Provider call IDs are verified by CodexConversation before this
+            // callback. Hash them so a model cannot control idempotency.
+            idempotencyKey: createHash('sha256')
+              .update(`${callContext.turnId}\u0000${callContext.callId}`)
+              .digest('hex'),
+            input,
+          },
+          signal,
+          capabilityApprovalForConversation(options.registry, options.conversationId),
+        );
+        return {
+          content: JSON.stringify({
+            operationId: operation.id,
+            status: operation.status,
+            result: operation.result,
+          }),
+          isError: operation.status !== 'succeeded',
+        };
+      }
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
         return requestIntegrationAccess(provider, signal);

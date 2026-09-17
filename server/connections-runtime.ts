@@ -6,11 +6,18 @@ import { createHash } from 'node:crypto';
 import { ConnectionStore } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
 import { OpenShellConnectionGateway } from './connections-gateway.js';
+import { connectionTemplateRegistry } from './connections/registry.js';
+import { CapabilityOperationStore } from './connections/capabilities/operation-store.js';
+import { CapabilityExecutorRegistry } from './connections/capabilities/registry.js';
+import { CapabilityService } from './connections/capabilities/service.js';
+import type { CapabilityExecutor } from './connections/capabilities/types.js';
 
 const exec = promisify(execFile);
 export interface ConnectionsRuntime {
   store: ConnectionStore;
   service: ConnectionsService;
+  capabilityStore: CapabilityOperationStore;
+  capabilities: CapabilityService;
   eligibleAccountIds: () => string[];
   gateway: string;
   workspace: string;
@@ -37,6 +44,10 @@ export function createConnectionsRuntime(options: {
   profilePath?: string;
   probeImage?: string;
   probePolicy?: string;
+  /** Authoritative conversation metadata, injected by server startup. */
+  resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
+  /** Production intentionally supplies none until a reviewed executor exists. */
+  capabilityExecutors?: Readonly<Record<string, CapabilityExecutor>>;
 }): ConnectionsRuntime {
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
   const store = new ConnectionStore(join(options.directory, 'connections.db'));
@@ -89,13 +100,39 @@ export function createConnectionsRuntime(options: {
       probePolicy: options.probePolicy,
     },
   );
+  const service = new ConnectionsService(store, gateway, {
+    gateway: gatewayBinding,
+    workspace: options.workspace,
+    eligibleAccountIds: options.eligibleAccountIds,
+  });
+  const capabilityStore = new CapabilityOperationStore(join(options.directory, 'capabilities.db'));
+  const executorRegistry = new CapabilityExecutorRegistry(options.capabilityExecutors ?? {});
+  const capabilities = new CapabilityService({
+    store: capabilityStore,
+    executorRegistry,
+    getTemplate: (id, version) => connectionTemplateRegistry.getCapabilityTemplate(id, version),
+    getConnection: (id) => store.get(id) ?? undefined,
+    listConnections: () => store.list('operator'),
+    isConnectionActiveForConversation: (connectionId, accountId, conversationId) => {
+      const binding = options.resolveConversationBinding?.(conversationId);
+      const connection = store.get(connectionId);
+      return !!(
+        binding &&
+        binding.accountId === accountId &&
+        connection &&
+        connection.status === 'active' &&
+        connection.desiredAccountIds.includes(accountId)
+      );
+    },
+    // Every real caller supplies a forced PermissionHandler approval. This
+    // fail-closed default makes accidental new call sites non-mutating.
+    approve: async () => false,
+  });
   return {
     store,
-    service: new ConnectionsService(store, gateway, {
-      gateway: gatewayBinding,
-      workspace: options.workspace,
-      eligibleAccountIds: options.eligibleAccountIds,
-    }),
+    service,
+    capabilityStore,
+    capabilities,
     eligibleAccountIds: options.eligibleAccountIds,
     gateway: gatewayBinding,
     workspace: options.workspace,

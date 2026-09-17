@@ -46,6 +46,15 @@ export const ConnectionRevisionBody = z
 export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
   accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
 }).strict();
+export const ConnectionCapabilitiesBody = ConnectionRevisionBody.extend({
+  capabilityId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+  capabilityVersion: z.number().int().positive(),
+  accountIds: z
+    .array(z.string().regex(/^[A-Za-z0-9_-]+$/))
+    .min(1)
+    .max(20),
+  status: z.enum(['active', 'revoked']),
+}).strict();
 export const ConnectionRotateBody = z.union([
   ConnectionRevisionBody.extend({ credentials: ConnectionCredentials }).strict(),
   ConnectionRevisionBody.extend({ token: z.string().min(1).max(4096) }).strict(),
