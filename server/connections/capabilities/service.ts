@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { CapabilityTemplate, JsonValue } from '../types.js';
 import { validateCapabilityInput, canonicalJson } from './input-validation.js';
+import { assertCompleteApprovalProjection } from './approval-contract.js';
 import { CapabilityOperationStore } from './operation-store.js';
 import { CapabilityExecutorRegistry } from './registry.js';
 import type {
@@ -274,6 +275,7 @@ export class CapabilityService {
     if (!grant || grant.status !== 'active' || !grant.accountIds.includes(request.accountId))
       throw new Error('Capability grant is unavailable');
     const input = validateCapabilityInput(template.inputSchema, request.input);
+    assertCompleteApprovalProjection(template.inputSchema);
     // Some reviewed contracts repeat the connection ID in their structured
     // input for executor readability. It is a consistency assertion, never a
     // selector: the trusted request binding above remains authoritative.

@@ -406,8 +406,8 @@ describe('CapabilityService', () => {
     ).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('keeps a valid 64KiB capability body reviewable within the permission-card limit', () => {
-    const body = 'x'.repeat(65_536);
+  it('shows every byte of a valid bounded PR body in the approval payload', () => {
+    const body = `${'x'.repeat(480)}\nchanged-actionable-suffix`;
     const payload = capabilityApprovalPayload({
       capabilityId: 'github.publish-pr',
       capabilityVersion: 1,
@@ -423,44 +423,24 @@ describe('CapabilityService', () => {
       forcePrompt: true,
     });
     expect(JSON.stringify(payload).length).toBeLessThan(10_000);
-    expect(payload.input).toMatchObject({
-      body: {
-        chars: body.length,
-        sha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-        preview: body.slice(0, 2_000),
-        truncated: true,
-      },
-    });
+    expect(payload.input).toMatchObject({ body });
+    expect(JSON.stringify(payload.input)).toContain('changed-actionable-suffix');
     expect(payload.inputSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
-  it('bounds an unusually wide valid capability input without changing its digest', () => {
+  it('rejects oversized input rather than hiding fields or values from approval', () => {
     const input = Object.fromEntries(
       Array.from({ length: 20 }, (_, index) => [`field-${index}`, 'x'.repeat(2_000)]),
     );
-    const payload = capabilityApprovalPayload({
-      capabilityId: 'wide-test',
-      capabilityVersion: 1,
-      connectionId: 'trusted-connection',
-      operationId: 'trusted-operation',
-      input,
-      forcePrompt: true,
-    });
-    expect(JSON.stringify(payload).length).toBeLessThan(10_000);
-    expect(payload.input).toMatchObject({
-      truncated: true,
-      fieldCount: 20,
-      inputSha256: payload.inputSha256,
-    });
-    expect((payload.input as { sampledFields: unknown[] }).sampledFields).toContainEqual(
-      expect.objectContaining({
-        name: 'field-0',
-        value: expect.objectContaining({
-          chars: 2_000,
-          preview: 'x'.repeat(300),
-          truncated: true,
-        }),
+    expect(() =>
+      capabilityApprovalPayload({
+        capabilityId: 'wide-test',
+        capabilityVersion: 1,
+        connectionId: 'trusted-connection',
+        operationId: 'trusted-operation',
+        input,
+        forcePrompt: true,
       }),
-    );
+    ).toThrow('cannot fit a complete approval projection');
   });
 });

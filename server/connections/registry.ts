@@ -17,6 +17,7 @@ import type {
   PublicCapabilityTemplate,
   PublicProviderTemplate,
 } from './types.js';
+import { assertCompleteApprovalProjection } from './capabilities/approval-contract.js';
 
 type BoundHandler<T> = Readonly<{
   templateKey: string;
@@ -280,6 +281,7 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
   uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
+  assertCompleteApprovalProjection(template.inputSchema);
   return Object.freeze({
     ...template,
     connectionTemplates: Object.freeze(
