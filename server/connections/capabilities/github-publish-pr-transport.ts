@@ -335,6 +335,25 @@ function assertPullRequestScope(
     throw new Error('GitHub pull request result is invalid');
   return value;
 }
+function sameGithubPullRequestUrl(left: string, right: string) {
+  try {
+    const a = new URL(left);
+    const b = new URL(right);
+    return (
+      a.protocol === 'https:' &&
+      b.protocol === 'https:' &&
+      a.hostname.toLowerCase() === 'github.com' &&
+      b.hostname.toLowerCase() === 'github.com' &&
+      a.pathname.toLowerCase() === b.pathname.toLowerCase() &&
+      !a.search &&
+      !b.search &&
+      !a.hash &&
+      !b.hash
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** Host adapter: isolated checkout, no hooks/local config, explicit non-force push. */
 export class GitHubCliHostPublisher implements GithubHostPublisher {
@@ -561,7 +580,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       repository: input.repository,
       sourceBranch: input.sourceBranch,
       baseBranch: input.baseBranch,
-      externalResultId: `https://github.com/${input.repository}/pull/${pullRequestId}`,
+      externalResultId: input.pullRequest.url,
       operationId: input.operationId,
       signal: input.signal,
     });
@@ -604,7 +623,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       input.signal,
     );
     const existing = parseGithubPullRequest(JSON.parse(stdout));
-    if (!existing || existing.url !== input.externalResultId) return null;
+    if (!existing || !sameGithubPullRequestUrl(existing.url, input.externalResultId)) return null;
     return assertPullRequestScope(existing, {
       repository: input.repository,
       sourceBranch: input.sourceBranch,

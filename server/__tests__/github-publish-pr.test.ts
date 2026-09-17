@@ -265,6 +265,43 @@ describe('github.publish-pr capability', () => {
       else expect(calls.some((args) => args[0] === 'pr')).toBe(false);
     },
   );
+  it('preserves a validated mixed-case PR URL for exact re-read', async () => {
+    const inputUrl = 'https://GitHub.com/Acme/Widgets/pull/12';
+    const apiUrl = 'https://github.com/acme/widgets/pull/12';
+    const payload = JSON.stringify({
+      id: 1,
+      number: 12,
+      html_url: apiUrl,
+      title: input.title,
+      body: input.body,
+      draft: false,
+      head: { ref: 'feature/safe' },
+      base: { ref: 'main', repo: { full_name: 'Acme/Widgets' } },
+    });
+    const runner = vi.fn(async () => ({ stdout: payload, stderr: '' }));
+    await expect(
+      new GitHubCliHostPublisher(runner).update({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        pullRequest: {
+          repository: 'Acme/Widgets',
+          sourceBranch: 'feature/safe',
+          baseBranch: 'main',
+          url: inputUrl,
+          id: '12',
+          title: input.title,
+          body: input.body,
+          draft: false,
+        },
+        title: input.title,
+        body: input.body,
+        draft: false,
+        operationId: 'op',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ id: '12' });
+  });
   it.each([
     { url: 'https://evil.test/acme/widgets/pull/12' },
     { repository: 'evil/widgets' },
@@ -601,6 +638,34 @@ describe('github.publish-pr capability', () => {
     );
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).not.toHaveBeenCalled();
+  });
+  it('recovers a mixed-case existing PR identity without treating it as a mismatch', async () => {
+    const f = fixture();
+    const mixed = {
+      ...f.pull,
+      repository: 'Acme/Widgets',
+      url: 'https://GitHub.com/Acme/Widgets/pull/12',
+    };
+    vi.mocked(f.host.read).mockResolvedValue(mixed);
+    vi.mocked(f.host.update).mockResolvedValue(mixed);
+    await expect(
+      f.executor.recover(
+        {
+          ...operation,
+          externalResultId: mixed.url,
+          recoveryIntent: {
+            repository: 'acme/widgets',
+            sourceBranch: 'feature/safe',
+            sourceOid: 'a'.repeat(40),
+            baseBranch: 'main',
+            title: input.title,
+            body: input.body,
+            draft: false,
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ externalResultId: mixed.url });
   });
   it('recreates a missing PR only after the durable branch OID is verified', async () => {
     const f = fixture();
