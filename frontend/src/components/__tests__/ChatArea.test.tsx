@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, act } from '@testing-library/react';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 
@@ -243,5 +243,36 @@ describe('ChatArea', () => {
     });
 
     expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number) });
+  });
+
+  it('does not pull a reader back to the bottom as a streaming response grows', () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const stream = (content: string) => ({
+      messageId: 'stream-1',
+      blocks: new Map<string, StreamingBlock>([
+        ['text-1', { blockId: 'text-1', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['text-1'],
+    });
+    const { rerender } = render(
+      <ChatArea {...defaultProps} current={stream('First streamed line')} scrollRef={scrollRef} />,
+    );
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    el.scrollTop = 600;
+    fireEvent.scroll(el);
+
+    rerender(
+      <ChatArea
+        {...defaultProps}
+        current={stream('First streamed line\nA later streamed line')}
+        scrollRef={scrollRef}
+      />,
+    );
+
+    expect(el.scrollTop).toBe(600);
   });
 });

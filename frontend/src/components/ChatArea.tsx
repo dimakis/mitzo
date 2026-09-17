@@ -53,6 +53,25 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  // Keep the reader's intent independently of the DOM height. By the time an
+  // effect runs for a streamed chunk, the new content is already in the DOM,
+  // so measuring then can incorrectly decide that a reader who scrolled up is
+  // still close enough to the bottom to follow.
+  const shouldFollowStreamRef = useRef(true);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateFollowState = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      shouldFollowStreamRef.current = distanceFromBottom <= SCROLL_NEAR_BOTTOM_PX;
+    };
+
+    updateFollowState();
+    el.addEventListener('scroll', updateFollowState, { passive: true });
+    return () => el.removeEventListener('scroll', updateFollowState);
+  }, [scrollRef]);
 
   // Track which block is currently being read aloud
   const [speakingBlockId, setSpeakingBlockId] = useState<string | null>(null);
@@ -85,18 +104,17 @@ export function ChatArea({
     const wasEmpty = prevMessageCount.current === 0;
     prevMessageCount.current = messages.length;
     if (wasEmpty && messages.length > 0) {
+      shouldFollowStreamRef.current = true;
       requestAnimationFrame(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     }
   }, [messages, scrollRef]);
 
-  // Auto-scroll during streaming: follow new content if user is near the bottom
+  // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
+    if (el && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, current, scrollRef]);
