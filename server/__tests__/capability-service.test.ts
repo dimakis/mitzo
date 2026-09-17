@@ -159,6 +159,12 @@ describe('CapabilityService', () => {
     expect(f.execute).not.toHaveBeenCalled();
   });
 
+  it('does not advertise a grant from an older connection revision', async () => {
+    const f = await fixture();
+    f.connection.revision += 1;
+    expect(f.service.eligibleToolsForConversation('account-1', 'conversation-1')).toEqual([]);
+  });
+
   it('never persists request values or executor secrets in output, errors, or audit rows', async () => {
     const f = await fixture();
     const secret = 'SENTINEL_SECRET_987';
@@ -193,6 +199,26 @@ describe('CapabilityService', () => {
     expect(f.execute).not.toHaveBeenCalled();
   });
 
+  it('rechecks the exact active grant after approval before dispatch', async () => {
+    const f = await fixture();
+    f.approve.mockImplementationOnce(async () => {
+      f.store.upsertGrant({
+        connectionId: f.connection.id,
+        connectionRevision: f.connection.revision,
+        capabilityId: template.id,
+        capabilityVersion: template.version,
+        accountIds: ['account-1'],
+        status: 'revoked',
+      });
+      return true;
+    });
+    await expect(f.service.invoke(request(), new AbortController().signal)).resolves.toMatchObject({
+      status: 'cancelled',
+      failureCode: 'STALE_ACCESS',
+    });
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
   it('preserves a post-write abort for read-after-write recovery without another mutation', async () => {
     const f = await fixture();
     const controller = new AbortController();
@@ -209,6 +235,22 @@ describe('CapabilityService', () => {
     expect(recovered.status).toBe('succeeded');
     expect(f.recover).toHaveBeenCalledTimes(1);
     expect(f.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a remote write that throws recoverable and never retries its executor', async () => {
+    const f = await fixture();
+    f.execute.mockImplementationOnce(async () => {
+      throw new Error('remote write completed before the response disconnected');
+    });
+    const initial = await f.service.invoke(request(), new AbortController().signal);
+    expect(initial).toMatchObject({ status: 'verification_pending' });
+    const recovered = await f.service.invoke(
+      request({ turnId: 'restart' }),
+      new AbortController().signal,
+    );
+    expect(recovered).toMatchObject({ status: 'succeeded' });
+    expect(f.execute).toHaveBeenCalledTimes(1);
+    expect(f.recover).toHaveBeenCalledTimes(1);
   });
 
   it('recovers durable ambiguous writes on restart through read-after-write only', async () => {

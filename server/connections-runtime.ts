@@ -11,6 +11,7 @@ import { CapabilityOperationStore } from './connections/capabilities/operation-s
 import { CapabilityExecutorRegistry } from './connections/capabilities/registry.js';
 import { CapabilityService } from './connections/capabilities/service.js';
 import type { CapabilityExecutor } from './connections/capabilities/types.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 
 const exec = promisify(execFile);
 export interface ConnectionsRuntime {
@@ -115,10 +116,15 @@ export function createConnectionsRuntime(options: {
     listConnections: () => store.list('operator'),
     isConnectionActiveForConversation: (connectionId, accountId, conversationId) => {
       const binding = options.resolveConversationBinding?.(conversationId);
+      const live = getLiveCapabilityConversationBinding(conversationId);
       const connection = store.get(connectionId);
       return !!(
         binding &&
         binding.accountId === accountId &&
+        live &&
+        live.accountId === accountId &&
+        live.connectionId === connectionId &&
+        live.connectionRevision === connection?.revision &&
         connection &&
         connection.status === 'active' &&
         connection.desiredAccountIds.includes(accountId)

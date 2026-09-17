@@ -264,6 +264,23 @@ export class CapabilityOperationStore {
       return this.get(id)!;
     })();
   }
+  /**
+   * Record redacted dispatch output without changing a write-ambiguous state.
+   * `verification_pending` is entered before execute(), so any later failure
+   * (including local result handling) remains recovery-only.
+   */
+  recordVerificationPending(
+    id: string,
+    fields: { result: JsonValue; externalResultId?: string },
+  ): CapabilityOperation {
+    const changed = this.db
+      .prepare(
+        "UPDATE capability_operations SET result_json=?, external_result_id=?, updated_at=? WHERE id=? AND status='verification_pending'",
+      )
+      .run(JSON.stringify(fields.result), fields.externalResultId ?? null, Date.now(), id);
+    if (changed.changes !== 1) throw new Error('Capability operation state changed');
+    return this.get(id)!;
+  }
   private audit(
     operationId: string,
     event: string,

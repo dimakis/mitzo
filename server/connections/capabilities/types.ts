@@ -59,6 +59,7 @@ export interface CapabilityConnection {
 }
 
 export interface CapabilityExecutionContext {
+  /** `operation.id` is the mandatory external idempotency and recovery key. */
   operation: CapabilityOperation;
   input: Readonly<Record<string, string | boolean>>;
   signal: AbortSignal;

@@ -61,6 +61,7 @@ import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
 import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -259,12 +260,26 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
   capabilityOperationsRouter = runtime
     ? createCapabilityOperationsRouter({
         service: runtime.capabilities,
-        // Mitzo is intentionally a single authenticated operator. The
-        // browser never provides accountId; only persisted conversation state
-        // supplies it to the capability boundary.
-        resolveConversationBinding: (_sessionId, conversationId) => {
+        resolveConversationBinding: (req, res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
           const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
-          return accountId ? { accountId } : undefined;
+          const live = getLiveCapabilityConversationBinding(conversationId);
+          if (!accountId || !live || live.accountId !== accountId) return undefined;
+          return {
+            accountId,
+            connectionId: live.connectionId,
+            connectionRevision: live.connectionRevision,
+          };
         },
         sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
         approveForConversation: (conversationId) =>

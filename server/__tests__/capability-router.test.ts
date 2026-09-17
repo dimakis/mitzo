@@ -45,8 +45,14 @@ describe('capability operations router', () => {
       createCapabilityOperationsRouter({
         service: capabilityService as never,
         sessionId: (_req, res) => res.locals.authSession?.id,
-        resolveConversationBinding: (_sessionId, conversationId) =>
-          conversationId === 'conversation-1' ? { accountId: 'authoritative-account' } : undefined,
+        resolveConversationBinding: (_req, _res, _sessionId, conversationId) =>
+          conversationId === 'conversation-1'
+            ? {
+                accountId: 'authoritative-account',
+                connectionId: 'connection-1',
+                connectionRevision: 1,
+              }
+            : undefined,
         approveForConversation: () => vi.fn(async () => true),
       }),
     );

@@ -103,7 +103,12 @@ export class CapabilityService {
       connections.flatMap((connection) =>
         this.options.store
           .grants(connection.id)
-          .filter((grant) => grant.status === 'active' && grant.accountIds.includes(accountId))
+          .filter(
+            (grant) =>
+              grant.status === 'active' &&
+              grant.connectionRevision === connection.revision &&
+              grant.accountIds.includes(accountId),
+          )
           .map((grant) => ({
             connectionId: grant.connectionId,
             capabilityId: grant.capabilityId,
@@ -145,7 +150,14 @@ export class CapabilityService {
     if (
       !operation ||
       operation.accountId !== accountId ||
-      operation.conversationId !== conversationId
+      operation.conversationId !== conversationId ||
+      this.options.getConnection(operation.connectionId)?.revision !==
+        operation.connectionRevision ||
+      !this.options.isConnectionActiveForConversation(
+        operation.connectionId,
+        accountId,
+        conversationId,
+      )
     )
       return undefined;
     return operation;
@@ -167,9 +179,15 @@ export class CapabilityService {
   cancel(id: string, accountId: string, conversationId: string): CapabilityOperation | undefined {
     const operation = this.getOperation(id, accountId, conversationId);
     if (!operation || operation.status !== 'pending_approval') return operation;
-    return this.options.store.transition(id, 'pending_approval', 'cancelled', {
-      failureCode: 'CANCELLED',
-    });
+    try {
+      return this.options.store.transition(id, 'pending_approval', 'cancelled', {
+        failureCode: 'CANCELLED',
+      });
+    } catch {
+      // Approval and browser cancellation may race. The transition loser must
+      // report the durable winner instead of converting the race to a 500.
+      return this.getOperation(id, accountId, conversationId);
+    }
   }
   async invoke(
     request: CapabilityRequest,
@@ -260,8 +278,27 @@ export class CapabilityService {
         return this.options.store.transition(operation.id, 'running', 'cancelled', {
           failureCode: 'STALE_ACCESS',
         });
+      const currentGrant = this.options.store.getGrant(
+        current.id,
+        current.revision,
+        template.id,
+        template.version,
+      );
+      if (
+        !currentGrant ||
+        currentGrant.id !== grant.id ||
+        currentGrant.status !== 'active' ||
+        !currentGrant.accountIds.includes(request.accountId)
+      )
+        return this.options.store.transition(operation.id, 'running', 'cancelled', {
+          failureCode: 'STALE_ACCESS',
+        });
       signal.throwIfAborted();
       const executor = this.options.executorRegistry.resolve(template);
+      // Mark dispatch before the executor call. A remote provider can commit a
+      // mutation and then throw/timeout before responding; from this point
+      // onward the only safe path is read-after-write recovery.
+      operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
       const executed = await executor.execute({ operation, input, signal });
       const sensitive = Object.values(input).filter(
         (value): value is string => typeof value === 'string',
@@ -269,9 +306,10 @@ export class CapabilityService {
       const output = redact(executed.output, sensitive);
       if (!resultIsBounded(output) || (executed.externalResultId?.length ?? 0) > 512)
         throw new Error('Executor result is invalid');
-      // The external side effect may have completed even if the caller drops
-      // here. Persist a reconcilable state before verification, never cancel it.
-      operation = this.options.store.transition(operation.id, 'running', 'verification_pending', {
+      // Keep the pre-dispatch ambiguous state while recording only bounded,
+      // redacted output. Result processing itself must not create a terminal
+      // failure after a potential remote write.
+      operation = this.options.store.recordVerificationPending(operation.id, {
         result: output,
         externalResultId: executed.externalResultId,
       });

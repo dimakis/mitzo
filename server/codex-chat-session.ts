@@ -33,6 +33,10 @@ import type { Connection } from './connections-store.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import {
+  bindLiveCapabilityConversation,
+  clearLiveCapabilityConversationBinding,
+} from './capability-conversation-binding.js';
 import { sharedOpenShellLifecycleCoordinator } from './openshell-lifecycle.js';
 import {
   registerOpenShellLifecycle,
@@ -521,10 +525,12 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         startupReservation?.();
         throw error;
       });
+  const managedCapabilityConnection =
+    options.binding?.accountId && managedConnection ? managedConnection : null;
   const capabilityTools = capabilityToolsForConversation(
-    options.binding.accountId,
+    options.binding?.accountId ?? '',
     options.conversationId,
-    managedConnection,
+    managedCapabilityConnection,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
@@ -541,6 +547,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     events.close();
     void mcp.close();
     runtimes.delete(options.session);
+    if (managedCapabilityConnection)
+      clearLiveCapabilityConversationBinding(options.conversationId, {
+        connectionId: managedCapabilityConnection.id,
+        connectionRevision: managedCapabilityConnection.revision,
+      });
   }
   const runtime = new CodexConversation({
     conversationId: options.conversationId,
@@ -745,6 +756,15 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   try {
     signal.throwIfAborted();
     await runtime.initialize();
+    if (managedCapabilityConnection && options.binding?.accountId) {
+      bindLiveCapabilityConversation(options.conversationId, {
+        accountId: options.binding.accountId,
+        connectionId: managedCapabilityConnection.id,
+        connectionRevision: managedCapabilityConnection.revision,
+        gatewayProviderId: managedCapabilityConnection.gatewayProviderId,
+        ...(managedOpenShell ? { sandboxName: managedOpenShell.sandboxName } : {}),
+      });
+    }
     if (runtimeManager && managedOpenShell) {
       const threadId = runtime.getThreadId();
       if (!threadId) throw new Error('OpenShell provider thread was not initialized');

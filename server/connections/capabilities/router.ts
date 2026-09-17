@@ -31,9 +31,11 @@ export function createCapabilityOperationsRouter(options: {
   service: CapabilityService;
   /** Authoritative lifecycle lookup; it also rejects conversations not owned by the session. */
   resolveConversationBinding(
+    req: express.Request,
+    res: express.Response,
     sessionId: string,
     conversationId: string,
-  ): { accountId: string } | undefined;
+  ): { accountId: string; connectionId: string; connectionRevision: number } | undefined;
   sessionId(req: express.Request, res: express.Response): string | undefined;
   /** Must display a forced, conversation-bound Mitzo approval card. */
   approveForConversation(conversationId: string): CapabilityApproval;
@@ -50,13 +52,18 @@ export function createCapabilityOperationsRouter(options: {
   router.use(express.json({ limit: '32kb' }));
   const subject = (req: express.Request, res: express.Response, conversationId: string) => {
     const id = options.sessionId(req, res);
-    return id ? options.resolveConversationBinding(id, conversationId) : undefined;
+    return id ? options.resolveConversationBinding(req, res, id, conversationId) : undefined;
   };
   router.post('/', async (req, res) => {
     const parsed = RequestBody.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid capability operation' });
     const trusted = subject(req, res, parsed.data.conversationId);
     if (!trusted) return res.status(403).json({ error: 'Capability access denied' });
+    if (
+      trusted.connectionId !== parsed.data.connectionId ||
+      trusted.connectionRevision !== parsed.data.connectionRevision
+    )
+      return res.status(403).json({ error: 'Capability access denied' });
     if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) return;
     try {
       return res.status(202).json({
