@@ -40,6 +40,12 @@ describe('connection template registry', () => {
     expect(projectCapabilityTemplate(githubPublish).connectionTemplates).toEqual([
       { id: 'github-readonly', version: 1 },
     ]);
+    expect(githubPublish.inputSchema.properties).toMatchObject({
+      connectionId: { minLength: 1 },
+      repositoryPath: { minLength: 1 },
+      baseBranch: { minLength: 1 },
+      title: { minLength: 1 },
+    });
     expect(connectionTemplateRegistry.getProviderTemplate('github-readonly', 2)).toBeUndefined();
     expect(
       connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 2),
@@ -262,6 +268,8 @@ describe('connection template registry', () => {
       ['192.168.0.1'],
       ['192.0.2.1'],
       ['192.88.99.1'],
+      ['198.51.100.1'],
+      ['203.0.113.1'],
       ['fe80::1'],
       ['fc00::1'],
       ['ff02::1'],
@@ -286,6 +294,10 @@ describe('connection template registry', () => {
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
     expect(() => pinPublicDnsAnswers(requirement, ['3fff:1000::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['198.51.99.255'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['198.51.101.0'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['203.0.112.255'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['203.0.114.0'])).not.toThrow();
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
@@ -410,6 +422,40 @@ describe('connection template registry', () => {
           {
             ...githubPublish,
             inputSchema: { ...githubPublish.inputSchema, required: ['missingProperty'] },
+          },
+        ],
+      }),
+    ).toThrow('Invalid capability template');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [
+          {
+            ...githubPublish,
+            inputSchema: {
+              ...githubPublish.inputSchema,
+              properties: {
+                ...githubPublish.inputSchema.properties,
+                title: { type: 'string', minLength: 257, maxLength: 256 },
+              },
+            },
+          },
+        ],
+      }),
+    ).toThrow('Invalid capability template');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [
+          {
+            ...githubPublish,
+            inputSchema: {
+              ...githubPublish.inputSchema,
+              properties: {
+                ...githubPublish.inputSchema.properties,
+                draft: { type: 'boolean', minLength: 1 },
+              },
+            },
           },
         ],
       }),

@@ -54,7 +54,10 @@ export interface ProviderTemplate {
 
 export interface JsonSchema {
   type: 'object';
-  properties: Record<string, { type: 'string' | 'boolean'; maxLength?: number }>;
+  properties: Record<
+    string,
+    { type: 'string'; minLength?: number; maxLength?: number } | { type: 'boolean' }
+  >;
   required: readonly string[];
   additionalProperties: false;
 }

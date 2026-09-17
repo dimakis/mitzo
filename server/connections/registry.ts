@@ -72,6 +72,7 @@ const JsonSchemaSchema = z
       z
         .object({
           type: z.enum(['string', 'boolean']),
+          minLength: z.number().int().positive().max(65_536).optional(),
           maxLength: z.number().int().positive().max(65_536).optional(),
         })
         .strict(),
@@ -83,6 +84,19 @@ const JsonSchemaSchema = z
   .superRefine((schema, ctx) => {
     if (schema.required.some((key) => !Object.hasOwn(schema.properties, key)))
       ctx.addIssue({ code: 'custom', message: 'required input must be defined' });
+    for (const property of Object.values(schema.properties)) {
+      if (
+        property.type !== 'string' &&
+        (property.minLength !== undefined || property.maxLength !== undefined)
+      )
+        ctx.addIssue({ code: 'custom', message: 'only string inputs may have length bounds' });
+      if (
+        property.minLength !== undefined &&
+        property.maxLength !== undefined &&
+        property.minLength > property.maxLength
+      )
+        ctx.addIssue({ code: 'custom', message: 'minimum input length exceeds maximum' });
+    }
   });
 const CapabilityTemplateSchema = z
   .object({
@@ -107,7 +121,12 @@ function key(id: string, version: number) {
   return `${id}@${version}`;
 }
 function contractFingerprint(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (value === null || typeof value !== 'object') {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined)
+      throw new Error('Reviewed manifest contains an unsupported value');
+    return serialized;
+  }
   if (Array.isArray(value)) return `[${value.map(contractFingerprint).join(',')}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record)
@@ -539,10 +558,10 @@ const capabilities: readonly CapabilityTemplate[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        connectionId: { type: 'string', maxLength: 128 },
-        repositoryPath: { type: 'string', maxLength: 1024 },
-        baseBranch: { type: 'string', maxLength: 255 },
-        title: { type: 'string', maxLength: 256 },
+        connectionId: { type: 'string', minLength: 1, maxLength: 128 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
+        title: { type: 'string', minLength: 1, maxLength: 256 },
         body: { type: 'string', maxLength: 65_536 },
         draft: { type: 'boolean' },
       },
@@ -680,10 +699,10 @@ const reviewedCapabilityContracts = Object.freeze({
     inputSchema: {
       type: 'object',
       properties: {
-        connectionId: { type: 'string', maxLength: 128 },
-        repositoryPath: { type: 'string', maxLength: 1024 },
-        baseBranch: { type: 'string', maxLength: 255 },
-        title: { type: 'string', maxLength: 256 },
+        connectionId: { type: 'string', minLength: 1, maxLength: 128 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
+        title: { type: 'string', minLength: 1, maxLength: 256 },
         body: { type: 'string', maxLength: 65_536 },
         draft: { type: 'boolean' },
       },

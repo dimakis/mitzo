@@ -306,8 +306,8 @@ function canonicalPublicDnsAddress(address: string) {
       (a === 192 && b === 52 && octets[2] === 193) ||
       (a === 192 && b === 88 && octets[2] === 99) ||
       (a === 198 && (b === 18 || b === 19)) ||
-      (a === 198 && b === 51) ||
-      (a === 203 && b === 0) ||
+      (a === 198 && b === 51 && octets[2] === 100) ||
+      (a === 203 && b === 0 && octets[2] === 113) ||
       a >= 224
     )
       return undefined;
