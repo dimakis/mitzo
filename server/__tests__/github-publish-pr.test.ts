@@ -203,8 +203,16 @@ describe('github.publish-pr capability', () => {
     );
   });
   it.each([
-    { currentDraft: true, requestedDraft: false, readiness: ['pr', 'ready'] },
-    { currentDraft: false, requestedDraft: true, readiness: ['pr', 'ready', '--undo'] },
+    {
+      currentDraft: true,
+      requestedDraft: false,
+      readiness: ['pr', 'ready', '12', '--repo', 'acme/widgets'],
+    },
+    {
+      currentDraft: false,
+      requestedDraft: true,
+      readiness: ['pr', 'ready', '--undo', '12', '--repo', 'acme/widgets'],
+    },
     { currentDraft: false, requestedDraft: false, readiness: undefined },
   ])(
     'uses the supported GitHub readiness transition for draft=$currentDraft -> $requestedDraft',
@@ -234,8 +242,16 @@ describe('github.publish-pr capability', () => {
         repository: 'acme/widgets',
         sourceBranch: 'feature/safe',
         baseBranch: 'main',
-        pullRequestId: '12',
-        pullRequestUrl: url,
+        pullRequest: {
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          baseBranch: 'main',
+          url,
+          id: '12',
+          title: input.title,
+          body: input.body,
+          draft: currentDraft,
+        },
         title: input.title,
         body: input.body,
         draft: requestedDraft,
@@ -245,10 +261,41 @@ describe('github.publish-pr capability', () => {
       expect(updated.draft).toBe(requestedDraft);
       const patch = calls.find((args) => args.includes('PATCH'))!;
       expect(patch.join(' ')).not.toContain('draft=');
-      if (readiness) expect(calls).toContainEqual([...readiness, url]);
+      if (readiness) expect(calls).toContainEqual(readiness);
       else expect(calls.some((args) => args[0] === 'pr')).toBe(false);
     },
   );
+  it.each([
+    { url: 'https://evil.test/acme/widgets/pull/12' },
+    { repository: 'evil/widgets' },
+    { id: '99', url: 'https://github.com/acme/widgets/pull/12' },
+  ])('rejects hostile existing PR identity before PATCH or readiness mutation', async (hostile) => {
+    const runner = vi.fn();
+    await expect(
+      new GitHubCliHostPublisher(runner).update({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        pullRequest: {
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          baseBranch: 'main',
+          url: 'https://github.com/acme/widgets/pull/12',
+          id: '12',
+          title: input.title,
+          body: input.body,
+          draft: true,
+          ...hostile,
+        },
+        title: input.title,
+        body: input.body,
+        draft: false,
+        operationId: 'op',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('invalid');
+    expect(runner).not.toHaveBeenCalled();
+  });
   it('honors authoritative protection when the source branch already exists', async () => {
     const runner = vi.fn(async (_command: string, args: readonly string[]) => ({
       stdout: args.at(-1)?.includes('/branches/')
@@ -500,7 +547,7 @@ describe('github.publish-pr capability', () => {
     expect(f.host.create).not.toHaveBeenCalled();
     expect(f.host.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        pullRequestId: '12',
+        pullRequest: expect.objectContaining({ id: '12' }),
         title: input.title,
         body: input.body,
         draft: false,

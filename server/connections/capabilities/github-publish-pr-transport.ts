@@ -312,6 +312,29 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
       }
     : null;
 }
+function assertPullRequestScope(
+  value: GithubPullRequest,
+  expected: { repository: string; sourceBranch: string; baseBranch: string; id: string },
+) {
+  let url: URL | undefined;
+  try {
+    url = new URL(value.url);
+  } catch {
+    /* rejected below */
+  }
+  if (
+    value.repository.toLowerCase() !== expected.repository.toLowerCase() ||
+    value.sourceBranch !== expected.sourceBranch ||
+    value.baseBranch !== expected.baseBranch ||
+    value.id !== expected.id ||
+    !url ||
+    url.protocol !== 'https:' ||
+    url.hostname.toLowerCase() !== 'github.com' ||
+    url.pathname.toLowerCase() !== `/${expected.repository}/pull/${expected.id}`.toLowerCase()
+  )
+    throw new Error('GitHub pull request result is invalid');
+  return value;
+}
 
 /** Host adapter: isolated checkout, no hooks/local config, explicit non-force push. */
 export class GitHubCliHostPublisher implements GithubHostPublisher {
@@ -486,8 +509,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     repository: string;
     sourceBranch: string;
     baseBranch: string;
-    pullRequestId: string;
-    pullRequestUrl: string;
+    pullRequest: GithubPullRequest;
     title: string;
     body: string;
     draft: boolean;
@@ -495,15 +517,22 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     signal: AbortSignal;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
-    if (!/^[1-9][0-9]*$/.test(input.pullRequestId))
+    if (!/^[1-9][0-9]*$/.test(input.pullRequest.id))
       throw new Error('Pull request identity is invalid');
+    assertPullRequestScope(input.pullRequest, {
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      id: input.pullRequest.id,
+    });
+    const pullRequestId = input.pullRequest.id;
     const { stdout } = await this.runHost(
       'gh',
       [
         'api',
         '--method',
         'PATCH',
-        `repos/${input.repository}/pulls/${input.pullRequestId}`,
+        `repos/${input.repository}/pulls/${pullRequestId}`,
         '-f',
         `title=${input.title}`,
         '-f',
@@ -513,12 +542,18 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     );
     const value = parseGithubPullRequest(JSON.parse(stdout));
     if (!value) throw new Error('GitHub pull request result is invalid');
+    assertPullRequestScope(value, {
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      id: pullRequestId,
+    });
     if (value.draft !== input.draft) {
       await this.runHost(
         'gh',
         input.draft
-          ? ['pr', 'ready', '--undo', input.pullRequestUrl]
-          : ['pr', 'ready', input.pullRequestUrl],
+          ? ['pr', 'ready', '--undo', pullRequestId, '--repo', input.repository]
+          : ['pr', 'ready', pullRequestId, '--repo', input.repository],
         input.signal,
       );
     }
@@ -526,11 +561,17 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       repository: input.repository,
       sourceBranch: input.sourceBranch,
       baseBranch: input.baseBranch,
-      externalResultId: input.pullRequestUrl,
+      externalResultId: `https://github.com/${input.repository}/pull/${pullRequestId}`,
       operationId: input.operationId,
       signal: input.signal,
     });
     if (!verified) throw new Error('GitHub pull request verification failed');
+    assertPullRequestScope(verified, {
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      id: pullRequestId,
+    });
     return verified;
   }
   async read(input: {
@@ -564,7 +605,12 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     );
     const existing = parseGithubPullRequest(JSON.parse(stdout));
     if (!existing || existing.url !== input.externalResultId) return null;
-    return existing;
+    return assertPullRequestScope(existing, {
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      id: number,
+    });
   }
   async readBranch(input: {
     repository: string;
