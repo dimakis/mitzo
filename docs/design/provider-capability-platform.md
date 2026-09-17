@@ -183,7 +183,6 @@ Replace the Jira-only form with cards returned by `GET /api/connections/template
 
 - GitHub
 - Jira
-- Google Workspace
 - Custom REST API (Operator mode)
 
 Each card shows provider category, authentication method, data access, available capabilities, and risk label.

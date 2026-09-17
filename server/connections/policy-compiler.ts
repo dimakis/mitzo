@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { parse as parseDomain } from 'tldts';
 import { z } from 'zod';
 import type {
   PinnedPublicDnsAnswers,
@@ -214,14 +215,18 @@ function customEndpoint(value: string) {
   )
     throw new Error('Custom endpoint must be an HTTPS origin without credentials or a custom port');
   const host = url.hostname.toLowerCase();
+  const registrable = parseDomain(host, { allowPrivateDomains: false });
   if (
     !host ||
+    host.length > 253 ||
+    Buffer.byteLength(host, 'utf8') > 253 ||
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local') ||
     host.endsWith('.internal') ||
     host.includes('*') ||
     isIP(host) !== 0 ||
+    !registrable.domain ||
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
   )
     throw new Error('Custom endpoint host is not allowed');

@@ -256,12 +256,18 @@ describe('connection template registry', () => {
       { endpoint: 'https://127.0.0.1', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://[::1]', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://localhost', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://co.uk', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.local', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.internal', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://user:pass@api.example.com', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://api.example.com:8443', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://*.example.com', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://api.example.com', methods: ['POST'], paths: ['/v1/items'] },
+      {
+        endpoint: `https://${Array.from({ length: 4 }, () => 'a'.repeat(63)).join('.')}`,
+        methods: ['GET'],
+        paths: ['/v1/items'],
+      },
       {
         endpoint: 'https://api.example.com',
         methods: ['GET'],
@@ -277,6 +283,13 @@ describe('connection template registry', () => {
           fields,
         }),
       ).toThrow();
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'custom-rest-readonly',
+        templateVersion: 1,
+        fields: { endpoint: 'https://bücher.example', methods: ['GET'], paths: ['/v1/items'] },
+      }).publicConfig.endpoint,
+    ).toBe('https://xn--bcher-kva.example');
   });
 
   it('requires public-only pinned DNS answers and rejects rebinding', () => {
