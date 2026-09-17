@@ -305,6 +305,7 @@ describe('connection template registry', () => {
       ['10.0.0.1'],
       ['169.254.169.254'],
       ['192.168.0.1'],
+      ['192.0.0.1'],
       ['192.0.2.1'],
       ['192.88.99.1'],
       ['198.51.100.1'],
@@ -345,6 +346,8 @@ describe('connection template registry', () => {
     expect(() => pinPublicDnsAnswers(requirement, ['198.51.101.0'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['203.0.112.255'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['203.0.114.0'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['192.0.1.1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['192.2.0.1'])).not.toThrow();
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
