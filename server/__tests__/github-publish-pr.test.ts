@@ -266,7 +266,7 @@ describe('github.publish-pr capability', () => {
     },
   );
   it('preserves a validated mixed-case PR URL for exact re-read', async () => {
-    const inputUrl = 'https://GitHub.com/Acme/Widgets/pull/12';
+    const inputUrl = 'https://GitHub.com:443/Acme/Widgets/pull/12';
     const apiUrl = 'https://github.com/acme/widgets/pull/12';
     const payload = JSON.stringify({
       id: 1,
@@ -309,6 +309,7 @@ describe('github.publish-pr capability', () => {
     { url: 'https://github.com/acme/widgets/pull/12?state=open' },
     { url: 'https://github.com/acme/widgets/pull/12#comment' },
     { url: 'https://user:password@github.com/acme/widgets/pull/12' },
+    { url: 'https://github.com:444/acme/widgets/pull/12' },
   ])('rejects hostile existing PR identity before PATCH or readiness mutation', async (hostile) => {
     const runner = vi.fn();
     await expect(
@@ -340,6 +341,7 @@ describe('github.publish-pr capability', () => {
     'https://github.com/acme/widgets/pull/12?state=open',
     'https://github.com/acme/widgets/pull/12#comment',
     'https://user:password@github.com/acme/widgets/pull/12',
+    'https://github.com:444/acme/widgets/pull/12',
   ])('rejects impure PR read URLs before host GET', async (externalResultId) => {
     const runner = vi.fn();
     await expect(
