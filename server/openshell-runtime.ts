@@ -966,6 +966,47 @@ export class OpenShellRuntimeManager {
     });
   }
 
+  async revokeServiceProvider(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    provider: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (!this.config.grantableServiceProviders.includes(provider))
+      throw new Error('OpenShell service provider is not grantable');
+    return this.serializeProviderPolicy(runtime.sandboxName, signal, async () => {
+      const owner = this.sandboxOwner(conversationId, runtime.sandboxName);
+      if (!owner) throw new Error('OpenShell sandbox does not belong to this conversation');
+      const sandbox = await this.get(runtime.sandboxName, signal);
+      if (!sandbox || sandbox.phase !== 'Ready')
+        throw new Error(`OpenShell sandbox ${runtime.sandboxName} is not Ready`);
+      if (
+        sandbox.labels?.['mitzo.conversation'] !== owner ||
+        sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider
+      )
+        throw new Error('OpenShell sandbox binding changed');
+      const previous = this.providerPolicyState.read(runtime.sandboxName);
+      this.providerPolicyState.write(runtime.sandboxName, {
+        automatic: previous?.automatic ?? [],
+        granted: (previous?.granted ?? []).filter((granted) => granted !== provider),
+      });
+      try {
+        await this.run(
+          ['sandbox', ...this.base(), 'provider', 'detach', runtime.sandboxName, provider],
+          signal,
+        );
+      } catch (error) {
+        if (
+          !/not attached|not found|404|does not exist/i.test(
+            error instanceof Error ? error.message : '',
+          )
+        )
+          throw new Error('OpenShell service provider revoke failed', { cause: error });
+      }
+      await this.waitForReady(runtime.sandboxName, owner, signal);
+    });
+  }
+
   async compileContext(runtime: OpenShellRuntime, signal: AbortSignal) {
     const spec = openShellSshProcessSpec(
       runtime,

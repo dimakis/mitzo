@@ -1166,14 +1166,26 @@ except Exception:
       throw new Error('Gateway custom REST probe is not configured');
     const endpoint = input.publicConfig.endpoint;
     const paths = input.publicConfig.paths;
+    const protocol = input.publicConfig.protocol;
+    const methods = input.publicConfig.methods;
     if (
       typeof endpoint !== 'string' ||
+      (protocol !== 'rest' && protocol !== 'graphql') ||
+      !Array.isArray(methods) ||
+      methods.length === 0 ||
+      methods.some((method) => typeof method !== 'string') ||
       !Array.isArray(paths) ||
       paths.length === 0 ||
       paths.some((path) => typeof path !== 'string')
     )
       throw new Error('Gateway custom REST probe is invalid');
     const url = new URL(paths[0]!, endpoint).toString();
+    const method = methods[0]!;
+    if (
+      (protocol === 'rest' && !['GET', 'HEAD', 'OPTIONS'].includes(method)) ||
+      (protocol === 'graphql' && method !== 'GRAPHQL_QUERY')
+    )
+      throw new Error('Gateway custom REST probe is invalid');
     const name =
       input.sandboxName ??
       `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
@@ -1211,6 +1223,21 @@ except Exception:
       if (attached.length !== 1 || attached[0] !== safeName(input.providerName))
         throw new Error('Probe sandbox provider attachment mismatch');
       // No response or headers cross this boundary; curl follows zero redirects and the provider policy denies them.
+      const request =
+        protocol === 'graphql'
+          ? [
+              '--request',
+              'POST',
+              '--header',
+              'content-type: application/json',
+              '--data',
+              '{"query":"query { __typename }"}',
+            ]
+          : method === 'HEAD'
+            ? ['--head']
+            : method === 'OPTIONS'
+              ? ['--request', 'OPTIONS']
+              : [];
       await this.run(
         [
           'sandbox',
@@ -1233,6 +1260,7 @@ except Exception:
           '0',
           '--output',
           '/dev/null',
+          ...request,
           url,
         ],
         signal,

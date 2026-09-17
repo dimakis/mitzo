@@ -125,25 +125,61 @@ export class ConnectionsService {
         c.publicConfig.attachmentMode === 'on-demand',
     );
   }
+  private async authorizeOnDemandLocked(
+    connectionId: string,
+    revision: number,
+    accountId: string,
+    signal: AbortSignal,
+  ) {
+    const c = this.current(connectionId, revision);
+    if (
+      c.templateId !== 'custom-rest-readonly' ||
+      c.status !== 'active' ||
+      c.verifiedAt === null ||
+      !c.gatewayProviderId ||
+      c.publicConfig.attachmentMode !== 'on-demand' ||
+      !c.desiredAccountIds.includes(accountId)
+    )
+      throw new Error('On-demand connection is no longer eligible');
+    await this.boundProvider(c, signal);
+    return c;
+  }
   async authorizeOnDemand(
     connectionId: string,
     revision: number,
     accountId: string,
     signal: AbortSignal,
   ) {
+    return this.serial(() =>
+      this.authorizeOnDemandLocked(connectionId, revision, accountId, signal),
+    );
+  }
+  /** Holds the connection mutation lock through physical attach and revalidates before release. */
+  async grantOnDemand<T>(
+    connectionId: string,
+    revision: number,
+    accountId: string,
+    signal: AbortSignal,
+    attach: () => Promise<T>,
+    rollback: () => Promise<void>,
+  ) {
     return this.serial(async () => {
-      const c = this.current(connectionId, revision);
-      if (
-        c.templateId !== 'custom-rest-readonly' ||
-        c.status !== 'active' ||
-        c.verifiedAt === null ||
-        !c.gatewayProviderId ||
-        c.publicConfig.attachmentMode !== 'on-demand' ||
-        !c.desiredAccountIds.includes(accountId)
-      )
-        throw new Error('On-demand connection is no longer eligible');
-      await this.boundProvider(c, signal);
-      return c;
+      await this.authorizeOnDemandLocked(connectionId, revision, accountId, signal);
+      try {
+        const result = await attach();
+        // Assignment/revocation/rotation cannot interleave while the lock is
+        // held. Re-check anyway before returning a durable new attachment.
+        await this.authorizeOnDemandLocked(connectionId, revision, accountId, signal);
+        return result;
+      } catch (error) {
+        try {
+          await rollback();
+        } catch {
+          // The caller still receives the failed grant; a retained attachment
+          // is never considered approved until a later verified recovery.
+        }
+        throw error;
+      }
     });
   }
   private current(id: string, revision?: number) {
@@ -272,21 +308,26 @@ export class ConnectionsService {
     if (!sandbox) return;
     const providers = await this.gateway.sandboxProviders(name, signal);
     const managed = providers.filter((p) => p.startsWith('mitzo-conn-'));
+    const managedOnDemandProviderNames = approvedOnDemandProviderNames.filter((provider) =>
+      provider.startsWith('mitzo-conn-'),
+    );
     const expected = [
-      ...(connection ? [connection.gatewayProviderName] : []),
-      ...approvedOnDemandProviderNames,
+      ...(connection?.gatewayProviderName.startsWith('mitzo-conn-')
+        ? [connection.gatewayProviderName]
+        : []),
+      ...managedOnDemandProviderNames,
     ];
     if (managed.length !== expected.length || managed.some((p) => !expected.includes(p)))
       throw new Error('Connection permissions changed. Start a new conversation.');
     // A durable grant is only valid while its current connection revision
     // remains active for this account. This also repeats the custom DNS pin
     // verification before every retained-sandbox use.
-    for (const providerName of approvedOnDemandProviderNames) {
+    for (const providerName of managedOnDemandProviderNames) {
       const candidate = onDemandConnections.find(
         (connection) => connection.gatewayProviderName === providerName,
       );
       if (!candidate) throw new Error('Connection permissions changed. Start a new conversation.');
-      await this.authorizeOnDemand(candidate.id, candidate.revision, accountId, signal);
+      await this.authorizeOnDemandLocked(candidate.id, candidate.revision, accountId, signal);
     }
   }
   private async drain(c: Connection, signal: AbortSignal, removedAccounts?: string[]) {

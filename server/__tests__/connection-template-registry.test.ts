@@ -566,6 +566,13 @@ describe('connection template registry', () => {
       allowedBinaries: ['/usr/bin/curl', '/usr/bin/jq'],
     });
     expect(policy.publicConfig).toMatchObject({ attachmentMode: 'on-demand', port: '8443' });
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'custom-rest-readonly',
+        templateVersion: 1,
+        fields: { ...policy.publicConfig, dnsPin: ['1.1.1.1'] },
+      }).endpoints[0],
+    ).toMatchObject({ host: 'xn--bcher-kva.example', port: 8443 });
     for (const path of ['/v1/*', '/v1/**', '/v1/./items', '/v1/../items'])
       expect(() =>
         connectionTemplateRegistry.compileProviderPolicy({

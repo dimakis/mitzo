@@ -217,7 +217,7 @@ export const compileGithubReadonly: PolicyCompiler = (template, fields) => {
   );
 };
 
-function customEndpoint(value: string) {
+function customEndpoint(value: string, expectedPort?: number) {
   let url: URL;
   try {
     url = new URL(value);
@@ -231,7 +231,9 @@ function customEndpoint(value: string) {
     url.pathname !== '/' ||
     url.search ||
     url.hash ||
-    url.port !== ''
+    (expectedPort === undefined
+      ? url.port !== ''
+      : url.port !== '' && Number(url.port) !== expectedPort)
   )
     throw new Error('Custom endpoint must be an HTTPS origin without credentials or a port');
   const host = url.hostname.toLowerCase();
@@ -372,7 +374,7 @@ export const compileCustomRestReadonly: PolicyCompiler = (template, fields) => {
     throw new Error('Custom GraphQL inspection path is invalid');
   if (methods.length * paths.length > maxCustomRules)
     throw new Error('Custom REST rule set is too large');
-  const { host } = customEndpoint(endpoint);
+  const { host } = customEndpoint(endpoint, port);
   const mapping: CustomCredentialMapping = legacy
     ? { style: 'bearer-token', location: 'header', name: 'authorization' }
     : {

@@ -46,8 +46,8 @@ describe('ConnectionsService', () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
     const fields = {
-      endpoint: 'https://api.example.com',
-      port: '443',
+      endpoint: 'https://api.example.com:8443',
+      port: '8443',
       protocol: 'rest',
       methods: ['GET'],
       paths: ['/v1/items'],
@@ -68,7 +68,7 @@ describe('ConnectionsService', () => {
       templateId: 'custom-rest-readonly',
       templateVersion: 1,
       label: 'Reviewed inventory API',
-      endpoint: 'https://api.example.com',
+      endpoint: 'https://api.example.com:8443',
       publicConfig: fields,
       gatewayProviderName: 'mitzo-conn-12345678',
       desiredAccountIds: ['work'],
@@ -127,7 +127,41 @@ describe('ConnectionsService', () => {
         [active.gatewayProviderName],
       ),
     ).resolves.toBeUndefined();
+    // Built-in grantable names never inflate the managed custom attachment
+    // expectation for a retained sandbox.
+    await expect(
+      service.verifyRuntimeSandbox(
+        'sandbox',
+        null,
+        'work',
+        signal,
+        [active],
+        ['github', active.gatewayProviderName],
+      ),
+    ).resolves.toBeUndefined();
     expect(gateway.verifyCompatibility).toHaveBeenCalled();
+
+    const rollback = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      service.grantOnDemand(
+        active.id,
+        active.revision,
+        'work',
+        signal,
+        async () => {
+          // Simulate an out-of-band lifecycle mutation after physical attach;
+          // the service must revalidate and revoke the just-created grant.
+          store.transition(
+            active.id,
+            active.revision,
+            { status: 'needs_attention' },
+            { operation: 'test', outcome: 'changed', actor: 'operator' },
+          );
+        },
+        rollback,
+      ),
+    ).rejects.toThrow('Connection changed');
+    expect(rollback).toHaveBeenCalledOnce();
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });

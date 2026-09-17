@@ -485,12 +485,27 @@ async function openCodexChatBound(
           (connection) => connection.gatewayProviderName === provider,
         );
         if (onDemand) {
-          await connectionService?.authorizeOnDemand(
+          await connectionService?.grantOnDemand(
             onDemand.id,
             onDemand.revision,
             options.binding.accountId,
             signal,
+            () =>
+              runtimeManager.grantServiceProvider(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              ),
+            () =>
+              runtimeManager.revokeServiceProvider(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              ),
           );
+          return true;
         }
         await runtimeManager.grantServiceProvider(
           options.conversationId,

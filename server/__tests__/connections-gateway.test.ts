@@ -151,6 +151,49 @@ describe('OpenShellConnectionGateway', () => {
     );
     expect(runner.mock.calls[3]![0]).toEqual(expect.arrayContaining(['profile', 'export']));
   });
+  it.each([
+    ['rest', ['HEAD'], '--head', undefined],
+    ['rest', ['OPTIONS'], '--request', 'OPTIONS'],
+    ['graphql', ['GRAPHQL_QUERY'], '--request', 'POST'],
+  ] as const)(
+    'probes an allowed %s policy using its reviewed method',
+    async (protocol, methods, expectedFlag, expectedValue) => {
+      const name = 'mzp-1234567890abcde';
+      const runner = vi.fn(async (args: readonly string[]) => {
+        if (args.includes('create')) return JSON.stringify({ name, phase: 'Ready' });
+        if (args.includes('provider'))
+          return 'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-conn-12345678 custom 1 0';
+        return '';
+      });
+      const gateway = new OpenShellConnectionGateway(runner, {
+        workspace: 'default',
+        probeImage: 'image',
+        probePolicy: 'policy',
+        customProbePolicy: 'policy',
+      });
+      await expect(
+        gateway.probe(
+          {
+            providerName: 'mitzo-conn-12345678',
+            templateId: 'custom-rest-readonly',
+            templateVersion: 1,
+            publicConfig: {
+              endpoint: 'https://api.example.com',
+              protocol,
+              methods: [...methods],
+              paths: [protocol === 'graphql' ? '/graphql' : '/v1'],
+            },
+            sandboxName: name,
+          },
+          signal,
+        ),
+      ).resolves.toEqual({ identity: 'custom:api.example.com' });
+      const exec = runner.mock.calls.find(([args]) => args.includes('exec'))![0];
+      expect(exec).toContain(expectedFlag);
+      if (expectedValue) expect(exec[exec.indexOf(expectedFlag) + 1]).toBe(expectedValue);
+      if (protocol === 'graphql') expect(exec).toContain('{"query":"query { __typename }"}');
+    },
+  );
   it('fails closed if an existing deterministic custom profile exports a broader policy', async () => {
     const policy = customPolicy();
     const rendered = renderCustomRestProfile(policy);
