@@ -281,6 +281,21 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
             connectionRevision: live.connectionRevision,
           };
         },
+        resolveConversationReadBinding: (req, _res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
         sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
         approveForConversation: (conversationId) =>
           capabilityApprovalForConversation(registry, conversationId),

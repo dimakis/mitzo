@@ -36,6 +36,13 @@ export function createCapabilityOperationsRouter(options: {
     sessionId: string,
     conversationId: string,
   ): { accountId: string; connectionId: string; connectionRevision: number } | undefined;
+  /** Durable history may be read after a conversation detaches, never mutated. */
+  resolveConversationReadBinding(
+    req: express.Request,
+    res: express.Response,
+    sessionId: string,
+    conversationId: string,
+  ): { accountId: string } | undefined;
   sessionId(req: express.Request, res: express.Response): string | undefined;
   /** Must display a forced, conversation-bound Mitzo approval card. */
   approveForConversation(conversationId: string): CapabilityApproval;
@@ -53,6 +60,10 @@ export function createCapabilityOperationsRouter(options: {
   const subject = (req: express.Request, res: express.Response, conversationId: string) => {
     const id = options.sessionId(req, res);
     return id ? options.resolveConversationBinding(req, res, id, conversationId) : undefined;
+  };
+  const readSubject = (req: express.Request, res: express.Response, conversationId: string) => {
+    const id = options.sessionId(req, res);
+    return id ? options.resolveConversationReadBinding(req, res, id, conversationId) : undefined;
   };
   router.post('/', async (req, res) => {
     const parsed = RequestBody.safeParse(req.body);
@@ -80,7 +91,7 @@ export function createCapabilityOperationsRouter(options: {
   router.get('/:id', (req, res) => {
     const parsed = SubjectBody.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid capability operation' });
-    const trusted = subject(req, res, parsed.data.conversationId);
+    const trusted = readSubject(req, res, parsed.data.conversationId);
     if (!trusted) return res.status(403).json({ error: 'Capability access denied' });
     const operation = options.service.getOperation(
       req.params.id,

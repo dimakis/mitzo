@@ -15,9 +15,10 @@ describe('capability operations router', () => {
     const directory = mkdtempSync(join(tmpdir(), 'capability-router-'));
     const store = new ConnectionStore(join(directory, 'connections.db'));
     const invoke = vi.fn(async (input) => ({ id: 'operation-1', ...input, status: 'succeeded' }));
+    let live = true;
     const capabilityService = {
       invoke,
-      getOperation: vi.fn(),
+      getOperation: vi.fn((id) => ({ id, status: 'succeeded' })),
       cancel: vi.fn(),
       listGrants: vi.fn(() => []),
       setGrant: vi.fn(),
@@ -46,13 +47,15 @@ describe('capability operations router', () => {
         service: capabilityService as never,
         sessionId: (_req, res) => res.locals.authSession?.id,
         resolveConversationBinding: (_req, _res, _sessionId, conversationId) =>
-          conversationId === 'conversation-1'
+          live && conversationId === 'conversation-1'
             ? {
                 accountId: 'authoritative-account',
                 connectionId: 'connection-1',
                 connectionRevision: 1,
               }
             : undefined,
+        resolveConversationReadBinding: (_req, _res, _sessionId, conversationId) =>
+          conversationId === 'conversation-1' ? { accountId: 'authoritative-account' } : undefined,
         approveForConversation: () => vi.fn(async () => true),
       }),
     );
@@ -88,6 +91,22 @@ describe('capability operations router', () => {
       expect.anything(),
       expect.anything(),
     );
+    live = false;
+    const historical = await request(app)
+      .get('/api/capability-operations/operation-1')
+      .set('x-browser', 'yes')
+      .query({ conversationId: 'conversation-1' });
+    expect(historical.status).toBe(200);
+    expect(historical.body.operation).toMatchObject({ id: 'operation-1', status: 'succeeded' });
+    expect(
+      (
+        await request(app)
+          .post('/api/capability-operations')
+          .set('x-browser', 'yes')
+          .set('x-csrf-token', auth.body.csrf)
+          .send(body)
+      ).status,
+    ).toBe(403);
     expect(
       (
         await request(app)
