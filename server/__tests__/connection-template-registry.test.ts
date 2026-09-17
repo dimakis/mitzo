@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   customDnsRequirement,
+  ianaAllocatedPublicIpv6Prefixes,
   pinPublicDnsAnswers,
   verifyPinnedPublicDns,
 } from '../connections/policy-compiler.js';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedHandlerSourceFingerprint,
+} from '../connections/reviewed-handler-artifacts.js';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import {
   connectionTemplateRegistry,
   createConnectionTemplateRegistry,
@@ -393,6 +400,41 @@ describe('connection template registry', () => {
     expect(() => pinPublicDnsAnswers(requirement, ['192.2.0.1'])).not.toThrow();
   });
 
+  it('covers both bounds and immediate neighbors of every reviewed IPv6 allocation', () => {
+    const requirement = customDnsRequirement('api.openai.com');
+    const maxIpv6 = (1n << 128n) - 1n;
+    const addressText = (address: bigint) =>
+      Array.from({ length: 8 }, (_, index) =>
+        Number((address >> BigInt((7 - index) * 16)) & 0xffffn).toString(16),
+      ).join(':');
+    const range = ([
+      first,
+      second,
+      prefixLength,
+    ]: (typeof ianaAllocatedPublicIpv6Prefixes)[number]) => {
+      const lower = (BigInt(first) << 112n) | (BigInt(second) << 96n);
+      return [lower, lower | ((1n << BigInt(128 - prefixLength)) - 1n)] as const;
+    };
+    const isAllocated = (address: bigint) =>
+      ianaAllocatedPublicIpv6Prefixes.some((prefix) => {
+        const [lower, upper] = range(prefix);
+        return address >= lower && address <= upper;
+      });
+    const expectAddress = (address: bigint, allowed: boolean) => {
+      const pin = () => pinPublicDnsAnswers(requirement, [addressText(address)]);
+      if (allowed) expect(pin).not.toThrow();
+      else expect(pin).toThrow('public IP addresses');
+    };
+
+    for (const prefix of ianaAllocatedPublicIpv6Prefixes) {
+      const [lower, upper] = range(prefix);
+      expectAddress(lower, true);
+      expectAddress(upper, true);
+      if (lower > 0n) expectAddress(lower - 1n, isAllocated(lower - 1n));
+      if (upper < maxIpv6) expectAddress(upper + 1n, isAllocated(upper + 1n));
+    }
+  });
+
   it('rejects Git ref component escapes in reviewed base branches', () => {
     for (const branch of [
       'HEAD',
@@ -532,6 +574,31 @@ describe('connection template registry', () => {
         },
       ),
     ).toThrow('implementation does not match reviewed behavior');
+  });
+
+  it('binds handler source outside golden inputs to reviewed artifacts', async () => {
+    const policyCompilerSource = await readFile(
+      fileURLToPath(new URL('../connections/policy-compiler.ts', import.meta.url)),
+      'utf8',
+    );
+    const registrySource = await readFile(
+      fileURLToPath(new URL('../connections/registry.ts', import.meta.url)),
+      'utf8',
+    );
+    expect(reviewedHandlerSourceFingerprint(policyCompilerSource)).toBe(
+      reviewedHandlerSourceArtifacts['policy-compiler.ts'],
+    );
+    expect(reviewedHandlerSourceFingerprint(registrySource)).toBe(
+      reviewedHandlerSourceArtifacts['registry.ts'],
+    );
+
+    // HEAD rejection is deliberately absent from the GitHub golden output.
+    // A source-only validation change must still invalidate the reviewed artifact.
+    expect(
+      reviewedHandlerSourceFingerprint(
+        policyCompilerSource.replace('ambiguousGithubBaseBranches.has(value)', 'false'),
+      ),
+    ).not.toBe(reviewedHandlerSourceArtifacts['policy-compiler.ts']);
   });
 
   it('fails closed for duplicate and malformed manifests', () => {

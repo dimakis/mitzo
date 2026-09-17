@@ -5,6 +5,7 @@ import {
   compileGithubReadonly,
   compileJiraReadonly,
 } from './policy-compiler.js';
+import { reviewedHandlerImplementationRevision } from './reviewed-handler-artifacts.js';
 import type {
   CapabilityExecutor,
   CapabilityTemplate,
@@ -796,7 +797,7 @@ const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPr
   'jira-readonly-v1': bindHandler(
     'jira-readonly@1',
     reviewedProviderContracts['jira-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '46edc4d7e2a28a124e3f399073d251c2db657e000a8697c0d112c718ff2e75ed',
     jiraCompilerGoldenOutput,
     compileJiraReadonly,
@@ -804,7 +805,7 @@ const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPr
   'github-readonly-v1': bindHandler(
     'github-readonly@1',
     reviewedProviderContracts['github-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '067c6087d3edb03c295f0e9ffab490f40d61d2b0ea8286a9e79ab4799c4fb4a2',
     githubCompilerGoldenOutput,
     compileGithubReadonly,
@@ -812,7 +813,7 @@ const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPr
   'custom-rest-readonly-v1': bindHandler(
     'custom-rest-readonly@1',
     reviewedProviderContracts['custom-rest-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '8c3824d0fb89e7cafa1842a19db3d66061f002d4392a7b7305c1cea0bda48df8',
     customRestCompilerGoldenOutput,
     compileCustomRestReadonly,
@@ -822,7 +823,7 @@ const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandl
   'jira-readonly-v1': bindHandler(
     'jira-readonly@1',
     reviewedProviderContracts['jira-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
     probeGoldenOutput,
     identityProbe,
@@ -830,7 +831,7 @@ const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandl
   'github-readonly-v1': bindHandler(
     'github-readonly@1',
     reviewedProviderContracts['github-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
     probeGoldenOutput,
     identityProbe,
@@ -838,7 +839,7 @@ const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandl
   'custom-rest-readonly-v1': bindHandler(
     'custom-rest-readonly@1',
     reviewedProviderContracts['custom-rest-readonly@1'],
-    'v1.0.0',
+    reviewedHandlerImplementationRevision,
     '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
     probeGoldenOutput,
     identityProbe,
@@ -849,7 +850,7 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
     'github-publish-pr-v1': bindHandler(
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
-      'v1.0.0',
+      reviewedHandlerImplementationRevision,
       '41d28fe0d516c0f3f22c21871f1a7ac32022d8a16d178adacfc33325b1cdcf80',
       executorGoldenOutput,
       approvalRequiredExecutor,

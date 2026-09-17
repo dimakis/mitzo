@@ -16,7 +16,11 @@ const maxCustomPathLength = 256;
 const maxCustomRules = 24;
 const maxGithubScopeEntries = 50;
 const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
-type IanaIpv6Allocation = readonly [firstWord: number, secondWord: number, prefixLength: number];
+export type IanaIpv6Allocation = readonly [
+  firstWord: number,
+  secondWord: number,
+  prefixLength: number,
+];
 
 /**
  * IANA's IPv6 Global Unicast Address Space registry, reviewed 2026-09-17:
@@ -31,7 +35,7 @@ type IanaIpv6Allocation = readonly [firstWord: number, secondWord: number, prefi
  * The IANA 2001::/23 and 2002::/16 rows are intentionally omitted. They carry
  * special-purpose/transition assignments, not a general public DNS allowance.
  */
-const ianaAllocatedPublicIpv6Prefixes: readonly IanaIpv6Allocation[] = [
+export const ianaAllocatedPublicIpv6Prefixes: readonly IanaIpv6Allocation[] = [
   [0x2001, 0x0200, 23],
   [0x2001, 0x0400, 23],
   [0x2001, 0x0600, 23],
