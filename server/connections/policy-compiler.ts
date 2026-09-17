@@ -37,7 +37,7 @@ function requireOnlyFields(
   required: readonly string[],
 ) {
   const keys = Object.keys(fields);
-  if (keys.length !== required.length || required.some((key) => !(key in fields)))
+  if (keys.length !== required.length || required.some((key) => !Object.hasOwn(fields, key)))
     throw new Error('Template public fields are invalid');
 }
 function requiredString(
@@ -112,8 +112,13 @@ function canonicalGithubBranches(values: readonly string[]) {
         value.includes('//') ||
         value.endsWith('.') ||
         value.endsWith('/') ||
-        value.endsWith('.lock') ||
-        value.includes('@{'),
+        value.includes('@{') ||
+        value
+          .split('/')
+          .some(
+            (component) =>
+              component.length === 0 || component.startsWith('.') || component.endsWith('.lock'),
+          ),
     )
   )
     throw new Error('Invalid allowedBaseBranches');
@@ -233,12 +238,44 @@ export function customDnsRequirement(hostname: string): PublicOnlyPinnedDnsRequi
     rejectRebinding: true,
   };
 }
-function publicDnsAddress(address: string) {
+function ipv6Words(address: string) {
+  const lower = address.toLowerCase();
+  const ipv4Suffix = lower.lastIndexOf(':');
+  let normalized = lower;
+  if (ipv4Suffix !== -1 && lower.slice(ipv4Suffix + 1).includes('.')) {
+    const ipv4 = lower.slice(ipv4Suffix + 1);
+    if (isIP(ipv4) !== 4) return undefined;
+    const octets = ipv4.split('.').map(Number);
+    normalized = `${lower.slice(0, ipv4Suffix)}:${((octets[0]! << 8) | octets[1]!).toString(16)}:${((octets[2]! << 8) | octets[3]!).toString(16)}`;
+  }
+  const compressed = normalized.split('::');
+  if (compressed.length > 2) return undefined;
+  const words = (part: string) =>
+    part ? part.split(':').map((word) => Number.parseInt(word, 16)) : [];
+  const left = words(compressed[0]!);
+  const right = words(compressed[1] ?? '');
+  if (
+    [...left, ...right].some((word) => !Number.isInteger(word) || word < 0 || word > 0xffff) ||
+    (!normalized.includes('::') && left.length !== 8) ||
+    (normalized.includes('::') && left.length + right.length > 7)
+  )
+    return undefined;
+  return normalized.includes('::')
+    ? [...left, ...Array(8 - left.length - right.length).fill(0), ...right]
+    : left;
+}
+
+/**
+ * Canonicalize and allow only globally-routable addresses. DNS text can spell
+ * one IPv6 address many ways, so range checks must use parsed words rather
+ * than prefixes of its original representation.
+ */
+function canonicalPublicDnsAddress(address: string) {
   const family = isIP(address);
   if (family === 4) {
     const octets = address.split('.').map(Number);
     const [a, b] = octets;
-    return !(
+    if (
       a === 0 ||
       a === 10 ||
       a === 127 ||
@@ -246,26 +283,36 @@ function publicDnsAddress(address: string) {
       (a === 169 && b === 254) ||
       (a === 172 && b >= 16 && b <= 31) ||
       (a === 192 && b === 168) ||
+      (a === 192 && b === 0) ||
+      (a === 192 && b === 2) ||
+      (a === 192 && b === 31 && octets[2] === 196) ||
+      (a === 192 && b === 52 && octets[2] === 193) ||
+      (a === 192 && b === 88 && octets[2] === 99) ||
       (a === 198 && (b === 18 || b === 19)) ||
+      (a === 198 && b === 51) ||
+      (a === 203 && b === 0) ||
       a >= 224
-    );
+    )
+      return undefined;
+    return octets.join('.');
   }
   if (family === 6) {
-    const lower = address.toLowerCase();
-    return !(
-      lower === '::' ||
-      lower === '::1' ||
-      lower.startsWith('fe8') ||
-      lower.startsWith('fe9') ||
-      lower.startsWith('fea') ||
-      lower.startsWith('feb') ||
-      lower.startsWith('fc') ||
-      lower.startsWith('fd') ||
-      lower.startsWith('::ffff:') ||
-      lower.startsWith('2001:db8:')
-    );
+    const words = ipv6Words(address);
+    if (!words) return undefined;
+    // Global unicast is 2000::/3. This rejects unspecified, loopback,
+    // IPv4-compatible/mapped, ULA, link/site-local, and multicast ranges.
+    if ((words[0]! & 0xe000) !== 0x2000) return undefined;
+    // IANA special-purpose allocations within global-unicast space.
+    if (
+      (words[0] === 0x2001 && (words[1]! & 0xfe00) === 0x0000) || // 2001::/23
+      (words[0] === 0x2001 && words[1] === 0x0db8) || // documentation
+      words[0] === 0x2002 || // 6to4, including embedded private IPv4 forms
+      (words[0] === 0x3fff && (words[1]! & 0xfff0) === 0) // documentation
+    )
+      return undefined;
+    return words.map((word) => word.toString(16).padStart(4, '0')).join(':');
   }
-  return false;
+  return undefined;
 }
 
 /** Called by the future gateway adapter before provisioning, then compared before every use. */
@@ -276,10 +323,15 @@ export function pinPublicDnsAnswers(
   if (
     answers.length === 0 ||
     answers.length > 16 ||
-    answers.some((answer) => !publicDnsAddress(answer))
+    answers.some((answer) => !canonicalPublicDnsAddress(answer))
   )
     throw new Error('Custom endpoint DNS answers must be public IP addresses');
-  return { ...requirement, addresses: Object.freeze(orderedUnique(answers).sort()) };
+  return {
+    ...requirement,
+    addresses: Object.freeze(
+      orderedUnique(answers.map((answer) => canonicalPublicDnsAddress(answer)!)).sort(),
+    ),
+  };
 }
 /** Any DNS answer change, including a new public answer, is a fail-closed rebind. */
 export function verifyPinnedPublicDns(pin: PinnedPublicDnsAnswers, answers: readonly string[]) {

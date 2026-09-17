@@ -205,17 +205,40 @@ describe('connection template registry', () => {
       ['10.0.0.1'],
       ['169.254.169.254'],
       ['192.168.0.1'],
+      ['192.0.2.1'],
+      ['192.88.99.1'],
       ['fe80::1'],
       ['fc00::1'],
+      ['ff02::1'],
+      ['0:0:0:0:0:ffff:7f00:1'],
+      ['2001:db8::1'],
+      ['2002:0a00:0001::1'],
       ['not-an-ip'],
     ])
       expect(() => pinPublicDnsAnswers(requirement, answers)).toThrow();
 
-    const pin = pinPublicDnsAnswers(requirement, ['8.8.8.8', '1.1.1.1']);
-    expect(pin.addresses).toEqual(['1.1.1.1', '8.8.8.8']);
-    expect(() => verifyPinnedPublicDns(pin, ['8.8.8.8', '1.1.1.1'])).not.toThrow();
+    const pin = pinPublicDnsAnswers(requirement, ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']);
+    expect(pin.addresses).toEqual([
+      '1.1.1.1',
+      '2606:4700:4700:0000:0000:0000:0000:1111',
+      '8.8.8.8',
+    ]);
+    expect(() =>
+      verifyPinnedPublicDns(pin, ['8.8.8.8', '1.1.1.1', '2606:4700:4700:0:0:0:0:1111']),
+    ).not.toThrow();
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
+  });
+
+  it('rejects Git ref component escapes in reviewed base branches', () => {
+    for (const branch of ['foo/.hidden', 'foo/bar.lock/baz', 'foo/.lock/baz'])
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'github-readonly',
+          templateVersion: 1,
+          fields: { allowedRepositories: ['acme/widget'], allowedBaseBranches: [branch] },
+        }),
+      ).toThrow('Invalid allowedBaseBranches');
   });
 
   it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {
@@ -283,5 +306,17 @@ describe('connection template registry', () => {
         ],
       }),
     ).toThrow('Invalid capability template');
+    for (const inherited of ['constructor', 'toString'])
+      expect(() =>
+        createConnectionTemplateRegistry({
+          providers: [github],
+          capabilities: [
+            {
+              ...githubPublish,
+              inputSchema: { ...githubPublish.inputSchema, required: [inherited] },
+            },
+          ],
+        }),
+      ).toThrow('Invalid capability template');
   });
 });

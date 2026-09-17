@@ -76,7 +76,7 @@ const JsonSchemaSchema = z
   })
   .strict()
   .superRefine((schema, ctx) => {
-    if (schema.required.some((key) => !(key in schema.properties)))
+    if (schema.required.some((key) => !Object.hasOwn(schema.properties, key)))
       ctx.addIssue({ code: 'custom', message: 'required input must be defined' });
   });
 const CapabilityTemplateSchema = z
