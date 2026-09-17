@@ -139,6 +139,7 @@ export class CodexConversation {
   private ready = false;
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
+  private automaticTransportRecoveryAttempted = false;
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   constructor(private opts: Options) {
@@ -626,9 +627,11 @@ export class CodexConversation {
           : turn.data.status === 'interrupted'
             ? 'interrupted'
             : 'failed';
+      const providerTransportFailed =
+        status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
-        status === 'failed' &&
-        isRecoverableProviderTransportFailure(turn.data.error) &&
+        providerTransportFailed &&
+        !this.automaticTransportRecoveryAttempted &&
         this.queue().some((command) => command.status === 'queued');
       this.active.abort.abort();
       if (status === 'completed')
@@ -647,7 +650,9 @@ export class CodexConversation {
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';
-      if (recoverQueuedFollowUp) this.retireTransportForRecovery();
+      if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
+      if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
+      if (providerTransportFailed) this.retireTransportForRecovery();
       this.mapper?.notification(method, params);
       if (status === 'failed')
         this.opts.onError?.(new Error(codexTurnFailureDiagnostic(turn.data.error)));

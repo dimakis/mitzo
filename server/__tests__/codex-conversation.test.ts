@@ -640,6 +640,65 @@ it('restarts a disconnected provider and runs an already queued follow-up exactl
   ]);
 });
 
+it('automatically probes only one saved follow-up during a persistent provider outage', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, requests, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    beforeReconnect,
+  );
+  await c.send({ id: 'first', prompt: 'first' });
+  await c.send({ id: 'probe', prompt: 'second' });
+  await c.send({ id: 'preserved', prompt: 'third' });
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await vi.waitFor(() =>
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await Promise.resolve();
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(rpc.close).toHaveBeenCalledTimes(2);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(c.isPaused()).toBe(true);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'first', status: 'failed' },
+    { id: 'probe', status: 'failed' },
+    { id: 'preserved', status: 'queued' },
+  ]);
+
+  await c.acknowledgeRecovery();
+  expect(beforeReconnect).toHaveBeenCalledTimes(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
+  expect(c.isPaused()).toBe(false);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'first', status: 'failed' },
+    { id: 'probe', status: 'failed' },
+    { id: 'preserved', status: 'running' },
+  ]);
+});
+
 it('keeps non-transport provider failures paused for explicit review', async () => {
   const { c, callbacks, requests, rpc } = await setup();
   await c.send({ id: 'failed-turn', prompt: 'first' });
