@@ -486,21 +486,11 @@ export class CodexConversation {
     threadOptions: ReturnType<CodexConversation['threadOptions']>,
   ) {
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
-    const snapshot = z
-      .object({
-        thread: z.object({
-          turns: z.array(z.object({ id: z.string().min(1), status: z.string() })),
-        }),
-      })
-      .parse(await client.request('thread/read', { threadId: state.threadId, includeTurns: true }));
-    const completedTurnIds = snapshot.thread.turns
-      .filter((turn) => turn.status === 'completed')
-      .map((turn) => turn.id);
-    // The provider snapshot is authoritative: Mitzo can crash after the
-    // provider commits a completion but before its notification is persisted.
-    // Fall back to the ledger only when the provider returns no completed
-    // turns, rather than truncating newer provider-owned context.
-    const lastCompletedTurnId = completedTurnIds.at(-1) ?? state.lastCompletedTurnId ?? undefined;
+    const lastCompletedTurnId = await this.latestCompletedProviderTurn(
+      client,
+      state.threadId,
+      state.lastCompletedTurnId,
+    );
     const result = z
       .object({
         thread: z.object({ id: z.string().min(1) }),
@@ -512,6 +502,7 @@ export class CodexConversation {
           ? await client.request('thread/fork', {
               threadId: state.threadId,
               lastTurnId: lastCompletedTurnId,
+              excludeTurns: true,
               ...threadOptions,
             })
           : await client.request('thread/start', {
@@ -535,6 +526,44 @@ export class CodexConversation {
     );
     await this.opts.onThreadChanged?.(result.thread.id);
     return result;
+  }
+
+  /**
+   * Walk bounded, metadata-only pages newest-first. Old conversations can be
+   * arbitrarily large, so recovery must never hydrate their complete history
+   * into one app-server frame. The first completed turn encountered is the
+   * provider's authoritative recovery boundary; the durable ledger is only a
+   * fallback when the provider has no retained completed turn.
+   */
+  private async latestCompletedProviderTurn(
+    client: Rpc,
+    threadId: string,
+    fallback: string | null,
+  ): Promise<string | undefined> {
+    const response = z.object({
+      data: z.array(z.object({ id: z.string().min(1), status: z.string() })),
+      nextCursor: z.string().nullable().optional(),
+    });
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = response.parse(
+        await client.request('thread/turns/list', {
+          threadId,
+          limit: 64,
+          sortDirection: 'desc',
+          itemsView: 'notLoaded',
+          ...(cursor ? { cursor } : {}),
+        }),
+      );
+      const completed = page.data.find((turn) => turn.status === 'completed');
+      if (completed) return completed.id;
+      if (!page.nextCursor) return fallback ?? undefined;
+      if (seenCursors.has(page.nextCursor))
+        throw new Error('Codex turn pagination repeated a cursor');
+      seenCursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
   }
 
   private resetMapper(threadId: string) {

@@ -77,7 +77,7 @@ describe('Codex app-server transport', () => {
     client.close();
   });
 
-  it('allows lifecycle recovery to fork a provider thread', async () => {
+  it('allows lifecycle recovery to page turns and fork a metadata-only provider thread', async () => {
     const { child, sent, reply } = processStub();
     const lifecycle = {
       onNotification: vi.fn(),
@@ -89,13 +89,32 @@ describe('Codex app-server transport', () => {
     reply({ id: sent[0].id, result: {} });
     await ready;
 
+    const turns = client.request('thread/turns/list', {
+      threadId: 'old-thread',
+      limit: 64,
+      sortDirection: 'desc',
+      itemsView: 'notLoaded',
+    });
+    expect(sent.at(-1)).toMatchObject({
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'old-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      },
+    });
+    reply({ id: sent.at(-1)!.id, result: { data: [], nextCursor: null } });
+    await expect(turns).resolves.toEqual({ data: [], nextCursor: null });
+
     const fork = client.request('thread/fork', {
       threadId: 'old-thread',
       lastTurnId: 'last-good-turn',
+      excludeTurns: true,
     });
     expect(sent.at(-1)).toMatchObject({
       method: 'thread/fork',
-      params: { threadId: 'old-thread', lastTurnId: 'last-good-turn' },
+      params: { threadId: 'old-thread', lastTurnId: 'last-good-turn', excludeTurns: true },
     });
     reply({ id: sent.at(-1)!.id, result: { thread: { id: 'new-thread' } } });
     await expect(fork).resolves.toEqual({ thread: { id: 'new-thread' } });

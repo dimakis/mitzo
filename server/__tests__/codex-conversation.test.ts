@@ -63,12 +63,10 @@ async function setup(
       if (method === 'config/read') return { config: {} };
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
-      if (method === 'thread/read')
+      if (method === 'thread/turns/list')
         return {
-          thread: {
-            id: providerThread,
-            turns: [...providerTurns].map(([id, status]) => ({ id, status })),
-          },
+          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status })),
+          nextCursor: null,
         };
       if (method === 'thread/fork') {
         providerThread = `provider-thread-fork-${++threadGeneration}`;
@@ -767,16 +765,21 @@ it('forks from the provider latest completion when the durable ledger missed its
   const request = rpc.request.getMockImplementation()!;
   rpc.request.mockImplementation(async (method, params) => {
     const result = await request(method, params);
-    if (method !== 'thread/read') return result;
-    return {
-      thread: {
-        id: 'provider-thread',
-        turns: [
-          { id: 'turn-1', status: 'completed' },
-          { id: 'provider-only-completion', status: 'completed' },
+    if (method !== 'thread/turns/list') return result;
+    if (!params.cursor)
+      return {
+        data: [
           { id: 'turn-2', status: 'failed' },
+          { id: 'newer-incomplete-turn', status: 'interrupted' },
         ],
-      },
+        nextCursor: 'older-page',
+      };
+    return {
+      data: [
+        { id: 'provider-only-completion', status: 'completed' },
+        { id: 'turn-1', status: 'completed' },
+      ],
+      nextCursor: null,
     };
   });
 
@@ -785,7 +788,30 @@ it('forks from the provider latest completion when the durable ledger missed its
   expect(requests.find(({ method }) => method === 'thread/fork')?.params).toMatchObject({
     threadId: 'provider-thread',
     lastTurnId: 'provider-only-completion',
+    excludeTurns: true,
   });
+  expect(requests.filter(({ method }) => method === 'thread/turns/list')).toEqual([
+    {
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'provider-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      },
+    },
+    {
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'provider-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+        cursor: 'older-page',
+      },
+    },
+  ]);
+  expect(requests.some(({ method }) => method === 'thread/read')).toBe(false);
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread-fork-1',
     lastCompletedTurnId: 'provider-only-completion',
@@ -820,7 +846,7 @@ it('replaces provider thread state after a rejected turn admission', async () =>
   await c.send({ id: 'after-rejection', prompt: 'continue' });
 
   expect(beforeReconnect).toHaveBeenCalledOnce();
-  expect(requests.filter(({ method }) => method === 'thread/read')).toHaveLength(1);
+  expect(requests.filter(({ method }) => method === 'thread/turns/list')).toHaveLength(1);
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread-reset-1',
     threadGeneration: 1,

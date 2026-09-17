@@ -39,13 +39,16 @@ Runtime recovery has two distinct durable strategies. An SSH/app-server exit mar
 in-flight work interrupted, retains queued work, creates a fresh transport after
 explicit recovery acknowledgement, and resumes the exact persisted provider thread.
 A terminal provider-stream failure marks the current provider thread generation as
-unsafe instead. Mitzo starts a fresh app-server process, reads the old thread, and
-forks it through its last completed turn. If the thread never completed a turn,
-Mitzo starts a clean provider thread. The failed command remains a durable tombstone
-and is never replayed because it may already have produced side effects. The new
-thread ID and its parent generation are committed before queued user intent runs,
-and the OpenShell checkpoint identity is updated to the new thread. This distinction
-survives process restarts and migrates old failed recovery records conservatively.
+unsafe instead. Mitzo starts a fresh app-server process and pages backward through
+bounded, metadata-only turn pages to find the provider's latest completed turn. It
+forks through that boundary with a metadata-only response; neither operation
+hydrates an old conversation's full history into one transport frame. If the thread
+never completed a turn, Mitzo starts a clean provider thread. The failed command
+remains a durable tombstone and is never replayed because it may already have
+produced side effects. The new thread ID and its parent generation are committed
+before queued user intent runs, and the OpenShell checkpoint identity is updated to
+the new thread. This distinction survives process restarts and migrates old failed
+recovery records conservatively.
 Explicit conversation close still tears down only the transport; sandbox deletion
 is a separate lifecycle.
 
@@ -149,7 +152,8 @@ in-sandbox runtime configuration, host-MCP suppression, fail-closed MCP validati
 and public tool event/result mapping without real service or model calls. Recovery
 coverage also proves legacy-record migration, atomic provider-thread generation
 replacement, last-known-good turn forking, clean-thread fallback, and no replay of
-an uncertain failed command.
+an uncertain failed command. Large-history coverage proves recovery uses bounded
+metadata pages and metadata-only fork responses instead of full-history frames.
 
 Still requiring separately authorized live acceptance:
 
