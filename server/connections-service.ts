@@ -90,6 +90,13 @@ export class ConnectionsService {
   catalog(ownerId = 'operator') {
     return this.store.list(ownerId);
   }
+  /** The gateway, not the browser, is authoritative for provisionable templates. */
+  supportsTemplate(templateId: string, templateVersion: number) {
+    return (
+      connectionTemplateRegistry.getProviderTemplate(templateId, templateVersion) !== undefined &&
+      this.gateway.supportsTemplate(templateId, templateVersion)
+    );
+  }
   resolveForAccount(accountId: string, ownerId = 'operator') {
     return (
       this.catalog(ownerId).find(

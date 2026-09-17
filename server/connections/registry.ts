@@ -65,6 +65,15 @@ const ConnectionFieldSchema = z
     if (field.kind !== 'enum-list' && field.choices)
       ctx.addIssue({ code: 'custom', message: 'only enum-list fields may have choices' });
   });
+const ProviderGuidanceSchema = z
+  .object({
+    body: z.string().min(1).max(500),
+    href: z
+      .url()
+      .refine((value) => new URL(value).protocol === 'https:', 'guidance must use HTTPS'),
+    linkLabel: z.string().min(1).max(120),
+  })
+  .strict();
 const ProviderTemplateSchema = z
   .object({
     id: SymbolicIdentifier,
@@ -78,6 +87,7 @@ const ProviderTemplateSchema = z
     policyCompiler: SymbolicIdentifier,
     probe: SymbolicIdentifier,
     capabilityTemplates: z.array(TemplateReferenceSchema).max(20),
+    guidance: ProviderGuidanceSchema.optional(),
   })
   .strict();
 const JsonSchemaSchema = z
@@ -167,6 +177,7 @@ function providerHandlerContract(
     | 'credentialFields'
     | 'connectionFields'
     | 'capabilityTemplates'
+    | 'guidance'
   >,
 ) {
   return contractFingerprint({
@@ -179,6 +190,7 @@ function providerHandlerContract(
     credentialFields: template.credentialFields,
     connectionFields: template.connectionFields,
     capabilityTemplates: template.capabilityTemplates,
+    ...(template.guidance ? { guidance: template.guidance } : {}),
   });
 }
 function capabilityHandlerContract(
@@ -331,6 +343,7 @@ export function projectProviderTemplate(template: ProviderTemplate): PublicProvi
       ...(field.choices ? { choices: [...field.choices] } : {}),
     })),
     capabilityTemplates: template.capabilityTemplates.map((reference) => ({ ...reference })),
+    ...(template.guidance ? { guidance: { ...template.guidance } } : {}),
   };
 }
 export function projectCapabilityTemplate(template: CapabilityTemplate): PublicCapabilityTemplate {
@@ -503,6 +516,11 @@ const providers: readonly ProviderTemplate[] = [
     policyCompiler: 'jira-readonly-v1',
     probe: 'jira-readonly-v1',
     capabilityTemplates: [],
+    guidance: {
+      body: 'Use a scoped token with Jira read permission.',
+      href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+      linkLabel: 'Atlassian token and scope guidance',
+    },
   },
   {
     id: 'github-readonly',
@@ -648,6 +666,11 @@ const reviewedProviderContracts = Object.freeze({
       },
     ],
     capabilityTemplates: [],
+    guidance: {
+      body: 'Use a scoped token with Jira read permission.',
+      href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+      linkLabel: 'Atlassian token and scope guidance',
+    },
   }),
   'github-readonly@1': providerHandlerContract({
     id: 'github-readonly',

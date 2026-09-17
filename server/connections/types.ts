@@ -36,6 +36,13 @@ export interface TemplateReference {
   version: number;
 }
 
+/** Reviewed, non-secret setup help that is safe to expose to browser clients. */
+export interface ProviderGuidance {
+  body: string;
+  href: string;
+  linkLabel: string;
+}
+
 export interface ProviderTemplate {
   id: string;
   version: number;
@@ -50,6 +57,7 @@ export interface ProviderTemplate {
   /** Code-owned symbolic key, never a path or command. */
   probe: string;
   capabilityTemplates: readonly TemplateReference[];
+  guidance?: ProviderGuidance;
 }
 
 export interface JsonSchema {
@@ -85,6 +93,7 @@ export interface PublicProviderTemplate {
   credentialFields: readonly CredentialField[];
   connectionFields: readonly ConnectionField[];
   capabilityTemplates: readonly TemplateReference[];
+  guidance?: ProviderGuidance;
 }
 
 export interface PublicCapabilityTemplate {

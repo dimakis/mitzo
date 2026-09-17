@@ -12,7 +12,7 @@ describe('connections router', () => {
   it('denies internal-only mutations and requires recent csrf reauthorization', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-router-'));
     const store = new ConnectionStore(join(dir, 'db'));
-    const service = { provision: vi.fn(), revoke: vi.fn() };
+    const service = { provision: vi.fn(), revoke: vi.fn(), supportsTemplate: vi.fn() };
     const app = express();
     app.use((req, res, next) => {
       if (req.header('x-browser') === 'yes')
@@ -74,6 +74,10 @@ describe('connections router', () => {
       }),
       revoke: vi.fn().mockResolvedValue(connection),
       archive: vi.fn().mockResolvedValue(undefined),
+      supportsTemplate: vi.fn(
+        (templateId: string, templateVersion: number) =>
+          templateId === 'jira-readonly' && templateVersion === 1,
+      ),
     };
     const app = express();
     app.use((req, res, next) => {
@@ -154,7 +158,31 @@ describe('connections router', () => {
     const templates = await request(app).get('/api/connections/templates').set('x-browser', 'yes');
     expect(templates.status).toBe(200);
     expect(templates.body.templates).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'jira-readonly', version: 1 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'jira-readonly', version: 1, available: true }),
+        expect.objectContaining({ id: 'github-readonly', version: 1, available: false }),
+      ]),
+    );
+    const jiraTemplate = templates.body.templates.find(
+      (template: { id: string; version: number }) =>
+        template.id === 'jira-readonly' && template.version === 1,
+    );
+    expect(jiraTemplate).toMatchObject({
+      capabilityTemplates: [],
+      guidance: {
+        body: 'Use a scoped token with Jira read permission.',
+        href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+        linkLabel: 'Atlassian token and scope guidance',
+      },
+    });
+    expect(templates.body.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'github.publish-pr',
+          version: 1,
+          connectionTemplates: [{ id: 'github-readonly', version: 1 }],
+        }),
+      ]),
     );
     const failedCreate = await request(app)
       .post('/api/connections')
@@ -190,6 +218,24 @@ describe('connections router', () => {
         fields: { email: 'person@example.com' },
       }),
       { token: 'SENTINEL_GENERIC_CREATE' },
+      expect.anything(),
+    );
+    const unassignedCreate = await request(app)
+      .post('/api/connections')
+      .set('x-browser', 'yes')
+      .set('x-csrf-token', csrf)
+      .send({
+        templateId: 'jira-readonly',
+        templateVersion: 1,
+        label: 'Unassigned Jira',
+        fields: { email: 'person@example.com' },
+        credentials: { token: 'SENTINEL_UNASSIGNED_CREATE' },
+        accountIds: [],
+      });
+    expect(unassignedCreate.status).toBe(201);
+    expect(service.createAndProvision).toHaveBeenLastCalledWith(
+      expect.objectContaining({ desiredAccountIds: [] }),
+      { token: 'SENTINEL_UNASSIGNED_CREATE' },
       expect.anything(),
     );
     const tested = await request(app)
