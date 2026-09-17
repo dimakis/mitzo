@@ -202,6 +202,53 @@ describe('github.publish-pr capability', () => {
       expect.any(AbortSignal),
     );
   });
+  it.each([
+    { currentDraft: true, requestedDraft: false, readiness: ['pr', 'ready'] },
+    { currentDraft: false, requestedDraft: true, readiness: ['pr', 'ready', '--undo'] },
+    { currentDraft: false, requestedDraft: false, readiness: undefined },
+  ])(
+    'uses the supported GitHub readiness transition for draft=$currentDraft -> $requestedDraft',
+    async ({ currentDraft, requestedDraft, readiness }) => {
+      const url = 'https://github.com/acme/widgets/pull/12';
+      const response = (draft: boolean) =>
+        JSON.stringify({
+          id: 99,
+          number: 12,
+          html_url: url,
+          title: input.title,
+          body: input.body,
+          draft,
+          head: { ref: 'feature/safe' },
+          base: { ref: 'main', repo: { full_name: 'acme/widgets' } },
+        });
+      const calls: string[][] = [];
+      const runner = vi.fn(async (_command: string, args: readonly string[]) => {
+        calls.push([...args]);
+        if (args[0] === 'pr') return { stdout: '', stderr: '' };
+        return {
+          stdout: response(args.includes('PATCH') ? currentDraft : requestedDraft),
+          stderr: '',
+        };
+      });
+      const updated = await new GitHubCliHostPublisher(runner).update({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        pullRequestId: '12',
+        pullRequestUrl: url,
+        title: input.title,
+        body: input.body,
+        draft: requestedDraft,
+        operationId: 'op',
+        signal: new AbortController().signal,
+      });
+      expect(updated.draft).toBe(requestedDraft);
+      const patch = calls.find((args) => args.includes('PATCH'))!;
+      expect(patch.join(' ')).not.toContain('draft=');
+      if (readiness) expect(calls).toContainEqual([...readiness, url]);
+      else expect(calls.some((args) => args[0] === 'pr')).toBe(false);
+    },
+  );
   it('honors authoritative protection when the source branch already exists', async () => {
     const runner = vi.fn(async (_command: string, args: readonly string[]) => ({
       stdout: args.at(-1)?.includes('/branches/')

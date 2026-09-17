@@ -487,6 +487,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     pullRequestId: string;
+    pullRequestUrl: string;
     title: string;
     body: string;
     draft: boolean;
@@ -507,14 +508,30 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         `title=${input.title}`,
         '-f',
         `body=${input.body}`,
-        '-F',
-        `draft=${input.draft ? 'true' : 'false'}`,
       ],
       input.signal,
     );
     const value = parseGithubPullRequest(JSON.parse(stdout));
     if (!value) throw new Error('GitHub pull request result is invalid');
-    return value;
+    if (value.draft !== input.draft) {
+      await this.runHost(
+        'gh',
+        input.draft
+          ? ['pr', 'ready', '--undo', input.pullRequestUrl]
+          : ['pr', 'ready', input.pullRequestUrl],
+        input.signal,
+      );
+    }
+    const verified = await this.read({
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      externalResultId: input.pullRequestUrl,
+      operationId: input.operationId,
+      signal: input.signal,
+    });
+    if (!verified) throw new Error('GitHub pull request verification failed');
+    return verified;
   }
   async read(input: {
     repository: string;

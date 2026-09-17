@@ -120,6 +120,7 @@ export interface GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     pullRequestId: string;
+    pullRequestUrl: string;
     title: string;
     body: string;
     draft: boolean;
@@ -449,6 +450,7 @@ export function createGithubPublishPrExecutor(
                 sourceBranch: state.inspection.sourceBranch!,
                 baseBranch: state.input.baseBranch,
                 pullRequestId: existing.id,
+                pullRequestUrl: existing.url,
                 title: state.input.title,
                 body: state.input.body,
                 draft: state.input.draft,
@@ -543,6 +545,7 @@ export function createGithubPublishPrExecutor(
             sourceBranch,
             baseBranch,
             pullRequestId: existing.id,
+            pullRequestUrl: existing.url,
             title,
             body,
             draft,
