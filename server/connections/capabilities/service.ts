@@ -4,6 +4,7 @@ import { validateCapabilityInput, canonicalJson } from './input-validation.js';
 import { assertCompleteApprovalProjection } from './approval-contract.js';
 import { CapabilityOperationStore } from './operation-store.js';
 import { CapabilityExecutorRegistry } from './registry.js';
+import { assertSafeExternalResultId } from './external-result-id.js';
 import type {
   CapabilityApproval,
   CapabilityConnection,
@@ -56,6 +57,8 @@ export interface CapabilityServiceOptions {
 
 /** Shared browser/direct-service pipeline: validate → authorize → idempotently execute → verify → audit. */
 export class CapabilityService {
+  /** A live retry observes its active owner; a replay after a crash does not. */
+  private readonly inFlight = new Set<string>();
   constructor(private readonly options: CapabilityServiceOptions) {}
   eligibleTools(
     accountId: string,
@@ -196,7 +199,7 @@ export class CapabilityService {
       return undefined;
     return operation;
   }
-  /** Startup hook: settle only write-ambiguous operations through executor recovery. */
+  /** Startup hook: settle every non-terminal record without replaying a write. */
   async recoverPending(signal: AbortSignal): Promise<CapabilityOperation[]> {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
@@ -205,7 +208,25 @@ export class CapabilityService {
         operation.capabilityVersion,
       );
       if (!template) continue; // Unknown versions remain non-terminal for operator inspection.
-      recovered.push(await this.recover(template, operation, signal));
+      recovered.push(await this.reconcile(template, operation, signal));
+    }
+    return recovered;
+  }
+  /** Reconnect recovery is intentionally scoped to the bound live conversation. */
+  async recoverPendingForConversation(
+    accountId: string,
+    conversationId: string,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation[]> {
+    const recovered: CapabilityOperation[] = [];
+    for (const operation of this.options.store.pendingRecovery()) {
+      if (operation.accountId !== accountId || operation.conversationId !== conversationId)
+        continue;
+      const template = this.options.getTemplate(
+        operation.capabilityId,
+        operation.capabilityVersion,
+      );
+      if (template) recovered.push(await this.reconcile(template, operation, signal));
     }
     return recovered;
   }
@@ -287,10 +308,11 @@ export class CapabilityService {
     // retry must only observe/recover its durable record, never re-approve or
     // execute a second mutation.
     if (!begun.created) {
-      if (begun.operation.status !== 'verification_pending') return begun.operation;
-      return this.recover(template, begun.operation, signal);
+      if (this.inFlight.has(begun.operation.id)) return begun.operation;
+      return this.reconcile(template, begun.operation, signal);
     }
     let operation = begun.operation;
+    this.inFlight.add(operation.id);
     try {
       const approved = await approve(
         {
@@ -353,8 +375,8 @@ export class CapabilityService {
         (value): value is string => typeof value === 'string',
       );
       const output = redact(executed.output, sensitive);
-      if (!resultIsBounded(output) || (executed.externalResultId?.length ?? 0) > 512)
-        throw new Error('Executor result is invalid');
+      if (!resultIsBounded(output)) throw new Error('Executor result is invalid');
+      assertSafeExternalResultId(executed.externalResultId);
       // Keep the pre-dispatch ambiguous state while recording only bounded,
       // redacted output. Result processing itself must not create a terminal
       // failure after a potential remote write.
@@ -380,6 +402,27 @@ export class CapabilityService {
       return this.options.store.transition(operation.id, current.status, status, {
         failureCode: failCode(error),
       });
+    } finally {
+      this.inFlight.delete(operation.id);
+    }
+  }
+  private async reconcile(
+    template: CapabilityTemplate,
+    operation: CapabilityOperation,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation> {
+    if (operation.status === 'verification_pending')
+      return this.recover(template, operation, signal);
+    if (operation.status !== 'pending_approval' && operation.status !== 'running') return operation;
+    // `verification_pending` is persisted immediately before execute(). These
+    // prior states prove no provider mutation was dispatched, so a process
+    // restart cancels rather than guessing an approval or replaying a write.
+    try {
+      return this.options.store.transition(operation.id, operation.status, 'cancelled', {
+        failureCode: 'RECOVERY_CANCELLED',
+      });
+    } catch {
+      return this.options.store.get(operation.id) ?? operation;
     }
   }
   private async recover(

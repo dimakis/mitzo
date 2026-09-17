@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import type { JsonValue } from '../types.js';
+import { assertSafeExternalResultId } from './external-result-id.js';
 import type { CapabilityGrant, CapabilityOperation, CapabilityOperationStatus } from './types.js';
 
 function parseStringArray(value: string): string[] {
@@ -14,6 +15,8 @@ function parseJsonValue(value: string | null): JsonValue | null {
   return JSON.parse(value) as JsonValue;
 }
 function operation(row: Record<string, unknown>): CapabilityOperation {
+  const externalResultId = row.external_result_id as string | null;
+  if (externalResultId !== null) assertSafeExternalResultId(externalResultId);
   return {
     id: row.id as string,
     connectionId: row.connection_id as string,
@@ -27,7 +30,7 @@ function operation(row: Record<string, unknown>): CapabilityOperation {
     idempotencyKey: row.idempotency_key as string,
     inputHash: row.input_hash as string,
     status: row.status as CapabilityOperationStatus,
-    externalResultId: row.external_result_id as string | null,
+    externalResultId,
     result: parseJsonValue(row.result_json as string | null),
     failureCode: row.failure_code as string | null,
     createdAt: row.created_at as number,
@@ -233,7 +236,7 @@ export class CapabilityOperationStore {
     return (
       this.db
         .prepare(
-          "SELECT * FROM capability_operations WHERE status='verification_pending' ORDER BY created_at",
+          "SELECT * FROM capability_operations WHERE status IN ('pending_approval', 'running', 'verification_pending') ORDER BY created_at",
         )
         .all() as Record<string, unknown>[]
     ).map(operation);
@@ -244,6 +247,7 @@ export class CapabilityOperationStore {
     next: CapabilityOperationStatus,
     fields: { result?: JsonValue; externalResultId?: string; failureCode?: string } = {},
   ): CapabilityOperation {
+    assertSafeExternalResultId(fields.externalResultId);
     const now = Date.now();
     return this.db.transaction(() => {
       const changed = this.db
@@ -273,6 +277,7 @@ export class CapabilityOperationStore {
     id: string,
     fields: { result: JsonValue; externalResultId?: string },
   ): CapabilityOperation {
+    assertSafeExternalResultId(fields.externalResultId);
     const changed = this.db
       .prepare(
         "UPDATE capability_operations SET result_json=?, external_result_id=?, updated_at=? WHERE id=? AND status='verification_pending'",

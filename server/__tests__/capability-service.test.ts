@@ -8,6 +8,8 @@ import { CapabilityExecutorRegistry } from '../connections/capabilities/registry
 import { CapabilityService } from '../connections/capabilities/service.js';
 import { bindCapabilityExecution } from '../connections/capabilities/direct.js';
 import { capabilityApprovalPayload } from '../connections/capabilities/approval.js';
+import { canonicalJson } from '../connections/capabilities/input-validation.js';
+import { createHash } from 'node:crypto';
 
 const template: CapabilityTemplate = {
   id: 'test.mutate',
@@ -337,6 +339,70 @@ describe('CapabilityService', () => {
     await expect(restarted.recoverPending(new AbortController().signal)).resolves.toHaveLength(1);
     expect(f.recover).toHaveBeenCalledTimes(1);
     expect(f.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles pre-dispatch records after a crash without inventing approval or replaying writes', async () => {
+    const f = await fixture();
+    const seed = (idempotencyKey: string) => {
+      const { input, ...metadata } = request({ idempotencyKey });
+      return f.store.begin({
+        ...metadata,
+        grantId: f.grant.id,
+        inputHash: createHash('sha256').update(canonicalJson(input)).digest('hex'),
+      }).operation;
+    };
+    const pending = seed('crashed-before-approval');
+    const running = f.store.transition(
+      seed('crashed-before-dispatch').id,
+      'pending_approval',
+      'running',
+    );
+
+    const recovered = await f.service.recoverPending(new AbortController().signal);
+    expect(recovered).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: pending.id,
+          status: 'cancelled',
+          failureCode: 'RECOVERY_CANCELLED',
+        }),
+        expect.objectContaining({
+          id: running.id,
+          status: 'cancelled',
+          failureCode: 'RECOVERY_CANCELLED',
+        }),
+      ]),
+    );
+    expect(f.execute).not.toHaveBeenCalled();
+    expect(f.approve).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a crashed pre-dispatch idempotency replay rather than leaving it pending', async () => {
+    const f = await fixture();
+    const { input, ...metadata } = request({ idempotencyKey: 'crashed-replay' });
+    f.store.begin({
+      ...metadata,
+      grantId: f.grant.id,
+      inputHash: createHash('sha256').update(canonicalJson(input)).digest('hex'),
+    });
+    await expect(
+      f.service.invoke(request({ idempotencyKey: 'crashed-replay' }), new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'cancelled', failureCode: 'RECOVERY_CANCELLED' });
+    expect(f.approve).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it('never persists or returns a token-bearing URL as an external result identifier', async () => {
+    const f = await fixture();
+    const secret = 'SENTINEL_TOKEN_123';
+    f.execute.mockResolvedValueOnce({
+      output: { ok: true },
+      externalResultId: `https://provider.invalid/result?access_token=${secret}`,
+    });
+    const operation = await f.service.invoke(request(), new AbortController().signal);
+    expect(operation).toMatchObject({ status: 'verification_pending', externalResultId: null });
+    expect(JSON.stringify(operation)).not.toContain(secret);
+    expect(f.store.get(operation.id)).toMatchObject({ externalResultId: null });
   });
 
   it('leaves verification pending when a restart has no compatible executor yet', async () => {

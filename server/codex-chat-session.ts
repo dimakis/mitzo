@@ -47,6 +47,7 @@ import {
 } from './openshell-lifecycle-controller.js';
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
+import { canonicalJson } from './connections/capabilities/input-validation.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const log = createLogger('codex-chat-session');
@@ -90,11 +91,12 @@ type CapabilityToolBinding = {
 export function capabilityIdempotencyKey(
   conversationId: string,
   binding: CapabilityToolBinding,
-  call: { turnId: string; callId: string },
+  call: { turnId: string },
+  input: unknown,
 ): string {
   return createHash('sha256')
     .update(
-      `${conversationId}\u0000${binding.connectionId}\u0000${binding.connectionRevision}\u0000${binding.capabilityId}\u0000${binding.capabilityVersion}\u0000${call.turnId}\u0000${call.callId}`,
+      `${conversationId}\u0000${binding.connectionId}\u0000${binding.connectionRevision}\u0000${binding.capabilityId}\u0000${binding.capabilityVersion}\u0000${call.turnId}\u0000${canonicalJson(input)}`,
     )
     .digest('hex');
 }
@@ -363,15 +365,10 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           workdir: process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt',
         }
       : undefined);
-  const connectedOpenShell =
-    openShell && managedConnection
-      ? {
-          ...openShell,
-          connectionEnv: {
-            JIRA_URL: JIRA_API_ENDPOINT as typeof JIRA_API_ENDPOINT,
-            JIRA_EMAIL: managedConnection.submittedEmail,
-          },
-        }
+  const connectedOpenShell = !!openShell;
+  const openShellClient =
+    openShell && managedConnection?.templateId === 'jira-readonly'
+      ? { ...openShell, connectionEnv: managedJiraConnectionEnv(managedConnection) }
       : openShell;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
@@ -575,7 +572,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       (connectedOpenShell
         ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
-      (managedConnection
+      (managedConnection?.templateId === 'jira-readonly'
         ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
         : '') +
       (startup.context ? `\n\n${startup.context}` : ''),
@@ -612,6 +609,12 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               );
               Object.assign(managedOpenShell!, recovered);
             });
+            if (managedCapabilityConnection && options.binding?.accountId)
+              await capabilityTools.service?.recoverPendingForConversation(
+                options.binding.accountId,
+                options.conversationId,
+                signal,
+              );
           },
         }
       : {}),
@@ -624,7 +627,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       connectedOpenShell
-        ? CodexAppServerClient.launchOpenShell(connectedOpenShell, process.env, callbacks)
+        ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
         : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks),
     ...(openShell
       ? {
@@ -689,6 +692,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               options.conversationId,
               capability,
               callContext,
+              input,
             ),
             input,
           },
@@ -777,6 +781,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         gatewayProviderId: managedCapabilityConnection.gatewayProviderId,
         ...(managedOpenShell ? { sandboxName: managedOpenShell.sandboxName } : {}),
       });
+      await capabilityTools.service?.recoverPendingForConversation(
+        options.binding.accountId,
+        options.conversationId,
+        signal,
+      );
     }
     if (runtimeManager && managedOpenShell) {
       const threadId = runtime.getThreadId();
