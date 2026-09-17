@@ -220,6 +220,27 @@ describe('connection template registry', () => {
       methods: ['GET', 'HEAD'],
       paths: ['/v1/items'],
     });
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'custom-rest-readonly',
+        templateVersion: 1,
+        fields: {
+          endpoint: 'https://api.openai.com',
+          methods: ['GET'],
+          paths: ['/', '/v1/**'],
+        },
+      }),
+    ).toMatchObject({
+      publicConfig: { paths: ['/', '/v1/**'] },
+      endpoints: [
+        {
+          rules: [
+            { method: 'GET', path: '/' },
+            { method: 'GET', path: '/v1/**' },
+          ],
+        },
+      ],
+    });
 
     for (const fields of [
       { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/../admin'] },
@@ -227,6 +248,10 @@ describe('connection template registry', () => {
       { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/%2e%2e/admin'] },
       { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1\\admin'] },
       { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/*'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/foo*'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/***'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/**/items'] },
       {
         endpoint: 'https://api.openai.com',
         methods: ['GET', 'HEAD', 'OPTIONS', 'GET'],

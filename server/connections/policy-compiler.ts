@@ -15,6 +15,7 @@ const maxCustomPaths = 20;
 const maxCustomPathLength = 256;
 const maxCustomRules = 24;
 const maxGithubScopeEntries = 50;
+const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
 type IanaIpv6Allocation = readonly [firstWord: number, secondWord: number, prefixLength: number];
 
 /**
@@ -298,6 +299,7 @@ function customEndpoint(value: string) {
 }
 
 function canonicalCustomPath(value: string) {
+  if (value === '/') return value;
   if (
     value.length === 0 ||
     value.length > maxCustomPathLength ||
@@ -313,11 +315,13 @@ function canonicalCustomPath(value: string) {
   const segments = value.slice(1).split('/');
   if (
     segments.some(
-      (segment) =>
+      (segment, index) =>
         segment.length === 0 ||
         segment === '.' ||
         segment === '..' ||
-        (segment !== '**' && !/^[A-Za-z0-9._~:@!$&'()*+,;=-]+$/.test(segment)),
+        (segment === '**'
+          ? index !== segments.length - 1
+          : !customPathLiteralSegment.test(segment)),
     )
   )
     throw new Error('Custom REST path is invalid');

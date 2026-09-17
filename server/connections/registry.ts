@@ -537,7 +537,7 @@ const providers: readonly ProviderTemplate[] = [
       {
         key: 'paths',
         label: 'Allowed paths',
-        description: 'Absolute path patterns only.',
+        description: 'Exact absolute paths, with an optional terminal `/**` wildcard only.',
         kind: 'string-list',
         required: true,
       },
@@ -680,7 +680,7 @@ const reviewedProviderContracts = Object.freeze({
       {
         key: 'paths',
         label: 'Allowed paths',
-        description: 'Absolute path patterns only.',
+        description: 'Exact absolute paths, with an optional terminal `/**` wildcard only.',
         kind: 'string-list',
         required: true,
       },
