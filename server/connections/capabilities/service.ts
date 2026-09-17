@@ -186,7 +186,10 @@ export class CapabilityService {
     } catch {
       // Approval and browser cancellation may race. The transition loser must
       // report the durable winner instead of converting the race to a 500.
-      return this.getOperation(id, accountId, conversationId);
+      const current = this.options.store.get(id);
+      return current?.accountId === accountId && current.conversationId === conversationId
+        ? current
+        : undefined;
     }
   }
   async invoke(
