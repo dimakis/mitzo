@@ -124,7 +124,7 @@ describe('ConnectionsService', () => {
         id: 'provider-1',
         name,
         workspace: 'default',
-        type: 'github-readonly',
+        type: 'github',
         credentialKeys: ['GITHUB_TOKEN'],
       })),
       rotate: vi.fn(),

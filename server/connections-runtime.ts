@@ -108,8 +108,6 @@ export function createConnectionsRuntime(options: {
       probeImage: options.probeImage,
       probePolicy: options.probePolicy,
       githubProbePolicy: options.githubProbePolicy,
-      githubPublishEnabled:
-        options.githubPublishEnabled ?? Boolean(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN),
     },
   );
   const service = new ConnectionsService(store, gateway, {

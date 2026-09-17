@@ -134,10 +134,6 @@ export interface GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     externalResultId?: string;
-    /** Used only for all-state recovery lookup when no durable URL exists. */
-    expectedTitle?: string;
-    expectedBody?: string;
-    expectedDraft?: boolean;
     operationId: string;
     signal: AbortSignal;
   }): Promise<GithubPullRequest | null>;
@@ -298,10 +294,6 @@ function samePullRequestUrl(left: string, right: string) {
     return false;
   }
 }
-function isClosedPullRequest(pr: GithubPullRequest) {
-  return pr.state === 'closed' || pr.merged === true;
-}
-
 /**
  * Reviewed executor factory. All mutation dependencies are injected, which
  * keeps the security boundary testable and avoids a credential-bearing module
@@ -545,7 +537,8 @@ export function createGithubPublishPrExecutor(
         baseBranch: state.input.baseBranch,
       });
       assertRequestedMetadata(pr, state.input);
-      if (pr.url !== externalResultId) reject('GitHub pull request verification failed');
+      if (!samePullRequestUrl(pr.url, externalResultId))
+        reject('GitHub pull request verification failed');
     },
     async recover(operation, signal) {
       const result = operation.recoveryIntent;
@@ -598,14 +591,6 @@ export function createGithubPublishPrExecutor(
       });
       if (!branchOid || branchOid !== sourceOid)
         throw new CapabilityRecoveryPendingError('GitHub branch recovery remains pending');
-      const requested = {
-        connectionId: operation.connectionId,
-        repositoryPath: '',
-        baseBranch,
-        title,
-        body,
-        draft,
-      };
       const completeExisting = async (existing: GithubPullRequest, expectedUrl?: string) => {
         assertPullRequest(existing, { repository, sourceBranch, baseBranch });
         if (
@@ -613,23 +598,10 @@ export function createGithubPublishPrExecutor(
           (existing.id !== existingPullRequestId || !samePullRequestUrl(existing.url, expectedUrl))
         )
           reject('GitHub recovery verification failed');
-        if (existing.title === title && existing.body === body && existing.draft === draft)
-          return existing;
-        // A completed closed/merged PR is an authoritative result only when
-        // it already has the approved metadata. Never reopen or mutate it.
-        if (isClosedPullRequest(existing))
-          throw new CapabilityRecoveryPendingError('GitHub pull request recovery remains pending');
-        return deps.host.update({
-          repository,
-          sourceBranch,
-          baseBranch,
-          pullRequest: existing,
-          title,
-          body,
-          draft,
-          operationId: operation.id,
-          signal,
-        });
+        // A durable head/base identity is authoritative even if a lost
+        // response left metadata stale or changed. Recovery is read-only: it
+        // must neither duplicate the POST nor rewrite an existing PR.
+        return existing;
       };
       let pr: GithubPullRequest;
       if (existingPullRequestUrl) {
@@ -668,9 +640,6 @@ export function createGithubPublishPrExecutor(
           repository,
           sourceBranch,
           baseBranch,
-          expectedTitle: title,
-          expectedBody: body,
-          expectedDraft: draft,
           operationId: operation.id,
           signal,
         });
@@ -688,7 +657,6 @@ export function createGithubPublishPrExecutor(
             });
       }
       assertPullRequest(pr, { repository, sourceBranch, baseBranch });
-      assertRequestedMetadata(pr, requested);
       if (operation.externalResultId && !samePullRequestUrl(pr.url, operation.externalResultId))
         reject('GitHub recovery verification failed');
       const verified = await deps.host.read({
@@ -701,19 +669,7 @@ export function createGithubPublishPrExecutor(
       });
       if (!verified) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
       assertPullRequest(verified, { repository, sourceBranch, baseBranch });
-      assertRequestedMetadata(verified, requested);
-      return {
-        output: {
-          repository: verified.repository,
-          sourceBranch: verified.sourceBranch,
-          baseBranch: verified.baseBranch,
-          pullRequestUrl: verified.url,
-          pullRequestId: verified.id,
-          sourceOid,
-          recovered: true,
-        },
-        externalResultId: verified.url,
-      };
+      return { outcome: 'verified' };
     },
   };
 }

@@ -90,7 +90,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     signal: AbortSignal;
   }): Promise<GithubSandboxInspection> {
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    const [status, sourceOid, source, origin, count, defaultRef, files] = await Promise.all([
+    const [status, sourceOid, source, origin, count, files] = await Promise.all([
       this.git(
         input.sandboxName,
         input.repositoryPath,
@@ -119,16 +119,13 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       this.git(
         input.sandboxName,
         input.repositoryPath,
-        ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'],
-        input.signal,
-      ),
-      this.git(
-        input.sandboxName,
-        input.repositoryPath,
         [
           '-c',
           'core.quotepath=true',
-          'diff',
+          'diff-tree',
+          '--root',
+          '--no-commit-id',
+          '-r',
           '--name-only',
           '--no-renames',
           `origin/${input.baseBranch}..HEAD`,
@@ -137,16 +134,12 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       ),
     ]);
     const sourceBranch = source.trim();
-    const defaultBranch = defaultRef.trim().replace(/^origin\//, '');
     const commitsAhead = Number(count.trim());
-    if (
-      !safeBranch.test(sourceBranch) ||
-      !safeBranch.test(defaultBranch) ||
-      !Number.isSafeInteger(commitsAhead) ||
-      commitsAhead < 0
-    )
+    if (!safeBranch.test(sourceBranch) || !Number.isSafeInteger(commitsAhead) || commitsAhead < 0)
       throw new Error('OpenShell Git inspection is invalid');
-    const changedFiles = lines(files);
+    // `diff-tree` walks every exported commit, so this approved union includes
+    // paths later deleted and cannot be narrowed to the final tree diff.
+    const changedFiles = [...new Set(lines(files))].sort();
     // Git's quotePath output makes non-text path bytes visible as escapes. A
     // literal newline would make the summary ambiguous and is rejected.
     if (changedFiles.some((file) => file.length > 1024 || file.includes('\0')))
@@ -156,12 +149,13 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       status,
       sourceBranch,
       sourceOid: sourceOid.trim(),
-      defaultBranch,
+      // Default/protected status is host-authoritative; this local checkout
+      // need not have an origin/HEAD symbolic ref.
+      defaultBranch: '',
       originUrl: origin.trim(),
       commitsAhead,
       changedFiles,
-      sourceBranchProtected:
-        sourceBranch === defaultBranch || sourceBranch === 'main' || sourceBranch === 'master',
+      sourceBranchProtected: false,
       symlinkFree: true,
     };
   }
@@ -378,11 +372,12 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       ['api', '--method', 'GET', `repos/${input.repository}`],
       input.signal,
     );
+    const sourceBranch = encodeURIComponent(input.sourceBranch);
     let sourceBranchProtected: boolean;
     try {
       const branch = await this.runHost(
         'gh',
-        ['api', '--method', 'GET', `repos/${input.repository}/branches/${input.sourceBranch}`],
+        ['api', '--method', 'GET', `repos/${input.repository}/branches/${sourceBranch}`],
         input.signal,
       );
       const source = z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout));
@@ -398,12 +393,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       try {
         rules = await this.runHost(
           'gh',
-          [
-            'api',
-            '--method',
-            'GET',
-            `repos/${input.repository}/rules/branches/${input.sourceBranch}`,
-          ],
+          ['api', '--method', 'GET', `repos/${input.repository}/rules/branches/${sourceBranch}`],
           input.signal,
         );
       } catch (rulesError) {
@@ -534,13 +524,10 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       id: value.id,
     });
   }
-  private async findMatchingAll(input: {
+  private async findAllForHeadBase(input: {
     repository: string;
     sourceBranch: string;
     baseBranch: string;
-    expectedTitle: string;
-    expectedBody: string;
-    expectedDraft: boolean;
     signal: AbortSignal;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
@@ -580,14 +567,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         id: value.id,
       });
     });
-    const matches = pullRequests.filter(
-      (value) =>
-        value.title === input.expectedTitle &&
-        value.body === input.expectedBody &&
-        value.draft === input.expectedDraft,
-    );
-    if (matches.length > 1) throw new Error('GitHub pull request lookup is ambiguous');
-    return matches[0] ?? null;
+    if (pullRequests.length > 1) throw new Error('GitHub pull request lookup is ambiguous');
+    return pullRequests[0] ?? null;
   }
   async create(input: {
     repository: string;
@@ -698,26 +679,14 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     externalResultId?: string;
-    expectedTitle?: string;
-    expectedBody?: string;
-    expectedDraft?: boolean;
     operationId: string;
     signal: AbortSignal;
   }) {
     if (!input.externalResultId) {
-      if (
-        typeof input.expectedTitle !== 'string' ||
-        typeof input.expectedBody !== 'string' ||
-        typeof input.expectedDraft !== 'boolean'
-      )
-        throw new Error('GitHub recovery lookup is incomplete');
-      return this.findMatchingAll({
+      return this.findAllForHeadBase({
         repository: input.repository,
         sourceBranch: input.sourceBranch,
         baseBranch: input.baseBranch,
-        expectedTitle: input.expectedTitle,
-        expectedBody: input.expectedBody,
-        expectedDraft: input.expectedDraft,
         signal: input.signal,
       });
     }

@@ -310,8 +310,6 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       probeImage?: string;
       probePolicy?: string;
       githubProbePolicy?: string;
-      /** Controller has a private write credential for github.publish-pr. */
-      githubPublishEnabled?: boolean;
       profilePath?: string;
     } = {
       workspace: 'default',
@@ -323,8 +321,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     return (
       templateId === GITHUB_TEMPLATE_ID &&
       !!this.options.probeImage &&
-      !!this.options.githubProbePolicy &&
-      !!this.options.githubPublishEnabled
+      !!this.options.githubProbePolicy
     );
   }
   validateBinding(input: {

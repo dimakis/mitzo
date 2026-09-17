@@ -1,7 +1,9 @@
 import { Buffer } from 'node:buffer';
+import { execFile } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import {
   GITHUB_PUBLISH_MAX_BUNDLE_BYTES,
@@ -19,6 +21,8 @@ import type {
   CapabilityExecutionContext,
   CapabilityOperation,
 } from '../connections/capabilities/types.js';
+
+const exec = promisify(execFile);
 
 const operation: CapabilityOperation = {
   id: 'operation-1',
@@ -167,7 +171,7 @@ describe('github.publish-pr capability', () => {
     const gh = join(directory, 'gh');
     await writeFile(
       gh,
-      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature/safe'*) printf '%s' '[]' ;; *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
       { mode: 0o700 },
     );
     await chmod(gh, 0o700);
@@ -191,7 +195,7 @@ describe('github.publish-pr capability', () => {
     const gh = join(directory, 'gh');
     await writeFile(
       gh,
-      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature/safe'*) printf '%s' '[{\"type\":\"pull_request\"}]' ;; *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature%2Fsafe'*) printf '%s' '[{\"type\":\"pull_request\"}]' ;; *'/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
       { mode: 0o700 },
     );
     await chmod(gh, 0o700);
@@ -207,7 +211,7 @@ describe('github.publish-pr capability', () => {
       ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: true });
       await writeFile(
         gh,
-        "#!/bin/sh\ncase \"$*\" in *'/branches/feature/safe'*|*'/rules/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+        "#!/bin/sh\ncase \"$*\" in *'/branches/feature%2Fsafe'*|*'/rules/branches/feature%2Fsafe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
         { mode: 0o700 },
       );
       await expect(
@@ -250,7 +254,7 @@ describe('github.publish-pr capability', () => {
       }),
     ).rejects.toThrow('lookup is invalid');
   });
-  it('uses an exact all-state metadata lookup when recovery has no PR URL', async () => {
+  it('uses an all-state head/base lookup when recovery has no PR URL', async () => {
     const runner = vi.fn(async () => ({
       stdout: JSON.stringify([
         {
@@ -272,9 +276,6 @@ describe('github.publish-pr capability', () => {
         repository: 'acme/widgets',
         sourceBranch: 'feature/safe',
         baseBranch: 'main',
-        expectedTitle: input.title,
-        expectedBody: input.body,
-        expectedDraft: input.draft,
         operationId: 'op',
         signal: new AbortController().signal,
       }),
@@ -492,7 +493,7 @@ describe('github.publish-pr capability', () => {
       if (joined.includes('rev-parse HEAD')) return `${'a'.repeat(40)}\n`;
       if (joined.includes('remote get-url origin')) return 'https://github.com/acme/widgets.git\n';
       if (joined.includes('rev-list --count')) return '1\n';
-      if (joined.includes('refs/remotes/origin/HEAD')) return 'origin/main\n';
+      if (joined.includes('diff-tree')) return 'src/index.ts\ndeleted.ts\nsrc/index.ts\n';
       return 'src/index.ts\n';
     });
     const transport = new OpenShellGithubSandboxTransport(run, 'mgmt');
@@ -502,7 +503,11 @@ describe('github.publish-pr capability', () => {
       baseBranch: 'main',
       signal: new AbortController().signal,
     });
-    expect(inspected).toMatchObject({ sourceBranch: 'feature/safe', sourceOid: 'a'.repeat(40) });
+    expect(inspected).toMatchObject({
+      sourceBranch: 'feature/safe',
+      sourceOid: 'a'.repeat(40),
+      changedFiles: ['deleted.ts', 'src/index.ts'],
+    });
     for (const call of run.mock.calls) {
       const args = call[0] as readonly string[];
       expect(args).toContain('/bin/sh');
@@ -511,6 +516,12 @@ describe('github.publish-pr capability', () => {
       expect(script).toContain('cd -P');
       expect(script).toContain('exec /usr/bin/git');
     }
+    expect(JSON.stringify(run.mock.calls)).not.toContain('refs/remotes/origin/HEAD');
+    expect(
+      run.mock.calls.find((call) => (call[0] as readonly string[]).includes('diff-tree'))?.[0],
+    ).toEqual(
+      expect.arrayContaining(['diff-tree', '--root', '--no-commit-id', '-r', '--name-only']),
+    );
     run.mockClear();
     run.mockResolvedValueOnce('YnVuZGxl');
     await transport.exportBundle({
@@ -525,6 +536,44 @@ describe('github.publish-pr capability', () => {
     const exportArgs = run.mock.calls[0]![0] as readonly string[];
     expect(exportArgs).toContain('a'.repeat(40));
     expect(exportArgs[exportArgs.indexOf('-c') + 1]).toContain('rev-parse HEAD');
+  });
+  it('inspects a repository with an origin remote but no origin HEAD symbolic ref', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-no-origin-head-'));
+    try {
+      await exec('git', ['init', '--quiet', directory]);
+      await exec('git', [
+        '-C',
+        directory,
+        'remote',
+        'add',
+        'origin',
+        'https://github.com/acme/widgets.git',
+      ]);
+      await expect(
+        exec('git', ['-C', directory, 'symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']),
+      ).rejects.toThrow();
+      const run = vi.fn(async (args: readonly string[]) => {
+        const joined = args.join(' ');
+        if (joined.includes('status --porcelain')) return '';
+        if (joined.includes('symbolic-ref --quiet --short HEAD')) return 'feature/safe\n';
+        if (joined.includes('rev-parse HEAD')) return `${'a'.repeat(40)}\n`;
+        if (joined.includes('remote get-url origin'))
+          return 'https://github.com/acme/widgets.git\n';
+        if (joined.includes('rev-list --count')) return '1\n';
+        return 'deleted.ts\n';
+      });
+      await expect(
+        new OpenShellGithubSandboxTransport(run, 'mgmt').inspect({
+          sandboxName: 'sandbox-1',
+          repositoryPath: input.repositoryPath,
+          baseBranch: 'main',
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toMatchObject({ changedFiles: ['deleted.ts'], sourceBranch: 'feature/safe' });
+      expect(JSON.stringify(run.mock.calls)).not.toContain('refs/remotes/origin/HEAD');
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
   it('accepts only canonical GitHub origins', () => {
     expect(githubRepositoryFromOrigin('git@github.com:Acme/Widgets.git')).toBe('acme/widgets');
@@ -684,6 +733,16 @@ describe('github.publish-pr capability', () => {
     );
     expect(JSON.stringify(result)).not.toContain('token');
   });
+  it('verifies semantically equivalent mixed-case GitHub PR URLs', async () => {
+    const f = fixture();
+    const externalResultId = 'https://GitHub.com/Acme/Widgets/pull/12';
+    await expect(
+      f.executor.verify(context({ operation: { ...operation, externalResultId } }), {
+        output: {},
+        externalResultId,
+      }),
+    ).resolves.toBeUndefined();
+  });
   it('updates an existing open pull request with the approved metadata', async () => {
     const f = fixture();
     vi.mocked(f.host.findOpen).mockResolvedValue(f.pull);
@@ -755,16 +814,44 @@ describe('github.publish-pr capability', () => {
         existingPullRequestUrl: '',
       },
     };
-    await expect(
-      f.executor.recover(recovered, new AbortController().signal),
-    ).resolves.toMatchObject({
-      externalResultId: f.pull.url,
+    await expect(f.executor.recover(recovered, new AbortController().signal)).resolves.toEqual({
+      outcome: 'verified',
     });
     expect(f.host.read).toHaveBeenCalledWith(
       expect.objectContaining({ operationId: operation.id, externalResultId: f.pull.url }),
     );
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).not.toHaveBeenCalled();
+  });
+  it('recovers one authoritative head/base PR after metadata changes without another create', async () => {
+    const f = fixture();
+    vi.mocked(f.host.read).mockResolvedValueOnce({
+      ...f.pull,
+      title: 'Edited after the lost response',
+      body: 'Different body',
+      draft: true,
+    });
+    await expect(
+      f.executor.recover(
+        {
+          ...operation,
+          recoveryIntent: {
+            repository: f.pull.repository,
+            sourceBranch: f.pull.sourceBranch,
+            sourceOid: 'a'.repeat(40),
+            baseBranch: f.pull.baseBranch,
+            title: input.title,
+            body: input.body,
+            draft: input.draft,
+            existingPullRequestId: '',
+            existingPullRequestUrl: '',
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ outcome: 'verified' });
+    expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.update).not.toHaveBeenCalled();
   });
   it('recovers a mixed-case existing PR identity without treating it as a mismatch', async () => {
     const f = fixture();
@@ -794,7 +881,7 @@ describe('github.publish-pr capability', () => {
         },
         new AbortController().signal,
       ),
-    ).resolves.toMatchObject({ externalResultId: mixed.url });
+    ).resolves.toEqual({ outcome: 'verified' });
   });
   it('recreates a missing PR only after the durable branch OID is verified', async () => {
     const f = fixture();
@@ -818,7 +905,7 @@ describe('github.publish-pr capability', () => {
         },
         new AbortController().signal,
       ),
-    ).resolves.toMatchObject({ externalResultId: f.pull.url });
+    ).resolves.toEqual({ outcome: 'verified' });
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).toHaveBeenCalledTimes(1);
   });
@@ -844,9 +931,9 @@ describe('github.publish-pr capability', () => {
         },
         new AbortController().signal,
       ),
-    ).resolves.toMatchObject({ externalResultId: f.pull.url });
+    ).resolves.toEqual({ outcome: 'verified' });
     expect(f.host.read).toHaveBeenCalledWith(
-      expect.objectContaining({ expectedTitle: input.title, expectedDraft: input.draft }),
+      expect.objectContaining({ repository: f.pull.repository, sourceBranch: f.pull.sourceBranch }),
     );
     expect(f.host.create).not.toHaveBeenCalled();
     expect(f.host.update).not.toHaveBeenCalled();
