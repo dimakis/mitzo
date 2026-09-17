@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isIP } from 'node:net';
+import { isDeepStrictEqual } from 'node:util';
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -373,12 +374,20 @@ function customEndpoint(policy: ProviderPolicy) {
 /** Stable, code-owned profile identifier. User input cannot name a profile. */
 export function customRestProfileId(policy: ProviderPolicy) {
   const endpoint = customEndpoint(policy);
+  const pinnedIps = policy.publicConfig.dnsPin;
+  if (
+    !Array.isArray(pinnedIps) ||
+    pinnedIps.length === 0 ||
+    pinnedIps.some((ip) => typeof ip !== 'string')
+  )
+    throw new Error('Custom endpoint DNS pin is unavailable');
   const digest = createHash('sha256')
     .update(
       JSON.stringify({
         host: endpoint.host,
         port: endpoint.port,
         protocol: endpoint.protocol,
+        allowedIps: pinnedIps,
         rules: endpoint.rules,
         binaries: endpoint.allowedBinaries,
         credentialStyle: policy.publicConfig.credentialStyle,
@@ -394,6 +403,13 @@ export function customRestProfileId(policy: ProviderPolicy) {
 /** Generated only from a compiled policy; browser YAML is never parsed or imported. */
 export function renderCustomRestProfile(policy: ProviderPolicy) {
   const endpoint = customEndpoint(policy);
+  const pinnedIps = policy.publicConfig.dnsPin;
+  if (
+    !Array.isArray(pinnedIps) ||
+    pinnedIps.length === 0 ||
+    pinnedIps.some((ip) => typeof ip !== 'string')
+  )
+    throw new Error('Custom endpoint DNS pin is unavailable');
   const style = policy.publicConfig.credentialStyle;
   const location = policy.publicConfig.credentialLocation;
   const name = policy.publicConfig.credentialName;
@@ -429,6 +445,10 @@ export function renderCustomRestProfile(policy: ProviderPolicy) {
         host: endpoint.host,
         port: endpoint.port,
         protocol: endpoint.protocol,
+        // The egress proxy checks this exact allowlist at connect time, so a
+        // resolver answer changing after controller verification cannot
+        // redirect a credential-bearing request.
+        allowed_ips: pinnedIps,
         enforcement: 'enforce',
         tls: 'terminate',
         rules: endpoint.rules.map((rule) => ({ allow: rule })),
@@ -437,6 +457,17 @@ export function renderCustomRestProfile(policy: ProviderPolicy) {
     binaries: endpoint.allowedBinaries,
   };
   return { id: profile.id, yaml: dump(profile, { noRefs: true, lineWidth: -1, sortKeys: false }) };
+}
+
+/** Existing deterministic IDs are not proof that gateway state still matches policy. */
+export function validateCustomRestProfileYaml(value: string, policy: ProviderPolicy): void {
+  try {
+    const expected = load(renderCustomRestProfile(policy).yaml);
+    const actual = load(value);
+    if (!isDeepStrictEqual(actual, expected)) throw new Error('mismatch');
+  } catch {
+    throw new Error('Installed custom REST profile differs from compiled policy');
+  }
 }
 
 function safeOutput(value: string) {
@@ -593,6 +624,22 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           ['provider', '--workspace', this.options.workspace, 'profile', 'import', '--file', path],
           signal,
         );
+      // A name derived from the policy hash is only an identifier. It is not
+      // authorization to trust a pre-existing gateway object under that name.
+      const exported = await this.run(
+        [
+          'provider',
+          '--workspace',
+          this.options.workspace,
+          'profile',
+          'export',
+          rendered.id,
+          '-o',
+          'yaml',
+        ],
+        signal,
+      );
+      validateCustomRestProfileYaml(exported, policy);
       return rendered.id;
     } finally {
       rmSync(directory, { recursive: true, force: true });

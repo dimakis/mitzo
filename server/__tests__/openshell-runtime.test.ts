@@ -372,6 +372,53 @@ describe('OpenShell runtime lifecycle', () => {
     ).toHaveLength(1);
   });
 
+  it('preserves an explicitly approved custom grant through file-state restart', async () => {
+    const customProvider = 'mitzo-conn-12345678';
+    const attached = new Set(['github']);
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready('Ready', 'custom-v1');
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      if (args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const customConfig = {
+      ...config,
+      serviceProviders: ['github'],
+      grantableServiceProviders: [customProvider],
+    };
+    const signal = new AbortController().signal;
+    const first = new OpenShellRuntimeManager(customConfig, run);
+    const runtime = await first.ensure('conversation', signal);
+    await first.grantServiceProvider('conversation', runtime, customProvider, signal);
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(
+            privateRoot,
+            'openshell-provider-policy',
+            `${sandboxNameForConversation('conversation')}.json`,
+          ),
+          'utf8',
+        ),
+      ),
+    ).toEqual({ automatic: ['github'], granted: [customProvider] });
+
+    await new OpenShellRuntimeManager(customConfig, run).ensure('conversation', signal);
+    const commands = run.mock.calls.map(([args]) => args as readonly string[]);
+    expect(
+      commands.filter((args) => args.includes('detach') && args.includes(customProvider)),
+    ).toHaveLength(0);
+    expect(
+      await new OpenShellRuntimeManager(customConfig, run).hasServiceProviderAccess(
+        'conversation',
+        runtime,
+        customProvider,
+        signal,
+      ),
+    ).toEqual({ state: 'available' });
+  });
+
   it('requires a current attachment for a durable grant to be available', async () => {
     const attached = new Set<string>();
     const policyState = {

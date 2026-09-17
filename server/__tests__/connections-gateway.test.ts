@@ -69,6 +69,7 @@ describe('OpenShellConnectionGateway', () => {
     const rendered = renderCustomRestProfile(policy);
     expect(rendered.yaml).toContain('MITZO_CUSTOM_API_TOKEN');
     expect(rendered.yaml).toContain('host: api.example.com');
+    expect(rendered.yaml).toContain('allowed_ips:\n      - 1.1.1.1');
     expect(rendered.yaml).not.toContain('SENTINEL');
     const runner = vi.fn().mockResolvedValue('[]');
     const gateway = new OpenShellConnectionGateway(runner, {
@@ -106,12 +107,33 @@ describe('OpenShellConnectionGateway', () => {
       ),
     ).rejects.toThrow('rebinding');
   });
+  it('compiles the gateway-pinned DNS set into the OpenShell proxy allowlist', async () => {
+    const gateway = new OpenShellConnectionGateway(vi.fn(), {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1', '2606:4700:4700::1111']),
+    });
+    const prepared = await gateway.preparePolicy!(
+      { ...customPolicy(), publicConfig: { ...customPolicy().publicConfig, dnsPin: [] } },
+      signal,
+    );
+    const rendered = renderCustomRestProfile(prepared);
+    expect(rendered.yaml).toContain(
+      "allowed_ips:\n      - 1.1.1.1\n      - '2606:4700:4700:0000:0000:0000:0000:1111'",
+    );
+    // The deterministic profile identity changes with the exact pinned set;
+    // a prior proxy profile cannot be reused for a changed DNS answer set.
+    expect(rendered.id).not.toBe(renderCustomRestProfile(customPolicy()).id);
+  });
   it('lints the deterministic generated profile before importing it', async () => {
     const runner = vi
       .fn()
       .mockResolvedValueOnce('[]')
       .mockResolvedValueOnce('')
-      .mockResolvedValueOnce('');
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(renderCustomRestProfile(customPolicy()).yaml);
     const gateway = new OpenShellConnectionGateway(runner, {
       workspace: 'default',
       probeImage: 'image',
@@ -127,6 +149,32 @@ describe('OpenShellConnectionGateway', () => {
     expect(runner.mock.calls[2]![0]).toEqual(
       expect.arrayContaining(['profile', 'import', '--file']),
     );
+    expect(runner.mock.calls[3]![0]).toEqual(expect.arrayContaining(['profile', 'export']));
+  });
+  it('fails closed if an existing deterministic custom profile exports a broader policy', async () => {
+    const policy = customPolicy();
+    const rendered = renderCustomRestProfile(policy);
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ id: rendered.id }]))
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce(rendered.yaml.replace('path: /v1', 'path: /**'));
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1']),
+    });
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy },
+        signal,
+      ),
+    ).rejects.toThrow('differs from compiled policy');
+    expect(runner.mock.calls.flatMap(([args]) => args)).toContain('lint');
+    expect(runner.mock.calls.flatMap(([args]) => args)).toContain('export');
+    expect(runner.mock.calls.flatMap(([args]) => args)).not.toContain('import');
   });
   it('supports only the reviewed Jira adapter version', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn());

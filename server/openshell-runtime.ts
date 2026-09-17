@@ -134,7 +134,7 @@ class FileProviderPolicyState implements ProviderPolicyState {
       !Array.isArray(value.automatic) ||
       !Array.isArray(value.granted) ||
       ![...value.automatic, ...value.granted].every(
-        (provider) => typeof provider === 'string' && SERVICE_PROVIDERS.has(provider),
+        (provider) => typeof provider === 'string' && isServiceProviderName(provider),
       )
     )
       throw new Error('OpenShell provider policy state is invalid');
