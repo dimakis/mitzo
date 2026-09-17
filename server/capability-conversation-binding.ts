@@ -9,6 +9,8 @@ export interface LiveCapabilityConversationBinding {
   connectionRevision: number;
   gatewayProviderId: string | null;
   sandboxName?: string;
+  /** Trusted lifecycle workdir; never supplied in capability tool input. */
+  workspace?: string;
 }
 
 const bindings = new Map<string, Readonly<LiveCapabilityConversationBinding>>();

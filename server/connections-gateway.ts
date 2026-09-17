@@ -2,14 +2,23 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
 import { z } from 'zod';
+import { isValidEmailAddress } from './connections/email.js';
 import type { ProviderPolicy } from './connections/types.js';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
 export const JIRA_API_ENDPOINT =
   'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432';
 export const JIRA_TEMPLATE_ID = 'jira-readonly';
+export const GITHUB_TEMPLATE_ID = 'github-readonly';
 export type ConnectionProbeErrorCode =
-  'JIRA_AUTH_REJECTED' | 'JIRA_PERMISSION_DENIED' | 'JIRA_HTTP_ERROR' | 'JIRA_NETWORK_FAILED';
+  | 'JIRA_AUTH_REJECTED'
+  | 'JIRA_PERMISSION_DENIED'
+  | 'JIRA_HTTP_ERROR'
+  | 'JIRA_NETWORK_FAILED'
+  | 'GITHUB_AUTH_REJECTED'
+  | 'GITHUB_PERMISSION_DENIED'
+  | 'GITHUB_HTTP_ERROR'
+  | 'GITHUB_NETWORK_FAILED';
 export class ConnectionProbeError extends Error {
   constructor(readonly code: ConnectionProbeErrorCode) {
     super(code);
@@ -232,6 +241,7 @@ type LegacyGatewayProviderOperation = { name: string; token: string };
 type LegacyProbeInput = { providerName: string; email: string; sandboxName?: string };
 function jiraOperation(input: GatewayProviderOperation | LegacyGatewayProviderOperation) {
   if ('token' in input) return { name: safeName(input.name), token: input.token };
+  assertPinnedDnsSupported(input.policy);
   if (
     input.templateId !== JIRA_TEMPLATE_ID ||
     input.templateVersion !== 1 ||
@@ -243,6 +253,36 @@ function jiraOperation(input: GatewayProviderOperation | LegacyGatewayProviderOp
   )
     throw new Error('Unsupported or invalid reviewed provider template');
   return { name: safeName(input.name), token: input.credentials.token };
+}
+function githubOperation(input: GatewayProviderOperation) {
+  assertPinnedDnsSupported(input.policy);
+  if (
+    input.templateId !== GITHUB_TEMPLATE_ID ||
+    input.templateVersion !== 1 ||
+    input.policy.templateId !== input.templateId ||
+    input.policy.templateVersion !== input.templateVersion ||
+    Object.keys(input.credentials).length !== 1 ||
+    typeof input.credentials.token !== 'string' ||
+    input.credentials.token.length === 0
+  )
+    throw new Error('Unsupported or invalid reviewed provider template');
+  return { name: safeName(input.name), token: input.credentials.token };
+}
+function assertPinnedDnsSupported(policy: ProviderPolicy) {
+  for (const endpoint of policy.endpoints) {
+    if (!endpoint.dns) continue;
+    const requirement = endpoint.dns;
+    if (
+      requirement.mode !== 'pinned-public-only' ||
+      !requirement.hostname ||
+      requirement.verifyAt !== 'provision-and-every-use' ||
+      requirement.rejectRebinding !== true
+    )
+      throw new Error('Invalid pinned public DNS policy');
+    // This Jira-only adapter cannot resolve and pin a custom endpoint, so it
+    // must never provision it under a weaker hostname-only boundary.
+    throw new Error('Pinned public DNS is unsupported by this gateway');
+  }
 }
 function safeOutput(value: string) {
   try {
@@ -269,13 +309,17 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       timeoutMs?: number;
       probeImage?: string;
       probePolicy?: string;
+      githubProbePolicy?: string;
       profilePath?: string;
     } = {
       workspace: 'default',
     },
   ) {}
   supportsTemplate(templateId: string, templateVersion: number) {
-    return templateId === JIRA_TEMPLATE_ID && templateVersion === 1;
+    return (
+      (templateId === JIRA_TEMPLATE_ID || templateId === GITHUB_TEMPLATE_ID) &&
+      templateVersion === 1
+    );
   }
   validateBinding(input: {
     templateId: string;
@@ -283,14 +327,22 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     provider: GatewayProvider;
   }) {
     const { provider } = input;
-    if (
-      input.templateId !== JIRA_TEMPLATE_ID ||
-      input.templateVersion !== 1 ||
-      provider.type !== JIRA_TEMPLATE_ID ||
-      provider.credentialKeys.length !== 1 ||
-      provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
-    )
-      throw new Error('Managed provider credential binding changed');
+    const jira =
+      input.templateId === JIRA_TEMPLATE_ID &&
+      input.templateVersion === 1 &&
+      provider.type === JIRA_TEMPLATE_ID &&
+      provider.credentialKeys.length === 1 &&
+      provider.credentialKeys[0] === 'JIRA_API_TOKEN';
+    // OpenShell's built-in GitHub profile remains read-only. This connection
+    // only supplies its token to that provider; all writes route through the
+    // controller capability and never through this credential binding.
+    const github =
+      input.templateId === GITHUB_TEMPLATE_ID &&
+      input.templateVersion === 1 &&
+      provider.type === 'github' &&
+      provider.credentialKeys.length === 1 &&
+      provider.credentialKeys[0] === 'GITHUB_TOKEN';
+    if (!jira && !github) throw new Error('Managed provider credential binding changed');
   }
   private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     try {
@@ -310,6 +362,14 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     const actualSignal = signal ?? (input as AbortSignal);
     if (signal) {
       const compatibility = input as GatewayCompatibilityInput;
+      assertPinnedDnsSupported(compatibility.policy);
+      if (
+        compatibility.templateId === GITHUB_TEMPLATE_ID &&
+        compatibility.templateVersion === 1 &&
+        compatibility.policy.templateId === compatibility.templateId &&
+        compatibility.policy.templateVersion === compatibility.templateVersion
+      )
+        return;
       if (
         compatibility.templateId !== JIRA_TEMPLATE_ID ||
         compatibility.templateVersion !== 1 ||
@@ -385,7 +445,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     input: GatewayProviderOperation | LegacyGatewayProviderOperation,
     signal: AbortSignal,
   ) {
-    const { name, token } = jiraOperation(input);
+    const github = !('token' in input) && input.templateId === GITHUB_TEMPLATE_ID;
+    const { name, token } = github
+      ? githubOperation(input as GatewayProviderOperation)
+      : jiraOperation(input);
     // The key-only spelling makes the CLI read the secret only from this child environment.
     await this.run(
       [
@@ -396,12 +459,12 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         '--name',
         name,
         '--type',
-        this.options.providerType ?? JIRA_TEMPLATE_ID,
+        github ? 'github' : (this.options.providerType ?? JIRA_TEMPLATE_ID),
         '--credential',
-        'JIRA_API_TOKEN',
+        github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
       ],
       signal,
-      { JIRA_API_TOKEN: token },
+      github ? { GITHUB_TOKEN: token } : { JIRA_API_TOKEN: token },
     );
     const provider = await this.get(name, signal);
     if (!provider) throw new Error('Gateway did not create managed provider');
@@ -411,7 +474,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     input: GatewayProviderOperation | LegacyGatewayProviderOperation,
     signal: AbortSignal,
   ) {
-    const { name, token } = jiraOperation(input);
+    const github = !('token' in input) && input.templateId === GITHUB_TEMPLATE_ID;
+    const { name, token } = github
+      ? githubOperation(input as GatewayProviderOperation)
+      : jiraOperation(input);
     await this.run(
       [
         'provider',
@@ -420,10 +486,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         'update',
         name,
         '--credential',
-        'JIRA_API_TOKEN',
+        github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
       ],
       signal,
-      { JIRA_API_TOKEN: token },
+      github ? { GITHUB_TOKEN: token } : { JIRA_API_TOKEN: token },
     );
   }
   async list(signal: AbortSignal) {
@@ -604,12 +670,14 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
             publicConfig: { email: input.email },
           }
         : input;
+    if (normalized.templateId === GITHUB_TEMPLATE_ID && normalized.templateVersion === 1)
+      return this.probeGithubReadonly(normalized, signal);
     const email = normalized.publicConfig.email;
     if (
       normalized.templateId !== JIRA_TEMPLATE_ID ||
       normalized.templateVersion !== 1 ||
       typeof email !== 'string' ||
-      !/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/.test(email)
+      !isValidEmailAddress(email)
     )
       throw new Error('Gateway identity probe is invalid');
     const name =
@@ -736,6 +804,123 @@ except Exception:
       throw new Error('Gateway identity probe failed');
     } finally {
       /* service owns durable cleanup using an independent signal */
+    }
+  }
+  /** Probe only GitHub's read identity endpoint through the built-in read-only provider. */
+  private async probeGithubReadonly(
+    input: {
+      providerName: string;
+      templateId: string;
+      templateVersion: number;
+      publicConfig: Record<string, string | string[]>;
+      sandboxName?: string;
+    },
+    signal: AbortSignal,
+  ): Promise<{ identity: string }> {
+    if (!this.options.probeImage || !this.options.githubProbePolicy)
+      throw new Error('Gateway GitHub identity probe is not configured');
+    const name =
+      input.sandboxName ??
+      `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
+    if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
+    // The script is code-owned and keeps the response compact. It neither
+    // reads nor prints a token; OpenShell injects it only into its provider.
+    const probe = `import json,urllib.error,urllib.request
+try:
+ r=urllib.request.Request('https://api.github.com/user',headers={'Accept':'application/vnd.github+json'});x=urllib.request.urlopen(r,timeout=10);b=x.read(65537);assert len(b)<=65536;d=json.loads(b);print(json.dumps({'login':d['login']},separators=(',',':')))
+except urllib.error.HTTPError as e: print(json.dumps({'error':'GITHUB_AUTH_REJECTED' if e.code==401 else 'GITHUB_PERMISSION_DENIED' if e.code==403 else 'GITHUB_HTTP_ERROR'},separators=(',',':')))
+except Exception: print(json.dumps({'error':'GITHUB_NETWORK_FAILED'},separators=(',',':')))`;
+    try {
+      const createOutput = await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'create',
+          '--name',
+          name,
+          '--no-auto-providers',
+          '--detach',
+          '--no-tty',
+          '--policy',
+          this.options.githubProbePolicy,
+          '--from',
+          this.options.probeImage,
+          '--provider',
+          safeName(input.providerName),
+          '--label',
+          'mitzo.connection_probe=1',
+          '-o',
+          'json',
+        ],
+        signal,
+      );
+      const created = z
+        .object({ name: z.string().regex(ProbeSandboxName), phase: z.string() })
+        .parse(JSON.parse(createOutput));
+      if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      let ready = false;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const sandbox = await this.sandbox(name, signal);
+        if (sandbox?.phase === 'Ready' && sandbox.labels['mitzo.connection_probe'] === '1') {
+          ready = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!ready) throw new Error('Probe sandbox is not Ready');
+      const attached = await this.sandboxProviders(name, signal);
+      if (attached.length !== 1 || attached[0] !== safeName(input.providerName))
+        throw new Error('Probe sandbox provider attachment mismatch');
+      const output = await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'exec',
+          '--name',
+          name,
+          '--no-tty',
+          '--timeout',
+          '15',
+          '--',
+          '/usr/bin/python3',
+          '-c',
+          probe,
+        ],
+        signal,
+      );
+      const identity = z
+        .union([
+          z
+            .object({
+              login: z
+                .string()
+                .min(1)
+                .max(128)
+                .regex(/^[A-Za-z0-9-]+$/),
+            })
+            .strict(),
+          z
+            .object({
+              error: z.enum([
+                'GITHUB_AUTH_REJECTED',
+                'GITHUB_PERMISSION_DENIED',
+                'GITHUB_HTTP_ERROR',
+                'GITHUB_NETWORK_FAILED',
+              ]),
+            })
+            .strict(),
+        ])
+        .parse(JSON.parse(output));
+      if ('error' in identity) throw new ConnectionProbeError(identity.error);
+      return { identity: identity.login };
+    } catch (error) {
+      if (error instanceof ConnectionProbeError) throw error;
+      // The OpenShell CLI can include provider response details; do not retain
+      // that cause across the controller credential boundary.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error('Gateway GitHub identity probe failed');
     }
   }
   async deleteSandbox(name: string, signal: AbortSignal) {
