@@ -30,6 +30,12 @@ export interface ConnectionField {
   choices?: readonly string[];
 }
 
+/** A reviewed compatibility edge is always pinned to a concrete template version. */
+export interface TemplateReference {
+  id: string;
+  version: number;
+}
+
 export interface ProviderTemplate {
   id: string;
   version: number;
@@ -43,7 +49,7 @@ export interface ProviderTemplate {
   policyCompiler: string;
   /** Code-owned symbolic key, never a path or command. */
   probe: string;
-  capabilityIds: readonly string[];
+  capabilityTemplates: readonly TemplateReference[];
 }
 
 export interface JsonSchema {
@@ -58,7 +64,7 @@ export interface CapabilityTemplate {
   version: number;
   label: string;
   description: string;
-  connectionTemplateIds: readonly string[];
+  connectionTemplates: readonly TemplateReference[];
   inputSchema: JsonSchema;
   /** Code-owned symbolic key, never a path or command. */
   executor: string;
@@ -75,7 +81,7 @@ export interface PublicProviderTemplate {
   risk: ProviderRisk;
   credentialFields: readonly CredentialField[];
   connectionFields: readonly ConnectionField[];
-  capabilityIds: readonly string[];
+  capabilityTemplates: readonly TemplateReference[];
 }
 
 export interface PublicCapabilityTemplate {
@@ -83,7 +89,7 @@ export interface PublicCapabilityTemplate {
   version: number;
   label: string;
   description: string;
-  connectionTemplateIds: readonly string[];
+  connectionTemplates: readonly TemplateReference[];
   approval: 'always' | 'explicit-intent';
   idempotency: 'required';
 }

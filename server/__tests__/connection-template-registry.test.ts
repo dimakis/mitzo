@@ -9,6 +9,7 @@ import {
   createConnectionTemplateRegistry,
   projectCapabilityTemplate,
   projectProviderTemplate,
+  validateVersionedTemplateRelationships,
 } from '../connections/registry.js';
 
 const jira = connectionTemplateRegistry.getProviderTemplate('jira-readonly', 1)!;
@@ -33,10 +34,36 @@ describe('connection template registry', () => {
         expect.objectContaining({ key: 'allowedBaseBranches', required: true }),
       ]),
     );
+    expect(projectProviderTemplate(github).capabilityTemplates).toEqual([
+      { id: 'github.publish-pr', version: 1 },
+    ]);
+    expect(projectCapabilityTemplate(githubPublish).connectionTemplates).toEqual([
+      { id: 'github-readonly', version: 1 },
+    ]);
     expect(connectionTemplateRegistry.getProviderTemplate('github-readonly', 2)).toBeUndefined();
     expect(
       connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 2),
     ).toBeUndefined();
+  });
+
+  it('pins provider/capability compatibility to exact versions', () => {
+    const githubV2 = { ...github, version: 2, capabilityTemplates: [] };
+    expect(() =>
+      validateVersionedTemplateRelationships([github, githubV2], [githubPublish]),
+    ).not.toThrow();
+    expect(() =>
+      validateVersionedTemplateRelationships(
+        [github],
+        [
+          githubPublish,
+          {
+            ...githubPublish,
+            version: 2,
+            connectionTemplates: [{ id: 'github-readonly', version: 1 }],
+          },
+        ],
+      ),
+    ).toThrow('bidirectional');
   });
 
   it('projects only public metadata, never secrets or code-owned execution identifiers', () => {
@@ -313,7 +340,10 @@ describe('connection template registry', () => {
       { ...jira, risk: 'bounded-write' as const },
       { ...jira, credentialFields: [{ ...jira.credentialFields[0]!, required: false }] },
       { ...jira, connectionFields: [{ ...jira.connectionFields[0]!, required: false }] },
-      { ...jira, capabilityIds: ['github.publish-pr'] },
+      { ...jira, label: 'Unreviewed Jira' },
+      { ...jira, category: 'productivity' as const },
+      { ...jira, description: 'Unreviewed scope.' },
+      { ...jira, capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }] },
     ])
       expect(() =>
         createConnectionTemplateRegistry({ providers: [provider], capabilities: [] }),
@@ -330,20 +360,24 @@ describe('connection template registry', () => {
         },
       },
       { ...githubPublish, approval: 'explicit-intent' as const },
+      { ...githubPublish, label: 'Unreviewed publish' },
+      { ...githubPublish, description: 'Unreviewed mutation.' },
     ])
       expect(() =>
         createConnectionTemplateRegistry({ providers: [github], capabilities: [capability] }),
       ).toThrow('reviewed template contract');
     expect(() =>
       createConnectionTemplateRegistry({
-        providers: [{ ...github, capabilityIds: [] }],
+        providers: [{ ...github, capabilityTemplates: [] }],
         capabilities: [githubPublish],
       }),
     ).toThrow('reviewed template contract');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [github, jira],
-        capabilities: [{ ...githubPublish, connectionTemplateIds: ['jira-readonly'] }],
+        capabilities: [
+          { ...githubPublish, connectionTemplates: [{ id: 'jira-readonly', version: 1 }] },
+        ],
       }),
     ).toThrow('reviewed template contract');
   });

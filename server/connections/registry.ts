@@ -20,6 +20,9 @@ type BoundHandler<T> = Readonly<{ templateKey: string; contract: string; handler
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
+const TemplateReferenceSchema = z
+  .object({ id: SymbolicIdentifier, version: z.number().int().positive() })
+  .strict();
 const CredentialFieldSchema = z
   .object({
     key: z.string().regex(/^[a-z][A-Za-z0-9]*$/),
@@ -58,7 +61,7 @@ const ProviderTemplateSchema = z
     connectionFields: z.array(ConnectionFieldSchema).max(10),
     policyCompiler: SymbolicIdentifier,
     probe: SymbolicIdentifier,
-    capabilityIds: z.array(SymbolicIdentifier).max(20),
+    capabilityTemplates: z.array(TemplateReferenceSchema).max(20),
   })
   .strict();
 const JsonSchemaSchema = z
@@ -87,7 +90,7 @@ const CapabilityTemplateSchema = z
     version: z.number().int().positive(),
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
-    connectionTemplateIds: z.array(SymbolicIdentifier).min(1).max(20),
+    connectionTemplates: z.array(TemplateReferenceSchema).min(1).max(20),
     inputSchema: JsonSchemaSchema,
     executor: SymbolicIdentifier,
     approval: z.enum(['always', 'explicit-intent']),
@@ -115,28 +118,48 @@ function contractFingerprint(value: unknown): string {
 function providerHandlerContract(
   template: Pick<
     ProviderTemplate,
-    'id' | 'version' | 'risk' | 'credentialFields' | 'connectionFields' | 'capabilityIds'
+    | 'id'
+    | 'version'
+    | 'label'
+    | 'category'
+    | 'description'
+    | 'risk'
+    | 'credentialFields'
+    | 'connectionFields'
+    | 'capabilityTemplates'
   >,
 ) {
   return contractFingerprint({
     id: template.id,
     version: template.version,
+    label: template.label,
+    category: template.category,
+    description: template.description,
     risk: template.risk,
     credentialFields: template.credentialFields,
     connectionFields: template.connectionFields,
-    capabilityIds: template.capabilityIds,
+    capabilityTemplates: template.capabilityTemplates,
   });
 }
 function capabilityHandlerContract(
   template: Pick<
     CapabilityTemplate,
-    'id' | 'version' | 'connectionTemplateIds' | 'inputSchema' | 'approval' | 'idempotency'
+    | 'id'
+    | 'version'
+    | 'label'
+    | 'description'
+    | 'connectionTemplates'
+    | 'inputSchema'
+    | 'approval'
+    | 'idempotency'
   >,
 ) {
   return contractFingerprint({
     id: template.id,
     version: template.version,
-    connectionTemplateIds: template.connectionTemplateIds,
+    label: template.label,
+    description: template.description,
+    connectionTemplates: template.connectionTemplates,
     inputSchema: template.inputSchema,
     approval: template.approval,
     idempotency: template.idempotency,
@@ -158,14 +181,20 @@ function uniqueKeys(items: readonly { key: string }[], field: string) {
   if (new Set(items.map((item) => item.key)).size !== items.length)
     throw new Error(`Duplicate ${field} key`);
 }
+function uniqueTemplateReferences(
+  items: readonly { id: string; version: number }[],
+  field: string,
+) {
+  if (new Set(items.map((item) => key(item.id, item.version))).size !== items.length)
+    throw new Error(`Duplicate ${field}`);
+}
 function parseProviderTemplate(value: unknown): ProviderTemplate {
   const parsed = ProviderTemplateSchema.safeParse(value);
   if (!parsed.success) throw new Error('Invalid provider template');
   const template = parsed.data as ProviderTemplate;
   uniqueKeys(template.credentialFields, 'credential field');
   uniqueKeys(template.connectionFields, 'connection field');
-  if (new Set(template.capabilityIds).size !== template.capabilityIds.length)
-    throw new Error('Provider template has duplicate capability identifiers');
+  uniqueTemplateReferences(template.capabilityTemplates, 'provider capability template reference');
   return Object.freeze({
     ...template,
     credentialFields: Object.freeze(
@@ -179,18 +208,21 @@ function parseProviderTemplate(value: unknown): ProviderTemplate {
         }),
       ),
     ),
-    capabilityIds: Object.freeze([...template.capabilityIds]),
+    capabilityTemplates: Object.freeze(
+      template.capabilityTemplates.map((reference) => Object.freeze({ ...reference })),
+    ),
   });
 }
 function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   const parsed = CapabilityTemplateSchema.safeParse(value);
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
-  if (new Set(template.connectionTemplateIds).size !== template.connectionTemplateIds.length)
-    throw new Error('Capability template has duplicate connection template identifiers');
+  uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
   return Object.freeze({
     ...template,
-    connectionTemplateIds: Object.freeze([...template.connectionTemplateIds]),
+    connectionTemplates: Object.freeze(
+      template.connectionTemplates.map((reference) => Object.freeze({ ...reference })),
+    ),
     inputSchema: Object.freeze({
       ...template.inputSchema,
       properties: Object.freeze(
@@ -241,7 +273,7 @@ export function projectProviderTemplate(template: ProviderTemplate): PublicProvi
       ...field,
       ...(field.choices ? { choices: [...field.choices] } : {}),
     })),
-    capabilityIds: [...template.capabilityIds],
+    capabilityTemplates: template.capabilityTemplates.map((reference) => ({ ...reference })),
   };
 }
 export function projectCapabilityTemplate(template: CapabilityTemplate): PublicCapabilityTemplate {
@@ -250,10 +282,64 @@ export function projectCapabilityTemplate(template: CapabilityTemplate): PublicC
     version: template.version,
     label: template.label,
     description: template.description,
-    connectionTemplateIds: [...template.connectionTemplateIds],
+    connectionTemplates: template.connectionTemplates.map((reference) => ({ ...reference })),
     approval: template.approval,
     idempotency: template.idempotency,
   };
+}
+
+export function validateVersionedTemplateRelationships(
+  providers: readonly ProviderTemplate[],
+  capabilities: readonly CapabilityTemplate[],
+) {
+  const providerByKey = new Map(
+    providers.map((template) => [key(template.id, template.version), template]),
+  );
+  const capabilityByKey = new Map(
+    capabilities.map((template) => [key(template.id, template.version), template]),
+  );
+  for (const provider of providers)
+    if (
+      provider.capabilityTemplates.some(
+        (reference) => !capabilityByKey.has(key(reference.id, reference.version)),
+      )
+    )
+      throw new Error('Provider template references an unknown capability');
+  for (const capability of capabilities)
+    if (
+      capability.connectionTemplates.some(
+        (reference) => !providerByKey.has(key(reference.id, reference.version)),
+      )
+    )
+      throw new Error('Capability template references an unknown provider');
+  for (const provider of providers) {
+    for (const capabilityReference of provider.capabilityTemplates) {
+      const capability = capabilityByKey.get(
+        key(capabilityReference.id, capabilityReference.version),
+      );
+      if (
+        !capability ||
+        !capability.connectionTemplates.some(
+          (reference) =>
+            key(reference.id, reference.version) === key(provider.id, provider.version),
+        )
+      )
+        throw new Error('Provider and capability relationship must be bidirectional');
+    }
+  }
+  for (const capability of capabilities) {
+    for (const providerReference of capability.connectionTemplates) {
+      const provider = providerByKey.get(key(providerReference.id, providerReference.version));
+      if (
+        !provider ||
+        !provider.capabilityTemplates.some(
+          (reference) =>
+            key(reference.id, reference.version) === key(capability.id, capability.version),
+        )
+      )
+        throw new Error('Provider and capability relationship must be bidirectional');
+    }
+  }
 }
 
 export function createConnectionTemplateRegistry(input: {
@@ -272,8 +358,6 @@ export function createConnectionTemplateRegistry(input: {
     throw new Error('Duplicate provider template version');
   if (capabilityByKey.size !== capabilities.length)
     throw new Error('Duplicate capability template version');
-  const providerIds = new Set(providers.map((template) => template.id));
-  const capabilityIds = new Set(capabilities.map((template) => template.id));
   for (const provider of providers) {
     requireSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler');
     requireSymbolicHandler(provider.probe, probes, 'probe');
@@ -287,32 +371,7 @@ export function createConnectionTemplateRegistry(input: {
   }
   for (const capability of capabilities)
     requireBoundSymbolicHandler(capability.executor, executors, 'capability executor', capability);
-  for (const provider of providers)
-    if (provider.capabilityIds.some((id) => !capabilityIds.has(id)))
-      throw new Error('Provider template references an unknown capability');
-  for (const capability of capabilities)
-    if (capability.connectionTemplateIds.some((id) => !providerIds.has(id)))
-      throw new Error('Capability template references an unknown provider');
-  for (const provider of providers) {
-    for (const capabilityId of provider.capabilityIds) {
-      const capability = capabilities.filter((candidate) => candidate.id === capabilityId);
-      if (
-        capability.length === 0 ||
-        capability.some((candidate) => !candidate.connectionTemplateIds.includes(provider.id))
-      )
-        throw new Error('Provider and capability relationship must be bidirectional');
-    }
-  }
-  for (const capability of capabilities) {
-    for (const providerId of capability.connectionTemplateIds) {
-      const provider = providers.filter((candidate) => candidate.id === providerId);
-      if (
-        provider.length === 0 ||
-        provider.some((candidate) => !candidate.capabilityIds.includes(capability.id))
-      )
-        throw new Error('Provider and capability relationship must be bidirectional');
-    }
-  }
+  validateVersionedTemplateRelationships(providers, capabilities);
 
   return Object.freeze({
     providerTemplates: (): readonly PublicProviderTemplate[] =>
@@ -382,7 +441,7 @@ const providers: readonly ProviderTemplate[] = [
     ],
     policyCompiler: 'jira-readonly-v1',
     probe: 'jira-readonly-v1',
-    capabilityIds: [],
+    capabilityTemplates: [],
   },
   {
     id: 'github-readonly',
@@ -420,7 +479,7 @@ const providers: readonly ProviderTemplate[] = [
     ],
     policyCompiler: 'github-readonly-v1',
     probe: 'github-readonly-v1',
-    capabilityIds: ['github.publish-pr'],
+    capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
   },
   {
     id: 'custom-rest-readonly',
@@ -466,7 +525,7 @@ const providers: readonly ProviderTemplate[] = [
     ],
     policyCompiler: 'custom-rest-readonly-v1',
     probe: 'custom-rest-readonly-v1',
-    capabilityIds: [],
+    capabilityTemplates: [],
   },
 ];
 const capabilities: readonly CapabilityTemplate[] = [
@@ -476,7 +535,7 @@ const capabilities: readonly CapabilityTemplate[] = [
     label: 'Publish pull request',
     description:
       'Publish already-committed work to an approved feature branch after explicit approval.',
-    connectionTemplateIds: ['github-readonly'],
+    connectionTemplates: [{ id: 'github-readonly', version: 1 }],
     inputSchema: {
       type: 'object',
       properties: {
@@ -504,6 +563,9 @@ const reviewedProviderContracts = Object.freeze({
   'jira-readonly@1': providerHandlerContract({
     id: 'jira-readonly',
     version: 1,
+    label: 'Jira',
+    category: 'data',
+    description: 'Read issues and project metadata from the reviewed Jira scope.',
     risk: 'read-only',
     credentialFields: [
       {
@@ -524,11 +586,14 @@ const reviewedProviderContracts = Object.freeze({
         required: true,
       },
     ],
-    capabilityIds: [],
+    capabilityTemplates: [],
   }),
   'github-readonly@1': providerHandlerContract({
     id: 'github-readonly',
     version: 1,
+    label: 'GitHub',
+    category: 'source-control',
+    description: 'Read GitHub repositories through the reviewed read-only provider profile.',
     risk: 'read-only',
     credentialFields: [
       {
@@ -557,11 +622,15 @@ const reviewedProviderContracts = Object.freeze({
         required: true,
       },
     ],
-    capabilityIds: ['github.publish-pr'],
+    capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
   }),
   'custom-rest-readonly@1': providerHandlerContract({
     id: 'custom-rest-readonly',
     version: 1,
+    label: 'Custom REST API',
+    category: 'custom-api',
+    description:
+      'Operator-defined HTTPS REST reads using an intentionally small reviewed policy subset.',
     risk: 'operator-defined',
     credentialFields: [
       {
@@ -597,14 +666,17 @@ const reviewedProviderContracts = Object.freeze({
         required: true,
       },
     ],
-    capabilityIds: [],
+    capabilityTemplates: [],
   }),
 });
 const reviewedCapabilityContracts = Object.freeze({
   'github.publish-pr@1': capabilityHandlerContract({
     id: 'github.publish-pr',
     version: 1,
-    connectionTemplateIds: ['github-readonly'],
+    label: 'Publish pull request',
+    description:
+      'Publish already-committed work to an approved feature branch after explicit approval.',
+    connectionTemplates: [{ id: 'github-readonly', version: 1 }],
     inputSchema: {
       type: 'object',
       properties: {
