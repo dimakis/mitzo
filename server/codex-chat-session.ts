@@ -57,6 +57,10 @@ const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
   github: 'GitHub',
 };
 
+function isValidEmailAddress(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
 function grantIntegrationTools(providers: string[]) {
   if (!providers.length) return [];
   return [
@@ -271,6 +275,20 @@ export function selectedOpenShellAccountRoute(
     grantId: options.profile.sandboxGrantId!,
     model,
   };
+}
+
+/** Only the reviewed Jira template may populate sandbox environment variables. */
+export function managedJiraConnectionEnv(connection: Connection) {
+  const email = connection.publicConfig.email;
+  if (
+    connection.templateId !== 'jira-readonly' ||
+    connection.templateVersion !== 1 ||
+    Object.keys(connection.publicConfig).length !== 1 ||
+    typeof email !== 'string' ||
+    !isValidEmailAddress(email)
+  )
+    throw new Error('Unsupported managed Jira connection configuration');
+  return { JIRA_URL: JIRA_API_ENDPOINT as typeof JIRA_API_ENDPOINT, JIRA_EMAIL: email };
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {

@@ -19,11 +19,26 @@ const MAX_RESULT_BYTES = 32 * 1024;
 function failCode(error: unknown): string {
   return error instanceof Error && error.name === 'AbortError' ? 'CANCELLED' : 'EXECUTION_FAILED';
 }
+function redactionTokens(values: readonly string[]): { long: string[]; short: string[] } {
+  // Exact request values are secrets for this purpose. De-duplicate and sort
+  // longest-first so a prefix can never leave a longer value partly visible.
+  const tokens = [...new Set(values.filter((value) => value.length > 0))].sort(
+    (left, right) => right.length - left.length || left.localeCompare(right),
+  );
+  return {
+    long: tokens.filter((value) => value.length >= 3),
+    short: tokens.filter((value) => value.length < 3),
+  };
+}
 function redact(value: JsonValue, sensitiveValues: readonly string[]): JsonValue {
   if (typeof value === 'string') {
+    const tokens = redactionTokens(sensitiveValues);
+    // One- and two-character request values cannot be substituted safely: a
+    // normal word can contain them incidentally. If one appears, withhold the
+    // complete provider string rather than persist a request-derived secret.
+    if (tokens.short.some((secret) => value.includes(secret))) return '[REDACTED]';
     let output = value;
-    for (const secret of sensitiveValues)
-      if (secret.length >= 3) output = output.split(secret).join('[REDACTED]');
+    for (const secret of tokens.long) output = output.split(secret).join('[REDACTED]');
     output = output.replace(/(bearer\s+)[^\s]+/gi, '$1[REDACTED]');
     return output.length > MAX_RESULT_BYTES ? `${output.slice(0, MAX_RESULT_BYTES)}…` : output;
   }
@@ -178,7 +193,11 @@ export class CapabilityService {
       !connection ||
       connection.revision !== input.connectionRevision ||
       !template ||
-      !template.connectionTemplateIds.includes(connection.templateId) ||
+      !template.connectionTemplates.some(
+        (reference) =>
+          reference.id === connection.templateId &&
+          reference.version === connection.templateVersion,
+      ) ||
       (input.status === 'active' && !this.options.executorRegistry.supports(template)) ||
       input.accountIds.some((id) => !connection.desiredAccountIds.includes(id))
     )
@@ -279,7 +298,11 @@ export class CapabilityService {
       connection.status !== 'active' ||
       connection.revision !== request.connectionRevision ||
       !connection.desiredAccountIds.includes(request.accountId) ||
-      !template.connectionTemplateIds.includes(connection.templateId) ||
+      !template.connectionTemplates.some(
+        (reference) =>
+          reference.id === connection.templateId &&
+          reference.version === connection.templateVersion,
+      ) ||
       !this.options.isConnectionActiveForConversation(
         connection.id,
         request.accountId,
@@ -437,8 +460,19 @@ export class CapabilityService {
     try {
       signal.throwIfAborted();
       const executor = this.options.executorRegistry.resolve(template);
-      await executor.recover(operation, signal);
+      const recovered = await executor.recover(operation, signal);
       signal.throwIfAborted();
+      if (recovered?.outcome === 'definitively-not-applied') {
+        try {
+          return this.options.store.transition(operation.id, 'verification_pending', 'failed', {
+            failureCode: 'VERIFICATION_NOT_APPLIED',
+          });
+        } catch {
+          return this.options.store.get(operation.id) ?? operation;
+        }
+      }
+      if (recovered?.outcome && recovered.outcome !== 'verified')
+        throw new Error('Invalid capability recovery result');
       try {
         return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
           result: operation.result ?? { recovered: true },
@@ -450,19 +484,13 @@ export class CapabilityService {
         // result; never convert its success into a failure.
         return this.options.store.get(operation.id) ?? operation;
       }
-    } catch (error) {
-      // An interrupted reconnect leaves the operation recoverable. Only a
-      // definitive verification failure becomes terminal.
+    } catch {
+      // A timeout, cancellation, malformed provider response, or transient
+      // transport failure says nothing definitive about an already-dispatched
+      // write. Preserve the durable ambiguity for a later read-only retry.
       const current = this.options.store.get(operation.id);
       if (!current || current.status !== 'verification_pending') return current ?? operation;
-      if (failCode(error) === 'CANCELLED') return current;
-      try {
-        return this.options.store.transition(operation.id, 'verification_pending', 'failed', {
-          failureCode: 'VERIFICATION_FAILED',
-        });
-      } catch {
-        return this.options.store.get(operation.id) ?? current;
-      }
+      return current;
     }
   }
 }

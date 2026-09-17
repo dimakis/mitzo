@@ -70,6 +70,10 @@ export interface CapabilityExecutorResult {
   externalResultId?: string;
 }
 
+/** A recovery may only declare a write absent when its provider read proves it. */
+export type CapabilityRecoveryResult =
+  { outcome: 'verified' } | { outcome: 'definitively-not-applied' };
+
 /** `verify` is mandatory: a mutation is not reported as successful until read-after-write confirms it. */
 export interface CapabilityExecutor {
   readonly inputSchema?: JsonSchema;
@@ -79,7 +83,10 @@ export interface CapabilityExecutor {
    * Restart/reconnect recovery. Must use durable operation identity and a
    * read-after-write query only; it must never issue a mutation.
    */
-  recover(operation: CapabilityOperation, signal: AbortSignal): Promise<void>;
+  recover(
+    operation: CapabilityOperation,
+    signal: AbortSignal,
+  ): Promise<CapabilityRecoveryResult | void>;
 }
 
 export interface CapabilityRequest {

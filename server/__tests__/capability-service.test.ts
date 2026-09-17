@@ -10,19 +10,24 @@ import { bindCapabilityExecution } from '../connections/capabilities/direct.js';
 import { capabilityApprovalPayload } from '../connections/capabilities/approval.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
 import { createHash } from 'node:crypto';
+import type { CapabilityExecutor } from '../connections/capabilities/types.js';
 
 const template: CapabilityTemplate = {
   id: 'test.mutate',
   version: 1,
   label: 'Test mutate',
   description: 'A deterministic test executor.',
-  connectionTemplateIds: ['test-provider'],
+  connectionTemplates: [{ id: 'test-provider', version: 1 }],
   executor: 'test-mutate-v1',
   approval: 'always',
   idempotency: 'required',
   inputSchema: {
     type: 'object',
-    properties: { value: { type: 'string', maxLength: 100 }, flag: { type: 'boolean' } },
+    properties: {
+      value: { type: 'string', maxLength: 100 },
+      other: { type: 'string', maxLength: 100 },
+      flag: { type: 'boolean' },
+    },
     required: ['value'],
     additionalProperties: false,
   },
@@ -57,7 +62,7 @@ async function fixture(options: { approved?: boolean; active?: boolean; revision
     externalResultId: 'external-1',
   }));
   const verify = vi.fn(async () => {});
-  const recover = vi.fn(async () => {});
+  const recover = vi.fn<CapabilityExecutor['recover']>(async () => {});
   const approve = vi.fn(async () => options.approved ?? true);
   let active = options.active ?? true;
   const service = new CapabilityService({
@@ -252,6 +257,36 @@ describe('CapabilityService', () => {
     });
   });
 
+  it('redacts overlapping request values longest-first without leaving a suffix', async () => {
+    const f = await fixture();
+    f.execute.mockResolvedValueOnce({
+      output: { message: 'prefix abcdef suffix', unchanged: 'public' },
+      externalResultId: 'external-safe',
+    });
+    const result = await f.service.invoke(
+      request({ input: { value: 'abc', other: 'abcdef', flag: true } }),
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      result: { message: 'prefix [REDACTED] suffix', unchanged: 'public' },
+    });
+    expect(JSON.stringify(result)).not.toContain('abcdef');
+  });
+
+  it('withholds whole strings containing one- or two-character request values', async () => {
+    const f = await fixture();
+    f.execute.mockResolvedValueOnce({
+      output: { message: 'provider returned ab', public: 'safe' },
+      externalResultId: 'external-safe',
+    });
+    const result = await f.service.invoke(
+      request({ input: { value: 'ab', flag: true } }),
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({ result: { message: '[REDACTED]', public: 'safe' } });
+    expect(JSON.stringify(result.result)).not.toContain('ab');
+  });
+
   it('cancels at the approval boundary if trusted lifecycle access was removed', async () => {
     const f = await fixture();
     f.approve.mockImplementationOnce(async () => {
@@ -426,6 +461,38 @@ describe('CapabilityService', () => {
     expect(recovered).toMatchObject({ id: initial.id, status: 'verification_pending' });
     expect(f.recover).not.toHaveBeenCalled();
     expect(f.store.get(initial.id)).toMatchObject({ status: 'verification_pending' });
+  });
+
+  it('keeps ambiguous writes recoverable after transient and timeout recovery failures', async () => {
+    const f = await fixture();
+    f.execute.mockImplementationOnce(async () => {
+      throw new Error('response lost after provider write');
+    });
+    const initial = await f.service.invoke(request(), new AbortController().signal);
+    f.recover.mockRejectedValueOnce(new Error('temporary provider outage'));
+    const [transient] = await f.service.recoverPending(new AbortController().signal);
+    expect(transient).toMatchObject({ id: initial.id, status: 'verification_pending' });
+
+    const timeout = AbortSignal.timeout(1);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const [timedOut] = await f.service.recoverPending(timeout);
+    expect(timedOut).toMatchObject({ id: initial.id, status: 'verification_pending' });
+    expect(f.store.get(initial.id)).toMatchObject({ status: 'verification_pending' });
+  });
+
+  it('terminalizes an ambiguous write only when recovery proves it was not applied', async () => {
+    const f = await fixture();
+    f.execute.mockImplementationOnce(async () => {
+      throw new Error('response lost after provider write');
+    });
+    const initial = await f.service.invoke(request(), new AbortController().signal);
+    f.recover.mockResolvedValueOnce({ outcome: 'definitively-not-applied' });
+    const [recovered] = await f.service.recoverPending(new AbortController().signal);
+    expect(recovered).toMatchObject({
+      id: initial.id,
+      status: 'failed',
+      failureCode: 'VERIFICATION_NOT_APPLIED',
+    });
   });
 
   it('settles concurrent reconnect recovery without turning one success into a failure', async () => {
