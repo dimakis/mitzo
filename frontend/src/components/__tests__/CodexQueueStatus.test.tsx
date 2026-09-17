@@ -90,6 +90,47 @@ it.each([
   expect(screen.queryByRole('button', { name: /continue|reconnect/i })).toBeNull();
 });
 
+it('lets a paused connected chat explicitly reconnect and continue saved work', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: true, connected: true, queued: 1, interrupted: 1, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved follow-up' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 0, interrupted: 1, recovering: false }),
+    );
+
+  render(<CodexQueueStatus sessionId="paused" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/paused/codex-queue/continue', {
+      method: 'POST',
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+});
+
+it('keeps the reconnect fallback available when recovery fails', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({ paused: true, connected: true, queued: 1, interrupted: 1, recovering: false }),
+    )
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Saved follow-up' }]))
+    .mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Provider is still unavailable.' }),
+    } as Response);
+
+  render(<CodexQueueStatus sessionId="paused-failure" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+
+  expect(await screen.findByText('Provider is still unavailable.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
+});
+
 it('hides to an edge control outside the status layout and stays hidden through polling', async () => {
   vi.useFakeTimers();
   vi.mocked(apiFetch).mockResolvedValue(

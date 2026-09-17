@@ -40,8 +40,10 @@ import {
   markOpenShellLifecycleIdle,
 } from './openshell-lifecycle-controller.js';
 import { requestedIntegrationProviders } from './integration-intent.js';
+import { createLogger } from './logger.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+const log = createLogger('codex-chat-session');
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
   'google-workspace': 'Google Workspace',
@@ -645,6 +647,10 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
       : {}),
     onError: (error) => {
+      log.warn('Codex runtime reported an error', {
+        conversationId: options.conversationId,
+        error: publicCodexRuntimeError(error),
+      });
       if (options.session.transport?.isOpen())
         options.session.transport.send({
           type: 'error',

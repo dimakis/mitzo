@@ -111,6 +111,14 @@ export function codexTurnFailureDiagnostic(value: unknown): string {
   if (/timed? out/i.test(message)) return 'The provider request timed out.';
   return 'The provider did not complete the turn.';
 }
+
+function isRecoverableProviderTransportFailure(value: unknown): boolean {
+  const message =
+    typeof value === 'string'
+      ? value
+      : z.object({ message: z.string().optional() }).passthrough().safeParse(value).data?.message;
+  return typeof message === 'string' && /stream disconnected before completion/i.test(message);
+}
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
@@ -453,6 +461,18 @@ export class CodexConversation {
       throw error;
     }
   }
+
+  /**
+   * A provider can report a terminal stream failure immediately before its
+   * app-server transport exits. Retire that transport proactively so queued
+   * follow-up work always resumes through a fresh, verified client instead of
+   * racing one more request against a dying process.
+   */
+  private retireTransportForRecovery() {
+    this.transportGeneration += 1;
+    this.ready = false;
+    this.client.close();
+  }
   private pump(): Promise<void> {
     if (this.pumping) return this.pumping;
     if (this.active || this.paused || this.closed) return Promise.resolve();
@@ -606,6 +626,10 @@ export class CodexConversation {
           : turn.data.status === 'interrupted'
             ? 'interrupted'
             : 'failed';
+      const recoverQueuedFollowUp =
+        status === 'failed' &&
+        isRecoverableProviderTransportFailure(turn.data.error) &&
+        this.queue().some((command) => command.status === 'queued');
       this.active.abort.abort();
       if (status === 'completed')
         this.opts.store.finish(
@@ -623,13 +647,14 @@ export class CodexConversation {
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';
+      if (recoverQueuedFollowUp) this.retireTransportForRecovery();
       this.mapper?.notification(method, params);
       if (status === 'failed')
         this.opts.onError?.(new Error(codexTurnFailureDiagnostic(turn.data.error)));
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)
-        .then(() => this.pump())
+        .then(() => (recoverQueuedFollowUp ? this.acknowledgeRecovery() : this.pump()))
         .catch((e) => this.opts.onError?.(e instanceof Error ? e : new Error('Codex turn failed')));
       return;
     }

@@ -60,6 +60,12 @@
   background: transparent;
 }
 
+.codex-queue-status-continue {
+  border-color: var(--accent, #8f7aff);
+  background: color-mix(in srgb, var(--accent, #8f7aff) 18%, transparent);
+  color: inherit;
+}
+
 .codex-queue-status-drawer {
   display: grid;
   gap: 0.35rem;
