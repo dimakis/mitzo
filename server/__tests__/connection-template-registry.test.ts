@@ -9,6 +9,7 @@ import {
   createConnectionTemplateRegistry,
   projectCapabilityTemplate,
   projectProviderTemplate,
+  reviewedHandlerBindings,
   validateVersionedTemplateRelationships,
 } from '../connections/registry.js';
 
@@ -393,7 +394,15 @@ describe('connection template registry', () => {
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
-    for (const branch of ['HEAD', 'foo/.hidden', 'foo/bar.lock/baz', 'foo/.lock/baz'])
+    for (const branch of [
+      'HEAD',
+      'refs/heads/main',
+      'a'.repeat(40),
+      'A'.repeat(40),
+      'foo/.hidden',
+      'foo/bar.lock/baz',
+      'foo/.lock/baz',
+    ])
       expect(() =>
         connectionTemplateRegistry.compileProviderPolicy({
           templateId: 'github-readonly',
@@ -406,9 +415,18 @@ describe('connection template registry', () => {
       connectionTemplateRegistry.compileProviderPolicy({
         templateId: 'github-readonly',
         templateVersion: 1,
-        fields: { allowedRepositories: ['acme/widget'], allowedBaseBranches: ['head', 'Head'] },
+        fields: {
+          allowedRepositories: ['acme/widget'],
+          allowedBaseBranches: [
+            'head',
+            'Head',
+            'a'.repeat(39),
+            'a'.repeat(41),
+            `${'a'.repeat(39)}g`,
+          ],
+        },
       }).publicConfig.allowedBaseBranches,
-    ).toEqual(['head', 'Head']);
+    ).toEqual(['head', 'Head', 'a'.repeat(39), 'a'.repeat(41), `${'a'.repeat(39)}g`]);
   });
 
   it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {
@@ -492,6 +510,28 @@ describe('connection template registry', () => {
         ],
       }),
     ).toThrow('reviewed template contract');
+  });
+
+  it('fails closed when a symbolic handler changes its reviewed golden policy output', () => {
+    const original = reviewedHandlerBindings.compilers['jira-readonly-v1']!;
+    expect(() =>
+      createConnectionTemplateRegistry(
+        { providers: [jira], capabilities: [] },
+        {
+          ...reviewedHandlerBindings,
+          compilers: {
+            ...reviewedHandlerBindings.compilers,
+            'jira-readonly-v1': {
+              ...original,
+              handler: (template, fields) => ({
+                ...original.handler(template, fields),
+                publicConfig: { email: 'changed@example.com' },
+              }),
+            },
+          },
+        },
+      ),
+    ).toThrow('implementation does not match reviewed behavior');
   });
 
   it('fails closed for duplicate and malformed manifests', () => {

@@ -105,7 +105,7 @@ interface CapabilityTemplate {
 }
 ```
 
-The template registry maps symbolic compiler, probe, and executor names to code-owned implementations through null-prototype, own-property lookup. Configuration cannot name filesystem paths or shell commands. Provider and capability declarations must reference each other bidirectionally.
+The template registry maps symbolic compiler, probe, and executor names to code-owned implementations through null-prototype, own-property lookup. Configuration cannot name filesystem paths or shell commands. Every implementation version also carries an explicit reviewed revision and a non-secret golden output fingerprint; a behavior change fails registry construction until that reviewed contract is intentionally updated (and a semantic template change creates a new template version). Provider and capability declarations must reference each other bidirectionally.
 
 `jira-readonly@1` records its validated Jira email as an immutable public field. `github-readonly@1` records non-empty, canonical allowlists of exact `owner/repository` pairs and base branches; `github.publish-pr@1` must use those recorded allowlists when it is implemented. These fields constrain later work but do not enable writes in a sandbox.
 

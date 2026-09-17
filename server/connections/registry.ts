@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import {
   compileCustomRestReadonly,
@@ -16,7 +17,21 @@ import type {
   PublicProviderTemplate,
 } from './types.js';
 
-type BoundHandler<T> = Readonly<{ templateKey: string; contract: string; handler: T }>;
+type BoundHandler<T> = Readonly<{
+  templateKey: string;
+  contract: string;
+  /** Explicit reviewed implementation revision for this template version. */
+  implementationRevision: string;
+  /** SHA-256 of the revision and a representative, non-secret golden output. */
+  expectedOutputFingerprint: string;
+  goldenOutput: (template: ProviderTemplate | CapabilityTemplate, handler: T) => unknown;
+  handler: T;
+}>;
+export type ReviewedHandlerBindings = Readonly<{
+  compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>>;
+  probes: Readonly<Record<string, BoundHandler<Probe>>>;
+  executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>>;
+}>;
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
@@ -134,6 +149,11 @@ function contractFingerprint(value: unknown): string {
     .map((name) => `${JSON.stringify(name)}:${contractFingerprint(record[name])}`)
     .join(',')}}`;
 }
+function implementationOutputFingerprint(implementationRevision: string, output: unknown) {
+  return createHash('sha256')
+    .update(contractFingerprint({ implementationRevision, output }))
+    .digest('hex');
+}
 function providerHandlerContract(
   template: Pick<
     ProviderTemplate,
@@ -189,10 +209,20 @@ function handlerContract(template: ProviderTemplate | CapabilityTemplate) {
     ? providerHandlerContract(template)
     : capabilityHandlerContract(template);
 }
-function bindHandler<T>(templateKey: string, contract: string, handler: T): BoundHandler<T> {
+function bindHandler<T>(
+  templateKey: string,
+  contract: string,
+  implementationRevision: string,
+  expectedOutputFingerprint: string,
+  goldenOutput: (template: ProviderTemplate | CapabilityTemplate, handler: T) => unknown,
+  handler: T,
+): BoundHandler<T> {
   return Object.freeze({
     templateKey,
     contract,
+    implementationRevision,
+    expectedOutputFingerprint,
+    goldenOutput,
     handler,
   });
 }
@@ -276,6 +306,13 @@ function requireBoundSymbolicHandler<T>(
     throw new Error(`${kind} does not match template version`);
   if (binding.contract !== handlerContract(template))
     throw new Error(`${kind} does not match reviewed template contract`);
+  if (
+    implementationOutputFingerprint(
+      binding.implementationRevision,
+      binding.goldenOutput(template, binding.handler),
+    ) !== binding.expectedOutputFingerprint
+  )
+    throw new Error(`${kind} implementation does not match reviewed behavior`);
   return binding.handler;
 }
 
@@ -361,10 +398,14 @@ export function validateVersionedTemplateRelationships(
   }
 }
 
-export function createConnectionTemplateRegistry(input: {
-  providers: readonly unknown[];
-  capabilities: readonly unknown[];
-}) {
+export function createConnectionTemplateRegistry(
+  input: {
+    providers: readonly unknown[];
+    capabilities: readonly unknown[];
+  },
+  handlerBindings: ReviewedHandlerBindings = reviewedHandlerBindings,
+) {
+  const { compilers, probes, executors } = handlerBindings;
   const providers = input.providers.map(parseProviderTemplate);
   const capabilities = input.capabilities.map(parseCapabilityTemplate);
   const providerByKey = new Map(
@@ -713,20 +754,67 @@ const reviewedCapabilityContracts = Object.freeze({
     idempotency: 'required',
   }),
 });
+
+function compilerGoldenOutput(
+  fields: Readonly<Record<string, string | readonly string[]>>,
+): (template: ProviderTemplate | CapabilityTemplate, handler: PolicyCompiler) => unknown {
+  return (template, handler) =>
+    handler(
+      template as ProviderTemplate,
+      Object.freeze(
+        Object.fromEntries(
+          Object.entries(fields).map(([name, value]) => [
+            name,
+            Array.isArray(value) ? Object.freeze([...value]) : value,
+          ]),
+        ),
+      ) as Record<string, string | string[]>,
+    );
+}
+
+// These non-secret fixtures exercise every emitted endpoint/rule shape. The
+// hash binds their exact effective policy to the implementation revision; a
+// handler change requires an intentional reviewed revision/fingerprint update.
+const jiraCompilerGoldenOutput = compilerGoldenOutput({ email: 'reviewer@example.com' });
+const githubCompilerGoldenOutput = compilerGoldenOutput({
+  allowedRepositories: ['Acme/Widget', 'example/other'],
+  allowedBaseBranches: ['main', 'release/v1'],
+});
+const customRestCompilerGoldenOutput = compilerGoldenOutput({
+  endpoint: 'https://api.openai.com',
+  methods: ['HEAD', 'GET'],
+  paths: ['/', '/v1/**'],
+});
+const probeGoldenOutput = (template: ProviderTemplate | CapabilityTemplate, handler: Probe) =>
+  handler(template as ProviderTemplate);
+const executorGoldenOutput = (
+  template: ProviderTemplate | CapabilityTemplate,
+  handler: CapabilityExecutor,
+) => handler(template as CapabilityTemplate);
+
 const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPrototypeHandlers({
   'jira-readonly-v1': bindHandler(
     'jira-readonly@1',
     reviewedProviderContracts['jira-readonly@1'],
+    'v1.0.0',
+    '46edc4d7e2a28a124e3f399073d251c2db657e000a8697c0d112c718ff2e75ed',
+    jiraCompilerGoldenOutput,
     compileJiraReadonly,
   ),
   'github-readonly-v1': bindHandler(
     'github-readonly@1',
     reviewedProviderContracts['github-readonly@1'],
+    'v1.0.0',
+    '067c6087d3edb03c295f0e9ffab490f40d61d2b0ea8286a9e79ab4799c4fb4a2',
+    githubCompilerGoldenOutput,
     compileGithubReadonly,
   ),
   'custom-rest-readonly-v1': bindHandler(
     'custom-rest-readonly@1',
     reviewedProviderContracts['custom-rest-readonly@1'],
+    'v1.0.0',
+    '8c3824d0fb89e7cafa1842a19db3d66061f002d4392a7b7305c1cea0bda48df8',
+    customRestCompilerGoldenOutput,
     compileCustomRestReadonly,
   ),
 });
@@ -734,16 +822,25 @@ const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandl
   'jira-readonly-v1': bindHandler(
     'jira-readonly@1',
     reviewedProviderContracts['jira-readonly@1'],
+    'v1.0.0',
+    '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
+    probeGoldenOutput,
     identityProbe,
   ),
   'github-readonly-v1': bindHandler(
     'github-readonly@1',
     reviewedProviderContracts['github-readonly@1'],
+    'v1.0.0',
+    '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
+    probeGoldenOutput,
     identityProbe,
   ),
   'custom-rest-readonly-v1': bindHandler(
     'custom-rest-readonly@1',
     reviewedProviderContracts['custom-rest-readonly@1'],
+    'v1.0.0',
+    '65430809a0a0048fded453f273186e0c5d66c8b1c964459611a070d5a1654f1f',
+    probeGoldenOutput,
     identityProbe,
   ),
 });
@@ -752,10 +849,19 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
     'github-publish-pr-v1': bindHandler(
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
+      'v1.0.0',
+      '41d28fe0d516c0f3f22c21871f1a7ac32022d8a16d178adacfc33325b1cdcf80',
+      executorGoldenOutput,
       approvalRequiredExecutor,
     ),
   },
 );
+
+export const reviewedHandlerBindings: ReviewedHandlerBindings = Object.freeze({
+  compilers,
+  probes,
+  executors,
+});
 
 export const connectionTemplateRegistry = createConnectionTemplateRegistry({
   providers,
