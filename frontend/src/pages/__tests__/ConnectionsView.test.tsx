@@ -75,7 +75,7 @@ const templates: ConnectionTemplateCatalog = {
           key: 'email',
           label: 'Atlassian account email',
           description: 'Account identity.',
-          kind: 'string',
+          kind: 'email',
           required: true,
         },
       ],
@@ -125,7 +125,7 @@ const templates: ConnectionTemplateCatalog = {
           key: 'email',
           label: 'Atlassian account email',
           description: 'Account identity.',
-          kind: 'string',
+          kind: 'email',
           required: true,
         },
       ],
@@ -258,6 +258,16 @@ describe('ConnectionsView', () => {
       expect.objectContaining({ id: 'jira-1', revision: 2 }),
     );
   });
+  it('renders and manages existing connections while template loading never resolves', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockReturnValue(new Promise(() => {}));
+    await render();
+    expect(container.textContent).toContain('me@example.com');
+    await reauthorize();
+    await act(async () => button('Test identity').click());
+    expect(connections.testConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jira-1', revision: 2 }),
+    );
+  });
   it('retains cached credential metadata for active rotations during a template outage', async () => {
     await render();
     vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
@@ -311,6 +321,39 @@ describe('ConnectionsView', () => {
       (item) => item.textContent === 'Atlassian token and scope guidance',
     );
     expect(help?.getAttribute('href')).toMatch(/^https:\/\//);
+  });
+  it('requires valid email and URL scope fields before Continue', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockResolvedValue({
+      ...templates,
+      templates: templates.templates.map((template) =>
+        template.id === 'custom-rest-readonly' ? { ...template, available: true } : template,
+      ),
+    });
+    await render();
+    await act(async () => button('Choose Jira').click());
+    act(() => fireEvent.change(input('API token'), { target: { value: 'secret' } }));
+    await continueWizard();
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'not-an-email' } }),
+    );
+    expect(button('Continue').disabled).toBe(true);
+    act(() =>
+      fireEvent.change(input('Atlassian account email'), { target: { value: 'me@example.com' } }),
+    );
+    expect(button('Continue').disabled).toBe(false);
+
+    await act(async () => button('Back').click());
+    await act(async () => button('Back').click());
+    await act(async () => button('Choose Custom REST API').click());
+    act(() => fireEvent.change(input('Access token'), { target: { value: 'secret' } }));
+    await continueWizard();
+    act(() => fireEvent.change(input('HTTPS endpoint'), { target: { value: 'not a url' } }));
+    expect(button('Continue').disabled).toBe(true);
+    act(() =>
+      fireEvent.change(input('HTTPS endpoint'), { target: { value: 'https://api.example.com' } }),
+    );
+    expect(button('Continue').disabled).toBe(false);
+    expect(input('HTTPS endpoint').type).toBe('url');
   });
   it('resets selected profiles when changing the template', async () => {
     await render();

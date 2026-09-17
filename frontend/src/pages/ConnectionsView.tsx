@@ -44,6 +44,16 @@ const riskCopy = {
   'bounded-write': 'Bounded write access',
   'operator-defined': 'Operator-defined reviewed access',
 } as const;
+const jiraFallbackCredentials: ConnectionCredentialField[] = [
+  {
+    key: 'token',
+    label: 'Replacement API token',
+    description: 'One-shot Jira API token for this existing reviewed connection.',
+    style: 'basic',
+    secret: true,
+    required: true,
+  },
+];
 const time = (value: number | null) =>
   value ? new Date(value).toLocaleString() : 'Not yet verified';
 export const connectionErrorMessage = (code: string) =>
@@ -64,8 +74,22 @@ const status = (connection: ManagedConnection) =>
     : connection.status.replaceAll('_', ' ');
 const secretValid = (fields: ConnectionCredentialField[], values: Record<string, string>) =>
   fields.every((field) => !field.required || Boolean(values[field.key]));
+const scopeFieldValid = (field: ConnectionTemplate['connectionFields'][number], value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return !field.required;
+  if (field.kind === 'email') return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  if (field.kind === 'url') {
+    try {
+      const url = new URL(trimmed);
+      return url.protocol === 'https:' || url.protocol === 'http:';
+    } catch {
+      return false;
+    }
+  }
+  return true;
+};
 const scopeValid = (template: ConnectionTemplate, values: Record<string, string>) =>
-  template.connectionFields.every((field) => !field.required || Boolean(values[field.key]?.trim()));
+  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? ''));
 const scopeValues = (template: ConnectionTemplate, values: Record<string, string>) =>
   Object.fromEntries(
     template.connectionFields
@@ -111,29 +135,21 @@ export function ConnectionsView() {
     setAccounts([]);
     setStep('service');
   }, []);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(() => {
     setLoadError('');
     setTemplateError('');
-    const [connectionsResult, templatesResult] = await Promise.allSettled([
-      getConnections(),
-      getConnectionTemplates(),
-    ]);
-    if (connectionsResult.status === 'fulfilled') {
-      setData(connectionsResult.value);
-    } else {
-      setLoadError(
-        connectionsResult.reason instanceof Error
-          ? connectionsResult.reason.message
-          : 'Unable to load connections.',
-      );
-    }
-    if (templatesResult.status === 'fulfilled') {
-      setTemplates(templatesResult.value);
-    } else {
-      setTemplateError(
-        'Connection setup is temporarily unavailable. Existing connections remain manageable.',
-      );
-    }
+    void getConnections().then(
+      (value) => setData(value),
+      (reason) =>
+        setLoadError(reason instanceof Error ? reason.message : 'Unable to load connections.'),
+    );
+    void getConnectionTemplates().then(
+      (value) => setTemplates(value),
+      () =>
+        setTemplateError(
+          'Connection setup is temporarily unavailable. Existing connections remain manageable.',
+        ),
+    );
   }, []);
   useEffect(() => {
     void refresh();
@@ -420,15 +436,7 @@ export function ConnectionsView() {
   );
 }
 
-function PageState({
-  text,
-  error,
-  retry,
-}: {
-  text: string;
-  error?: boolean;
-  retry?: () => Promise<void>;
-}) {
+function PageState({ text, error, retry }: { text: string; error?: boolean; retry?: () => void }) {
   return (
     <main className="workspace-page">
       <WorkspacePageHeading title="Connections" />
@@ -679,14 +687,25 @@ function Scope({
           ) : (
             <>
               <label htmlFor={`connection-field-${field.key}`}>{field.label}</label>
-              <textarea
-                id={`connection-field-${field.key}`}
-                aria-label={field.label}
-                required={field.required}
-                rows={field.kind === 'string-list' ? 4 : undefined}
-                value={values[field.key] ?? ''}
-                onChange={(event) => onValues({ ...values, [field.key]: event.target.value })}
-              />
+              {field.kind === 'string-list' ? (
+                <textarea
+                  id={`connection-field-${field.key}`}
+                  aria-label={field.label}
+                  required={field.required}
+                  rows={4}
+                  value={values[field.key] ?? ''}
+                  onChange={(event) => onValues({ ...values, [field.key]: event.target.value })}
+                />
+              ) : (
+                <input
+                  id={`connection-field-${field.key}`}
+                  aria-label={field.label}
+                  type={field.kind === 'email' ? 'email' : field.kind === 'url' ? 'url' : 'text'}
+                  required={field.required}
+                  value={values[field.key] ?? ''}
+                  onChange={(event) => onValues({ ...values, [field.key]: event.target.value })}
+                />
+              )}
               <small>
                 {field.description}
                 {field.kind === 'string-list' ? ' Enter one value per line.' : ''}
@@ -828,7 +847,11 @@ function ConnectionCard({
 }) {
   const [removalOpen, setRemovalOpen] = useState(false);
   const [removalError, setRemovalError] = useState('');
-  const credentialFields = template?.credentialFields ?? [];
+  const credentialFields =
+    template?.credentialFields ??
+    (connection.templateId === 'jira-readonly' && connection.templateVersion === 1
+      ? jiraFallbackCredentials
+      : []);
   return (
     <article className="workspace-record connections-record">
       <div>

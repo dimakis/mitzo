@@ -17,7 +17,7 @@ export interface ManagedConnection {
 }
 
 export type ProviderRisk = 'read-only' | 'bounded-write' | 'operator-defined';
-export type ConnectionFieldKind = 'string' | 'url' | 'string-list' | 'enum-list';
+export type ConnectionFieldKind = 'string' | 'email' | 'url' | 'string-list' | 'enum-list';
 
 export interface ConnectionCredentialField {
   key: string;
