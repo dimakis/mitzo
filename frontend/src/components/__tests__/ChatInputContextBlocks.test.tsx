@@ -79,11 +79,28 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(screen.queryByAltText('Attachment 1')).toBeNull();
   });
 
-  it('shows the session tray and removes context and attachment buttons from the input strip', () => {
+  it('shows a pasted image preview directly in the composer when the session tray is collapsed', async () => {
+    render(<ChatInput {...baseProps} />);
+    const image = new File(['image'], 'pasted.png', { type: 'image/png' });
+    const items = [
+      {
+        kind: 'file',
+        type: 'image/png',
+        getAsFile: () => image,
+      },
+    ] as unknown as DataTransferItemList;
+
+    fireEvent.paste(screen.getByLabelText('Message Mitzo'), { clipboardData: { items } });
+
+    expect(await screen.findByAltText('Attachment 1')).toBeTruthy();
+    expect(screen.getByTestId('session-tray')).toBeTruthy();
+  });
+
+  it('shows the session tray while keeping image attachment in the input strip', () => {
     const { container } = render(<ChatInput {...baseProps} />);
     expect(container.querySelector('[data-testid="session-tray"]')).toBeTruthy();
     expect(container.querySelector('.chat-input-btn--context')).toBeNull();
-    expect(container.querySelector('.chat-input-btn--attach')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
   });
 
   it('keeps the default empty messages reference stable across renders', () => {
