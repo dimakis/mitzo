@@ -72,6 +72,7 @@ function row(row: Record<string, unknown>): Connection {
     const value = JSON.parse((row.public_config as string | undefined) ?? '{}') as unknown;
     if (
       !value ||
+      typeof value !== 'object' ||
       Array.isArray(value) ||
       Object.values(value as Record<string, unknown>).some(
         (item) =>

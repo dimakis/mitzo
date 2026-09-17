@@ -202,6 +202,21 @@ describe('ConnectionStore', () => {
     ).toEqual(expected);
   });
 
+  it.each(['"string"', 'true', '42', 'null', '[]'])(
+    'rejects a non-object durable public config: %s',
+    (publicConfig) => {
+      const connection = create();
+      const database = new Database(join(directory, 'connections.db'));
+      database
+        .prepare('UPDATE connections SET public_config=? WHERE id=?')
+        .run(publicConfig, connection.id);
+      database.close();
+      expect(() => store.get(connection.id)).toThrow(
+        'Stored connection public configuration is invalid',
+      );
+    },
+  );
+
   it('archives only a revoked connection while retaining its audit record', () => {
     const connection = create();
     const revoked = store.transition(
