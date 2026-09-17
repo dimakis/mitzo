@@ -29,13 +29,19 @@ function policy(
   endpoints: ProviderPolicy['endpoints'],
   publicConfig: ProviderPolicy['publicConfig'],
 ): ProviderPolicy {
-  return {
+  return deepFreeze({
     templateId: template.id,
     templateVersion: template.version,
     endpoints,
     credentialFieldKeys: template.credentialFields.map((field) => field.key),
     publicConfig,
-  };
+  });
+}
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  return value;
 }
 
 function requireOnlyFields(
@@ -113,7 +119,9 @@ function canonicalGithubRepositories(values: readonly string[]) {
         !repository ||
         extra.length !== 0 ||
         !githubOwner.test(owner) ||
-        !githubRepositoryName.test(repository)
+        !githubRepositoryName.test(repository) ||
+        repository === '.' ||
+        repository === '..'
       );
     })
   )

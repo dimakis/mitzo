@@ -126,6 +126,23 @@ describe('connection template registry', () => {
       allowedRepositories: ['acme/widget'],
       allowedBaseBranches: ['main'],
     });
+    expect(Object.isFrozen(githubPolicy)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.endpoints)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.endpoints[0]!)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.endpoints[0]!.rules)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.endpoints[0]!.rules[0]!)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.publicConfig)).toBe(true);
+    expect(Object.isFrozen(githubPolicy.publicConfig.allowedRepositories)).toBe(true);
+    expect(() => {
+      (githubPolicy.endpoints as unknown as Array<{ host: string }>)[0]!.host = 'evil.test';
+    }).toThrow();
+    expect(() => {
+      (githubPolicy.endpoints[0]!.rules as unknown as Array<{ path: string }>)[0]!.path =
+        '/admin/**';
+    }).toThrow();
+    expect(() => {
+      (githubPolicy.publicConfig.allowedRepositories as string[])[0] = 'evil/repo';
+    }).toThrow();
     expect(githubPolicy.endpoints).toEqual([
       expect.objectContaining({ host: 'api.github.com', protocol: 'rest' }),
       expect.objectContaining({
@@ -158,6 +175,8 @@ describe('connection template registry', () => {
       'owner_name/repo',
       '-owner/repo',
       'owner-/repo',
+      'owner/.',
+      'owner/..',
       `${'a'.repeat(40)}/repo`,
     ])
       expect(() =>
