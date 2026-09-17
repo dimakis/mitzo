@@ -46,7 +46,7 @@ export interface ConnectionTemplate {
   risk: ProviderRisk;
   credentialFields: ConnectionCredentialField[];
   connectionFields: ConnectionField[];
-  capabilityIds: string[];
+  capabilityTemplates: Array<{ id: string; version: number }>;
   /** Set by the server from the active gateway's supported template versions. */
   available: boolean;
   guidance?: { body: string; href: string; linkLabel: string };
@@ -57,7 +57,7 @@ export interface ConnectionCapability {
   version: number;
   label: string;
   description: string;
-  connectionTemplateIds: string[];
+  connectionTemplates: Array<{ id: string; version: number }>;
   approval: 'always' | 'explicit-intent';
   idempotency: 'required';
 }

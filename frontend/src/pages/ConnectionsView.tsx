@@ -127,6 +127,8 @@ export function ConnectionsView() {
   const [rotateId, setRotateId] = useState<string | null>(null);
   const [rotationCredentials, setRotationCredentials] = useState<Record<string, string>>({});
   const stepHeading = useRef<HTMLHeadingElement>(null);
+  const refreshGeneration = useRef(0);
+  const latestConnectionRefresh = useRef<Promise<void>>(Promise.resolve());
   const resetWizard = useCallback(() => {
     setSelectedTemplateKey('');
     setLabel('');
@@ -135,21 +137,36 @@ export function ConnectionsView() {
     setAccounts([]);
     setStep('service');
   }, []);
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     setLoadError('');
     setTemplateError('');
-    void getConnections().then(
-      (value) => setData(value),
-      (reason) =>
-        setLoadError(reason instanceof Error ? reason.message : 'Unable to load connections.'),
+    const connectionsRefresh = getConnections().then(
+      (value) => {
+        if (generation === refreshGeneration.current) setData(value);
+      },
+      (reason) => {
+        if (generation === refreshGeneration.current)
+          setLoadError(reason instanceof Error ? reason.message : 'Unable to load connections.');
+      },
     );
+    latestConnectionRefresh.current = connectionsRefresh;
     void getConnectionTemplates().then(
-      (value) => setTemplates(value),
-      () =>
-        setTemplateError(
-          'Connection setup is temporarily unavailable. Existing connections remain manageable.',
-        ),
+      (value) => {
+        if (generation === refreshGeneration.current) setTemplates(value);
+      },
+      () => {
+        if (generation === refreshGeneration.current)
+          setTemplateError(
+            'Connection setup is temporarily unavailable. Existing connections remain manageable.',
+          );
+      },
     );
+    await connectionsRefresh;
+    // A refresh superseded while this one was in flight must reconcile before a
+    // mutation becomes available again. Template loading remains deliberately
+    // independent so a hung setup catalog never disables existing controls.
+    if (generation !== refreshGeneration.current) await latestConnectionRefresh.current;
   }, []);
   useEffect(() => {
     void refresh();
@@ -282,7 +299,7 @@ export function ConnectionsView() {
               <Scope template={template} values={scope} onValues={setScope} />
             )}
             {template && step === 'capabilities' && (
-              <CapabilityNotice hasCapabilities={template.capabilityIds.length > 0} />
+              <CapabilityNotice hasCapabilities={template.capabilityTemplates.length > 0} />
             )}
             {template && step === 'assignments' && (
               <Assignments
@@ -318,8 +335,7 @@ export function ConnectionsView() {
                       busy !== null ||
                       (step === 'authenticate' &&
                         (!label.trim() || !secretValid(template.credentialFields, credentials))) ||
-                      (step === 'scope' && !scopeValid(template, scope)) ||
-                      (step === 'assignments' && !accounts.length)
+                      (step === 'scope' && !scopeValid(template, scope))
                     }
                     onClick={() => setStep(steps[steps.indexOf(step) + 1] ?? step)}
                   >
@@ -331,7 +347,6 @@ export function ConnectionsView() {
                     disabled={
                       busy === 'create' ||
                       !label.trim() ||
-                      !accounts.length ||
                       !secretValid(template.credentialFields, credentials) ||
                       !scopeValid(template, scope)
                     }
@@ -515,7 +530,7 @@ function ServiceCatalog({
               {template.credentialFields
                 .map((field) => field.style.replaceAll('-', ' '))
                 .join(', ') || 'none'}{' '}
-              · Capabilities: {template.capabilityIds.length || 'none'}
+              · Capabilities: {template.capabilityTemplates.length || 'none'}
             </p>
             {!template.available && (
               <p className="workspace-muted">
@@ -755,7 +770,10 @@ function Assignments({
             </label>
           ))
         ) : (
-          <p className="workspace-muted">No profiles are eligible for managed access.</p>
+          <p className="workspace-muted">
+            No profiles are currently eligible. You can create this connection unassigned and assign
+            a profile later.
+          </p>
         )}
       </fieldset>
       <p className="workspace-muted">

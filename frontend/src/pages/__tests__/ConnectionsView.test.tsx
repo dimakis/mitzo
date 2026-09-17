@@ -54,7 +54,7 @@ const templates: ConnectionTemplateCatalog = {
       description: 'Read Jira metadata.',
       risk: 'read-only',
       available: true,
-      capabilityIds: [],
+      capabilityTemplates: [],
       guidance: {
         body: 'Use a scoped token with Jira read permission.',
         href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
@@ -88,7 +88,7 @@ const templates: ConnectionTemplateCatalog = {
       description: 'Read GitHub repositories.',
       risk: 'read-only',
       available: false,
-      capabilityIds: ['github.publish-pr'],
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
       credentialFields: [
         {
           key: 'token',
@@ -109,7 +109,7 @@ const templates: ConnectionTemplateCatalog = {
       description: 'Read Jira metadata through v2.',
       risk: 'read-only',
       available: true,
-      capabilityIds: [],
+      capabilityTemplates: [],
       credentialFields: [
         {
           key: 'token',
@@ -138,7 +138,7 @@ const templates: ConnectionTemplateCatalog = {
       description: 'Operator-defined HTTPS REST reads.',
       risk: 'operator-defined',
       available: false,
-      capabilityIds: [],
+      capabilityTemplates: [],
       credentialFields: [
         {
           key: 'token',
@@ -166,7 +166,7 @@ const templates: ConnectionTemplateCatalog = {
       version: 1,
       label: 'Publish pull request',
       description: 'Publish committed work.',
-      connectionTemplateIds: ['github-readonly'],
+      connectionTemplates: [{ id: 'github-readonly', version: 1 }],
       approval: 'always',
       idempotency: 'required',
     },
@@ -179,6 +179,13 @@ const flush = () =>
     await Promise.resolve();
     await Promise.resolve();
   });
+const deferred = <T,>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+};
 const button = (text: string) =>
   Array.from(container.querySelectorAll('button')).find(
     (item) => item.textContent === text,
@@ -267,6 +274,35 @@ describe('ConnectionsView', () => {
     expect(connections.testConnection).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'jira-1', revision: 2 }),
     );
+  });
+  it('awaits connection reconciliation for mutations and ignores an older overlapping refresh', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('Template catalog unavailable'),
+    );
+    await render();
+    const older = deferred<ConnectionsCatalog>();
+    const newer = deferred<ConnectionsCatalog>();
+    vi.mocked(connections.getConnections)
+      .mockReturnValueOnce(older.promise)
+      .mockReturnValueOnce(newer.promise);
+    await reauthorize();
+    await act(async () => button('Test identity').click());
+    expect(button('Test identity').disabled).toBe(true);
+    await act(async () => button('Retry setup').click());
+    older.resolve({
+      ...catalog,
+      connections: [{ ...catalog.connections[0], label: 'Older state' }],
+    });
+    await flush();
+    expect(button('Test identity').disabled).toBe(true);
+    newer.resolve({
+      ...catalog,
+      connections: [{ ...catalog.connections[0], label: 'Latest state' }],
+    });
+    await flush();
+    expect(button('Test identity').disabled).toBe(false);
+    expect(container.textContent).toContain('Latest state');
+    expect(container.textContent).not.toContain('Older state');
   });
   it('retains cached credential metadata for active rotations during a template outage', async () => {
     await render();
@@ -439,6 +475,24 @@ describe('ConnectionsView', () => {
     await act(async () => button('Back').click());
     expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(
       false,
+    );
+  });
+  it('permits an explicitly unassigned connection when no profiles are eligible', async () => {
+    vi.mocked(connections.getConnections).mockResolvedValue({
+      ...catalog,
+      eligibleAccounts: [],
+    });
+    await render();
+    await chooseJiraToAssignments();
+    expect(container.textContent).toContain('create this connection unassigned');
+    expect(button('Continue').disabled).toBe(false);
+    await continueWizard();
+    expect(container.textContent).toContain('Assigned profiles');
+    expect(container.textContent).toContain('None');
+    await reauthorize();
+    await act(async () => button('Verify and connect Jira').click());
+    expect(connections.createConnection).toHaveBeenCalledWith(
+      expect.objectContaining({ accountIds: [] }),
     );
   });
   it('clears credentials after a failed submission and refreshes authoritative state', async () => {

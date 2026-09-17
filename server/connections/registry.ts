@@ -65,17 +65,12 @@ const ConnectionFieldSchema = z
     if (field.kind !== 'enum-list' && field.choices)
       ctx.addIssue({ code: 'custom', message: 'only enum-list fields may have choices' });
   });
-const GuidanceSchema = z
+const ProviderGuidanceSchema = z
   .object({
     body: z.string().min(1).max(500),
     href: z
-      .string()
       .url()
-      .max(2_048)
-      .refine((value) => {
-        const url = new URL(value);
-        return url.protocol === 'https:' && !url.username && !url.password;
-      }, 'guidance URLs must be credential-free HTTPS'),
+      .refine((value) => new URL(value).protocol === 'https:', 'guidance must use HTTPS'),
     linkLabel: z.string().min(1).max(120),
   })
   .strict();
@@ -92,7 +87,7 @@ const ProviderTemplateSchema = z
     policyCompiler: SymbolicIdentifier,
     probe: SymbolicIdentifier,
     capabilityTemplates: z.array(TemplateReferenceSchema).max(20),
-    guidance: GuidanceSchema.optional(),
+    guidance: ProviderGuidanceSchema.optional(),
   })
   .strict();
 const JsonSchemaSchema = z
@@ -182,6 +177,7 @@ function providerHandlerContract(
     | 'credentialFields'
     | 'connectionFields'
     | 'capabilityTemplates'
+    | 'guidance'
   >,
 ) {
   return contractFingerprint({
@@ -194,6 +190,7 @@ function providerHandlerContract(
     credentialFields: template.credentialFields,
     connectionFields: template.connectionFields,
     capabilityTemplates: template.capabilityTemplates,
+    ...(template.guidance ? { guidance: template.guidance } : {}),
   });
 }
 function capabilityHandlerContract(
@@ -276,7 +273,6 @@ function parseProviderTemplate(value: unknown): ProviderTemplate {
     capabilityTemplates: Object.freeze(
       template.capabilityTemplates.map((reference) => Object.freeze({ ...reference })),
     ),
-    ...(template.guidance ? { guidance: Object.freeze({ ...template.guidance }) } : {}),
   });
 }
 function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
@@ -521,7 +517,7 @@ const providers: readonly ProviderTemplate[] = [
     probe: 'jira-readonly-v1',
     capabilityTemplates: [],
     guidance: {
-      body: 'Use a scoped Jira Cloud API token for redhat.atlassian.net. The email must match the Atlassian account that created the token. Include the Jira read permission needed for the /myself identity check; this connection does not request write access.',
+      body: 'Use a scoped token with Jira read permission.',
       href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
       linkLabel: 'Atlassian token and scope guidance',
     },
@@ -670,6 +666,11 @@ const reviewedProviderContracts = Object.freeze({
       },
     ],
     capabilityTemplates: [],
+    guidance: {
+      body: 'Use a scoped token with Jira read permission.',
+      href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+      linkLabel: 'Atlassian token and scope guidance',
+    },
   }),
   'github-readonly@1': providerHandlerContract({
     id: 'github-readonly',

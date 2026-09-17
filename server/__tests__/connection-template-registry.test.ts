@@ -52,6 +52,11 @@ describe('connection template registry', () => {
     expect(projectProviderTemplate(jira).credentialFields).toEqual([
       expect.objectContaining({ key: 'token', style: 'basic', required: true }),
     ]);
+    expect(projectProviderTemplate(jira).guidance).toEqual({
+      body: 'Use a scoped token with Jira read permission.',
+      href: 'https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/',
+      linkLabel: 'Atlassian token and scope guidance',
+    });
     expect(projectProviderTemplate(github).connectionFields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'allowedRepositories', required: true }),
