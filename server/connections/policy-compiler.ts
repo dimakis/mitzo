@@ -17,8 +17,11 @@ const maxGithubScopeEntries = 50;
 // Keep the compiler in lockstep with the schema validator used for connection
 // fields. A permissive local/domain regexp admits invalid DNS labels and dots.
 const Email = z.string().email();
-const githubRepository =
-  /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/;
+// GitHub account names are 1–39 ASCII alphanumerics/hyphens and may not
+// begin or end with a hyphen. Repository names have a distinct contract:
+// `.github` is valid, so do not reuse the owner validator for them.
+const githubOwner = /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/;
+const githubRepositoryName = /^[a-z0-9._-]{1,100}$/;
 const githubBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 
 function policy(
@@ -102,7 +105,18 @@ export const compileJiraReadonly: PolicyCompiler = (template, fields) => {
 
 function canonicalGithubRepositories(values: readonly string[]) {
   const canonical = values.map((value) => value.toLowerCase());
-  if (canonical.some((value) => !githubRepository.test(value)))
+  if (
+    canonical.some((value) => {
+      const [owner, repository, ...extra] = value.split('/');
+      return (
+        !owner ||
+        !repository ||
+        extra.length !== 0 ||
+        !githubOwner.test(owner) ||
+        !githubRepositoryName.test(repository)
+      );
+    })
+  )
     throw new Error('Invalid allowedRepositories');
   return orderedUnique(canonical);
 }
@@ -310,7 +324,7 @@ function canonicalPublicDnsAddress(address: string) {
       (words[0] === 0x2001 && (words[1]! & 0xfe00) === 0x0000) || // 2001::/23
       (words[0] === 0x2001 && words[1] === 0x0db8) || // documentation
       words[0] === 0x2002 || // 6to4, including embedded private IPv4 forms
-      (words[0] === 0x3fff && (words[1]! & 0xfff0) === 0) // documentation
+      (words[0] === 0x3fff && (words[1]! & 0xf000) === 0) // documentation
     )
       return undefined;
     return words.map((word) => word.toString(16).padStart(4, '0')).join(':');

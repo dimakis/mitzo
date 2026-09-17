@@ -16,7 +16,7 @@ import type {
   PublicProviderTemplate,
 } from './types.js';
 
-type BoundHandler<T> = Readonly<{ templateKey: string; handler: T }>;
+type BoundHandler<T> = Readonly<{ templateKey: string; contract: string; handler: T }>;
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
@@ -100,30 +100,59 @@ function nullPrototypeHandlers<T>(
 ): Readonly<Record<string, T>> {
   return Object.freeze(Object.assign(Object.create(null) as Record<string, T>, entries));
 }
-const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPrototypeHandlers({
-  'jira-readonly-v1': { templateKey: 'jira-readonly@1', handler: compileJiraReadonly },
-  'github-readonly-v1': { templateKey: 'github-readonly@1', handler: compileGithubReadonly },
-  'custom-rest-readonly-v1': {
-    templateKey: 'custom-rest-readonly@1',
-    handler: compileCustomRestReadonly,
-  },
-});
-const identityProbe: Probe = () => ({ kind: 'identity-and-scope' });
-const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandlers({
-  'jira-readonly-v1': { templateKey: 'jira-readonly@1', handler: identityProbe },
-  'github-readonly-v1': { templateKey: 'github-readonly@1', handler: identityProbe },
-  'custom-rest-readonly-v1': { templateKey: 'custom-rest-readonly@1', handler: identityProbe },
-});
-const approvalRequiredExecutor: CapabilityExecutor = () => ({ kind: 'approval-required' });
-const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nullPrototypeHandlers({
-  'github-publish-pr-v1': {
-    templateKey: 'github.publish-pr@1',
-    handler: approvalRequiredExecutor,
-  },
-});
-
 function key(id: string, version: number) {
   return `${id}@${version}`;
+}
+function contractFingerprint(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(contractFingerprint).join(',')}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((name) => `${JSON.stringify(name)}:${contractFingerprint(record[name])}`)
+    .join(',')}}`;
+}
+function providerHandlerContract(
+  template: Pick<
+    ProviderTemplate,
+    'id' | 'version' | 'risk' | 'credentialFields' | 'connectionFields' | 'capabilityIds'
+  >,
+) {
+  return contractFingerprint({
+    id: template.id,
+    version: template.version,
+    risk: template.risk,
+    credentialFields: template.credentialFields,
+    connectionFields: template.connectionFields,
+    capabilityIds: template.capabilityIds,
+  });
+}
+function capabilityHandlerContract(
+  template: Pick<
+    CapabilityTemplate,
+    'id' | 'version' | 'connectionTemplateIds' | 'inputSchema' | 'approval' | 'idempotency'
+  >,
+) {
+  return contractFingerprint({
+    id: template.id,
+    version: template.version,
+    connectionTemplateIds: template.connectionTemplateIds,
+    inputSchema: template.inputSchema,
+    approval: template.approval,
+    idempotency: template.idempotency,
+  });
+}
+function handlerContract(template: ProviderTemplate | CapabilityTemplate) {
+  return 'credentialFields' in template
+    ? providerHandlerContract(template)
+    : capabilityHandlerContract(template);
+}
+function bindHandler<T>(templateKey: string, contract: string, handler: T): BoundHandler<T> {
+  return Object.freeze({
+    templateKey,
+    contract,
+    handler,
+  });
 }
 function uniqueKeys(items: readonly { key: string }[], field: string) {
   if (new Set(items.map((item) => item.key)).size !== items.length)
@@ -176,17 +205,26 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
     }) as JsonSchema,
   });
 }
+function requireSymbolicHandler<T>(
+  name: string,
+  handlers: Readonly<Record<string, BoundHandler<T>>>,
+  kind: string,
+) {
+  if (!symbolicIdentifier.test(name)) throw new Error(`${kind} must be a safe symbolic identifier`);
+  if (!Object.hasOwn(handlers, name)) throw new Error(`Unknown ${kind}`);
+  return handlers[name]!;
+}
 function requireBoundSymbolicHandler<T>(
   name: string,
   handlers: Readonly<Record<string, BoundHandler<T>>>,
   kind: string,
-  template: { id: string; version: number },
+  template: ProviderTemplate | CapabilityTemplate,
 ) {
-  if (!symbolicIdentifier.test(name)) throw new Error(`${kind} must be a safe symbolic identifier`);
-  if (!Object.hasOwn(handlers, name)) throw new Error(`Unknown ${kind}`);
-  const binding = handlers[name]!;
+  const binding = requireSymbolicHandler(name, handlers, kind);
   if (binding.templateKey !== key(template.id, template.version))
     throw new Error(`${kind} does not match template version`);
+  if (binding.contract !== handlerContract(template))
+    throw new Error(`${kind} does not match reviewed template contract`);
   return binding.handler;
 }
 
@@ -237,16 +275,24 @@ export function createConnectionTemplateRegistry(input: {
   const providerIds = new Set(providers.map((template) => template.id));
   const capabilityIds = new Set(capabilities.map((template) => template.id));
   for (const provider of providers) {
-    requireBoundSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler', provider);
-    requireBoundSymbolicHandler(provider.probe, probes, 'probe', provider);
-    if (provider.capabilityIds.some((id) => !capabilityIds.has(id)))
-      throw new Error('Provider template references an unknown capability');
+    requireSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler');
+    requireSymbolicHandler(provider.probe, probes, 'probe');
   }
   for (const capability of capabilities) {
+    requireSymbolicHandler(capability.executor, executors, 'capability executor');
+  }
+  for (const provider of providers) {
+    requireBoundSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler', provider);
+    requireBoundSymbolicHandler(provider.probe, probes, 'probe', provider);
+  }
+  for (const capability of capabilities)
     requireBoundSymbolicHandler(capability.executor, executors, 'capability executor', capability);
+  for (const provider of providers)
+    if (provider.capabilityIds.some((id) => !capabilityIds.has(id)))
+      throw new Error('Provider template references an unknown capability');
+  for (const capability of capabilities)
     if (capability.connectionTemplateIds.some((id) => !providerIds.has(id)))
       throw new Error('Capability template references an unknown provider');
-  }
   for (const provider of providers) {
     for (const capabilityId of provider.capabilityIds) {
       const capability = capabilities.filter((candidate) => candidate.id === capabilityId);
@@ -287,10 +333,7 @@ export function createConnectionTemplateRegistry(input: {
         compilers,
         'policy compiler',
         template,
-      )(
-        template,
-        Object.freeze({ ...compileInput.fields }),
-      );
+      )(template, Object.freeze({ ...compileInput.fields }));
     },
     probeFor: (id: string, version: number) => {
       const template = providerByKey.get(key(id, version));
@@ -452,6 +495,176 @@ const capabilities: readonly CapabilityTemplate[] = [
     idempotency: 'required',
   },
 ];
+
+const identityProbe: Probe = () => ({ kind: 'identity-and-scope' });
+const approvalRequiredExecutor: CapabilityExecutor = () => ({ kind: 'approval-required' });
+// These are intentionally independent snapshots. Updating a manifest without
+// introducing a new reviewed template version leaves its old handler unusable.
+const reviewedProviderContracts = Object.freeze({
+  'jira-readonly@1': providerHandlerContract({
+    id: 'jira-readonly',
+    version: 1,
+    risk: 'read-only',
+    credentialFields: [
+      {
+        key: 'token',
+        label: 'API token',
+        description: 'A one-shot Jira API token used only by the gateway.',
+        style: 'api-token',
+        secret: true,
+        required: true,
+      },
+    ],
+    connectionFields: [
+      {
+        key: 'email',
+        label: 'Jira email',
+        description: 'The account email used with the one-shot Jira API token.',
+        kind: 'email',
+        required: true,
+      },
+    ],
+    capabilityIds: [],
+  }),
+  'github-readonly@1': providerHandlerContract({
+    id: 'github-readonly',
+    version: 1,
+    risk: 'read-only',
+    credentialFields: [
+      {
+        key: 'token',
+        label: 'Access token',
+        description: 'A one-shot GitHub token used only by the gateway.',
+        style: 'bearer-token',
+        secret: true,
+        required: true,
+      },
+    ],
+    connectionFields: [
+      {
+        key: 'allowedRepositories',
+        label: 'Allowed repositories',
+        description:
+          'Exact owner/repository pairs eligible for the publish pull request capability.',
+        kind: 'string-list',
+        required: true,
+      },
+      {
+        key: 'allowedBaseBranches',
+        label: 'Allowed base branches',
+        description: 'Exact base branches eligible for the publish pull request capability.',
+        kind: 'string-list',
+        required: true,
+      },
+    ],
+    capabilityIds: ['github.publish-pr'],
+  }),
+  'custom-rest-readonly@1': providerHandlerContract({
+    id: 'custom-rest-readonly',
+    version: 1,
+    risk: 'operator-defined',
+    credentialFields: [
+      {
+        key: 'token',
+        label: 'Access token',
+        description: 'A one-shot API token used only by the gateway.',
+        style: 'bearer-token',
+        secret: true,
+        required: true,
+      },
+    ],
+    connectionFields: [
+      {
+        key: 'endpoint',
+        label: 'HTTPS endpoint',
+        description: 'Exact public HTTPS origin; private, local, and IP hosts are rejected.',
+        kind: 'url',
+        required: true,
+      },
+      {
+        key: 'methods',
+        label: 'Read methods',
+        description: 'Only reviewed read methods are available.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['GET', 'HEAD', 'OPTIONS'],
+      },
+      {
+        key: 'paths',
+        label: 'Allowed paths',
+        description: 'Absolute path patterns only.',
+        kind: 'string-list',
+        required: true,
+      },
+    ],
+    capabilityIds: [],
+  }),
+});
+const reviewedCapabilityContracts = Object.freeze({
+  'github.publish-pr@1': capabilityHandlerContract({
+    id: 'github.publish-pr',
+    version: 1,
+    connectionTemplateIds: ['github-readonly'],
+    inputSchema: {
+      type: 'object',
+      properties: {
+        connectionId: { type: 'string', maxLength: 128 },
+        repositoryPath: { type: 'string', maxLength: 1024 },
+        baseBranch: { type: 'string', maxLength: 255 },
+        title: { type: 'string', maxLength: 256 },
+        body: { type: 'string', maxLength: 65_536 },
+        draft: { type: 'boolean' },
+      },
+      required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
+      additionalProperties: false,
+    },
+    approval: 'always',
+    idempotency: 'required',
+  }),
+});
+const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPrototypeHandlers({
+  'jira-readonly-v1': bindHandler(
+    'jira-readonly@1',
+    reviewedProviderContracts['jira-readonly@1'],
+    compileJiraReadonly,
+  ),
+  'github-readonly-v1': bindHandler(
+    'github-readonly@1',
+    reviewedProviderContracts['github-readonly@1'],
+    compileGithubReadonly,
+  ),
+  'custom-rest-readonly-v1': bindHandler(
+    'custom-rest-readonly@1',
+    reviewedProviderContracts['custom-rest-readonly@1'],
+    compileCustomRestReadonly,
+  ),
+});
+const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandlers({
+  'jira-readonly-v1': bindHandler(
+    'jira-readonly@1',
+    reviewedProviderContracts['jira-readonly@1'],
+    identityProbe,
+  ),
+  'github-readonly-v1': bindHandler(
+    'github-readonly@1',
+    reviewedProviderContracts['github-readonly@1'],
+    identityProbe,
+  ),
+  'custom-rest-readonly-v1': bindHandler(
+    'custom-rest-readonly@1',
+    reviewedProviderContracts['custom-rest-readonly@1'],
+    identityProbe,
+  ),
+});
+const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nullPrototypeHandlers(
+  {
+    'github-publish-pr-v1': bindHandler(
+      'github.publish-pr@1',
+      reviewedCapabilityContracts['github.publish-pr@1'],
+      approvalRequiredExecutor,
+    ),
+  },
+);
 
 export const connectionTemplateRegistry = createConnectionTemplateRegistry({
   providers,

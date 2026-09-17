@@ -114,6 +114,26 @@ describe('connection template registry', () => {
         fields: { allowedRepositories: ['acme/*'], allowedBaseBranches: ['main'] },
       }),
     ).toThrow('Invalid allowedRepositories');
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'github-readonly',
+        templateVersion: 1,
+        fields: { allowedRepositories: ['valid-owner/.github'], allowedBaseBranches: ['main'] },
+      }).publicConfig.allowedRepositories,
+    ).toEqual(['valid-owner/.github']);
+    for (const invalid of [
+      'owner_name/repo',
+      '-owner/repo',
+      'owner-/repo',
+      `${'a'.repeat(40)}/repo`,
+    ])
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'github-readonly',
+          templateVersion: 1,
+          fields: { allowedRepositories: [invalid], allowedBaseBranches: ['main'] },
+        }),
+      ).toThrow('Invalid allowedRepositories');
   });
 
   it('bounds, deduplicates, and canonicalizes custom REST policies before expanding rules', () => {
@@ -221,6 +241,8 @@ describe('connection template registry', () => {
       ['0:0:0:0:0:ffff:7f00:1'],
       ['2001:db8::1'],
       ['2002:0a00:0001::1'],
+      ['3fff:0000::1'],
+      ['3fff:0fff::1'],
       ['not-an-ip'],
     ])
       expect(() => pinPublicDnsAnswers(requirement, answers)).toThrow();
@@ -236,6 +258,7 @@ describe('connection template registry', () => {
     ).not.toThrow();
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
+    expect(() => pinPublicDnsAnswers(requirement, ['3fff:1000::1'])).not.toThrow();
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
@@ -286,18 +309,43 @@ describe('connection template registry', () => {
         capabilities: [{ ...githubPublish, version: 2 }],
       }),
     ).toThrow('does not match template version');
+    for (const provider of [
+      { ...jira, risk: 'bounded-write' as const },
+      { ...jira, credentialFields: [{ ...jira.credentialFields[0]!, required: false }] },
+      { ...jira, connectionFields: [{ ...jira.connectionFields[0]!, required: false }] },
+      { ...jira, capabilityIds: ['github.publish-pr'] },
+    ])
+      expect(() =>
+        createConnectionTemplateRegistry({ providers: [provider], capabilities: [] }),
+      ).toThrow('reviewed template contract');
+    for (const capability of [
+      {
+        ...githubPublish,
+        inputSchema: {
+          ...githubPublish.inputSchema,
+          properties: {
+            ...githubPublish.inputSchema.properties,
+            title: { type: 'string' as const, maxLength: 255 },
+          },
+        },
+      },
+      { ...githubPublish, approval: 'explicit-intent' as const },
+    ])
+      expect(() =>
+        createConnectionTemplateRegistry({ providers: [github], capabilities: [capability] }),
+      ).toThrow('reviewed template contract');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [{ ...github, capabilityIds: [] }],
         capabilities: [githubPublish],
       }),
-    ).toThrow('bidirectional');
+    ).toThrow('reviewed template contract');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [github, jira],
         capabilities: [{ ...githubPublish, connectionTemplateIds: ['jira-readonly'] }],
       }),
-    ).toThrow('bidirectional');
+    ).toThrow('reviewed template contract');
   });
 
   it('fails closed for duplicate and malformed manifests', () => {
