@@ -368,7 +368,7 @@ describe('connection template registry', () => {
   });
 
   it('rejects Git ref component escapes in reviewed base branches', () => {
-    for (const branch of ['foo/.hidden', 'foo/bar.lock/baz', 'foo/.lock/baz'])
+    for (const branch of ['HEAD', 'foo/.hidden', 'foo/bar.lock/baz', 'foo/.lock/baz'])
       expect(() =>
         connectionTemplateRegistry.compileProviderPolicy({
           templateId: 'github-readonly',
@@ -376,6 +376,14 @@ describe('connection template registry', () => {
           fields: { allowedRepositories: ['acme/widget'], allowedBaseBranches: [branch] },
         }),
       ).toThrow('Invalid allowedBaseBranches');
+
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'github-readonly',
+        templateVersion: 1,
+        fields: { allowedRepositories: ['acme/widget'], allowedBaseBranches: ['head', 'Head'] },
+      }).publicConfig.allowedBaseBranches,
+    ).toEqual(['head', 'Head']);
   });
 
   it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {

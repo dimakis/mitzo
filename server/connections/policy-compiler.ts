@@ -75,6 +75,12 @@ const Email = z.string().email();
 const githubOwner = /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/;
 const githubRepositoryName = /^[a-z0-9._-]{1,100}$/;
 const githubBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
+// Git and GitHub branch names are case-sensitive. Only exact uppercase HEAD
+// is ambiguous when the executor resolves origin/HEAD (the remote default).
+// Other Git pseudorefs are unqualified names and are not aliases for an
+// `origin/<branch>` remote-tracking ref, so rejecting them would overblock
+// ordinary exact GitHub branch names.
+const ambiguousGithubBaseBranches = new Set(['HEAD']);
 
 function policy(
   template: ProviderTemplate,
@@ -185,6 +191,7 @@ function canonicalGithubBranches(values: readonly string[]) {
     values.some(
       (value) =>
         !githubBranch.test(value) ||
+        ambiguousGithubBaseBranches.has(value) ||
         value.includes('..') ||
         value.includes('//') ||
         value.endsWith('.') ||
