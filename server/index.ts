@@ -151,8 +151,19 @@ function configureConnectionsRuntime(): void {
       profilePath,
       probeImage,
       probePolicy,
+      resolveConversationBinding: (conversationId) => {
+        const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+        return accountId ? { accountId } : undefined;
+      },
     });
     setAppConnectionsRuntime(runtime);
+    // Only ambiguous post-write operations recover. The executor contract is
+    // read-after-write verification only, so startup never replays a mutation.
+    void runtime.capabilities.recoverPending(AbortSignal.timeout(120_000)).catch((error) => {
+      log.warn('Capability operation recovery pending', {
+        error: error instanceof Error ? error.message : 'unknown',
+      });
+    });
     const reconcile = () => {
       // Reconciliation can need Podman's 45-second stop/delete timeout while
       // draining a quarantined sandbox, plus gateway polling overhead.

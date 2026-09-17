@@ -1,0 +1,496 @@
+import { createHash } from 'node:crypto';
+import type { CapabilityTemplate, JsonValue } from '../types.js';
+import { validateCapabilityInput, canonicalJson } from './input-validation.js';
+import { assertCompleteApprovalProjection } from './approval-contract.js';
+import { CapabilityOperationStore } from './operation-store.js';
+import { CapabilityExecutorRegistry } from './registry.js';
+import { assertSafeExternalResultId } from './external-result-id.js';
+import type {
+  CapabilityApproval,
+  CapabilityConnection,
+  CapabilityGrant,
+  CapabilityOperation,
+  CapabilityRequest,
+} from './types.js';
+
+const secretKey = /(?:secret|token|password|credential|authorization|api[-_]?key)/i;
+const MAX_RESULT_BYTES = 32 * 1024;
+
+function failCode(error: unknown): string {
+  return error instanceof Error && error.name === 'AbortError' ? 'CANCELLED' : 'EXECUTION_FAILED';
+}
+function redactionTokens(values: readonly string[]): { long: string[]; short: string[] } {
+  // Exact request values are secrets for this purpose. De-duplicate and sort
+  // longest-first so a prefix can never leave a longer value partly visible.
+  const tokens = [...new Set(values.filter((value) => value.length > 0))].sort(
+    (left, right) => right.length - left.length || left.localeCompare(right),
+  );
+  return {
+    long: tokens.filter((value) => value.length >= 3),
+    short: tokens.filter((value) => value.length < 3),
+  };
+}
+function redact(value: JsonValue, sensitiveValues: readonly string[]): JsonValue {
+  if (typeof value === 'string') {
+    const tokens = redactionTokens(sensitiveValues);
+    // One- and two-character request values cannot be substituted safely: a
+    // normal word can contain them incidentally. If one appears, withhold the
+    // complete provider string rather than persist a request-derived secret.
+    if (tokens.short.some((secret) => value.includes(secret))) return '[REDACTED]';
+    let output = value;
+    for (const secret of tokens.long) output = output.split(secret).join('[REDACTED]');
+    output = output.replace(/(bearer\s+)[^\s]+/gi, '$1[REDACTED]');
+    return output.length > MAX_RESULT_BYTES ? `${output.slice(0, MAX_RESULT_BYTES)}…` : output;
+  }
+  if (Array.isArray(value)) return value.slice(0, 100).map((item) => redact(item, sensitiveValues));
+  if (value && typeof value === 'object') {
+    const out: Record<string, JsonValue> = Object.create(null);
+    for (const [key, item] of Object.entries(value))
+      out[key] = secretKey.test(key) ? '[REDACTED]' : redact(item, sensitiveValues);
+    return out;
+  }
+  return value;
+}
+function resultIsBounded(value: JsonValue): boolean {
+  return Buffer.byteLength(JSON.stringify(value), 'utf8') <= MAX_RESULT_BYTES;
+}
+
+export interface CapabilityServiceOptions {
+  store: CapabilityOperationStore;
+  executorRegistry: CapabilityExecutorRegistry;
+  getTemplate(id: string, version: number): CapabilityTemplate | undefined;
+  getConnection(id: string): CapabilityConnection | undefined;
+  listConnections(): readonly CapabilityConnection[];
+  /** Trusted lifecycle state, never supplied by a browser/tool input. */
+  isConnectionActiveForConversation(
+    connectionId: string,
+    accountId: string,
+    conversationId: string,
+  ): boolean;
+  approve: CapabilityApproval;
+}
+
+/** Shared browser/direct-service pipeline: validate → authorize → idempotently execute → verify → audit. */
+export class CapabilityService {
+  /** A live retry observes its active owner; a replay after a crash does not. */
+  private readonly inFlight = new Set<string>();
+  constructor(private readonly options: CapabilityServiceOptions) {}
+  eligibleTools(
+    accountId: string,
+    conversationId: string,
+    connections: readonly CapabilityConnection[],
+    grants: Array<{ connectionId: string; capabilityId: string; capabilityVersion: number }>,
+  ) {
+    return grants
+      .filter((grant) => {
+        const connection = connections.find((item) => item.id === grant.connectionId);
+        const template = this.options.getTemplate(grant.capabilityId, grant.capabilityVersion);
+        return (
+          !!connection &&
+          !!template &&
+          this.options.executorRegistry.supports(template) &&
+          connection.status === 'active' &&
+          connection.desiredAccountIds.includes(accountId) &&
+          this.options.isConnectionActiveForConversation(connection.id, accountId, conversationId)
+        );
+      })
+      .map((grant) => ({
+        capabilityId: grant.capabilityId,
+        capabilityVersion: grant.capabilityVersion,
+        connectionId: grant.connectionId,
+        connectionRevision: connections.find((connection) => connection.id === grant.connectionId)!
+          .revision,
+      }));
+  }
+  eligibleToolsForConversation(
+    accountId: string,
+    conversationId: string,
+    attachedConnection?: Pick<CapabilityConnection, 'id' | 'revision'> | null,
+  ) {
+    const connections = this.options
+      .listConnections()
+      .filter(
+        (connection) =>
+          !attachedConnection ||
+          (connection.id === attachedConnection.id &&
+            connection.revision === attachedConnection.revision),
+      );
+    return this.eligibleTools(
+      accountId,
+      conversationId,
+      connections,
+      connections.flatMap((connection) =>
+        this.options.store
+          .grants(connection.id)
+          .filter(
+            (grant) =>
+              grant.status === 'active' &&
+              grant.connectionRevision === connection.revision &&
+              grant.accountIds.includes(accountId),
+          )
+          .map((grant) => ({
+            connectionId: grant.connectionId,
+            capabilityId: grant.capabilityId,
+            capabilityVersion: grant.capabilityVersion,
+          })),
+      ),
+    );
+  }
+  /**
+   * Startup discovery for an already verified OpenShell attachment. It cannot
+   * execute anything: invoke() separately requires the live binding. This
+   * avoids a bootstrap cycle where tools are hidden before that binding is
+   * recorded during Codex runtime initialization.
+   */
+  eligibleToolsForManagedConnection(
+    accountId: string,
+    attachedConnection: Pick<CapabilityConnection, 'id' | 'revision'>,
+  ) {
+    const connection = this.options.getConnection(attachedConnection.id);
+    if (
+      !connection ||
+      connection.revision !== attachedConnection.revision ||
+      connection.status !== 'active' ||
+      !connection.desiredAccountIds.includes(accountId)
+    )
+      return [];
+    return this.options.store
+      .grants(connection.id)
+      .filter(
+        (grant) =>
+          grant.status === 'active' &&
+          grant.connectionRevision === connection.revision &&
+          grant.accountIds.includes(accountId),
+      )
+      .flatMap((grant) => {
+        const template = this.options.getTemplate(grant.capabilityId, grant.capabilityVersion);
+        return template && this.options.executorRegistry.supports(template)
+          ? [
+              {
+                capabilityId: grant.capabilityId,
+                capabilityVersion: grant.capabilityVersion,
+                connectionId: connection.id,
+                connectionRevision: connection.revision,
+              },
+            ]
+          : [];
+      });
+  }
+  listGrants(connectionId: string): CapabilityGrant[] {
+    return this.options.store.grants(connectionId);
+  }
+  setGrant(input: {
+    connectionId: string;
+    connectionRevision: number;
+    capabilityId: string;
+    capabilityVersion: number;
+    accountIds: string[];
+    status: 'active' | 'revoked';
+  }): CapabilityGrant {
+    const connection = this.options.getConnection(input.connectionId);
+    const template = this.options.getTemplate(input.capabilityId, input.capabilityVersion);
+    if (
+      !connection ||
+      connection.revision !== input.connectionRevision ||
+      !template ||
+      !template.connectionTemplates.some(
+        (reference) =>
+          reference.id === connection.templateId &&
+          reference.version === connection.templateVersion,
+      ) ||
+      (input.status === 'active' && !this.options.executorRegistry.supports(template)) ||
+      input.accountIds.some((id) => !connection.desiredAccountIds.includes(id))
+    )
+      throw new Error('Capability grant is unavailable');
+    return this.options.store.upsertGrant(input);
+  }
+  getOperation(
+    id: string,
+    accountId: string,
+    conversationId: string,
+  ): CapabilityOperation | undefined {
+    const operation = this.options.store.get(id);
+    if (
+      !operation ||
+      operation.accountId !== accountId ||
+      operation.conversationId !== conversationId
+    )
+      return undefined;
+    return operation;
+  }
+  /** Startup hook: settle every non-terminal record without replaying a write. */
+  async recoverPending(signal: AbortSignal): Promise<CapabilityOperation[]> {
+    const recovered: CapabilityOperation[] = [];
+    for (const operation of this.options.store.pendingRecovery()) {
+      const template = this.options.getTemplate(
+        operation.capabilityId,
+        operation.capabilityVersion,
+      );
+      if (!template) continue; // Unknown versions remain non-terminal for operator inspection.
+      recovered.push(await this.reconcile(template, operation, signal));
+    }
+    return recovered;
+  }
+  /** Reconnect recovery is intentionally scoped to the bound live conversation. */
+  async recoverPendingForConversation(
+    accountId: string,
+    conversationId: string,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation[]> {
+    const recovered: CapabilityOperation[] = [];
+    for (const operation of this.options.store.pendingRecovery()) {
+      if (operation.accountId !== accountId || operation.conversationId !== conversationId)
+        continue;
+      const template = this.options.getTemplate(
+        operation.capabilityId,
+        operation.capabilityVersion,
+      );
+      if (template) recovered.push(await this.reconcile(template, operation, signal));
+    }
+    return recovered;
+  }
+  /** Cancellation never overwrites a possibly-written operation. */
+  cancel(id: string, accountId: string, conversationId: string): CapabilityOperation | undefined {
+    const operation = this.getOperation(id, accountId, conversationId);
+    if (!operation || operation.status !== 'pending_approval') return operation;
+    const connection = this.options.getConnection(operation.connectionId);
+    if (
+      !connection ||
+      connection.revision !== operation.connectionRevision ||
+      !this.options.isConnectionActiveForConversation(
+        operation.connectionId,
+        accountId,
+        conversationId,
+      )
+    )
+      return undefined;
+    try {
+      return this.options.store.transition(id, 'pending_approval', 'cancelled', {
+        failureCode: 'CANCELLED',
+      });
+    } catch {
+      // Approval and browser cancellation may race. The transition loser must
+      // report the durable winner instead of converting the race to a 500.
+      const current = this.options.store.get(id);
+      return current?.accountId === accountId && current.conversationId === conversationId
+        ? current
+        : undefined;
+    }
+  }
+  async invoke(
+    request: CapabilityRequest,
+    signal: AbortSignal,
+    approve: CapabilityApproval = this.options.approve,
+  ): Promise<CapabilityOperation> {
+    signal.throwIfAborted();
+    const template = this.options.getTemplate(request.capabilityId, request.capabilityVersion);
+    if (
+      !template ||
+      template.id !== request.capabilityId ||
+      template.version !== request.capabilityVersion ||
+      template.approval !== 'always' ||
+      template.idempotency !== 'required'
+    )
+      throw new Error('Capability is unavailable');
+    const connection = this.options.getConnection(request.connectionId);
+    if (
+      !connection ||
+      connection.status !== 'active' ||
+      connection.revision !== request.connectionRevision ||
+      !connection.desiredAccountIds.includes(request.accountId) ||
+      !template.connectionTemplates.some(
+        (reference) =>
+          reference.id === connection.templateId &&
+          reference.version === connection.templateVersion,
+      ) ||
+      !this.options.isConnectionActiveForConversation(
+        connection.id,
+        request.accountId,
+        request.conversationId,
+      )
+    )
+      throw new Error('Capability access is unavailable');
+    const grant = this.options.store.getGrant(
+      connection.id,
+      connection.revision,
+      template.id,
+      template.version,
+    );
+    if (!grant || grant.status !== 'active' || !grant.accountIds.includes(request.accountId))
+      throw new Error('Capability grant is unavailable');
+    const input = validateCapabilityInput(template.inputSchema, request.input);
+    assertCompleteApprovalProjection(template.inputSchema);
+    // Some reviewed contracts repeat the connection ID in their structured
+    // input for executor readability. It is a consistency assertion, never a
+    // selector: the trusted request binding above remains authoritative.
+    if ('connectionId' in input && input.connectionId !== request.connectionId)
+      throw new Error('Capability input connection does not match its trusted grant');
+    const inputHash = createHash('sha256').update(canonicalJson(input)).digest('hex');
+    const begun = this.options.store.begin({ ...request, grantId: grant.id, inputHash });
+    // Atomic uniqueness makes this the single mutation owner. A concurrent
+    // retry must only observe/recover its durable record, never re-approve or
+    // execute a second mutation.
+    if (!begun.created) {
+      if (this.inFlight.has(begun.operation.id)) return begun.operation;
+      return this.reconcile(template, begun.operation, signal);
+    }
+    let operation = begun.operation;
+    this.inFlight.add(operation.id);
+    try {
+      const approved = await approve(
+        {
+          capabilityId: template.id,
+          capabilityVersion: template.version,
+          connectionId: connection.id,
+          operationId: operation.id,
+          input,
+          forcePrompt: true,
+        },
+        signal,
+      );
+      if (signal.aborted)
+        return this.options.store.transition(operation.id, 'pending_approval', 'cancelled', {
+          failureCode: 'CANCELLED',
+        });
+      if (!approved)
+        return this.options.store.transition(operation.id, 'pending_approval', 'denied', {
+          failureCode: 'DENIED',
+        });
+      operation = this.options.store.transition(operation.id, 'pending_approval', 'running');
+      // Re-read authoritative lifecycle state after the approval boundary.
+      const current = this.options.getConnection(connection.id);
+      if (
+        !current ||
+        current.status !== 'active' ||
+        current.revision !== request.connectionRevision ||
+        !this.options.isConnectionActiveForConversation(
+          connection.id,
+          request.accountId,
+          request.conversationId,
+        )
+      )
+        return this.options.store.transition(operation.id, 'running', 'cancelled', {
+          failureCode: 'STALE_ACCESS',
+        });
+      const currentGrant = this.options.store.getGrant(
+        current.id,
+        current.revision,
+        template.id,
+        template.version,
+      );
+      if (
+        !currentGrant ||
+        currentGrant.id !== grant.id ||
+        currentGrant.status !== 'active' ||
+        !currentGrant.accountIds.includes(request.accountId)
+      )
+        return this.options.store.transition(operation.id, 'running', 'cancelled', {
+          failureCode: 'STALE_ACCESS',
+        });
+      signal.throwIfAborted();
+      const executor = this.options.executorRegistry.resolve(template);
+      // Mark dispatch before the executor call. A remote provider can commit a
+      // mutation and then throw/timeout before responding; from this point
+      // onward the only safe path is read-after-write recovery.
+      operation = this.options.store.transition(operation.id, 'running', 'verification_pending');
+      const executed = await executor.execute({ operation, input, signal });
+      const sensitive = Object.values(input).filter(
+        (value): value is string => typeof value === 'string',
+      );
+      const output = redact(executed.output, sensitive);
+      if (!resultIsBounded(output)) throw new Error('Executor result is invalid');
+      assertSafeExternalResultId(executed.externalResultId);
+      // Keep the pre-dispatch ambiguous state while recording only bounded,
+      // redacted output. Result processing itself must not create a terminal
+      // failure after a potential remote write.
+      operation = this.options.store.recordVerificationPending(operation.id, {
+        result: output,
+        externalResultId: executed.externalResultId,
+      });
+      signal.throwIfAborted();
+      await executor.verify({ operation, input, signal }, executed);
+      return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
+        result: output,
+        externalResultId: executed.externalResultId,
+      });
+    } catch (error) {
+      const current = this.options.store.get(operation.id);
+      if (
+        !current ||
+        current.status === 'verification_pending' ||
+        (current.status !== 'pending_approval' && current.status !== 'running')
+      )
+        return current ?? operation;
+      const status = failCode(error) === 'CANCELLED' ? 'cancelled' : 'failed';
+      return this.options.store.transition(operation.id, current.status, status, {
+        failureCode: failCode(error),
+      });
+    } finally {
+      this.inFlight.delete(operation.id);
+    }
+  }
+  private async reconcile(
+    template: CapabilityTemplate,
+    operation: CapabilityOperation,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation> {
+    if (operation.status === 'verification_pending')
+      return this.recover(template, operation, signal);
+    if (operation.status !== 'pending_approval' && operation.status !== 'running') return operation;
+    // `verification_pending` is persisted immediately before execute(). These
+    // prior states prove no provider mutation was dispatched, so a process
+    // restart cancels rather than guessing an approval or replaying a write.
+    try {
+      return this.options.store.transition(operation.id, operation.status, 'cancelled', {
+        failureCode: 'RECOVERY_CANCELLED',
+      });
+    } catch {
+      return this.options.store.get(operation.id) ?? operation;
+    }
+  }
+  private async recover(
+    template: CapabilityTemplate,
+    operation: CapabilityOperation,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation> {
+    // A rollout can encounter records produced by a newer/older executable
+    // registry. Leave them durable and ambiguous until a compatible executor
+    // is installed; turning that into failed would lose the safe retry path.
+    if (!this.options.executorRegistry.supports(template)) return operation;
+    try {
+      signal.throwIfAborted();
+      const executor = this.options.executorRegistry.resolve(template);
+      const recovered = await executor.recover(operation, signal);
+      signal.throwIfAborted();
+      if (recovered?.outcome === 'definitively-not-applied') {
+        try {
+          return this.options.store.transition(operation.id, 'verification_pending', 'failed', {
+            failureCode: 'VERIFICATION_NOT_APPLIED',
+          });
+        } catch {
+          return this.options.store.get(operation.id) ?? operation;
+        }
+      }
+      if (recovered?.outcome && recovered.outcome !== 'verified')
+        throw new Error('Invalid capability recovery result');
+      try {
+        return this.options.store.transition(operation.id, 'verification_pending', 'succeeded', {
+          result: operation.result ?? { recovered: true },
+          externalResultId: operation.externalResultId ?? undefined,
+        });
+      } catch {
+        // Another reconnect may have settled the same read-only recovery
+        // between our verification and transition. Return that authoritative
+        // result; never convert its success into a failure.
+        return this.options.store.get(operation.id) ?? operation;
+      }
+    } catch {
+      // A timeout, cancellation, malformed provider response, or transient
+      // transport failure says nothing definitive about an already-dispatched
+      // write. Preserve the durable ambiguity for a later read-only retry.
+      const current = this.options.store.get(operation.id);
+      if (!current || current.status !== 'verification_pending') return current ?? operation;
+      return current;
+    }
+  }
+}

@@ -17,6 +17,7 @@ import type {
   PublicCapabilityTemplate,
   PublicProviderTemplate,
 } from './types.js';
+import { assertCompleteApprovalProjection } from './capabilities/approval-contract.js';
 
 type BoundHandler<T> = Readonly<{
   templateKey: string;
@@ -35,7 +36,7 @@ export type ReviewedHandlerBindings = Readonly<{
 }>;
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
-const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
+const SymbolicIdentifier = z.string().max(120).regex(symbolicIdentifier);
 const TemplateReferenceSchema = z
   .object({ id: SymbolicIdentifier, version: z.number().int().positive() })
   .strict();
@@ -127,7 +128,7 @@ const JsonSchemaSchema = z
 const CapabilityTemplateSchema = z
   .object({
     id: SymbolicIdentifier,
-    version: z.number().int().positive(),
+    version: z.number().int().positive().max(999_999_999),
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
     connectionTemplates: z.array(TemplateReferenceSchema).min(1).max(20),
@@ -280,6 +281,7 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
   uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
+  assertCompleteApprovalProjection(template.inputSchema);
   return Object.freeze({
     ...template,
     connectionTemplates: Object.freeze(
@@ -619,10 +621,10 @@ const capabilities: readonly CapabilityTemplate[] = [
       type: 'object',
       properties: {
         connectionId: { type: 'string', minLength: 1, maxLength: 128 },
-        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
-        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
-        title: { type: 'string', minLength: 1, maxLength: 256 },
-        body: { type: 'string', maxLength: 65_536 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
+        title: { type: 'string', minLength: 1, maxLength: 128 },
+        body: { type: 'string', maxLength: 512 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -765,10 +767,10 @@ const reviewedCapabilityContracts = Object.freeze({
       type: 'object',
       properties: {
         connectionId: { type: 'string', minLength: 1, maxLength: 128 },
-        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
-        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
-        title: { type: 'string', minLength: 1, maxLength: 256 },
-        body: { type: 'string', maxLength: 65_536 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
+        title: { type: 'string', minLength: 1, maxLength: 128 },
+        body: { type: 'string', maxLength: 512 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
