@@ -215,7 +215,10 @@ function customEndpoint(value: string) {
   )
     throw new Error('Custom endpoint must be an HTTPS origin without credentials or a custom port');
   const host = url.hostname.toLowerCase();
-  const registrable = parseDomain(host, { allowPrivateDomains: false });
+  // Custom egress is restricted to ICANN registrable domains. Private suffixes
+  // are intentionally not accepted: their ownership/routing policy is not a
+  // stable public egress boundary for an operator-defined connection.
+  const registrable = parseDomain(host, { allowPrivateDomains: true });
   if (
     !host ||
     host.length > 253 ||
@@ -227,6 +230,9 @@ function customEndpoint(value: string) {
     host.includes('*') ||
     isIP(host) !== 0 ||
     !registrable.domain ||
+    !registrable.isIcann ||
+    registrable.isPrivate ||
+    registrable.isSpecialUse !== null ||
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
   )
     throw new Error('Custom endpoint host is not allowed');

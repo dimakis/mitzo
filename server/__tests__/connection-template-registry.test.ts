@@ -257,6 +257,10 @@ describe('connection template registry', () => {
       { endpoint: 'https://[::1]', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://localhost', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://co.uk', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.invalid', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.test', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.corp', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://foo.blogspot.com', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.local', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.internal', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://user:pass@api.example.com', methods: ['GET'], paths: ['/v1/items'] },
@@ -287,9 +291,9 @@ describe('connection template registry', () => {
       connectionTemplateRegistry.compileProviderPolicy({
         templateId: 'custom-rest-readonly',
         templateVersion: 1,
-        fields: { endpoint: 'https://bücher.example', methods: ['GET'], paths: ['/v1/items'] },
+        fields: { endpoint: 'https://bücher.de', methods: ['GET'], paths: ['/v1/items'] },
       }).publicConfig.endpoint,
-    ).toBe('https://xn--bcher-kva.example');
+    ).toBe('https://xn--bcher-kva.de');
   });
 
   it('requires public-only pinned DNS answers and rejects rebinding', () => {
