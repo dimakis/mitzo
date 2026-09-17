@@ -7,6 +7,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import {
   ConnectionProbeError,
+  JIRA_TEMPLATE_ID,
   type ConnectionGateway,
   type GatewayProvider,
 } from './connections-gateway.js';
@@ -30,6 +31,24 @@ function endpointFromPolicy(policy: ProviderPolicy) {
   const first = policy.endpoints[0];
   if (!first) throw new Error('Provider policy has no endpoints');
   return `https://${first.host}`;
+}
+
+function durablePublicConfig(policy: ProviderPolicy): Record<string, string | string[]> {
+  return Object.fromEntries(
+    Object.entries(policy.publicConfig).map(([key, value]) => [
+      key,
+      typeof value === 'string' ? value : [...value],
+    ]),
+  );
+}
+
+function compatibilitySubmittedEmail(
+  templateId: string,
+  publicConfig: Record<string, string | string[]>,
+) {
+  return templateId === JIRA_TEMPLATE_ID && typeof publicConfig.email === 'string'
+    ? publicConfig.email
+    : undefined;
 }
 
 function isGenericCreateInput(
@@ -279,6 +298,7 @@ export class ConnectionsService {
       templateVersion: input.templateVersion,
       fields: input.fields,
     });
+    const publicConfig = durablePublicConfig(policy);
     const supplied = this.validateCredentials(input.templateId, input.templateVersion, credentials);
     const c = this.store.create({
       ownerId: input.ownerId,
@@ -286,7 +306,8 @@ export class ConnectionsService {
       templateVersion: input.templateVersion,
       label: input.label,
       endpoint: endpointFromPolicy(policy),
-      publicConfig: input.fields,
+      publicConfig,
+      submittedEmail: compatibilitySubmittedEmail(input.templateId, publicConfig),
       gatewayProviderName: `mitzo-conn-${randomUUID()}`,
       gateway: input.gateway,
       workspace: input.workspace,

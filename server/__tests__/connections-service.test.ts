@@ -83,6 +83,7 @@ describe('ConnectionsService', () => {
       templateVersion: 1,
       endpoint: 'https://api.atlassian.com',
       publicConfig: { email: 'person@example.test' },
+      submittedEmail: 'person@example.test',
       status: 'active',
     });
     expect(JSON.stringify(store.get(connection.id))).not.toContain('SENTINEL_PROVIDER_SECRET');
@@ -105,6 +106,67 @@ describe('ConnectionsService', () => {
     };
     database.close();
     expect(JSON.stringify(raw)).not.toContain('SENTINEL_PROVIDER_SECRET');
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('persists canonical policy config rather than generic creation input', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const gateway = {
+      supportsTemplate: vi.fn(
+        (templateId: string, templateVersion: number) =>
+          templateId === 'github-readonly' && templateVersion === 1,
+      ),
+      validateBinding: vi.fn(),
+      verifyCompatibility: vi.fn(),
+      provision: vi.fn(async ({ name }: { name: string }) => ({
+        id: 'provider-1',
+        name,
+        workspace: 'default',
+        type: 'github-readonly',
+        credentialKeys: ['GITHUB_TOKEN'],
+      })),
+      rotate: vi.fn(),
+      get: vi.fn().mockResolvedValue(undefined),
+      list: vi.fn(),
+      delete: vi.fn(),
+      attachments: vi.fn().mockResolvedValue([]),
+      stopSandbox: vi.fn(),
+      sandboxStopped: vi.fn().mockResolvedValue(true),
+      detach: vi.fn(),
+      probe: vi.fn().mockResolvedValue({ identity: 'account-1' }),
+      deleteSandbox: vi.fn().mockResolvedValue(undefined),
+      sandbox: vi.fn(),
+      sandboxProviders: vi.fn(),
+    };
+    const service = new ConnectionsService(store, gateway as never);
+    const connection = await service.createAndProvision(
+      {
+        ownerId: 'operator',
+        templateId: 'github-readonly',
+        templateVersion: 1,
+        label: 'GitHub',
+        fields: {
+          allowedRepositories: ['Acme/Widget', 'acme/widget'],
+          allowedBaseBranches: ['main', 'main'],
+        },
+        desiredAccountIds: [],
+      },
+      { token: 'SENTINEL_GITHUB_SECRET' },
+      AbortSignal.timeout(500),
+    );
+    const canonical = {
+      allowedRepositories: ['acme/widget'],
+      allowedBaseBranches: ['main'],
+    };
+    expect(connection.publicConfig).toEqual(canonical);
+    expect(store.get(connection.id)?.publicConfig).toEqual(canonical);
+    expect(gateway.provision).toHaveBeenCalledWith(
+      expect.objectContaining({ policy: expect.objectContaining({ publicConfig: canonical }) }),
+      expect.anything(),
+    );
+    expect(JSON.stringify(store.get(connection.id))).not.toContain('SENTINEL_GITHUB_SECRET');
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
