@@ -28,6 +28,9 @@ describe('connection template registry', () => {
     expect(projectProviderTemplate(jira).connectionFields).toEqual([
       expect.objectContaining({ key: 'email', kind: 'email', required: true }),
     ]);
+    expect(projectProviderTemplate(jira).credentialFields).toEqual([
+      expect.objectContaining({ key: 'token', style: 'basic', required: true }),
+    ]);
     expect(projectProviderTemplate(github).connectionFields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: 'allowedRepositories', required: true }),
@@ -318,6 +321,7 @@ describe('connection template registry', () => {
       ['2002:0a00:0001::1'],
       ['3fff:0000::1'],
       ['3fff:0fff::1'],
+      ['3ffe::1'],
       ['not-an-ip'],
     ])
       expect(() => pinPublicDnsAnswers(requirement, answers)).toThrow();
@@ -342,6 +346,7 @@ describe('connection template registry', () => {
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1'])).toThrow('rebinding');
     expect(() => verifyPinnedPublicDns(pin, ['1.1.1.1', '9.9.9.9'])).toThrow('rebinding');
     expect(() => pinPublicDnsAnswers(requirement, ['3fff:1000::1'])).not.toThrow();
+    expect(() => pinPublicDnsAnswers(requirement, ['3ffd::1'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['198.51.99.255'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['198.51.101.0'])).not.toThrow();
     expect(() => pinPublicDnsAnswers(requirement, ['203.0.112.255'])).not.toThrow();

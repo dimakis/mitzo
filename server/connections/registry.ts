@@ -443,8 +443,8 @@ const providers: readonly ProviderTemplate[] = [
       {
         key: 'token',
         label: 'API token',
-        description: 'A one-shot Jira API token used only by the gateway.',
-        style: 'api-token',
+        description: 'A one-shot Jira API token paired with the Jira email over HTTP Basic.',
+        style: 'basic',
         secret: true,
         required: true,
       },
@@ -453,7 +453,7 @@ const providers: readonly ProviderTemplate[] = [
       {
         key: 'email',
         label: 'Jira email',
-        description: 'The account email used with the one-shot Jira API token.',
+        description: 'The HTTP Basic username paired with the one-shot Jira API token.',
         kind: 'email',
         required: true,
       },
@@ -590,8 +590,8 @@ const reviewedProviderContracts = Object.freeze({
       {
         key: 'token',
         label: 'API token',
-        description: 'A one-shot Jira API token used only by the gateway.',
-        style: 'api-token',
+        description: 'A one-shot Jira API token paired with the Jira email over HTTP Basic.',
+        style: 'basic',
         secret: true,
         required: true,
       },
@@ -600,7 +600,7 @@ const reviewedProviderContracts = Object.freeze({
       {
         key: 'email',
         label: 'Jira email',
-        description: 'The account email used with the one-shot Jira API token.',
+        description: 'The HTTP Basic username paired with the one-shot Jira API token.',
         kind: 'email',
         required: true,
       },

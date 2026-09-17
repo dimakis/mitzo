@@ -343,6 +343,7 @@ function canonicalPublicDnsAddress(address: string) {
       (words[0] === 0x2001 && (words[1]! & 0xfe00) === 0x0000) || // 2001::/23
       (words[0] === 0x2001 && words[1] === 0x0db8) || // documentation
       words[0] === 0x2002 || // 6to4, including embedded private IPv4 forms
+      words[0] === 0x3ffe || // former 6bone allocation
       (words[0] === 0x3fff && (words[1]! & 0xf000) === 0) // documentation
     )
       return undefined;
