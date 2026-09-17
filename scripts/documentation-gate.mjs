@@ -1,7 +1,8 @@
 const productionPath =
-  /^(server|frontend\/(src|ios)|packages\/(client|harness|protocol)|mcp-server|scripts|infra)\//;
-const productionRootFile = /^(package(?:-lock)?\.json|docker-compose(?:\.[\w-]+)?\.ya?ml)$/;
-const testPath = /(^|\/)(__tests__|test|tests|fixtures|__mocks__)\/|\.(test|spec)\.[^.]+$/;
+  /^(server|frontend|packages\/(client|harness|protocol)|mcp-server|scripts|infra|skills)\//;
+const productionRootFile =
+  /^(package(?:-lock)?\.json|docker-compose(?:\.[\w-]+)?\.ya?ml|\.env\.example|com\.mitzo\.server\.plist)$/;
+const testPath = /(^|\/)(__tests__|test|tests|fixtures|__mocks__)\/|\.(test|spec)\.[^.]+$/i;
 const placeholderException = /^(n\/?a|none|no|not applicable|explain why)\.?$/i;
 
 export function isProductionPath(path) {
@@ -23,7 +24,10 @@ export function evaluateDocumentationGate({ files, body }) {
   const readmeReviewed = /- \[[xX]\] README (updated|reviewed)\b/m.test(body);
   const exception = body.match(/^README exception:\s*(.+)$/im)?.[1]?.trim();
   const validException =
-    Boolean(exception) && exception.length >= 20 && !placeholderException.test(exception);
+    Boolean(exception) &&
+    exception.length >= 20 &&
+    !placeholderException.test(exception) &&
+    !/<!--[\s\S]*?-->/.test(exception);
   const errors = [];
 
   if (!readmeReviewed) {
