@@ -117,6 +117,46 @@ export class CapabilityService {
       ),
     );
   }
+  /**
+   * Startup discovery for an already verified OpenShell attachment. It cannot
+   * execute anything: invoke() separately requires the live binding. This
+   * avoids a bootstrap cycle where tools are hidden before that binding is
+   * recorded during Codex runtime initialization.
+   */
+  eligibleToolsForManagedConnection(
+    accountId: string,
+    attachedConnection: Pick<CapabilityConnection, 'id' | 'revision'>,
+  ) {
+    const connection = this.options.getConnection(attachedConnection.id);
+    if (
+      !connection ||
+      connection.revision !== attachedConnection.revision ||
+      connection.status !== 'active' ||
+      !connection.desiredAccountIds.includes(accountId)
+    )
+      return [];
+    return this.options.store
+      .grants(connection.id)
+      .filter(
+        (grant) =>
+          grant.status === 'active' &&
+          grant.connectionRevision === connection.revision &&
+          grant.accountIds.includes(accountId),
+      )
+      .flatMap((grant) => {
+        const template = this.options.getTemplate(grant.capabilityId, grant.capabilityVersion);
+        return template && this.options.executorRegistry.supports(template)
+          ? [
+              {
+                capabilityId: grant.capabilityId,
+                capabilityVersion: grant.capabilityVersion,
+                connectionId: connection.id,
+                connectionRevision: connection.revision,
+              },
+            ]
+          : [];
+      });
+  }
   listGrants(connectionId: string): CapabilityGrant[] {
     return this.options.store.grants(connectionId);
   }
@@ -150,14 +190,7 @@ export class CapabilityService {
     if (
       !operation ||
       operation.accountId !== accountId ||
-      operation.conversationId !== conversationId ||
-      this.options.getConnection(operation.connectionId)?.revision !==
-        operation.connectionRevision ||
-      !this.options.isConnectionActiveForConversation(
-        operation.connectionId,
-        accountId,
-        conversationId,
-      )
+      operation.conversationId !== conversationId
     )
       return undefined;
     return operation;
@@ -179,6 +212,17 @@ export class CapabilityService {
   cancel(id: string, accountId: string, conversationId: string): CapabilityOperation | undefined {
     const operation = this.getOperation(id, accountId, conversationId);
     if (!operation || operation.status !== 'pending_approval') return operation;
+    const connection = this.options.getConnection(operation.connectionId);
+    if (
+      !connection ||
+      connection.revision !== operation.connectionRevision ||
+      !this.options.isConnectionActiveForConversation(
+        operation.connectionId,
+        accountId,
+        conversationId,
+      )
+    )
+      return undefined;
     try {
       return this.options.store.transition(id, 'pending_approval', 'cancelled', {
         failureCode: 'CANCELLED',

@@ -165,6 +165,29 @@ describe('CapabilityService', () => {
     expect(f.service.eligibleToolsForConversation('account-1', 'conversation-1')).toEqual([]);
   });
 
+  it('advertises only the already-verified attached connection during startup discovery', async () => {
+    const f = await fixture();
+    expect(
+      f.service.eligibleToolsForManagedConnection('account-1', {
+        id: 'connection-1',
+        revision: 7,
+      }),
+    ).toEqual([
+      {
+        capabilityId: template.id,
+        capabilityVersion: template.version,
+        connectionId: 'connection-1',
+        connectionRevision: 7,
+      },
+    ]);
+    expect(
+      f.service.eligibleToolsForManagedConnection('account-1', {
+        id: 'connection-1',
+        revision: 8,
+      }),
+    ).toEqual([]);
+  });
+
   it('never persists request values or executor secrets in output, errors, or audit rows', async () => {
     const f = await fixture();
     const secret = 'SENTINEL_SECRET_987';
@@ -310,6 +333,19 @@ describe('CapabilityService', () => {
     const operation = await direct(directRequest, new AbortController().signal);
     expect(operation).toMatchObject({ accountId: 'account-1', conversationId: 'conversation-1' });
     expect(f.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows the same account and conversation to read durable history after live access closes', async () => {
+    const f = await fixture();
+    const operation = await f.service.invoke(request(), new AbortController().signal);
+    f.setActive(false);
+    expect(f.service.getOperation(operation.id, 'account-1', 'conversation-1')).toMatchObject({
+      id: operation.id,
+      status: 'succeeded',
+    });
+    await expect(
+      f.service.invoke(request({ idempotencyKey: 'closed' }), new AbortController().signal),
+    ).rejects.toThrow('unavailable');
   });
 
   it('keeps approval identity fields immutable when an input uses confusing keys', () => {

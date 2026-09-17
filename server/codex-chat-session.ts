@@ -89,7 +89,6 @@ type CapabilityToolBinding = {
 /** Dynamic definitions bind a reviewed grant at startup; model input never picks an account or grant. */
 function capabilityToolsForConversation(
   accountId: string,
-  conversationId: string,
   managedConnection: Pick<Connection, 'id' | 'revision'> | null,
 ) {
   const capabilityService = getConnectionsRuntime()?.capabilities;
@@ -97,7 +96,7 @@ function capabilityToolsForConversation(
   if (!capabilityService || !managedConnection)
     return { definitions: [], bindings, service: undefined };
   const definitions = capabilityService
-    .eligibleToolsForConversation(accountId, conversationId, managedConnection)
+    .eligibleToolsForManagedConnection(accountId, managedConnection)
     .flatMap((grant) => {
       const template = connectionTemplateRegistry.getCapabilityTemplate(
         grant.capabilityId,
@@ -529,7 +528,6 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     options.binding?.accountId && managedConnection ? managedConnection : null;
   const capabilityTools = capabilityToolsForConversation(
     options.binding?.accountId ?? '',
-    options.conversationId,
     managedCapabilityConnection,
   );
   const events = new AsyncQueue<Record<string, unknown>>();
