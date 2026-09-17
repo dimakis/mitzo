@@ -162,12 +162,12 @@ describe('github.publish-pr capability', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
-  it('treats only a GitHub branch 404 as an unprotected new source branch', async () => {
+  it('evaluates rulesets for an unborn source branch before allowing it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mitzo-fake-gh-'));
     const gh = join(directory, 'gh');
     await writeFile(
       gh,
-      "#!/bin/sh\ncase \"$*\" in *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature/safe'*) printf '%s' '[]' ;; *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
       { mode: 0o700 },
     );
     await chmod(gh, 0o700);
@@ -186,6 +186,42 @@ describe('github.publish-pr capability', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('fails closed when unborn-branch rules cannot be established or apply', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mitzo-fake-gh-'));
+    const gh = join(directory, 'gh');
+    await writeFile(
+      gh,
+      "#!/bin/sh\ncase \"$*\" in *'/rules/branches/feature/safe'*) printf '%s' '[{\"type\":\"pull_request\"}]' ;; *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      { mode: 0o700 },
+    );
+    await chmod(gh, 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = directory;
+    try {
+      await expect(
+        new GitHubCliHostPublisher().policy({
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: true });
+      await writeFile(
+        gh,
+        "#!/bin/sh\ncase \"$*\" in *'/branches/feature/safe'*|*'/rules/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+        { mode: 0o700 },
+      );
+      await expect(
+        new GitHubCliHostPublisher().policy({
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          signal: new AbortController().signal,
+        }),
+      ).rejects.toThrow('cannot be established');
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   it('queries only open PRs before create/update decisions', async () => {
     const runner = vi.fn(async () => ({ stdout: '[]', stderr: '' }));
     const found = await new GitHubCliHostPublisher(runner).findOpen({
@@ -199,6 +235,53 @@ describe('github.publish-pr capability', () => {
     expect(runner).toHaveBeenCalledWith(
       'gh',
       expect.arrayContaining(['state=open']),
+      expect.any(AbortSignal),
+    );
+  });
+  it('fails closed instead of treating a malformed nonempty open lookup as createable', async () => {
+    const runner = vi.fn(async () => ({ stdout: '[{}]', stderr: '' }));
+    await expect(
+      new GitHubCliHostPublisher(runner).findOpen({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        operationId: 'op',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('lookup is invalid');
+  });
+  it('uses an exact all-state metadata lookup when recovery has no PR URL', async () => {
+    const runner = vi.fn(async () => ({
+      stdout: JSON.stringify([
+        {
+          number: 12,
+          html_url: 'https://github.com/acme/widgets/pull/12',
+          state: 'closed',
+          merged: true,
+          title: input.title,
+          body: input.body,
+          draft: input.draft,
+          head: { ref: 'feature/safe' },
+          base: { ref: 'main', repo: { full_name: 'acme/widgets' } },
+        },
+      ]),
+      stderr: '',
+    }));
+    await expect(
+      new GitHubCliHostPublisher(runner).read({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        baseBranch: 'main',
+        expectedTitle: input.title,
+        expectedBody: input.body,
+        expectedDraft: input.draft,
+        operationId: 'op',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toMatchObject({ id: '12', state: 'closed', merged: true });
+    expect(runner).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['state=all', 'per_page=100']),
       expect.any(AbortSignal),
     );
   });
@@ -521,6 +604,8 @@ describe('github.publish-pr capability', () => {
       commitCount: '2',
       changedFiles: '["src/index.ts"]',
       existingPullRequest: 'create',
+      existingPullRequestId: '',
+      existingPullRequestUrl: '',
     });
     await expect(
       f.executor.execute(
@@ -614,6 +699,23 @@ describe('github.publish-pr capability', () => {
       }),
     );
   });
+  it('rejects a close/replace race after push rather than changing the approved target', async () => {
+    const f = fixture();
+    vi.mocked(f.host.findOpen)
+      .mockResolvedValueOnce(f.pull)
+      .mockResolvedValueOnce(f.pull)
+      .mockResolvedValueOnce({
+        ...f.pull,
+        id: '13',
+        url: 'https://github.com/acme/widgets/pull/13',
+      });
+    const preflight = await f.executor.preflight!(context());
+    await expect(
+      f.executor.execute(context({ approvalInput: preflight.approvalInput })),
+    ).rejects.toThrow('changed after approval');
+    expect(f.host.update).not.toHaveBeenCalled();
+    expect(f.host.create).not.toHaveBeenCalled();
+  });
   it('rejects malformed create/read results and cancellation', async () => {
     const malformed = fixture();
     vi.mocked(malformed.host.create).mockResolvedValueOnce({
@@ -649,6 +751,8 @@ describe('github.publish-pr capability', () => {
         title: input.title,
         body: input.body,
         draft: input.draft,
+        existingPullRequestId: '',
+        existingPullRequestUrl: '',
       },
     };
     await expect(
@@ -684,6 +788,8 @@ describe('github.publish-pr capability', () => {
             title: input.title,
             body: input.body,
             draft: false,
+            existingPullRequestId: mixed.id,
+            existingPullRequestUrl: mixed.url,
           },
         },
         new AbortController().signal,
@@ -705,6 +811,8 @@ describe('github.publish-pr capability', () => {
             title: input.title,
             body: input.body,
             draft: false,
+            existingPullRequestId: '',
+            existingPullRequestUrl: '',
             operationId: operation.id,
           },
         },
@@ -713,5 +821,34 @@ describe('github.publish-pr capability', () => {
     ).resolves.toMatchObject({ externalResultId: f.pull.url });
     expect(f.host.push).not.toHaveBeenCalled();
     expect(f.host.create).toHaveBeenCalledTimes(1);
+  });
+  it('recovers a matching closed PR from all states without creating or mutating it', async () => {
+    const f = fixture();
+    const closed = { ...f.pull, state: 'closed' as const, merged: true };
+    vi.mocked(f.host.read).mockResolvedValue(closed);
+    await expect(
+      f.executor.recover(
+        {
+          ...operation,
+          recoveryIntent: {
+            repository: f.pull.repository,
+            sourceBranch: f.pull.sourceBranch,
+            sourceOid: 'a'.repeat(40),
+            baseBranch: f.pull.baseBranch,
+            title: input.title,
+            body: input.body,
+            draft: input.draft,
+            existingPullRequestId: '',
+            existingPullRequestUrl: '',
+          },
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ externalResultId: f.pull.url });
+    expect(f.host.read).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedTitle: input.title, expectedDraft: input.draft }),
+    );
+    expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.update).not.toHaveBeenCalled();
   });
 });

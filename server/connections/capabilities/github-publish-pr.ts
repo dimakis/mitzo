@@ -71,6 +71,9 @@ export interface GithubPullRequest {
   title: string;
   body: string;
   draft: boolean;
+  /** Omitted by older test doubles; production transport always supplies it. */
+  state?: 'open' | 'closed';
+  merged?: boolean;
 }
 
 /**
@@ -131,6 +134,10 @@ export interface GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     externalResultId?: string;
+    /** Used only for all-state recovery lookup when no durable URL exists. */
+    expectedTitle?: string;
+    expectedBody?: string;
+    expectedDraft?: boolean;
     operationId: string;
     signal: AbortSignal;
   }): Promise<GithubPullRequest | null>;
@@ -240,6 +247,11 @@ function assertPullRequest(
     typeof value.id !== 'string' ||
     !url ||
     url.protocol !== 'https:' ||
+    url.port !== '' ||
+    !!url.username ||
+    !!url.password ||
+    !!url.search ||
+    !!url.hash ||
     url.hostname.toLowerCase() !== 'github.com' ||
     url.pathname.toLowerCase() !== `/${expected.repository}/pull/${value.id}`.toLowerCase()
   )
@@ -260,6 +272,34 @@ function output(pr: GithubPullRequest, inspection: GithubSandboxInspection): Jso
 function assertRequestedMetadata(pr: GithubPullRequest, input: Input) {
   if (pr.title !== input.title || pr.body !== input.body || pr.draft !== input.draft)
     reject('GitHub pull request verification failed');
+}
+function samePullRequestUrl(left: string, right: string) {
+  try {
+    const a = new URL(left);
+    const b = new URL(right);
+    return (
+      a.protocol === 'https:' &&
+      b.protocol === 'https:' &&
+      a.port === '' &&
+      b.port === '' &&
+      !a.username &&
+      !a.password &&
+      !b.username &&
+      !b.password &&
+      !a.search &&
+      !b.search &&
+      !a.hash &&
+      !b.hash &&
+      a.hostname.toLowerCase() === 'github.com' &&
+      b.hostname.toLowerCase() === 'github.com' &&
+      a.pathname.toLowerCase() === b.pathname.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+function isClosedPullRequest(pr: GithubPullRequest) {
+  return pr.state === 'closed' || pr.merged === true;
 }
 
 /**
@@ -332,6 +372,10 @@ export function createGithubPublishPrExecutor(
     commitCount: String(state.inspection.commitsAhead),
     changedFiles: JSON.stringify(state.inspection.changedFiles),
     existingPullRequest: existing ? 'update' : 'create',
+    // The approval binds an update to this repository-local PR identity, not
+    // merely to the fact that an open PR happened to exist at preflight.
+    existingPullRequestId: existing?.id ?? '',
+    existingPullRequestUrl: existing?.url ?? '',
   });
   const assertApproved = (
     context: CapabilityExecutionContext,
@@ -383,6 +427,8 @@ export function createGithubPublishPrExecutor(
           title: state.input.title,
           body: state.input.body,
           draft: state.input.draft,
+          existingPullRequestId: existing?.id ?? '',
+          existingPullRequestUrl: existing?.url ?? '',
           operationId: context.operation.id,
         },
       };
@@ -442,6 +488,9 @@ export function createGithubPublishPrExecutor(
           operationId: context.operation.id,
           signal: context.signal,
         });
+        // A close/replace race after the branch push must never change an
+        // approved create into an update (or vice versa).
+        assertApproved(context, state, existing);
         const pr = assertPullRequest(
           existing
             ? await deps.host.update({
@@ -509,6 +558,8 @@ export function createGithubPublishPrExecutor(
       const title = result.title;
       const body = result.body;
       const draft = result.draft;
+      const existingPullRequestId = result.existingPullRequestId;
+      const existingPullRequestUrl = result.existingPullRequestUrl;
       if (
         typeof repository !== 'string' ||
         typeof sourceBranch !== 'string' ||
@@ -517,10 +568,28 @@ export function createGithubPublishPrExecutor(
         typeof title !== 'string' ||
         typeof body !== 'string' ||
         typeof draft !== 'boolean' ||
+        typeof existingPullRequestId !== 'string' ||
+        typeof existingPullRequestUrl !== 'string' ||
+        Boolean(existingPullRequestId) !== Boolean(existingPullRequestUrl) ||
+        (existingPullRequestId !== '' && !/^[1-9][0-9]*$/.test(existingPullRequestId)) ||
         !/^[a-f0-9]{40,64}$/i.test(sourceOid) ||
         (operation.externalResultId !== null && typeof operation.externalResultId !== 'string')
       )
         reject('GitHub recovery result is unavailable');
+      if (existingPullRequestUrl)
+        assertPullRequest(
+          {
+            repository,
+            sourceBranch,
+            baseBranch,
+            id: existingPullRequestId,
+            url: existingPullRequestUrl,
+            title,
+            body,
+            draft,
+          },
+          { repository, sourceBranch, baseBranch },
+        );
       const branchOid = await deps.host.readBranch({
         repository,
         sourceBranch,
@@ -529,46 +598,98 @@ export function createGithubPublishPrExecutor(
       });
       if (!branchOid || branchOid !== sourceOid)
         throw new CapabilityRecoveryPendingError('GitHub branch recovery remains pending');
-      const existing = await deps.host.read({
-        repository,
-        sourceBranch,
-        baseBranch,
-        externalResultId: operation.externalResultId ?? undefined,
-        operationId: operation.id,
-        signal,
-      });
-      const pr = existing
-        ? await deps.host.update({
-            repository,
-            sourceBranch,
-            baseBranch,
-            pullRequest: existing,
-            title,
-            body,
-            draft,
-            operationId: operation.id,
-            signal,
-          })
-        : await deps.host.create({
-            repository,
-            sourceBranch,
-            baseBranch,
-            title,
-            body,
-            draft,
-            operationId: operation.id,
-            signal,
-          });
-      assertPullRequest(pr, { repository, sourceBranch, baseBranch });
-      assertRequestedMetadata(pr, {
+      const requested = {
         connectionId: operation.connectionId,
         repositoryPath: '',
         baseBranch,
         title,
         body,
         draft,
-      });
-      if (operation.externalResultId && pr.url !== operation.externalResultId)
+      };
+      const completeExisting = async (existing: GithubPullRequest, expectedUrl?: string) => {
+        assertPullRequest(existing, { repository, sourceBranch, baseBranch });
+        if (
+          expectedUrl &&
+          (existing.id !== existingPullRequestId || !samePullRequestUrl(existing.url, expectedUrl))
+        )
+          reject('GitHub recovery verification failed');
+        if (existing.title === title && existing.body === body && existing.draft === draft)
+          return existing;
+        // A completed closed/merged PR is an authoritative result only when
+        // it already has the approved metadata. Never reopen or mutate it.
+        if (isClosedPullRequest(existing))
+          throw new CapabilityRecoveryPendingError('GitHub pull request recovery remains pending');
+        return deps.host.update({
+          repository,
+          sourceBranch,
+          baseBranch,
+          pullRequest: existing,
+          title,
+          body,
+          draft,
+          operationId: operation.id,
+          signal,
+        });
+      };
+      let pr: GithubPullRequest;
+      if (existingPullRequestUrl) {
+        if (
+          operation.externalResultId &&
+          !samePullRequestUrl(operation.externalResultId, existingPullRequestUrl)
+        )
+          reject('GitHub recovery verification failed');
+        const existing = await deps.host.read({
+          repository,
+          sourceBranch,
+          baseBranch,
+          externalResultId: existingPullRequestUrl,
+          operationId: operation.id,
+          signal,
+        });
+        if (!existing)
+          throw new CapabilityRecoveryPendingError('GitHub pull request recovery remains pending');
+        pr = await completeExisting(existing, existingPullRequestUrl);
+      } else if (operation.externalResultId) {
+        const existing = await deps.host.read({
+          repository,
+          sourceBranch,
+          baseBranch,
+          externalResultId: operation.externalResultId,
+          operationId: operation.id,
+          signal,
+        });
+        if (!existing)
+          throw new CapabilityRecoveryPendingError('GitHub pull request recovery remains pending');
+        pr = await completeExisting(existing);
+      } else {
+        // A response loss after create has no URL. Search *all* PR states for
+        // the exact durable head/base/metadata before ever issuing another POST.
+        const existing = await deps.host.read({
+          repository,
+          sourceBranch,
+          baseBranch,
+          expectedTitle: title,
+          expectedBody: body,
+          expectedDraft: draft,
+          operationId: operation.id,
+          signal,
+        });
+        pr = existing
+          ? await completeExisting(existing)
+          : await deps.host.create({
+              repository,
+              sourceBranch,
+              baseBranch,
+              title,
+              body,
+              draft,
+              operationId: operation.id,
+              signal,
+            });
+      }
+      assertPullRequest(pr, { repository, sourceBranch, baseBranch });
+      assertRequestedMetadata(pr, requested);
+      if (operation.externalResultId && !samePullRequestUrl(pr.url, operation.externalResultId))
         reject('GitHub recovery verification failed');
       const verified = await deps.host.read({
         repository,
@@ -580,14 +701,7 @@ export function createGithubPublishPrExecutor(
       });
       if (!verified) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
       assertPullRequest(verified, { repository, sourceBranch, baseBranch });
-      assertRequestedMetadata(verified, {
-        connectionId: operation.connectionId,
-        repositoryPath: '',
-        baseBranch,
-        title,
-        body,
-        draft,
-      });
+      assertRequestedMetadata(verified, requested);
       return {
         output: {
           repository: verified.repository,

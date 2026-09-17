@@ -293,6 +293,8 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
       title: z.string(),
       body: z.string().nullable(),
       draft: z.boolean(),
+      state: z.enum(['open', 'closed']).optional(),
+      merged: z.boolean().optional(),
       head: z.object({ ref: z.string() }),
       base: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }) }),
     })
@@ -306,6 +308,8 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
         title: parsed.data.title,
         body: parsed.data.body ?? '',
         draft: parsed.data.draft,
+        state: parsed.data.state ?? 'open',
+        merged: parsed.data.merged ?? false,
         sourceBranch: parsed.data.head.ref,
         baseBranch: parsed.data.base.ref,
         repository: parsed.data.base.repo.full_name.toLowerCase(),
@@ -374,26 +378,50 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       ['api', '--method', 'GET', `repos/${input.repository}`],
       input.signal,
     );
-    let branch: { stdout: string } | null;
+    let sourceBranchProtected: boolean;
     try {
-      branch = await this.runHost(
+      const branch = await this.runHost(
         'gh',
         ['api', '--method', 'GET', `repos/${input.repository}/branches/${input.sourceBranch}`],
         input.signal,
       );
+      const source = z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout));
+      if (!source.success) throw new Error('GitHub repository policy is invalid');
+      sourceBranchProtected = source.data.protected;
     } catch (error) {
       if (!(error instanceof GithubNotFoundError)) throw error;
-      branch = null;
+      // A missing ref is not evidence that it is unprotected: GitHub rulesets
+      // can match a branch before its first push. Ask GitHub for the rules
+      // that apply to this exact unborn ref; inability to establish that fact
+      // is a fail-closed policy error rather than an implicit allow.
+      let rules: { stdout: string };
+      try {
+        rules = await this.runHost(
+          'gh',
+          [
+            'api',
+            '--method',
+            'GET',
+            `repos/${input.repository}/rules/branches/${input.sourceBranch}`,
+          ],
+          input.signal,
+        );
+      } catch (rulesError) {
+        throw new Error('GitHub source branch protection cannot be established', {
+          cause: rulesError,
+        });
+      }
+      const applicable = z.array(z.unknown()).safeParse(JSON.parse(rules.stdout));
+      if (!applicable.success)
+        throw new Error('GitHub source branch protection cannot be established', { cause: error });
+      sourceBranchProtected = applicable.data.length > 0;
     }
     const repo = z.object({ default_branch: z.string() }).safeParse(JSON.parse(repository.stdout));
-    const source = branch
-      ? z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout))
-      : undefined;
-    if (!repo.success || (source && !source.success) || !safeBranch.test(repo.data.default_branch))
+    if (!repo.success || !safeBranch.test(repo.data.default_branch))
       throw new Error('GitHub repository policy is invalid');
     return {
       defaultBranch: repo.data.default_branch,
-      sourceBranchProtected: source?.data.protected ?? false,
+      sourceBranchProtected,
     };
   }
   async reconstruct(input: {
@@ -474,6 +502,8 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     signal: AbortSignal;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
+    checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
+    checked(input.baseBranch, safeBranch, 'Base branch is invalid');
     const owner = input.repository.split('/')[0]!;
     const { stdout } = await this.runHost(
       'gh',
@@ -494,7 +524,70 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     const list = z.array(z.unknown()).safeParse(JSON.parse(stdout));
     if (!list.success || list.data.length > 1)
       throw new Error('GitHub pull request lookup is invalid');
-    return list.data.length === 0 ? null : parseGithubPullRequest(list.data[0]);
+    if (list.data.length === 0) return null;
+    const value = parseGithubPullRequest(list.data[0]);
+    if (!value) throw new Error('GitHub pull request lookup is invalid');
+    return assertPullRequestScope(value, {
+      repository: input.repository,
+      sourceBranch: input.sourceBranch,
+      baseBranch: input.baseBranch,
+      id: value.id,
+    });
+  }
+  private async findMatchingAll(input: {
+    repository: string;
+    sourceBranch: string;
+    baseBranch: string;
+    expectedTitle: string;
+    expectedBody: string;
+    expectedDraft: boolean;
+    signal: AbortSignal;
+  }) {
+    checked(input.repository, safeRepository, 'Repository is invalid');
+    checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
+    checked(input.baseBranch, safeBranch, 'Base branch is invalid');
+    const owner = input.repository.split('/')[0]!;
+    const { stdout } = await this.runHost(
+      'gh',
+      [
+        'api',
+        '--method',
+        'GET',
+        `repos/${input.repository}/pulls`,
+        '-f',
+        `head=${owner}:${input.sourceBranch}`,
+        '-f',
+        `base=${input.baseBranch}`,
+        '-f',
+        'state=all',
+        '-f',
+        'per_page=100',
+      ],
+      input.signal,
+    );
+    const list = z.array(z.unknown()).safeParse(JSON.parse(stdout));
+    // A full first page is ambiguous rather than permission to overlook an
+    // older closed PR on a later page and duplicate the approved mutation.
+    if (!list.success || list.data.length === 100)
+      throw new Error('GitHub pull request lookup is incomplete');
+    const pullRequests = list.data.map((item) => {
+      const value = parseGithubPullRequest(item);
+      if (!value) throw new Error('GitHub pull request lookup is invalid');
+      return assertPullRequestScope(value, {
+        repository: input.repository,
+        sourceBranch: input.sourceBranch,
+        baseBranch: input.baseBranch,
+        id: value.id,
+      });
+    });
+    const matches = pullRequests.filter(
+      (value) =>
+        value.title === input.expectedTitle &&
+        value.body === input.expectedBody &&
+        value.draft === input.expectedDraft,
+    );
+    if (matches.length > 1) throw new Error('GitHub pull request lookup is ambiguous');
+    return matches[0] ?? null;
   }
   async create(input: {
     repository: string;
@@ -605,10 +698,29 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     sourceBranch: string;
     baseBranch: string;
     externalResultId?: string;
+    expectedTitle?: string;
+    expectedBody?: string;
+    expectedDraft?: boolean;
     operationId: string;
     signal: AbortSignal;
   }) {
-    if (!input.externalResultId) return this.findOpen(input);
+    if (!input.externalResultId) {
+      if (
+        typeof input.expectedTitle !== 'string' ||
+        typeof input.expectedBody !== 'string' ||
+        typeof input.expectedDraft !== 'boolean'
+      )
+        throw new Error('GitHub recovery lookup is incomplete');
+      return this.findMatchingAll({
+        repository: input.repository,
+        sourceBranch: input.sourceBranch,
+        baseBranch: input.baseBranch,
+        expectedTitle: input.expectedTitle,
+        expectedBody: input.expectedBody,
+        expectedDraft: input.expectedDraft,
+        signal: input.signal,
+      });
+    }
     let url: URL;
     try {
       url = new URL(input.externalResultId);
