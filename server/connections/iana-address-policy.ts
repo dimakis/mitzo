@@ -94,6 +94,7 @@ function compileCidrs(cidrs: readonly string[]) {
 const ipv4SpecialPurpose = compileCidrs(ianaIpv4SpecialPurposeCidrs);
 const ipv6SpecialPurpose = compileCidrs(ianaIpv6SpecialPurposeCidrs);
 const ipv6AllocatedGlobalUnicast = compileCidrs(ianaIpv6AllocatedGlobalUnicastCidrs);
+const ipv4Multicast = parseCidr('224.0.0.0/4');
 
 export function cidrContains(address: ParsedIpAddress, cidr: ParsedCidr) {
   if (address.family !== cidr.family) return false;
@@ -109,7 +110,13 @@ function isIn(address: ParsedIpAddress, table: readonly ParsedCidr[]) {
 export function canonicalPublicDnsAddress(address: string) {
   const parsed = parseIpAddress(address);
   if (!parsed) return undefined;
-  if (parsed.family === 4) return isIn(parsed, ipv4SpecialPurpose) ? undefined : parsed.canonical;
+  // IANA's special-purpose registry does not include the separately assigned
+  // IPv4 multicast block. Public DNS answers must be unicast, not merely
+  // absent from the special-purpose table.
+  if (parsed.family === 4)
+    return isIn(parsed, ipv4SpecialPurpose) || cidrContains(parsed, ipv4Multicast)
+      ? undefined
+      : parsed.canonical;
   return isIn(parsed, ipv6AllocatedGlobalUnicast) && !isIn(parsed, ipv6SpecialPurpose)
     ? parsed.canonical
     : undefined;

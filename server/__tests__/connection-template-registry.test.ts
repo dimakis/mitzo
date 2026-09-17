@@ -360,6 +360,9 @@ describe('connection template registry', () => {
       ['192.175.48.1'],
       ['198.51.100.1'],
       ['203.0.113.1'],
+      ['224.0.0.0'],
+      ['224.0.0.1'],
+      ['239.255.255.255'],
       ['fe80::1'],
       ['fc00::1'],
       ['ff02::1'],
@@ -433,7 +436,11 @@ describe('connection template registry', () => {
     const expectedPublic = (address: bigint, family: 4 | 6) => {
       const parsed = parseIpAddress(family === 4 ? ipv4Text(address) : addressText(address));
       if (!parsed) throw new Error('test address failed to parse');
-      if (parsed.family === 4) return !ipv4Special.some((cidr) => cidrContains(parsed, cidr));
+      if (parsed.family === 4)
+        return (
+          !ipv4Special.some((cidr) => cidrContains(parsed, cidr)) &&
+          parsed.value < parseIpAddress('224.0.0.0')!.value
+        );
       return (
         ipv6Allocated.some((cidr) => cidrContains(parsed, cidr)) &&
         !ipv6Special.some((cidr) => cidrContains(parsed, cidr))
@@ -456,6 +463,13 @@ describe('connection template registry', () => {
       if (lower > 0n) expectAddress(lower - 1n, cidr.family);
       if (upper < max) expectAddress(upper + 1n, cidr.family);
     }
+  });
+
+  it('accepts only IPv4 unicast addresses outside generated special-purpose ranges', () => {
+    expect(canonicalPublicDnsAddress('223.255.255.255')).toBe('223.255.255.255');
+    expect(canonicalPublicDnsAddress('224.0.0.0')).toBeUndefined();
+    expect(canonicalPublicDnsAddress('239.255.255.255')).toBeUndefined();
+    expect(canonicalPublicDnsAddress('240.0.0.0')).toBeUndefined();
   });
 
   it('keeps generated IANA data byte-integral with its checked-in snapshots', async () => {
