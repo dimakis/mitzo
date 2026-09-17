@@ -90,7 +90,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     signal: AbortSignal;
   }): Promise<GithubSandboxInspection> {
     checked(input.baseBranch, safeBranch, 'Base branch is invalid');
-    const [status, source, sourceOid, origin, count, defaultRef, files] = await Promise.all([
+    const [status, sourceOid, source, origin, count, defaultRef, files] = await Promise.all([
       this.git(
         input.sandboxName,
         input.repositoryPath,
@@ -261,10 +261,28 @@ async function host(
       maxBuffer,
       windowsHide: true,
     });
-  } catch {
+  } catch (error) {
     // `git`/`gh` errors may include an authenticated remote URL or HTTP
     // diagnostics. Preserve neither across the capability boundary.
-    throw new Error('GitHub host operation failed');
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'stderr' in error &&
+      typeof error.stderr === 'string' &&
+      /\b404\b/.test(error.stderr)
+    )
+      throw new GithubNotFoundError(error);
+    throw new Error('GitHub host operation failed', { cause: error });
+  }
+}
+export type GithubHostCommandRunner = (
+  command: string,
+  args: readonly string[],
+  signal: AbortSignal,
+) => Promise<{ stdout: string; stderr: string }>;
+class GithubNotFoundError extends Error {
+  constructor(cause: unknown) {
+    super('GitHub resource not found', { cause });
   }
 }
 export function parseGithubPullRequest(value: unknown): GithubPullRequest | null {
@@ -272,6 +290,9 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
     .object({
       html_url: z.string(),
       number: z.number().int().positive(),
+      title: z.string(),
+      body: z.string().nullable(),
+      draft: z.boolean(),
       head: z.object({ ref: z.string() }),
       base: z.object({ ref: z.string(), repo: z.object({ full_name: z.string() }) }),
     })
@@ -282,6 +303,9 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
         // REST /pulls/{number} is addressed by the repository-local PR number;
         // GitHub's opaque database `id` is not a valid path identifier.
         id: String(parsed.data.number),
+        title: parsed.data.title,
+        body: parsed.data.body ?? '',
+        draft: parsed.data.draft,
         sourceBranch: parsed.data.head.ref,
         baseBranch: parsed.data.base.ref,
         repository: parsed.data.base.repo.full_name.toLowerCase(),
@@ -291,24 +315,36 @@ export function parseGithubPullRequest(value: unknown): GithubPullRequest | null
 
 /** Host adapter: isolated checkout, no hooks/local config, explicit non-force push. */
 export class GitHubCliHostPublisher implements GithubHostPublisher {
+  private readonly cleanupParents = new Set<string>();
+  constructor(private readonly runHost: GithubHostCommandRunner = host) {}
   async policy(input: { repository: string; sourceBranch: string; signal: AbortSignal }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
-    const [repository, branch] = await Promise.all([
-      host('gh', ['api', '--method', 'GET', `repos/${input.repository}`], input.signal),
-      host(
+    const repository = await this.runHost(
+      'gh',
+      ['api', '--method', 'GET', `repos/${input.repository}`],
+      input.signal,
+    );
+    let branch: { stdout: string } | null;
+    try {
+      branch = await this.runHost(
         'gh',
         ['api', '--method', 'GET', `repos/${input.repository}/branches/${input.sourceBranch}`],
         input.signal,
-      ),
-    ]);
+      );
+    } catch (error) {
+      if (!(error instanceof GithubNotFoundError)) throw error;
+      branch = null;
+    }
     const repo = z.object({ default_branch: z.string() }).safeParse(JSON.parse(repository.stdout));
-    const source = z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout));
-    if (!repo.success || !source.success || !safeBranch.test(repo.data.default_branch))
+    const source = branch
+      ? z.object({ protected: z.boolean() }).safeParse(JSON.parse(branch.stdout))
+      : undefined;
+    if (!repo.success || (source && !source.success) || !safeBranch.test(repo.data.default_branch))
       throw new Error('GitHub repository policy is invalid');
     return {
       defaultBranch: repo.data.default_branch,
-      sourceBranchProtected: source.data.protected,
+      sourceBranchProtected: source?.data.protected ?? false,
     };
   }
   async reconstruct(input: {
@@ -329,12 +365,12 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     try {
       const bundlePath = join(parent, 'commits.bundle');
       await writeFile(bundlePath, input.bundle, { mode: 0o600 });
-      await host(
+      await this.runHost(
         'git',
         ['clone', '--no-checkout', `https://github.com/${input.repository}.git`, directory],
         input.signal,
       );
-      await host(
+      await this.runHost(
         'git',
         [
           '-C',
@@ -345,14 +381,14 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         ],
         input.signal,
       );
-      const fetched = await host(
+      const fetched = await this.runHost(
         'git',
         ['-C', directory, 'rev-parse', `refs/heads/${input.sourceBranch}`],
         input.signal,
       );
       if (fetched.stdout.trim() !== input.sourceOid)
         throw new Error('Host bundle source does not match approved commit');
-      await host(
+      await this.runHost(
         'git',
         ['-C', directory, 'symbolic-ref', 'HEAD', `refs/heads/${input.sourceBranch}`],
         input.signal,
@@ -360,6 +396,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       // Do not checkout repository content. Fetching the verified bundle into
       // a clean clone applies the commits without running smudge filters,
       // hooks, package scripts, or repository-controlled code.
+      this.cleanupParents.add(parent);
       return { directory, cleanupDirectory: parent };
     } catch (error) {
       await rm(parent, { recursive: true, force: true });
@@ -374,7 +411,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
   }) {
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
     // No `--force`, no refspec supplied by a model, and no default branch name.
-    await host(
+    await this.runHost(
       'git',
       ['-C', input.directory, 'push', 'origin', `HEAD:refs/heads/${input.sourceBranch}`],
       input.signal,
@@ -389,7 +426,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     const owner = input.repository.split('/')[0]!;
-    const { stdout } = await host(
+    const { stdout } = await this.runHost(
       'gh',
       [
         'api',
@@ -401,7 +438,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         '-f',
         `base=${input.baseBranch}`,
         '-f',
-        'state=all',
+        'state=open',
       ],
       input.signal,
     );
@@ -421,7 +458,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
     signal: AbortSignal;
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
-    const { stdout } = await host(
+    const { stdout } = await this.runHost(
       'gh',
       [
         'api',
@@ -432,6 +469,40 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
         `head=${input.sourceBranch}`,
         '-f',
         `base=${input.baseBranch}`,
+        '-f',
+        `title=${input.title}`,
+        '-f',
+        `body=${input.body}`,
+        '-F',
+        `draft=${input.draft ? 'true' : 'false'}`,
+      ],
+      input.signal,
+    );
+    const value = parseGithubPullRequest(JSON.parse(stdout));
+    if (!value) throw new Error('GitHub pull request result is invalid');
+    return value;
+  }
+  async update(input: {
+    repository: string;
+    sourceBranch: string;
+    baseBranch: string;
+    pullRequestId: string;
+    title: string;
+    body: string;
+    draft: boolean;
+    operationId: string;
+    signal: AbortSignal;
+  }) {
+    checked(input.repository, safeRepository, 'Repository is invalid');
+    if (!/^[1-9][0-9]*$/.test(input.pullRequestId))
+      throw new Error('Pull request identity is invalid');
+    const { stdout } = await this.runHost(
+      'gh',
+      [
+        'api',
+        '--method',
+        'PATCH',
+        `repos/${input.repository}/pulls/${input.pullRequestId}`,
         '-f',
         `title=${input.title}`,
         '-f',
@@ -469,7 +540,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
       throw new Error('GitHub pull request result is invalid');
     const number = url.pathname.slice(expected.length);
     if (!/^[1-9][0-9]*$/.test(number)) throw new Error('GitHub pull request result is invalid');
-    const { stdout } = await host(
+    const { stdout } = await this.runHost(
       'gh',
       ['api', '--method', 'GET', `repos/${input.repository}/pulls/${number}`],
       input.signal,
@@ -486,7 +557,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
   }) {
     checked(input.repository, safeRepository, 'Repository is invalid');
     checked(input.sourceBranch, safeBranch, 'Source branch is invalid');
-    const { stdout } = await host(
+    const { stdout } = await this.runHost(
       'git',
       [
         'ls-remote',
@@ -503,7 +574,7 @@ export class GitHubCliHostPublisher implements GithubHostPublisher {
   }
   async cleanup(directory: string) {
     const root = join(tmpdir(), 'mitzo-github-publish-');
-    if (!directory.startsWith(root) || directory === root)
+    if (!directory.startsWith(root) || directory === root || !this.cleanupParents.delete(directory))
       throw new Error('Host checkout cleanup refused');
     await rm(directory, { recursive: true, force: true });
   }

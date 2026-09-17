@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,9 @@ function fixture(
     baseBranch: 'main',
     url: 'https://github.com/acme/widgets/pull/12',
     id: '12',
+    title: input.title,
+    body: input.body,
+    draft: input.draft,
   };
   const host: GithubHostPublisher = {
     policy: vi.fn(async () => ({ defaultBranch: 'main', sourceBranchProtected: false })),
@@ -85,6 +88,7 @@ function fixture(
     push: vi.fn(async () => {}),
     findOpen: vi.fn(async () => null),
     create: vi.fn(async () => pull),
+    update: vi.fn(async () => pull),
     read: vi.fn(async () => pull),
     readBranch: vi.fn(async () => 'a'.repeat(40)),
     cleanup: vi.fn(async () => {}),
@@ -112,6 +116,9 @@ describe('github.publish-pr capability', () => {
         number: 12,
         html_url: 'https://github.com/acme/widgets/pull/12',
         state: 'closed',
+        title: input.title,
+        body: input.body,
+        draft: false,
         head: { ref: 'feature/safe' },
         base: { ref: 'main', repo: { full_name: 'Acme/Widgets' } },
       }),
@@ -125,6 +132,9 @@ describe('github.publish-pr capability', () => {
       number: 12,
       html_url: 'https://github.com/acme/widgets/pull/12',
       state: 'closed',
+      title: input.title,
+      body: input.body,
+      draft: false,
       head: { ref: 'feature/safe' },
       base: { ref: 'main', repo: { full_name: 'acme/widgets' } },
     });
@@ -152,6 +162,91 @@ describe('github.publish-pr capability', () => {
       await rm(directory, { recursive: true, force: true });
     }
   });
+  it('treats only a GitHub branch 404 as an unprotected new source branch', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'mitzo-fake-gh-'));
+    const gh = join(directory, 'gh');
+    await writeFile(
+      gh,
+      "#!/bin/sh\ncase \"$*\" in *'/branches/feature/safe'*) echo 'HTTP 404' >&2; exit 1 ;; *'repos/acme/widgets'*) printf '%s' '{\"default_branch\":\"main\"}' ;; esac\n",
+      { mode: 0o700 },
+    );
+    await chmod(gh, 0o700);
+    const originalPath = process.env.PATH;
+    process.env.PATH = directory;
+    try {
+      await expect(
+        new GitHubCliHostPublisher().policy({
+          repository: 'acme/widgets',
+          sourceBranch: 'feature/safe',
+          signal: new AbortController().signal,
+        }),
+      ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: false });
+    } finally {
+      process.env.PATH = originalPath;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it('queries only open PRs before create/update decisions', async () => {
+    const runner = vi.fn(async () => ({ stdout: '[]', stderr: '' }));
+    const found = await new GitHubCliHostPublisher(runner).findOpen({
+      repository: 'acme/widgets',
+      sourceBranch: 'feature/safe',
+      baseBranch: 'main',
+      operationId: 'op',
+      signal: new AbortController().signal,
+    });
+    expect(found).toBeNull();
+    expect(runner).toHaveBeenCalledWith(
+      'gh',
+      expect.arrayContaining(['state=open']),
+      expect.any(AbortSignal),
+    );
+  });
+  it('honors authoritative protection when the source branch already exists', async () => {
+    const runner = vi.fn(async (_command: string, args: readonly string[]) => ({
+      stdout: args.at(-1)?.includes('/branches/')
+        ? '{"protected":true}'
+        : '{"default_branch":"main"}',
+      stderr: '',
+    }));
+    await expect(
+      new GitHubCliHostPublisher(runner).policy({
+        repository: 'acme/widgets',
+        sourceBranch: 'feature/safe',
+        signal: new AbortController().signal,
+      }),
+    ).resolves.toEqual({ defaultBranch: 'main', sourceBranchProtected: true });
+  });
+  it('reconstructs through an empty checkout sibling and removes only its tracked parent', async () => {
+    const oid = 'a'.repeat(40);
+    const calls: string[][] = [];
+    const runner = vi.fn(async (_command: string, args: readonly string[]) => {
+      calls.push([...args]);
+      if (args[0] === 'clone') await mkdir(args.at(-1)!, { recursive: true, mode: 0o700 });
+      if (args.includes('rev-parse')) return { stdout: `${oid}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const publisher = new GitHubCliHostPublisher(runner);
+    const rebuilt = await publisher.reconstruct({
+      repository: 'acme/widgets',
+      sourceBranch: 'feature/safe',
+      sourceOid: oid,
+      baseBranch: 'main',
+      bundle: Buffer.from('bundle'),
+      operationId: 'operation-1',
+      signal: new AbortController().signal,
+    });
+    const clone = calls.find((args) => args[0] === 'clone')!;
+    const fetch = calls.find((args) => args.includes('fetch'))!;
+    const bundlePath = fetch.find((value) => value.endsWith('/commits.bundle'))!;
+    expect(clone.at(-1)).toMatch(/\/checkout$/);
+    expect(bundlePath).toMatch(/\/commits\.bundle$/);
+    expect(bundlePath).not.toBe(clone.at(-1));
+    expect(JSON.stringify(calls)).not.toContain('SENTINEL_TOKEN');
+    await expect(stat(bundlePath)).resolves.toMatchObject({ mode: expect.any(Number) });
+    await publisher.cleanup(rebuilt.cleanupDirectory!);
+    await expect(stat(rebuilt.cleanupDirectory!)).rejects.toThrow();
+  });
   it('binds sandbox path validation and every Git action in one control invocation', async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       const joined = args.join(' ');
@@ -164,12 +259,13 @@ describe('github.publish-pr capability', () => {
       return 'src/index.ts\n';
     });
     const transport = new OpenShellGithubSandboxTransport(run, 'mgmt');
-    await transport.inspect({
+    const inspected = await transport.inspect({
       sandboxName: 'sandbox-1',
       repositoryPath: input.repositoryPath,
       baseBranch: 'main',
       signal: new AbortController().signal,
     });
+    expect(inspected).toMatchObject({ sourceBranch: 'feature/safe', sourceOid: 'a'.repeat(40) });
     for (const call of run.mock.calls) {
       const args = call[0] as readonly string[];
       expect(args).toContain('/bin/sh');
@@ -292,6 +388,12 @@ describe('github.publish-pr capability', () => {
     await expect(many.executor.preflight!(context())).rejects.toThrow('summary');
     expect(many.sandbox.exportBundle).not.toHaveBeenCalled();
   });
+  it('rejects changed-file text that cannot fit the exact permission card serialization', async () => {
+    const hostile = Array.from({ length: 64 }, () => '\\"'.repeat(60));
+    const f = fixture({ inspection: { changedFiles: hostile } });
+    await expect(f.executor.preflight!(context())).rejects.toThrow('complete approval projection');
+    expect(f.sandbox.exportBundle).not.toHaveBeenCalled();
+  });
   it('uses host-authoritative default and protection policy before any export', async () => {
     const f = fixture();
     vi.mocked(f.host.policy).mockResolvedValueOnce({
@@ -343,12 +445,20 @@ describe('github.publish-pr capability', () => {
     );
     expect(JSON.stringify(result)).not.toContain('token');
   });
-  it('uses an existing open pull request rather than creating a duplicate', async () => {
+  it('updates an existing open pull request with the approved metadata', async () => {
     const f = fixture();
     vi.mocked(f.host.findOpen).mockResolvedValue(f.pull);
     const result = await f.executor.execute(context());
     expect(result.externalResultId).toBe(f.pull.url);
     expect(f.host.create).not.toHaveBeenCalled();
+    expect(f.host.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pullRequestId: '12',
+        title: input.title,
+        body: input.body,
+        draft: false,
+      }),
+    );
   });
   it('rejects malformed create/read results and cancellation', async () => {
     const malformed = fixture();

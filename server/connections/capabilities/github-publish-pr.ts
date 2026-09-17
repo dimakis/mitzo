@@ -8,6 +8,7 @@ import type {
 } from './types.js';
 import { CapabilityRecoveryPendingError } from './types.js';
 import { canonicalJson } from './input-validation.js';
+import { capabilityApprovalPayload } from './approval.js';
 
 /** A deliberately small binary budget. The sandbox must not become a data exfiltration channel. */
 export const GITHUB_PUBLISH_MAX_BUNDLE_BYTES = 16 * 1024 * 1024;
@@ -67,6 +68,9 @@ export interface GithubPullRequest {
   baseBranch: string;
   url: string;
   id: string;
+  title: string;
+  body: string;
+  draft: boolean;
 }
 
 /**
@@ -105,6 +109,17 @@ export interface GithubHostPublisher {
     repository: string;
     sourceBranch: string;
     baseBranch: string;
+    title: string;
+    body: string;
+    draft: boolean;
+    operationId: string;
+    signal: AbortSignal;
+  }): Promise<GithubPullRequest>;
+  update(input: {
+    repository: string;
+    sourceBranch: string;
+    baseBranch: string;
+    pullRequestId: string;
     title: string;
     body: string;
     draft: boolean;
@@ -242,6 +257,10 @@ function output(pr: GithubPullRequest, inspection: GithubSandboxInspection): Jso
     changedFiles: inspection.changedFiles.slice(0, GITHUB_PUBLISH_MAX_CHANGED_FILES),
   };
 }
+function assertRequestedMetadata(pr: GithubPullRequest, input: Input) {
+  if (pr.title !== input.title || pr.body !== input.body || pr.draft !== input.draft)
+    reject('GitHub pull request verification failed');
+}
 
 /**
  * Reviewed executor factory. All mutation dependencies are injected, which
@@ -343,8 +362,19 @@ export function createGithubPublishPrExecutor(
           sourceBranch: state.inspection.sourceBranch!,
           baseBranch: state.input.baseBranch,
         });
+      const approvalInput = approval(state, existing);
+      // The preflight projection is the exact flat action card eventually
+      // presented by the shared permission handler, including JSON escaping.
+      capabilityApprovalPayload({
+        capabilityId: context.operation.capabilityId,
+        capabilityVersion: context.operation.capabilityVersion,
+        connectionId: context.operation.connectionId,
+        operationId: context.operation.id,
+        input: approvalInput,
+        forcePrompt: true,
+      });
       return {
-        approvalInput: approval(state, existing),
+        approvalInput,
         recoveryIntent: {
           repository: state.repository,
           sourceBranch: state.inspection.sourceBranch!,
@@ -413,23 +443,35 @@ export function createGithubPublishPrExecutor(
           signal: context.signal,
         });
         const pr = assertPullRequest(
-          existing ??
-            (await deps.host.create({
-              repository: state.repository,
-              sourceBranch: state.inspection.sourceBranch!,
-              baseBranch: state.input.baseBranch,
-              title: state.input.title,
-              body: state.input.body,
-              draft: state.input.draft,
-              operationId: context.operation.id,
-              signal: context.signal,
-            })),
+          existing
+            ? await deps.host.update({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                pullRequestId: existing.id,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+              })
+            : await deps.host.create({
+                repository: state.repository,
+                sourceBranch: state.inspection.sourceBranch!,
+                baseBranch: state.input.baseBranch,
+                title: state.input.title,
+                body: state.input.body,
+                draft: state.input.draft,
+                operationId: context.operation.id,
+                signal: context.signal,
+              }),
           {
             repository: state.repository,
             sourceBranch: state.inspection.sourceBranch!,
             baseBranch: state.input.baseBranch,
           },
         );
+        assertRequestedMetadata(pr, state.input);
         return { output: output(pr, state.inspection), externalResultId: pr.url };
       } finally {
         if (cleanupDirectory) await deps.host.cleanup(cleanupDirectory);
@@ -453,6 +495,7 @@ export function createGithubPublishPrExecutor(
         sourceBranch: state.inspection.sourceBranch!,
         baseBranch: state.input.baseBranch,
       });
+      assertRequestedMetadata(pr, state.input);
       if (pr.url !== externalResultId) reject('GitHub pull request verification failed');
     },
     async recover(operation, signal) {
@@ -494,19 +537,37 @@ export function createGithubPublishPrExecutor(
         operationId: operation.id,
         signal,
       });
-      const pr =
-        existing ??
-        (await deps.host.create({
-          repository,
-          sourceBranch,
-          baseBranch,
-          title,
-          body,
-          draft,
-          operationId: operation.id,
-          signal,
-        }));
+      const pr = existing
+        ? await deps.host.update({
+            repository,
+            sourceBranch,
+            baseBranch,
+            pullRequestId: existing.id,
+            title,
+            body,
+            draft,
+            operationId: operation.id,
+            signal,
+          })
+        : await deps.host.create({
+            repository,
+            sourceBranch,
+            baseBranch,
+            title,
+            body,
+            draft,
+            operationId: operation.id,
+            signal,
+          });
       assertPullRequest(pr, { repository, sourceBranch, baseBranch });
+      assertRequestedMetadata(pr, {
+        connectionId: operation.connectionId,
+        repositoryPath: '',
+        baseBranch,
+        title,
+        body,
+        draft,
+      });
       if (operation.externalResultId && pr.url !== operation.externalResultId)
         reject('GitHub recovery verification failed');
       const verified = await deps.host.read({
@@ -519,6 +580,14 @@ export function createGithubPublishPrExecutor(
       });
       if (!verified) throw new CapabilityRecoveryPendingError('GitHub recovery remains pending');
       assertPullRequest(verified, { repository, sourceBranch, baseBranch });
+      assertRequestedMetadata(verified, {
+        connectionId: operation.connectionId,
+        repositoryPath: '',
+        baseBranch,
+        title,
+        body,
+        draft,
+      });
       return {
         output: {
           repository: verified.repository,
