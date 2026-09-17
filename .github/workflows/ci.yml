@@ -6,6 +6,49 @@ on:
   pull_request:
 
 jobs:
+  documentation:
+    name: Documentation gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Require README review for production changes
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const changed = files.map(({ filename }) => filename);
+            const isProductionSource = (file) =>
+              /^(server|frontend\/src|packages\/(client|protocol)|mcp-server|scripts)\//.test(file) &&
+              !/(^|\/)(__tests__|test|tests)\/|\.(test|spec)\.[^.]+$/.test(file);
+            const changesProductionCode = changed.some(isProductionSource);
+            const changesReadme = changed.some((file) => file === 'README.md');
+            const body = context.payload.pull_request.body || '';
+            const readmeReviewed = /- \[[xX]\] README (updated|reviewed)/.test(body);
+            const exception = body.match(/README exception:\s*([^\n]+)/i)?.[1]?.trim();
+            const validException = exception && exception.length >= 20 &&
+              !/^(n\/?a|none|no|not applicable|explain why)\.?$/i.test(exception);
+
+            if (!readmeReviewed) {
+              core.setFailed('Complete the README review item in the pull-request template.');
+              return;
+            }
+
+            if (changesProductionCode && !changesReadme && !validException) {
+              core.setFailed(
+                'This PR changes production code but does not update README.md. ' +
+                'Update the README, or add a substantive "README exception:" explanation to the PR description.'
+              );
+            }
+
   native:
     name: Native Swift tests and builds
     runs-on: macos-26
