@@ -594,7 +594,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
   }
 });
 
-it('binds a trusted capability to the live session, forces approval, and recovers ambiguity on reconnect', async () => {
+it('preserves image attachments while binding a trusted capability, forcing approval, and recovering on reconnect', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
   vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
@@ -626,20 +626,32 @@ it('binds a trusted capability to the live session, forces approval, and recover
     connectionId: 'github-connection',
     connectionRevision: 4,
   };
+  const capabilityInput = {
+    connectionId: 'github-connection',
+    repositoryPath: '/workspace',
+    baseBranch: 'main',
+    title: 'T',
+    body: 'B',
+    draft: false,
+  } satisfies Readonly<Record<string, string | boolean>>;
   const recoverPendingForConversation = vi.fn(async () => []);
   const invoke = vi.fn(
     async (
-      request: Record<string, unknown>,
+      request: import('../connections/capabilities/types.js').CapabilityRequest,
       signal: AbortSignal,
       approve: import('../connections/capabilities/types.js').CapabilityApproval,
     ) => {
+      // The production service validates unknown tool input before it becomes
+      // approval-card data. This session fixture supplies that already-typed
+      // capability input rather than bypassing the contract with a cast.
+      expect(request.input).toEqual(capabilityInput);
       const approved = await approve(
         {
           capabilityId: capability.capabilityId,
           capabilityVersion: capability.capabilityVersion,
           connectionId: capability.connectionId,
           operationId: 'operation-1',
-          input: request.input,
+          input: capabilityInput,
           forcePrompt: true,
         },
         signal,
@@ -692,6 +704,7 @@ it('binds a trusted capability to the live session, forces approval, and recover
       prompt: 'publish',
       systemPrompt: 'base',
       env: {},
+      images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }],
       binding: {
         accountId: 'work',
         accountLabel: 'Work',
@@ -712,6 +725,9 @@ it('binds a trusted capability to the live session, forces approval, and recover
       item.name.startsWith('Capability_github_publish_pr'),
     );
     expect(tool).toBeDefined();
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
+    );
     expect(getLiveCapabilityConversationBinding('capability-conversation')).toMatchObject({
       accountId: 'work',
       connectionId: 'github-connection',
@@ -729,19 +745,10 @@ it('binds a trusted capability to the live session, forces approval, and recover
       context: { turnId: string; callId: string },
     ) => Promise<{ content: string; isError: boolean }>;
     await expect(
-      executeTool(
-        tool!.name,
-        {
-          connectionId: 'github-connection',
-          repositoryPath: '/workspace',
-          baseBranch: 'main',
-          title: 'T',
-          body: 'B',
-          draft: false,
-        },
-        new AbortController().signal,
-        { turnId: 'turn-1', callId: 'call-1' },
-      ),
+      executeTool(tool!.name, capabilityInput, new AbortController().signal, {
+        turnId: 'turn-1',
+        callId: 'call-1',
+      }),
     ).resolves.toMatchObject({ isError: true });
     expect(invoke).toHaveBeenCalledWith(
       expect.objectContaining({
