@@ -12,7 +12,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import { CodexAppServerClient } from './codex-app-server-client.js';
+import { CodexAppServerClient, CodexRequestError } from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
@@ -644,11 +644,30 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
     ...(runtimeManager
-      ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
+      ? {
+          onActivity: () => touchOpenShellLifecycle(options.conversationId),
+          onThreadChanged: (threadId: string) => {
+            registerOpenShellLifecycle(
+              options.conversationId,
+              managedOpenShell!,
+              options.binding,
+              selectedOpenShellAccountRoute(options),
+              threadId,
+              options.registry.findBySessionId(options.conversationId)?.clientId,
+            );
+          },
+        }
       : {}),
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
+        ...(error instanceof CodexRequestError
+          ? {
+              requestMethod: error.method,
+              requestErrorCategory: error.category,
+              ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
+            }
+          : {}),
         error: publicCodexRuntimeError(error),
       });
       if (options.session.transport?.isOpen())

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
-import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import { CodexRequestError, type CodexLifecycleTransport } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import {
   CodexConversationStore,
@@ -52,6 +52,7 @@ interface Options {
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
+  onThreadChanged?: (threadId: string) => void | Promise<void>;
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -118,6 +119,14 @@ function isRecoverableProviderTransportFailure(value: unknown): boolean {
       ? value
       : z.object({ message: z.string().optional() }).passthrough().safeParse(value).data?.message;
   return typeof message === 'string' && /stream disconnected before completion/i.test(message);
+}
+
+function requiresProviderThreadReplacement(error: unknown): boolean {
+  return (
+    error instanceof CodexRequestError &&
+    error.method === 'turn/start' &&
+    !['rate_limit', 'authentication', 'context_limit', 'invalid_request'].includes(error.category)
+  );
 }
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
@@ -203,50 +212,43 @@ export class CodexConversation {
       this.opts.runtimeConfig ??
       codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
     const modelProvider = this.opts.modelProvider ?? 'openai';
-    const method = state.threadId ? 'thread/resume' : 'thread/start';
-    const result = z
-      .object({
-        thread: z.object({ id: z.string().min(1) }),
-        model: z.string(),
-        modelProvider: z.string(),
-      })
-      .parse(
-        await this.client.request(method, {
-          ...(state.threadId ? { threadId: state.threadId } : {}),
-          model: this.binding.model,
-          modelProvider,
-          allowProviderModelFallback: false,
-          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-          config: runtimeConfig,
-          approvalPolicy: 'never',
-          sandbox: 'read-only',
-          developerInstructions: this.opts.systemPrompt,
-          ...(this.opts.tools.length
-            ? {
-                dynamicTools: this.opts.tools.map((t) => ({
-                  type: 'function',
-                  name: t.name,
-                  description: t.description,
-                  inputSchema: t.input_schema,
-                })),
-              }
-            : {}),
-        }),
-      );
+    const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
+    const replacingFailedThread = !!state.threadId && state.recoveryStrategy === 'fork';
+    const result = replacingFailedThread
+      ? await this.replaceFailedProviderThread(this.client, state, threadOptions)
+      : z
+          .object({
+            thread: z.object({ id: z.string().min(1) }),
+            model: z.string(),
+            modelProvider: z.string(),
+          })
+          .parse(
+            await this.client.request(state.threadId ? 'thread/resume' : 'thread/start', {
+              ...(state.threadId ? { threadId: state.threadId } : {}),
+              ...threadOptions,
+              allowProviderModelFallback: false,
+              ...(this.opts.tools.length
+                ? {
+                    dynamicTools: this.opts.tools.map((t) => ({
+                      type: 'function',
+                      name: t.name,
+                      description: t.description,
+                      inputSchema: t.input_schema,
+                    })),
+                  }
+                : {}),
+            }),
+          );
     if (
       result.model !== this.binding.model ||
       result.modelProvider !== modelProvider ||
-      (state.threadId && result.thread.id !== state.threadId)
+      (!replacingFailedThread && state.threadId && result.thread.id !== state.threadId)
     )
       throw new Error('Codex execution binding changed');
     this.threadId = result.thread.id;
-    this.opts.store.bindThread(this.opts.conversationId, this.binding, this.threadId);
-    this.mapper = new CodexSessionEvents(
-      this.opts.conversationId,
-      this.threadId,
-      this.binding.model,
-      this.opts.emit,
-    );
+    if (!replacingFailedThread)
+      this.opts.store.bindThread(this.opts.conversationId, this.binding, this.threadId);
+    this.resetMapper(this.threadId);
     this.ready = true;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
@@ -421,46 +423,130 @@ export class CodexConversation {
         this.opts.runtimeConfig ??
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
       const modelProvider = this.opts.modelProvider ?? 'openai';
-      const result = z
-        .object({
-          thread: z.object({ id: z.string().min(1) }),
-          model: z.string(),
-          modelProvider: z.string(),
-        })
-        .parse(
-          await client.request('thread/resume', {
-            threadId: this.threadId,
-            model: this.binding.model,
-            modelProvider,
-            allowProviderModelFallback: false,
-            cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-            config: runtimeConfig,
-            approvalPolicy: 'never',
-            sandbox: 'read-only',
-            developerInstructions: this.opts.systemPrompt,
-            ...(this.opts.tools.length
-              ? {
-                  dynamicTools: this.opts.tools.map((tool) => ({
-                    type: 'function',
-                    name: tool.name,
-                    description: tool.description,
-                    inputSchema: tool.input_schema,
-                  })),
-                }
-              : {}),
-          }),
-        );
+      const state = this.opts.store.read(this.opts.conversationId, this.binding);
+      const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
+      const result =
+        state.recoveryStrategy === 'fork'
+          ? await this.replaceFailedProviderThread(client, state, threadOptions)
+          : z
+              .object({
+                thread: z.object({ id: z.string().min(1) }),
+                model: z.string(),
+                modelProvider: z.string(),
+              })
+              .parse(
+                await client.request('thread/resume', {
+                  threadId: this.threadId,
+                  ...threadOptions,
+                  allowProviderModelFallback: false,
+                  ...(this.opts.tools.length
+                    ? {
+                        dynamicTools: this.opts.tools.map((tool) => ({
+                          type: 'function',
+                          name: tool.name,
+                          description: tool.description,
+                          inputSchema: tool.input_schema,
+                        })),
+                      }
+                    : {}),
+                }),
+              );
       if (
-        result.thread.id !== this.threadId ||
+        (state.recoveryStrategy !== 'fork' && result.thread.id !== this.threadId) ||
         result.model !== this.binding.model ||
         result.modelProvider !== modelProvider
       )
         throw new Error('Codex execution binding changed');
+      this.threadId = result.thread.id;
+      this.resetMapper(this.threadId);
       this.ready = true;
     } catch (error) {
       client.close();
       throw error;
     }
+  }
+
+  private threadOptions(runtimeConfig: Record<string, unknown>, modelProvider: string) {
+    return {
+      model: this.binding!.model,
+      modelProvider,
+      cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+      config: runtimeConfig,
+      approvalPolicy: 'never',
+      sandbox: 'read-only',
+      developerInstructions: this.opts.systemPrompt,
+    };
+  }
+
+  /**
+   * A terminal provider stream failure can leave the provider thread with an
+   * incomplete trailing turn. A new process resuming that same thread is not a
+   * new recovery boundary. Fork through the last completed turn instead, or
+   * start clean when the thread never completed a turn. The failed user command
+   * remains an acknowledged tombstone and is never replayed.
+   */
+  private async replaceFailedProviderThread(
+    client: Rpc,
+    state: ReturnType<CodexConversationStore['read']>,
+    threadOptions: ReturnType<CodexConversation['threadOptions']>,
+  ) {
+    if (!state.threadId) throw new Error('Codex provider thread is unavailable');
+    const snapshot = z
+      .object({
+        thread: z.object({
+          turns: z.array(z.object({ id: z.string().min(1), status: z.string() })),
+        }),
+      })
+      .parse(await client.request('thread/read', { threadId: state.threadId, includeTurns: true }));
+    const completedTurnIds = snapshot.thread.turns
+      .filter((turn) => turn.status === 'completed')
+      .map((turn) => turn.id);
+    const lastCompletedTurnId =
+      state.lastCompletedTurnId && completedTurnIds.includes(state.lastCompletedTurnId)
+        ? state.lastCompletedTurnId
+        : completedTurnIds.at(-1);
+    const result = z
+      .object({
+        thread: z.object({ id: z.string().min(1) }),
+        model: z.string(),
+        modelProvider: z.string(),
+      })
+      .parse(
+        lastCompletedTurnId
+          ? await client.request('thread/fork', {
+              threadId: state.threadId,
+              lastTurnId: lastCompletedTurnId,
+              ...threadOptions,
+            })
+          : await client.request('thread/start', {
+              ...threadOptions,
+              allowProviderModelFallback: false,
+            }),
+      );
+    if (
+      result.model !== this.binding!.model ||
+      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
+    )
+      throw new Error('Codex execution binding changed');
+    this.opts.store.replaceThread(
+      this.opts.conversationId,
+      this.binding!,
+      state.threadId,
+      result.thread.id,
+      'provider_transport_failure',
+      lastCompletedTurnId,
+    );
+    await this.opts.onThreadChanged?.(result.thread.id);
+    return result;
+  }
+
+  private resetMapper(threadId: string) {
+    this.mapper = new CodexSessionEvents(
+      this.opts.conversationId,
+      threadId,
+      this.binding!.model,
+      this.opts.emit,
+    );
   }
 
   /**
@@ -549,6 +635,7 @@ export class CodexConversation {
       // transportClosed() already paused and persisted this command. Do not
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
+      const replaceProviderThread = requiresProviderThreadReplacement(error);
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
@@ -556,8 +643,10 @@ export class CodexConversation {
         this.binding!,
         command.id,
         active.interruptRequested ? 'interrupted' : 'failed',
+        replaceProviderThread ? 'fork' : 'resume',
       );
       if (this.active === active) this.active = undefined;
+      if (replaceProviderThread) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
       throw error;
     }
@@ -640,6 +729,7 @@ export class CodexConversation {
           this.binding!,
           this.active.command.id,
           status,
+          turn.data.id,
         );
       else
         this.opts.store.pauseForRecovery(
@@ -647,6 +737,7 @@ export class CodexConversation {
           this.binding!,
           this.active.command.id,
           status,
+          providerTransportFailed ? 'fork' : 'resume',
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';

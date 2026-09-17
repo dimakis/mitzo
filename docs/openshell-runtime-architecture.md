@@ -35,11 +35,19 @@ account/inference provider attached at sandbox creation. The separately configur
 service-provider list accepts only Mitzo's reviewed non-inference allowlist. Raw
 credential values are never accepted by the runtime configuration.
 
-An SSH/app-server exit now invalidates the transport rather than closing the public
-conversation. Mitzo marks in-flight work interrupted, retains queued work, creates a
-fresh transport after explicit recovery acknowledgement, and resumes the exact
-persisted provider thread in the retained sandbox. Explicit conversation close still
-tears down only the transport; sandbox deletion is a separate future lifecycle.
+Runtime recovery has two distinct durable strategies. An SSH/app-server exit marks
+in-flight work interrupted, retains queued work, creates a fresh transport after
+explicit recovery acknowledgement, and resumes the exact persisted provider thread.
+A terminal provider-stream failure marks the current provider thread generation as
+unsafe instead. Mitzo starts a fresh app-server process, reads the old thread, and
+forks it through its last completed turn. If the thread never completed a turn,
+Mitzo starts a clean provider thread. The failed command remains a durable tombstone
+and is never replayed because it may already have produced side effects. The new
+thread ID and its parent generation are committed before queued user intent runs,
+and the OpenShell checkpoint identity is updated to the new thread. This distinction
+survives process restarts and migrates old failed recovery records conservatively.
+Explicit conversation close still tears down only the transport; sandbox deletion
+is a separate lifecycle.
 
 ## Seed and persistence
 
@@ -138,7 +146,10 @@ and host-metadata exclusion from the MGMT seed, portable Git commits, visible na
 tool event mapping, cancellation, and same-conversation provider-thread resume after
 transport replacement. Synthetic MCP and web-search coverage additionally proves
 in-sandbox runtime configuration, host-MCP suppression, fail-closed MCP validation,
-and public tool event/result mapping without real service or model calls.
+and public tool event/result mapping without real service or model calls. Recovery
+coverage also proves legacy-record migration, atomic provider-thread generation
+replacement, last-known-good turn forking, clean-thread fallback, and no replay of
+an uncertain failed command.
 
 Still requiring separately authorized live acceptance:
 

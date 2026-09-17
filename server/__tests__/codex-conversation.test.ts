@@ -5,7 +5,15 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
+import { CodexRequestError } from '../codex-app-server-client.js';
 const cleanup: (() => void)[] = [];
+const binding = {
+  accountId: 'personal',
+  accountLabel: 'ChatGPT',
+  provider: 'openai' as const,
+  model: 'test-model',
+  profileRevision: 'chatgpt:test@example.com:test',
+};
 afterEach(() => {
   cleanup.splice(0).forEach((f) => f());
 });
@@ -32,6 +40,10 @@ async function setup(
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
   let callbacks!: CodexLifecycleTransport;
   let turn = 0;
+  let threadStarts = 0;
+  let threadGeneration = 0;
+  let providerThread = 'provider-thread';
+  const providerTurns = new Map<string, string>();
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
   const onClosed = vi.fn();
@@ -51,16 +63,31 @@ async function setup(
       if (method === 'config/read') return { config: {} };
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
-      if (method === 'thread/start' || method === 'thread/resume')
-        return { thread: { id: 'provider-thread' }, model: 'test-model', modelProvider: 'openai' };
+      if (method === 'thread/read')
+        return {
+          thread: {
+            id: providerThread,
+            turns: [...providerTurns].map(([id, status]) => ({ id, status })),
+          },
+        };
+      if (method === 'thread/fork') {
+        providerThread = `provider-thread-fork-${++threadGeneration}`;
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
+      }
+      if (method === 'thread/start') {
+        if (threadStarts++) providerThread = `provider-thread-reset-${++threadGeneration}`;
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
+      }
+      if (method === 'thread/resume')
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
       if (method === 'turn/start') {
         const id = `turn-${++turn}`;
-        callbacks.onNotification('turn/started', { threadId: 'provider-thread', turn: { id } });
+        callbacks.onNotification('turn/started', { threadId: providerThread, turn: { id } });
         return { turn: { id } };
       }
       if (method === 'turn/interrupt') {
         callbacks.onNotification('turn/completed', {
-          threadId: 'provider-thread',
+          threadId: providerThread,
           turn: { id: `turn-${turn}`, status: 'interrupted' },
         });
         return {};
@@ -90,7 +117,17 @@ async function setup(
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
-      callbacks = cb;
+      callbacks = {
+        ...cb,
+        onNotification: (method, params) => {
+          if (method === 'turn/completed') {
+            const completed = params.turn as { id?: unknown; status?: unknown } | undefined;
+            if (typeof completed?.id === 'string' && typeof completed.status === 'string')
+              providerTurns.set(completed.id, completed.status);
+          }
+          cb.onNotification(method, params);
+        },
+      };
       return rpc;
     },
     emit: (e) => events.push(e),
@@ -119,6 +156,7 @@ async function setup(
     onClosed,
     onError,
     requestUserInput,
+    getProviderThread: () => providerThread,
   };
 }
 it('does not persist queued work when lifecycle admission is fenced', async () => {
@@ -297,7 +335,7 @@ it('recovers an idle dead transport before persisting the explicit send', async 
     undefined,
     undefined,
     undefined,
-    undefined,
+    async () => binding,
     beforeReconnect,
   );
   const request = rpc.request.getMockImplementation()!;
@@ -640,9 +678,112 @@ it('restarts a disconnected provider and runs an already queued follow-up exactl
   ]);
 });
 
+it('moves an old conversation to a new thread generation before accepting the next turn', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, requests, rpc, store, getProviderThread } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  await c.send({ id: 'good', prompt: 'establish context' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await c.send({ id: 'poisoned', prompt: 'partly execute tools' });
+  callbacks.onNotification('turn/completed', {
+    threadId: getProviderThread(),
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 0,
+    lastCompletedTurnId: 'turn-1',
+    recoveryStrategy: 'fork',
+  });
+
+  await c.send({ id: 'after-rollover', prompt: 'continue safely' });
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(rpc.close).toHaveBeenCalledOnce();
+  expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'turn-1',
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-fork-1',
+    threadGeneration: 1,
+    lastCompletedTurnId: 'turn-1',
+    recoveryStrategy: 'resume',
+  });
+  expect(
+    requests.filter((request) => request.method === 'turn/start').map((request) => request.params),
+  ).toEqual([
+    expect.objectContaining({ input: [{ type: 'text', text: 'establish context' }] }),
+    expect.objectContaining({ input: [{ type: 'text', text: 'partly execute tools' }] }),
+    expect.objectContaining({
+      threadId: 'provider-thread-fork-1',
+      input: [{ type: 'text', text: 'continue safely' }],
+    }),
+  ]);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'good', status: 'completed' },
+    { id: 'poisoned', status: 'failed' },
+    { id: 'after-rollover', status: 'running' },
+  ]);
+});
+
+it('replaces provider thread state after a rejected turn admission', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, rpc, requests, store } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  let rejectTurn = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start' && rejectTurn) {
+      rejectTurn = false;
+      throw new CodexRequestError('turn/start', 'thread_state', -32000);
+    }
+    return request(method, params);
+  });
+
+  await expect(c.send({ id: 'rejected', prompt: 'first' })).rejects.toBeInstanceOf(
+    CodexRequestError,
+  );
+  expect(store.read('app', binding).recoveryStrategy).toBe('fork');
+
+  await c.send({ id: 'after-rejection', prompt: 'continue' });
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(requests.filter(({ method }) => method === 'thread/read')).toHaveLength(1);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-reset-1',
+    threadGeneration: 1,
+    recoveryStrategy: 'resume',
+  });
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'rejected', status: 'failed' },
+    { id: 'after-rejection', status: 'running' },
+  ]);
+});
+
 it('automatically probes only one saved follow-up during a persistent provider outage', async () => {
   const beforeReconnect = vi.fn(async () => {});
-  const { c, callbacks, requests, rpc } = await setup(
+  const { c, callbacks, requests, rpc, getProviderThread } = await setup(
     undefined,
     undefined,
     undefined,
@@ -655,7 +796,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   await c.send({ id: 'preserved', prompt: 'third' });
 
   callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
+    threadId: getProviderThread(),
     turn: {
       id: 'turn-1',
       status: 'failed',
@@ -667,7 +808,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   );
 
   callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
+    threadId: getProviderThread(),
     turn: {
       id: 'turn-2',
       status: 'failed',
@@ -679,7 +820,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(rpc.close).toHaveBeenCalledTimes(2);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
   expect(c.isPaused()).toBe(true);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'first', status: 'failed' },
@@ -689,7 +830,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
 
   await c.acknowledgeRecovery();
   expect(beforeReconnect).toHaveBeenCalledTimes(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
   expect(c.isPaused()).toBe(false);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
