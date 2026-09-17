@@ -46,7 +46,7 @@ describe('ConnectionsService', () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));
     const fields = {
-      endpoint: 'https://api.example.com:8443',
+      endpoint: 'https://api.openai.com:8443',
       port: '8443',
       protocol: 'rest',
       methods: ['GET'],
@@ -68,7 +68,7 @@ describe('ConnectionsService', () => {
       templateId: 'custom-rest-readonly',
       templateVersion: 1,
       label: 'Reviewed inventory API',
-      endpoint: 'https://api.example.com:8443',
+      endpoint: 'https://api.openai.com:8443',
       publicConfig: fields,
       gatewayProviderName: 'mitzo-conn-12345678',
       desiredAccountIds: ['work'],
@@ -79,7 +79,7 @@ describe('ConnectionsService', () => {
       {
         status: 'active',
         gatewayProviderId: 'provider-1',
-        identity: 'custom:api.example.com',
+        identity: 'custom:api.openai.com',
         verifiedAt: Date.now(),
       },
       { operation: 'provision', outcome: 'success', actor: 'operator' },

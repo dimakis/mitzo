@@ -114,8 +114,6 @@ export function createConnectionsRuntime(options: {
       probePolicy: options.probePolicy,
       githubProbePolicy: options.githubProbePolicy,
       githubProfileFingerprint: options.githubProfileFingerprint,
-      githubPublishEnabled:
-        options.githubPublishEnabled ?? Boolean(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN),
       customRestEnabled:
         options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true',
       publicDnsResolver:

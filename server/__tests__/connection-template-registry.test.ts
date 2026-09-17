@@ -546,7 +546,7 @@ describe('connection template registry', () => {
       templateId: 'custom-rest-readonly',
       templateVersion: 1,
       fields: {
-        endpoint: 'https://xn--bcher-kva.example',
+        endpoint: 'https://xn--bcher-kva.com',
         port: '8443',
         protocol: 'rest',
         methods: ['GET', 'HEAD'],
@@ -559,7 +559,7 @@ describe('connection template registry', () => {
       },
     });
     expect(policy.endpoints[0]).toMatchObject({
-      host: 'xn--bcher-kva.example',
+      host: 'xn--bcher-kva.com',
       port: 8443,
       protocol: 'rest',
       redirects: 'deny',
@@ -572,7 +572,7 @@ describe('connection template registry', () => {
         templateVersion: 1,
         fields: { ...policy.publicConfig, dnsPin: ['1.1.1.1'] },
       }).endpoints[0],
-    ).toMatchObject({ host: 'xn--bcher-kva.example', port: 8443 });
+    ).toMatchObject({ host: 'xn--bcher-kva.com', port: 8443 });
     for (const path of ['/v1/*', '/v1/**', '/v1/./items', '/v1/../items'])
       expect(() =>
         connectionTemplateRegistry.compileProviderPolicy({

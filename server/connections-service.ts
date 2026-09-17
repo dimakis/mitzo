@@ -408,11 +408,6 @@ export class ConnectionsService {
       const c = this.store.create(input);
       return this.provision(c, legacyCredentials(credentials), signal);
     }
-    let policy = connectionTemplateRegistry.compileProviderPolicy({
-      templateId: input.templateId,
-      templateVersion: input.templateVersion,
-      fields: input.fields,
-    });
     const template = connectionTemplateRegistry.getProviderTemplate(
       input.templateId,
       input.templateVersion,
@@ -424,6 +419,11 @@ export class ConnectionsService {
       !supportsTemplate.call(this.gateway, input.templateId, input.templateVersion)
     )
       throw new Error('Provider template is not available');
+    let policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      fields: input.fields,
+    });
     policy = await this.preparePolicy(policy, signal);
     const publicConfig = durablePublicConfig(policy);
     const supplied = this.validateCredentials(input.templateId, input.templateVersion, credentials);

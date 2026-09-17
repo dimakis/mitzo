@@ -677,6 +677,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       async (_account: string, work: (connection: typeof managedConnection) => Promise<unknown>) =>
         work(managedConnection),
     ),
+    onDemandForAccount: vi.fn(() => []),
     verifyRuntimeSandbox: vi.fn(),
   };
   setConnectionsRuntime({

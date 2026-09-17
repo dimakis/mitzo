@@ -19,7 +19,7 @@ describe('custom REST OpenShell profile golden', () => {
         templateId: 'custom-rest-readonly',
         templateVersion: 1,
         fields: {
-          endpoint: 'https://api.example.com',
+          endpoint: 'https://api.openai.com',
           port: '443',
           protocol: 'rest',
           methods: ['GET', 'HEAD'],
