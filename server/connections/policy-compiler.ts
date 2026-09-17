@@ -3,6 +3,7 @@ import { parse as parseDomain } from 'tldts';
 import { z } from 'zod';
 import { canonicalPublicDnsAddress } from './iana-address-policy.js';
 import type {
+  CustomCredentialMapping,
   PinnedPublicDnsAnswers,
   PolicyCompiler,
   ProviderPolicy,
@@ -15,6 +16,13 @@ const maxCustomMethods = 3;
 const maxCustomPaths = 20;
 const maxCustomPathLength = 256;
 const maxCustomRules = 24;
+const customBinaryCatalog = Object.freeze({
+  curl: '/usr/bin/curl',
+  jq: '/usr/bin/jq',
+  python3: '/usr/bin/python3',
+} as const);
+const customPorts = new Set(['443', '8443']);
+const customCredentialNames = new Set(['authorization', 'x-api-key', 'api_key', 'access_token']);
 const maxGithubScopeEntries = 50;
 const customPathLiteralSegment = /^[A-Za-z0-9._~:@!$&'()+,;=-]+$/;
 // Keep the compiler in lockstep with the schema validator used for connection
@@ -225,7 +233,7 @@ function customEndpoint(value: string) {
     url.hash ||
     url.port !== ''
   )
-    throw new Error('Custom endpoint must be an HTTPS origin without credentials or a custom port');
+    throw new Error('Custom endpoint must be an HTTPS origin without credentials or a port');
   const host = url.hostname.toLowerCase();
   // Custom egress is restricted to ICANN registrable domains. Private suffixes
   // are intentionally not accepted: their ownership/routing policy is not a
@@ -235,6 +243,7 @@ function customEndpoint(value: string) {
     !host ||
     host.length > 253 ||
     Buffer.byteLength(host, 'utf8') > 253 ||
+    host.endsWith('.') ||
     host === 'localhost' ||
     host.endsWith('.localhost') ||
     host.endsWith('.local') ||
@@ -248,7 +257,7 @@ function customEndpoint(value: string) {
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
   )
     throw new Error('Custom endpoint host is not allowed');
-  return host;
+  return { host };
 }
 
 function canonicalCustomPath(value: string) {
@@ -319,33 +328,118 @@ export function verifyPinnedPublicDns(pin: PinnedPublicDnsAnswers, answers: read
 }
 
 export const compileCustomRestReadonly: PolicyCompiler = (template, fields) => {
-  requireOnlyFields(fields, ['endpoint', 'methods', 'paths']);
+  const legacy =
+    Object.keys(fields).length === 3 && ['endpoint', 'methods', 'paths'].every((x) => x in fields);
+  const hasPersistedPin = !legacy && Object.hasOwn(fields, 'dnsPin');
+  requireOnlyFields(
+    fields,
+    legacy
+      ? ['endpoint', 'methods', 'paths']
+      : [
+          'endpoint',
+          'port',
+          'protocol',
+          'methods',
+          'paths',
+          'credentialStyle',
+          'credentialLocation',
+          'credentialName',
+          'binaries',
+          'attachmentMode',
+          ...(hasPersistedPin ? ['dnsPin'] : []),
+        ],
+  );
   const endpoint = requiredString(fields, 'endpoint', 2048);
-  const rawMethods = requiredStringList(fields, 'methods', maxCustomMethods);
+  const protocol = legacy ? 'rest' : requiredString(fields, 'protocol', 16).toLowerCase();
+  if (protocol !== 'rest' && protocol !== 'graphql')
+    throw new Error('Custom inspection protocol is invalid');
+  const port = legacy ? 443 : Number(requiredString(fields, 'port', 4));
+  if (!customPorts.has(String(port))) throw new Error('Custom endpoint port is not allowed');
+  const rawMethods = requiredStringList(
+    fields,
+    'methods',
+    protocol === 'graphql' ? 1 : maxCustomMethods,
+  );
   const rawPaths = requiredStringList(fields, 'paths', maxCustomPaths);
   const methods = orderedUnique(rawMethods);
-  if (methods.some((method) => !readOnlyMethods.has(method)))
+  if (
+    (protocol === 'rest' && methods.some((method) => !readOnlyMethods.has(method))) ||
+    (protocol === 'graphql' && (methods.length !== 1 || methods[0] !== 'GRAPHQL_QUERY'))
+  )
     throw new Error('Custom REST methods are invalid');
   const paths = orderedUnique(rawPaths.map(canonicalCustomPath));
+  if (protocol === 'graphql' && paths.some((path) => path !== '/graphql'))
+    throw new Error('Custom GraphQL inspection path is invalid');
   if (methods.length * paths.length > maxCustomRules)
     throw new Error('Custom REST rule set is too large');
-  const host = customEndpoint(endpoint);
+  const { host } = customEndpoint(endpoint);
+  const mapping: CustomCredentialMapping = legacy
+    ? { style: 'bearer-token', location: 'header', name: 'authorization' }
+    : {
+        style: requiredString(fields, 'credentialStyle', 32) as CustomCredentialMapping['style'],
+        location: requiredString(
+          fields,
+          'credentialLocation',
+          16,
+        ) as CustomCredentialMapping['location'],
+        name: requiredString(fields, 'credentialName', 32) as CustomCredentialMapping['name'],
+      };
+  if (
+    !['bearer-token', 'api-token'].includes(mapping.style) ||
+    !['header', 'query'].includes(mapping.location) ||
+    !customCredentialNames.has(mapping.name) ||
+    (mapping.style === 'bearer-token' &&
+      (mapping.location !== 'header' || mapping.name !== 'authorization')) ||
+    (mapping.location === 'header' &&
+      mapping.name !== 'authorization' &&
+      mapping.name !== 'x-api-key') ||
+    (mapping.location === 'query' && mapping.name !== 'api_key' && mapping.name !== 'access_token')
+  )
+    throw new Error('Custom credential mapping is invalid');
+  const binaryKeys = legacy ? ['curl'] : orderedUnique(requiredStringList(fields, 'binaries', 3));
+  if (!binaryKeys.includes('curl') || binaryKeys.some((key) => !(key in customBinaryCatalog)))
+    throw new Error('Custom provider binary catalog selection is invalid');
+  const attachmentMode = legacy ? 'automatic' : requiredString(fields, 'attachmentMode', 16);
+  if (attachmentMode !== 'automatic' && attachmentMode !== 'on-demand')
+    throw new Error('Custom attachment mode is invalid');
+  const dns = hasPersistedPin
+    ? pinPublicDnsAnswers(customDnsRequirement(host), requiredStringList(fields, 'dnsPin', 16))
+    : customDnsRequirement(host);
   return policy(
     template,
     [
       {
         host,
-        port: 443,
-        protocol: 'rest',
+        port: port as 443 | 8443,
+        protocol: protocol as 'rest' | 'graphql',
         tls: 'terminate',
         redirects: 'deny',
-        dns: customDnsRequirement(host),
+        dns,
         rules: methods.flatMap((method) =>
-          paths.map((path) => ({ method: method as 'GET' | 'HEAD' | 'OPTIONS', path })),
+          paths.map((path) => ({
+            method: method as 'GET' | 'HEAD' | 'OPTIONS' | 'GRAPHQL_QUERY',
+            path,
+          })),
         ),
-        allowedBinaries: ['/usr/bin/curl', '/usr/local/bin/curl'],
+        allowedBinaries: binaryKeys.map(
+          (key) => customBinaryCatalog[key as keyof typeof customBinaryCatalog],
+        ),
       },
     ],
-    { endpoint: `https://${host}`, methods, paths },
+    legacy
+      ? { endpoint: `https://${host}`, methods, paths }
+      : {
+          endpoint: `https://${host}${port === 443 ? '' : `:${port}`}`,
+          port: String(port),
+          protocol,
+          methods,
+          paths,
+          credentialStyle: mapping.style,
+          credentialLocation: mapping.location,
+          credentialName: mapping.name,
+          binaries: binaryKeys,
+          attachmentMode,
+          ...(hasPersistedPin ? { dnsPin: requiredStringList(fields, 'dnsPin', 16) } : {}),
+        },
   );
 };

@@ -541,6 +541,52 @@ describe('connection template registry', () => {
     ).toEqual(['head', 'Head', 'a'.repeat(39), 'a'.repeat(41), `${'a'.repeat(39)}g`]);
   });
 
+  it('compiles the full operator custom-builder schema with no wildcard escape hatch', () => {
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      fields: {
+        endpoint: 'https://xn--bcher-kva.example',
+        port: '8443',
+        protocol: 'rest',
+        methods: ['GET', 'HEAD'],
+        paths: ['/v1/items', '/v1/metadata'],
+        credentialStyle: 'api-token',
+        credentialLocation: 'query',
+        credentialName: 'api_key',
+        binaries: ['curl', 'jq'],
+        attachmentMode: 'on-demand',
+      },
+    });
+    expect(policy.endpoints[0]).toMatchObject({
+      host: 'xn--bcher-kva.example',
+      port: 8443,
+      protocol: 'rest',
+      redirects: 'deny',
+      allowedBinaries: ['/usr/bin/curl', '/usr/bin/jq'],
+    });
+    expect(policy.publicConfig).toMatchObject({ attachmentMode: 'on-demand', port: '8443' });
+    for (const path of ['/v1/*', '/v1/**', '/v1/./items', '/v1/../items'])
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'custom-rest-readonly',
+          templateVersion: 1,
+          fields: {
+            endpoint: 'https://api.example.com',
+            port: '443',
+            protocol: 'rest',
+            methods: ['GET'],
+            paths: [path],
+            credentialStyle: 'bearer-token',
+            credentialLocation: 'header',
+            credentialName: 'authorization',
+            binaries: ['curl'],
+            attachmentMode: 'automatic',
+          },
+        }),
+      ).toThrow();
+  });
+
   it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {
     expect(() =>
       createConnectionTemplateRegistry({

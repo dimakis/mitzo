@@ -107,6 +107,31 @@ describe('OpenShell runtime lifecycle', () => {
     expect(create).not.toContain('auto-providers');
   });
 
+  it('keeps reviewed on-demand custom providers detached until an explicit grant', async () => {
+    const customProvider = 'mitzo-conn-12345678';
+    const attached = new Set(['github']);
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('get')) return ready();
+      if (args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      { ...config, grantableServiceProviders: [customProvider] },
+      run,
+    );
+    const signal = new AbortController().signal;
+    const runtime = await manager.ensure('conversation', signal);
+    expect(attached).not.toContain(customProvider);
+    expect(
+      run.mock.calls.some(([args]) => args.includes('attach') && args.includes(customProvider)),
+    ).toBe(false);
+
+    await manager.grantServiceProvider('conversation', runtime, customProvider, signal);
+    expect(attached).toContain(customProvider);
+  });
+
   it('waits through asynchronous creation phases until the sandbox is Ready', async () => {
     const run = vi
       .fn()

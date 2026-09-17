@@ -96,16 +96,26 @@ const scopeValues = (template: ConnectionTemplate, values: Record<string, string
       .map((field) => [
         field.key,
         field.kind === 'string-list' || field.kind === 'enum-list'
-          ? (values[field.key] ?? '')
-              .split('\n')
-              .map((v) => v.trim())
-              .filter(Boolean)
+          ? field.kind === 'enum-list' && singleChoiceCustomFields.has(field.key)
+            ? (values[field.key] ?? '').trim()
+            : (values[field.key] ?? '')
+                .split('\n')
+                .map((v) => v.trim())
+                .filter(Boolean)
           : (values[field.key] ?? '').trim(),
       ])
       .filter(([, value]) => (Array.isArray(value) ? value.length : value)),
   );
 const templateKey = (template: Pick<ConnectionTemplate, 'id' | 'version'>) =>
   `${template.id}@${template.version}`;
+const singleChoiceCustomFields = new Set([
+  'port',
+  'protocol',
+  'credentialStyle',
+  'credentialLocation',
+  'credentialName',
+  'attachmentMode',
+]);
 
 export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
@@ -231,7 +241,20 @@ export function ConnectionsView() {
     if (!next.available) return;
     setSelectedTemplateKey(templateKey(next));
     setLabel(next.label);
-    setScope({});
+    setScope(
+      next.id === 'custom-rest-readonly'
+        ? {
+            port: '443',
+            protocol: 'rest',
+            methods: 'GET\nHEAD\nOPTIONS',
+            credentialStyle: 'bearer-token',
+            credentialLocation: 'header',
+            credentialName: 'authorization',
+            binaries: 'curl',
+            attachmentMode: 'automatic',
+          }
+        : {},
+    );
     setCredentials({});
     setAccounts([]);
     setStep('authenticate');
@@ -686,9 +709,22 @@ function Scope({
               {field.choices?.map((choice) => (
                 <label className="connections-profile-option" key={choice}>
                   <input
-                    type="checkbox"
-                    checked={(values[field.key] ?? '').split('\n').includes(choice)}
+                    type={singleChoiceCustomFields.has(field.key) ? 'radio' : 'checkbox'}
+                    name={
+                      singleChoiceCustomFields.has(field.key)
+                        ? `connection-${field.key}`
+                        : undefined
+                    }
+                    checked={
+                      singleChoiceCustomFields.has(field.key)
+                        ? values[field.key] === choice
+                        : (values[field.key] ?? '').split('\n').includes(choice)
+                    }
                     onChange={() => {
+                      if (singleChoiceCustomFields.has(field.key)) {
+                        onValues({ ...values, [field.key]: choice });
+                        return;
+                      }
                       const next = new Set((values[field.key] ?? '').split('\n').filter(Boolean));
                       if (next.has(choice)) next.delete(choice);
                       else next.add(choice);
@@ -823,7 +859,31 @@ function Review({
         A candidate provider is verified before activation. Secret values are intentionally not
         shown.
       </p>
+      {template.id === 'custom-rest-readonly' && <CustomPolicyPreview scope={scope} />}
     </div>
+  );
+}
+
+function CustomPolicyPreview({ scope }: { scope: Record<string, string | string[]> }) {
+  const endpoint = typeof scope.endpoint === 'string' ? scope.endpoint : '';
+  const port = typeof scope.port === 'string' ? scope.port : '443';
+  const protocol = typeof scope.protocol === 'string' ? scope.protocol : 'rest';
+  const methods = Array.isArray(scope.methods) ? scope.methods : [];
+  const paths = Array.isArray(scope.paths) ? scope.paths : [];
+  const rules = methods.flatMap((method) => paths.map((path) => `${method} ${path}`));
+  return (
+    <details className="connections-policy-preview">
+      <summary>Technical policy preview</summary>
+      <p>
+        HTTPS {endpoint || 'endpoint'}:{port} · {protocol} inspection · redirects denied · all
+        A/AAAA answers are pinned before provisioning and checked before every use.
+      </p>
+      <p>Effective rules: {rules.join(', ') || 'none'}.</p>
+      <p>
+        Warnings: wildcard hosts/paths are denied; credentials are one-shot and never forwarded on
+        redirects.
+      </p>
+    </details>
   );
 }
 

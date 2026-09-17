@@ -13,6 +13,7 @@ import {
 } from './connections-gateway.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
 import type { ProviderPolicy } from './connections/types.js';
+import { customRestProfileId } from './connections-gateway.js';
 
 type CreateInput = Parameters<ConnectionStore['create']>[0];
 export interface GenericConnectionCreateInput {
@@ -30,7 +31,7 @@ type Credentials = Record<string, string>;
 function endpointFromPolicy(policy: ProviderPolicy) {
   const first = policy.endpoints[0];
   if (!first) throw new Error('Provider policy has no endpoints');
-  return `https://${first.host}`;
+  return `https://${first.host}${first.port === 443 ? '' : `:${first.port}`}`;
 }
 
 function durablePublicConfig(policy: ProviderPolicy): Record<string, string | string[]> {
@@ -104,9 +105,46 @@ export class ConnectionsService {
           c.status === 'active' &&
           c.verifiedAt !== null &&
           c.gatewayProviderId &&
-          c.desiredAccountIds.includes(accountId),
+          c.desiredAccountIds.includes(accountId) &&
+          // On-demand custom providers must be explicitly granted to a chat;
+          // they are never selected by the automatic new-conversation path.
+          (c.templateId !== 'custom-rest-readonly' ||
+            c.publicConfig.attachmentMode === 'automatic'),
       ) ?? null
     );
+  }
+  /** Candidate custom providers for explicit per-conversation grants only. */
+  onDemandForAccount(accountId: string, ownerId = 'operator') {
+    return this.catalog(ownerId).filter(
+      (c) =>
+        c.templateId === 'custom-rest-readonly' &&
+        c.status === 'active' &&
+        c.verifiedAt !== null &&
+        c.gatewayProviderId !== null &&
+        c.desiredAccountIds.includes(accountId) &&
+        c.publicConfig.attachmentMode === 'on-demand',
+    );
+  }
+  async authorizeOnDemand(
+    connectionId: string,
+    revision: number,
+    accountId: string,
+    signal: AbortSignal,
+  ) {
+    return this.serial(async () => {
+      const c = this.current(connectionId, revision);
+      if (
+        c.templateId !== 'custom-rest-readonly' ||
+        c.status !== 'active' ||
+        c.verifiedAt === null ||
+        !c.gatewayProviderId ||
+        c.publicConfig.attachmentMode !== 'on-demand' ||
+        !c.desiredAccountIds.includes(accountId)
+      )
+        throw new Error('On-demand connection is no longer eligible');
+      await this.boundProvider(c, signal);
+      return c;
+    });
   }
   private current(id: string, revision?: number) {
     const c = this.store.get(id);
@@ -141,10 +179,16 @@ export class ConnectionsService {
       throw new Error('Account is not eligible');
   }
   private checkProvider(c: Connection, p: GatewayProvider) {
+    const expectedType =
+      c.templateId === 'github-readonly'
+        ? 'github'
+        : c.templateId === 'custom-rest-readonly'
+          ? customRestProfileId(this.policyFor(c))
+          : c.templateId;
     if (
       p.name !== c.gatewayProviderName ||
       p.workspace !== c.workspace ||
-      p.type !== (c.templateId === 'github-readonly' ? 'github' : c.templateId) ||
+      p.type !== expectedType ||
       (c.gatewayProviderId && p.id !== c.gatewayProviderId)
     )
       throw new Error('Managed provider binding changed');
@@ -179,8 +223,22 @@ export class ConnectionsService {
       fields: c.publicConfig,
     });
   }
+  private async preparePolicy(policy: ProviderPolicy, signal: AbortSignal) {
+    if (policy.templateId !== 'custom-rest-readonly') return policy;
+    const prepare = this.gateway.preparePolicy;
+    if (typeof prepare !== 'function')
+      throw new Error('Custom REST gateway adapter is unavailable');
+    return prepare.call(this.gateway, policy, signal);
+  }
   private async boundProvider(c: Connection, signal: AbortSignal, allowMissing = false) {
     this.current(c.id);
+    // Custom DNS is intentionally checked at every controller use, before a
+    // provider can be selected for a new sandbox or retained-session action.
+    if (c.templateId === 'custom-rest-readonly')
+      await this.gateway.verifyCompatibility(
+        { templateId: c.templateId, templateVersion: c.templateVersion, policy: this.policyFor(c) },
+        signal,
+      );
     const p = await this.gateway.get(c.gatewayProviderName, signal);
     if (!p) {
       if (allowMissing) return undefined;
@@ -202,14 +260,34 @@ export class ConnectionsService {
     });
   }
   /** Called inside withAccountRuntime before ensure. Existing sessions cannot gain new grants. */
-  async verifyRuntimeSandbox(name: string, connection: Connection | null, signal: AbortSignal) {
+  async verifyRuntimeSandbox(
+    name: string,
+    connection: Connection | null,
+    accountId: string,
+    signal: AbortSignal,
+    onDemandConnections: readonly Connection[] = [],
+    approvedOnDemandProviderNames: readonly string[] = [],
+  ) {
     const sandbox = await this.gateway.sandbox(name, signal);
     if (!sandbox) return;
     const providers = await this.gateway.sandboxProviders(name, signal);
     const managed = providers.filter((p) => p.startsWith('mitzo-conn-'));
-    const expected = connection ? [connection.gatewayProviderName] : [];
+    const expected = [
+      ...(connection ? [connection.gatewayProviderName] : []),
+      ...approvedOnDemandProviderNames,
+    ];
     if (managed.length !== expected.length || managed.some((p) => !expected.includes(p)))
       throw new Error('Connection permissions changed. Start a new conversation.');
+    // A durable grant is only valid while its current connection revision
+    // remains active for this account. This also repeats the custom DNS pin
+    // verification before every retained-sandbox use.
+    for (const providerName of approvedOnDemandProviderNames) {
+      const candidate = onDemandConnections.find(
+        (connection) => connection.gatewayProviderName === providerName,
+      );
+      if (!candidate) throw new Error('Connection permissions changed. Start a new conversation.');
+      await this.authorizeOnDemand(candidate.id, candidate.revision, accountId, signal);
+    }
   }
   private async drain(c: Connection, signal: AbortSignal, removedAccounts?: string[]) {
     const p = await this.boundProvider(c, signal, true);
@@ -289,6 +367,11 @@ export class ConnectionsService {
       const c = this.store.create(input);
       return this.provision(c, legacyCredentials(credentials), signal);
     }
+    let policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: input.templateId,
+      templateVersion: input.templateVersion,
+      fields: input.fields,
+    });
     const template = connectionTemplateRegistry.getProviderTemplate(
       input.templateId,
       input.templateVersion,
@@ -300,11 +383,7 @@ export class ConnectionsService {
       !supportsTemplate.call(this.gateway, input.templateId, input.templateVersion)
     )
       throw new Error('Provider template is not available');
-    const policy = connectionTemplateRegistry.compileProviderPolicy({
-      templateId: input.templateId,
-      templateVersion: input.templateVersion,
-      fields: input.fields,
-    });
+    policy = await this.preparePolicy(policy, signal);
     const publicConfig = durablePublicConfig(policy);
     const supplied = this.validateCredentials(input.templateId, input.templateVersion, credentials);
     const c = this.store.create({

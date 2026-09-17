@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
 import { ConnectionStore } from '../connections-store.js';
 import { ConnectionsService } from '../connections-service.js';
-import { ConnectionProbeError, OpenShellConnectionGateway } from '../connections-gateway.js';
+import {
+  ConnectionProbeError,
+  OpenShellConnectionGateway,
+  customRestProfileId,
+} from '../connections-gateway.js';
+import { connectionTemplateRegistry } from '../connections/registry.js';
 
 function jiraAdapter() {
   return {
@@ -37,6 +42,96 @@ function jiraAdapter() {
 }
 
 describe('ConnectionsService', () => {
+  it('keeps on-demand custom providers out of automatic selection and binds explicit grants', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const fields = {
+      endpoint: 'https://api.example.com',
+      port: '443',
+      protocol: 'rest',
+      methods: ['GET'],
+      paths: ['/v1/items'],
+      credentialStyle: 'bearer-token',
+      credentialLocation: 'header',
+      credentialName: 'authorization',
+      binaries: ['curl'],
+      attachmentMode: 'on-demand',
+      dnsPin: ['1.1.1.1'],
+    };
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      fields,
+    });
+    const created = store.create({
+      ownerId: 'operator',
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      label: 'Reviewed inventory API',
+      endpoint: 'https://api.example.com',
+      publicConfig: fields,
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: ['work'],
+    });
+    const active = store.transition(
+      created.id,
+      created.revision,
+      {
+        status: 'active',
+        gatewayProviderId: 'provider-1',
+        identity: 'custom:api.example.com',
+        verifiedAt: Date.now(),
+      },
+      { operation: 'provision', outcome: 'success', actor: 'operator' },
+    );
+    const gateway = {
+      verifyCompatibility: vi.fn(),
+      validateBinding: vi.fn(),
+      get: vi.fn().mockResolvedValue({
+        id: 'provider-1',
+        name: active.gatewayProviderName,
+        workspace: 'default',
+        type: customRestProfileId(policy),
+        credentialKeys: ['MITZO_CUSTOM_API_TOKEN'],
+      }),
+      sandbox: vi.fn().mockResolvedValue({ name: 'sandbox' }),
+      sandboxProviders: vi.fn().mockResolvedValue([active.gatewayProviderName]),
+    };
+    const service = new ConnectionsService(store, gateway as never);
+    const signal = AbortSignal.timeout(500);
+
+    // It remains invisible to the automatic account route.
+    expect(service.resolveForAccount('work')).toBeNull();
+    expect(service.onDemandForAccount('work')).toEqual([active]);
+    // A physical attachment without a durable per-conversation grant fails closed.
+    await expect(
+      service.verifyRuntimeSandbox('sandbox', null, 'work', signal, [active], []),
+    ).rejects.toThrow('Connection permissions changed');
+
+    await expect(
+      service.authorizeOnDemand(active.id, active.revision, 'work', signal),
+    ).resolves.toMatchObject({ id: active.id, revision: active.revision });
+    await expect(
+      service.authorizeOnDemand(active.id, active.revision + 1, 'work', signal),
+    ).rejects.toThrow('Connection changed');
+    await expect(
+      service.authorizeOnDemand(active.id, active.revision, 'other-account', signal),
+    ).rejects.toThrow('no longer eligible');
+    await expect(
+      service.verifyRuntimeSandbox(
+        'sandbox',
+        null,
+        'work',
+        signal,
+        [active],
+        [active.gatewayProviderName],
+      ),
+    ).resolves.toBeUndefined();
+    expect(gateway.verifyCompatibility).toHaveBeenCalled();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('provisions through the template-neutral contract and never persists request credentials', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-service-'));
     const store = new ConnectionStore(join(dir, 'db'));

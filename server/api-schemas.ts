@@ -26,7 +26,18 @@ const GenericConnectionCreateBody = z
     credentials: ConnectionCredentials,
     accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.templateId === 'custom-rest-readonly' &&
+      Object.prototype.hasOwnProperty.call(value.fields, 'dnsPin')
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['fields', 'dnsPin'],
+        message: 'DNS pins are gateway-derived and cannot be submitted',
+      });
+  });
 const LegacyJiraConnectionCreateBody = z
   .object({
     label: z.string().trim().min(1).max(100),

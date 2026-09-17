@@ -4,6 +4,7 @@ import {
   JIRA_API_ENDPOINT,
   githubProfileFingerprint,
   parseProviderAttachments,
+  renderCustomRestProfile,
   validateJiraProfileYaml,
 } from '../connections-gateway.js';
 import type { ProviderPolicy } from '../connections/types.js';
@@ -28,6 +29,105 @@ const githubPolicy: ProviderPolicy = {
   ],
 };
 describe('OpenShellConnectionGateway', () => {
+  const customPolicy = (): ProviderPolicy => ({
+    templateId: 'custom-rest-readonly',
+    templateVersion: 1,
+    credentialFieldKeys: ['token'],
+    publicConfig: {
+      endpoint: 'https://api.example.com',
+      port: '443',
+      protocol: 'rest',
+      methods: ['GET'],
+      paths: ['/v1'],
+      credentialStyle: 'bearer-token',
+      credentialLocation: 'header',
+      credentialName: 'authorization',
+      binaries: ['curl'],
+      attachmentMode: 'automatic',
+      dnsPin: ['1.1.1.1'],
+    },
+    endpoints: [
+      {
+        host: 'api.example.com',
+        port: 443,
+        protocol: 'rest',
+        tls: 'terminate',
+        redirects: 'deny',
+        dns: {
+          mode: 'pinned-public-only',
+          hostname: 'api.example.com',
+          verifyAt: 'provision-and-every-use',
+          rejectRebinding: true,
+        },
+        rules: [{ method: 'GET', path: '/v1' }],
+        allowedBinaries: ['/usr/bin/curl'],
+      },
+    ],
+  });
+  it('generates deterministic custom profiles and fails closed on DNS drift before lint/import', async () => {
+    const policy = customPolicy();
+    const rendered = renderCustomRestProfile(policy);
+    expect(rendered.yaml).toContain('MITZO_CUSTOM_API_TOKEN');
+    expect(rendered.yaml).toContain('host: api.example.com');
+    expect(rendered.yaml).not.toContain('SENTINEL');
+    const runner = vi.fn().mockResolvedValue('[]');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1', '10.0.0.1']),
+    });
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy },
+        signal,
+      ),
+    ).rejects.toThrow('public IP');
+    expect(runner).not.toHaveBeenCalled();
+  });
+  it('pins public A/AAAA answers and rejects changes on every compatibility check', async () => {
+    const answers = vi.fn().mockResolvedValueOnce(['1.1.1.1']).mockResolvedValueOnce(['8.8.8.8']);
+    const gateway = new OpenShellConnectionGateway(vi.fn(), {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: answers,
+    });
+    const prepared = await gateway.preparePolicy!(
+      { ...customPolicy(), publicConfig: { ...customPolicy().publicConfig, dnsPin: [] } },
+      signal,
+    );
+    await expect(
+      gateway.verifyCompatibility(
+        { templateId: 'custom-rest-readonly', templateVersion: 1, policy: prepared },
+        signal,
+      ),
+    ).rejects.toThrow('rebinding');
+  });
+  it('lints the deterministic generated profile before importing it', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce('[]')
+      .mockResolvedValueOnce('')
+      .mockResolvedValueOnce('');
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+      customProbePolicy: 'policy',
+      customRestEnabled: true,
+      publicDnsResolver: vi.fn().mockResolvedValue(['1.1.1.1']),
+    });
+    await gateway.verifyCompatibility(
+      { templateId: 'custom-rest-readonly', templateVersion: 1, policy: customPolicy() },
+      signal,
+    );
+    expect(runner.mock.calls[1]![0]).toEqual(expect.arrayContaining(['profile', 'lint', '--file']));
+    expect(runner.mock.calls[2]![0]).toEqual(
+      expect.arrayContaining(['profile', 'import', '--file']),
+    );
+  });
   it('supports only the reviewed Jira adapter version', () => {
     const gateway = new OpenShellConnectionGateway(vi.fn());
     expect(gateway.supportsTemplate('jira-readonly', 1)).toBe(true);

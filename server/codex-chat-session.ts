@@ -294,14 +294,25 @@ export function managedJiraConnectionEnv(connection: Connection) {
 export async function openCodexChat(options: Options) {
   const service = getConnectionsRuntime()?.service;
   if (service && openShellRuntimeConfig(process.env))
+    // On-demand connections are supplied only as grant candidates. They are
+    // intentionally excluded from withAccountRuntime's automatic selection.
     return service.withAccountRuntime(
       options.binding.accountId,
-      (connection) => openCodexChatBound(options, connection),
+      (connection) =>
+        openCodexChatBound(
+          options,
+          connection,
+          service.onDemandForAccount(options.binding.accountId),
+        ),
       options.session.abortController.signal,
     );
   return openCodexChatBound(options, null);
 }
-async function openCodexChatBound(options: Options, managedConnection: Connection | null) {
+async function openCodexChatBound(
+  options: Options,
+  managedConnection: Connection | null,
+  onDemandConnections: readonly Connection[] = [],
+) {
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -330,12 +341,23 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         serviceProviders: managedConnection
           ? [...configuredRuntime.serviceProviders, managedConnection.gatewayProviderName]
           : configuredRuntime.serviceProviders,
+        grantableServiceProviders: [
+          ...configuredRuntime.grantableServiceProviders,
+          ...onDemandConnections.map((connection) => connection.gatewayProviderName),
+        ],
         account: selectedOpenShellAccountRoute(options),
         connectionAccountId: options.binding.accountId,
         enforceConnectionAttachments: !connectionService,
         verifyConnections: connectionService
-          ? (name, signal) =>
-              connectionService.verifyRuntimeSandbox(name, managedConnection, signal)
+          ? (name, signal, approvedGrantableProviders = []) =>
+              connectionService.verifyRuntimeSandbox(
+                name,
+                managedConnection,
+                options.binding.accountId,
+                signal,
+                onDemandConnections,
+                approvedGrantableProviders,
+              )
           : undefined,
       })
     : undefined;
@@ -388,7 +410,12 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     openShell && managedConnection?.templateId === 'jira-readonly'
       ? { ...openShell, connectionEnv: managedJiraConnectionEnv(managedConnection) }
       : openShell;
-  const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
+  const grantableProviders = runtimeManager
+    ? [
+        ...configuredRuntime!.grantableServiceProviders,
+        ...onDemandConnections.map((connection) => connection.gatewayProviderName),
+      ]
+    : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
   let integrationTurn:
     | {
@@ -447,9 +474,24 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         isError: false,
       };
     if (access.state === 'indeterminate') throw access.error;
-    const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+    const providerLabel =
+      INTEGRATION_PROVIDER_LABELS[provider] ??
+      onDemandConnections.find((connection) => connection.gatewayProviderName === provider)
+        ?.label ??
+      provider;
     const attachApprovedProvider = async () => {
       try {
+        const onDemand = onDemandConnections.find(
+          (connection) => connection.gatewayProviderName === provider,
+        );
+        if (onDemand) {
+          await connectionService?.authorizeOnDemand(
+            onDemand.id,
+            onDemand.revision,
+            options.binding.accountId,
+            signal,
+          );
+        }
         await runtimeManager.grantServiceProvider(
           options.conversationId,
           managedOpenShell,

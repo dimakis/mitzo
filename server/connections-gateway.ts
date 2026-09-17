@@ -1,15 +1,25 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { load } from 'js-yaml';
+import { isIP } from 'node:net';
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { dump, load } from 'js-yaml';
 import { z } from 'zod';
 import { isValidEmailAddress } from './connections/email.js';
 import type { ProviderPolicy } from './connections/types.js';
+import { pinPublicDnsAnswers, verifyPinnedPublicDns } from './connections/policy-compiler.js';
+import type { PinnedPublicDnsAnswers } from './connections/types.js';
 
 export const JIRA_ENDPOINT = 'https://redhat.atlassian.net';
 export const JIRA_API_ENDPOINT =
   'https://api.atlassian.com/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432';
 export const JIRA_TEMPLATE_ID = 'jira-readonly';
 export const GITHUB_TEMPLATE_ID = 'github-readonly';
+export const CUSTOM_REST_TEMPLATE_ID = 'custom-rest-readonly';
+export type PublicDnsResolver = (
+  hostname: string,
+  signal: AbortSignal,
+) => Promise<readonly string[]>;
 export type ConnectionProbeErrorCode =
   | 'JIRA_AUTH_REJECTED'
   | 'JIRA_PERMISSION_DENIED'
@@ -175,6 +185,8 @@ export interface GatewayCompatibilityInput {
 export interface ConnectionGateway {
   /** A registered template may be visible before its gateway adapter ships. */
   supportsTemplate(templateId: string, templateVersion: number): boolean;
+  /** Custom policies are pinned before persistence; adapters without this cannot enable them. */
+  preparePolicy?(policy: ProviderPolicy, signal: AbortSignal): Promise<ProviderPolicy>;
   /** Adapter-owned binding checks include credential injection invariants. */
   validateBinding(input: {
     templateId: string;
@@ -274,6 +286,22 @@ function githubOperation(input: GatewayProviderOperation) {
     throw new Error('Unsupported or invalid reviewed provider template');
   return { name: safeName(input.name), token: input.credentials.token };
 }
+function customRestOperation(input: GatewayProviderOperation) {
+  if (
+    input.templateId !== CUSTOM_REST_TEMPLATE_ID ||
+    input.templateVersion !== 1 ||
+    input.policy.templateId !== input.templateId ||
+    input.policy.templateVersion !== input.templateVersion ||
+    Object.keys(input.credentials).length !== 1 ||
+    typeof input.credentials.token !== 'string' ||
+    input.credentials.token.length === 0
+  )
+    throw new Error('Unsupported or invalid custom REST provider template');
+  return {
+    name: safeName(input.name),
+    token: input.credentials.token,
+  };
+}
 function assertPinnedDnsSupported(policy: ProviderPolicy) {
   for (const endpoint of policy.endpoints) {
     if (!endpoint.dns) continue;
@@ -290,6 +318,127 @@ function assertPinnedDnsSupported(policy: ProviderPolicy) {
     throw new Error('Pinned public DNS is unsupported by this gateway');
   }
 }
+
+function customEndpoint(policy: ProviderPolicy) {
+  if (
+    policy.templateId !== CUSTOM_REST_TEMPLATE_ID ||
+    policy.templateVersion !== 1 ||
+    policy.endpoints.length !== 1
+  )
+    throw new Error('Invalid custom REST policy');
+  const endpoint = policy.endpoints[0]!;
+  const host = endpoint.host.toLowerCase();
+  if (
+    !endpoint.dns ||
+    endpoint.dns.mode !== 'pinned-public-only' ||
+    endpoint.dns.hostname !== endpoint.host ||
+    endpoint.dns.verifyAt !== 'provision-and-every-use' ||
+    endpoint.dns.rejectRebinding !== true ||
+    endpoint.host !== host ||
+    host.endsWith('.') ||
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal') ||
+    host.includes('*') ||
+    isIP(host) !== 0 ||
+    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(
+      host,
+    ) ||
+    endpoint.redirects !== 'deny' ||
+    endpoint.tls !== 'terminate' ||
+    ![443, 8443].includes(endpoint.port) ||
+    !['rest', 'graphql'].includes(endpoint.protocol) ||
+    !endpoint.allowedBinaries.includes('/usr/bin/curl') ||
+    endpoint.allowedBinaries.some(
+      (path) => !['/usr/bin/curl', '/usr/bin/jq', '/usr/bin/python3'].includes(path),
+    ) ||
+    endpoint.rules.length === 0 ||
+    endpoint.rules.length > 24 ||
+    endpoint.rules.some(
+      (rule) =>
+        !rule.path.startsWith('/') ||
+        rule.path.includes('*') ||
+        rule.path.includes('%') ||
+        rule.path.includes('..') ||
+        (endpoint.protocol === 'rest' && !['GET', 'HEAD', 'OPTIONS'].includes(rule.method)) ||
+        (endpoint.protocol === 'graphql' &&
+          (rule.method !== 'GRAPHQL_QUERY' || rule.path !== '/graphql')),
+    )
+  )
+    throw new Error('Invalid custom REST policy');
+  return endpoint;
+}
+
+/** Stable, code-owned profile identifier. User input cannot name a profile. */
+export function customRestProfileId(policy: ProviderPolicy) {
+  const endpoint = customEndpoint(policy);
+  const digest = createHash('sha256')
+    .update(
+      JSON.stringify({
+        host: endpoint.host,
+        port: endpoint.port,
+        protocol: endpoint.protocol,
+        rules: endpoint.rules,
+        binaries: endpoint.allowedBinaries,
+        credentialStyle: policy.publicConfig.credentialStyle,
+        credentialLocation: policy.publicConfig.credentialLocation,
+        credentialName: policy.publicConfig.credentialName,
+      }),
+    )
+    .digest('hex')
+    .slice(0, 20);
+  return `mitzo-custom-rest-${digest}`;
+}
+
+/** Generated only from a compiled policy; browser YAML is never parsed or imported. */
+export function renderCustomRestProfile(policy: ProviderPolicy) {
+  const endpoint = customEndpoint(policy);
+  const style = policy.publicConfig.credentialStyle;
+  const location = policy.publicConfig.credentialLocation;
+  const name = policy.publicConfig.credentialName;
+  if (
+    (style !== 'bearer-token' && style !== 'api-token') ||
+    (location !== 'header' && location !== 'query') ||
+    typeof name !== 'string' ||
+    !['authorization', 'x-api-key', 'api_key', 'access_token'].includes(name) ||
+    (style === 'bearer-token' && (location !== 'header' || name !== 'authorization')) ||
+    (location === 'header' && name !== 'authorization' && name !== 'x-api-key') ||
+    (location === 'query' && name !== 'api_key' && name !== 'access_token')
+  )
+    throw new Error('Invalid custom credential mapping');
+  const profile = {
+    id: customRestProfileId(policy),
+    resource_version: 1,
+    display_name: 'Mitzo custom REST read-only',
+    description: 'Mitzo-generated bounded custom API policy',
+    category: 'data',
+    inference_capable: false,
+    credentials: [
+      {
+        name: 'api_token',
+        description: 'One-shot custom API token',
+        env_vars: ['MITZO_CUSTOM_API_TOKEN'],
+        required: true,
+        auth_style: style === 'bearer-token' ? 'bearer' : 'api_key',
+        ...(location === 'header' ? { header_name: name } : { query_param: name }),
+      },
+    ],
+    endpoints: [
+      {
+        host: endpoint.host,
+        port: endpoint.port,
+        protocol: endpoint.protocol,
+        enforcement: 'enforce',
+        tls: 'terminate',
+        rules: endpoint.rules.map((rule) => ({ allow: rule })),
+      },
+    ],
+    binaries: endpoint.allowedBinaries,
+  };
+  return { id: profile.id, yaml: dump(profile, { noRefs: true, lineWidth: -1, sortKeys: false }) };
+}
+
 function safeOutput(value: string) {
   try {
     return Provider.array()
@@ -319,6 +468,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       /** Reviewed SHA-256 for the effective built-in `github` profile export. */
       githubProfileFingerprint?: string;
       profilePath?: string;
+      /** Explicit operator deployment flag; never enabled merely by a browser request. */
+      customRestEnabled?: boolean;
+      publicDnsResolver?: PublicDnsResolver;
+      customProbePolicy?: string;
     } = {
       workspace: 'default',
     },
@@ -326,6 +479,13 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
   supportsTemplate(templateId: string, templateVersion: number) {
     if (templateVersion !== 1) return false;
     if (templateId === JIRA_TEMPLATE_ID) return true;
+    if (templateId === CUSTOM_REST_TEMPLATE_ID)
+      return (
+        !!this.options.customRestEnabled &&
+        !!this.options.publicDnsResolver &&
+        !!this.options.probeImage &&
+        !!this.options.customProbePolicy
+      );
     return (
       templateId === GITHUB_TEMPLATE_ID &&
       !!this.options.probeImage &&
@@ -355,7 +515,44 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       provider.type === 'github' &&
       provider.credentialKeys.length === 1 &&
       provider.credentialKeys[0] === 'GITHUB_TOKEN';
-    if (!jira && !github) throw new Error('Managed provider credential binding changed');
+    const custom =
+      input.templateId === CUSTOM_REST_TEMPLATE_ID &&
+      input.templateVersion === 1 &&
+      /^mitzo-custom-rest-[a-f0-9]{20}$/.test(provider.type) &&
+      provider.credentialKeys.length === 1 &&
+      provider.credentialKeys[0] === 'MITZO_CUSTOM_API_TOKEN';
+    if (!jira && !github && !custom) throw new Error('Managed provider credential binding changed');
+  }
+  async preparePolicy(policy: ProviderPolicy, signal: AbortSignal): Promise<ProviderPolicy> {
+    if (policy.templateId !== CUSTOM_REST_TEMPLATE_ID) return policy;
+    if (!this.options.customRestEnabled || !this.options.publicDnsResolver)
+      throw new Error('Pinned public DNS is unsupported by this gateway');
+    const endpoint = customEndpoint(policy);
+    const answers = await this.options.publicDnsResolver(endpoint.host, signal);
+    const pin = pinPublicDnsAnswers(endpoint.dns!, answers);
+    return {
+      ...policy,
+      endpoints: policy.endpoints.map((item) => (item === endpoint ? { ...item, dns: pin } : item)),
+      publicConfig: { ...policy.publicConfig, dnsPin: [...pin.addresses] },
+    };
+  }
+  private async verifyCustomDns(policy: ProviderPolicy, signal: AbortSignal) {
+    if (!this.options.customRestEnabled || !this.options.publicDnsResolver)
+      throw new Error('Pinned public DNS is unsupported by this gateway');
+    const endpoint = customEndpoint(policy);
+    const persisted = policy.publicConfig.dnsPin;
+    if (
+      !Array.isArray(persisted) ||
+      persisted.length === 0 ||
+      persisted.some((item) => typeof item !== 'string')
+    )
+      throw new Error('Custom endpoint DNS pin is unavailable');
+    const pin: PinnedPublicDnsAnswers = {
+      ...endpoint.dns!,
+      addresses: Object.freeze([...persisted]),
+    };
+    const answers = await this.options.publicDnsResolver(endpoint.host, signal);
+    verifyPinnedPublicDns(pin, answers);
   }
   private async run(args: string[], signal: AbortSignal, env: Record<string, string> = {}) {
     try {
@@ -371,10 +568,50 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
       throw new Error('Gateway command failed');
     }
   }
+  private async ensureCustomProfile(policy: ProviderPolicy, signal: AbortSignal) {
+    const rendered = renderCustomRestProfile(policy);
+    const profileList = ProfileList.safeParse(
+      JSON.parse(
+        await this.run(
+          ['provider', '--workspace', this.options.workspace, 'list-profiles', '-o', 'json'],
+          signal,
+        ),
+      ),
+    );
+    if (!profileList.success) throw new Error('Gateway returned invalid provider profile metadata');
+    const exists = profileList.data.some((profile) => profile.id === rendered.id);
+    const directory = mkdtempSync(join(tmpdir(), 'mitzo-custom-profile-'), { encoding: 'utf8' });
+    const path = join(directory, `${rendered.id}.yaml`);
+    try {
+      writeFileSync(path, rendered.yaml, { mode: 0o600, flag: 'wx' });
+      await this.run(
+        ['provider', '--workspace', this.options.workspace, 'profile', 'lint', '--file', path],
+        signal,
+      );
+      if (!exists)
+        await this.run(
+          ['provider', '--workspace', this.options.workspace, 'profile', 'import', '--file', path],
+          signal,
+        );
+      return rendered.id;
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }
   async verifyCompatibility(input: GatewayCompatibilityInput | AbortSignal, signal?: AbortSignal) {
     const actualSignal = signal ?? (input as AbortSignal);
     if (signal) {
       const compatibility = input as GatewayCompatibilityInput;
+      if (
+        compatibility.templateId === CUSTOM_REST_TEMPLATE_ID &&
+        compatibility.templateVersion === 1 &&
+        compatibility.policy.templateId === compatibility.templateId &&
+        compatibility.policy.templateVersion === compatibility.templateVersion
+      ) {
+        await this.verifyCustomDns(compatibility.policy, actualSignal);
+        await this.ensureCustomProfile(compatibility.policy, actualSignal);
+        return;
+      }
       assertPinnedDnsSupported(compatibility.policy);
       if (
         compatibility.templateId === GITHUB_TEMPLATE_ID &&
@@ -478,9 +715,17 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     signal: AbortSignal,
   ) {
     const github = !('token' in input) && input.templateId === GITHUB_TEMPLATE_ID;
-    const { name, token } = github
-      ? githubOperation(input as GatewayProviderOperation)
-      : jiraOperation(input);
+    const custom = !('token' in input) && input.templateId === CUSTOM_REST_TEMPLATE_ID;
+    const operation = custom
+      ? customRestOperation(input as GatewayProviderOperation)
+      : github
+        ? githubOperation(input as GatewayProviderOperation)
+        : jiraOperation(input);
+    const { name, token } = operation;
+    if (custom) {
+      await this.verifyCustomDns((input as GatewayProviderOperation).policy, signal);
+      await this.ensureCustomProfile((input as GatewayProviderOperation).policy, signal);
+    }
     // The key-only spelling makes the CLI read the secret only from this child environment.
     await this.run(
       [
@@ -491,12 +736,20 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         '--name',
         name,
         '--type',
-        github ? 'github' : (this.options.providerType ?? JIRA_TEMPLATE_ID),
+        custom
+          ? customRestProfileId((input as GatewayProviderOperation).policy)
+          : github
+            ? 'github'
+            : (this.options.providerType ?? JIRA_TEMPLATE_ID),
         '--credential',
-        github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
+        custom ? 'MITZO_CUSTOM_API_TOKEN' : github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
       ],
       signal,
-      github ? { GITHUB_TOKEN: token } : { JIRA_API_TOKEN: token },
+      custom
+        ? { MITZO_CUSTOM_API_TOKEN: token }
+        : github
+          ? { GITHUB_TOKEN: token }
+          : { JIRA_API_TOKEN: token },
     );
     const provider = await this.get(name, signal);
     if (!provider) throw new Error('Gateway did not create managed provider');
@@ -507,9 +760,17 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     signal: AbortSignal,
   ) {
     const github = !('token' in input) && input.templateId === GITHUB_TEMPLATE_ID;
-    const { name, token } = github
-      ? githubOperation(input as GatewayProviderOperation)
-      : jiraOperation(input);
+    const custom = !('token' in input) && input.templateId === CUSTOM_REST_TEMPLATE_ID;
+    const operation = custom
+      ? customRestOperation(input as GatewayProviderOperation)
+      : github
+        ? githubOperation(input as GatewayProviderOperation)
+        : jiraOperation(input);
+    const { name, token } = operation;
+    if (custom) {
+      await this.verifyCustomDns((input as GatewayProviderOperation).policy, signal);
+      await this.ensureCustomProfile((input as GatewayProviderOperation).policy, signal);
+    }
     await this.run(
       [
         'provider',
@@ -518,10 +779,14 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         'update',
         name,
         '--credential',
-        github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
+        custom ? 'MITZO_CUSTOM_API_TOKEN' : github ? 'GITHUB_TOKEN' : 'JIRA_API_TOKEN',
       ],
       signal,
-      github ? { GITHUB_TOKEN: token } : { JIRA_API_TOKEN: token },
+      custom
+        ? { MITZO_CUSTOM_API_TOKEN: token }
+        : github
+          ? { GITHUB_TOKEN: token }
+          : { JIRA_API_TOKEN: token },
     );
   }
   async list(signal: AbortSignal) {
@@ -704,6 +969,8 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
         : input;
     if (normalized.templateId === GITHUB_TEMPLATE_ID && normalized.templateVersion === 1)
       return this.probeGithubReadonly(normalized, signal);
+    if (normalized.templateId === CUSTOM_REST_TEMPLATE_ID && normalized.templateVersion === 1)
+      return this.probeCustomRest(normalized, signal);
     const email = normalized.publicConfig.email;
     if (
       normalized.templateId !== JIRA_TEMPLATE_ID ||
@@ -836,6 +1103,96 @@ except Exception:
       throw new Error('Gateway identity probe failed');
     } finally {
       /* service owns durable cleanup using an independent signal */
+    }
+  }
+  private async probeCustomRest(
+    input: {
+      providerName: string;
+      templateId: string;
+      templateVersion: number;
+      publicConfig: Record<string, string | string[]>;
+      sandboxName?: string;
+    },
+    signal: AbortSignal,
+  ): Promise<{ identity: string }> {
+    if (!this.options.probeImage || !this.options.customProbePolicy)
+      throw new Error('Gateway custom REST probe is not configured');
+    const endpoint = input.publicConfig.endpoint;
+    const paths = input.publicConfig.paths;
+    if (
+      typeof endpoint !== 'string' ||
+      !Array.isArray(paths) ||
+      paths.length === 0 ||
+      paths.some((path) => typeof path !== 'string')
+    )
+      throw new Error('Gateway custom REST probe is invalid');
+    const url = new URL(paths[0]!, endpoint).toString();
+    const name =
+      input.sandboxName ??
+      `mzp-${createHash('sha256').update(`${input.providerName}:${randomUUID()}`).digest('hex').slice(0, 15)}`;
+    if (!ProbeSandboxName.test(name)) throw new Error('Invalid managed probe sandbox');
+    try {
+      const createOutput = await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'create',
+          '--name',
+          name,
+          '--no-auto-providers',
+          '--detach',
+          '--no-tty',
+          '--policy',
+          this.options.customProbePolicy,
+          '--from',
+          this.options.probeImage,
+          '--provider',
+          safeName(input.providerName),
+          '--label',
+          'mitzo.connection_probe=1',
+          '-o',
+          'json',
+        ],
+        signal,
+      );
+      const created = z
+        .object({ name: z.string().regex(ProbeSandboxName), phase: z.string() })
+        .parse(JSON.parse(createOutput));
+      if (created.name !== name) throw new Error('Probe sandbox identity mismatch');
+      const attached = await this.sandboxProviders(name, signal);
+      if (attached.length !== 1 || attached[0] !== safeName(input.providerName))
+        throw new Error('Probe sandbox provider attachment mismatch');
+      // No response or headers cross this boundary; curl follows zero redirects and the provider policy denies them.
+      await this.run(
+        [
+          'sandbox',
+          '--workspace',
+          this.options.workspace,
+          'exec',
+          '--name',
+          name,
+          '--no-tty',
+          '--timeout',
+          '15',
+          '--',
+          '/usr/bin/curl',
+          '--fail',
+          '--silent',
+          '--show-error',
+          '--max-time',
+          '10',
+          '--max-redirs',
+          '0',
+          '--output',
+          '/dev/null',
+          url,
+        ],
+        signal,
+      );
+      return { identity: `custom:${new URL(endpoint).hostname}` };
+    } catch {
+      throw new Error('Gateway custom REST probe failed');
     }
   }
   /** Probe only GitHub's read identity endpoint through the built-in read-only provider. */

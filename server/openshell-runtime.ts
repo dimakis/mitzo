@@ -99,6 +99,9 @@ export interface OpenShellRuntimeConfig {
 }
 
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
+/** Managed connection names only enter runtime configuration from ConnectionsService. */
+const isServiceProviderName = (provider: string) =>
+  SERVICE_PROVIDERS.has(provider) || /^mitzo-conn-[a-f0-9-]{8,64}$/.test(provider);
 const PROVIDER_POLICY_LABEL = 'mitzo.provider_policy';
 const PROVIDER_POLICY_VERSION = 'state-v2';
 const PROVIDER_POLICY_QUEUES = new Map<string, Promise<void>>();
@@ -155,7 +158,16 @@ export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
   connectionAccountId?: string;
   enforceConnectionAttachments?: boolean;
-  verifyConnections?: (name: string, signal: AbortSignal) => Promise<void>;
+  /**
+   * The third argument is the durable, explicitly approved subset of
+   * grantable providers for this retained sandbox. Callers must treat it as
+   * an exact allowlist, not a set of candidates that may auto-attach.
+   */
+  verifyConnections?: (
+    name: string,
+    signal: AbortSignal,
+    approvedGrantableProviders?: readonly string[],
+  ) => Promise<void>;
 }
 
 export type OpenShellAccountRoute =
@@ -690,8 +702,12 @@ export class OpenShellRuntimeManager {
     throw new Error(`OpenShell sandbox ${name} did not become Ready (last phase: ${phase})`);
   }
 
-  private async verifyManagedConnections(name: string, signal: AbortSignal) {
-    await this.config.verifyConnections?.(name, signal);
+  private async verifyManagedConnections(
+    name: string,
+    signal: AbortSignal,
+    approvedGrantableProviders: readonly string[] = [],
+  ) {
+    await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (this.config.enforceConnectionAttachments) {
       const actual = parseProviderAttachments(
         await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
@@ -742,7 +758,7 @@ export class OpenShellRuntimeManager {
     const automaticProviders = () => [
       ...new Set(
         this.config.serviceProviders.filter(
-          (provider) => SERVICE_PROVIDERS.has(provider) && provider !== accountProvider,
+          (provider) => isServiceProviderName(provider) && provider !== accountProvider,
         ),
       ),
     ];
@@ -768,8 +784,13 @@ export class OpenShellRuntimeManager {
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
-    if (sandbox) await this.verifyManagedConnections(name, signal);
-    else await this.config.verifyConnections?.(name, signal);
+    const approvedGrantableProviders = sandbox
+      ? (this.providerPolicyState.read(name)?.granted ?? []).filter((provider) =>
+          this.config.grantableServiceProviders.includes(provider),
+        )
+      : [];
+    if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+    else await this.config.verifyConnections?.(name, signal, []);
     if (!sandbox) {
       created = true;
       const args = [
@@ -827,7 +848,7 @@ export class OpenShellRuntimeManager {
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
-    await this.verifyManagedConnections(name, signal);
+    await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
         const automatic = automaticProviders();
@@ -861,7 +882,7 @@ export class OpenShellRuntimeManager {
           ? [...actual].filter(
               (provider) =>
                 provider !== accountProvider &&
-                SERVICE_PROVIDERS.has(provider) &&
+                isServiceProviderName(provider) &&
                 !desired.has(provider),
             )
           : [];
@@ -925,7 +946,7 @@ export class OpenShellRuntimeManager {
           ...new Set(
             this.config.serviceProviders.filter(
               (configured) =>
-                SERVICE_PROVIDERS.has(configured) && configured !== this.config.account.provider,
+                isServiceProviderName(configured) && configured !== this.config.account.provider,
             ),
           ),
         ],
