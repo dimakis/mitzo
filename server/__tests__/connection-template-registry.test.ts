@@ -724,6 +724,23 @@ describe('connection template registry', () => {
         capabilities: [{ ...githubPublish, inputSchema: tooWideInputSchema }],
       }),
     ).toThrow('cannot fit a complete approval projection');
+    const tooManyOptionalFlags: JsonSchema = {
+      type: 'object',
+      properties: Object.fromEntries(
+        Array.from({ length: 547 }, (_, index) => [
+          `actionableFlag${index}`,
+          { type: 'boolean' as const },
+        ]),
+      ),
+      required: [],
+      additionalProperties: false,
+    };
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [{ ...githubPublish, inputSchema: tooManyOptionalFlags }],
+      }),
+    ).toThrow('cannot fit a complete approval projection');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [github],

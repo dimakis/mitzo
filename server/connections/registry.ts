@@ -36,7 +36,7 @@ export type ReviewedHandlerBindings = Readonly<{
 }>;
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
-const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
+const SymbolicIdentifier = z.string().max(120).regex(symbolicIdentifier);
 const TemplateReferenceSchema = z
   .object({ id: SymbolicIdentifier, version: z.number().int().positive() })
   .strict();
@@ -128,7 +128,7 @@ const JsonSchemaSchema = z
 const CapabilityTemplateSchema = z
   .object({
     id: SymbolicIdentifier,
-    version: z.number().int().positive(),
+    version: z.number().int().positive().max(999_999_999),
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
     connectionTemplates: z.array(TemplateReferenceSchema).min(1).max(20),

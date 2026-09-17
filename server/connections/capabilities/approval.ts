@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { buildPermissionHandler, type SessionRegistry } from '@mitzo/harness';
+import {
+  buildPermissionHandler,
+  permissionDisplayInput,
+  type SessionRegistry,
+} from '@mitzo/harness';
 import type { CapabilityApproval } from './types.js';
 import { canonicalJson } from './input-validation.js';
-import { MAX_CAPABILITY_APPROVAL_PAYLOAD_CHARS } from './approval-contract.js';
 
 export const EXECUTE_CAPABILITY_TOOL = 'ExecuteProviderCapability';
 
@@ -22,7 +25,7 @@ export function capabilityApprovalPayload(request: Parameters<CapabilityApproval
     connectionId: request.connectionId,
     operationId: request.operationId,
   };
-  if (JSON.stringify(payload).length > MAX_CAPABILITY_APPROVAL_PAYLOAD_CHARS)
+  if (!permissionDisplayInput(EXECUTE_CAPABILITY_TOOL, payload))
     throw new Error('Capability input cannot fit a complete approval projection');
   return payload;
 }

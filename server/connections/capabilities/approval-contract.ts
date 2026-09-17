@@ -1,24 +1,35 @@
+import { PERMISSION_INPUT_MAX_CHARS, serializePermissionDisplayInput } from '@mitzo/harness';
 import type { JsonSchema } from '../types.js';
 
-/** The shared permission handler suppresses payloads at 10,000 characters. */
-export const MAX_CAPABILITY_APPROVAL_PAYLOAD_CHARS = 9_000;
-/** Leaves room for capability identity, connection, operation, and digest. */
-export const MAX_CAPABILITY_APPROVAL_INPUT_CHARS = 8_000;
+const MAX_CAPABILITY_APPROVAL_PROPERTIES = 64;
+const CAPABILITY_ID_MAX_CHARS = 120;
+const CAPABILITY_VERSION_MAX_DIGITS = 9;
+const UUID_CHARS = 36;
 
 /**
- * Upper bound for a JSON representation of a complete capability input.
+ * Upper bound for the exact permission-card rendering of a complete input.
  * Property names are registry-validated identifiers. A string character can
  * take up to six JSON characters (for example a control character), so this
  * is deliberately conservative.
  */
-export function maxCompleteApprovalInputChars(schema: JsonSchema): number {
-  const properties = Object.entries(schema.properties);
+export function maxCompleteApprovalDisplayChars(schema: JsonSchema): number {
+  const input = Object.fromEntries(
+    Object.entries(schema.properties).map(([name, property]) => [
+      name,
+      property.type === 'boolean' ? false : '\u0001'.repeat(property.maxLength ?? 65_536),
+    ]),
+  );
+  // Use the harness serializer itself: its pretty printed whitespace and the
+  // full outer envelope are part of the operator-visible approval contract.
   return (
-    2 +
-    properties.reduce((total, [name, property], index) => {
-      const valueChars = property.type === 'boolean' ? 5 : 2 + (property.maxLength ?? 65_536) * 6;
-      return total + (index ? 1 : 0) + name.length + 3 + valueChars;
-    }, 0)
+    serializePermissionDisplayInput('ExecuteProviderCapability', {
+      input,
+      inputSha256: 'a'.repeat(64),
+      capabilityId: 'a'.repeat(CAPABILITY_ID_MAX_CHARS),
+      capabilityVersion: Number('9'.repeat(CAPABILITY_VERSION_MAX_DIGITS)),
+      connectionId: 'a'.repeat(UUID_CHARS),
+      operationId: 'a'.repeat(UUID_CHARS),
+    })?.length ?? Infinity
   );
 }
 
@@ -28,6 +39,9 @@ export function maxCompleteApprovalInputChars(schema: JsonSchema): number {
  * content the operator needs to evaluate.
  */
 export function assertCompleteApprovalProjection(schema: JsonSchema): void {
-  if (maxCompleteApprovalInputChars(schema) > MAX_CAPABILITY_APPROVAL_INPUT_CHARS)
+  if (
+    Object.keys(schema.properties).length > MAX_CAPABILITY_APPROVAL_PROPERTIES ||
+    maxCompleteApprovalDisplayChars(schema) > PERMISSION_INPUT_MAX_CHARS
+  )
     throw new Error('Capability input schema cannot fit a complete approval projection');
 }

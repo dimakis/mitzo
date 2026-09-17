@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CapabilityTemplate, JsonValue } from '../connections/types.js';
+import type { CapabilityTemplate, JsonSchema, JsonValue } from '../connections/types.js';
 import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
 import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
 import { CapabilityService } from '../connections/capabilities/service.js';
@@ -163,6 +163,45 @@ describe('CapabilityService', () => {
     const f = await fixture();
     f.connection.revision += 1;
     expect(f.service.eligibleToolsForConversation('account-1', 'conversation-1')).toEqual([]);
+  });
+
+  it('rejects a manually supplied wide optional schema before permission is requested', async () => {
+    const f = await fixture();
+    const wideInputSchema: JsonSchema = {
+      type: 'object',
+      properties: {
+        ...template.inputSchema.properties,
+        ...Object.fromEntries(
+          Array.from({ length: 547 }, (_, index) => [
+            `actionableFlag${index}`,
+            { type: 'boolean' as const },
+          ]),
+        ),
+      },
+      required: ['value'],
+      additionalProperties: false,
+    };
+    const wideTemplate = { ...template, inputSchema: wideInputSchema };
+    const service = new CapabilityService({
+      store: f.store,
+      executorRegistry: new CapabilityExecutorRegistry({
+        'test-mutate-v1': { execute: f.execute, verify: f.verify, recover: f.recover },
+      }),
+      getTemplate: (id, version) =>
+        id === template.id && version === template.version ? wideTemplate : undefined,
+      getConnection: (id) => (id === f.connection.id ? f.connection : undefined),
+      listConnections: () => [f.connection],
+      isConnectionActiveForConversation: () => true,
+      approve: f.approve,
+    });
+    await expect(
+      service.invoke(
+        request({ idempotencyKey: 'wide-optional-schema', input: { value: 'hello' } }),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('cannot fit a complete approval projection');
+    expect(f.approve).not.toHaveBeenCalled();
+    expect(f.execute).not.toHaveBeenCalled();
   });
 
   it('advertises only the already-verified attached connection during startup discovery', async () => {
