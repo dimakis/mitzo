@@ -218,7 +218,7 @@ function customEndpoint(value: string) {
   // Custom egress is restricted to ICANN registrable domains. Private suffixes
   // are intentionally not accepted: their ownership/routing policy is not a
   // stable public egress boundary for an operator-defined connection.
-  const registrable = parseDomain(host, { allowPrivateDomains: true });
+  const registrable = parseDomain(host, { allowPrivateDomains: true, detectSpecialUse: true });
   if (
     !host ||
     host.length > 253 ||
@@ -232,7 +232,7 @@ function customEndpoint(value: string) {
     !registrable.domain ||
     !registrable.isIcann ||
     registrable.isPrivate ||
-    registrable.isSpecialUse !== null ||
+    registrable.isSpecialUse === true ||
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(host)
   )
     throw new Error('Custom endpoint host is not allowed');

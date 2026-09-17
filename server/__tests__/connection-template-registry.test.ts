@@ -193,14 +193,14 @@ describe('connection template registry', () => {
       templateId: 'custom-rest-readonly',
       templateVersion: 1,
       fields: {
-        endpoint: 'https://api.example.com',
+        endpoint: 'https://api.openai.com',
         methods: ['GET', 'GET', 'HEAD'],
         paths: ['/v1/items', '/v1/items'],
       },
     });
     expect(policy.endpoints).toMatchObject([
       {
-        host: 'api.example.com',
+        host: 'api.openai.com',
         dns: {
           mode: 'pinned-public-only',
           verifyAt: 'provision-and-every-use',
@@ -213,30 +213,30 @@ describe('connection template registry', () => {
       },
     ]);
     expect(policy.publicConfig).toEqual({
-      endpoint: 'https://api.example.com',
+      endpoint: 'https://api.openai.com',
       methods: ['GET', 'HEAD'],
       paths: ['/v1/items'],
     });
 
     for (const fields of [
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/../admin'] },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1//admin'] },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/%2e%2e/admin'] },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1\\admin'] },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/../admin'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1//admin'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/%2e%2e/admin'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1\\admin'] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: ['/v1/'] },
       {
-        endpoint: 'https://api.example.com',
+        endpoint: 'https://api.openai.com',
         methods: ['GET', 'HEAD', 'OPTIONS', 'GET'],
         paths: ['/v1/items'],
       },
-      { endpoint: 'https://api.example.com', methods: ['GET'], paths: [`/${'a'.repeat(257)}`] },
+      { endpoint: 'https://api.openai.com', methods: ['GET'], paths: [`/${'a'.repeat(257)}`] },
       {
-        endpoint: 'https://api.example.com',
+        endpoint: 'https://api.openai.com',
         methods: ['GET'],
         paths: Array.from({ length: 21 }, (_, index) => `/v1/${index}`),
       },
       {
-        endpoint: 'https://api.example.com',
+        endpoint: 'https://api.openai.com',
         methods: ['GET', 'HEAD', 'OPTIONS'],
         paths: Array.from({ length: 20 }, (_, index) => `/v1/${index}`),
       },
@@ -257,9 +257,12 @@ describe('connection template registry', () => {
       { endpoint: 'https://[::1]', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://localhost', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://co.uk', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://api.example.com', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://api.invalid', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://api.test', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://api.corp', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://service.onion', methods: ['GET'], paths: ['/v1/items'] },
+      { endpoint: 'https://host.home.arpa', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://foo.blogspot.com', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.local', methods: ['GET'], paths: ['/v1/items'] },
       { endpoint: 'https://service.internal', methods: ['GET'], paths: ['/v1/items'] },
