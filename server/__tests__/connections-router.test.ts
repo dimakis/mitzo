@@ -9,6 +9,148 @@ import { RevisionConflictError } from '../connections-store.js';
 import { createConnectionsRouter } from '../connections-router.js';
 vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
 describe('connections router', () => {
+  it('requires an operator browser session and fresh reauthorization for advanced custom create and rotate', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'connections-router-'));
+    const store = new ConnectionStore(join(dir, 'db'));
+    const created = store.create({
+      ownerId: 'operator',
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      label: 'Inventory API',
+      endpoint: 'https://api.example.com',
+      publicConfig: {
+        endpoint: 'https://api.example.com',
+        port: '443',
+        protocol: 'rest',
+        methods: ['GET'],
+        paths: ['/v1/items'],
+        credentialStyle: 'bearer-token',
+        credentialLocation: 'header',
+        credentialName: 'authorization',
+        binaries: ['curl'],
+        attachmentMode: 'on-demand',
+        dnsPin: ['1.1.1.1'],
+      },
+      gatewayProviderName: 'mitzo-conn-12345678',
+      desiredAccountIds: ['work'],
+    });
+    const connection = store.transition(
+      created.id,
+      created.revision,
+      { status: 'active', gatewayProviderId: 'provider-1', verifiedAt: Date.now() },
+      { operation: 'provision', outcome: 'success', actor: 'operator' },
+    );
+    const service = {
+      createAndProvision: vi.fn().mockResolvedValue(connection),
+      rotate: vi.fn().mockResolvedValue(connection),
+      supportsTemplate: vi.fn(
+        (templateId: string, version: number) =>
+          templateId === 'custom-rest-readonly' && version === 1,
+      ),
+    };
+    const app = express();
+    app.use((req, res, next) => {
+      if (req.header('x-browser') === 'yes')
+        res.locals.authSession = {
+          id: 'custom-operator-session',
+          expiresAt: req.header('x-expired') === 'yes' ? Date.now() - 1 : Date.now() + 60_000,
+        };
+      next();
+    });
+    app.use(
+      '/api/connections',
+      createConnectionsRouter({
+        store,
+        service: service as never,
+        eligibleAccounts: () => ['work'],
+        gateway: 'openshell',
+        workspace: 'default',
+        legacyProviders: async () => [],
+      }),
+    );
+    const body = {
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      label: 'Inventory API',
+      fields: {
+        endpoint: 'https://api.example.com',
+        port: '443',
+        protocol: 'rest',
+        methods: ['GET'],
+        paths: ['/v1/items'],
+        credentialStyle: 'bearer-token',
+        credentialLocation: 'header',
+        credentialName: 'authorization',
+        binaries: ['curl'],
+        attachmentMode: 'on-demand',
+      },
+      credentials: { token: 'SENTINEL_CUSTOM_SECRET' },
+      accountIds: ['work'],
+    };
+    expect((await request(app).post('/api/connections').send(body)).status).toBe(401);
+    expect(
+      (await request(app).post('/api/connections').set('x-browser', 'yes').send(body)).status,
+    ).toBe(403);
+    expect(
+      (
+        await request(app)
+          .post(`/api/connections/${connection.id}/rotate`)
+          .set('x-browser', 'yes')
+          .send({
+            csrf: 'x'.repeat(32),
+            revision: connection.revision,
+            credentials: { token: 'SENTINEL_ROTATE' },
+          })
+      ).status,
+    ).toBe(403);
+    expect(service.createAndProvision).not.toHaveBeenCalled();
+    expect(service.rotate).not.toHaveBeenCalled();
+
+    const reauthorized = await request(app)
+      .post('/api/connections/reauthorize')
+      .set('x-browser', 'yes')
+      .send({ passphrase: 'correct' });
+    const csrf = reauthorized.body.csrf;
+    expect(
+      (
+        await request(app)
+          .post('/api/connections')
+          .set('x-browser', 'yes')
+          .set('x-csrf-token', csrf)
+          .send(body)
+      ).status,
+    ).toBe(201);
+    expect(service.createAndProvision).toHaveBeenCalledWith(
+      expect.objectContaining({ templateId: 'custom-rest-readonly', fields: body.fields }),
+      body.credentials,
+      expect.anything(),
+    );
+    expect(
+      (
+        await request(app)
+          .post(`/api/connections/${connection.id}/rotate`)
+          .set('x-browser', 'yes')
+          .send({ csrf, revision: connection.revision, credentials: { token: 'SENTINEL_ROTATE' } })
+      ).status,
+    ).toBe(200);
+    expect(service.rotate).toHaveBeenCalledWith(
+      connection.id,
+      connection.revision,
+      { token: 'SENTINEL_ROTATE' },
+      expect.anything(),
+    );
+    const expired = await request(app)
+      .post('/api/connections')
+      .set('x-browser', 'yes')
+      .set('x-expired', 'yes')
+      .set('x-csrf-token', csrf)
+      .send(body);
+    expect(expired.status).toBe(401);
+    expect(JSON.stringify(expired.body)).not.toContain('SENTINEL_CUSTOM_SECRET');
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('denies internal-only mutations and requires recent csrf reauthorization', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-router-'));
     const store = new ConnectionStore(join(dir, 'db'));

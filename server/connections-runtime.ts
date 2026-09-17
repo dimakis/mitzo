@@ -54,6 +54,10 @@ export function createConnectionsRuntime(options: {
   githubProfileFingerprint?: string;
   /** Test-only explicit override; production derives this from controller env. */
   githubPublishEnabled?: boolean;
+  /** Explicit operator deployment switch; defaults closed. */
+  customRestEnabled?: boolean;
+  publicDnsResolver?: import('./connections-gateway.js').PublicDnsResolver;
+  customProbePolicy?: string;
   /** Authoritative conversation metadata, injected by server startup. */
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
   /** Tests may replace a reviewed built-in executor with a deterministic fake. */
@@ -110,6 +114,33 @@ export function createConnectionsRuntime(options: {
       probePolicy: options.probePolicy,
       githubProbePolicy: options.githubProbePolicy,
       githubProfileFingerprint: options.githubProfileFingerprint,
+      customRestEnabled:
+        options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true',
+      publicDnsResolver:
+        (options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true')
+          ? (options.publicDnsResolver ??
+            (async (hostname, signal) => {
+              signal.throwIfAborted();
+              const { resolve4, resolve6 } = await import('node:dns/promises');
+              const resolve = async (lookup: () => Promise<string[]>) => {
+                try {
+                  return await lookup();
+                } catch (error) {
+                  const code =
+                    error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+                  if (code === 'ENODATA' || code === 'ENOTFOUND') return [];
+                  throw new Error('Custom endpoint DNS resolution failed', { cause: error });
+                }
+              };
+              const [v4, v6] = await Promise.all([
+                resolve(() => resolve4(hostname)),
+                resolve(() => resolve6(hostname)),
+              ]);
+              signal.throwIfAborted();
+              return [...v4, ...v6];
+            }))
+          : undefined,
+      customProbePolicy: options.customProbePolicy,
     },
   );
   const service = new ConnectionsService(store, gateway, {
