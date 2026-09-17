@@ -72,6 +72,14 @@ describe('connection template registry', () => {
         fields: {},
       }),
     ).toThrow('Template public fields are invalid');
+    for (const invalid of ['.user@example.com', 'user@-example.com', 'user@example..com'])
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'jira-readonly',
+          templateVersion: 1,
+          fields: { email: invalid },
+        }),
+      ).toThrow('Invalid email');
 
     const githubPolicy = connectionTemplateRegistry.compileProviderPolicy({
       templateId: 'github-readonly',
@@ -256,10 +264,28 @@ describe('connection template registry', () => {
     ).toThrow('Unknown probe');
     expect(() =>
       createConnectionTemplateRegistry({
+        providers: [{ ...jira, policyCompiler: 'github-readonly-v1' }],
+        capabilities: [],
+      }),
+    ).toThrow('does not match template version');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [{ ...jira, probe: 'github-readonly-v1' }],
+        capabilities: [],
+      }),
+    ).toThrow('does not match template version');
+    expect(() =>
+      createConnectionTemplateRegistry({
         providers: [github],
         capabilities: [{ ...githubPublish, executor: 'constructor' }],
       }),
     ).toThrow('Unknown capability executor');
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [{ ...githubPublish, version: 2 }],
+      }),
+    ).toThrow('does not match template version');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [{ ...github, capabilityIds: [] }],

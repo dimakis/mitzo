@@ -16,6 +16,8 @@ import type {
   PublicProviderTemplate,
 } from './types.js';
 
+type BoundHandler<T> = Readonly<{ templateKey: string; handler: T }>;
+
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
 const CredentialFieldSchema = z
@@ -98,20 +100,26 @@ function nullPrototypeHandlers<T>(
 ): Readonly<Record<string, T>> {
   return Object.freeze(Object.assign(Object.create(null) as Record<string, T>, entries));
 }
-const compilers: Readonly<Record<string, PolicyCompiler>> = nullPrototypeHandlers({
-  'jira-readonly-v1': compileJiraReadonly,
-  'github-readonly-v1': compileGithubReadonly,
-  'custom-rest-readonly-v1': compileCustomRestReadonly,
+const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPrototypeHandlers({
+  'jira-readonly-v1': { templateKey: 'jira-readonly@1', handler: compileJiraReadonly },
+  'github-readonly-v1': { templateKey: 'github-readonly@1', handler: compileGithubReadonly },
+  'custom-rest-readonly-v1': {
+    templateKey: 'custom-rest-readonly@1',
+    handler: compileCustomRestReadonly,
+  },
 });
 const identityProbe: Probe = () => ({ kind: 'identity-and-scope' });
-const probes: Readonly<Record<string, Probe>> = nullPrototypeHandlers({
-  'jira-readonly-v1': identityProbe,
-  'github-readonly-v1': identityProbe,
-  'custom-rest-readonly-v1': identityProbe,
+const probes: Readonly<Record<string, BoundHandler<Probe>>> = nullPrototypeHandlers({
+  'jira-readonly-v1': { templateKey: 'jira-readonly@1', handler: identityProbe },
+  'github-readonly-v1': { templateKey: 'github-readonly@1', handler: identityProbe },
+  'custom-rest-readonly-v1': { templateKey: 'custom-rest-readonly@1', handler: identityProbe },
 });
 const approvalRequiredExecutor: CapabilityExecutor = () => ({ kind: 'approval-required' });
-const executors: Readonly<Record<string, CapabilityExecutor>> = nullPrototypeHandlers({
-  'github-publish-pr-v1': approvalRequiredExecutor,
+const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nullPrototypeHandlers({
+  'github-publish-pr-v1': {
+    templateKey: 'github.publish-pr@1',
+    handler: approvalRequiredExecutor,
+  },
 });
 
 function key(id: string, version: number) {
@@ -168,13 +176,18 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
     }) as JsonSchema,
   });
 }
-function requireSymbolicHandler(
+function requireBoundSymbolicHandler<T>(
   name: string,
-  handlers: Readonly<Record<string, unknown>>,
+  handlers: Readonly<Record<string, BoundHandler<T>>>,
   kind: string,
+  template: { id: string; version: number },
 ) {
   if (!symbolicIdentifier.test(name)) throw new Error(`${kind} must be a safe symbolic identifier`);
   if (!Object.hasOwn(handlers, name)) throw new Error(`Unknown ${kind}`);
+  const binding = handlers[name]!;
+  if (binding.templateKey !== key(template.id, template.version))
+    throw new Error(`${kind} does not match template version`);
+  return binding.handler;
 }
 
 export function projectProviderTemplate(template: ProviderTemplate): PublicProviderTemplate {
@@ -224,13 +237,13 @@ export function createConnectionTemplateRegistry(input: {
   const providerIds = new Set(providers.map((template) => template.id));
   const capabilityIds = new Set(capabilities.map((template) => template.id));
   for (const provider of providers) {
-    requireSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler');
-    requireSymbolicHandler(provider.probe, probes, 'probe');
+    requireBoundSymbolicHandler(provider.policyCompiler, compilers, 'policy compiler', provider);
+    requireBoundSymbolicHandler(provider.probe, probes, 'probe', provider);
     if (provider.capabilityIds.some((id) => !capabilityIds.has(id)))
       throw new Error('Provider template references an unknown capability');
   }
   for (const capability of capabilities) {
-    requireSymbolicHandler(capability.executor, executors, 'capability executor');
+    requireBoundSymbolicHandler(capability.executor, executors, 'capability executor', capability);
     if (capability.connectionTemplateIds.some((id) => !providerIds.has(id)))
       throw new Error('Capability template references an unknown provider');
   }
@@ -269,7 +282,12 @@ export function createConnectionTemplateRegistry(input: {
       if (!template) throw new Error('Unknown provider template version');
       if (!compileInput.fields || Array.isArray(compileInput.fields))
         throw new Error('Provider fields must be an object');
-      return compilers[template.policyCompiler]!(
+      return requireBoundSymbolicHandler(
+        template.policyCompiler,
+        compilers,
+        'policy compiler',
+        template,
+      )(
         template,
         Object.freeze({ ...compileInput.fields }),
       );
@@ -277,12 +295,17 @@ export function createConnectionTemplateRegistry(input: {
     probeFor: (id: string, version: number) => {
       const template = providerByKey.get(key(id, version));
       if (!template) throw new Error('Unknown provider template version');
-      return probes[template.probe]!(template);
+      return requireBoundSymbolicHandler(template.probe, probes, 'probe', template)(template);
     },
     executorFor: (id: string, version: number) => {
       const template = capabilityByKey.get(key(id, version));
       if (!template) throw new Error('Unknown capability template version');
-      return executors[template.executor]!(template);
+      return requireBoundSymbolicHandler(
+        template.executor,
+        executors,
+        'capability executor',
+        template,
+      )(template);
     },
   });
 }

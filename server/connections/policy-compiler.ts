@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { z } from 'zod';
 import type {
   PinnedPublicDnsAnswers,
   PolicyCompiler,
@@ -13,7 +14,9 @@ const maxCustomPaths = 20;
 const maxCustomPathLength = 256;
 const maxCustomRules = 24;
 const maxGithubScopeEntries = 50;
-const email = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$/;
+// Keep the compiler in lockstep with the schema validator used for connection
+// fields. A permissive local/domain regexp admits invalid DNS labels and dots.
+const Email = z.string().email();
 const githubRepository =
   /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/;
 const githubBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
@@ -73,7 +76,7 @@ function requiredStringList(
 export const compileJiraReadonly: PolicyCompiler = (template, fields) => {
   requireOnlyFields(fields, ['email']);
   const submittedEmail = requiredString(fields, 'email', 320);
-  if (!email.test(submittedEmail)) throw new Error('Invalid email');
+  if (!Email.safeParse(submittedEmail).success) throw new Error('Invalid email');
   const base = '/ex/jira/2b9e35e3-6bd3-4cec-b838-f4249ee02432/rest/api';
   return policy(
     template,
