@@ -1,3 +1,5 @@
+import { MAX_V2_CLIENT_PAYLOAD_BYTES } from '@mitzo/protocol';
+
 // Harness-level constants. Protocol constants are re-exported from @mitzo/protocol.
 export {
   TOOL_RESULT_MAX_CHARS,
@@ -25,4 +27,9 @@ export const SUSPEND_GRACE_MS = 120_000; // 2 minutes — max time to wait for r
 export const SUSPEND_BUFFER_MAX = 1000; // max events to buffer per suspended session
 
 // --- Execution admission ---
-export const MAX_PENDING_EXECUTIONS_PER_SESSION = 100;
+/** Small count cap: dispatch closures may retain provider request data. */
+export const MAX_PENDING_EXECUTIONS_PER_SESSION = 20;
+/** A queued item cannot retain more than one protocol-sized client payload. */
+export const MAX_PENDING_EXECUTION_RETAINED_BYTES = MAX_V2_CLIENT_PAYLOAD_BYTES;
+/** Keep at most two maximum-sized prepared requests waiting behind a runtime. */
+export const MAX_PENDING_EXECUTIONS_RETAINED_BYTES = 2 * MAX_PENDING_EXECUTION_RETAINED_BYTES;

@@ -1,4 +1,5 @@
 import type { SessionTransport } from './session-transport.js';
+import { randomUUID } from 'node:crypto';
 import {
   DETACHED_TTL_MS,
   CLOSEOUT_LEAD_MS,
@@ -7,6 +8,8 @@ import {
   SUSPEND_GRACE_MS,
   SUSPEND_BUFFER_MAX,
   MAX_PENDING_EXECUTIONS_PER_SESSION,
+  MAX_PENDING_EXECUTION_RETAINED_BYTES,
+  MAX_PENDING_EXECUTIONS_RETAINED_BYTES,
 } from './constants.js';
 import { createLogger } from './logger.js';
 
@@ -34,14 +37,26 @@ export interface PendingExecutionInput {
   executionId: string;
   clientMsgId: string;
   requestFingerprint: string;
-  /** Opaque provider input retained only for the eventual dispatcher. */
-  providerPayload: unknown;
+  /**
+   * Bytes retained by the dispatch closure, computed from the canonical,
+   * already-validated prepared request. Production admission wiring supplies
+   * this; do not estimate from provider-specific opaque payloads here.
+   */
+  retainedBytes: number;
   /** Initial startup failures have a more precise durable terminal reason. */
   isInitial: boolean;
   dispatch: (token: ExecutionToken) => Promise<void> | void;
 }
 
+/** Immutable identity for one registered runtime, safe across client-id rekeys. */
+export interface RuntimeSessionLease {
+  runtimeLeaseId: string;
+  sessionId: string;
+}
+
 export interface ManagedSession {
+  /** Never changes for this object; invalidated when the runtime is removed. */
+  readonly runtimeLeaseId: string;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
   transport: SessionTransport;
@@ -93,6 +108,8 @@ export interface ManagedSession {
   currentExecution?: ExecutionToken;
   /** FIFO work with preallocated ids but no durable generation yet. */
   pendingExecutions: PendingExecutionInput[];
+  /** Exact sum of retainedBytes for pendingExecutions. */
+  pendingExecutionBytes: number;
   /** Serializes admission/activation while a dispatcher yields. */
   activatingPending: boolean;
 }
@@ -126,6 +143,7 @@ export type CloseoutHandler = (clientId: string) => void;
 
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
+  private leases = new Map<string, string>();
   private attached = new Set<string>();
   private detachTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closeoutTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -176,12 +194,17 @@ export class SessionRegistry {
       | 'currentExecution'
       | 'pendingExecutions'
       | 'activatingPending'
+      | 'runtimeLeaseId'
+      | 'pendingExecutionBytes'
     > & {
       sessionId?: string;
     },
   ): void {
-    this.sessions.set(clientId, {
+    const previous = this.sessions.get(clientId);
+    if (previous) this.leases.delete(previous.runtimeLeaseId);
+    const session: ManagedSession = {
       ...init,
+      runtimeLeaseId: randomUUID(),
       worktreePaths: new Map(),
       currentSnapshot: null,
       activeSkillPolicy: null,
@@ -194,8 +217,11 @@ export class SessionRegistry {
       agentDefinitionSource: undefined,
       currentExecution: undefined,
       pendingExecutions: [],
+      pendingExecutionBytes: 0,
       activatingPending: false,
-    });
+    };
+    this.sessions.set(clientId, session);
+    this.leases.set(session.runtimeLeaseId, clientId);
     this.attached.add(clientId);
   }
 
@@ -218,18 +244,26 @@ export class SessionRegistry {
   /** Queue work synchronously before durable admission so the bound is race-free. */
   enqueuePendingExecution(clientId: string, input: PendingExecutionInput): boolean {
     const session = this.sessions.get(clientId);
-    if (!session || session.pendingExecutions.length >= MAX_PENDING_EXECUTIONS_PER_SESSION) {
+    if (
+      !session ||
+      !this.isValidRetainedBytes(input.retainedBytes) ||
+      input.retainedBytes > MAX_PENDING_EXECUTION_RETAINED_BYTES ||
+      session.pendingExecutions.length >= MAX_PENDING_EXECUTIONS_PER_SESSION ||
+      session.pendingExecutionBytes > MAX_PENDING_EXECUTIONS_RETAINED_BYTES - input.retainedBytes
+    ) {
       return false;
     }
     session.pendingExecutions.push(input);
+    session.pendingExecutionBytes += input.retainedBytes;
     return true;
   }
 
   /** Claim the controller activation slot. It is released by completePendingActivation(). */
-  beginPendingActivation(clientId: string): ManagedSession | undefined {
+  beginPendingActivation(clientId: string): RuntimeSessionLease | undefined {
     const session = this.sessions.get(clientId);
     if (
       !session ||
+      !session.sessionId ||
       session.currentExecution ||
       session.activatingPending ||
       session.pendingExecutions.length === 0
@@ -237,31 +271,47 @@ export class SessionRegistry {
       return undefined;
     }
     session.activatingPending = true;
-    return session;
+    return { runtimeLeaseId: session.runtimeLeaseId, sessionId: session.sessionId };
   }
 
-  completePendingActivation(clientId: string): void {
-    const session = this.sessions.get(clientId);
+  completePendingActivation(lease: RuntimeSessionLease): void {
+    const session = this.resolveLease(lease)?.session;
     if (session) session.activatingPending = false;
   }
 
-  peekPendingExecution(clientId: string): PendingExecutionInput | undefined {
-    return this.sessions.get(clientId)?.pendingExecutions[0];
+  /** Resolve the exact registered object. A reused client id never matches an old lease. */
+  resolveRuntimeLease(
+    lease: RuntimeSessionLease,
+  ): { clientId: string; session: ManagedSession } | undefined {
+    return this.resolveLease(lease);
   }
 
-  shiftPendingExecution(clientId: string): PendingExecutionInput | undefined {
-    return this.sessions.get(clientId)?.pendingExecutions.shift();
+  peekPendingExecution(lease: RuntimeSessionLease): PendingExecutionInput | undefined {
+    return this.resolveLease(lease)?.session.pendingExecutions[0];
   }
 
-  setCurrentExecution(clientId: string, token: ExecutionToken): boolean {
-    const session = this.sessions.get(clientId);
+  shiftPendingExecution(lease: RuntimeSessionLease): PendingExecutionInput | undefined {
+    const session = this.resolveLease(lease)?.session;
+    if (!session) return undefined;
+    const pending = session.pendingExecutions.shift();
+    if (!pending) return undefined;
+    if (session.pendingExecutionBytes < pending.retainedBytes) {
+      throw new Error('Pending execution byte accounting underflow');
+    }
+    session.pendingExecutionBytes -= pending.retainedBytes;
+    return pending;
+  }
+
+  setCurrentExecution(lease: RuntimeSessionLease, token: ExecutionToken): boolean {
+    const session = this.resolveLease(lease)?.session;
     if (!session || session.currentExecution) return false;
+    if (token.sessionId !== lease.sessionId) return false;
     session.currentExecution = token;
     return true;
   }
 
-  clearCurrentExecution(clientId: string, token: ExecutionToken): boolean {
-    const session = this.sessions.get(clientId);
+  clearCurrentExecution(lease: RuntimeSessionLease, token: ExecutionToken): boolean {
+    const session = this.resolveLease(lease)?.session;
     const current = session?.currentExecution;
     if (
       !session ||
@@ -282,7 +332,16 @@ export class SessionRegistry {
     if (!session) return [];
     const pending = session.pendingExecutions;
     session.pendingExecutions = [];
+    session.pendingExecutionBytes = 0;
     return pending;
+  }
+
+  /** Capture an existing lease without claiming activation. */
+  getRuntimeLease(clientId: string): RuntimeSessionLease | undefined {
+    const session = this.sessions.get(clientId);
+    return session?.sessionId
+      ? { runtimeLeaseId: session.runtimeLeaseId, sessionId: session.sessionId }
+      : undefined;
   }
 
   /**
@@ -363,10 +422,11 @@ export class SessionRegistry {
    */
   rekey(oldId: string, newId: string): boolean {
     const session = this.sessions.get(oldId);
-    if (!session) return false;
+    if (!session || (oldId !== newId && this.sessions.has(newId))) return false;
 
     this.sessions.delete(oldId);
     this.sessions.set(newId, session);
+    this.leases.set(session.runtimeLeaseId, newId);
 
     if (this.attached.has(oldId)) {
       this.attached.delete(oldId);
@@ -378,6 +438,13 @@ export class SessionRegistry {
       this.detachTimers.delete(oldId);
       this.detachTimers.set(newId, timer);
     }
+
+    this.moveKey(this.closeoutTimers, oldId, newId);
+    this.moveSetKey(this.closingOut, oldId, newId);
+    this.moveSetKey(this.userClosing, oldId, newId);
+    this.moveSetKey(this.suspended, oldId, newId);
+    this.moveKey(this.suspendBuffers, oldId, newId);
+    this.moveKey(this.suspendTimers, oldId, newId);
 
     return true;
   }
@@ -457,7 +524,9 @@ export class SessionRegistry {
     session.observers.clear();
     session.currentExecution = undefined;
     session.pendingExecutions = [];
+    session.pendingExecutionBytes = 0;
     session.activatingPending = false;
+    this.leases.delete(session.runtimeLeaseId);
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
@@ -474,7 +543,9 @@ export class SessionRegistry {
       session.observers.clear();
       session.currentExecution = undefined;
       session.pendingExecutions = [];
+      session.pendingExecutionBytes = 0;
       session.activatingPending = false;
+      this.leases.delete(session.runtimeLeaseId);
     }
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
@@ -634,5 +705,37 @@ export class SessionRegistry {
       clearTimeout(existing);
       this.closeoutTimers.delete(clientId);
     }
+  }
+
+  private resolveLease(
+    lease: RuntimeSessionLease,
+  ): { clientId: string; session: ManagedSession } | undefined {
+    const clientId = this.leases.get(lease.runtimeLeaseId);
+    if (!clientId) return undefined;
+    const session = this.sessions.get(clientId);
+    if (
+      !session ||
+      session.runtimeLeaseId !== lease.runtimeLeaseId ||
+      session.sessionId !== lease.sessionId
+    ) {
+      return undefined;
+    }
+    return { clientId, session };
+  }
+
+  private isValidRetainedBytes(value: number): boolean {
+    return Number.isSafeInteger(value) && value >= 0;
+  }
+
+  private moveKey<T>(map: Map<string, T>, oldId: string, newId: string): void {
+    const value = map.get(oldId);
+    if (value !== undefined) {
+      map.delete(oldId);
+      map.set(newId, value);
+    }
+  }
+
+  private moveSetKey(set: Set<string>, oldId: string, newId: string): void {
+    if (set.delete(oldId)) set.add(newId);
   }
 }

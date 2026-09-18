@@ -142,27 +142,35 @@ export class ConnectionRegistry {
    * aborting the broadcast loop. Updates delivery cursor on success
    * so periodic sync can retry failures.
    */
-  broadcast(sessionId: string, data: Record<string, unknown>): void {
+  broadcast(sessionId: string, data: Record<string, unknown>): Set<SessionTransport> {
     const seq = data.seq as number | undefined;
+    const delivered = new Set<SessionTransport>();
+    const deliveredConnectionIds = new Set<string>();
     for (const { connectionId, transport } of this.getConnectionsWatching(sessionId, true)) {
+      if (delivered.has(transport)) {
+        deliveredConnectionIds.add(connectionId);
+        continue;
+      }
       try {
         transport.send(data);
-        // Update cursor on successful delivery (if event has seq)
-        if (seq !== undefined) {
-          const connCursors = this.cursors.get(connectionId);
-          if (connCursors) {
-            const current = connCursors.get(sessionId) ?? 0;
-            // Only advance cursor forward (handle out-of-order delivery)
-            if (seq > current) {
-              connCursors.set(sessionId, seq);
-            }
-          }
-        }
+        delivered.add(transport);
+        deliveredConnectionIds.add(connectionId);
       } catch {
         log.warn('broadcast send failed', { connectionId, sessionId, seq });
         // Cursor not updated → periodic sync will retry
       }
     }
+    // Shared transport objects receive one physical send, but each watching
+    // connection advances its independent replay cursor.
+    if (seq !== undefined) {
+      for (const connectionId of deliveredConnectionIds) {
+        const connCursors = this.cursors.get(connectionId);
+        if (!connCursors) continue;
+        const current = connCursors.get(sessionId) ?? 0;
+        if (seq > current) connCursors.set(sessionId, seq);
+      }
+    }
+    return delivered;
   }
 
   /**

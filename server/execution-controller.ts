@@ -1,4 +1,10 @@
-import type { ConnectionRegistry, PendingExecutionInput, SessionRegistry } from '@mitzo/harness';
+import type {
+  ConnectionRegistry,
+  PendingExecutionInput,
+  RuntimeSessionLease,
+  SessionRegistry,
+  SessionTransport,
+} from '@mitzo/harness';
 import type {
   ExecutionTerminalReason,
   ExecutionToken,
@@ -11,7 +17,7 @@ type ExecutionStore = Pick<EventStore, 'beginExecution' | 'transitionExecution'>
 
 export class PendingExecutionOverflowError extends Error {
   constructor(readonly clientId: string) {
-    super(`Pending execution queue is full for ${clientId}`);
+    super(`Pending execution queue or retained-byte budget is full for ${clientId}`);
     this.name = 'PendingExecutionOverflowError';
   }
 }
@@ -27,77 +33,62 @@ export interface ExecutionControllerOptions {
   connections?: ConnectionRegistry;
 }
 
-export interface ActivationResult {
-  token?: ExecutionToken;
-  begin?: BeginExecutionResult;
-  dispatchError?: unknown;
-}
-
-export interface FinishExecutionResult {
-  transition: ExecutionTransitionResult;
-  next?: ActivationResult;
-}
-
-export interface PendingExecutionFailure {
+/** Internal receipt attribution; never emitted as a durable or wire event. */
+export interface ActivationFailure {
   executionId: string;
   clientMsgId: string;
   requestFingerprint: string;
-  error: Error;
+  error: unknown;
 }
 
-/**
- * Deliver an already-durable execution event. This intentionally never calls
- * EventStore.append(): seq and payload are the authoritative stored row.
- */
+export interface ActivationResult {
+  token?: ExecutionToken;
+  begin?: BeginExecutionResult;
+  failures: ActivationFailure[];
+  stale?: true;
+}
+
+export interface FinishExecutionResult {
+  transition?: ExecutionTransitionResult;
+  next?: ActivationResult;
+  stale?: true;
+}
+
+function sendOnce(
+  transport: SessionTransport,
+  data: Record<string, unknown>,
+  sent: Set<SessionTransport>,
+): void {
+  if (sent.has(transport) || !transport.isOpen()) return;
+  try {
+    transport.send(data);
+    sent.add(transport);
+  } catch {
+    // Durable replay remains the recovery path for a failed live transport.
+  }
+}
+
+/** Deliver the exact durable row; it never appends or allocates a new seq. */
 export function broadcastStoredExecutionEvent(
-  clientId: string,
+  lease: RuntimeSessionLease,
   stored: StoredExecutionEvent,
   registry: SessionRegistry,
   connections?: ConnectionRegistry,
-): void {
+): Set<SessionTransport> {
+  const resolved = registry.resolveRuntimeLease(lease);
+  if (!resolved || stored.event.sessionId !== lease.sessionId) return new Set();
   const data: Record<string, unknown> = { ...stored.event, seq: stored.seq };
-  const sessionId = stored.event.sessionId;
-
-  if (registry.isSuspended(clientId)) {
-    registry.bufferEvent(clientId, data);
-    if (connections?.hasOpenWatchers(sessionId)) connections.broadcast(sessionId, data);
-    return;
+  const sent = connections?.broadcast(lease.sessionId, data) ?? new Set<SessionTransport>();
+  if (registry.isSuspended(resolved.clientId)) {
+    registry.bufferEvent(resolved.clientId, data);
+    return sent;
   }
-
-  if (connections?.hasOpenWatchers(sessionId)) {
-    connections.broadcast(sessionId, data);
-    return;
-  }
-
-  // A detached driver has no live delivery path. The durable row will replay
-  // on reconnect; attempting to send through its stale transport risks a
-  // duplicate without improving delivery.
-  if (!registry.isAttached(clientId)) return;
-  const session = registry.get(clientId);
-  if (!session) return;
-
-  if (session.transport.isOpen()) {
-    try {
-      session.transport.send(data);
-    } catch {
-      // The durable row remains available for reconnect/periodic replay.
-    }
-  }
-  for (const observer of session.observers) {
-    if (!observer.isOpen()) continue;
-    try {
-      observer.send(data);
-    } catch {
-      // One observer must not prevent delivery to the rest.
-    }
-  }
+  if (registry.isAttached(resolved.clientId)) sendOnce(resolved.session.transport, data, sent);
+  for (const observer of resolved.session.observers) sendOnce(observer, data, sent);
+  return sent;
 }
 
-/**
- * Serializes execution admission for one managed runtime. Provider work is
- * deliberately opaque here; production start/send/query-loop wiring lands in
- * a later slice.
- */
+/** Isolated per-runtime execution admission; production provider wiring comes later. */
 export class ExecutionController {
   constructor(private readonly options: ExecutionControllerOptions) {}
 
@@ -108,66 +99,9 @@ export class ExecutionController {
   }
 
   async activateNextExecution(clientId: string): Promise<ActivationResult | undefined> {
-    const session = this.options.registry.beginPendingActivation(clientId);
-    if (!session) return undefined;
-    if (!session.sessionId) {
-      this.options.registry.completePendingActivation(clientId);
-      return undefined;
-    }
-
-    let dispatchError: unknown;
-    try {
-      while (true) {
-        const pending = this.options.registry.peekPendingExecution(clientId);
-        if (!pending) return dispatchError === undefined ? undefined : { dispatchError };
-
-        const begin = this.options.eventStore.beginExecution(
-          session.sessionId,
-          pending.executionId,
-          pending.clientMsgId,
-          pending.requestFingerprint,
-        );
-        if (begin.duplicate) {
-          // The receipt was already admitted. Remove only this FIFO item and
-          // never send provider work for it or allocate a new generation.
-          this.options.registry.shiftPendingExecution(clientId);
-          continue;
-        }
-
-        // Set first so synchronous dispatchers can observe their token before
-        // the queue mutates or any provider callback is entered.
-        if (!this.options.registry.setCurrentExecution(clientId, begin.token)) {
-          throw new Error(`Execution controller lost ownership for ${clientId}`);
-        }
-        this.options.registry.shiftPendingExecution(clientId);
-        this.broadcastBegin(clientId, begin);
-
-        try {
-          await pending.dispatch(begin.token);
-          return {
-            token: begin.token,
-            begin,
-            ...(dispatchError === undefined ? {} : { dispatchError }),
-          };
-        } catch (error: unknown) {
-          dispatchError = error;
-          const terminalReason: ExecutionTerminalReason = pending.isInitial
-            ? 'startup_failed'
-            : 'failed';
-          const terminal = this.options.eventStore.transitionExecution(
-            begin.token,
-            'TERMINAL',
-            terminalReason,
-          );
-          this.broadcastTransition(clientId, terminal);
-          // A late failure for an old generation cannot clear a replacement.
-          this.options.registry.clearCurrentExecution(clientId, begin.token);
-          // Continue under the same activation lease to preserve FIFO order.
-        }
-      }
-    } finally {
-      this.options.registry.completePendingActivation(clientId);
-    }
+    const lease = this.options.registry.beginPendingActivation(clientId);
+    if (!lease) return undefined;
+    return this.activateClaimedLease(lease);
   }
 
   async finishExecution(
@@ -175,17 +109,22 @@ export class ExecutionController {
     token: ExecutionToken,
     reason: ExecutionTerminalReason,
   ): Promise<FinishExecutionResult> {
+    const lease = this.options.registry.getRuntimeLease(clientId);
+    if (!lease || token.sessionId !== lease.sessionId) return { stale: true };
     const transition = this.options.eventStore.transitionExecution(token, 'TERMINAL', reason);
-    this.broadcastTransition(clientId, transition);
-    const cleared = this.options.registry.clearCurrentExecution(clientId, token);
-    const next = cleared ? await this.activateNextExecution(clientId) : undefined;
+    if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
+    this.broadcastTransition(lease, transition);
+    const cleared = this.options.registry.clearCurrentExecution(lease, token);
+    if (!cleared) return { transition };
+    const current = this.options.registry.resolveRuntimeLease(lease);
+    const next = current ? await this.activateNextExecution(current.clientId) : undefined;
     return { transition, ...(next ? { next } : {}) };
   }
 
   failPendingExecutions(
     clientId: string,
     message = 'Execution cancelled before activation',
-  ): PendingExecutionFailure[] {
+  ): ActivationFailure[] {
     return this.options.registry.drainPendingExecutions(clientId).map((pending) => ({
       executionId: pending.executionId,
       clientMsgId: pending.clientMsgId,
@@ -194,10 +133,66 @@ export class ExecutionController {
     }));
   }
 
-  private broadcastBegin(clientId: string, result: BeginExecutionResult): void {
+  private async activateClaimedLease(lease: RuntimeSessionLease): Promise<ActivationResult> {
+    const failures: ActivationFailure[] = [];
+    try {
+      while (true) {
+        const pending = this.options.registry.peekPendingExecution(lease);
+        if (!pending) return { failures };
+        const begin = this.options.eventStore.beginExecution(
+          lease.sessionId,
+          pending.executionId,
+          pending.clientMsgId,
+          pending.requestFingerprint,
+        );
+        if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
+        if (begin.duplicate) {
+          if (!this.options.registry.shiftPendingExecution(lease)) return { failures, stale: true };
+          continue;
+        }
+        if (!this.options.registry.setCurrentExecution(lease, begin.token))
+          return { failures, stale: true };
+        if (!this.options.registry.shiftPendingExecution(lease)) {
+          this.options.registry.clearCurrentExecution(lease, begin.token);
+          return { failures, stale: true };
+        }
+        this.broadcastBegin(lease, begin);
+        try {
+          await pending.dispatch(begin.token);
+          if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
+          return { token: begin.token, begin, failures };
+        } catch (error: unknown) {
+          failures.push({
+            executionId: pending.executionId,
+            clientMsgId: pending.clientMsgId,
+            requestFingerprint: pending.requestFingerprint,
+            error,
+          });
+          // A removed lease has no owner for this late provider completion.
+          // Do not mutate the durable stream of a newly registered runtime
+          // that happens to reuse the same client id/session id.
+          if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
+          const terminal = this.options.eventStore.transitionExecution(
+            begin.token,
+            'TERMINAL',
+            pending.isInitial ? 'startup_failed' : 'failed',
+          );
+          if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
+          this.broadcastTransition(lease, terminal);
+          // A stale failure must stop, not steal/admit the next FIFO item.
+          if (!this.options.registry.clearCurrentExecution(lease, begin.token))
+            return { failures, stale: true };
+        }
+      }
+    } finally {
+      this.options.registry.completePendingActivation(lease);
+    }
+  }
+
+  private broadcastBegin(lease: RuntimeSessionLease, result: BeginExecutionResult): void {
     if (!result.duplicate && result.seq !== undefined && result.event) {
       broadcastStoredExecutionEvent(
-        clientId,
+        lease,
         { seq: result.seq, event: result.event },
         this.options.registry,
         this.options.connections,
@@ -205,10 +200,10 @@ export class ExecutionController {
     }
   }
 
-  private broadcastTransition(clientId: string, result: ExecutionTransitionResult): void {
+  private broadcastTransition(lease: RuntimeSessionLease, result: ExecutionTransitionResult): void {
     if (result.applied && result.seq !== undefined && result.event) {
       broadcastStoredExecutionEvent(
-        clientId,
+        lease,
         { seq: result.seq, event: result.event },
         this.options.registry,
         this.options.connections,

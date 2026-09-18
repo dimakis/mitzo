@@ -6,6 +6,7 @@ import {
   CLOSEOUT_TIMEOUT_MS,
   SUSPEND_GRACE_MS,
   SUSPEND_BUFFER_MAX,
+  MAX_PENDING_EXECUTION_RETAINED_BYTES,
 } from '../src/constants.js';
 import type { SessionTransport } from '../src/session-transport.js';
 
@@ -110,7 +111,7 @@ describe('SessionRegistry', () => {
         pendingExecutions: [],
         activatingPending: false,
       });
-      registry.setCurrentExecution('client-1', {
+      registry.setCurrentExecution(registry.getRuntimeLease('client-1')!, {
         sessionId: 'execution-session',
         executionId: 'active',
         generation: 1,
@@ -119,7 +120,7 @@ describe('SessionRegistry', () => {
         executionId: 'pending',
         clientMsgId: 'message-pending',
         requestFingerprint: 'fingerprint-pending',
-        providerPayload: null,
+        retainedBytes: 0,
         isInitial: false,
         dispatch: () => undefined,
       });
@@ -131,6 +132,7 @@ describe('SessionRegistry', () => {
         currentExecution: undefined,
         pendingExecutions: [],
         activatingPending: false,
+        pendingExecutionBytes: 0,
       });
     });
   });
@@ -268,8 +270,67 @@ describe('SessionRegistry', () => {
       expect(registry.isAttached('old-id')).toBe(false);
     });
 
+    it('preserves the immutable lease, queued-byte accounting, and observer state', () => {
+      const observer = fakeTransport();
+      registry.register('old-id', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'sdk-rekey',
+      });
+      const lease = registry.getRuntimeLease('old-id')!;
+      registry.addObserver('sdk-rekey', observer);
+      registry.enqueuePendingExecution('old-id', {
+        executionId: 'queued',
+        clientMsgId: 'message',
+        requestFingerprint: 'fingerprint',
+        retainedBytes: 7,
+        isInitial: false,
+        dispatch: () => undefined,
+      });
+      registry.rekey('old-id', 'new-id');
+      expect(registry.getRuntimeLease('new-id')).toEqual(lease);
+      expect(registry.resolveRuntimeLease(lease)?.clientId).toBe('new-id');
+      expect(registry.get('new-id')?.pendingExecutionBytes).toBe(7);
+      expect(registry.get('new-id')?.observers).toContain(observer);
+    });
+
     it('returns false for unknown old key', () => {
       expect(registry.rekey('nonexistent', 'new-id')).toBe(false);
+    });
+  });
+
+  describe('pending execution budgets', () => {
+    it('rejects invalid and oversized retention without corrupting accounting', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'budget-session',
+      });
+      const input = (retainedBytes: number) => ({
+        executionId: `e-${retainedBytes}`,
+        clientMsgId: 'm',
+        requestFingerprint: 'f',
+        retainedBytes,
+        isInitial: false,
+        dispatch: () => undefined,
+      });
+      expect(registry.enqueuePendingExecution('client-1', input(0))).toBe(true);
+      expect(registry.enqueuePendingExecution('client-1', input(-1))).toBe(false);
+      expect(registry.enqueuePendingExecution('client-1', input(Number.NaN))).toBe(false);
+      expect(
+        registry.enqueuePendingExecution(
+          'client-1',
+          input(MAX_PENDING_EXECUTION_RETAINED_BYTES + 1),
+        ),
+      ).toBe(false);
+      expect(registry.get('client-1')?.pendingExecutionBytes).toBe(0);
+      const lease = registry.getRuntimeLease('client-1')!;
+      registry.shiftPendingExecution(lease);
+      expect(registry.get('client-1')?.pendingExecutionBytes).toBe(0);
     });
   });
 
