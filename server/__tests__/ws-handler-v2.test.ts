@@ -9,7 +9,7 @@ import { EventStore } from '../event-store.js';
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
   sendToChat: vi.fn().mockResolvedValue(true),
-  interruptChat: vi.fn(),
+  interruptChat: vi.fn().mockResolvedValue(true),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   isIsolationEnabled: vi.fn().mockReturnValue(true),
@@ -1533,6 +1533,68 @@ describe('handleInterruptV2', () => {
         ctx,
       ),
     ).not.toThrow();
+  });
+
+  it('awaits a delayed active-runtime interrupt before reporting success', async () => {
+    let release!: (accepted: boolean) => void;
+    vi.mocked(interruptChat).mockImplementationOnce(
+      () => new Promise<boolean>((resolve) => (release = resolve)),
+    );
+    vi.mocked(isActive).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    let settled = false;
+    const pending = handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-delayed' },
+      ctx,
+    ).then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release(true);
+    await pending;
+    vi.mocked(isActive).mockReturnValue(false);
+  });
+
+  it('propagates an active-runtime provider interrupt rejection', async () => {
+    vi.mocked(interruptChat).mockRejectedValueOnce(new Error('provider interrupt rejected'));
+    vi.mocked(isActive).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-rejected' },
+        ctx,
+      ),
+    ).rejects.toThrow('provider interrupt rejected');
+    vi.mocked(isActive).mockReturnValue(false);
   });
 });
 
@@ -4093,7 +4155,7 @@ describe('handleSendV2 durable receipt failures', () => {
     }
   });
 
-  it('keeps an admitted receipt accepted when completion fails after the durable ack', async () => {
+  it('keeps an admitted receipt accepted when completion rejects in the same microtask as ack', async () => {
     const store = new EventStore(':memory:');
     const sessions = new SessionRegistry();
     const ctx = createContext({
@@ -4108,7 +4170,6 @@ describe('handleSendV2 durable receipt failures', () => {
       prompt: 'first prompt',
       clientMsgId: 'receipt-late-failure-1',
     };
-    let rejectCompletion!: (error: Error) => void;
     try {
       vi.mocked(startChat).mockReset();
       vi.mocked(startChat).mockImplementation((runtimeTransport, clientId, _prompt, options) => {
@@ -4128,17 +4189,19 @@ describe('handleSendV2 durable receipt failures', () => {
           options.requestFingerprint,
         );
         sessions.get(clientId)!.currentExecution = begun.token;
-        const completion = new Promise<void>((_resolve, reject) => {
-          rejectCompletion = reject;
+        const accepted = Promise.resolve({ sessionId, token: begun.token });
+        // Register the completion continuation first: it rejects before the
+        // outer await of accepted resumes, exposing the old boolean race.
+        const completion = accepted.then(() => {
+          throw new Error('provider secret /private/path');
         });
         return Object.assign(completion, {
-          accepted: Promise.resolve({ sessionId, token: begun.token }),
+          accepted,
         });
       });
 
       const first = await handleSendV2('receipt-late-failure', transport, message, ctx);
       expect(first).toEqual(expect.objectContaining({ accepted: true }));
-      rejectCompletion(new Error('provider secret /private/path'));
       await vi.waitFor(() =>
         expect(transport.sent).toContainEqual(
           expect.objectContaining({
@@ -4173,7 +4236,14 @@ describe('handleSendV2 durable receipt failures', () => {
     };
     try {
       vi.mocked(startChat).mockClear();
-      vi.mocked(startChat).mockRejectedValueOnce(new Error('provider secret: do-not-persist'));
+      const failure = new Error('provider secret: do-not-persist');
+      const completion = Promise.reject(failure);
+      // Completion is not the receipt failure signal. The rejected accepted
+      // promise is what synchronously reaches acceptSendCommandAsync.
+      void completion.catch(() => undefined);
+      vi.mocked(startChat).mockReturnValueOnce(
+        Object.assign(completion, { accepted: Promise.reject(failure) }),
+      );
 
       await handleSendV2('receipt-failure', transport, message, ctx);
       expect(startChat).toHaveBeenCalledOnce();

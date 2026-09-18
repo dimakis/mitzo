@@ -143,7 +143,6 @@ export function createChatRestRouter(
         },
         async (command, sessionId) => {
           const delegate = new SseTransport(connectionId, sseRegistry);
-          let admitted = false;
           const transport = {
             // This transport accepts events into durable storage even offline.
             isOpen: () => true,
@@ -152,9 +151,6 @@ export function createChatRestRouter(
                 data.type === 'native_command_result' && !command.sessionId
                   ? data
                   : { ...data, sessionId: data.sessionId ?? sessionId };
-              if (data.type === 'error' && !admitted) {
-                ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
-              }
               // Query-loop events already carry their durable sequence. Early
               // startup metadata uses this boundary as its persistence point.
               if (event.sessionId && typeof event.seq !== 'number') {
@@ -176,7 +172,6 @@ export function createChatRestRouter(
             skipReceipt: true,
             prepared,
           });
-          admitted = true;
           if (outcome === 'native') return false;
         },
       );

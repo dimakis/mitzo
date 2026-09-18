@@ -440,7 +440,8 @@ async function _runQueryLoopInner(
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
   let terminalOutcomeAttempted = false;
-  let lifecycleTerminalReason: 'completed' | 'error' = 'completed';
+  let lifecycleTerminalReason: 'completed' | 'error' | 'stopped' = 'completed';
+  const wasDeliberatelyStopped = () => !!ownedSession?.stoppedExecution;
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -1392,20 +1393,25 @@ async function _runQueryLoopInner(
           }
         }
       }
-      if (!terminalOutcomeAttempted) {
+      if (!terminalOutcomeAttempted && !wasDeliberatelyStopped()) {
         lifecycleTerminalReason = 'error';
         await onProviderFailure?.(!firstEventReceived);
       }
     } catch {
-      caughtError = true;
-      lifecycleTerminalReason = 'error';
-      await onProviderFailure?.(!firstEventReceived);
+      if (wasDeliberatelyStopped()) {
+        lifecycleTerminalReason = 'stopped';
+      } else {
+        caughtError = true;
+        lifecycleTerminalReason = 'error';
+        await onProviderFailure?.(!firstEventReceived);
+      }
       span.setStatus({
         code: SpanStatusCode.ERROR,
         message: 'provider_stream_failed',
       });
       const currentSession = currentOwnerSession();
-      if (currentSession) {
+      if (wasDeliberatelyStopped()) lifecycleTerminalReason = 'stopped';
+      if (currentSession && !wasDeliberatelyStopped()) {
         if (timedOut) {
           const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
           const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
@@ -1424,6 +1430,7 @@ async function _runQueryLoopInner(
       }
     } finally {
       clearTimeout(firstEventTimer);
+      if (wasDeliberatelyStopped()) lifecycleTerminalReason = 'stopped';
       // NOTE: finalSession is captured before registry.remove() below. After remove(),
       // the object reference remains valid (Map.delete doesn't mutate the value).
       // It is read in two places after remove: (1) span attributes block reads

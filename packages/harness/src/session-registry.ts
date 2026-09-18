@@ -108,6 +108,8 @@ export interface ManagedSession {
   agentDefinitionSource?: AgentDefinitionSource;
   /** The only durable execution currently dispatched to a provider. */
   currentExecution?: ExecutionToken;
+  /** Exact token deliberately stopped by the owner; never inferred from AbortSignal. */
+  stoppedExecution?: ExecutionToken;
   /** FIFO work with preallocated ids but no durable generation yet. */
   pendingExecutions: PendingExecutionInput[];
   /** Exact sum of retainedBytes for pendingExecutions. */
@@ -218,6 +220,7 @@ export class SessionRegistry {
       agentDefinition: null,
       agentDefinitionSource: undefined,
       currentExecution: undefined,
+      stoppedExecution: undefined,
       pendingExecutions: [],
       pendingExecutionBytes: 0,
       activatingPending: false,

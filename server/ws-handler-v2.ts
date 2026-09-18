@@ -862,6 +862,26 @@ export function dispatchPreparedSendV2(
           }
         };
 
+        // Receipt failure is exclusively the awaited admission boundary below.
+        // Completion is a separate, long-lived provider lifetime; observing a
+        // later rejection here may notify a live client, but must never race a
+        // durable accepted receipt.
+        const awaitAdmission = async (completion: ReturnType<typeof startChat>) => {
+          const accepted = completion?.accepted;
+          if (!accepted) {
+            // Compatibility for narrow legacy test doubles. Production
+            // startChat always supplies accepted, so this remains synchronous
+            // with the dispatch boundary rather than an asynchronous catch.
+            await completion;
+            return;
+          }
+          await accepted;
+          void completion.catch(() => {
+            const failure = new SendDispatchFailure();
+            transport.send({ type: 'error', error: failure.message });
+          });
+        };
+
         const sessionId = msg.sessionId;
 
         if (sessionId) {
@@ -1006,21 +1026,7 @@ export function dispatchPreparedSendV2(
               effective.extraTools,
             ),
           });
-          const accepted = completion?.accepted;
-          let admitted = false;
-          void completion?.catch(() => {
-            const failure = new SendDispatchFailure();
-            // A bare completion is the legacy/pre-admission contract.  Once
-            // `accepted` resolved, the durable receipt is immutable: the
-            // execution token owns any later terminal failure.
-            if (!accepted || !admitted)
-              ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
-            transport.send({ type: 'error', error: failure.message });
-          });
-          if (accepted) {
-            await accepted;
-            admitted = true;
-          }
+          await awaitAdmission(completion);
         } else {
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
@@ -1055,18 +1061,7 @@ export function dispatchPreparedSendV2(
               effective.extraTools,
             ),
           });
-          const accepted = completion?.accepted;
-          let admitted = false;
-          void completion?.catch(() => {
-            const failure = new SendDispatchFailure();
-            if (!accepted || !admitted)
-              ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
-            transport.send({ type: 'error', error: failure.message });
-          });
-          if (accepted) {
-            await accepted;
-            admitted = true;
-          }
+          await awaitAdmission(completion);
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1181,7 +1176,7 @@ export async function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        interruptChat(
+        const accepted = await interruptChat(
           activeClientId,
           msg.prompt,
           msg.images,
@@ -1190,6 +1185,8 @@ export async function handleInterruptV2(
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
         );
+        if (!accepted)
+          throw new SendDispatchFailure('Session is not accepting input. Please retry.');
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }

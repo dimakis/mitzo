@@ -2418,4 +2418,31 @@ describe('provider result outcome classification', () => {
       store.close();
     }
   });
+
+  it('projects a deliberate exact stop through an abort unwind without a provider error', async () => {
+    const store = new EventStore(':memory:');
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    const sessionId = 'stopped-abort-terminal';
+    registry.get('stopped-client')!.sessionId = sessionId;
+    (registry.get('stopped-client')! as { stoppedExecution?: unknown }).stoppedExecution = {
+      sessionId,
+      executionId: 'stopped-execution',
+      generation: 1,
+    };
+    store.upsertSession({ sessionId });
+    async function* aborted() {
+      if (Date.now() < 0) yield {};
+      throw new Error('provider aborted after user stop');
+    }
+
+    await runQueryLoop(aborted(), 'stopped-client', registry, new AbortController(), store);
+
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'error' }));
+    expect(
+      store.getSessionEvents(sessionId).findLast((event) => event.type === 'session_state_changed')
+        ?.payload,
+    ).toMatchObject({ internalState: 'ENDED', reason: 'stopped' });
+    store.close();
+  });
 });

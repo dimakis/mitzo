@@ -940,8 +940,8 @@ export function startChat(
 
 /**
  * Starts a chat in two phases. `accepted` settles at durable execution
- * provider readiness (the first valid stream event); `completion` owns the
- * provider/query lifetime. Durable RUNNING is written before provider work.
+ * durable RUNNING/current-token admission; `completion` owns the provider/query
+ * lifetime. Durable RUNNING is written before provider work.
  */
 export function launchChat(
   transport: SessionTransport,
@@ -1509,6 +1509,10 @@ async function _startChatInner(
     if (controller && initialToken && runtimeLease && ownsRuntime())
       await controller.finishExecution(runtimeLease, initialToken, reason);
   };
+  const isDeliberatelyStopped = () =>
+    !!initialToken &&
+    session.stoppedExecution?.executionId === initialToken.executionId &&
+    session.stoppedExecution.generation === initialToken.generation;
   let providerOpened = false;
   let queryOwnershipDelegated = false;
   let executionCompletion: Promise<void> | undefined;
@@ -1720,6 +1724,7 @@ async function _startChatInner(
                   await finishInitial(outcome);
                 },
                 onProviderFailure: async (beforeReady: boolean) => {
+                  if (isDeliberatelyStopped()) return;
                   await finishInitial(beforeReady ? 'startup_failed' : 'failed');
                   if (beforeReady) {
                     if (ownsRuntime()) cleanupSessionWorktrees(session);
@@ -1739,10 +1744,13 @@ async function _startChatInner(
         executionCompletion = queryCompletion;
         void queryCompletion
           .catch(() => {
-            if (!providerReady)
+            if (!providerReady && !isDeliberatelyStopped())
               rejectProviderReady?.(new Error('Chat provider did not become ready. Please retry.'));
           })
-          .finally(() => _onSessionChange?.(clientId, 'end', session.sessionId));
+          .finally(() => {
+            if (!providerReady && isDeliberatelyStopped()) resolveProviderReady?.();
+            _onSessionChange?.(clientId, 'end', session.sessionId);
+          });
         await providerReadyPromise;
       } else {
         await queryCompletion;
@@ -1752,6 +1760,7 @@ async function _startChatInner(
           eventStore.setSessionState(session.sessionId, 'ENDED', { clientId, reason: 'completed' });
       }
     } catch (err: unknown) {
+      if (isDeliberatelyStopped()) return;
       const message = err instanceof Error ? err.message : 'Unknown error';
       if (message.includes('No conversation found') && options.resume) {
         log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
@@ -2528,7 +2537,12 @@ export function stopChat(clientId: string) {
     const session = registry.get(clientId);
     const lease = registry.getRuntimeLease(clientId);
     const token = session?.currentExecution;
-    if (lease && token) await initialExecutionController().stopExecution(lease, token);
+    if (lease && token) {
+      // This is session-object-local, so query unwind can distinguish an
+      // owner stop from an arbitrary abort without affecting an ABA runtime.
+      session.stoppedExecution = token;
+      await initialExecutionController().stopExecution(lease, token);
+    }
     // stopExecution can await a terminal broadcast.  Do not let a stale stop
     // clean up or abort a same-id runtime installed while it was yielding.
     if (!session) return;

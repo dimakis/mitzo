@@ -206,6 +206,30 @@ describe('chat-rest-handler', () => {
     expect(handleSendV2).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps a REST receipt accepted when a post-admission error arrives in the same turn', async () => {
+    vi.mocked(handleSendV2).mockImplementationOnce(async (_id, transport) => {
+      // Model a completion rejection's safe transport error before the outer
+      // HTTP admission continuation resumes.
+      await Promise.resolve();
+      transport.send({ type: 'error', error: 'Unable to start the chat. Please retry.' });
+    });
+    const message = { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'rest-race' };
+
+    const first = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    const retry = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+
+    expect(first.status).toBe(202);
+    expect(retry.body).toEqual(first.body);
+    expect(eventStore.getSendCommand('rest-race')?.error).toBeNull();
+    expect(handleSendV2).toHaveBeenCalledOnce();
+  });
+
   it('rejects requests with unknown connection (requireConnection path)', async () => {
     const res = await request(testApp)
       .post('/api/chat/stop')
@@ -287,6 +311,23 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(202);
     expect(res.body.ok).toBe(true);
     expect(handleInterruptV2).toHaveBeenCalledOnce();
+  });
+
+  it('POST /interrupt waits for and reports a provider interrupt rejection', async () => {
+    vi.mocked(handleInterruptV2).mockRejectedValueOnce(new Error('provider interrupt rejected'));
+
+    const res = await request(testApp)
+      .post('/api/chat/interrupt')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'change',
+        clientMsgId: 'i-rejected',
+      });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ ok: false, error: 'Internal server error' });
   });
 
   // ─── POST /api/chat/permission ──────────────────────────────────────────

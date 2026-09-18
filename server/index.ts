@@ -1205,11 +1205,11 @@ function handleChatWs(
           contextFromTraceparent(traceparent),
         );
       } else if (msg.type === 'stop') {
-        withSpan(
+        await withSpanAsync(
           'ws.stop',
           { 'ws.client_id': clientId },
-          () => {
-            stopChat(clientId);
+          async () => {
+            await stopChat(clientId);
           },
           contextFromTraceparent(traceparent),
         );

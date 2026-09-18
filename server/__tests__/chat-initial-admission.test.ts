@@ -216,9 +216,12 @@ it('stops an admitted pre-ready execution before removing its runtime', async ()
         .getSessionEvents(sessionId)
         .filter((event) => event.payload.phase === 'TERMINAL'),
     ).toHaveLength(1);
-    await expect(launch.completion).rejects.toThrow(
-      'Chat provider did not become ready. Please retry.',
-    );
+    await expect(launch.completion).resolves.toBeUndefined();
+    expect(
+      chat.eventStore
+        .getSessionEvents(sessionId)
+        .findLast((event) => event.type === 'session_state_changed')?.payload,
+    ).toMatchObject({ internalState: 'ENDED', reason: 'stopped' });
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();
