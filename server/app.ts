@@ -12,8 +12,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, basename } from 'path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync } from 'fs';
+import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
@@ -1648,16 +1648,31 @@ export function isAllowedPath(filePath: string): boolean {
   return createAllowedPathChecker()(filePath);
 }
 function isConfiguredAllowedPath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
-  if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
+  let candidate: string;
+  try {
+    candidate = realpathSync.native(resolve(filePath));
+    if (!statSync(candidate).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const contains = (root: string): boolean => {
+    try {
+      const canonicalRoot = realpathSync.native(resolve(root));
+      const path = relative(canonicalRoot, candidate);
+      return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
+    } catch {
+      return false;
+    }
+  };
+  if (BASE_REPO && contains(BASE_REPO)) return true;
+  if (BASE_REPO && contains(`${BASE_REPO}-sessions`)) return true;
   const config = getRepoConfig();
   for (const repoPath of Object.values(config.repos)) {
-    if (resolved.startsWith(resolve(repoPath))) return true;
-    if (resolved.startsWith(resolve(`${repoPath}-sessions`))) return true;
+    if (contains(repoPath)) return true;
+    if (contains(`${repoPath}-sessions`)) return true;
   }
   for (const extra of config.allowedPaths) {
-    if (resolved.startsWith(resolve(extra))) return true;
+    if (contains(extra)) return true;
   }
   return false;
 }
