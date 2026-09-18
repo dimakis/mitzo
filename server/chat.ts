@@ -24,7 +24,13 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport, ConnectionRegistry, ManagedSession } from '@mitzo/harness';
+import type {
+  SessionTransport,
+  ConnectionRegistry,
+  ManagedSession,
+  PendingExecutionInput,
+} from '@mitzo/harness';
+import type { ExecutionToken } from '@mitzo/protocol';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -64,6 +70,7 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
+import { ExecutionController } from './execution-controller.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -411,6 +418,45 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
 };
 
 export const registry = new SessionRegistry();
+
+/** The v2 receipt boundary observes admission, while legacy callers await completion. */
+export interface ChatLaunch {
+  accepted: Promise<{ sessionId: string; token: ExecutionToken }>;
+  completion: Promise<void>;
+}
+
+export type ChatCompletion = Promise<void> & {
+  /** Present for the v2 admission-aware implementation; legacy mocks omit it. */
+  accepted?: ChatLaunch['accepted'];
+};
+
+type AdmissionOptions = {
+  requestFingerprint?: string;
+  retainedBytes?: number;
+  onAdmissionFailure?: (error: unknown) => void;
+  onAdmitted?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
+};
+
+function initialExecutionController(): ExecutionController {
+  return new ExecutionController({ registry, eventStore, connections: _connRegistry ?? undefined });
+}
+
+/** Byte accounting is intentionally based only on the already validated request payload. */
+export function preparedRequestRetainedBytes(options: {
+  prompt: string;
+  images?: Array<{ data: string; mediaType: string }>;
+  contextBlocks?: string[];
+  extraTools?: string;
+}): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      prompt: options.prompt,
+      images: options.images ?? [],
+      contextBlocks: options.contextBlocks ?? [],
+      extraTools: options.extraTools ?? '',
+    }),
+  );
+}
 
 /** Load repo config with short TTL cache — fresh enough for hot-reload, avoids redundant disk I/O. */
 let _cachedConfig: ReturnType<typeof loadRepoConfig> | null = null;
@@ -817,7 +863,7 @@ function makeUserMessage(
   };
 }
 
-export async function startChat(
+export function startChat(
   transport: SessionTransport,
   clientId: string,
   prompt: string,
@@ -841,17 +887,72 @@ export async function startChat(
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
-  },
+  } & AdmissionOptions,
 ) {
-  return withSpanAsync(
+  const launch = launchChat(transport, clientId, prompt, options);
+  return Object.assign(launch.completion, { accepted: launch.accepted }) as ChatCompletion;
+}
+
+/**
+ * Starts a chat in two phases. `accepted` settles at durable execution
+ * admission; `completion` owns the provider/query lifetime.
+ */
+export function launchChat(
+  transport: SessionTransport,
+  clientId: string,
+  prompt: string,
+  options: {
+    resume?: string;
+    initialSessionId?: string;
+    cwd?: string;
+    model?: string;
+    accountId?: string;
+    reasoningEffort?: string | null;
+    accountProfiles?: AccountProfiles;
+    extraTools?: string;
+    skillAllowedTools?: string[];
+    isolation?: boolean;
+    mode?: MitzoMode;
+    resumePermission?: ResumePermission;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    clientMsgId?: string;
+    onSessionResolved?: (sessionId: string) => void;
+    telosTaskId?: string;
+    agentName?: string;
+    userIntent?: string;
+  } & AdmissionOptions,
+): ChatLaunch {
+  let resolveAccepted!: (value: { sessionId: string; token: ExecutionToken }) => void;
+  let rejectAccepted!: (reason: unknown) => void;
+  const accepted = new Promise<{ sessionId: string; token: ExecutionToken }>((resolve, reject) => {
+    resolveAccepted = resolve;
+    rejectAccepted = reject;
+  });
+  const completion = withSpanAsync(
     'chat.start',
     {
       'chat.clientId': clientId,
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => _startChatInner(transport, clientId, prompt, options),
+    async () =>
+      _startChatInner(transport, clientId, prompt, {
+        ...options,
+        onAdmissionFailure: (error) => {
+          options.onAdmissionFailure?.(error);
+          rejectAccepted(error);
+        },
+        onAdmitted: (value) => {
+          options.onAdmitted?.(value);
+          resolveAccepted(value);
+        },
+      }),
   );
+  // Legacy/non-v2 starts have no receipt observer. Avoid a rejected deferred
+  // promise becoming an unhandled rejection in those paths.
+  if (!options.requestFingerprint) void accepted.catch(() => undefined);
+  return { accepted, completion };
 }
 
 async function _startChatInner(
@@ -878,7 +979,7 @@ async function _startChatInner(
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
-  },
+  } & AdmissionOptions,
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -994,6 +1095,7 @@ async function _startChatInner(
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
+    options.onAdmissionFailure?.(err);
     send(transport, {
       type: 'error',
       error: err instanceof Error ? err.message : 'Account selection failed',
@@ -1092,13 +1194,20 @@ async function _startChatInner(
   // Resolve agent name early — needed for registration, resume upsert, and boot context.
   const agentName = options.agentName ?? DEFAULT_AGENT_NAME;
 
+  // The Mitzo key is allocated before registry/admission, never by a provider.
+  // Provider conversation IDs are an implementation detail of the runtime.
+  const durableSessionId =
+    options.resume ??
+    options.initialSessionId ??
+    (options.requestFingerprint ? randomUUID() : undefined);
+
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
   inputQueue.push(makeUserMessage(fullPrompt, 'now'));
 
-  if (options.initialSessionId) {
+  if (!options.resume && durableSessionId) {
     eventStore.upsertSession({
-      sessionId: options.initialSessionId,
+      sessionId: durableSessionId,
       cwd,
       mode,
       initialPrompt: fullPrompt,
@@ -1118,9 +1227,7 @@ async function _startChatInner(
     worktreePath,
     agentName,
     // Set sessionId early so pre-assistant events are persisted (iOS reconnect).
-    ...((options.resume ?? options.initialSessionId)
-      ? { sessionId: options.resume ?? options.initialSessionId }
-      : {}),
+    ...(durableSessionId ? { sessionId: durableSessionId } : {}),
     ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
   });
 
@@ -1130,7 +1237,7 @@ async function _startChatInner(
   _onSessionChange?.(clientId, 'start');
 
   // Session state machine: mark CREATED (Phase 1 — write only, no behavior change)
-  const stateSessionId = options.resume ?? session.sessionId;
+  const stateSessionId = durableSessionId;
   if (stateSessionId) {
     eventStore.setSessionState(stateSessionId, 'CREATED', { clientId });
   }
@@ -1285,211 +1392,257 @@ async function _startChatInner(
   // Bound sessions have durable routing before the SDK can create history or side effects.
   const newSdkSessionId =
     !resolvedResume && !options.resume
-      ? (options.initialSessionId ?? (accountBinding ? randomUUID() : undefined))
+      ? (options.initialSessionId ??
+        (options.requestFingerprint ? durableSessionId : accountBinding ? randomUUID() : undefined))
       : undefined;
-  try {
-    if (newSdkSessionId) {
-      eventStore.upsertSession({
-        sessionId: newSdkSessionId,
-        accountBinding,
-        bootContext: JSON.stringify(bootContextMsg),
-        cwd,
-        mode: session.mode,
-        agentName,
-        selectedModel: options.model ?? accountBinding?.model ?? null,
-        reasoningEffort: options.reasoningEffort ?? null,
-      });
-    }
-    let q: QueryInstance;
-    if (codexProfile) {
-      const conversationId = options.resume ?? newSdkSessionId!;
-      session.sessionId = conversationId;
-      options.onSessionResolved?.(conversationId);
-      send(transport, { type: 'session_id', sessionId: conversationId });
-      const messageId = options.clientMsgId ?? randomUUID();
-      storeAndEchoIfNew(
-        conversationId,
-        messageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
-      q = await openCodexChat({
-        resume: !!options.resume,
-        conversationId,
-        binding: accountBinding!,
-        profile: codexProfile,
-        session,
-        registry,
-        prompt: fullPrompt,
-        intent: userIntent,
-        model: options.model,
-        reasoningEffort: options.reasoningEffort,
-        images: options.images,
-        messageId,
-        systemPrompt: systemPromptAppend,
-        env: sessionEnv,
-        mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
-        onBootContext: (context) => {
-          const message: BootContextMessage = { ...context, source: 'sandbox' };
-          send(transport, { ...message, sessionId: conversationId });
-          session.bootContext = message as unknown as Record<string, unknown>;
-          eventStore.upsertSession({
-            sessionId: conversationId,
-            bootContext: JSON.stringify(message),
-          });
-        },
-      });
-    } else if (apiKey || gemini) {
-      const conversationId = options.resume ?? newSdkSessionId!;
-      session.sessionId = conversationId;
-      options.onSessionResolved?.(conversationId);
-      send(transport, { type: 'session_id', sessionId: conversationId });
-      storeAndEchoIfNew(
-        conversationId,
-        options.clientMsgId ?? randomUUID(),
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
-      q = await openResponsesChat({
-        resume: !!options.resume,
-        conversationId,
-        binding: accountBinding!,
-        apiKey,
-        gemini,
-        selectedModel: options.model,
-        reasoningEffort: options.reasoningEffort,
-        session,
-        registry,
-        input: inputQueue,
-        systemPrompt: systemPromptAppend,
-        env: sessionEnv,
-        mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId),
-      });
-    } else
-      q = adaptSdkQuery(
-        query({
-          prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-          options: {
-            cwd,
-            env: sessionEnv,
-            abortController,
-            includePartialMessages: true,
-            settingSources: ['project'],
-            systemPrompt: {
-              type: 'preset',
-              preset: 'claude_code',
-              append: systemPromptAppend,
-            },
-            permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-            allowedTools: [...mcpAllowed, ...extraTools],
-            thinking: resolveThinking(options.model),
-            ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-            ...(resolvedResume ? { resume: resolvedResume } : {}),
-            ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-            ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-            hooks: buildSessionPermissionHooks(
-              buildPermissionHandler(clientId, registry, {
+  let providerOpened = false;
+  const runProvider = async (): Promise<void> => {
+    try {
+      if (newSdkSessionId) {
+        eventStore.upsertSession({
+          sessionId: newSdkSessionId,
+          accountBinding,
+          bootContext: JSON.stringify(bootContextMsg),
+          cwd,
+          mode: session.mode,
+          agentName,
+          selectedModel: options.model ?? accountBinding?.model ?? null,
+          reasoningEffort: options.reasoningEffort ?? null,
+        });
+      }
+      let q: QueryInstance;
+      if (codexProfile) {
+        const conversationId = options.resume ?? newSdkSessionId!;
+        session.sessionId = conversationId;
+        options.onSessionResolved?.(conversationId);
+        send(transport, { type: 'session_id', sessionId: conversationId });
+        const messageId = options.clientMsgId ?? randomUUID();
+        storeAndEchoIfNew(
+          conversationId,
+          messageId,
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
+        q = await openCodexChat({
+          resume: !!options.resume,
+          conversationId,
+          binding: accountBinding!,
+          profile: codexProfile,
+          session,
+          registry,
+          prompt: fullPrompt,
+          intent: userIntent,
+          model: options.model,
+          reasoningEffort: options.reasoningEffort,
+          images: options.images,
+          messageId,
+          systemPrompt: systemPromptAppend,
+          env: sessionEnv,
+          mcpServers: allMcpServers,
+          onDemandCreate: buildOnDemandCreate(wtId),
+          onBootContext: (context) => {
+            const message: BootContextMessage = { ...context, source: 'sandbox' };
+            send(transport, { ...message, sessionId: conversationId });
+            session.bootContext = message as unknown as Record<string, unknown>;
+            eventStore.upsertSession({
+              sessionId: conversationId,
+              bootContext: JSON.stringify(message),
+            });
+          },
+        });
+      } else if (apiKey || gemini) {
+        const conversationId = options.resume ?? newSdkSessionId!;
+        session.sessionId = conversationId;
+        options.onSessionResolved?.(conversationId);
+        send(transport, { type: 'session_id', sessionId: conversationId });
+        storeAndEchoIfNew(
+          conversationId,
+          options.clientMsgId ?? randomUUID(),
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
+        q = await openResponsesChat({
+          resume: !!options.resume,
+          conversationId,
+          binding: accountBinding!,
+          apiKey,
+          gemini,
+          selectedModel: options.model,
+          reasoningEffort: options.reasoningEffort,
+          session,
+          registry,
+          input: inputQueue,
+          systemPrompt: systemPromptAppend,
+          env: sessionEnv,
+          mcpServers: allMcpServers,
+          onDemandCreate: buildOnDemandCreate(wtId),
+        });
+      } else
+        q = adaptSdkQuery(
+          query({
+            prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+            options: {
+              cwd,
+              env: sessionEnv,
+              abortController,
+              includePartialMessages: true,
+              settingSources: ['project'],
+              systemPrompt: {
+                type: 'preset',
+                preset: 'claude_code',
+                append: systemPromptAppend,
+              },
+              permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+              allowedTools: [...mcpAllowed, ...extraTools],
+              thinking: resolveThinking(options.model),
+              ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+              ...(resolvedResume ? { resume: resolvedResume } : {}),
+              ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+              ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+              hooks: buildSessionPermissionHooks(
+                buildPermissionHandler(clientId, registry, {
+                  onDemandCreate: buildOnDemandCreate(wtId),
+                }),
+                hooks,
+              ),
+              canUseTool: buildPermissionHandler(clientId, registry, {
                 onDemandCreate: buildOnDemandCreate(wtId),
               }),
-              hooks,
-            ),
-            canUseTool: buildPermissionHandler(clientId, registry, {
-              onDemandCreate: buildOnDemandCreate(wtId),
-            }),
-          },
-        }),
-      );
+            },
+          }),
+        );
 
-    session.queryInstance = q;
+      session.queryInstance = q;
+      providerOpened = true;
 
-    // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
-    const startingSessionId = options.resume ?? session.sessionId;
-    if (startingSessionId) {
-      eventStore.setSessionState(startingSessionId, 'STARTING', { clientId });
-    }
+      // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
+      const startingSessionId = options.resume ?? session.sessionId;
+      if (startingSessionId) {
+        eventStore.setSessionState(startingSessionId, 'STARTING', { clientId });
+      }
 
-    // For resumed sessions the prompt is sent to the SDK but was never stored
-    // in the event store — making user messages invisible after WS reconnect.
-    // Store and echo it here so the frontend can replay it.
-    if (options.resume && !codexProfile && !apiKey && !gemini) {
-      const messageId =
-        options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
-      storeAndEchoIfNew(
-        options.resume,
-        messageId,
-        fullPrompt,
+      // For resumed sessions the prompt is sent to the SDK but was never stored
+      // in the event store — making user messages invisible after WS reconnect.
+      // Store and echo it here so the frontend can replay it.
+      if (options.resume && !codexProfile && !apiKey && !gemini) {
+        const messageId =
+          options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
+        storeAndEchoIfNew(
+          options.resume,
+          messageId,
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
+      }
+
+      await runQueryLoop(
+        q as unknown as AsyncIterable<Record<string, unknown>>,
         clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
-    }
-
-    await runQueryLoop(
-      q as unknown as AsyncIterable<Record<string, unknown>>,
-      clientId,
-      registry,
-      abortController,
-      eventStore,
-      options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
-      {
-        connRegistry: _connRegistry ?? undefined,
-        initialClientMsgId: options.clientMsgId,
-        initialImages: imagePreviews(options.images),
-        initialContextBlocks: options.contextBlocks,
-        onSessionResolved: (sessionId: string) => {
-          // Persist boot context for new sessions (resume sessions already persisted above)
-          if (!options.resume) {
-            eventStore.upsertSession({
-              sessionId,
-              ...(accountBinding ? { accountBinding } : {}),
-              bootContext: JSON.stringify(bootContextMsg),
+        registry,
+        abortController,
+        eventStore,
+        options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
+        {
+          connRegistry: _connRegistry ?? undefined,
+          initialClientMsgId: options.clientMsgId,
+          initialImages: imagePreviews(options.images),
+          initialContextBlocks: options.contextBlocks,
+          onSessionResolved: (sessionId: string) => {
+            // Persist boot context for new sessions (resume sessions already persisted above)
+            if (!options.resume) {
+              eventStore.upsertSession({
+                sessionId,
+                ...(accountBinding ? { accountBinding } : {}),
+                bootContext: JSON.stringify(bootContextMsg),
+              });
+            }
+            options.onSessionResolved?.(sessionId);
+          },
+          onInitialPrompt: (sessionId: string) => {
+            tryAutoRename(sessionId, clientId).catch(() => {
+              /* errors logged internally */
             });
-          }
-          options.onSessionResolved?.(sessionId);
+          },
+          onTurnEnd: (cId: string) => {
+            _onSessionChange?.(cId, 'turn_end');
+          },
         },
-        onInitialPrompt: (sessionId: string) => {
-          tryAutoRename(sessionId, clientId).catch(() => {
-            /* errors logged internally */
-          });
-        },
-        onTurnEnd: (cId: string) => {
-          _onSessionChange?.(cId, 'turn_end');
-        },
-      },
-    );
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    if (message.includes('No conversation found') && options.resume) {
-      log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
-      send(transport, {
-        type: 'error',
-        error: 'Session expired. Send your message again to start fresh.',
-      });
-    } else {
-      log.error('startChat failed after register, cleaning up', { clientId, error: message });
-      send(transport, { type: 'error', error: message });
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (message.includes('No conversation found') && options.resume) {
+        log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
+        send(transport, {
+          type: 'error',
+          error: 'Session expired. Send your message again to start fresh.',
+        });
+      } else {
+        log.error('startChat failed after register, cleaning up', { clientId, error: message });
+        send(transport, { type: 'error', error: message });
+      }
+      const failedSession = registry.get(clientId);
+      if (failedSession) cleanupSessionWorktrees(failedSession);
+      // Before a query object exists this is an admission startup failure. Once
+      // it exists, the query loop owns result/error semantics in the next slice.
+      // Keep the immutable lease alive long enough for the controller to write
+      // and broadcast its exact startup_failed terminal row.
+      if (!providerOpened) {
+        if (!options.requestFingerprint) registry.abort(clientId);
+        throw err;
+      }
+      registry.abort(clientId);
+    } finally {
+      _onSessionChange?.(clientId, 'end', session.sessionId);
     }
-    if (newSdkSessionId) {
-      // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
-    }
-    const failedSession = registry.get(clientId);
-    if (failedSession) cleanupSessionWorktrees(failedSession);
+  };
+
+  if (!options.requestFingerprint) {
+    await runProvider();
+    return;
+  }
+
+  const controller = initialExecutionController();
+  const executionId = randomUUID();
+  const input: PendingExecutionInput = {
+    executionId,
+    clientMsgId: options.clientMsgId ?? executionId,
+    requestFingerprint: options.requestFingerprint,
+    retainedBytes:
+      options.retainedBytes ??
+      preparedRequestRetainedBytes({
+        prompt,
+        images: options.images,
+        contextBlocks: options.contextBlocks,
+        extraTools: options.extraTools,
+      }),
+    isInitial: true,
+    onAdmitted: (token) => options.onAdmitted?.({ sessionId: durableSessionId!, token }),
+    dispatch: runProvider,
+  };
+  try {
+    controller.enqueueExecution(clientId, input);
+  } catch (error) {
+    options.onAdmissionFailure?.(error);
+    throw error;
+  }
+  const activation = await controller.activateNextExecution(clientId);
+  if (activation?.failures.length) {
+    // `onAdmitted` already settled the receipt; this terminal state is
+    // deliberately not an acceptance rollback.
     registry.abort(clientId);
-  } finally {
-    _onSessionChange?.(clientId, 'end', session.sessionId);
+    return;
   }
 }
 

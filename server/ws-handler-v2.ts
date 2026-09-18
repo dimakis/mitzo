@@ -85,6 +85,23 @@ export type PreparedSendV2 = {
   effective: EffectiveExecutionOptions;
 };
 
+/** Kept at the prepared-send boundary so queue limits never retain provider payloads. */
+function preparedRetainedBytes(
+  prompt: string,
+  images: SendMsg['images'],
+  contextBlocks: SendMsg['contextBlocks'],
+  extraTools: string[],
+): number {
+  return Buffer.byteLength(
+    JSON.stringify({
+      prompt,
+      images: images ?? [],
+      contextBlocks: contextBlocks ?? [],
+      extraTools,
+    }),
+  );
+}
+
 export type SendReceipt = {
   ok: true;
   accepted: true;
@@ -959,7 +976,7 @@ export function dispatchPreparedSendV2(
           ctx.connRegistry.setActive(connectionId, sessionId);
           span.setAttribute('routing.decision', 'resume');
           applySkillPolicy(sessionClientId);
-          void startChat(transport, sessionClientId, prompt, {
+          const completion = startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
             cwd: effective.startupCwd,
             model: effective.model ?? undefined,
@@ -976,11 +993,20 @@ export function dispatchPreparedSendV2(
             telosTaskId: msg.telosTaskId,
             agentName: effective.agentName,
             userIntent,
-          }).catch(() => {
+            requestFingerprint: prepared?.requestFingerprint,
+            retainedBytes: preparedRetainedBytes(
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              effective.extraTools,
+            ),
+          });
+          void completion?.catch(() => {
             const failure = new SendDispatchFailure();
             ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
             transport.send({ type: 'error', error: failure.message });
           });
+          if (completion?.accepted) await completion.accepted;
         } else {
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
@@ -989,7 +1015,7 @@ export function dispatchPreparedSendV2(
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
           applySkillPolicy(sessionClientId);
-          void startChat(transport, sessionClientId, prompt, {
+          const completion = startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
             cwd: effective.startupCwd,
             model: effective.model ?? undefined,
@@ -1007,11 +1033,20 @@ export function dispatchPreparedSendV2(
             telosTaskId: msg.telosTaskId,
             agentName: effective.agentName,
             userIntent,
-          }).catch(() => {
+            requestFingerprint: prepared?.requestFingerprint,
+            retainedBytes: preparedRetainedBytes(
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              effective.extraTools,
+            ),
+          });
+          void completion?.catch(() => {
             const failure = new SendDispatchFailure();
             ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
             transport.send({ type: 'error', error: failure.message });
           });
+          if (completion?.accepted) await completion.accepted;
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

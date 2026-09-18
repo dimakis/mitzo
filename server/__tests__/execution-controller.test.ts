@@ -172,6 +172,27 @@ describe('ExecutionController', () => {
     expect(observed).toMatchObject({ executionId: 'visible-token', generation: 1 });
   });
 
+  it('announces initial admission only after RUNNING is durable and before provider dispatch', async () => {
+    const order: string[] = [];
+    controller.enqueueExecution(CLIENT_ID, {
+      ...prepared('initial', () => {
+        order.push('dispatch');
+        expect(registry.get(CLIENT_ID)?.currentExecution).toMatchObject({ executionId: 'initial' });
+      }),
+      isInitial: true,
+      onAdmitted: (token) => {
+        order.push('accepted');
+        expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(token);
+        expect(store.getSessionEvents(SESSION_ID)).toMatchObject([
+          { payload: { phase: 'RUNNING', executionId: 'initial' } },
+        ]);
+      },
+    });
+
+    await controller.activateNextExecution(CLIENT_ID);
+    expect(order).toEqual(['accepted', 'dispatch']);
+  });
+
   it('terminalizes a dispatch failure and advances to the next FIFO item', async () => {
     const order: string[] = [];
     controller.enqueueExecution(

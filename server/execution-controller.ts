@@ -35,6 +35,8 @@ export interface ExecutionControllerOptions {
 
 /** Internal receipt attribution; never emitted as a durable or wire event. */
 export interface ActivationFailure {
+  /** The generation that was admitted before the startup callback failed. */
+  token?: ExecutionToken;
   executionId: string;
   clientMsgId: string;
   requestFingerprint: string;
@@ -183,12 +185,16 @@ export class ExecutionController {
           return { failures, stale: true };
         }
         this.broadcastBegin(lease, begin);
+        // Receipt acknowledgement is allowed once the exact durable token is
+        // visible. Provider startup remains a separate, terminalizable phase.
+        pending.onAdmitted?.(begin.token);
         try {
           await pending.dispatch(begin.token);
           if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
           return { token: begin.token, begin, failures };
         } catch (error: unknown) {
           failures.push({
+            token: begin.token,
             executionId: pending.executionId,
             clientMsgId: pending.clientMsgId,
             requestFingerprint: pending.requestFingerprint,

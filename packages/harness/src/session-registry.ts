@@ -45,6 +45,8 @@ export interface PendingExecutionInput {
   retainedBytes: number;
   /** Initial startup failures have a more precise durable terminal reason. */
   isInitial: boolean;
+  /** Called after the durable RUNNING row and current lease are visible. */
+  onAdmitted?: (token: ExecutionToken) => void;
   dispatch: (token: ExecutionToken) => Promise<void> | void;
 }
 
