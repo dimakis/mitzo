@@ -165,6 +165,11 @@ export class ExecutionController {
     )
       return { stale: true };
     const transition = this.options.eventStore.transitionExecution(token, 'TERMINAL', 'stopped');
+    // A stale/otherwise unapplied durable transition never owns cleanup of
+    // the in-memory token. Keeping it current lets its actual owner report a
+    // later provider result or failure instead of stranding a RUNNING row.
+    if (!transition.applied)
+      return { transition, ...(transition.status === 'stale' ? { stale: true as const } : {}) };
     if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
     this.broadcastTransition(lease, transition);
     if (!this.options.registry.clearCurrentExecution(lease, token)) return { transition };

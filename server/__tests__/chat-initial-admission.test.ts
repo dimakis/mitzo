@@ -228,3 +228,104 @@ it('stops an admitted pre-ready execution before removing its runtime', async ()
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('does not poison a live execution with a stopped marker when durable stop fails', async () => {
+  const { chat, root } = await freshChat();
+  const sessionId = '9a68a371-73d1-4994-a512-b71d4bc44c65';
+  vi.mocked(query).mockImplementation(
+    (args) =>
+      (async function* () {
+        await new Promise<void>((resolve) => {
+          args.options?.abortController?.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        });
+        if (Date.now() < 0) yield {};
+      })() as ReturnType<typeof query>,
+  );
+
+  try {
+    const launch = chat.launchChat(
+      { send: () => {}, isOpen: () => true },
+      'stop-transition-failure-driver',
+      'hello',
+      {
+        cwd: root,
+        isolation: false,
+        initialSessionId: sessionId,
+        clientMsgId: 'stop-transition-failure-message',
+        requestFingerprint: 'stop-transition-failure-fingerprint',
+      },
+    );
+    const admission = await launch.accepted;
+    const transition = vi.spyOn(chat.eventStore, 'transitionExecution').mockImplementation(() => {
+      throw new Error('durable transition unavailable');
+    });
+
+    await expect(chat.stopChat('stop-transition-failure-driver')).rejects.toThrow(
+      'durable transition unavailable',
+    );
+    const runtime = chat.registry.findBySessionId(sessionId)?.session;
+    expect(runtime?.currentExecution).toEqual(admission.token);
+    expect(runtime?.stoppedExecution).toBeUndefined();
+    expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('RUNNING');
+
+    transition.mockRestore();
+    chat.registry.abort('stop-transition-failure-driver');
+    await expect(launch.completion).rejects.toThrow('Chat provider did not become ready');
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('does not mark or clean up a live runtime when its stop token is stale', async () => {
+  const { chat, root } = await freshChat();
+  const sessionId = 'aa68a371-73d1-4994-a512-b71d4bc44c65';
+  vi.mocked(query).mockImplementation(
+    (args) =>
+      (async function* () {
+        await new Promise<void>((resolve) => {
+          args.options?.abortController?.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        });
+        if (Date.now() < 0) yield {};
+      })() as ReturnType<typeof query>,
+  );
+
+  try {
+    const launch = chat.launchChat(
+      { send: () => {}, isOpen: () => true },
+      'stop-stale-driver',
+      'hello',
+      {
+        cwd: root,
+        isolation: false,
+        initialSessionId: sessionId,
+        clientMsgId: 'stop-stale-message',
+        requestFingerprint: 'stop-stale-fingerprint',
+      },
+    );
+    const admission = await launch.accepted;
+    const transition = vi.spyOn(chat.eventStore, 'transitionExecution').mockReturnValue({
+      applied: false,
+      status: 'stale',
+      token: admission.token,
+    });
+
+    await expect(chat.stopChat('stop-stale-driver')).resolves.toBeUndefined();
+    const runtime = chat.registry.findBySessionId(sessionId)?.session;
+    expect(runtime?.currentExecution).toEqual(admission.token);
+    expect(runtime?.stoppedExecution).toBeUndefined();
+
+    transition.mockRestore();
+    chat.registry.abort('stop-stale-driver');
+    await expect(launch.completion).rejects.toThrow('Chat provider did not become ready');
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

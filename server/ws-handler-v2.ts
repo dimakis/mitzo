@@ -875,8 +875,16 @@ export function dispatchPreparedSendV2(
             await completion;
             return;
           }
+          // Observe completion immediately. It may reject in the same
+          // microtask as accepted, but this outcome is deliberately inert
+          // until durable admission below succeeds.
+          const completionOutcome = completion.then(
+            () => true,
+            () => false,
+          );
           await accepted;
-          void completion.catch(() => {
+          void completionOutcome.then((completed) => {
+            if (completed) return;
             const failure = new SendDispatchFailure();
             transport.send({ type: 'error', error: failure.message });
           });
@@ -1176,17 +1184,24 @@ export async function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        const accepted = await interruptChat(
-          activeClientId,
-          msg.prompt,
-          msg.images,
-          msg.contextBlocks,
-          msg.clientMsgId,
-          msg.accountId ? msg.model : undefined,
-          msg.accountId ? msg.reasoningEffort : undefined,
-        );
-        if (!accepted)
-          throw new SendDispatchFailure('Session is not accepting input. Please retry.');
+        try {
+          const accepted = await interruptChat(
+            activeClientId,
+            msg.prompt,
+            msg.images,
+            msg.contextBlocks,
+            msg.clientMsgId,
+            msg.accountId ? msg.model : undefined,
+            msg.accountId ? msg.reasoningEffort : undefined,
+          );
+          // interruptChat emits its specific safe error for rejected/no-op
+          // controls. Do not add a contradictory generic error here.
+          if (!accepted) return;
+        } catch {
+          // Do not leak provider URLs, paths, credentials, or prompt text to
+          // the WS/REST outer handlers (or their normal logs).
+          throw new SendDispatchFailure('Unable to interrupt the chat. Please retry.');
+        }
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }

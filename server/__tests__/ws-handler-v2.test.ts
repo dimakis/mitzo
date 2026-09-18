@@ -1570,8 +1570,10 @@ describe('handleInterruptV2', () => {
     vi.mocked(isActive).mockReturnValue(false);
   });
 
-  it('propagates an active-runtime provider interrupt rejection', async () => {
-    vi.mocked(interruptChat).mockRejectedValueOnce(new Error('provider interrupt rejected'));
+  it('sanitizes an active-runtime provider interrupt rejection', async () => {
+    vi.mocked(interruptChat).mockRejectedValueOnce(
+      new Error('secret-token /private/provider/path https://provider.invalid prompt=change'),
+    );
     vi.mocked(isActive).mockReturnValue(true);
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
@@ -1593,7 +1595,45 @@ describe('handleInterruptV2', () => {
         { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-rejected' },
         ctx,
       ),
-    ).rejects.toThrow('provider interrupt rejected');
+    ).rejects.toThrow('Unable to interrupt the chat. Please retry.');
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-retry' },
+        ctx,
+      ),
+    ).resolves.toBeUndefined();
+    expect(JSON.stringify(transport.sent)).not.toContain('secret-token');
+    expect(JSON.stringify(transport.sent)).not.toContain('/private/provider/path');
+    vi.mocked(isActive).mockReturnValue(false);
+  });
+
+  it('does not add a generic error when active interrupt is already safely reported', async () => {
+    vi.mocked(interruptChat).mockResolvedValueOnce(false);
+    vi.mocked(isActive).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-reported' },
+        ctx,
+      ),
+    ).resolves.toBeUndefined();
+    expect(transport.sent).toEqual([]);
     vi.mocked(isActive).mockReturnValue(false);
   });
 });
@@ -4223,7 +4263,7 @@ describe('handleSendV2 durable receipt failures', () => {
     }
   });
 
-  it('persists one safe startup failure and replays it without rerouting', async () => {
+  it('observes dual pre-admission rejection and persists one safe startup failure', async () => {
     const store = new EventStore(':memory:');
     const ctx = createContext({ eventStore: store });
     const transport = mockTransport();
@@ -4239,8 +4279,8 @@ describe('handleSendV2 durable receipt failures', () => {
       const failure = new Error('provider secret: do-not-persist');
       const completion = Promise.reject(failure);
       // Completion is not the receipt failure signal. The rejected accepted
-      // promise is what synchronously reaches acceptSendCommandAsync.
-      void completion.catch(() => undefined);
+      // promise is what synchronously reaches acceptSendCommandAsync. The
+      // handler itself must observe completion immediately, with no test mask.
       vi.mocked(startChat).mockReturnValueOnce(
         Object.assign(completion, { accepted: Promise.reject(failure) }),
       );

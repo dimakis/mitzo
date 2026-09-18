@@ -2190,8 +2190,20 @@ export async function interruptChat(
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
-    // Store and echo the user message. A retried interrupt must still stop
-    // the agent — only the echo/store is skipped on duplicate.
+    // Stop all active subagent tasks before interrupting the parent query.
+    // Without this, interrupt() only halts the parent — which is blocked
+    // waiting for the subagent, so the session hangs.
+    if (session.activeTaskIds.size > 0) {
+      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
+        session
+          .queryInstance!.stopTask(taskId)
+          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
+      );
+      await Promise.allSettled(stops);
+    }
+    await session.queryInstance.interrupt();
+    // Provider acceptance precedes durable echo/dedup. A rejected interrupt
+    // leaves clientMsgId retryable and never claims the model saw the prompt.
     let isDup = false;
     if (session.sessionId) {
       isDup = storeAndEchoIfNew(
@@ -2205,7 +2217,8 @@ export async function interruptChat(
         contextBlocks,
       );
     } else {
-      // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
+      // Pre-session-resolve has no durable dedup key; this still happens only
+      // after provider acceptance and preserves the existing prompt ordering.
       const echo = {
         type: 'user_message',
         v: 2,
@@ -2217,20 +2230,8 @@ export async function interruptChat(
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
     }
-    // Stop all active subagent tasks before interrupting the parent query.
-    // Without this, interrupt() only halts the parent — which is blocked
-    // waiting for the subagent, so the session hangs.
-    if (session.activeTaskIds.size > 0) {
-      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-        session
-          .queryInstance!.stopTask(taskId)
-          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
-      );
-      await Promise.allSettled(stops);
-    }
-    await session.queryInstance.interrupt();
-    // Only push to inputQueue on first delivery — a retried interrupt should
-    // still call interrupt() (to halt the agent) but not double-queue the prompt.
+    // Only push on first delivery — a retried interrupt still halts the
+    // provider but never double-queues the prompt.
     if (!isDup) {
       session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
     }
@@ -2538,10 +2539,14 @@ export function stopChat(clientId: string) {
     const lease = registry.getRuntimeLease(clientId);
     const token = session?.currentExecution;
     if (lease && token) {
+      const stopped = await initialExecutionController().stopExecution(lease, token);
+      // The marker is only meaningful after the durable transition was
+      // applied to this exact lease/token.  Recording it before a failed or
+      // stale transition would incorrectly suppress a real provider failure.
+      if (stopped.stale || !stopped.transition?.applied) return;
       // This is session-object-local, so query unwind can distinguish an
       // owner stop from an arbitrary abort without affecting an ABA runtime.
       session.stoppedExecution = token;
-      await initialExecutionController().stopExecution(lease, token);
     }
     // stopExecution can await a terminal broadcast.  Do not let a stale stop
     // clean up or abort a same-id runtime installed while it was yielding.

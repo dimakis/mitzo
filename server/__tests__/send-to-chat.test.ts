@@ -366,6 +366,52 @@ describe('interruptChat emits user_message via transport', () => {
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('leaves a rejected interrupt retryable, then stores and echoes it exactly once', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('provider rejected before accepting input'))
+      .mockResolvedValueOnce(undefined);
+    const sessionId = `sess-int-retry-${Date.now()}`;
+    const clientMsgId = `user-int-retry-${Date.now()}`;
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: interruptSpy,
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
+    eventStore.upsertSession({ sessionId });
+
+    await expect(
+      interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
+    ).rejects.toThrow('provider rejected before accepting input');
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
+    expect(
+      eventStore.getSessionEvents(sessionId).some((event) => event.type === 'user_message'),
+    ).toBe(false);
+
+    await expect(
+      interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
+    ).resolves.toBe(true);
+    expect(interruptSpy).toHaveBeenCalledTimes(2);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(transport._sent.filter((message) => message.type === 'user_message')).toHaveLength(1);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(1);
+  });
+
   it('calls stopTask for active subagent tasks before interrupt', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();

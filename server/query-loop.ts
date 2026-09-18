@@ -1398,17 +1398,18 @@ async function _runQueryLoopInner(
         await onProviderFailure?.(!firstEventReceived);
       }
     } catch {
-      if (wasDeliberatelyStopped()) {
+      const deliberatelyStopped = wasDeliberatelyStopped();
+      if (deliberatelyStopped) {
         lifecycleTerminalReason = 'stopped';
       } else {
         caughtError = true;
         lifecycleTerminalReason = 'error';
         await onProviderFailure?.(!firstEventReceived);
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: 'provider_stream_failed',
+        });
       }
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: 'provider_stream_failed',
-      });
       const currentSession = currentOwnerSession();
       if (wasDeliberatelyStopped()) lifecycleTerminalReason = 'stopped';
       if (currentSession && !wasDeliberatelyStopped()) {

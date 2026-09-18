@@ -56,6 +56,9 @@ function createTestSpan(name: string): TestSpan & OTelSpan {
     get _name() {
       return span.name;
     },
+    get _status() {
+      return span.status;
+    },
   } as unknown as TestSpan & OTelSpan;
 }
 
@@ -135,6 +138,7 @@ describe('runQueryLoop', () => {
   let abortController: AbortController;
 
   beforeEach(() => {
+    recordedSpans.length = 0;
     transport = fakeTransport();
     registry = fakeRegistry(transport);
     abortController = new AbortController();
@@ -2439,6 +2443,13 @@ describe('provider result outcome classification', () => {
     await runQueryLoop(aborted(), 'stopped-client', registry, new AbortController(), store);
 
     expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'error' }));
+    expect(
+      recordedSpans.some(
+        (span) =>
+          (span as unknown as { _status?: { code: number; message?: string } })._status?.message ===
+          'provider_stream_failed',
+      ),
+    ).toBe(false);
     expect(
       store.getSessionEvents(sessionId).findLast((event) => event.type === 'session_state_changed')
         ?.payload,
