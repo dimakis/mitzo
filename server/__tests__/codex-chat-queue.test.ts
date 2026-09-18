@@ -7,6 +7,7 @@ const runtime = vi.hoisted(() => ({
   admitExplicitSend: vi.fn(),
   enqueue: vi.fn(),
   interrupt: vi.fn().mockResolvedValue(undefined),
+  validateModel: vi.fn(),
   send: vi.fn().mockResolvedValue(undefined),
   resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
   cancelQueued: vi.fn().mockReturnValue('cancelled'),
@@ -25,6 +26,7 @@ beforeEach(() => {
   });
   runtime.enqueue.mockReset();
   runtime.interrupt.mockReset().mockResolvedValue(undefined);
+  runtime.validateModel.mockReset();
   runtime.resumeAfterExplicitSend.mockReset().mockResolvedValue(undefined);
   runtime.cancelQueued.mockReset().mockReturnValue('cancelled');
   runtime.send.mockReset().mockImplementation(async (_input, onEnqueued?: () => void) => {
@@ -176,6 +178,135 @@ it('terminalizes a replacement when Codex resume rejects, without retrying the p
     expect(runtime.interrupt).toHaveBeenCalledTimes(1);
     expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
     expect(runtime.cancelQueued).toHaveBeenCalledTimes(1);
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('replays an explicit-model Codex receipt before later model validation', async () => {
+  vi.restoreAllMocks();
+  const clientId = `codex-model-retry-${Date.now()}`;
+  const sessionId = `codex-model-retry-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'codex-model-old-turn',
+    ).token;
+    const clientMsgId = 'codex-explicit-model-retry';
+
+    await expect(
+      chat.interruptChat(clientId, 'same explicit model', undefined, undefined, clientMsgId, 'gpt'),
+    ).resolves.toEqual({ kind: 'accepted' });
+    expect(runtime.validateModel).toHaveBeenCalledWith('gpt', undefined);
+
+    // The current Codex profile no longer permits the admitted model. Receipt
+    // resolution precedes this mutable validation, including for conflicts.
+    runtime.validateModel.mockImplementation(() => {
+      throw new Error('model no longer permitted');
+    });
+    await expect(
+      chat.interruptChat(clientId, 'same explicit model', undefined, undefined, clientMsgId, 'gpt'),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    await expect(
+      chat.interruptChat(clientId, 'changed wire prompt', undefined, undefined, clientMsgId, 'gpt'),
+    ).resolves.toEqual({ kind: 'conflict' });
+    expect(runtime.validateModel).toHaveBeenCalledOnce();
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'new command must validate the current profile',
+        undefined,
+        undefined,
+        `${clientMsgId}-new`,
+        'gpt',
+      ),
+    ).resolves.toEqual({ kind: 'unavailable_unreported' });
+    expect(runtime.validateModel).toHaveBeenCalledTimes(2);
+    expect(runtime.interrupt).toHaveBeenCalledOnce();
+    expect(runtime.admitExplicitSend).toHaveBeenCalledOnce();
+    expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledOnce();
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('replays a Codex receipt before a later active-skill policy check', async () => {
+  vi.restoreAllMocks();
+  const clientId = `codex-skill-retry-${Date.now()}`;
+  const sessionId = `codex-skill-retry-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'codex-skill-old-turn',
+    ).token;
+    const clientMsgId = 'codex-skill-policy-retry';
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'same policy-neutral command',
+        undefined,
+        undefined,
+        clientMsgId,
+      ),
+    ).resolves.toEqual({ kind: 'accepted' });
+    session.activeSkillPolicy = new Set(['restricted']);
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'same policy-neutral command',
+        undefined,
+        undefined,
+        clientMsgId,
+      ),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    await expect(
+      chat.interruptChat(clientId, 'changed policy command', undefined, undefined, clientMsgId),
+    ).resolves.toEqual({ kind: 'conflict' });
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'new policy command',
+        undefined,
+        undefined,
+        `${clientMsgId}-new`,
+      ),
+    ).resolves.toEqual({ kind: 'rejected_already_reported' });
+    expect(runtime.interrupt).toHaveBeenCalledOnce();
   } finally {
     chat.registry.abort(clientId);
   }

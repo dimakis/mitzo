@@ -30,6 +30,7 @@ it('stages validated interrupt images into Responses provider input once', async
   const transport = { send: vi.fn(), isOpen: () => true };
   const push = vi.fn();
   responses.prepare.mockReset();
+  profiles.validateModelSelection.mockReset();
   chat.registry.register(clientId, {
     transport,
     abortController: new AbortController(),
@@ -201,9 +202,21 @@ it('validates and durably persists the effective Responses replacement selection
       { model: 'selected-model', reasoningEffort: 'high' },
     );
 
-    profiles.validateModelSelection.mockImplementationOnce(() => {
-      throw new Error('invalid selection');
+    profiles.validateModelSelection.mockImplementation(() => {
+      throw new Error('profile no longer permits this model');
     });
+    // The durable receipt is resolved before current profile availability.
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'use the selected native model',
+        undefined,
+        undefined,
+        'responses-selection-message',
+        'selected-model',
+        'high',
+      ),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
     const before = chat.eventStore.getSessionEvents(sessionId);
     await expect(
       chat.interruptChat(
@@ -228,6 +241,7 @@ it('returns an omitted-model Responses receipt after later runtime selection cha
   const transport = { send: vi.fn(), isOpen: () => true };
   const push = vi.fn();
   responses.prepare.mockReset();
+  profiles.validateModelSelection.mockReset();
   chat.registry.register(clientId, {
     transport,
     abortController: new AbortController(),
@@ -274,6 +288,11 @@ it('returns an omitted-model Responses receipt after later runtime selection cha
       selectedModel: 'later-model',
       reasoningEffort: 'high',
     });
+    // A profile can disappear after durable admission. This must not turn an
+    // exact lost-ack retry into a fresh native-selection validation.
+    profiles.validateModelSelection.mockImplementation(() => {
+      throw new Error('native account profile was removed');
+    });
     await expect(
       chat.interruptChat(clientId, 'same wire request', undefined, undefined, clientMsgId),
     ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
@@ -289,6 +308,17 @@ it('returns an omitted-model Responses receipt after later runtime selection cha
         'explicitly-different-wire-model',
       ),
     ).resolves.toEqual({ kind: 'conflict' });
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'new command must still validate the current profile',
+        undefined,
+        undefined,
+        'responses-omitted-model-new-command',
+        'later-model',
+      ),
+    ).resolves.toEqual({ kind: 'unavailable_unreported' });
+    expect(responses.prepare).toHaveBeenCalledOnce();
   } finally {
     chat.registry.abort(clientId);
   }

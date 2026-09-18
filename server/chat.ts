@@ -83,7 +83,11 @@ import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
-import { interruptReceiptFingerprint, validatedExecutionImages } from './execution-request.js';
+import {
+  interruptReceiptFingerprint,
+  normalizeInterruptContextSelectors,
+  validatedExecutionImages,
+} from './execution-request.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -2391,8 +2395,48 @@ export async function interruptChat(
 ): Promise<InterruptOutcome> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
-    if (!session?.queryInstance || !session?.inputQueue || !session.sessionId)
+    if (!session?.sessionId) return { kind: 'unavailable_unreported' };
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
+    const currentToken = session.currentExecution;
+    // This is intentionally the only work before a historical receipt lookup:
+    // strict, bounded wire normalization required to form the immutable
+    // receipt identity. It never reads mutable provider/session policy or
+    // stages files, so a lost-ack retry remains replayable after those change.
+    let normalizedContextBlocks: string[];
+    try {
+      validatedExecutionImages(images);
+      normalizedContextBlocks = normalizeInterruptContextSelectors(contextBlocks);
+    } catch {
       return { kind: 'unavailable_unreported' };
+    }
+    const priorAdmission = clientMsgId
+      ? eventStore.getReplacementAdmission(session.sessionId, clientMsgId)
+      : undefined;
+    const expectedToken = priorAdmission?.expectedOldToken ?? currentToken;
+    if (!expectedToken) return { kind: 'unavailable_unreported' };
+    let fingerprint: string;
+    try {
+      fingerprint = interruptFingerprint({
+        sessionId: session.sessionId,
+        prompt,
+        expectedExecutionId: expectedToken.executionId,
+        expectedGeneration: expectedToken.generation,
+        images,
+        contextBlocks: normalizedContextBlocks,
+        accountId: ownership?.accountId,
+        model,
+        reasoningEffort,
+      });
+    } catch {
+      return { kind: 'unavailable_unreported' };
+    }
+    if (priorAdmission) {
+      if (priorAdmission.requestFingerprint !== fingerprint) return { kind: 'conflict' };
+      return { kind: 'duplicate_already_accepted' };
+    }
+    if (!session.queryInstance || !session.inputQueue) return { kind: 'unavailable_unreported' };
+    const lease = registry.getRuntimeLease(clientId);
+    if (!lease || !currentToken) return { kind: 'unavailable_unreported' };
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
     if (!codex && !responses && model && model !== session.model) {
@@ -2419,13 +2463,6 @@ export async function interruptChat(
         return { kind: 'unavailable_unreported' };
       }
     }
-    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
-    const lease = registry.getRuntimeLease(clientId);
-    const currentToken = session.currentExecution;
-    const priorAdmission = clientMsgId
-      ? eventStore.getReplacementAdmission(session.sessionId, clientMsgId)
-      : undefined;
-    if (!lease || (!currentToken && !priorAdmission)) return { kind: 'unavailable_unreported' };
     const replacementOwnership: InterruptOwnershipRequest | undefined =
       ownership ??
       (() => {
@@ -2440,15 +2477,6 @@ export async function interruptChat(
           : undefined;
       })();
     if (!replacementOwnership) return { kind: 'unavailable_unreported' };
-    const expectedToken = priorAdmission?.expectedOldToken ?? currentToken!;
-    // Validate and fingerprint the complete immutable command before any
-    // image-store write or .mitzo-images staging. Exact retries return from
-    // this preflight without rebuilding provider input.
-    try {
-      validatedExecutionImages(images);
-    } catch {
-      return { kind: 'unavailable_unreported' };
-    }
     // Native selection validation must finish before an owner reservation or
     // durable replacement. This mirrors the ordinary Responses send path.
     let selectedModel: string | null | undefined = model;
@@ -2468,26 +2496,6 @@ export async function interruptChat(
         return { kind: 'unavailable_unreported' };
       }
     }
-    let fingerprint: string;
-    try {
-      fingerprint = interruptFingerprint({
-        sessionId: session.sessionId,
-        prompt,
-        expectedExecutionId: expectedToken.executionId,
-        expectedGeneration: expectedToken.generation,
-        images,
-        contextBlocks,
-        accountId: replacementOwnership.accountId,
-        model,
-        reasoningEffort,
-      });
-    } catch {
-      return { kind: 'unavailable_unreported' };
-    }
-    if (priorAdmission) {
-      if (priorAdmission.requestFingerprint !== fingerprint) return { kind: 'conflict' };
-      return { kind: 'duplicate_already_accepted' };
-    }
     // Anthropic's input stream cannot safely retain a second distinct prompt
     // while it awaits the predecessor's terminal result. This is intentionally
     // before ownership reservation, context expansion, image staging, and the
@@ -2503,9 +2511,15 @@ export async function interruptChat(
     let fullPrompt: string;
     let stagedImagePaths: string[] = [];
     try {
-      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks, (paths) => {
-        stagedImagePaths = paths;
-      });
+      fullPrompt = assemblePrompt(
+        prompt,
+        session.cwd ?? '.',
+        images,
+        normalizedContextBlocks,
+        (paths) => {
+          stagedImagePaths = paths;
+        },
+      );
     } catch {
       removeStagedImages(stagedImagePaths);
       return { kind: 'unavailable_unreported' };
@@ -2531,7 +2545,7 @@ export async function interruptChat(
           messageId,
           text: fullPrompt,
           ...(imageRefs?.length ? { images: imageRefs } : {}),
-          ...(contextBlocks?.length ? { contextBlocks } : {}),
+          ...(normalizedContextBlocks.length ? { contextBlocks: normalizedContextBlocks } : {}),
         },
         reserveOwner: () =>
           registry.reserveRuntimeOwner(
@@ -2574,7 +2588,7 @@ export async function interruptChat(
                 clientId,
                 prompt,
                 images,
-                contextBlocks,
+                normalizedContextBlocks,
                 messageId,
                 selectedModel ?? undefined,
                 selectedReasoningEffort,

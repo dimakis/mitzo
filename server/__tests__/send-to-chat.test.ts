@@ -397,6 +397,79 @@ describe('interruptChat emits user_message via transport', () => {
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('replays an Anthropic receipt before a later active-model policy check', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+    const clientMsgId = `anthropic-policy-retry-${Date.now()}`;
+
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      model: 'admitted-model',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-anthropic-policy-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: interruptSpy,
+      close: vi.fn(),
+      stopTask: vi.fn().mockResolvedValue(undefined),
+    };
+    activateInterruptExecution(CLIENT_ID);
+
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'same immutable wire request',
+        undefined,
+        undefined,
+        clientMsgId,
+        'admitted-model',
+      ),
+    ).resolves.toEqual({ kind: 'accepted' });
+
+    // The active profile changes after durable admission. An exact retry must
+    // replay the receipt without inspecting the mutable Anthropic policy.
+    session.model = 'later-active-model';
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'same immutable wire request',
+        undefined,
+        undefined,
+        clientMsgId,
+        'admitted-model',
+      ),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(interruptSpy).toHaveBeenCalledOnce();
+    expect(pushSpy).toHaveBeenCalledOnce();
+
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'changed wire request',
+        undefined,
+        undefined,
+        clientMsgId,
+        'admitted-model',
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'new request still uses the current policy',
+        undefined,
+        undefined,
+        `${clientMsgId}-new`,
+        'admitted-model',
+      ),
+    ).resolves.toEqual({ kind: 'rejected_already_reported' });
+    expect(interruptSpy).toHaveBeenCalledOnce();
+  });
+
   it('coalesces concurrent exact retries before provider admission', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();

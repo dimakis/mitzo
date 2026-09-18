@@ -287,6 +287,19 @@ export function fingerprintExecutionRequest(input: ExecutionRequestInput): strin
  * into a conflict. The expanded prompt and effective native selection are
  * durable admission data, not receipt identity.
  */
+export function normalizeInterruptContextSelectors(contextBlocks?: string[]): string[] {
+  const selectors = contextBlocks ?? [];
+  if (selectors.length > 16) throw new Error('Too many attached context blocks');
+  const seen = new Set<string>();
+  for (const selector of selectors) {
+    if (!selector || Buffer.byteLength(selector, 'utf8') > 128 || seen.has(selector))
+      throw new Error('Invalid duplicate or oversized context selector');
+    seen.add(selector);
+  }
+  // Do not retain caller-owned mutable arrays across the admission boundary.
+  return [...selectors];
+}
+
 export function interruptReceiptFingerprint(input: {
   sessionId: string;
   prompt: string;
@@ -298,14 +311,7 @@ export function interruptReceiptFingerprint(input: {
   model?: string | null;
   reasoningEffort?: string | null;
 }): string {
-  const selectors = input.contextBlocks ?? [];
-  if (selectors.length > 16) throw new Error('Too many attached context blocks');
-  const seen = new Set<string>();
-  for (const selector of selectors) {
-    if (!selector || Buffer.byteLength(selector, 'utf8') > 128 || seen.has(selector))
-      throw new Error('Invalid duplicate or oversized context selector');
-    seen.add(selector);
-  }
+  const selectors = normalizeInterruptContextSelectors(input.contextBlocks);
   return fingerprintExecutionRequest({
     operation: 'interrupt',
     sessionId: input.sessionId,
