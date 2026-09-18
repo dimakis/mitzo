@@ -57,6 +57,7 @@ import {
   getPendingRequestsBySession,
   resolvePending,
 } from '../permissions.js';
+import { buildSkillRegistry, isAllowedPath } from '../app.js';
 
 import {
   handleHello,
@@ -1917,6 +1918,42 @@ describe('handleSendV2 routing', () => {
     );
 
     expect(startChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to BASE_REPO and never forwards a rejected cwd to startup', () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    vi.mocked(buildSkillRegistry).mockClear();
+    vi.mocked(isAllowedPath).mockReturnValue(false);
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    const rejectedCwd = '/tmp/test-repo-evil';
+
+    handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send' as const,
+        sessionId: null,
+        prompt: 'hi',
+        clientMsgId: 'cwd-rejected',
+        cwd: rejectedCwd,
+      },
+      ctx,
+    );
+
+    expect(isAllowedPath).toHaveBeenCalledWith(rejectedCwd);
+    expect(buildSkillRegistry).toHaveBeenCalledWith('/tmp/test-repo');
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      expect.any(String),
+      'hi',
+      expect.objectContaining({ cwd: '/tmp/test-repo' }),
+    );
+    expect(vi.mocked(startChat).mock.calls[0][3]?.cwd).not.toBe(rejectedCwd);
+
+    vi.mocked(isAllowedPath).mockReturnValue(true);
   });
 });
 

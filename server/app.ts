@@ -1633,7 +1633,12 @@ app.get('/api/worktrees', (_req, res) => {
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
-function createAllowedPathChecker() {
+type AllowedPathOptions = {
+  directoryOnly?: boolean;
+  allowMissingLeaf?: boolean;
+};
+
+function createAllowedPathChecker(options: AllowedPathOptions = { directoryOnly: true }) {
   const isPrivate = privatePathSnapshot();
   return (filePath: string): boolean => {
     try {
@@ -1641,20 +1646,29 @@ function createAllowedPathChecker() {
     } catch {
       return false;
     }
-    return isConfiguredAllowedPath(filePath);
+    return isConfiguredAllowedPath(filePath, options);
   };
 }
 export function isAllowedPath(filePath: string): boolean {
-  return createAllowedPathChecker()(filePath);
+  return createAllowedPathChecker({ directoryOnly: true })(filePath);
 }
-function isConfiguredAllowedPath(filePath: string): boolean {
+function isAllowedFilePath(filePath: string): boolean {
+  return createAllowedPathChecker({ allowMissingLeaf: true })(filePath);
+}
+function isConfiguredAllowedPath(filePath: string, options: AllowedPathOptions = {}): boolean {
+  const resolved = resolve(filePath);
   let candidate: string;
   try {
-    candidate = realpathSync.native(resolve(filePath));
-    if (!statSync(candidate).isDirectory()) return false;
+    candidate = realpathSync.native(resolved);
   } catch {
-    return false;
+    if (!options.allowMissingLeaf) return false;
+    try {
+      candidate = realpathSync.native(dirname(resolved));
+    } catch {
+      return false;
+    }
   }
+  if (options.directoryOnly && !statSync(candidate).isDirectory()) return false;
   const contains = (root: string): boolean => {
     try {
       const canonicalRoot = realpathSync.native(resolve(root));
@@ -1728,7 +1742,7 @@ app.get('/api/files/list', (req, res) => {
   const allowed = createAllowedPathChecker();
   const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !allowed(dir)) {
+  if (!dir || !isAllowedFilePath(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1738,7 +1752,7 @@ app.get('/api/files/list', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
+      .filter((name) => !name.startsWith('.') && isAllowedFilePath(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {
@@ -1766,7 +1780,7 @@ app.get('/api/files', (req, res) => {
   const allowed = createAllowedPathChecker();
   const root = resolveRoot(req.query.root as string | undefined, allowed);
   const dir = (req.query.dir as string) || root;
-  if (!dir || !allowed(dir)) {
+  if (!dir || !isAllowedFilePath(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1776,7 +1790,7 @@ app.get('/api/files', (req, res) => {
   }
   try {
     const entries = readdirSync(dir)
-      .filter((name) => !name.startsWith('.') && allowed(join(dir, name)))
+      .filter((name) => !name.startsWith('.') && isAllowedFilePath(join(dir, name)))
       .map((name) => {
         const full = join(dir, name);
         try {
@@ -1802,7 +1816,7 @@ app.get('/api/files', (req, res) => {
 
 app.get('/api/files/read', (req, res) => {
   const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  if (!filePath || !isAllowedFilePath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1838,7 +1852,7 @@ app.get('/api/images/:imageId', (req, res) => {
 
 app.get('/api/files/download', (req, res) => {
   const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  if (!filePath || !isAllowedFilePath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1876,7 +1890,7 @@ app.put('/api/files/write', (req, res) => {
     return;
   }
   const { path: filePath, content } = body.data;
-  if (!isAllowedPath(filePath)) {
+  if (!isAllowedFilePath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }

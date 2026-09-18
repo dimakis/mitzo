@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } 
 import type { Express } from 'express';
 import request from 'supertest';
 import { mkdirSync, writeFileSync } from 'fs';
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -133,7 +134,13 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-import { hideSession, hideAllSessions, renameSessionById, eventStore } from '../chat.js';
+import {
+  hideSession,
+  hideAllSessions,
+  renameSessionById,
+  eventStore,
+  getRepoConfig,
+} from '../chat.js';
 import { readCodexQueue } from '../codex-chat-session.js';
 import { resolvePending } from '../permissions.js';
 
@@ -142,6 +149,7 @@ let app: Express;
 let authCookie: string;
 let authSessionId: string;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
+let isAllowedPath: typeof import('../app.js').isAllowedPath;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
   const res = await agent.post('/api/auth/login').send({ passphrase: process.env.AUTH_PASSPHRASE });
@@ -179,6 +187,7 @@ beforeAll(async () => {
 
   const mod = await import('../app.js');
   app = mod.app;
+  isAllowedPath = mod.isAllowedPath;
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
@@ -930,6 +939,115 @@ describe('inbox routes', () => {
   it('DELETE /api/inbox/:filename — nonexistent returns 404', async () => {
     const res = await request(app).delete('/api/inbox/nonexistent.md').set('Cookie', authCookie);
     expect(res.status).toBe(404);
+  });
+});
+
+// --- Allowed CWD authorization ---
+
+describe('allowed cwd authorization', () => {
+  let fixtureRoot: string;
+  let repo: string;
+  let outside: string;
+
+  const setAllowedPaths = (allowedPaths: string[]) => {
+    vi.mocked(getRepoConfig).mockReturnValue({
+      quickActions: [],
+      allowedPaths,
+      roots: [
+        { label: 'Main', path: TEST_REPO },
+        { label: 'Tools', path: '/some/tools' },
+      ],
+      resolvedVenvPaths: [],
+      toolTierOverrides: {},
+      inboxPath: 'mgmt_lib/inbox',
+      resolvedInboxPath: join(TEST_REPO, 'mgmt_lib/inbox'),
+      repos: {},
+      contextBlocks: {},
+    });
+  };
+
+  beforeEach(async () => {
+    fixtureRoot = await mkdtemp(join(tmpdir(), 'mitzo-allowed-cwd-'));
+    repo = join(fixtureRoot, 'repo');
+    outside = join(fixtureRoot, 'outside');
+    await Promise.all([mkdir(join(repo, 'child'), { recursive: true }), mkdir(outside)]);
+  });
+
+  afterEach(async () => {
+    setAllowedPaths([]);
+    await rm(fixtureRoot, { recursive: true, force: true });
+  });
+
+  it('accepts an exact allowed root and a real child directory', () => {
+    setAllowedPaths([repo]);
+
+    expect(isAllowedPath(repo)).toBe(true);
+    expect(isAllowedPath(join(repo, 'child'))).toBe(true);
+  });
+
+  it('rejects a sibling whose name only shares the allowed root prefix', async () => {
+    const siblingPrefix = join(fixtureRoot, 'repo-evil');
+    await mkdir(siblingPrefix);
+    setAllowedPaths([repo]);
+
+    expect(isAllowedPath(siblingPrefix)).toBe(false);
+  });
+
+  it('rejects lexical traversal that resolves outside an allowed root', () => {
+    setAllowedPaths([repo]);
+
+    expect(isAllowedPath(join(repo, 'child', '..', '..', 'outside'))).toBe(false);
+  });
+
+  it('rejects an in-root symlink that resolves outside', async (ctx) => {
+    const outsideLink = join(repo, 'outside-link');
+    try {
+      await symlink(outside, outsideLink, 'dir');
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP') {
+        ctx.skip(`Symlink creation is unavailable on this platform (${code})`);
+      }
+      throw error;
+    }
+    setAllowedPaths([repo]);
+
+    expect(isAllowedPath(outsideLink)).toBe(false);
+  });
+
+  it('canonicalizes symlinked allowed roots and candidates', async (ctx) => {
+    const linkedRoot = join(fixtureRoot, 'linked-repo');
+    try {
+      await symlink(repo, linkedRoot, 'dir');
+    } catch (error: unknown) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EACCES' || code === 'EPERM' || code === 'ENOTSUP' || code === 'EOPNOTSUPP') {
+        ctx.skip(`Symlink creation is unavailable on this platform (${code})`);
+      }
+      throw error;
+    }
+    setAllowedPaths([linkedRoot]);
+
+    expect(isAllowedPath(linkedRoot)).toBe(true);
+    expect(isAllowedPath(join(linkedRoot, 'child'))).toBe(true);
+  });
+
+  it('rejects nonexistent paths and regular files', async () => {
+    const regularFile = join(repo, 'not-a-directory.txt');
+    writeFileSync(regularFile, 'not a directory');
+    setAllowedPaths([repo]);
+
+    expect(isAllowedPath(join(repo, 'missing'))).toBe(false);
+    expect(isAllowedPath(regularFile)).toBe(false);
+  });
+
+  it('allows a candidate in either configured root', async () => {
+    const secondRepo = join(fixtureRoot, 'second-repo');
+    await mkdir(join(secondRepo, 'child'), { recursive: true });
+    setAllowedPaths([repo, secondRepo]);
+
+    expect(isAllowedPath(join(repo, 'child'))).toBe(true);
+    expect(isAllowedPath(join(secondRepo, 'child'))).toBe(true);
   });
 });
 
