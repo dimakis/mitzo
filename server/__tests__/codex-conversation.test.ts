@@ -264,6 +264,68 @@ it('interrupts the current turn, keeps queued follow-ups paused, and cancels a p
   expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'queued']);
 });
 
+it('waits for delayed interrupted completion before pumping a durable replacement command', async () => {
+  const { c, callbacks, rpc, requests } = await setup();
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      requests.push({ method, params });
+      // The interrupt RPC acknowledgement is legal before app-server emits
+      // turn/completed. Do not complete it here.
+      return {};
+    }
+    return request(method, params);
+  });
+
+  await c.send({ id: 'old', prompt: 'old turn' });
+  await c.interrupt();
+  const replacement = c.send({ id: 'replacement', prompt: 'new turn' });
+  await vi.waitFor(() =>
+    expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'queued']),
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  await replacement;
+  await vi.waitFor(() =>
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2),
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
+    { type: 'text', text: 'new turn' },
+  ]);
+  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'running']);
+});
+
+it('cancels an exact queued command when recovery resume fails, then skips it for a later send', async () => {
+  const { c, callbacks, rpc, requests } = await setup();
+  await c.send({ id: 'old', prompt: 'old turn' });
+  callbacks.onClose(new Error('relay lost'));
+  const request = rpc.request.getMockImplementation()!;
+  let failResume = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume' && failResume) throw new Error('resume denied');
+    return request(method, params);
+  });
+
+  await expect(c.send({ id: 'replacement', prompt: 'must not replay' })).rejects.toThrow(
+    'resume denied',
+  );
+  expect(c.queue().map((command) => [command.id, command.status])).toEqual([
+    ['old', 'interrupted'],
+    ['replacement', 'cancelled'],
+  ]);
+
+  failResume = false;
+  await c.send({ id: 'later', prompt: 'fresh command' });
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
+    { type: 'text', text: 'fresh command' },
+  ]);
+});
+
 it('treats a new send as recovery acknowledgement, reconnects, resumes queued FIFO work, and skips interrupted work', async () => {
   const { c, callbacks, requests } = await setup();
   await c.send({ id: 'a', prompt: 'hello' });

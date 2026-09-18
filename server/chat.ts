@@ -2299,6 +2299,18 @@ export async function sendToChat(
         // Codex still has not definitively resumed its explicit command.
         await codex.resumeAfterExplicitSend();
       } catch {
+        // A replacement token is already durable by this point. If the
+        // resume/start/reconnect path fails, make precisely this queued Codex
+        // command non-claimable before returning false to its controller,
+        // which terminalizes the token. A later exact retry is receipt-only.
+        if (executionToken) {
+          try {
+            codex.cancelQueued(messageId);
+          } catch {
+            // Keep the client boundary sanitized; durable queue recovery owns
+            // any exceptional storage diagnosis.
+          }
+        }
         if (signal?.aborted) return false;
         send(session.transport, {
           type: 'error',

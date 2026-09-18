@@ -141,6 +141,16 @@ export class CodexConversation {
   private recovery?: Promise<void>;
   private automaticTransportRecoveryAttempted = false;
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
+  /**
+   * An explicit replacement can be durable before the provider acknowledges
+   * the interrupted predecessor. Keep its caller attached to that exact
+   * terminal boundary rather than returning while the queue is still paused.
+   */
+  private resumeAfterActive?: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  };
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   constructor(private opts: Options) {
     this.client = this.createClient();
@@ -162,6 +172,9 @@ export class CodexConversation {
     const commandId = this.active?.command.id;
     this.active?.abort.abort();
     this.active = undefined;
+    this.settleResumeAfterActive(
+      new Error('Codex transport disconnected before interruption ended'),
+    );
     try {
       if (this.binding)
         this.opts.store.pauseForRecovery(
@@ -321,7 +334,15 @@ export class CodexConversation {
   ) {
     const selection = await this.admitExplicitSend(input);
     onEnqueued?.(selection);
-    await this.resumeAfterExplicitSend();
+    try {
+      await this.resumeAfterExplicitSend();
+    } catch (error) {
+      // This command was durably admitted but could not be started. Preserve
+      // its idempotency tombstone and make it non-claimable before exposing
+      // the failure to a higher-level execution controller.
+      this.cancelQueued(input.id);
+      throw error;
+    }
   }
   /**
    * An idle SSH relay can look healthy until its next write. Probe it before
@@ -349,8 +370,34 @@ export class CodexConversation {
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
    * stays interrupted and is never replayed by this path. */
   async resumeAfterExplicitSend() {
+    // `turn/interrupt` is only an RPC acknowledgement: app-server may emit
+    // the predecessor's turn/completed later. Starting the queued replacement
+    // before that boundary corrupts turn ownership; returning early strands
+    // the replacement's Mitzo RUNNING token. Wait, then recover and pump.
+    if (this.active?.interruptRequested) await this.waitForActiveTerminal();
     if (this.paused) await this.acknowledgeRecovery();
     else await this.startQueued();
+  }
+
+  private waitForActiveTerminal(): Promise<void> {
+    if (!this.active) return Promise.resolve();
+    if (this.resumeAfterActive) return this.resumeAfterActive.promise;
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<void>((ok, fail) => {
+      resolve = ok;
+      reject = fail;
+    });
+    this.resumeAfterActive = { promise, resolve, reject };
+    return promise;
+  }
+
+  private settleResumeAfterActive(error?: Error): void {
+    const pending = this.resumeAfterActive;
+    if (!pending) return;
+    this.resumeAfterActive = undefined;
+    if (error) pending.reject(error);
+    else pending.resolve();
   }
   cancelQueued(commandId: string) {
     if (!this.binding) throw new Error('Codex account binding unavailable');
@@ -557,7 +604,12 @@ export class CodexConversation {
         command.id,
         active.interruptRequested ? 'interrupted' : 'failed',
       );
-      if (this.active === active) this.active = undefined;
+      if (this.active === active) {
+        this.active = undefined;
+        this.settleResumeAfterActive(
+          error instanceof Error ? error : new Error('Codex replacement turn could not start'),
+        );
+      }
       this.opts.onQueueChange?.();
       throw error;
     }
@@ -650,6 +702,7 @@ export class CodexConversation {
           status,
         );
       this.active = undefined;
+      this.settleResumeAfterActive();
       this.paused ||= status !== 'completed';
       if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
@@ -770,6 +823,7 @@ export class CodexConversation {
       );
     }
     this.active = undefined;
+    this.settleResumeAfterActive(new Error('Codex conversation closed before interruption ended'));
     try {
       this.mapper?.flush();
     } finally {

@@ -206,6 +206,28 @@ it('cancels only queued commands and retains an idempotency tombstone across res
   s.close();
 });
 
+it('never claims a replacement cancelled after resume failure, including after restart', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'replacement', prompt: 'do not replay' });
+  expect(s.cancelQueued('c', binding, 'replacement')).toBe('cancelled');
+  s.enqueue('c', binding, { id: 'later', prompt: 'fresh work' });
+  expect(s.claimNext('c', binding)?.id).toBe('later');
+  s.finish('c', binding, 'later', 'completed');
+  s.close();
+
+  s = new CodexConversationStore(path);
+  s.recoverAtStartup();
+  s.acknowledgeRecovery('c', binding);
+  expect(s.claimNext('c', binding)).toBeUndefined();
+  expect(s.enqueue('c', binding, { id: 'replacement', prompt: 'do not replay' })).toBe(false);
+  expect(s.commands('c', binding).find((command) => command.id === 'replacement')?.status).toBe(
+    'cancelled',
+  );
+  s.close();
+});
+
 it('clears startup recovery when cancelling the only queued command', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

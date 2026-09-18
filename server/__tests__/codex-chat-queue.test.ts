@@ -9,6 +9,7 @@ const runtime = vi.hoisted(() => ({
   interrupt: vi.fn().mockResolvedValue(undefined),
   send: vi.fn().mockResolvedValue(undefined),
   resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
+  cancelQueued: vi.fn().mockReturnValue('cancelled'),
 }));
 vi.mock('../codex-chat-session.js', () => ({
   getCodexRuntime: () => runtime,
@@ -25,6 +26,7 @@ beforeEach(() => {
   runtime.enqueue.mockReset();
   runtime.interrupt.mockReset().mockResolvedValue(undefined);
   runtime.resumeAfterExplicitSend.mockReset().mockResolvedValue(undefined);
+  runtime.cancelQueued.mockReset().mockReturnValue('cancelled');
   runtime.send.mockReset().mockImplementation(async (_input, onEnqueued?: () => void) => {
     onEnqueued?.();
   });
@@ -131,6 +133,17 @@ it('terminalizes a replacement when Codex resume rejects, without retrying the p
     chat.eventStore.upsertSession({ sessionId });
     session.currentExecution = chat.eventStore.beginExecution(sessionId, 'codex-old-turn').token;
     runtime.resumeAfterExplicitSend.mockRejectedValueOnce(new Error('resume denied'));
+    runtime.cancelQueued.mockImplementationOnce((commandId: string) => {
+      // Cancellation happens inside the dispatch failure path while the
+      // durable replacement is still RUNNING; ExecutionController only writes
+      // its failed terminal transition after this non-claimable tombstone.
+      expect(commandId).toBe('codex-replacement-message');
+      expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+        executionPhase: 'RUNNING',
+        executionGeneration: 2,
+      });
+      return 'cancelled';
+    });
 
     const outcome = await chat.interruptChat(
       clientId,
@@ -149,6 +162,7 @@ it('terminalizes a replacement when Codex resume rejects, without retrying the p
     });
     expect(chat.registry.get(clientId)?.currentExecution).toBeUndefined();
     expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
+    expect(runtime.cancelQueued).toHaveBeenCalledWith('codex-replacement-message');
 
     await expect(
       chat.interruptChat(
@@ -161,6 +175,7 @@ it('terminalizes a replacement when Codex resume rejects, without retrying the p
     ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
     expect(runtime.interrupt).toHaveBeenCalledTimes(1);
     expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
+    expect(runtime.cancelQueued).toHaveBeenCalledTimes(1);
   } finally {
     chat.registry.abort(clientId);
   }
