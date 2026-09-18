@@ -2774,6 +2774,7 @@ export class EventStore {
       internalState: newState,
       timestamp: now,
       generation: now,
+      ...(opts?.reason ? { reason: opts.reason } : {}),
     });
 
     this.log.info('session state transition', {

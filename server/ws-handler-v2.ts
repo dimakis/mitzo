@@ -972,7 +972,7 @@ export function dispatchPreparedSendV2(
               clientId: found.clientId,
               storeState,
             });
-            stopChat(found.clientId);
+            await stopChat(found.clientId);
           }
 
           // Resume from history.
@@ -1006,12 +1006,21 @@ export function dispatchPreparedSendV2(
               effective.extraTools,
             ),
           });
+          const accepted = completion?.accepted;
+          let admitted = false;
           void completion?.catch(() => {
             const failure = new SendDispatchFailure();
-            ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
+            // A bare completion is the legacy/pre-admission contract.  Once
+            // `accepted` resolved, the durable receipt is immutable: the
+            // execution token owns any later terminal failure.
+            if (!accepted || !admitted)
+              ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
             transport.send({ type: 'error', error: failure.message });
           });
-          if (completion?.accepted) await completion.accepted;
+          if (accepted) {
+            await accepted;
+            admitted = true;
+          }
         } else {
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
@@ -1046,12 +1055,18 @@ export function dispatchPreparedSendV2(
               effective.extraTools,
             ),
           });
+          const accepted = completion?.accepted;
+          let admitted = false;
           void completion?.catch(() => {
             const failure = new SendDispatchFailure();
-            ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
+            if (!accepted || !admitted)
+              ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
             transport.send({ type: 'error', error: failure.message });
           });
-          if (completion?.accepted) await completion.accepted;
+          if (accepted) {
+            await accepted;
+            admitted = true;
+          }
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -1063,26 +1078,39 @@ export function dispatchPreparedSendV2(
   );
 }
 
-export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
-  withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
-    const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
-    if (found) {
-      stopChat(found.clientId);
-      log.info('stop', { connectionId, sessionId: msg.sessionId });
-    }
-  });
+export async function handleStopV2(
+  connectionId: string,
+  msg: StopMsg,
+  ctx: V2HandlerContext,
+): Promise<void> {
+  await withSpanAsync(
+    'ws.stop',
+    { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
+    async () => {
+      const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      if (found) {
+        const owner = found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
+        if (owner !== connectionId) {
+          log.warn('stop: not owner', { connectionId, sessionId: msg.sessionId, owner });
+          return;
+        }
+        await stopChat(found.clientId);
+        log.info('stop', { connectionId, sessionId: msg.sessionId });
+      }
+    },
+  );
 }
 
-export function handleInterruptV2(
+export async function handleInterruptV2(
   connectionId: string,
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+): Promise<void> {
+  await withSpanAsync(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
-    () => {
+    async () => {
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
@@ -1174,7 +1202,7 @@ export function handleInterruptV2(
           clientId: found.clientId,
           storeState,
         });
-        stopChat(found.clientId);
+        await stopChat(found.clientId);
       }
 
       const sessionClientId = `${connectionId}:${msg.sessionId}`;
@@ -1645,10 +1673,10 @@ export async function dispatchV2Message(
       await handleSendV2(connectionId, transport, msg, ctx);
       break;
     case 'stop':
-      handleStopV2(connectionId, msg, ctx);
+      await handleStopV2(connectionId, msg, ctx);
       break;
     case 'interrupt':
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);

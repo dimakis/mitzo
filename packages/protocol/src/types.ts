@@ -279,6 +279,8 @@ export interface SessionStateEvent {
   timestamp: number;
   /** Persisted execution generation; absent in historical replay payloads. */
   generation?: number;
+  /** Machine-readable lifecycle cause for reconnect and legacy consumers. */
+  reason?: string;
 }
 
 /**

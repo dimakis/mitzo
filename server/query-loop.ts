@@ -80,6 +80,20 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
   if (transport.isOpen()) transport.send(data);
 }
 
+/**
+ * Provider adapters share a `result` envelope but do not all use Anthropic's
+ * `subtype`.  Treat a positive success marker (or an unmarked native result)
+ * as success; any explicit error marker/subtype remains a terminal failure.
+ */
+export function classifyProviderResultOutcome(
+  result: Record<string, unknown>,
+): 'completed' | 'failed' {
+  if (result.is_error === true || result.success === false) return 'failed';
+  if (typeof result.subtype === 'string')
+    return result.subtype === 'success' ? 'completed' : 'failed';
+  return 'completed';
+}
+
 /** Shape of the SDK result event — fields we extract for usage tracking. */
 interface SdkResultEvent {
   usage?: {
@@ -426,6 +440,7 @@ async function _runQueryLoopInner(
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
   let terminalOutcomeAttempted = false;
+  let lifecycleTerminalReason: 'completed' | 'error' = 'completed';
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -575,9 +590,9 @@ async function _runQueryLoopInner(
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           terminalOutcomeAttempted = true;
-          await onProviderResult?.(
-            (msg as Record<string, unknown>).subtype === 'success' ? 'completed' : 'failed',
-          );
+          const outcome = classifyProviderResultOutcome(msg as Record<string, unknown>);
+          if (outcome === 'failed') lifecycleTerminalReason = 'error';
+          await onProviderResult?.(outcome);
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
@@ -1377,9 +1392,13 @@ async function _runQueryLoopInner(
           }
         }
       }
-      if (!terminalOutcomeAttempted) await onProviderFailure?.(!firstEventReceived);
+      if (!terminalOutcomeAttempted) {
+        lifecycleTerminalReason = 'error';
+        await onProviderFailure?.(!firstEventReceived);
+      }
     } catch {
       caughtError = true;
+      lifecycleTerminalReason = 'error';
       await onProviderFailure?.(!firstEventReceived);
       span.setStatus({
         code: SpanStatusCode.ERROR,
@@ -1460,7 +1479,7 @@ async function _runQueryLoopInner(
       if (store && terminalSessionId) {
         const terminalSeq = store.setSessionState(terminalSessionId, 'ENDED', {
           clientId,
-          reason: caughtError ? 'error' : 'completed',
+          reason: lifecycleTerminalReason,
         });
         // setSessionState persists a sequenced event but cannot itself fan it
         // out. Deliver that exact event to an already reconnected watcher so
@@ -1477,6 +1496,7 @@ async function _runQueryLoopInner(
               internalState: 'ENDED',
               timestamp: generation,
               generation,
+              reason: lifecycleTerminalReason,
               seq: terminalSeq,
             });
           }

@@ -143,6 +143,7 @@ export function createChatRestRouter(
         },
         async (command, sessionId) => {
           const delegate = new SseTransport(connectionId, sseRegistry);
+          let admitted = false;
           const transport = {
             // This transport accepts events into durable storage even offline.
             isOpen: () => true,
@@ -151,7 +152,7 @@ export function createChatRestRouter(
                 data.type === 'native_command_result' && !command.sessionId
                   ? data
                   : { ...data, sessionId: data.sessionId ?? sessionId };
-              if (data.type === 'error') {
+              if (data.type === 'error' && !admitted) {
                 ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
               }
               // Query-loop events already carry their durable sequence. Early
@@ -175,6 +176,7 @@ export function createChatRestRouter(
             skipReceipt: true,
             prepared,
           });
+          admitted = true;
           if (outcome === 'native') return false;
         },
       );
@@ -204,7 +206,7 @@ export function createChatRestRouter(
     res.status(202).json({ ok: true });
   });
 
-  router.post('/interrupt', (req, res) => {
+  router.post('/interrupt', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
@@ -212,7 +214,7 @@ export function createChatRestRouter(
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
     try {
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       res.status(202).json({ ok: true });
     } catch (err) {
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
@@ -220,14 +222,14 @@ export function createChatRestRouter(
     }
   });
 
-  router.post('/stop', (req, res) => {
+  router.post('/stop', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const msg = validateBody(V2StopMessage, req.body, res);
     if (!msg) return;
     try {
-      handleStopV2(connectionId, msg, ctx);
+      await handleStopV2(connectionId, msg, ctx);
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/stop failed', { connectionId, error: String(err) });

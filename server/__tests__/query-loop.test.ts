@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
-import { runQueryLoop } from '../query-loop.js';
+import { classifyProviderResultOutcome, runQueryLoop } from '../query-loop.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
@@ -2370,4 +2370,52 @@ it('reports a pre-ready provider failure without exposing its raw error', async 
   expect(transport.sent).toContainEqual(
     expect.objectContaining({ type: 'error', error: 'Chat provider stream failed. Please retry.' }),
   );
+});
+
+describe('provider result outcome classification', () => {
+  it('recognizes emitted Anthropic, Codex, and native Responses/Gemini result shapes', () => {
+    expect(classifyProviderResultOutcome({ type: 'result', subtype: 'success' })).toBe('completed');
+    expect(
+      classifyProviderResultOutcome({ type: 'result', subtype: 'error_during_execution' }),
+    ).toBe('failed');
+    expect(classifyProviderResultOutcome({ type: 'result', subtype: 'error_new_subtype' })).toBe(
+      'failed',
+    );
+    // Codex session events use is_error instead of the Anthropic subtype.
+    expect(classifyProviderResultOutcome({ type: 'result', is_error: false })).toBe('completed');
+    expect(classifyProviderResultOutcome({ type: 'result', is_error: true })).toBe('failed');
+    // Native Responses/Gemini adapters can emit a plain successful result.
+    expect(classifyProviderResultOutcome({ type: 'result', success: true })).toBe('completed');
+    expect(classifyProviderResultOutcome({ type: 'result' })).toBe('completed');
+  });
+
+  it('projects explicit result errors and clean EOF as legacy error terminals', async () => {
+    for (const [sessionId, events] of [
+      [
+        'result-error-terminal',
+        [{ type: 'result', session_id: 'result-error-terminal', subtype: 'error_max_turns' }],
+      ],
+      ['eof-error-terminal', []],
+    ] as const) {
+      const store = new EventStore(':memory:');
+      const transport = fakeTransport();
+      const registry = fakeRegistry(transport);
+      registry.get('terminal-client')!.sessionId = sessionId;
+      store.upsertSession({ sessionId });
+
+      await runQueryLoop(
+        eventStream(events as Record<string, unknown>[]),
+        'terminal-client',
+        registry,
+        new AbortController(),
+        store,
+      );
+
+      const projection = store
+        .getSessionEvents(sessionId)
+        .findLast((event) => event.type === 'session_state_changed');
+      expect(projection?.payload).toMatchObject({ internalState: 'ENDED', reason: 'error' });
+      store.close();
+    }
+  });
 });

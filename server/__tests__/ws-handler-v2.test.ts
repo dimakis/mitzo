@@ -961,7 +961,10 @@ describe('handleSetModeV2', () => {
 
   it('delegates to sessionRegistry.setMode and broadcasts mode_changed', async () => {
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -1536,24 +1539,45 @@ describe('handleInterruptV2', () => {
 // ─── handleStopV2 ────────────────────────────────────────────────────────────
 
 describe('handleStopV2', () => {
-  it('is a no-op when session is not found', () => {
+  it('is a no-op when session is not found', async () => {
     const ctx = createContext();
-    expect(() => handleStopV2('c1', { type: 'stop', sessionId: 'nope' }, ctx)).not.toThrow();
+    await expect(
+      handleStopV2('c1', { type: 'stop', sessionId: 'nope' }, ctx),
+    ).resolves.toBeUndefined();
   });
 
-  it('calls stopChat with correct clientId when session is found', () => {
+  it('calls stopChat with correct clientId when session is found', async () => {
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
     });
 
-    handleStopV2('c1', { type: 'stop', sessionId: 'sess-1' }, ctx);
+    await handleStopV2('c1', { type: 'stop', sessionId: 'sess-1' }, ctx);
 
     expect(stopChat).toHaveBeenCalledWith('driver-1');
+  });
+
+  it('denies a non-owner connection that only knows the session id', async () => {
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'owner-1',
+      session: { ownerConnectionId: 'owner-connection' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+
+    await handleStopV2('other-connection', { type: 'stop', sessionId: 'sess-1' }, ctx);
+
+    expect(stopChat).not.toHaveBeenCalled();
   });
 });
 
@@ -2023,7 +2047,10 @@ describe('handleSwitchSession token fields', () => {
 describe('handleSetModeV2 broadcast', () => {
   it('broadcasts mode_changed to multiple watchers', async () => {
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -2216,7 +2243,10 @@ describe('dispatchV2Message', () => {
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -2592,7 +2622,7 @@ describe('handleSendV2 connection ownership', () => {
 // ─── state-based routing (Phase 3) ──────────────────────────────────────────
 
 describe('handleSendV2 state-based routing', () => {
-  it('aborts zombie and resumes when state is ENDED but registry still has session', () => {
+  it('aborts zombie and resumes when state is ENDED but registry still has session', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
@@ -2613,7 +2643,7 @@ describe('handleSendV2 state-based routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    await handleSendV2(
       'c1',
       transport,
       { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-stale' },
@@ -2785,7 +2815,7 @@ describe('handleSendV2 state-based routing', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('treats CLOSING as zombie and resumes', () => {
+  it('treats CLOSING as zombie and resumes', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2806,7 +2836,7 @@ describe('handleSendV2 state-based routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    await handleSendV2(
       'c1',
       transport,
       { type: 'send' as const, sessionId: 'sess-1', prompt: 'hi', clientMsgId: 'closing-1' },
@@ -2822,7 +2852,7 @@ describe('handleSendV2 state-based routing', () => {
 });
 
 describe('handleInterruptV2 state-based routing', () => {
-  it('aborts zombie and resumes when state is ENDED', () => {
+  it('aborts zombie and resumes when state is ENDED', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2843,7 +2873,7 @@ describe('handleInterruptV2 state-based routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i-stale' },
@@ -2895,7 +2925,7 @@ describe('handleInterruptV2 state-based routing', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('treats CLOSING as zombie and resumes', () => {
+  it('treats CLOSING as zombie and resumes', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2916,7 +2946,7 @@ describe('handleInterruptV2 state-based routing', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'closing-i' },
@@ -3173,7 +3203,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('forwards images and contextBlocks to startChat when session is idle', () => {
+  it('forwards images and contextBlocks to startChat when session is idle', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -3188,7 +3218,7 @@ describe('handleInterruptV2 forwarding', () => {
     const images = [{ data: 'base64img', mediaType: 'image/png' as const }];
     const contextBlocks = ['some context block'];
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       {
@@ -3210,7 +3240,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('forwards the bound account identity and model to startChat when session is idle', () => {
+  it('forwards the bound account identity and model to startChat when session is idle', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -3222,7 +3252,7 @@ describe('handleInterruptV2 forwarding', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c2', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c2',
       transport,
       {
@@ -3248,7 +3278,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('uses found.session.model as fallback when msg.model is absent', () => {
+  it('uses found.session.model as fallback when msg.model is absent', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -3263,7 +3293,7 @@ describe('handleInterruptV2 forwarding', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c3', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c3',
       transport,
       {
@@ -3283,7 +3313,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('msg.model takes precedence over found.session.model', () => {
+  it('msg.model takes precedence over found.session.model', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -3304,7 +3334,7 @@ describe('handleInterruptV2 forwarding', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c4', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c4',
       transport,
       {
@@ -3680,7 +3710,7 @@ describe('stale session cleanup removes registry entry', () => {
     expect(sessionReg.remove).toHaveBeenCalledWith('old-conn:sess-1');
   });
 
-  it('handleSendV2 aborts zombie session before resume', () => {
+  it('handleSendV2 aborts zombie session before resume', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
@@ -3700,7 +3730,7 @@ describe('stale session cleanup removes registry entry', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    await handleSendV2(
       'c1',
       transport,
       { type: 'send' as const, sessionId: 'sess-1', prompt: 'hello', clientMsgId: 'cmsg-1' },
@@ -3713,7 +3743,7 @@ describe('stale session cleanup removes registry entry', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('handleInterruptV2 aborts zombie session before resume', () => {
+  it('handleInterruptV2 aborts zombie session before resume', async () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(true);
@@ -3733,7 +3763,7 @@ describe('stale session cleanup removes registry entry', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       { type: 'interrupt' as const, sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'cmsg-2' },
@@ -4055,6 +4085,73 @@ describe('handleSendV2 durable receipt failures', () => {
       expect(sessions.findBySessionId(receipt.sessionId!)?.session.currentExecution).toEqual(token);
       expect(store.getSessionEvents(receipt.sessionId!)).toHaveLength(1);
       expect(transport.sent.filter((event) => event.type === 'user_message')).toHaveLength(1);
+    } finally {
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockResolvedValue(undefined);
+      sessions.dispose();
+      store.close();
+    }
+  });
+
+  it('keeps an admitted receipt accepted when completion fails after the durable ack', async () => {
+    const store = new EventStore(':memory:');
+    const sessions = new SessionRegistry();
+    const ctx = createContext({
+      eventStore: store,
+      sessionRegistry: sessions as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('receipt-late-failure', transport);
+    const message = {
+      type: 'send' as const,
+      sessionId: null,
+      prompt: 'first prompt',
+      clientMsgId: 'receipt-late-failure-1',
+    };
+    let rejectCompletion!: (error: Error) => void;
+    try {
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockImplementation((runtimeTransport, clientId, _prompt, options) => {
+        const sessionId = options.initialSessionId!;
+        sessions.register(clientId, {
+          transport: runtimeTransport,
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId,
+        });
+        store.upsertSession({ sessionId });
+        const begun = store.beginExecution(
+          sessionId,
+          'late-failure-execution',
+          options.clientMsgId,
+          options.requestFingerprint,
+        );
+        sessions.get(clientId)!.currentExecution = begun.token;
+        const completion = new Promise<void>((_resolve, reject) => {
+          rejectCompletion = reject;
+        });
+        return Object.assign(completion, {
+          accepted: Promise.resolve({ sessionId, token: begun.token }),
+        });
+      });
+
+      const first = await handleSendV2('receipt-late-failure', transport, message, ctx);
+      expect(first).toEqual(expect.objectContaining({ accepted: true }));
+      rejectCompletion(new Error('provider secret /private/path'));
+      await vi.waitFor(() =>
+        expect(transport.sent).toContainEqual(
+          expect.objectContaining({
+            type: 'error',
+            error: 'Unable to start the chat. Please retry.',
+          }),
+        ),
+      );
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+
+      const retry = await handleSendV2('receipt-late-failure', transport, message, ctx);
+      expect(retry).toEqual(first);
+      expect(vi.mocked(startChat)).toHaveBeenCalledOnce();
     } finally {
       vi.mocked(startChat).mockReset();
       vi.mocked(startChat).mockResolvedValue(undefined);

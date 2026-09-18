@@ -283,6 +283,27 @@ describe('ExecutionController', () => {
     expect(finished.next?.token).toMatchObject({ executionId: 'next', generation: 2 });
   });
 
+  it('stops only the current token and drains pending work without activating a successor', async () => {
+    const dispatchNext = vi.fn();
+    controller.enqueueExecution(CLIENT_ID, prepared('current'));
+    controller.enqueueExecution(CLIENT_ID, prepared('queued', dispatchNext));
+    const current = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+
+    const stopped = await controller.stopExecution(lease, current!.token!);
+
+    expect(stopped.transition).toMatchObject({ applied: true });
+    expect(stopped.failures?.map((failure) => failure.executionId)).toEqual(['queued']);
+    expect(dispatchNext).not.toHaveBeenCalled();
+    expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
+    expect(registry.get(CLIENT_ID)?.pendingExecutions).toEqual([]);
+    expect(store.getSession(SESSION_ID)?.executionTerminalReason).toBe('stopped');
+    expect(store.getSessionEvents(SESSION_ID).map((event) => event.payload.phase)).toEqual([
+      'RUNNING',
+      'TERMINAL',
+    ]);
+  });
+
   it('preserves execution controller state across detach and reattach', async () => {
     controller.enqueueExecution(CLIENT_ID, prepared('current'));
     controller.enqueueExecution(CLIENT_ID, prepared('pending'));

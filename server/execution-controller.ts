@@ -149,6 +149,31 @@ export class ExecutionController {
     return { transition, ...(next ? { next } : {}) };
   }
 
+  /** Stop only this lease's current execution and discard queued work. */
+  async stopExecution(
+    lease: RuntimeSessionLease,
+    token: ExecutionToken,
+  ): Promise<FinishExecutionResult & { failures?: ActivationFailure[] }> {
+    const resolved = this.options.registry.resolveRuntimeLease(lease);
+    const current = resolved?.session.currentExecution;
+    if (
+      !resolved ||
+      !current ||
+      current.executionId !== token.executionId ||
+      current.generation !== token.generation ||
+      token.sessionId !== lease.sessionId
+    )
+      return { stale: true };
+    const transition = this.options.eventStore.transitionExecution(token, 'TERMINAL', 'stopped');
+    if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
+    this.broadcastTransition(lease, transition);
+    if (!this.options.registry.clearCurrentExecution(lease, token)) return { transition };
+    // Deliberately do not activate a successor while the user is stopping.
+    if (!this.options.registry.resolveRuntimeLease(lease)) return { transition, stale: true };
+    const failures = this.failPendingExecutions(resolved.clientId, 'Execution stopped by user');
+    return { transition, failures };
+  }
+
   failPendingExecutions(
     clientId: string,
     message = 'Execution cancelled before activation',

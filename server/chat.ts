@@ -2528,14 +2528,17 @@ export function stopChat(clientId: string) {
     const session = registry.get(clientId);
     const lease = registry.getRuntimeLease(clientId);
     const token = session?.currentExecution;
-    if (lease && token) await initialExecutionController().finishExecution(lease, token, 'stopped');
-    if (session) {
-      cleanupSessionWorktrees(session);
-      if (session.sessionId) clearSessionImages(session.sessionId);
-      session.inputQueue?.close();
-      session.queryInstance?.close?.();
-    }
-    registry.abort(clientId);
+    if (lease && token) await initialExecutionController().stopExecution(lease, token);
+    // stopExecution can await a terminal broadcast.  Do not let a stale stop
+    // clean up or abort a same-id runtime installed while it was yielding.
+    if (!session) return;
+    const resolved = lease && registry.resolveRuntimeLease(lease);
+    if (lease && (!resolved || resolved.session !== session)) return;
+    cleanupSessionWorktrees(session);
+    if (session.sessionId) clearSessionImages(session.sessionId);
+    session.inputQueue?.close();
+    session.queryInstance?.close?.();
+    registry.abort(resolved?.clientId ?? clientId);
   });
 }
 export function detachChat(clientId: string) {
