@@ -1665,31 +1665,93 @@ describe('EventStore', () => {
     });
   });
 
-  describe('interrupt command receipts', () => {
-    it('coalesces pending retries, rejects conflicts, and recovers pending claims as retryable', () => {
-      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
-        state: 'PENDING',
+  describe('atomic replacement admission', () => {
+    it('persists old terminal, user message, and new running in replay order', () => {
+      store.upsertSession({ sessionId: 'session-1' });
+      const old = store.beginExecution('session-1', 'old-execution');
+      const admitted = store.admitReplacement({
+        expectedOldToken: old.token,
+        executionId: 'replacement-execution',
+        clientMsgId: 'interrupt-1',
+        requestFingerprint: 'interrupt:old-execution:1:request-a',
+        userMessage: {
+          messageId: 'interrupt-1',
+          text: 'Replace the current turn',
+          images: [{ id: 'image-reference', mediaType: 'image/png' }],
+          contextBlocks: ['context-a'],
+        },
+        selectedModel: 'model-b',
+        reasoningEffort: 'high',
+      });
+      expect(admitted).toMatchObject({
         duplicate: false,
+        token: { sessionId: 'session-1', executionId: 'replacement-execution', generation: 2 },
       });
-      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
-        state: 'PENDING',
-        duplicate: true,
+      expect(admitted.rows.map((row) => row.type)).toEqual([
+        'execution_state_changed',
+        'user_message',
+        'execution_state_changed',
+      ]);
+      expect(admitted.rows[0]?.payload).toMatchObject({
+        executionId: 'old-execution',
+        phase: 'TERMINAL',
+        terminalReason: 'interrupted',
       });
-      expect(() =>
-        store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-b'),
-      ).toThrow('different request');
+      expect(admitted.rows[1]?.payload).toMatchObject({
+        messageId: 'interrupt-1',
+        images: [{ id: 'image-reference', mediaType: 'image/png' }],
+      });
+      expect(admitted.rows[2]?.payload).toMatchObject({
+        executionId: 'replacement-execution',
+        generation: 2,
+        phase: 'RUNNING',
+      });
+      expect(store.getSession('session-1')).toMatchObject({
+        executionId: 'replacement-execution',
+        selectedModel: 'model-b',
+        reasoningEffort: 'high',
+      });
 
-      // A restart never replays an unknown external interrupt: it allows an
-      // exact client retry to make a fresh PENDING claim instead.
-      store.recoverPendingInterruptCommands();
-      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
-        state: 'PENDING',
-        duplicate: false,
+      const retry = store.admitReplacement({
+        expectedOldToken: old.token,
+        clientMsgId: 'interrupt-1',
+        requestFingerprint: 'interrupt:old-execution:1:request-a',
+        userMessage: { messageId: 'interrupt-1', text: 'Replace the current turn' },
       });
-      store.acceptInterruptCommand('interrupt-1');
-      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
-        state: 'ACCEPTED',
-        duplicate: true,
+      expect(retry).toMatchObject({ token: admitted.token, duplicate: true });
+      expect(retry.rows.map((row) => row.seq)).toEqual(admitted.rows.map((row) => row.seq));
+      expect(() =>
+        store.admitReplacement({
+          expectedOldToken: old.token,
+          clientMsgId: 'interrupt-1',
+          requestFingerprint: 'different',
+          userMessage: { messageId: 'interrupt-1', text: 'Different' },
+        }),
+      ).toThrow('different request fingerprint');
+    });
+
+    it('rolls back every row when user event persistence fails', () => {
+      store.upsertSession({ sessionId: 'session-1' });
+      const old = store.beginExecution('session-1', 'old-execution');
+      const before = store.getSessionEvents('session-1');
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec(`
+        CREATE TRIGGER reject_replacement_user_message
+        BEFORE INSERT ON events WHEN NEW.type = 'user_message'
+        BEGIN SELECT RAISE(ABORT, 'injected user row failure'); END;
+      `);
+      expect(() =>
+        store.admitReplacement({
+          expectedOldToken: old.token,
+          clientMsgId: 'interrupt-rollback',
+          requestFingerprint: 'replacement-rollback',
+          userMessage: { messageId: 'interrupt-rollback', text: 'will fail' },
+        }),
+      ).toThrow('injected user row failure');
+      expect(store.getSessionEvents('session-1')).toEqual(before);
+      expect(store.getSession('session-1')).toMatchObject({
+        executionId: 'old-execution',
+        executionPhase: 'RUNNING',
       });
     });
   });

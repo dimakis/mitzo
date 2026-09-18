@@ -140,13 +140,6 @@ export interface SendCommandReceiptClaim {
   duplicate: boolean;
 }
 
-/** Durable idempotency record for an active-session interrupt command. */
-export type InterruptCommandState = 'PENDING' | 'ACCEPTED' | 'RETRYABLE';
-export interface InterruptCommandClaim {
-  state: InterruptCommandState;
-  duplicate: boolean;
-}
-
 export class SendCommandConflictError extends Error {
   constructor(message = 'Command ID already used for a different request') {
     super(message);
@@ -185,23 +178,14 @@ const SCHEMA = `
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
 
-  -- PENDING is intentionally recoverable: a process can die after claiming
-  -- but before it reaches a provider. Startup changes it to RETRYABLE rather
-  -- than replaying an interrupt whose external effect is unknowable.
-  CREATE TABLE IF NOT EXISTS interrupt_commands (
-    client_msg_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    request_fingerprint TEXT NOT NULL,
-    state TEXT NOT NULL CHECK(state IN ('PENDING', 'ACCEPTED', 'RETRYABLE')),
-    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
-  );
-
   CREATE TABLE IF NOT EXISTS execution_admissions (
     session_id TEXT NOT NULL,
     client_msg_id TEXT NOT NULL,
     request_fingerprint TEXT NOT NULL,
     execution_id TEXT NOT NULL,
     generation INTEGER NOT NULL,
+    expected_execution_id TEXT,
+    expected_generation INTEGER,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
     PRIMARY KEY (session_id, client_msg_id)
   );
@@ -286,6 +270,33 @@ export interface BeginExecutionResult {
 export interface ReplaceExecutionResult extends BeginExecutionResult {
   previousTerminalSeq?: number;
   previousTerminalEvent?: ExecutionStateChangedPayload;
+}
+
+/** Durable user event shape for an interrupt/replacement admission. */
+export interface ReplacementUserMessage {
+  messageId: string;
+  text: string;
+  /** References or compact previews only; callers must never pass raw base64. */
+  images?: Array<{ id: string; mediaType: string }>;
+  contextBlocks?: string[];
+}
+
+export interface ReplacementAdmissionInput {
+  expectedOldToken: ExecutionToken;
+  /** Optional on retries: the durable admission allocates/returns the stable id. */
+  executionId?: string;
+  clientMsgId: string;
+  requestFingerprint: string;
+  userMessage: ReplacementUserMessage;
+  selectedModel?: string | null;
+  reasoningEffort?: string | null;
+}
+
+export interface ReplacementAdmissionResult {
+  token: ExecutionToken;
+  duplicate: boolean;
+  /** Exact durable rows in replay order: old terminal, user message, new RUNNING. */
+  rows: StoredEvent[];
 }
 
 export interface SessionLifecycleTransitionResult {
@@ -513,66 +524,6 @@ export class EventStore {
     );
   }
 
-  /**
-   * Claim an interrupt before touching a provider or ownership. Accepted
-   * receipts survive restart; PENDING rows are deliberately retryable after
-   * restart because an external provider effect cannot be safely replayed.
-   */
-  claimInterruptCommand(
-    clientMsgId: string,
-    sessionId: string,
-    requestFingerprint: string,
-  ): InterruptCommandClaim {
-    return this.db!.transaction(() => {
-      const existing = this.db!.prepare(
-        `SELECT session_id, request_fingerprint, state FROM interrupt_commands
-           WHERE client_msg_id = ?`,
-      ).get(clientMsgId) as
-        | { session_id: string; request_fingerprint: string; state: InterruptCommandState }
-        | undefined;
-      if (!existing) {
-        this.db!.prepare(
-          `INSERT INTO interrupt_commands (client_msg_id, session_id, request_fingerprint, state)
-             VALUES (?, ?, ?, 'PENDING')`,
-        ).run(clientMsgId, sessionId, requestFingerprint);
-        return { state: 'PENDING' as const, duplicate: false };
-      }
-      if (
-        existing.session_id !== sessionId ||
-        existing.request_fingerprint !== requestFingerprint
-      ) {
-        throw new SendCommandConflictError(
-          'Interrupt command ID already used for a different request',
-        );
-      }
-      if (existing.state === 'RETRYABLE') {
-        this.db!.prepare(
-          "UPDATE interrupt_commands SET state = 'PENDING' WHERE client_msg_id = ? AND state = 'RETRYABLE'",
-        ).run(clientMsgId);
-        return { state: 'PENDING' as const, duplicate: false };
-      }
-      return { state: existing.state, duplicate: true };
-    }).immediate();
-  }
-
-  acceptInterruptCommand(clientMsgId: string): void {
-    this.db!.prepare(
-      "UPDATE interrupt_commands SET state = 'ACCEPTED' WHERE client_msg_id = ? AND state = 'PENDING'",
-    ).run(clientMsgId);
-  }
-
-  retryInterruptCommand(clientMsgId: string): void {
-    this.db!.prepare(
-      "UPDATE interrupt_commands SET state = 'RETRYABLE' WHERE client_msg_id = ? AND state = 'PENDING'",
-    ).run(clientMsgId);
-  }
-
-  recoverPendingInterruptCommands(): void {
-    this.db!.prepare(
-      "UPDATE interrupt_commands SET state = 'RETRYABLE' WHERE state = 'PENDING'",
-    ).run();
-  }
-
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;
     const db = new Database(dbPath);
@@ -590,6 +541,7 @@ export class EventStore {
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
     this.migrateExecutionState(db);
+    this.migrateReplacementAdmissions(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSymposium(db);
@@ -824,6 +776,23 @@ export class EventStore {
         db.exec('ALTER TABLE execution_admissions ADD COLUMN request_fingerprint TEXT');
         this.log.info('migrated execution_admissions table: added request_fingerprint');
       }
+    })();
+  }
+
+  /** Canonical execution admissions supersede the former interrupt receipt table. */
+  private migrateReplacementAdmissions(db: Database.Database): void {
+    db.transaction(() => {
+      // PENDING interrupt rows have no durable provider outcome and must never
+      // be replayed after a restart. Replacement admission is all-or-nothing.
+      db.exec('DROP TABLE IF EXISTS interrupt_commands');
+      const columns = db.prepare("PRAGMA table_info('execution_admissions')").all() as Array<{
+        name: string;
+      }>;
+      const names = new Set(columns.map((column) => column.name));
+      if (!names.has('expected_execution_id'))
+        db.exec('ALTER TABLE execution_admissions ADD COLUMN expected_execution_id TEXT');
+      if (!names.has('expected_generation'))
+        db.exec('ALTER TABLE execution_admissions ADD COLUMN expected_generation INTEGER');
     })();
   }
 
@@ -1137,6 +1106,95 @@ export class EventStore {
     }).immediate();
   }
 
+  /**
+   * Atomically admit an interrupt/replacement. Replay order is deliberately
+   * old TERMINAL, user_message, new RUNNING so reconnect can reconstruct the
+   * causal boundary without consulting process-local state.
+   */
+  admitReplacement(input: ReplacementAdmissionInput): ReplacementAdmissionResult {
+    const { expectedOldToken, clientMsgId, requestFingerprint, userMessage } = input;
+    const executionId = input.executionId ?? randomUUID();
+    if (userMessage.messageId !== clientMsgId)
+      throw new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'Replacement user message must use the command clientMsgId',
+      );
+    this.assertReplacementUserMessage(userMessage);
+    return this.db!.transaction(() => {
+      const current = this.stmts.getSession.get(expectedOldToken.sessionId) as
+        SessionRow | undefined;
+      if (!current)
+        throw new Error(
+          `Cannot replace execution for unknown session: ${expectedOldToken.sessionId}`,
+        );
+      const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint)!;
+      const duplicate = this.findExecutionAdmission(expectedOldToken.sessionId, clientMsgId);
+      if (duplicate) {
+        const resolved = this.resolveAdmissionDuplicate(
+          duplicate,
+          current,
+          clientMsgId,
+          undefined,
+          fingerprint,
+        );
+        this.assertDuplicateReplacementIdentity(clientMsgId, expectedOldToken);
+        return {
+          token: resolved.token,
+          duplicate: true,
+          rows: this.getReplacementRowsInTransaction(expectedOldToken, resolved.token, clientMsgId),
+        };
+      }
+      this.assertLifecycleOpen(current, expectedOldToken.sessionId);
+      const terminal = this.transitionExecutionInTransaction(
+        expectedOldToken,
+        'TERMINAL',
+        'interrupted',
+      );
+      if (!terminal.applied)
+        throw new ExecutionAdmissionError(
+          'active_execution',
+          'Expected execution is stale or terminal',
+        );
+
+      const userPayload = {
+        type: 'user_message',
+        v: 2,
+        ts: Date.now(),
+        messageId: userMessage.messageId,
+        text: userMessage.text,
+        ...(userMessage.images?.length ? { images: userMessage.images } : {}),
+        ...(userMessage.contextBlocks?.length ? { contextBlocks: userMessage.contextBlocks } : {}),
+      };
+      const userSeq = Number(
+        this.stmts.append.run(
+          expectedOldToken.sessionId,
+          'user_message',
+          JSON.stringify(userPayload),
+          null,
+          null,
+        ).lastInsertRowid,
+      );
+      this.stmts.updateLastSpeaker.run('user', expectedOldToken.sessionId);
+      this.updateReplacementSelectionInTransaction(expectedOldToken.sessionId, input);
+
+      const refreshed = this.stmts.getSession.get(expectedOldToken.sessionId) as SessionRow;
+      const replacement = this.beginExecutionInTransaction(
+        refreshed,
+        expectedOldToken.sessionId,
+        executionId,
+        clientMsgId,
+        fingerprint,
+        expectedOldToken,
+      );
+      const rows = this.getEventsAfter(expectedOldToken.sessionId, terminal.seq! - 1).filter(
+        (row) => row.seq === terminal.seq || row.seq === userSeq || row.seq === replacement.seq,
+      );
+      if (rows.length !== 3)
+        throw new Error('Replacement admission did not persist all durable rows');
+      return { token: replacement.token, duplicate: false, rows };
+    }).immediate();
+  }
+
   transitionExecution(
     token: ExecutionToken,
     nextPhase: ExecutionPhase,
@@ -1360,6 +1418,7 @@ export class EventStore {
     executionId: string,
     clientMsgId: string | undefined,
     requestFingerprint: string | undefined,
+    expectedOldToken?: ExecutionToken,
   ): BeginExecutionResult {
     const generation = (current.execution_generation ?? 0) + 1;
     const token: ExecutionToken = { sessionId, executionId, generation };
@@ -1388,11 +1447,111 @@ export class EventStore {
     if (clientMsgId) {
       this.db!.prepare(
         `INSERT INTO execution_admissions
-          (session_id, client_msg_id, request_fingerprint, execution_id, generation)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(sessionId, clientMsgId, requestFingerprint, executionId, generation);
+          (session_id, client_msg_id, request_fingerprint, execution_id, generation,
+           expected_execution_id, expected_generation)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        sessionId,
+        clientMsgId,
+        requestFingerprint,
+        executionId,
+        generation,
+        expectedOldToken?.executionId ?? null,
+        expectedOldToken?.generation ?? null,
+      );
     }
     return { token, duplicate: false, seq, event };
+  }
+
+  private assertDuplicateReplacementIdentity(
+    clientMsgId: string,
+    expectedOldToken: ExecutionToken,
+  ): void {
+    const row = this.db!.prepare(
+      `SELECT expected_execution_id, expected_generation FROM execution_admissions
+       WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(expectedOldToken.sessionId, clientMsgId) as
+      { expected_execution_id: string | null; expected_generation: number | null } | undefined;
+    // The token is enough for direct execution starts; replacement retries
+    // must additionally prove the old execution identity that they supersede.
+    if (
+      !row ||
+      row.expected_execution_id !== expectedOldToken.executionId ||
+      row.expected_generation !== expectedOldToken.generation
+    ) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different replacement request',
+      );
+    }
+  }
+
+  private getReplacementRowsInTransaction(
+    oldToken: ExecutionToken,
+    newToken: ExecutionToken,
+    messageId: string,
+  ): StoredEvent[] {
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events
+       WHERE session_id = ? AND (
+         (type = 'execution_state_changed'
+          AND json_extract(payload, '$.executionId') = ?
+          AND json_extract(payload, '$.generation') = ?
+          AND json_extract(payload, '$.phase') = 'TERMINAL')
+         OR (type = 'user_message' AND json_extract(payload, '$.messageId') = ?)
+         OR (type = 'execution_state_changed'
+          AND json_extract(payload, '$.executionId') = ?
+          AND json_extract(payload, '$.generation') = ?
+          AND json_extract(payload, '$.phase') = 'RUNNING')
+       ) ORDER BY seq`,
+    ).all(
+      oldToken.sessionId,
+      oldToken.executionId,
+      oldToken.generation,
+      messageId,
+      newToken.executionId,
+      newToken.generation,
+    ) as EventRow[];
+    return rows.map(rowToEvent).slice(-3);
+  }
+
+  private assertReplacementUserMessage(message: ReplacementUserMessage): void {
+    if (
+      !message.messageId ||
+      !message.text ||
+      message.messageId.length > 512 ||
+      message.text.length > 1_000_000 ||
+      message.images?.some(
+        (image) =>
+          !image.id ||
+          !image.mediaType ||
+          image.id.includes('base64') ||
+          image.id.startsWith('data:'),
+      )
+    ) {
+      throw new ExecutionAdmissionError('fingerprint_required', 'Invalid replacement user message');
+    }
+  }
+
+  private updateReplacementSelectionInTransaction(
+    sessionId: string,
+    input: ReplacementAdmissionInput,
+  ): void {
+    if (input.selectedModel === undefined && input.reasoningEffort === undefined) return;
+    const fields: string[] = [];
+    const values: Array<string | null> = [];
+    if (input.selectedModel !== undefined) {
+      fields.push('selected_model = ?');
+      values.push(input.selectedModel);
+    }
+    if (input.reasoningEffort !== undefined) {
+      fields.push('reasoning_effort = ?');
+      values.push(input.reasoningEffort);
+    }
+    this.db!.prepare(
+      `UPDATE sessions SET ${fields.join(', ')}, updated_at = ? WHERE session_id = ?`,
+    ).run(...values, Date.now(), sessionId);
   }
 
   private appendExecutionEventInTransaction(
