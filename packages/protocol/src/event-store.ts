@@ -1542,6 +1542,12 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Highest global sequence stored for this session, or zero when it has no events. */
+  getLatestSessionSeq(sessionId: string): number {
+    const events = this.getEventsAfter(sessionId, 0);
+    return events.at(-1)?.seq ?? 0;
+  }
+
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);

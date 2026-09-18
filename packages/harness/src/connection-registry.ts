@@ -46,6 +46,8 @@ export interface EventStoreAdapter {
   /** Optional: check if a session is still active. When provided, periodic sync
    *  skips ended sessions to avoid unnecessary EventStore queries. */
   isSessionActive?(sessionId: string): boolean;
+  /** Highest global event sequence currently stored for one session. */
+  getLatestSessionSeq?(sessionId: string): number;
 }
 
 // Periodic sync fires every 5s to retry missed events
@@ -57,6 +59,8 @@ export class ConnectionRegistry {
   private connections = new Map<string, Connection>();
   // Per-connection per-session cursors: last successfully delivered seq
   private cursors = new Map<string, Map<string, number>>();
+  /** First undelivered live sequence per connection/session; blocks later live sends. */
+  private deliveryGaps = new Map<string, Map<string, number>>();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private eventStore: EventStoreAdapter | null = null;
 
@@ -69,6 +73,7 @@ export class ConnectionRegistry {
     });
     // Initialize cursor map for this connection
     this.cursors.set(connectionId, new Map());
+    this.deliveryGaps.set(connectionId, new Map());
   }
 
   get(connectionId: string): Connection | undefined {
@@ -79,6 +84,7 @@ export class ConnectionRegistry {
     this.connections.delete(connectionId);
     // Clean up cursors for this connection
     this.cursors.delete(connectionId);
+    this.deliveryGaps.delete(connectionId);
   }
 
   /**
@@ -99,6 +105,7 @@ export class ConnectionRegistry {
     const conn = this.connections.get(connectionId);
     if (!conn) return;
     conn.watchedSessions.delete(sessionId);
+    this.deliveryGaps.get(connectionId)?.delete(sessionId);
     if (conn.activeSession === sessionId) {
       conn.activeSession = null;
     }
@@ -157,6 +164,7 @@ export class ConnectionRegistry {
     const grouped = new Map<SessionTransport, string[]>();
     for (const { connectionId, transport } of this.getConnectionsWatching(sessionId, true)) {
       if (options.excludeTransports?.has(transport)) continue;
+      if (this.getDeliveryGap(connectionId, sessionId) !== undefined) continue;
       const connectionIds = grouped.get(transport) ?? [];
       connectionIds.push(connectionId);
       grouped.set(transport, connectionIds);
@@ -167,12 +175,16 @@ export class ConnectionRegistry {
         delivered.add(transport);
         if (seq !== undefined) {
           for (const connectionId of connectionIds) {
-            this.advanceCursorContiguously(connectionId, sessionId, seq);
+            this.advanceLiveCursor(connectionId, sessionId, seq);
           }
         }
       } catch {
         log.warn('broadcast send failed', { connectionId: connectionIds[0], sessionId, seq });
-        // Cursor not updated → periodic sync will retry
+        if (seq !== undefined) {
+          for (const connectionId of connectionIds) {
+            this.markDeliveryGap(connectionId, sessionId, seq);
+          }
+        }
       }
     }
     return delivered;
@@ -180,8 +192,8 @@ export class ConnectionRegistry {
 
   /**
    * Record a fallback physical delivery for watcher connections sharing this
-   * transport. It advances only the immediately expected durable sequence, so
-   * a fallback can never skip a replay gap or advance an unrelated watcher.
+   * transport. It may repair only the exact failed sequence for a blocked
+   * watcher; otherwise a fallback cannot skip a known delivery gap.
    */
   recordFallbackDelivery(sessionId: string, transport: SessionTransport, seq: number): void {
     if (!Number.isSafeInteger(seq) || seq < 1) return;
@@ -189,13 +201,18 @@ export class ConnectionRegistry {
       sessionId,
     )) {
       if (watchedTransport !== transport) continue;
-      this.advanceCursorContiguously(connectionId, sessionId, seq);
+      this.repairOrAdvanceFallback(connectionId, sessionId, seq);
     }
   }
 
   /** Read-only cursor inspection for replay/delivery assertions. */
   getCursor(connectionId: string, sessionId: string): number | undefined {
     return this.cursors.get(connectionId)?.get(sessionId);
+  }
+
+  /** Read-only first blocked sequence for replay/delivery assertions. */
+  getBlockedSeq(connectionId: string, sessionId: string): number | undefined {
+    return this.getDeliveryGap(connectionId, sessionId);
   }
 
   /**
@@ -224,6 +241,9 @@ export class ConnectionRegistry {
     const connCursors = this.cursors.get(connectionId);
     if (!connCursors) return;
     connCursors.set(sessionId, clientLastSeq);
+    // A reconnect cursor is the client-authoritative ordered position; an old
+    // transport failure must not continue blocking its new delivery stream.
+    this.deliveryGaps.get(connectionId)?.delete(sessionId);
     log.info('cursor reset on reconnect', { connectionId, sessionId, cursor: clientLastSeq });
   }
 
@@ -288,7 +308,7 @@ export class ConnectionRegistry {
             try {
               conn.transport.send({ ...evt.payload, seq: evt.seq });
               // Update cursor on success
-              this.advanceCursorContiguously(connectionId, sessionId, evt.seq);
+              this.advanceOrderedCursor(connectionId, sessionId, evt.seq);
             } catch {
               // Still failing — stop here, retry next sync round
               log.warn('periodic sync: retry failed, stopping batch', {
@@ -296,8 +316,16 @@ export class ConnectionRegistry {
                 sessionId,
                 failedSeq: evt.seq,
               });
+              this.markDeliveryGap(connectionId, sessionId, evt.seq);
               break;
             }
+          }
+          const latest = this.eventStore.getLatestSessionSeq?.(sessionId);
+          if (
+            latest !== undefined &&
+            (this.cursors.get(connectionId)?.get(sessionId) ?? 0) >= latest
+          ) {
+            this.deliveryGaps.get(connectionId)?.delete(sessionId);
           }
         }
       }
@@ -322,13 +350,47 @@ export class ConnectionRegistry {
     this.stopPeriodicSync();
     this.connections.clear();
     this.cursors.clear();
+    this.deliveryGaps.clear();
   }
 
-  private advanceCursorContiguously(connectionId: string, sessionId: string, seq: number): void {
+  private advanceLiveCursor(connectionId: string, sessionId: string, seq: number): void {
     if (!Number.isSafeInteger(seq) || seq < 1) return;
+    if (this.getDeliveryGap(connectionId, sessionId) !== undefined) return;
     const cursors = this.cursors.get(connectionId);
     if (!cursors) return;
     const current = cursors.get(sessionId) ?? 0;
-    if (seq === current + 1) cursors.set(sessionId, seq);
+    if (seq > current) cursors.set(sessionId, seq);
+  }
+
+  private repairOrAdvanceFallback(connectionId: string, sessionId: string, seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 1) return;
+    const gap = this.getDeliveryGap(connectionId, sessionId);
+    if (gap !== undefined && gap !== seq) return;
+    const cursors = this.cursors.get(connectionId);
+    if (!cursors) return;
+    if (seq > (cursors.get(sessionId) ?? 0)) cursors.set(sessionId, seq);
+    if (gap === seq) this.deliveryGaps.get(connectionId)?.delete(sessionId);
+  }
+
+  private advanceOrderedCursor(connectionId: string, sessionId: string, seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 1) return;
+    const cursors = this.cursors.get(connectionId);
+    if (!cursors) return;
+    if (seq > (cursors.get(sessionId) ?? 0)) cursors.set(sessionId, seq);
+  }
+
+  private markDeliveryGap(connectionId: string, sessionId: string, seq: number): void {
+    if (
+      !Number.isSafeInteger(seq) ||
+      seq < 1 ||
+      this.getDeliveryGap(connectionId, sessionId) !== undefined
+    )
+      return;
+    const gaps = this.deliveryGaps.get(connectionId);
+    if (gaps) gaps.set(sessionId, seq);
+  }
+
+  private getDeliveryGap(connectionId: string, sessionId: string): number | undefined {
+    return this.deliveryGaps.get(connectionId)?.get(sessionId);
   }
 }

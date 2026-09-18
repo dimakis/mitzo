@@ -764,7 +764,7 @@ describe('broadcastStoredExecutionEvent', () => {
     const other = fakeTransport();
     connections.recordFallbackDelivery(SESSION_ID, other, begun.seq! + 1);
     connections.recordFallbackDelivery(SESSION_ID, shared, begun.seq! + 2);
-    expect(connections.getCursor('shared-watcher', SESSION_ID)).toBe(begun.seq);
+    expect(connections.getCursor('shared-watcher', SESSION_ID)).toBe(begun.seq! + 2);
     registry.dispose();
     store.close();
   });

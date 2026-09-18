@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { ConnectionRegistry, type EventStoreAdapter } from '../src/connection-registry.js';
 import type { SessionTransport } from '../src/session-transport.js';
+import { EventStore } from '@mitzo/protocol/event-store';
 
 function mockTransport(open = true): SessionTransport {
   return {
@@ -17,6 +18,7 @@ function mockEventStore(
       const filtered = events.filter((e) => e.seq > afterSeq);
       return limit ? filtered.slice(0, limit) : filtered;
     }),
+    getLatestSessionSeq: vi.fn(() => events.at(-1)?.seq ?? 0),
   };
 }
 
@@ -264,7 +266,7 @@ describe('ConnectionRegistry', () => {
       expect(t.send).toHaveBeenCalledTimes(3);
     });
 
-    it('does not advance across a failed gap and periodic replay restores contiguous order', async () => {
+    it('does not advance across a failed gap and periodic replay restores ordered session delivery', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
       (t.send as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
@@ -285,11 +287,14 @@ describe('ConnectionRegistry', () => {
       registry.startPeriodicSync();
       await vi.advanceTimersByTimeAsync(5000);
       expect(registry.getCursor('conn-1', 'sess-a')).toBe(7);
+      expect(registry.getBlockedSeq('conn-1', 'sess-a')).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(t.send).toHaveBeenCalledTimes(3);
       registry.stopPeriodicSync();
       vi.useRealTimers();
     });
 
-    it('advances shared watcher cursors independently and only when contiguous', () => {
+    it('advances shared watcher cursors independently across valid global gaps', () => {
       const shared = mockTransport(true);
       registry.register('at-five', shared);
       registry.register('at-zero', shared);
@@ -299,7 +304,83 @@ describe('ConnectionRegistry', () => {
       registry.broadcast('sess-a', { type: 'six', seq: 6 });
       expect(shared.send).toHaveBeenCalledOnce();
       expect(registry.getCursor('at-five', 'sess-a')).toBe(6);
-      expect(registry.getCursor('at-zero', 'sess-a')).toBeUndefined();
+      expect(registry.getCursor('at-zero', 'sess-a')).toBe(6);
+    });
+
+    it('accepts real globally interleaved session sequences and replays a blocked gap in order', async () => {
+      vi.useFakeTimers();
+      const store = new EventStore(':memory:');
+      store.upsertSession({ sessionId: 'A' });
+      store.upsertSession({ sessionId: 'B' });
+      const a1 = store.append('A', 'event', { type: 'a1' });
+      store.append('B', 'event', { type: 'b1' });
+      const a2 = store.append('A', 'event', { type: 'a2' });
+      const liveRegistry = new ConnectionRegistry();
+      const live = mockTransport(true);
+      liveRegistry.register('live', live);
+      liveRegistry.watch('live', 'A');
+      liveRegistry.broadcast('A', { type: 'a1', seq: a1 });
+      liveRegistry.broadcast('A', { type: 'a2', seq: a2 });
+      expect(liveRegistry.getCursor('live', 'A')).toBe(a2);
+      liveRegistry.setEventStore({
+        getEventsAfter: (sessionId, afterSeq, limit) =>
+          store.getEventsAfter(sessionId, afterSeq, limit),
+        getLatestSessionSeq: (sessionId) => store.getLatestSessionSeq(sessionId),
+      });
+      liveRegistry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(live.send).toHaveBeenCalledTimes(2);
+      liveRegistry.dispose();
+      const t = mockTransport(true);
+      (t.send as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('a1 failed');
+      });
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'A');
+      registry.broadcast('A', { type: 'a1', seq: a1 });
+      registry.broadcast('A', { type: 'a2', seq: a2 });
+      expect(registry.getCursor('conn-1', 'A')).toBeUndefined();
+      expect(registry.getBlockedSeq('conn-1', 'A')).toBe(a1);
+
+      registry.setEventStore({
+        getEventsAfter: (sessionId, afterSeq, limit) =>
+          store.getEventsAfter(sessionId, afterSeq, limit),
+        getLatestSessionSeq: (sessionId) => store.getLatestSessionSeq(sessionId),
+      });
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'A')).toBe(a2);
+      expect(registry.getBlockedSeq('conn-1', 'A')).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(t.send).toHaveBeenCalledTimes(3);
+      registry.stopPeriodicSync();
+      store.close();
+      vi.useRealTimers();
+    });
+
+    it('retains a delivery block until the final replay batch reaches high-water', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      (t.send as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('first failed');
+      });
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      registry.broadcast('sess-a', { type: 'one', seq: 1 });
+      const events = Array.from({ length: 51 }, (_, index) => ({
+        seq: index + 1,
+        payload: { type: 'event', index },
+      }));
+      registry.setEventStore(mockEventStore(events));
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'sess-a')).toBe(50);
+      expect(registry.getBlockedSeq('conn-1', 'sess-a')).toBe(1);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'sess-a')).toBe(51);
+      expect(registry.getBlockedSeq('conn-1', 'sess-a')).toBeUndefined();
+      registry.stopPeriodicSync();
+      vi.useRealTimers();
     });
 
     it('cleans up cursors when connection is removed', () => {

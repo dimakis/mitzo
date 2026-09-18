@@ -260,6 +260,7 @@ lifecycleReconcile();
 connRegistry.setEventStore({
   getEventsAfter: (sessionId, afterSeq, limit) =>
     eventStore.getEventsAfter(sessionId, afterSeq, limit),
+  getLatestSessionSeq: (sessionId) => eventStore.getLatestSessionSeq(sessionId),
   isSessionActive: (sessionId) => {
     const state = eventStore.getSessionState(sessionId);
     return state !== null && state !== 'ENDED' && state !== 'CLOSING';
