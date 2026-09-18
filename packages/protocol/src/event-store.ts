@@ -1887,7 +1887,10 @@ export class EventStore {
   ): void {
     const current = this.getSession(sessionId);
     const fromState = (current?.state as SessionState) ?? null;
-    const now = Date.now();
+    // This persisted value is also the execution generation used by reconnect
+    // reconciliation. Date.now() alone can collide for back-to-back runner
+    // transitions, so advance monotonically within a millisecond.
+    const now = Math.max(Date.now(), (current?.lastStateChange ?? 0) + 1);
 
     if (fromState && !opts?.force) {
       const allowed = VALID_TRANSITIONS[fromState];
