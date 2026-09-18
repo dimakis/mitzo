@@ -3983,6 +3983,86 @@ describe('dispatchV2Message session_suspend', () => {
 // ─── Durable WS receipt failures ─────────────────────────────────────────────
 
 describe('handleSendV2 durable receipt failures', () => {
+  it('uses one receipt-assigned identity for the initial runtime and exact lost-ack retry', async () => {
+    const store = new EventStore(':memory:');
+    const sessions = new SessionRegistry();
+    const ctx = createContext({
+      eventStore: store,
+      sessionRegistry: sessions as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('receipt-identity', transport);
+    const message = {
+      type: 'send' as const,
+      sessionId: null,
+      prompt: 'first prompt',
+      clientMsgId: 'receipt-identity-1',
+    };
+    let token: { sessionId: string; executionId: string; generation: number } | undefined;
+    try {
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockImplementation((runtimeTransport, clientId, _prompt, options) => {
+        const sessionId = options.initialSessionId!;
+        sessions.register(clientId, {
+          transport: runtimeTransport,
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId,
+        });
+        store.upsertSession({ sessionId });
+        const begun = store.beginExecution(
+          sessionId,
+          'initial-execution',
+          options.clientMsgId,
+          options.requestFingerprint,
+        );
+        token = begun.token;
+        sessions.get(clientId)!.currentExecution = begun.token;
+        runtimeTransport.send({ type: 'user_message', sessionId, id: options.clientMsgId });
+        return Object.assign(Promise.resolve(), {
+          accepted: Promise.resolve({ sessionId, token: begun.token }),
+        });
+      });
+
+      const first = await handleSendV2('receipt-identity', transport, message, ctx);
+      const receipt = store.getSendCommand(message.clientMsgId)!;
+      const runtime = sessions.findBySessionId(receipt.sessionId!);
+      expect(first).toEqual({
+        ok: true,
+        accepted: true,
+        clientMsgId: message.clientMsgId,
+        sessionId: receipt.sessionId,
+      });
+      expect(vi.mocked(startChat)).toHaveBeenCalledOnce();
+      expect(vi.mocked(startChat).mock.calls[0][3]?.initialSessionId).toBe(receipt.sessionId);
+      expect(runtime?.session.sessionId).toBe(receipt.sessionId);
+      expect(runtime?.session.currentExecution).toEqual(token);
+      expect(token?.sessionId).toBe(receipt.sessionId);
+      expect(
+        store.getSessionEvents(receipt.sessionId!).map((event) => event.payload),
+      ).toContainEqual(
+        expect.objectContaining({
+          sessionId: receipt.sessionId,
+          phase: 'RUNNING',
+          executionId: token?.executionId,
+        }),
+      );
+
+      const retry = await handleSendV2('receipt-identity', transport, message, ctx);
+      expect(retry).toEqual(first);
+      expect(vi.mocked(startChat)).toHaveBeenCalledOnce();
+      expect(sessions.findBySessionId(receipt.sessionId!)?.session.currentExecution).toEqual(token);
+      expect(store.getSessionEvents(receipt.sessionId!)).toHaveLength(1);
+      expect(transport.sent.filter((event) => event.type === 'user_message')).toHaveLength(1);
+    } finally {
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockResolvedValue(undefined);
+      sessions.dispose();
+      store.close();
+    }
+  });
+
   it('persists one safe startup failure and replays it without rerouting', async () => {
     const store = new EventStore(':memory:');
     const ctx = createContext({ eventStore: store });

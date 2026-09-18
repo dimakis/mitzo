@@ -1778,6 +1778,12 @@ async function _startChatInner(
         }
         throw err;
       }
+      // The query loop has already recorded the exact owned terminal row for
+      // a pre-ready stream failure. Propagate only the stable admission
+      // failure so ExecutionController/launchChat can settle the receipt
+      // instead of leaving `accepted` pending after the runtime is removed.
+      if (options.requestFingerprint && !providerReady)
+        throw new Error('Chat provider did not become ready. Please retry.', { cause: err });
       if (!options.requestFingerprint && (ownsRuntime() || !runtimeLease)) registry.abort(clientId);
     } finally {
       if (!queryOwnershipDelegated) _onSessionChange?.(clientId, 'end', session.sessionId);
