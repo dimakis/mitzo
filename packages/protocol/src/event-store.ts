@@ -140,6 +140,13 @@ export interface SendCommandReceiptClaim {
   duplicate: boolean;
 }
 
+/** Durable idempotency record for an active-session interrupt command. */
+export type InterruptCommandState = 'PENDING' | 'ACCEPTED' | 'RETRYABLE';
+export interface InterruptCommandClaim {
+  state: InterruptCommandState;
+  duplicate: boolean;
+}
+
 export class SendCommandConflictError extends Error {
   constructor(message = 'Command ID already used for a different request') {
     super(message);
@@ -175,6 +182,17 @@ const SCHEMA = `
     payload TEXT NOT NULL,
     request_fingerprint TEXT,
     error TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
+  -- PENDING is intentionally recoverable: a process can die after claiming
+  -- but before it reaches a provider. Startup changes it to RETRYABLE rather
+  -- than replaying an interrupt whose external effect is unknowable.
+  CREATE TABLE IF NOT EXISTS interrupt_commands (
+    client_msg_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('PENDING', 'ACCEPTED', 'RETRYABLE')),
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
 
@@ -493,6 +511,66 @@ export class EventStore {
       error,
       clientMsgId,
     );
+  }
+
+  /**
+   * Claim an interrupt before touching a provider or ownership. Accepted
+   * receipts survive restart; PENDING rows are deliberately retryable after
+   * restart because an external provider effect cannot be safely replayed.
+   */
+  claimInterruptCommand(
+    clientMsgId: string,
+    sessionId: string,
+    requestFingerprint: string,
+  ): InterruptCommandClaim {
+    return this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        `SELECT session_id, request_fingerprint, state FROM interrupt_commands
+           WHERE client_msg_id = ?`,
+      ).get(clientMsgId) as
+        | { session_id: string; request_fingerprint: string; state: InterruptCommandState }
+        | undefined;
+      if (!existing) {
+        this.db!.prepare(
+          `INSERT INTO interrupt_commands (client_msg_id, session_id, request_fingerprint, state)
+             VALUES (?, ?, ?, 'PENDING')`,
+        ).run(clientMsgId, sessionId, requestFingerprint);
+        return { state: 'PENDING' as const, duplicate: false };
+      }
+      if (
+        existing.session_id !== sessionId ||
+        existing.request_fingerprint !== requestFingerprint
+      ) {
+        throw new SendCommandConflictError(
+          'Interrupt command ID already used for a different request',
+        );
+      }
+      if (existing.state === 'RETRYABLE') {
+        this.db!.prepare(
+          "UPDATE interrupt_commands SET state = 'PENDING' WHERE client_msg_id = ? AND state = 'RETRYABLE'",
+        ).run(clientMsgId);
+        return { state: 'PENDING' as const, duplicate: false };
+      }
+      return { state: existing.state, duplicate: true };
+    }).immediate();
+  }
+
+  acceptInterruptCommand(clientMsgId: string): void {
+    this.db!.prepare(
+      "UPDATE interrupt_commands SET state = 'ACCEPTED' WHERE client_msg_id = ? AND state = 'PENDING'",
+    ).run(clientMsgId);
+  }
+
+  retryInterruptCommand(clientMsgId: string): void {
+    this.db!.prepare(
+      "UPDATE interrupt_commands SET state = 'RETRYABLE' WHERE client_msg_id = ? AND state = 'PENDING'",
+    ).run(clientMsgId);
+  }
+
+  recoverPendingInterruptCommands(): void {
+    this.db!.prepare(
+      "UPDATE interrupt_commands SET state = 'RETRYABLE' WHERE state = 'PENDING'",
+    ).run();
   }
 
   constructor(dbPath: string, logger?: EventStoreLogger) {

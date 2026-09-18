@@ -284,7 +284,7 @@ describe('interruptChat emits user_message via transport', () => {
     };
 
     const result = await interruptChat(CLIENT_ID, 'Urgent message');
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'accepted' });
 
     const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
@@ -318,7 +318,7 @@ describe('interruptChat emits user_message via transport', () => {
 
     const clientMsgId = `user-${Date.now()}-def`;
     const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, clientMsgId);
-    expect(result).toBe(true);
+    expect(result).toMatchObject({ kind: 'accepted' });
 
     const userMsgEvents = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
@@ -349,14 +349,17 @@ describe('interruptChat emits user_message via transport', () => {
     };
 
     const clientMsgId = `user-int-dedup-${Date.now()}`;
-    expect(await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId)).toBe(true);
+    expect(
+      await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId),
+    ).toMatchObject({
+      kind: 'accepted',
+    });
     expect(interruptSpy).toHaveBeenCalledTimes(1);
 
-    // Second interrupt with same clientMsgId — echo is deduplicated but
-    // the interrupt side-effect still fires (a retried interrupt must stop the agent)
+    // Exact accepted retry is a receipt replay: it must not re-interrupt.
     const result = await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId);
-    expect(result).toBe(true);
-    expect(interruptSpy).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ kind: 'duplicate_already_accepted' });
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
     // transport should only have ONE user_message echo (deduped)
     const userMsgs = transport._sent.filter(
       (m: Record<string, unknown>) => m.type === 'user_message',
@@ -364,6 +367,105 @@ describe('interruptChat emits user_message via transport', () => {
     expect(userMsgs).toHaveLength(1);
     // inputQueue should only get ONE push (no double-queue on retry)
     expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent exact retries before provider admission', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    let releaseInterrupt!: () => void;
+    const interruptSpy = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseInterrupt = resolve;
+        }),
+    );
+    const messageId = `user-int-concurrent-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-concurrent-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
+
+    const first = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
+    const second = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
+    await Promise.resolve();
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    releaseInterrupt();
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { kind: 'accepted' },
+      { kind: 'accepted' },
+    ]);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a mismatched payload under an accepted interrupt ID without redelivery', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+    const messageId = `user-int-conflict-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-conflict-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
+
+    await expect(
+      interruptChat(CLIENT_ID, 'First', undefined, undefined, messageId),
+    ).resolves.toMatchObject({
+      kind: 'accepted',
+    });
+    await expect(
+      interruptChat(CLIENT_ID, 'Different', undefined, undefined, messageId),
+    ).resolves.toMatchObject({
+      kind: 'conflict',
+    });
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits accepted interrupt history even if the live echo transport throws', async () => {
+    const transport = mockTransport();
+    vi.mocked(transport.send).mockImplementation(() => {
+      throw new Error('socket write failed');
+    });
+    const pushSpy = vi.fn();
+    const sessionId = `sess-int-throwing-transport-${Date.now()}`;
+    const messageId = `user-int-throwing-transport-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = {
+      interrupt: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn(),
+      stopTask: vi.fn(),
+    };
+    eventStore.upsertSession({ sessionId });
+
+    await expect(
+      interruptChat(CLIENT_ID, 'Persist despite socket', undefined, undefined, messageId),
+    ).resolves.toMatchObject({
+      kind: 'accepted',
+    });
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(1);
   });
 
   it('leaves a rejected interrupt retryable, then stores and echoes it exactly once', async () => {
@@ -394,7 +496,7 @@ describe('interruptChat emits user_message via transport', () => {
 
     await expect(
       interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
-    ).rejects.toThrow('provider rejected before accepting input');
+    ).resolves.toMatchObject({ kind: 'unavailable_unreported' });
     expect(pushSpy).not.toHaveBeenCalled();
     expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
     expect(
@@ -403,7 +505,7 @@ describe('interruptChat emits user_message via transport', () => {
 
     await expect(
       interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
-    ).resolves.toBe(true);
+    ).resolves.toMatchObject({ kind: 'accepted' });
     expect(interruptSpy).toHaveBeenCalledTimes(2);
     expect(pushSpy).toHaveBeenCalledTimes(1);
     expect(transport._sent.filter((message) => message.type === 'user_message')).toHaveLength(1);
@@ -476,7 +578,7 @@ describe('interruptChat emits user_message via transport', () => {
         'user-anthropic-interrupt-model',
         'claude-opus-4-6',
       ),
-    ).toBe(false);
+    ).toMatchObject({ kind: 'rejected_already_reported' });
     expect(interruptSpy).not.toHaveBeenCalled();
     expect(pushSpy).not.toHaveBeenCalled();
     expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');

@@ -1159,6 +1159,47 @@ export async function handleInterruptV2(
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+        // Takeover is tentative. The durable interrupt admission below owns
+        // provider/task side effects first; rejected attempts leave owner,
+        // watches, permissions, and active-session state untouched.
+        let rawOutcome: Awaited<ReturnType<typeof interruptChat>> | boolean;
+        try {
+          rawOutcome = await interruptChat(
+            activeClientId,
+            msg.prompt,
+            msg.images,
+            msg.contextBlocks,
+            msg.clientMsgId,
+            msg.accountId ? msg.model : undefined,
+            msg.accountId ? msg.reasoningEffort : undefined,
+          );
+        } catch {
+          rawOutcome = { kind: 'unavailable_unreported' as const };
+        }
+        // Compatibility for narrow handler test doubles while all production
+        // implementations return the typed contract.
+        const outcome =
+          typeof rawOutcome === 'boolean'
+            ? rawOutcome
+              ? { kind: 'accepted' as const }
+              : { kind: 'rejected_already_reported' as const }
+            : rawOutcome;
+        if (outcome.kind === 'unavailable_unreported' || outcome.kind === 'conflict') {
+          try {
+            transport.send({
+              type: 'error',
+              sessionId: msg.sessionId,
+              error:
+                outcome.kind === 'conflict'
+                  ? 'This command ID is already associated with another request.'
+                  : 'Unable to interrupt the chat. Please retry.',
+            });
+          } catch {
+            // The requester can disconnect while provider admission settles.
+          }
+          return;
+        }
+        if (outcome.kind === 'rejected_already_reported') return;
 
         if (!isOwner) {
           const oldTransport = found.session?.transport;
@@ -1167,7 +1208,6 @@ export async function handleInterruptV2(
           }
           ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
           denyPendingBySession(msg.sessionId);
-
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
           log.info('takeover on interrupt', {
@@ -1181,27 +1221,8 @@ export async function handleInterruptV2(
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
         }
-
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        try {
-          const accepted = await interruptChat(
-            activeClientId,
-            msg.prompt,
-            msg.images,
-            msg.contextBlocks,
-            msg.clientMsgId,
-            msg.accountId ? msg.model : undefined,
-            msg.accountId ? msg.reasoningEffort : undefined,
-          );
-          // interruptChat emits its specific safe error for rejected/no-op
-          // controls. Do not add a contradictory generic error here.
-          if (!accepted) return;
-        } catch {
-          // Do not leak provider URLs, paths, credentials, or prompt text to
-          // the WS/REST outer handlers (or their normal logs).
-          throw new SendDispatchFailure('Unable to interrupt the chat. Please retry.');
-        }
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }
@@ -1236,12 +1257,13 @@ export async function handleInterruptV2(
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
-      }).catch((err: unknown) =>
-        transport.send({
-          type: 'error',
-          error: err instanceof Error ? err.message : 'Session startup failed',
-        }),
-      );
+      }).catch(() => {
+        try {
+          transport.send({ type: 'error', error: 'Session startup failed. Please retry.' });
+        } catch {
+          // Detached transport may close while the startup promise settles.
+        }
+      });
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );

@@ -35,7 +35,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -126,7 +126,7 @@ let _onSessionsChanged: (() => void) | null = null;
 export function setSessionsChangedCallback(cb: () => void): void {
   _onSessionsChanged = cb;
 }
-import { EventStore } from './event-store.js';
+import { EventStore, SendCommandConflictError } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { accountSessionName } from './account-session-name.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
@@ -532,7 +532,13 @@ export function parseModelSpec(spec?: string): { model: string; effort: string |
 
 /** Send data via transport (isOpen guard is inside the transport). */
 function send(transport: SessionTransport, data: Record<string, unknown> | BootContextMessage) {
-  if (transport.isOpen()) transport.send(data as Record<string, unknown>);
+  if (!transport.isOpen()) return;
+  try {
+    transport.send(data as Record<string, unknown>);
+  } catch {
+    // Live delivery is never an admission/receipt boundary. Durable events
+    // remain replayable when a socket closes between isOpen() and send().
+  }
 }
 
 const IPV4_PRELOAD = join(dirname(fileURLToPath(import.meta.url)), 'ipv4-preload.cjs');
@@ -1920,8 +1926,24 @@ function storeAndEchoIfNew(
   images?: string[],
   contextBlocks?: string[],
 ): boolean {
+  const echo = storeUserMessageIfNew(sessionId, messageId, text, clientId, images, contextBlocks);
+  if (!echo) return true;
+  send(transport, echo);
+  broadcastToObservers(observers, echo);
+  return false;
+}
+
+/** Persist independently from best-effort transport delivery. */
+function storeUserMessageIfNew(
+  sessionId: string,
+  messageId: string,
+  text: string,
+  clientId: string,
+  images?: string[],
+  contextBlocks?: string[],
+): Record<string, unknown> | undefined {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
-    return true;
+    return undefined;
   }
   const seq = eventStore.append(sessionId, 'user_message', {
     v: 2,
@@ -1934,7 +1956,7 @@ function storeAndEchoIfNew(
   });
   eventStore.updateLastSpeaker(sessionId, 'user');
   _onSessionChange?.(clientId, 'user_message');
-  const echo = {
+  return {
     type: 'user_message',
     v: 2,
     messageId,
@@ -1944,9 +1966,6 @@ function storeAndEchoIfNew(
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
   };
-  send(transport, echo);
-  broadcastToObservers(observers, echo);
-  return false;
 }
 
 function imagePreviews(images?: Array<{ data: string; mediaType: string }>): string[] | undefined {
@@ -2122,7 +2141,27 @@ export async function sendToChat(
   });
 }
 
-/** Interrupt the current generation and inject a message the model sees immediately. */
+export type InterruptOutcome =
+  | { kind: 'accepted' }
+  | { kind: 'duplicate_already_accepted' }
+  | { kind: 'rejected_already_reported' }
+  | { kind: 'conflict' }
+  | { kind: 'unavailable_unreported' };
+
+const pendingInterruptAdmissions = new Map<string, Promise<InterruptOutcome>>();
+
+function interruptFingerprint(input: {
+  sessionId: string;
+  prompt: string;
+  images?: Array<{ data: string; mediaType: string }>;
+  contextBlocks?: string[];
+  model?: string;
+  reasoningEffort?: string | null;
+}): string {
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex');
+}
+
+/** Interrupt the current generation through a durable, typed admission boundary. */
 export async function interruptChat(
   clientId: string,
   prompt: string,
@@ -2131,10 +2170,11 @@ export async function interruptChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
-): Promise<boolean> {
+): Promise<InterruptOutcome> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
-    if (!session?.queryInstance || !session?.inputQueue) return false;
+    if (!session?.queryInstance || !session?.inputQueue || !session.sessionId)
+      return { kind: 'unavailable_unreported' };
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
     if (!codex && !responses && model && model !== session.model) {
@@ -2144,7 +2184,7 @@ export async function interruptChat(
         error:
           'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
       });
-      return false;
+      return { kind: 'rejected_already_reported' };
     }
     if (codex) {
       if (session.activeSkillPolicy) {
@@ -2153,89 +2193,118 @@ export async function interruptChat(
           sessionId: session.sessionId,
           error: 'Codex restricted skill tool ceilings are not yet supported',
         });
-        return false;
+        return { kind: 'rejected_already_reported' };
       }
-      if (model) codex.validateModel(model, reasoningEffort);
-      await codex.interrupt();
-      return sendToChat(
-        clientId,
-        prompt,
-        images,
-        contextBlocks,
-        clientMsgId,
-        model,
-        reasoningEffort,
-      );
-    }
-    if (responses) {
-      await session.queryInstance.interrupt();
-      return sendToChat(
-        clientId,
-        prompt,
-        images,
-        contextBlocks,
-        clientMsgId,
-        model,
-        reasoningEffort,
-      );
-    }
-    if (model) session.model = model;
-    if (session.sessionId && (model || reasoningEffort !== undefined)) {
-      eventStore.upsertSession({
-        sessionId: session.sessionId,
-        ...(model ? { selectedModel: model } : {}),
-        ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
-      });
+      try {
+        if (model) codex.validateModel(model, reasoningEffort);
+      } catch {
+        return { kind: 'unavailable_unreported' };
+      }
     }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
-    // Stop all active subagent tasks before interrupting the parent query.
-    // Without this, interrupt() only halts the parent — which is blocked
-    // waiting for the subagent, so the session hangs.
-    if (session.activeTaskIds.size > 0) {
-      const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-        session
-          .queryInstance!.stopTask(taskId)
-          .catch((err: unknown) => log.warn('stopTask failed', { taskId, err })),
-      );
-      await Promise.allSettled(stops);
+    const fingerprint = interruptFingerprint({
+      sessionId: session.sessionId,
+      prompt,
+      images,
+      contextBlocks,
+      model,
+      reasoningEffort,
+    });
+    let claim;
+    try {
+      claim = eventStore.claimInterruptCommand(messageId, session.sessionId, fingerprint);
+    } catch (error) {
+      if (error instanceof SendCommandConflictError) return { kind: 'conflict' };
+      return { kind: 'unavailable_unreported' };
     }
-    await session.queryInstance.interrupt();
-    // Provider acceptance precedes durable echo/dedup. A rejected interrupt
-    // leaves clientMsgId retryable and never claims the model saw the prompt.
-    let isDup = false;
-    if (session.sessionId) {
-      isDup = storeAndEchoIfNew(
-        session.sessionId,
-        messageId,
-        fullPrompt,
+    if (claim.duplicate && claim.state === 'ACCEPTED')
+      return { kind: 'duplicate_already_accepted' };
+    const pendingKey = `${session.sessionId}:${messageId}`;
+    if (claim.duplicate && claim.state === 'PENDING') {
+      const pending = pendingInterruptAdmissions.get(pendingKey);
+      if (pending) return pending;
+      // A PENDING row without an in-process owner is conservatively made
+      // retryable; startup performs the same recovery after a process crash.
+      eventStore.retryInterruptCommand(messageId);
+      return interruptChat(
         clientId,
-        session.transport,
-        session.observers,
-        previews,
+        prompt,
+        images,
         contextBlocks,
-      );
-    } else {
-      // Pre-session-resolve has no durable dedup key; this still happens only
-      // after provider acceptance and preserves the existing prompt ordering.
-      const echo = {
-        type: 'user_message',
-        v: 2,
         messageId,
-        text: fullPrompt,
-        ...(previews?.length ? { images: previews } : {}),
-        ...(contextBlocks?.length ? { contextBlocks } : {}),
-      };
-      send(session.transport, echo);
-      broadcastToObservers(session.observers, echo);
+        model,
+        reasoningEffort,
+      );
     }
-    // Only push on first delivery — a retried interrupt still halts the
-    // provider but never double-queues the prompt.
-    if (!isDup) {
-      session.inputQueue.push(makeUserMessage(fullPrompt, 'now'));
-    }
-    return true;
+
+    const admission = (async (): Promise<InterruptOutcome> => {
+      try {
+        if (codex || responses) {
+          if (codex) await codex.interrupt();
+          else await session.queryInstance!.interrupt();
+          const delivered = await sendToChat(
+            clientId,
+            prompt,
+            images,
+            contextBlocks,
+            messageId,
+            model,
+            reasoningEffort,
+          );
+          if (!delivered) throw new Error('provider did not accept interrupt message');
+        } else {
+          // Claiming above precedes these destructive task/provider calls.
+          const stops = [...session.activeTaskIds.keys()].map((taskId) =>
+            session.queryInstance!.stopTask(taskId).catch(() => undefined),
+          );
+          await Promise.allSettled(stops);
+          await session.queryInstance!.interrupt();
+          // Queue before persisting history: an ordinary storage exception can
+          // leave an unacknowledged queued message, but never durable history
+          // that falsely claims a message was queued.
+          session.inputQueue!.push(makeUserMessage(fullPrompt, 'now'));
+          const echo = storeUserMessageIfNew(
+            session.sessionId!,
+            messageId,
+            fullPrompt,
+            clientId,
+            previews,
+            contextBlocks,
+          );
+          if (model || reasoningEffort !== undefined) {
+            eventStore.upsertSession({
+              sessionId: session.sessionId!,
+              ...(model ? { selectedModel: model } : {}),
+              ...(reasoningEffort !== undefined
+                ? { reasoningEffort: reasoningEffort || null }
+                : {}),
+            });
+          }
+          if (model) session.model = model;
+          eventStore.acceptInterruptCommand(messageId);
+          if (echo) {
+            send(session.transport, echo);
+            broadcastToObservers(session.observers, echo);
+          }
+          return { kind: 'accepted' };
+        }
+        eventStore.acceptInterruptCommand(messageId);
+        return { kind: 'accepted' };
+      } catch {
+        // Rejections are retryable and intentionally never persist a provider
+        // error, prompt echo, ownership change, or model selection.
+        eventStore.retryInterruptCommand(messageId);
+        return { kind: 'unavailable_unreported' };
+      }
+    })();
+    pendingInterruptAdmissions.set(pendingKey, admission);
+    void admission.finally(() => {
+      if (pendingInterruptAdmissions.get(pendingKey) === admission)
+        pendingInterruptAdmissions.delete(pendingKey);
+    });
+    return admission;
   });
 }
 

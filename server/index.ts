@@ -1194,13 +1194,26 @@ function handleChatWs(
           'ws.interrupt',
           { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId ?? '' },
           async () => {
-            await interruptChat(
+            const outcome = await interruptChat(
               clientId,
               msg.prompt,
               msg.images,
               msg.contextBlocks,
               msg.clientMsgId,
             );
+            if (outcome.kind === 'unavailable_unreported' || outcome.kind === 'conflict') {
+              try {
+                transport.send({
+                  type: 'error',
+                  error:
+                    outcome.kind === 'conflict'
+                      ? 'This command ID is already associated with another request.'
+                      : 'Unable to interrupt the chat. Please retry.',
+                });
+              } catch {
+                // The legacy transport can close while an interrupt settles.
+              }
+            }
           },
           contextFromTraceparent(traceparent),
         );
@@ -1318,6 +1331,7 @@ checkPort(PORT).then((inUse) => {
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
     eventStore.recoverPendingSendCommands();
+    eventStore.recoverPendingInterruptCommands();
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.

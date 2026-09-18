@@ -1664,4 +1664,33 @@ describe('EventStore', () => {
       store.close();
     });
   });
+
+  describe('interrupt command receipts', () => {
+    it('coalesces pending retries, rejects conflicts, and recovers pending claims as retryable', () => {
+      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
+        state: 'PENDING',
+        duplicate: false,
+      });
+      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
+        state: 'PENDING',
+        duplicate: true,
+      });
+      expect(() =>
+        store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-b'),
+      ).toThrow('different request');
+
+      // A restart never replays an unknown external interrupt: it allows an
+      // exact client retry to make a fresh PENDING claim instead.
+      store.recoverPendingInterruptCommands();
+      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
+        state: 'PENDING',
+        duplicate: false,
+      });
+      store.acceptInterruptCommand('interrupt-1');
+      expect(store.claimInterruptCommand('interrupt-1', 'session-1', 'fingerprint-a')).toEqual({
+        state: 'ACCEPTED',
+        duplicate: true,
+      });
+    });
+  });
 });

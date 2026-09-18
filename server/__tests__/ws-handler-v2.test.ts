@@ -1487,7 +1487,10 @@ describe('handleInterruptV2', () => {
       ctx,
     );
     await Promise.resolve();
-    expect(transport.sent).toContainEqual({ type: 'error', error: 'Resume failed' });
+    expect(transport.sent).toContainEqual({
+      type: 'error',
+      error: 'Session startup failed. Please retry.',
+    });
   });
 
   it('watches, activates, and resumes via startChat when session is idle', () => {
@@ -1595,7 +1598,10 @@ describe('handleInterruptV2', () => {
         { type: 'interrupt', sessionId: 'sess-1', prompt: 'change', clientMsgId: 'i-rejected' },
         ctx,
       ),
-    ).rejects.toThrow('Unable to interrupt the chat. Please retry.');
+    ).resolves.toBeUndefined();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ error: 'Unable to interrupt the chat. Please retry.' }),
+    );
     await expect(
       handleInterruptV2(
         'c1',
@@ -3501,7 +3507,50 @@ describe('getOwnerConnection', () => {
 // ─── handleInterruptV2 — connection ownership ───────────────────────────────
 
 describe('handleInterruptV2 connection ownership', () => {
-  it('takes over session from another connection on interrupt', () => {
+  it('leaves the current owner, watch, and permissions untouched when admission rejects', async () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear().mockResolvedValueOnce({
+      kind: 'unavailable_unreported',
+    });
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-rollback',
+      session: { transport: oldTransport },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-rollback');
+
+    await handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-rollback', prompt: 'stop', clientMsgId: 'rollback' },
+      ctx,
+    );
+
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(oldTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-rollback')).toBe(true);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: 'Unable to interrupt the chat. Please retry.',
+      }),
+    );
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  });
+
+  it('takes over session from another connection on interrupt', async () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
@@ -3524,7 +3573,7 @@ describe('handleInterruptV2 connection ownership', () => {
     ctx.connRegistry.register('other-conn', oldTransport);
     ctx.connRegistry.watch('other-conn', 'sess-1');
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i5' },
@@ -3551,7 +3600,7 @@ describe('handleInterruptV2 connection ownership', () => {
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
   });
 
-  it('allows interrupt when owner connection is gone (same device reconnect)', () => {
+  it('allows interrupt when owner connection is gone (same device reconnect)', async () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
@@ -3567,7 +3616,7 @@ describe('handleInterruptV2 connection ownership', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'c1',
       transport,
       { type: 'interrupt', sessionId: 'sess-1', prompt: 'stop', clientMsgId: 'i5' },
@@ -3744,7 +3793,7 @@ describe('handleSendV2 rekey after detached reattach', () => {
 });
 
 describe('handleInterruptV2 rekey after detached reattach', () => {
-  it('uses the original runtime key for interrupt after reconnect', () => {
+  it('uses the original runtime key for interrupt after reconnect', async () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
     (rekeyChat as ReturnType<typeof vi.fn>).mockClear();
@@ -3760,7 +3809,7 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
     const transport = mockTransport();
     ctx.connRegistry.register('new-conn', transport);
 
-    handleInterruptV2(
+    await handleInterruptV2(
       'new-conn',
       transport,
       { type: 'interrupt', sessionId: 'sess-1', prompt: 'redirect', clientMsgId: 'i-rk' },
