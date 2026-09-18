@@ -95,6 +95,8 @@ export type ProviderTurnBinding = {
   token?: ExecutionToken;
   terminal: Promise<void>;
   releaseTerminal: () => void;
+  /** Runs synchronously when an envelope crosses the provider boundary. */
+  onConsumed?: (token: ExecutionToken | undefined) => void;
   begin(token: ExecutionToken | undefined): void;
 };
 
@@ -128,6 +130,7 @@ export function executionBoundSdkPrompt(
         // has been observed; otherwise an old result could end the replacement.
         if (active.token) await active.terminal;
         active.begin(envelope.executionToken);
+        active.onConsumed?.(envelope.executionToken);
         yield envelope.message;
       }
     },
@@ -1805,6 +1808,15 @@ async function _startChatInner(
           initialClientMsgId: options.clientMsgId,
           initialImages: imagePreviews(options.images),
           initialContextBlocks: options.contextBlocks,
+          ...(activeProviderInput
+            ? {
+                executionInputConsumptionSource: (consume: (token: ExecutionToken) => void) => {
+                  activeProviderInput.onConsumed = (token) => {
+                    if (token) consume(token);
+                  };
+                },
+              }
+            : {}),
           onSessionResolved: (sessionId: string) => {
             // Persist boot context for new sessions (resume sessions already persisted above)
             if (!options.resume) {

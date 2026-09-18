@@ -202,6 +202,8 @@ export interface QueryLoopOptions {
   onTurnEnd?: (clientId: string) => void;
   /** First syntactically valid event from the provider stream, not query allocation. */
   onProviderReady?: (token?: ExecutionToken) => void;
+  /** Adapter registers this to signal input consumption before provider output. */
+  executionInputConsumptionSource?: (consume: (token: ExecutionToken) => void) => void;
   /** A provider result ended this admitted initial execution. */
   onProviderResult?: (
     outcome: 'completed' | 'failed',
@@ -267,6 +269,15 @@ async function _runQueryLoopInner(
   const onProviderResult = options?.onProviderResult;
   const onProviderFailure = options?.onProviderFailure;
   let providerToken: ExecutionToken | undefined;
+  let terminalOutcomeAttempted = false;
+  let terminalTokenKey: string | undefined;
+  const consumeExecutionToken = (token: ExecutionToken) => {
+    providerToken = token;
+    // Result/EOF accounting is per provider turn, not per long-lived query.
+    terminalOutcomeAttempted = false;
+    terminalTokenKey = undefined;
+  };
+  options?.executionInputConsumptionSource?.(consumeExecutionToken);
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -444,8 +455,6 @@ async function _runQueryLoopInner(
   // the configured model is unreachable (e.g. requested via Vertex AI before
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
-  let terminalOutcomeAttempted = false;
-  let terminalTokenKey: string | undefined;
   let lifecycleTerminalReason: 'completed' | 'error' | 'stopped' = 'completed';
   const wasDeliberatelyStopped = () => !!ownedSession?.stoppedExecution;
   let timedOut = false;
@@ -467,7 +476,7 @@ async function _runQueryLoopInner(
           typeof (tagged as ExecutionToken).executionId === 'string' &&
           typeof (tagged as ExecutionToken).generation === 'number'
         )
-          providerToken = tagged as ExecutionToken;
+          consumeExecutionToken(tagged as ExecutionToken);
         const providerTokenKey = providerToken
           ? `${providerToken.sessionId}:${providerToken.executionId}:${providerToken.generation}`
           : undefined;

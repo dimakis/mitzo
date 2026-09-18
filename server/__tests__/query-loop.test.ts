@@ -2477,6 +2477,29 @@ it('does not emit session_end when a stale predecessor result loses execution ow
 });
 
 describe('provider result outcome classification', () => {
+  it('attributes a consumed replacement token to a zero-output EOF', async () => {
+    const token = { sessionId: 'consumed-eof', executionId: 'replacement', generation: 2 };
+    const failures: Array<{ beforeReady: boolean; token?: unknown }> = [];
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    registry.get('terminal-client')!.sessionId = token.sessionId;
+    await runQueryLoop(
+      eventStream([]),
+      'terminal-client',
+      registry,
+      new AbortController(),
+      undefined,
+      undefined,
+      {
+        executionOwned: true,
+        executionInputConsumptionSource: (consume) => consume(token),
+        onProviderFailure: (beforeReady, consumed) =>
+          failures.push({ beforeReady, token: consumed }),
+      },
+    );
+    expect(failures).toEqual([{ beforeReady: true, token }]);
+  });
+
   it('recognizes emitted Anthropic, Codex, and native Responses/Gemini result shapes', () => {
     expect(classifyProviderResultOutcome({ type: 'result', subtype: 'success' })).toBe('completed');
     expect(
