@@ -34,7 +34,16 @@ import type {
 } from '@mitzo/harness';
 import type { ExecutionEnvelope, ExecutionToken } from '@mitzo/protocol';
 import { execFileSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'fs';
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+  existsSync,
+  unlinkSync,
+  openSync,
+  closeSync,
+} from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
@@ -1000,7 +1009,12 @@ function removeStagedImages(paths: Iterable<string>): void {
   }
 }
 
-function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
+/** Exported for deterministic staging-failure coverage; callers use the default writer. */
+export function stageImages(
+  cwd: string,
+  images: Array<{ data: string; mediaType: string }>,
+  write: (fd: number, data: Uint8Array) => void = (fd, data) => writeFileSync(fd, data),
+): string[] {
   const imgDir = join(cwd, '.mitzo-images');
   mkdirSync(imgDir, { recursive: true });
 
@@ -1012,15 +1026,29 @@ function stageImages(cwd: string, images: Array<{ data: string; mediaType: strin
   };
 
   const paths: string[] = [];
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
-    const ext = extMap[img.mediaType] || '.jpg';
-    const filename = `image-${Date.now()}-${i}${ext}`;
-    const filePath = join(imgDir, filename);
-    writeFileSync(filePath, Buffer.from(img.data, 'base64'));
-    paths.push(filePath);
+  try {
+    for (let i = 0; i < images.length; i++) {
+      const img = images[i];
+      const ext = extMap[img.mediaType] || '.jpg';
+      // A timestamp is not an ownership boundary: concurrent admissions can
+      // share a millisecond. O_EXCL makes a UUID collision fail safely rather
+      // than overwriting or later deleting another admission's image.
+      const filePath = join(imgDir, `image-${randomUUID()}-${i}${ext}`);
+      const fd = openSync(filePath, 'wx', 0o600);
+      paths.push(filePath);
+      try {
+        write(fd, Buffer.from(img.data, 'base64'));
+      } finally {
+        closeSync(fd);
+      }
+    }
+    return paths;
+  } catch (error) {
+    // Only paths opened exclusively by this invocation are in `paths`.
+    // Roll them all back before exposing the staging failure to admission.
+    removeStagedImages(paths);
+    throw error;
   }
-  return paths;
 }
 
 // --- Main orchestrator ---
@@ -2310,19 +2338,17 @@ export async function sendToChat(
         acknowledge();
         // Replacement dispatch must not acknowledge a RUNNING token while
         // Codex still has not definitively resumed its explicit command.
-        await codex.resumeAfterExplicitSend();
+        await codex.resumeAfterExplicitSend(signal);
       } catch {
         // A replacement token is already durable by this point. If the
         // resume/start/reconnect path fails, make precisely this queued Codex
         // command non-claimable before returning false to its controller,
         // which terminalizes the token. A later exact retry is receipt-only.
         if (executionToken) {
-          try {
-            codex.cancelQueued(messageId);
-          } catch {
-            // Keep the client boundary sanitized; durable queue recovery owns
-            // any exceptional storage diagnosis.
-          }
+          // Do not swallow a storage cancellation failure. The controller
+          // terminalizes this exact token, and the queue's fail-closed claim
+          // guard then prevents a later pump/restart from executing it.
+          codex.cancelQueued(messageId);
         }
         if (signal?.aborted) return false;
         send(session.transport, {
@@ -2467,6 +2493,25 @@ export async function interruptChat(
     } catch {
       return { kind: 'unavailable_unreported' };
     }
+    // Native selection validation must finish before an owner reservation or
+    // durable replacement. This mirrors the ordinary Responses send path.
+    let selectedModel: string | null | undefined = model;
+    let selectedReasoningEffort: string | null | undefined = reasoningEffort;
+    if (responses) {
+      try {
+        const stored = eventStore.getSession(session.sessionId);
+        selectedReasoningEffort =
+          model && model !== session.model && reasoningEffort === undefined
+            ? null
+            : reasoningEffort;
+        validateNativeModelSelection(session.sessionId, model, selectedReasoningEffort);
+        selectedModel = model ?? stored?.selectedModel ?? session.model ?? null;
+        if (selectedReasoningEffort === undefined)
+          selectedReasoningEffort = stored?.reasoningEffort ?? null;
+      } catch {
+        return { kind: 'unavailable_unreported' };
+      }
+    }
     let fingerprint: string;
     try {
       fingerprint = interruptFingerprint({
@@ -2476,8 +2521,8 @@ export async function interruptChat(
         expectedGeneration: expectedToken.generation,
         images,
         contextBlocks,
-        model,
-        reasoningEffort,
+        model: selectedModel ?? undefined,
+        reasoningEffort: selectedReasoningEffort,
         mode: session.mode,
         cwd: session.cwd,
       });
@@ -2495,17 +2540,11 @@ export async function interruptChat(
     // replayable even while their envelope is waiting.
     if (!codex && !responses && registry.hasReplacementInputBarrier(lease))
       return { kind: 'unavailable_unreported' };
-    // Fence owner changes before context/image preparation. This prevents a
-    // stale requester from growing image storage or committing a replacement
-    // while a newer connection takes ownership.
-    const ownerReservation = registry.reserveRuntimeOwner(
-      replacementOwnership.expected,
-      replacementOwnership.requesterConnectionId,
-      replacementOwnership.requesterTransport,
-    );
-    if (!ownerReservation) return { kind: 'unavailable_unreported' };
     // Context expansion is deliberately after idempotency preflight; it does
     // not stage images, and image paths are created only by provider dispatch.
+    // The controller owns the owner-reservation lifecycle after it has
+    // serialized this replacement, so busy/stale/error paths cannot strand a
+    // caller-created reservation.
     let fullPrompt: string;
     let stagedImagePaths: string[] = [];
     try {
@@ -2513,7 +2552,6 @@ export async function interruptChat(
         stagedImagePaths = paths;
       });
     } catch {
-      registry.releaseRuntimeOwnerReservation(ownerReservation);
       removeStagedImages(stagedImagePaths);
       return { kind: 'unavailable_unreported' };
     }
@@ -2532,13 +2570,20 @@ export async function interruptChat(
         clientMsgId: messageId,
         requestFingerprint: fingerprint,
         retainedBytes,
+        selectedModel,
+        reasoningEffort: selectedReasoningEffort,
         userMessage: {
           messageId,
           text: fullPrompt,
           ...(imageRefs?.length ? { images: imageRefs } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
         },
-        reserveOwner: () => ownerReservation,
+        reserveOwner: () =>
+          registry.reserveRuntimeOwner(
+            replacementOwnership.expected,
+            replacementOwnership.requesterConnectionId,
+            replacementOwnership.requesterTransport,
+          ),
         commitOwner: (reservation) => {
           if (!registry.commitReservedRuntimeOwner(reservation as RuntimeOwnerReservation))
             return false;
@@ -2576,8 +2621,8 @@ export async function interruptChat(
                 images,
                 contextBlocks,
                 messageId,
-                model,
-                reasoningEffort,
+                selectedModel ?? undefined,
+                selectedReasoningEffort,
                 undefined,
                 undefined,
                 token,
@@ -2588,8 +2633,10 @@ export async function interruptChat(
             await session.queryInstance!.interrupt();
             if (!ownsReplacement()) throw new Error('replacement execution is no longer current');
             responses.prepare(messageId, fullPrompt, {
-              ...(model ? { model } : {}),
-              ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+              ...(selectedModel ? { model: selectedModel } : {}),
+              ...(selectedReasoningEffort !== undefined
+                ? { reasoningEffort: selectedReasoningEffort }
+                : {}),
             });
             session.inputQueue!.push({
               message: makeUserMessage(fullPrompt, 'now', messageId),
@@ -2640,7 +2687,7 @@ export async function interruptChat(
               commandId: messageId,
             } satisfies ProviderInput);
           }
-          if (model) session.model = model;
+          if (selectedModel) session.model = selectedModel;
         },
       });
     } catch {
@@ -2656,7 +2703,6 @@ export async function interruptChat(
       return { kind: 'unavailable_unreported' };
     if (replacement.error && !replacement.admission) return { kind: 'conflict' };
     if (replacement.busy) return { kind: 'unavailable_unreported' };
-    if (replacement.notDispatched) return { kind: 'unavailable_unreported' };
     if (!replacement.admission) return { kind: 'unavailable_unreported' };
     return replacement.admission.duplicate
       ? { kind: 'duplicate_already_accepted' }

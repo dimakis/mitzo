@@ -644,6 +644,14 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       };
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
+    // The private Codex queue is intentionally fail-closed for commands
+    // created by a replacement. A recovered/late queue pump must never run a
+    // command after its exact Mitzo generation has been stopped or replaced.
+    isExecutionClaimable: (token) => {
+      const owner = options.registry.findBySessionId(token.sessionId);
+      const current = owner?.session.currentExecution;
+      return current?.executionId === token.executionId && current.generation === token.generation;
+    },
     ...(runtimeManager
       ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
       : {}),

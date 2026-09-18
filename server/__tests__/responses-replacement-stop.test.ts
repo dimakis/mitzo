@@ -8,10 +8,17 @@ import { ExecutionController } from '../execution-controller.js';
 const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
 }));
+const profiles = vi.hoisted(() => ({
+  validateModelSelection: vi.fn(),
+}));
 
 vi.mock('../responses-chat-session.js', () => ({
   getResponsesRuntime: () => responses,
   openResponsesChat: vi.fn(),
+}));
+vi.mock('../account-profiles.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../account-profiles.js')>()),
+  loadAccountProfiles: () => profiles,
 }));
 
 const chat = await import('../chat.js');
@@ -127,6 +134,89 @@ it('does not prepare or push a Responses replacement after stop wins during inte
       executionGeneration: 2,
       executionTerminalReason: 'stopped',
     });
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('validates and durably persists the effective Responses replacement selection before dispatch', async () => {
+  const clientId = `responses-selection-${Date.now()}`;
+  const sessionId = `responses-selection-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset();
+  profiles.validateModelSelection.mockReset();
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    model: 'default-model',
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: {
+        accountId: 'native-account',
+        accountLabel: 'Native account',
+        provider: 'openai',
+        model: 'default-model',
+        profileRevision: 'test',
+      },
+      selectedModel: 'default-model',
+      reasoningEffort: 'low',
+    });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-selection-old',
+    ).token;
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'use the selected native model',
+        undefined,
+        undefined,
+        'responses-selection-message',
+        'selected-model',
+        'high',
+      ),
+    ).resolves.toEqual({ kind: 'accepted' });
+    expect(profiles.validateModelSelection).toHaveBeenCalledWith(
+      expect.objectContaining({ accountId: 'native-account' }),
+      'selected-model',
+      'high',
+    );
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      selectedModel: 'selected-model',
+      reasoningEffort: 'high',
+    });
+    expect(responses.prepare).toHaveBeenCalledWith(
+      'responses-selection-message',
+      expect.any(String),
+      { model: 'selected-model', reasoningEffort: 'high' },
+    );
+
+    profiles.validateModelSelection.mockImplementationOnce(() => {
+      throw new Error('invalid selection');
+    });
+    const before = chat.eventStore.getSessionEvents(sessionId);
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'invalid native model',
+        undefined,
+        undefined,
+        'responses-selection-invalid',
+        'not-allowed',
+      ),
+    ).resolves.toEqual({ kind: 'unavailable_unreported' });
+    expect(chat.eventStore.getSessionEvents(sessionId)).toEqual(before);
+    expect(responses.prepare).toHaveBeenCalledOnce();
   } finally {
     chat.registry.abort(clientId);
   }

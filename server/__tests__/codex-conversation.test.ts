@@ -27,6 +27,7 @@ async function setup(
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>,
+  activeTerminalTimeoutMs?: number,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -84,6 +85,7 @@ async function setup(
     displayToolName,
     beforeComplete,
     completionHookTimeoutMs,
+    activeTerminalTimeoutMs,
     beforeReconnect,
     prepareTurn,
     onActivity,
@@ -1034,6 +1036,48 @@ it('does not report a late turn-start failure after close owns recovery', async 
   expect(onClosed).toHaveBeenCalledTimes(1);
   expect(onError).not.toHaveBeenCalled();
   expect(c.queue()[0].status).toBe('interrupted');
+});
+
+it('times out a replacement waiting for a missing interrupted terminal and cancels its command', async () => {
+  vi.useFakeTimers();
+  try {
+    const { c, rpc } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      5,
+    );
+    const request = rpc.request.getMockImplementation()!;
+    rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'turn/interrupt') return {};
+      return request(method, params);
+    });
+    await c.send({ id: 'first', prompt: 'first' });
+    await c.interrupt();
+    const replacement = c
+      .send({
+        id: 'replacement',
+        prompt: 'must not outlive the missing terminal event',
+        executionToken: { sessionId: 'session', executionId: 'replacement', generation: 2 },
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    await vi.advanceTimersByTimeAsync(5);
+    expect(await replacement).toMatchObject({
+      message: expect.stringContaining('terminal boundary'),
+    });
+    expect(c.queue().find((command) => command.id === 'replacement')?.status).toBe('cancelled');
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('persists the selected reasoning effort and sends it to Codex', async () => {

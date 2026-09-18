@@ -270,6 +270,30 @@ it('retains recovery when cancelled work is accompanied by interrupted or failed
   s.close();
 });
 
+it('fails closed queued replacement commands whose execution token is no longer claimable', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('replacement', binding, '/workspace');
+  s.enqueue('replacement', binding, {
+    id: 'replacement-command',
+    prompt: 'must not run after terminalization',
+    executionToken: { sessionId: 'session', executionId: 'replacement', generation: 2 },
+  });
+
+  // This is the recovery fence used if eager queue cancellation had a storage
+  // failure. Claiming cancels rather than dispatching the now-terminal token.
+  expect(s.claimNext('replacement', binding, () => false)).toBeUndefined();
+  expect(s.commands('replacement', binding)).toMatchObject([
+    { id: 'replacement-command', status: 'cancelled' },
+  ]);
+  s.close();
+
+  const restarted = new CodexConversationStore(path);
+  expect(restarted.claimNext('replacement', binding, () => false)).toBeUndefined();
+  expect(restarted.commands('replacement', binding)[0]?.status).toBe('cancelled');
+  restarted.close();
+});
+
 it('clears later startup recovery after prior interrupted work was acknowledged', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

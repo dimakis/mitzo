@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
+import { eventStore, registry, sendToChat, interruptChat, stageImages } from '../chat.js';
 import { MAX_V2_PROMPT_CHARS } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
 import { QUERY_FIRST_EVENT_TIMEOUT_MS } from '../constants.js';
@@ -898,6 +898,37 @@ describe('interruptChat emits user_message via transport', () => {
       ).toHaveLength(1);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('uses exclusive image paths and rolls back every path it created on a partial staging failure', () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'mitzo-image-stage-'));
+    const images = [
+      { data: Buffer.from('one').toString('base64'), mediaType: 'image/png' },
+      { data: Buffer.from('two').toString('base64'), mediaType: 'image/png' },
+    ];
+    try {
+      const first = stageImages(cwd, images);
+      const second = stageImages(cwd, images);
+      expect(new Set([...first, ...second]).size).toBe(4);
+      expect(first.every((path) => existsSync(path))).toBe(true);
+      expect(second.every((path) => existsSync(path))).toBe(true);
+
+      let writes = 0;
+      expect(() =>
+        stageImages(cwd, images, (fd, data) => {
+          writes += 1;
+          if (writes === 2) throw new Error('injected second write failure');
+          // The writer is deliberately passed a descriptor opened with wx;
+          // this mirrors the real write without permitting path overwrite.
+          writeFileSync(fd, data);
+        }),
+      ).toThrow('injected second write failure');
+      expect(readdirSync(join(cwd, '.mitzo-images')).sort()).toEqual(
+        [...first, ...second].map((path) => path.split('/').at(-1)!).sort(),
+      );
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
     }
   });
 });

@@ -222,21 +222,15 @@ export class ExecutionController {
         ownerReservation = prepared.reserveOwner();
         if (!ownerReservation) return { busy: true };
       }
-      let admission: ReplacementAdmissionResult;
-      try {
-        admission = this.options.eventStore.admitReplacement({
-          expectedOldToken: prepared.expectedToken,
-          executionId: prepared.executionId,
-          clientMsgId: prepared.clientMsgId,
-          requestFingerprint: prepared.requestFingerprint,
-          userMessage: prepared.userMessage,
-          selectedModel: prepared.selectedModel,
-          reasoningEffort: prepared.reasoningEffort,
-        });
-      } catch (error) {
-        if (ownerReservation) prepared.releaseOwner?.(ownerReservation);
-        throw error;
-      }
+      const admission: ReplacementAdmissionResult = this.options.eventStore.admitReplacement({
+        expectedOldToken: prepared.expectedToken,
+        executionId: prepared.executionId,
+        clientMsgId: prepared.clientMsgId,
+        requestFingerprint: prepared.requestFingerprint,
+        userMessage: prepared.userMessage,
+        selectedModel: prepared.selectedModel,
+        reasoningEffort: prepared.reasoningEffort,
+      });
       if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
       if (!admission.duplicate) {
         if (
@@ -262,17 +256,30 @@ export class ExecutionController {
           }
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
-        const dispatchAllowed = (await prepared.beforeDispatch?.(admission.token)) ?? true;
+        // The durable causal boundary is visible before anything that can
+        // yield to a provider (or any other external participant).  A
+        // reconnect can therefore replay exactly these rows even if a stop
+        // wins during the subsequent provider preparation.
+        this.broadcastReplacementRows(lease, admission.rows);
+        try {
+          prepared.onAdmitted?.(admission.token);
+        } catch {
+          // Admission notifications are strictly best-effort.  The durable
+          // receipt cannot be retroactively rejected by a live observer.
+        }
+        const dispatchAllowed = prepared.beforeDispatch
+          ? await prepared.beforeDispatch(admission.token)
+          : true;
         if (!dispatchAllowed) {
           const terminal = this.options.eventStore.transitionExecution(
             admission.token,
             'TERMINAL',
             'failed',
           );
-          // A rejected ownership CAS must not deliver the new generation to
-          // the displaced owner. Its durable rows are replayable once a valid
-          // owner reconnects, but no provider work or live broadcast occurs.
-          if (terminal.applied) this.options.registry.clearCurrentExecution(lease, admission.token);
+          if (terminal.applied) {
+            this.broadcastTransition(lease, terminal);
+            this.options.registry.clearCurrentExecution(lease, admission.token);
+          }
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
         const afterPreparation = this.options.registry.resolveRuntimeLease(lease);
@@ -283,14 +290,11 @@ export class ExecutionController {
           afterToken.executionId !== admission.token.executionId ||
           afterToken.generation !== admission.token.generation
         ) {
-          // A stop/replacement won while an awaited CAS/preflight settled.
-          // Never broadcast or dispatch into that newer runtime.
-          this.options.eventStore.transitionExecution(admission.token, 'TERMINAL', 'failed');
-          this.options.registry.releaseReplacementInputBarrier(lease, admission.token);
+          // A stop/replacement won while an awaited preflight settled.  The
+          // admission remains accepted; its winning terminal operation owns
+          // the only terminal row. Never write a contradictory failure.
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
-        this.broadcastReplacementRows(lease, admission.rows);
-        prepared.onAdmitted?.(admission.token);
         try {
           await prepared.dispatch(admission.token);
         } catch (error) {

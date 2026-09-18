@@ -283,7 +283,7 @@ describe('ExecutionController', () => {
     expect(finished.next?.token).toMatchObject({ executionId: 'next', generation: 2 });
   });
 
-  it('terminalizes an admitted replacement without broadcasting or dispatching when owner CAS is stale', async () => {
+  it('broadcasts durable replacement rows before terminalizing an undispatchable admission', async () => {
     controller.enqueueExecution(CLIENT_ID, prepared('initial'));
     const initial = await controller.activateNextExecution(CLIENT_ID);
     const lease = registry.getRuntimeLease(CLIENT_ID)!;
@@ -304,12 +304,98 @@ describe('ExecutionController', () => {
     expect(replacement).toMatchObject({ stale: true, notDispatched: true });
     expect(dispatch).not.toHaveBeenCalled();
     expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
-    expect(transport.sent).toHaveLength(before);
+    expect(transport.sent).toHaveLength(before + 4);
+    expect(transport.sent.slice(before).map((event) => event.phase ?? event.type)).toEqual([
+      'TERMINAL',
+      'user_message',
+      'RUNNING',
+      'TERMINAL',
+    ]);
     expect(store.getSession(SESSION_ID)).toMatchObject({
       executionPhase: 'TERMINAL',
       executionGeneration: 2,
       executionTerminalReason: 'failed',
     });
+  });
+
+  it('releases its owner reservation when a concurrent replacement is busy', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const owner = registry.getRuntimeOwnerSnapshot(lease)!;
+    let releaseHook!: (allowed: boolean) => void;
+    const first = controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-a',
+      clientMsgId: 'replacement-a-message',
+      requestFingerprint: 'replacement-a-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-a-message', text: 'A' },
+      reserveOwner: () => registry.reserveRuntimeOwner(owner, owner.ownerConnectionId, transport),
+      releaseOwner: (reservation) => registry.releaseRuntimeOwnerReservation(reservation as never),
+      commitOwner: (reservation) => registry.commitReservedRuntimeOwner(reservation as never),
+      beforeDispatch: () =>
+        new Promise<boolean>((resolve) => {
+          releaseHook = resolve;
+        }),
+      dispatch: vi.fn(),
+    });
+    await vi.waitFor(() =>
+      expect(registry.get(CLIENT_ID)?.currentExecution?.executionId).toBe('replacement-a'),
+    );
+
+    const busy = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      clientMsgId: 'replacement-b-message',
+      requestFingerprint: 'replacement-b-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-b-message', text: 'B' },
+      reserveOwner: vi.fn(),
+      dispatch: vi.fn(),
+    });
+    expect(busy).toEqual({ busy: true });
+
+    releaseHook(true);
+    await expect(first).resolves.toMatchObject({ admission: { duplicate: false } });
+    expect(registry.get(CLIENT_ID)?.ownerReservation).toBeUndefined();
+    expect(registry.rekey(CLIENT_ID, 'client-after-reservation')).toBe(true);
+  });
+
+  it('keeps a durable replacement accepted when stop wins during a dispatch hook', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    let releaseHook!: (allowed: boolean) => void;
+    const replacement = controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-stop-hook',
+      clientMsgId: 'replacement-stop-hook-message',
+      requestFingerprint: 'replacement-stop-hook-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-stop-hook-message', text: 'replace' },
+      beforeDispatch: () =>
+        new Promise<boolean>((resolve) => {
+          releaseHook = resolve;
+        }),
+      dispatch: vi.fn(),
+    });
+    await vi.waitFor(() =>
+      expect(registry.get(CLIENT_ID)?.currentExecution?.executionId).toBe('replacement-stop-hook'),
+    );
+    const token = registry.get(CLIENT_ID)!.currentExecution!;
+    await controller.stopExecution(lease, token);
+    releaseHook(true);
+
+    await expect(replacement).resolves.toMatchObject({
+      token,
+      admission: { duplicate: false },
+      stale: true,
+      notDispatched: true,
+    });
+    expect(
+      store.getSessionEvents(SESSION_ID).map((event) => event.payload.phase ?? event.payload.type),
+    ).toEqual(['RUNNING', 'TERMINAL', 'user_message', 'RUNNING', 'TERMINAL']);
+    expect(store.getSessionEvents(SESSION_ID).at(-1)?.payload.terminalReason).toBe('stopped');
   });
 
   it('rejects an oversized replacement before durable admission or provider dispatch', async () => {

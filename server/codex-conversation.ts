@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CodexUserInput } from './codex-user-input.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, ExecutionToken } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
@@ -45,6 +45,8 @@ interface Options {
   beforeReconnect?: () => Promise<void>;
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
+  /** Bound an interrupt RPC that is acknowledged before its terminal turn event. */
+  activeTerminalTimeoutMs?: number;
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
@@ -52,6 +54,8 @@ interface Options {
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
+  /** Fail closed queued replacement commands whose Mitzo token is no longer current. */
+  isExecutionClaimable?: (token: ExecutionToken) => boolean;
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -331,11 +335,12 @@ export class CodexConversation {
   async send(
     input: CodexCommandInput,
     onEnqueued?: (selection: { model: string; reasoningEffort?: string | null }) => void,
+    signal?: AbortSignal,
   ) {
-    const selection = await this.admitExplicitSend(input);
+    const selection = await this.admitExplicitSend(input, signal);
     onEnqueued?.(selection);
     try {
-      await this.resumeAfterExplicitSend();
+      await this.resumeAfterExplicitSend(signal);
     } catch (error) {
       // This command was durably admitted but could not be started. Preserve
       // its idempotency tombstone and make it non-claimable before exposing
@@ -369,27 +374,42 @@ export class CodexConversation {
   }
   /** A new user message explicitly resumes saved FIFO work. Interrupted work
    * stays interrupted and is never replayed by this path. */
-  async resumeAfterExplicitSend() {
+  async resumeAfterExplicitSend(signal?: AbortSignal) {
     // `turn/interrupt` is only an RPC acknowledgement: app-server may emit
     // the predecessor's turn/completed later. Starting the queued replacement
     // before that boundary corrupts turn ownership; returning early strands
     // the replacement's Mitzo RUNNING token. Wait, then recover and pump.
-    if (this.active?.interruptRequested) await this.waitForActiveTerminal();
+    if (this.active?.interruptRequested) await this.waitForActiveTerminal(signal);
     if (this.paused) await this.acknowledgeRecovery();
     else await this.startQueued();
   }
 
-  private waitForActiveTerminal(): Promise<void> {
+  private waitForActiveTerminal(signal?: AbortSignal): Promise<void> {
     if (!this.active) return Promise.resolve();
-    if (this.resumeAfterActive) return this.resumeAfterActive.promise;
-    let resolve!: () => void;
-    let reject!: (error: Error) => void;
-    const promise = new Promise<void>((ok, fail) => {
-      resolve = ok;
-      reject = fail;
+    let terminal: Promise<void>;
+    if (this.resumeAfterActive) terminal = this.resumeAfterActive.promise;
+    else {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      terminal = new Promise<void>((ok, fail) => {
+        resolve = ok;
+        reject = fail;
+      });
+      this.resumeAfterActive = { promise: terminal, resolve, reject };
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error('Codex interrupted turn did not reach a terminal boundary in time')),
+        this.opts.activeTerminalTimeoutMs ?? 30_000,
+      );
     });
-    this.resumeAfterActive = { promise, resolve, reject };
-    return promise;
+    return raceWithAbort(
+      Promise.race([terminal, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
+      }),
+      signal,
+    );
   }
 
   private settleResumeAfterActive(error?: Error): void {
@@ -530,7 +550,11 @@ export class CodexConversation {
     return this.pumping;
   }
   private async beginNext() {
-    const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
+    const command = this.opts.store.claimNext(
+      this.opts.conversationId,
+      this.binding!,
+      this.opts.isExecutionClaimable,
+    );
     if (!command) return;
     const active = {
       command,

@@ -274,14 +274,40 @@ export class CodexConversationStore {
       return 'cancelled';
     })();
   }
-  claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
+  /**
+   * Claim only provider work which still has a live Mitzo execution owner.
+   * The predicate is supplied by the runtime because this private queue does
+   * not own the EventStore. It is deliberately fail-closed: an uncertain
+   * command is cancelled rather than being replayed after its execution was
+   * terminalized (including when eager cancellation previously threw).
+   */
+  claimNext(
+    id: string,
+    b: AccountBinding,
+    isExecutionClaimable?: (token: NonNullable<CodexCommandInput['executionToken']>) => boolean,
+  ): CodexCommand | undefined {
     return this.db.transaction(() => {
-      if (this.read(id, b).recovery)
-        throw new Error('Codex recovery requires explicit acknowledgement');
+      const conversation = this.read(id, b);
       const commands = this.commands(id, b);
       if (commands.some((c) => c.status === 'running'))
         throw new Error('Codex conversation already running');
-      const next = commands.find((c) => c.status === 'queued');
+      for (const command of commands) {
+        if (
+          command.status === 'queued' &&
+          command.executionToken &&
+          isExecutionClaimable &&
+          !isExecutionClaimable(command.executionToken)
+        ) {
+          this.db
+            .prepare(
+              "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+            )
+            .run(id, command.id);
+        }
+      }
+      if (conversation.recovery)
+        throw new Error('Codex recovery requires explicit acknowledgement');
+      const next = this.commands(id, b).find((c) => c.status === 'queued');
       if (!next) return;
       this.db
         .prepare("UPDATE codex_commands SET status='running' WHERE conversation_id=? AND id=?")
