@@ -10,6 +10,8 @@ import {
   MAX_PENDING_EXECUTIONS_PER_SESSION,
   MAX_PENDING_EXECUTION_RETAINED_BYTES,
   MAX_PENDING_EXECUTIONS_RETAINED_BYTES,
+  MAX_REPLACEMENT_INPUT_ENVELOPES_PER_SESSION,
+  MAX_REPLACEMENT_INPUT_RETAINED_BYTES,
 } from './constants.js';
 import { createLogger } from './logger.js';
 
@@ -97,6 +99,13 @@ export interface RuntimeOwnerReservation extends RuntimeOwnerSnapshot {
   readonly nextTransport: SessionTransport;
 }
 
+/** One Anthropic envelope waiting for the preceding provider turn to finish. */
+export interface ReplacementInputBarrier {
+  token: ExecutionToken;
+  retainedBytes: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export interface ManagedSession {
   /** Never changes for this object; invalidated when the runtime is removed. */
   readonly runtimeLeaseId: string;
@@ -163,6 +172,11 @@ export interface ManagedSession {
   replacingExecution: boolean;
   /** Prevents attachment/takeover/rekey from changing ownership mid-admission. */
   ownerReservation?: RuntimeOwnerReservation;
+  /** Bounded provider-input barrier for a replacement behind a prior turn. */
+  replacementInputBarrier?: ReplacementInputBarrier;
+  /** Aggregate retained Anthropic replacement envelopes (currently capped at one). */
+  replacementInputCount: number;
+  replacementInputBytes: number;
 }
 
 /** Never expand permissions until a transition succeeds; apply downgrades immediately. */
@@ -260,7 +274,12 @@ export class SessionRegistry {
     },
   ): void {
     const previous = this.sessions.get(clientId);
-    if (previous) this.leases.delete(previous.runtimeLeaseId);
+    if (previous) {
+      // A runtime replacement invalidates any old provider-input wait. Do not
+      // leave its timer retaining a stale session closure until it expires.
+      this.clearReplacementInputBarrier(previous);
+      this.leases.delete(previous.runtimeLeaseId);
+    }
     const session: ManagedSession = {
       ...init,
       runtimeLeaseId: randomUUID(),
@@ -281,6 +300,9 @@ export class SessionRegistry {
       activatingPending: false,
       replacingExecution: false,
       ownerReservation: undefined,
+      replacementInputBarrier: undefined,
+      replacementInputCount: 0,
+      replacementInputBytes: 0,
       ownerConnectionId: init.ownerConnectionId ?? ownerConnectionForClientId(clientId),
       ownerRevision: 1,
     };
@@ -425,6 +447,82 @@ export class SessionRegistry {
   completeReplacementExecution(lease: RuntimeSessionLease): void {
     const session = this.resolveLease(lease)?.session;
     if (session) session.replacingExecution = false;
+  }
+
+  /**
+   * Retain exactly one replacement while Anthropic has not yet observed the
+   * predecessor's terminal boundary. The timeout callback runs only after the
+   * barrier is atomically released, so a late normal consumption cannot race
+   * it into a second teardown.
+   */
+  claimReplacementInputBarrier(
+    lease: RuntimeSessionLease,
+    token: ExecutionToken,
+    retainedBytes: number,
+    timeoutMs: number,
+    onTimeout: () => void,
+  ): boolean {
+    const session = this.resolveLease(lease)?.session;
+    const current = session?.currentExecution;
+    if (
+      !session ||
+      !current ||
+      current.executionId !== token.executionId ||
+      current.generation !== token.generation ||
+      token.sessionId !== lease.sessionId ||
+      session.replacementInputBarrier ||
+      session.replacementInputCount >= MAX_REPLACEMENT_INPUT_ENVELOPES_PER_SESSION ||
+      !this.isValidRetainedBytes(retainedBytes) ||
+      retainedBytes > MAX_REPLACEMENT_INPUT_RETAINED_BYTES ||
+      session.replacementInputBytes > MAX_REPLACEMENT_INPUT_RETAINED_BYTES - retainedBytes
+    )
+      return false;
+    const barrier: ReplacementInputBarrier = {
+      token,
+      retainedBytes,
+      timer: setTimeout(() => {
+        const live = this.resolveLease(lease)?.session;
+        if (live?.replacementInputBarrier !== barrier) return;
+        live.replacementInputBarrier = undefined;
+        live.replacementInputCount -= 1;
+        live.replacementInputBytes -= barrier.retainedBytes;
+        onTimeout();
+      }, timeoutMs),
+    };
+    session.replacementInputBarrier = barrier;
+    session.replacementInputCount += 1;
+    session.replacementInputBytes += retainedBytes;
+    return true;
+  }
+
+  /** Return retained replacement input only when its exact token consumed or ended. */
+  releaseReplacementInputBarrier(lease: RuntimeSessionLease, token: ExecutionToken): boolean {
+    const session = this.resolveLease(lease)?.session;
+    const barrier = session?.replacementInputBarrier;
+    if (
+      !session ||
+      !barrier ||
+      barrier.token.executionId !== token.executionId ||
+      barrier.token.generation !== token.generation ||
+      barrier.token.sessionId !== token.sessionId
+    )
+      return false;
+    clearTimeout(barrier.timer);
+    session.replacementInputBarrier = undefined;
+    session.replacementInputCount -= 1;
+    session.replacementInputBytes -= barrier.retainedBytes;
+    return true;
+  }
+
+  hasReplacementInputBarrier(lease: RuntimeSessionLease): boolean {
+    return !!this.resolveLease(lease)?.session.replacementInputBarrier;
+  }
+
+  private clearReplacementInputBarrier(session: ManagedSession): void {
+    if (session.replacementInputBarrier) clearTimeout(session.replacementInputBarrier.timer);
+    session.replacementInputBarrier = undefined;
+    session.replacementInputCount = 0;
+    session.replacementInputBytes = 0;
   }
 
   /** CAS current token after durable old-terminal/new-running replacement. */
@@ -786,6 +884,7 @@ export class SessionRegistry {
     // Fire abort signal BEFORE clearing closingOut — abort listeners
     // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
+    this.clearReplacementInputBarrier(session);
     session.observers.clear();
     session.currentExecution = undefined;
     session.pendingExecutions = [];
@@ -806,6 +905,7 @@ export class SessionRegistry {
   remove(clientId: string): void {
     const session = this.sessions.get(clientId);
     if (session) {
+      this.clearReplacementInputBarrier(session);
       session.observers.clear();
       session.currentExecution = undefined;
       session.pendingExecutions = [];

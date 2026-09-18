@@ -33,3 +33,11 @@ export const MAX_PENDING_EXECUTIONS_PER_SESSION = 20;
 export const MAX_PENDING_EXECUTION_RETAINED_BYTES = MAX_V2_CLIENT_PAYLOAD_BYTES;
 /** Keep at most two maximum-sized prepared requests waiting behind a runtime. */
 export const MAX_PENDING_EXECUTIONS_RETAINED_BYTES = 2 * MAX_PENDING_EXECUTION_RETAINED_BYTES;
+
+// Anthropic consumes a single long-lived input iterable. A replacement can be
+// retained behind the predecessor's terminal boundary, but never more than
+// one: accepting a second distinct replacement here would retain arbitrary
+// prompts while the provider is stalled. Keep this separate from the generic
+// FIFO bound because it is provider-stream state, not pre-admission work.
+export const MAX_REPLACEMENT_INPUT_ENVELOPES_PER_SESSION = 1;
+export const MAX_REPLACEMENT_INPUT_RETAINED_BYTES = MAX_PENDING_EXECUTION_RETAINED_BYTES;

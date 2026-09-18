@@ -7,6 +7,7 @@ import {
   SUSPEND_GRACE_MS,
   SUSPEND_BUFFER_MAX,
   MAX_PENDING_EXECUTION_RETAINED_BYTES,
+  MAX_REPLACEMENT_INPUT_RETAINED_BYTES,
 } from '../src/constants.js';
 import type { SessionTransport } from '../src/session-transport.js';
 
@@ -465,6 +466,111 @@ describe('SessionRegistry', () => {
       const lease = registry.getRuntimeLease('client-1')!;
       registry.shiftPendingExecution(lease);
       expect(registry.get('client-1')?.pendingExecutionBytes).toBe(0);
+    });
+  });
+
+  describe('replacement input barrier', () => {
+    it('holds one exact token, releases it on consumption, and clears its timer on abort', () => {
+      vi.useFakeTimers();
+      try {
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'barrier-session',
+        });
+        const lease = registry.getRuntimeLease('client-1')!;
+        const token = { sessionId: 'barrier-session', executionId: 'replacement', generation: 2 };
+        expect(registry.setCurrentExecution(lease, token)).toBe(true);
+        const timeout = vi.fn();
+        expect(
+          registry.claimReplacementInputBarrier(
+            lease,
+            token,
+            MAX_REPLACEMENT_INPUT_RETAINED_BYTES,
+            10,
+            timeout,
+          ),
+        ).toBe(true);
+        expect(registry.hasReplacementInputBarrier(lease)).toBe(true);
+        expect(registry.get('client-1')).toMatchObject({
+          replacementInputCount: 1,
+          replacementInputBytes: MAX_REPLACEMENT_INPUT_RETAINED_BYTES,
+        });
+        expect(registry.claimReplacementInputBarrier(lease, token, 1, 10, timeout)).toBe(false);
+        expect(registry.releaseReplacementInputBarrier(lease, token)).toBe(true);
+        expect(registry.hasReplacementInputBarrier(lease)).toBe(false);
+        expect(registry.get('client-1')).toMatchObject({
+          replacementInputCount: 0,
+          replacementInputBytes: 0,
+        });
+
+        expect(registry.claimReplacementInputBarrier(lease, token, 1, 10, timeout)).toBe(true);
+        registry.abort('client-1');
+        vi.advanceTimersByTime(11);
+        expect(timeout).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('calls the timeout once after releasing the stuck envelope', () => {
+      vi.useFakeTimers();
+      try {
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'barrier-timeout',
+        });
+        const lease = registry.getRuntimeLease('client-1')!;
+        const token = { sessionId: 'barrier-timeout', executionId: 'replacement', generation: 2 };
+        registry.setCurrentExecution(lease, token);
+        const timeout = vi.fn(() => expect(registry.hasReplacementInputBarrier(lease)).toBe(false));
+        expect(registry.claimReplacementInputBarrier(lease, token, 1, 10, timeout)).toBe(true);
+        vi.advanceTimersByTime(10);
+        expect(timeout).toHaveBeenCalledOnce();
+        vi.advanceTimersByTime(10);
+        expect(timeout).toHaveBeenCalledOnce();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('releases retained input when a restarted runtime replaces the lease', () => {
+      vi.useFakeTimers();
+      try {
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'before-restart',
+        });
+        const oldLease = registry.getRuntimeLease('client-1')!;
+        const token = { sessionId: 'before-restart', executionId: 'replacement', generation: 2 };
+        registry.setCurrentExecution(oldLease, token);
+        const timeout = vi.fn();
+        expect(registry.claimReplacementInputBarrier(oldLease, token, 1, 10, timeout)).toBe(true);
+
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: new AbortController(),
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'after-restart',
+        });
+        vi.advanceTimersByTime(11);
+        expect(timeout).not.toHaveBeenCalled();
+        expect(registry.get('client-1')).toMatchObject({
+          replacementInputCount: 0,
+          replacementInputBytes: 0,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

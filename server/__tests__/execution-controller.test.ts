@@ -348,6 +348,10 @@ describe('ExecutionController', () => {
       dispatch: vi.fn(),
     });
 
+    expect(
+      registry.claimReplacementInputBarrier(lease, replacement.token!, 7, 60_000, vi.fn()),
+    ).toBe(true);
+
     const stopped = await controller.stopExecution(lease, replacement.token!);
     const repeated = await controller.stopExecution(lease, replacement.token!);
     const terminals = store
@@ -364,6 +368,40 @@ describe('ExecutionController', () => {
       'stopped',
     ]);
     expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
+    expect(registry.get(CLIENT_ID)).toMatchObject({
+      replacementInputCount: 0,
+      replacementInputBytes: 0,
+      replacementInputBarrier: undefined,
+    });
+  });
+
+  it('releases a consumed replacement envelope when its normal terminal result finishes', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const replacement = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-result',
+      clientMsgId: 'replacement-result-message',
+      requestFingerprint: 'replacement-result-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-result-message', text: 'replace' },
+      dispatch: vi.fn(),
+    });
+    expect(
+      registry.claimReplacementInputBarrier(lease, replacement.token!, 11, 60_000, vi.fn()),
+    ).toBe(true);
+
+    await expect(
+      controller.finishExecution(lease, replacement.token!, 'completed'),
+    ).resolves.toMatchObject({
+      transition: { applied: true },
+    });
+    expect(registry.get(CLIENT_ID)).toMatchObject({
+      replacementInputCount: 0,
+      replacementInputBytes: 0,
+      replacementInputBarrier: undefined,
+    });
   });
 
   it('returns an older durable replacement receipt after a newer replacement is current', async () => {

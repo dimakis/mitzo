@@ -67,6 +67,7 @@ import {
   USER_CLOSEOUT_TIMEOUT_MS,
   ZERO_TURN_GRACE_MS,
   DEFAULT_AGENT_NAME,
+  QUERY_FIRST_EVENT_TIMEOUT_MS,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
@@ -1812,7 +1813,13 @@ async function _startChatInner(
             ? {
                 executionInputConsumptionSource: (consume: (token: ExecutionToken) => void) => {
                   activeProviderInput.onConsumed = (token) => {
-                    if (token) consume(token);
+                    if (!token) return;
+                    // A replacement no longer retains its prompt once the
+                    // provider has crossed the input boundary. The exact
+                    // token check makes an old turn unable to release a new
+                    // barrier in an ABA/replacement race.
+                    if (runtimeLease) registry.releaseReplacementInputBarrier(runtimeLease, token);
+                    consume(token);
                   };
                 },
               }
@@ -2456,6 +2463,13 @@ export async function interruptChat(
       if (priorAdmission.requestFingerprint !== fingerprint) return { kind: 'conflict' };
       return { kind: 'duplicate_already_accepted' };
     }
+    // Anthropic's input stream cannot safely retain a second distinct prompt
+    // while it awaits the predecessor's terminal result. This is intentionally
+    // before ownership reservation, context expansion, image staging, and the
+    // durable replacement transaction. Exact receipts returned above remain
+    // replayable even while their envelope is waiting.
+    if (!codex && !responses && registry.hasReplacementInputBarrier(lease))
+      return { kind: 'unavailable_unreported' };
     // Fence owner changes before context/image preparation. This prevents a
     // stale requester from growing image storage or committing a replacement
     // while a newer connection takes ownership.
@@ -2481,13 +2495,14 @@ export async function interruptChat(
       })
       .filter((image): image is { id: string; mediaType: string } => !!image);
     const controller = initialExecutionController();
+    const retainedBytes = Buffer.byteLength(fullPrompt, 'utf8');
     let replacement;
     try {
       replacement = await controller.replaceExecution(lease, {
         expectedToken,
         clientMsgId: messageId,
         requestFingerprint: fingerprint,
-        retainedBytes: Buffer.byteLength(fullPrompt, 'utf8'),
+        retainedBytes,
         userMessage: {
           messageId,
           text: fullPrompt,
@@ -2560,6 +2575,36 @@ export async function interruptChat(
             );
             await session.queryInstance!.interrupt();
             if (!ownsReplacement()) throw new Error('replacement execution is no longer current');
+            if (
+              !registry.claimReplacementInputBarrier(
+                lease,
+                token,
+                retainedBytes,
+                QUERY_FIRST_EVENT_TIMEOUT_MS,
+                () => {
+                  // The barrier releases itself before this callback. Finish
+                  // the exact token first; the ensuing provider unwind then
+                  // observes a stale token and cannot write a second failure.
+                  void (async () => {
+                    const current = registry.resolveRuntimeLease(lease)?.session.currentExecution;
+                    if (
+                      !current ||
+                      current.executionId !== token.executionId ||
+                      current.generation !== token.generation
+                    )
+                      return;
+                    await controller.finishExecution(lease, token, 'failed');
+                    session.queryInstance?.close();
+                    session.abortController.abort();
+                  })().catch(() => {
+                    // The durable terminal path is best-effort only after the
+                    // runtime fence has been checked; never surface raw
+                    // provider/cleanup details through this timer.
+                  });
+                },
+              )
+            )
+              throw new PendingExecutionOverflowError(clientId);
             session.inputQueue!.push({
               message: makeUserMessage(fullPrompt, 'now'),
               executionToken: token,

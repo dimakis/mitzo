@@ -3,7 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
+import { MAX_V2_PROMPT_CHARS } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
+import { QUERY_FIRST_EVENT_TIMEOUT_MS } from '../constants.js';
 
 function mockTransport(open = true): SessionTransport & { _sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -721,5 +723,99 @@ describe('interruptChat emits user_message via transport', () => {
     expect(pushSpy).not.toHaveBeenCalled();
     expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
     expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
+  });
+
+  it('bounds stalled Anthropic replacement envelopes before durable admission', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn().mockResolvedValue(undefined);
+    const sessionId = `sess-int-barrier-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    activateInterruptExecution(CLIENT_ID);
+
+    // The wire prompt ceiling is smaller than the retained-envelope ceiling;
+    // use it to exercise the largest legitimate command without bypassing
+    // request validation through this direct handler harness.
+    const nearMaxPrompt = 'x'.repeat(MAX_V2_PROMPT_CHARS - 1);
+    await expect(
+      interruptChat(CLIENT_ID, nearMaxPrompt, undefined, undefined, 'barrier-first'),
+    ).resolves.toEqual({ kind: 'accepted' });
+    expect(session.replacementInputBarrier?.retainedBytes).toBe(nearMaxPrompt.length);
+
+    for (let index = 0; index < 8; index++) {
+      await expect(
+        interruptChat(CLIENT_ID, `different ${index}`, undefined, undefined, `barrier-${index}`),
+      ).resolves.toEqual({ kind: 'unavailable_unreported' });
+    }
+    // One durable replacement/user message and one provider delivery: the
+    // stalled SDK cannot grow EventStore rows or retained input unboundedly.
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(1);
+    expect(session.replacementInputBarrier?.retainedBytes).toBe(nearMaxPrompt.length);
+  });
+
+  it('times out a stalled Anthropic replacement once and tears down only its token', async () => {
+    vi.useFakeTimers();
+    try {
+      const transport = mockTransport();
+      const close = vi.fn();
+      const sessionId = `sess-int-barrier-timeout-${Date.now()}`;
+      registry.register(CLIENT_ID, {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get(CLIENT_ID)!;
+      session.sessionId = sessionId;
+      session.inputQueue = { push: vi.fn(), close: vi.fn() };
+      session.queryInstance = {
+        interrupt: vi.fn().mockResolvedValue(undefined),
+        close,
+        stopTask: vi.fn().mockResolvedValue(undefined),
+      };
+      eventStore.upsertSession({ sessionId });
+      activateInterruptExecution(CLIENT_ID);
+
+      await expect(
+        interruptChat(CLIENT_ID, 'stuck prompt', undefined, undefined, 'barrier-timeout'),
+      ).resolves.toEqual({ kind: 'accepted' });
+      const replacement = session.currentExecution!;
+      expect(session.replacementInputBarrier?.token).toEqual(replacement);
+
+      await vi.advanceTimersByTimeAsync(QUERY_FIRST_EVENT_TIMEOUT_MS);
+      expect(close).toHaveBeenCalledOnce();
+      expect(session.currentExecution).toBeUndefined();
+      expect(session.replacementInputBarrier).toBeUndefined();
+      expect(eventStore.getSession(sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'failed',
+      });
+      expect(
+        eventStore
+          .getSessionEvents(sessionId)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' &&
+              event.payload.executionId === replacement.executionId &&
+              event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

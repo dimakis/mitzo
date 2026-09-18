@@ -162,6 +162,9 @@ export class ExecutionController {
     const transition = this.options.eventStore.transitionExecution(token, 'TERMINAL', reason);
     if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
     this.broadcastTransition(lease, transition);
+    // A provider-specific replacement may still be retained behind an older
+    // stream turn. Any exact terminal outcome releases that bounded input.
+    if (transition.applied) this.options.registry.releaseReplacementInputBarrier(lease, token);
     const cleared = this.options.registry.clearCurrentExecution(lease, token);
     if (!cleared) return { transition };
     const nextLease = this.options.registry.beginPendingActivationForLease(lease);
@@ -253,7 +256,10 @@ export class ExecutionController {
             'TERMINAL',
             'failed',
           );
-          if (terminal.applied) this.options.registry.clearCurrentExecution(lease, admission.token);
+          if (terminal.applied) {
+            this.options.registry.releaseReplacementInputBarrier(lease, admission.token);
+            this.options.registry.clearCurrentExecution(lease, admission.token);
+          }
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
         const dispatchAllowed = (await prepared.beforeDispatch?.(admission.token)) ?? true;
@@ -280,6 +286,7 @@ export class ExecutionController {
           // A stop/replacement won while an awaited CAS/preflight settled.
           // Never broadcast or dispatch into that newer runtime.
           this.options.eventStore.transitionExecution(admission.token, 'TERMINAL', 'failed');
+          this.options.registry.releaseReplacementInputBarrier(lease, admission.token);
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
         this.broadcastReplacementRows(lease, admission.rows);
@@ -305,6 +312,8 @@ export class ExecutionController {
             'failed',
           );
           this.broadcastTransition(lease, terminal);
+          if (terminal.applied)
+            this.options.registry.releaseReplacementInputBarrier(lease, admission.token);
           this.options.registry.clearCurrentExecution(lease, admission.token);
           return { token: admission.token, admission, error };
         }
@@ -339,6 +348,7 @@ export class ExecutionController {
       return { transition, ...(transition.status === 'stale' ? { stale: true as const } : {}) };
     if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
     this.broadcastTransition(lease, transition);
+    this.options.registry.releaseReplacementInputBarrier(lease, token);
     if (!this.options.registry.clearCurrentExecution(lease, token)) return { transition };
     // Deliberately do not activate a successor while the user is stopping.
     if (!this.options.registry.resolveRuntimeLease(lease)) return { transition, stale: true };
