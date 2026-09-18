@@ -115,7 +115,9 @@ export const V2SendMessage = z.object({
 export const V2InterruptMessage = z.object({
   type: z.literal('interrupt'),
   sessionId: z.string().min(1),
-  prompt: z.string().min(1),
+  // Replacement admission retains the same canonical user request as send,
+  // so it must have the identical wire budget before provider work begins.
+  prompt: z.string().min(1).max(MAX_V2_PROMPT_CHARS),
   clientMsgId: z.string().min(1),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),

@@ -29,6 +29,28 @@ describe('EventStore', () => {
       s.close();
       expect(messages).toContain('EventStore initialized');
     });
+
+    it('removes the obsolete interrupt receipt table during migration', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-interrupt-table-'));
+      const path = join(root, 'events.db');
+      const legacy = new Database(path);
+      legacy.exec('CREATE TABLE interrupt_commands (client_msg_id TEXT PRIMARY KEY)');
+      legacy.close();
+      const migrated = new EventStore(path);
+      try {
+        const db = (migrated as unknown as { db: Database.Database }).db;
+        expect(
+          db
+            .prepare(
+              "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'interrupt_commands'",
+            )
+            .get(),
+        ).toBeUndefined();
+      } finally {
+        migrated.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
   });
 
   describe('append', () => {
@@ -1753,6 +1775,56 @@ describe('EventStore', () => {
         executionId: 'old-execution',
         executionPhase: 'RUNNING',
       });
+    });
+
+    it('recovers an orphaned replacement without redispatching its durable receipt after restart', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-replacement-restart-'));
+      const path = join(root, 'events.db');
+      const first = new EventStore(path);
+      try {
+        first.upsertSession({ sessionId: 'replacement-restart' });
+        const old = first.beginExecution('replacement-restart', 'old');
+        const admitted = first.admitReplacement({
+          expectedOldToken: old.token,
+          executionId: 'replacement',
+          clientMsgId: 'interrupt-restart',
+          requestFingerprint: 'replacement-restart-fingerprint',
+          userMessage: { messageId: 'interrupt-restart', text: 'durable replacement' },
+        });
+        expect(admitted.token.generation).toBe(2);
+      } finally {
+        first.close();
+      }
+
+      const restarted = new EventStore(path);
+      try {
+        // Startup recovery terminalizes only the active new token. It never
+        // invokes provider work; an exact retry is a durable receipt replay.
+        expect(restarted.recoverOrphanedExecutions()).toBe(1);
+        expect(restarted.getSession('replacement-restart')).toMatchObject({
+          lifecycleState: 'OPEN',
+          executionId: 'replacement',
+          executionPhase: 'TERMINAL',
+          executionTerminalReason: 'server_restart',
+        });
+        const historical = restarted.getReplacementAdmission(
+          'replacement-restart',
+          'interrupt-restart',
+        );
+        expect(historical?.token).toMatchObject({ executionId: 'replacement', generation: 2 });
+        const beforeRetry = restarted.getSessionEvents('replacement-restart');
+        const retry = restarted.admitReplacement({
+          expectedOldToken: historical!.expectedOldToken,
+          clientMsgId: 'interrupt-restart',
+          requestFingerprint: 'replacement-restart-fingerprint',
+          userMessage: { messageId: 'interrupt-restart', text: 'durable replacement' },
+        });
+        expect(retry).toMatchObject({ duplicate: true, token: historical!.token });
+        expect(restarted.getSessionEvents('replacement-restart')).toEqual(beforeRetry);
+      } finally {
+        restarted.close();
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 });

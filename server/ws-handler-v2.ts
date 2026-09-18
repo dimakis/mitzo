@@ -52,6 +52,7 @@ import {
   startChat,
   sendToChat,
   interruptChat,
+  interruptFingerprint,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -1119,6 +1120,34 @@ export async function handleInterruptV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      const historicalReplacement = ctx.eventStore.getReplacementAdmission(
+        msg.sessionId,
+        msg.clientMsgId,
+      );
+
+      // Startup recovery intentionally leaves a replacement receipt durable
+      // while its RUNNING token becomes server_restart. A lost-ack retry must
+      // return that historical admission rather than starting a new provider
+      // turn from the replacement prompt.
+      if (historicalReplacement && (!found || !isActive(found.clientId))) {
+        const fingerprint = interruptFingerprint({
+          sessionId: msg.sessionId,
+          prompt: msg.prompt,
+          expectedExecutionId: historicalReplacement.expectedOldToken.executionId,
+          expectedGeneration: historicalReplacement.expectedOldToken.generation,
+          contextBlocks: msg.contextBlocks,
+          model: msg.accountId ? msg.model : undefined,
+          reasoningEffort: msg.accountId ? msg.reasoningEffort : undefined,
+        });
+        if (fingerprint !== historicalReplacement.requestFingerprint) {
+          transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            error: 'This command ID is already associated with another request.',
+          });
+        }
+        return;
+      }
       if (!found) return;
 
       const activeClientId = found.clientId;

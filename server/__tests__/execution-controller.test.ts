@@ -312,6 +312,60 @@ describe('ExecutionController', () => {
     });
   });
 
+  it('rejects an oversized replacement before durable admission or provider dispatch', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const dispatch = vi.fn();
+    const before = store.getSessionEvents(SESSION_ID);
+
+    const replacement = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      clientMsgId: 'replacement-too-large',
+      requestFingerprint: 'replacement-too-large-fingerprint',
+      retainedBytes: MAX_PENDING_EXECUTION_RETAINED_BYTES + 1,
+      userMessage: { messageId: 'replacement-too-large', text: 'replace' },
+      dispatch,
+    });
+
+    expect(replacement.error).toBeInstanceOf(PendingExecutionOverflowError);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(store.getSessionEvents(SESSION_ID)).toEqual(before);
+    expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(initial!.token);
+  });
+
+  it('stops only the replacement token once after an interrupted predecessor', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const replacement = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-stop',
+      clientMsgId: 'replacement-stop-message',
+      requestFingerprint: 'replacement-stop-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-stop-message', text: 'replace' },
+      dispatch: vi.fn(),
+    });
+
+    const stopped = await controller.stopExecution(lease, replacement.token!);
+    const repeated = await controller.stopExecution(lease, replacement.token!);
+    const terminals = store
+      .getSessionEvents(SESSION_ID)
+      .filter((event) => event.payload.phase === 'TERMINAL');
+
+    expect(stopped.transition).toMatchObject({
+      applied: true,
+      event: { terminalReason: 'stopped' },
+    });
+    expect(repeated.stale).toBe(true);
+    expect(terminals.map((event) => event.payload.terminalReason)).toEqual([
+      'interrupted',
+      'stopped',
+    ]);
+    expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
+  });
+
   it('stops only the current token and drains pending work without activating a successor', async () => {
     const dispatchNext = vi.fn();
     controller.enqueueExecution(CLIENT_ID, prepared('current'));

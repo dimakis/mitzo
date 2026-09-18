@@ -6,6 +6,7 @@ import type {
   SessionRegistry,
   SessionTransport,
 } from '@mitzo/harness';
+import { MAX_PENDING_EXECUTION_RETAINED_BYTES } from '@mitzo/harness';
 import type {
   ExecutionTerminalReason,
   ExecutionToken,
@@ -207,7 +208,11 @@ export class ExecutionController {
       return resolved ? { busy: true } : { stale: true };
     }
     try {
-      if (!Number.isSafeInteger(prepared.retainedBytes) || prepared.retainedBytes < 0) {
+      if (
+        !Number.isSafeInteger(prepared.retainedBytes) ||
+        prepared.retainedBytes < 0 ||
+        prepared.retainedBytes > MAX_PENDING_EXECUTION_RETAINED_BYTES
+      ) {
         return { error: new PendingExecutionOverflowError(lease.runtimeLeaseId) };
       }
       const admission = this.options.eventStore.admitReplacement({

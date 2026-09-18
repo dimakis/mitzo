@@ -1199,9 +1199,11 @@ export class EventStore {
   getReplacementAdmission(
     sessionId: string,
     clientMsgId: string,
-  ): { token: ExecutionToken; expectedOldToken: ExecutionToken } | undefined {
+  ):
+    | { token: ExecutionToken; expectedOldToken: ExecutionToken; requestFingerprint: string }
+    | undefined {
     const row = this.db!.prepare(
-      `SELECT execution_id, generation, expected_execution_id, expected_generation
+      `SELECT execution_id, generation, expected_execution_id, expected_generation, request_fingerprint
        FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
     ).get(sessionId, clientMsgId) as
       | {
@@ -1209,9 +1211,15 @@ export class EventStore {
           generation: number;
           expected_execution_id: string | null;
           expected_generation: number | null;
+          request_fingerprint: string | null;
         }
       | undefined;
-    if (!row || row.expected_execution_id === null || row.expected_generation === null)
+    if (
+      !row ||
+      row.expected_execution_id === null ||
+      row.expected_generation === null ||
+      row.request_fingerprint === null
+    )
       return undefined;
     return {
       token: { sessionId, executionId: row.execution_id, generation: row.generation },
@@ -1220,6 +1228,7 @@ export class EventStore {
         executionId: row.expected_execution_id,
         generation: row.expected_generation,
       },
+      requestFingerprint: row.request_fingerprint,
     };
   }
 

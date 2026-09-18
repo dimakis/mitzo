@@ -71,7 +71,7 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
-import { ExecutionController } from './execution-controller.js';
+import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -90,9 +90,9 @@ type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
  * still in flight.
  */
 function executionBoundSdkPrompt(
-  input: AsyncIterable<ProviderInput>,
+  input: AsyncIterable<ProviderInput> & { close?: () => void },
   active: { token?: ExecutionToken },
-): AsyncIterable<SDKUserMessage> {
+): AsyncIterable<SDKUserMessage> & { close?: () => void } {
   return {
     async *[Symbol.asyncIterator]() {
       for await (const envelope of input) {
@@ -100,6 +100,11 @@ function executionBoundSdkPrompt(
         yield envelope.message;
       }
     },
+    // The SDK owns the lifetime of its prompt iterator. Preserve the queue's
+    // close hook through the token envelope so a naturally completed stream
+    // cannot leave its input consumer (or a replacement's retained input)
+    // waiting forever.
+    close: input.close?.bind(input),
   };
 }
 
@@ -2250,7 +2255,8 @@ export type InterruptOwnershipRequest = {
   onCommitted?: () => void;
 };
 
-function interruptFingerprint(input: {
+/** Stable replacement identity shared by live admission and restart retry fencing. */
+export function interruptFingerprint(input: {
   sessionId: string;
   prompt: string;
   expectedExecutionId: string;
@@ -2417,6 +2423,8 @@ export async function interruptChat(
     } catch {
       return { kind: 'unavailable_unreported' };
     }
+    if (replacement.error instanceof PendingExecutionOverflowError)
+      return { kind: 'unavailable_unreported' };
     if (replacement.error && !replacement.admission) return { kind: 'conflict' };
     if (replacement.busy) return { kind: 'unavailable_unreported' };
     if (replacement.notDispatched) return { kind: 'unavailable_unreported' };

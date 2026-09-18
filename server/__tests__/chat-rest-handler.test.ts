@@ -152,7 +152,9 @@ describe('chat-rest-handler', () => {
     expect(handleStopV2).not.toHaveBeenCalled();
   });
 
-  it('rejects REST control requests that present a WebSocket connection ID', async () => {
+  it('rejects REST control requests that present a non-SSE connection ID', async () => {
+    // A ConnectionRegistry entry is not sufficient to authenticate a REST
+    // control request: only an active SSE entry may own that connection ID.
     connRegistry.register('ws-connection', new SseTransport('ws-connection', sseRegistry));
 
     const response = await request(testApp)

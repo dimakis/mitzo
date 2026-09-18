@@ -16,6 +16,7 @@ vi.mock('../chat.js', () => ({
     ownership?.onCommitted?.();
     return true;
   }),
+  interruptFingerprint: vi.fn().mockReturnValue('historical-fingerprint'),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   isIsolationEnabled: vi.fn().mockReturnValue(true),
@@ -104,6 +105,7 @@ function mockEventStore() {
   return {
     getEventsAfter: vi.fn().mockReturnValue([]),
     getSession: vi.fn().mockReturnValue(null),
+    getReplacementAdmission: vi.fn().mockReturnValue(undefined),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
     setSessionState: vi.fn(),
@@ -322,6 +324,67 @@ describe('handleReconnect', () => {
       state: 'running',
       internalState: 'ACTIVE',
       lastSeq: 7,
+    });
+  });
+
+  it('replays a replacement boundary in durable sequence before its snapshot', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      {
+        seq: 11,
+        sessionId: 'sess-1',
+        type: 'execution_state_changed',
+        payload: {
+          sessionId: 'sess-1',
+          executionId: 'old',
+          generation: 1,
+          phase: 'TERMINAL',
+          terminalReason: 'interrupted',
+        },
+      },
+      {
+        seq: 12,
+        sessionId: 'sess-1',
+        type: 'user_message',
+        payload: { sessionId: 'sess-1', messageId: 'replacement', text: 'new direction' },
+      },
+      {
+        seq: 13,
+        sessionId: 'sess-1',
+        type: 'execution_state_changed',
+        payload: {
+          sessionId: 'sess-1',
+          executionId: 'new',
+          generation: 2,
+          phase: 'RUNNING',
+        },
+      },
+    ]);
+    eventStore.getSession.mockReturnValue({ lastStateChange: 13, state: 'ACTIVE' });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 10 }] },
+      ctx,
+    );
+
+    const replay = transport.sent.filter((row) => typeof row.seq === 'number');
+    expect(replay.map((row) => row.seq)).toEqual([11, 12, 13]);
+    expect(replay.map((row) => row.type)).toEqual([
+      'execution_state_changed',
+      'user_message',
+      'execution_state_changed',
+    ]);
+    expect(transport.sent.at(-2)).toMatchObject({
+      type: 'session_execution_snapshot',
+      sessionId: 'sess-1',
+      lastSeq: 13,
     });
   });
 
@@ -1487,6 +1550,41 @@ describe('handleSendV2 skill policy', () => {
 // ─── handleInterruptV2 ──────────────────────────────────────────────────────
 
 describe('handleInterruptV2', () => {
+  it('does not redispatch a recovered replacement receipt when no runtime survived restart', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue(null);
+    const eventStore = mockEventStore();
+    eventStore.getReplacementAdmission.mockReturnValue({
+      token: { sessionId: 'sess-recovered', executionId: 'replacement', generation: 2 },
+      expectedOldToken: { sessionId: 'sess-recovered', executionId: 'old', generation: 1 },
+      requestFingerprint: 'historical-fingerprint',
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleInterruptV2(
+      'c1',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'sess-recovered',
+        prompt: 'same durable direction',
+        clientMsgId: 'replacement-restart',
+      },
+      ctx,
+    );
+
+    expect(startChat).not.toHaveBeenCalled();
+    expect(interruptChat).not.toHaveBeenCalled();
+    expect(transport.sent).toEqual([]);
+  });
+
   it('reports an interrupt resume startup rejection to the client', async () => {
     vi.mocked(startChat).mockRejectedValueOnce(new Error('Resume failed'));
     const sessionReg = mockSessionRegistry();

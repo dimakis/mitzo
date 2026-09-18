@@ -1341,6 +1341,10 @@ checkPort(PORT).then((inUse) => {
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
+    // A replacement RUNNING row may have reached durable admission immediately
+    // before a crash. Terminalize it as uncertain; never redispatch its
+    // provider interrupt or prompt during restart recovery.
+    eventStore.recoverOrphanedExecutions();
     eventStore.recoverPendingSendCommands();
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();

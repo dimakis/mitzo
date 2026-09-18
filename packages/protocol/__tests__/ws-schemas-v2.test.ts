@@ -12,6 +12,7 @@ import {
   V2SetModeMessage,
   IncomingWsMessageV2,
 } from '../src/ws-schemas-v2.js';
+import { MAX_V2_PROMPT_CHARS } from '../src/ws-schemas-v2.js';
 
 describe('v2 hello handshake', () => {
   it('accepts hello with protocolVersion 2', () => {
@@ -165,6 +166,17 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
       clientMsgId: 'u-2',
     });
     expect(r.success).toBe(true);
+  });
+
+  it('enforces the same prompt ceiling for replacements as sends', () => {
+    expect(
+      V2InterruptMessage.safeParse({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'x'.repeat(MAX_V2_PROMPT_CHARS + 1),
+        clientMsgId: 'u-too-large',
+      }).success,
+    ).toBe(false);
   });
 
   it('accepts an interrupt with a model-default reasoning reset', () => {
