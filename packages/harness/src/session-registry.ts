@@ -6,6 +6,7 @@ import {
   MAX_OBSERVERS_PER_SESSION,
   SUSPEND_GRACE_MS,
   SUSPEND_BUFFER_MAX,
+  MAX_PENDING_EXECUTIONS_PER_SESSION,
 } from './constants.js';
 import { createLogger } from './logger.js';
 
@@ -24,7 +25,21 @@ import type {
   MessageSnapshot,
   AgentDefinitionSource,
   AgentDefinition,
+  ExecutionToken,
 } from '@mitzo/protocol';
+
+/** Provider-agnostic work accepted before it receives a durable execution generation. */
+export interface PendingExecutionInput {
+  /** Server-allocated id. It is stable across admission retries. */
+  executionId: string;
+  clientMsgId: string;
+  requestFingerprint: string;
+  /** Opaque provider input retained only for the eventual dispatcher. */
+  providerPayload: unknown;
+  /** Initial startup failures have a more precise durable terminal reason. */
+  isInitial: boolean;
+  dispatch: (token: ExecutionToken) => Promise<void> | void;
+}
 
 export interface ManagedSession {
   /** Current event connection; the registry key remains stable for the query lifetime. */
@@ -74,6 +89,12 @@ export interface ManagedSession {
   agentDefinition?: AgentDefinition | null;
   /** Source of the agent definition: 'contexgin' | 'local' | 'fallback'. */
   agentDefinitionSource?: AgentDefinitionSource;
+  /** The only durable execution currently dispatched to a provider. */
+  currentExecution?: ExecutionToken;
+  /** FIFO work with preallocated ids but no durable generation yet. */
+  pendingExecutions: PendingExecutionInput[];
+  /** Serializes admission/activation while a dispatcher yields. */
+  activatingPending: boolean;
 }
 
 /** Never expand permissions until a transition succeeds; apply downgrades immediately. */
@@ -152,6 +173,9 @@ export class SessionRegistry {
       | 'activeTaskIds'
       | 'agentDefinition'
       | 'agentDefinitionSource'
+      | 'currentExecution'
+      | 'pendingExecutions'
+      | 'activatingPending'
     > & {
       sessionId?: string;
     },
@@ -168,6 +192,9 @@ export class SessionRegistry {
       activeTaskIds: new Map(),
       agentDefinition: null,
       agentDefinitionSource: undefined,
+      currentExecution: undefined,
+      pendingExecutions: [],
+      activatingPending: false,
     });
     this.attached.add(clientId);
   }
@@ -186,6 +213,76 @@ export class SessionRegistry {
 
   isAttached(clientId: string): boolean {
     return this.attached.has(clientId);
+  }
+
+  /** Queue work synchronously before durable admission so the bound is race-free. */
+  enqueuePendingExecution(clientId: string, input: PendingExecutionInput): boolean {
+    const session = this.sessions.get(clientId);
+    if (!session || session.pendingExecutions.length >= MAX_PENDING_EXECUTIONS_PER_SESSION) {
+      return false;
+    }
+    session.pendingExecutions.push(input);
+    return true;
+  }
+
+  /** Claim the controller activation slot. It is released by completePendingActivation(). */
+  beginPendingActivation(clientId: string): ManagedSession | undefined {
+    const session = this.sessions.get(clientId);
+    if (
+      !session ||
+      session.currentExecution ||
+      session.activatingPending ||
+      session.pendingExecutions.length === 0
+    ) {
+      return undefined;
+    }
+    session.activatingPending = true;
+    return session;
+  }
+
+  completePendingActivation(clientId: string): void {
+    const session = this.sessions.get(clientId);
+    if (session) session.activatingPending = false;
+  }
+
+  peekPendingExecution(clientId: string): PendingExecutionInput | undefined {
+    return this.sessions.get(clientId)?.pendingExecutions[0];
+  }
+
+  shiftPendingExecution(clientId: string): PendingExecutionInput | undefined {
+    return this.sessions.get(clientId)?.pendingExecutions.shift();
+  }
+
+  setCurrentExecution(clientId: string, token: ExecutionToken): boolean {
+    const session = this.sessions.get(clientId);
+    if (!session || session.currentExecution) return false;
+    session.currentExecution = token;
+    return true;
+  }
+
+  clearCurrentExecution(clientId: string, token: ExecutionToken): boolean {
+    const session = this.sessions.get(clientId);
+    const current = session?.currentExecution;
+    if (
+      !session ||
+      !current ||
+      current.sessionId !== token.sessionId ||
+      current.executionId !== token.executionId ||
+      current.generation !== token.generation
+    ) {
+      return false;
+    }
+    session.currentExecution = undefined;
+    return true;
+  }
+
+  /** Clear pending work when a runtime is definitively gone; no generation is allocated. */
+  drainPendingExecutions(clientId: string): PendingExecutionInput[] {
+    const session = this.sessions.get(clientId);
+    if (!session) return [];
+    const pending = session.pendingExecutions;
+    session.pendingExecutions = [];
+    return pending;
   }
 
   /**
@@ -358,6 +455,9 @@ export class SessionRegistry {
     // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
     session.observers.clear();
+    session.currentExecution = undefined;
+    session.pendingExecutions = [];
+    session.activatingPending = false;
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
@@ -370,7 +470,12 @@ export class SessionRegistry {
    */
   remove(clientId: string): void {
     const session = this.sessions.get(clientId);
-    if (session) session.observers.clear();
+    if (session) {
+      session.observers.clear();
+      session.currentExecution = undefined;
+      session.pendingExecutions = [];
+      session.activatingPending = false;
+    }
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
     this.clearSuspendState(clientId);

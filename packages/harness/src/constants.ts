@@ -23,3 +23,6 @@ export const USER_CLOSEOUT_TIMEOUT_MS = 120_000; // 2 minutes — user-initiated
 // --- Suspend (proactive iOS backgrounding) ---
 export const SUSPEND_GRACE_MS = 120_000; // 2 minutes — max time to wait for resume before transitioning to detach
 export const SUSPEND_BUFFER_MAX = 1000; // max events to buffer per suspended session
+
+// --- Execution admission ---
+export const MAX_PENDING_EXECUTIONS_PER_SESSION = 100;

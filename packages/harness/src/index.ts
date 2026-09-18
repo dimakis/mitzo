@@ -3,7 +3,12 @@ export type { SessionTransport } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry, effectivePermissionMode } from './session-registry.js';
-export type { ManagedSession, ActiveSessionInfo, CloseoutHandler } from './session-registry.js';
+export type {
+  ManagedSession,
+  PendingExecutionInput,
+  ActiveSessionInfo,
+  CloseoutHandler,
+} from './session-registry.js';
 export type {
   MitzoMode,
   SnapshotBlock,
@@ -65,6 +70,7 @@ export {
   USER_CLOSEOUT_TIMEOUT_MS,
   PERMISSION_TIMEOUT_MS,
   NTFY_NOTIFICATION_DELAY_MS,
+  MAX_PENDING_EXECUTIONS_PER_SESSION,
 } from './constants.js';
 
 // Permission handler

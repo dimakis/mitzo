@@ -95,6 +95,44 @@ describe('SessionRegistry', () => {
       expect(entry.path).toBe('/tmp/team_home-sessions/session-wt-abc');
       expect(entry.wtId).toBe('wt-abc');
     });
+
+    it('initializes execution controller state and clears it on definitive removal', () => {
+      registry.register('client-1', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'execution-session',
+      });
+      const session = registry.get('client-1')!;
+      expect(session).toMatchObject({
+        currentExecution: undefined,
+        pendingExecutions: [],
+        activatingPending: false,
+      });
+      registry.setCurrentExecution('client-1', {
+        sessionId: 'execution-session',
+        executionId: 'active',
+        generation: 1,
+      });
+      registry.enqueuePendingExecution('client-1', {
+        executionId: 'pending',
+        clientMsgId: 'message-pending',
+        requestFingerprint: 'fingerprint-pending',
+        providerPayload: null,
+        isInitial: false,
+        dispatch: () => undefined,
+      });
+      session.activatingPending = true;
+
+      registry.remove('client-1');
+
+      expect(session).toMatchObject({
+        currentExecution: undefined,
+        pendingExecutions: [],
+        activatingPending: false,
+      });
+    });
   });
 
   describe('detach', () => {
