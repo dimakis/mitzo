@@ -1170,16 +1170,26 @@ async function _startChatInner(
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
+    // Preserve legacy start timing/compatibility. Admission-aware v2 requests
+    // defer this side-effectful work until after durable RUNNING below.
+    if (!options.requestFingerprint && providerPreflight) {
+      await providerPreflight();
+      providerPreflight = undefined;
+    }
   } catch (err: unknown) {
     options.onAdmissionFailure?.(err);
     send(transport, {
       type: 'error',
-      error: 'Chat startup validation failed. Please review the selected account and retry.',
+      error: options.requestFingerprint
+        ? 'Chat startup validation failed. Please review the selected account and retry.'
+        : err instanceof Error
+          ? err.message
+          : 'Account selection failed',
     });
-    // The v2 receipt and the launch completion must agree that no admission
-    // happened. Returning here used to leave completion fulfilled while the
-    // receipt rejected (and could leave callers waiting on the wrong promise).
-    throw err;
+    // The v2 receipt and launch completion must agree that no admission
+    // happened. Legacy starts historically surface this on transport only.
+    if (options.requestFingerprint) throw err;
+    return;
   }
   const openShellSelected = !!codexProfile && openShellRequested;
   const openShellWorkdir = openShellSelected
@@ -1314,10 +1324,10 @@ async function _startChatInner(
   const session = registry.get(clientId)!;
   // Never use the mutable client id for a late startup callback. A reconnect
   // may rekey it while provider initialization is still in flight.
-  const runtimeLease = registry.getRuntimeLease(clientId)!;
+  const runtimeLease = registry.getRuntimeLease(clientId);
   if (options._launchOwnership) {
     options._launchOwnership.session = session;
-    options._launchOwnership.runtimeLease = runtimeLease;
+    if (runtimeLease) options._launchOwnership.runtimeLease = runtimeLease;
   }
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
@@ -1493,9 +1503,10 @@ async function _startChatInner(
         rejectProviderReady = reject;
       })
     : undefined;
-  const ownsRuntime = () => registry.resolveRuntimeLease(runtimeLease)?.session === session;
+  const ownsRuntime = () =>
+    !!runtimeLease && registry.resolveRuntimeLease(runtimeLease)?.session === session;
   const finishInitial = async (reason: 'completed' | 'failed' | 'startup_failed') => {
-    if (controller && initialToken && ownsRuntime())
+    if (controller && initialToken && runtimeLease && ownsRuntime())
       await controller.finishExecution(runtimeLease, initialToken, reason);
   };
   let providerOpened = false;
@@ -1729,6 +1740,10 @@ async function _startChatInner(
         await providerReadyPromise;
       } else {
         await queryCompletion;
+        // Legacy projection compatibility: query-loop already emits this, but
+        // make the final inactive flag authoritative after provider callbacks.
+        if (session.sessionId)
+          eventStore.setSessionState(session.sessionId, 'ENDED', { clientId, reason: 'completed' });
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -1751,10 +1766,18 @@ async function _startChatInner(
       // Keep the immutable lease alive long enough for the controller to write
       // and broadcast its exact startup_failed terminal row.
       if (!providerOpened) {
-        if (!options.requestFingerprint && ownsRuntime()) registry.abort(clientId);
+        if (!options.requestFingerprint) {
+          if (session.sessionId)
+            eventStore.setSessionState(session.sessionId, 'ENDED', {
+              clientId,
+              reason: 'startup_failed',
+            });
+          if (ownsRuntime() || !runtimeLease) registry.abort(clientId);
+          return;
+        }
         throw err;
       }
-      if (!options.requestFingerprint && ownsRuntime()) registry.abort(clientId);
+      if (!options.requestFingerprint && (ownsRuntime() || !runtimeLease)) registry.abort(clientId);
     } finally {
       if (!queryOwnershipDelegated) _onSessionChange?.(clientId, 'end', session.sessionId);
     }
