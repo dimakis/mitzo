@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventStore } from '../src/event-store.js';
 
 describe('EventStore', () => {
@@ -862,6 +866,284 @@ describe('EventStore', () => {
       expect(recoveryEvent).toBeDefined();
       expect(recoveryEvent?.payload.state).toBe('idle');
       expect(recoveryEvent?.payload.internalState).toBe('ENDED');
+    });
+  });
+
+  describe('canonical execution state', () => {
+    const sid = 'execution-session';
+
+    beforeEach(() => {
+      store.upsertSession({ sessionId: sid });
+    });
+
+    it('allocates monotonically increasing execution tokens with matching durable events', () => {
+      const first = store.beginExecution(sid, 'execution-1');
+      const second = store.beginExecution(sid, 'execution-2');
+
+      expect(first).toMatchObject({
+        token: { sessionId: sid, executionId: 'execution-1', generation: 1 },
+        event: {
+          sessionId: sid,
+          executionId: 'execution-1',
+          generation: 1,
+          phase: 'RUNNING',
+          clientState: 'running',
+        },
+      });
+      expect(second.token).toEqual({ sessionId: sid, executionId: 'execution-2', generation: 2 });
+      const meta = store.getSession(sid)!;
+      expect(meta).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionGeneration: 2,
+        executionId: 'execution-2',
+        executionPhase: 'RUNNING',
+        executionTerminalReason: null,
+      });
+      const events = store
+        .getSessionEvents(sid)
+        .filter((event) => event.type === 'execution_state_changed');
+      expect(events.map((event) => event.seq)).toEqual([first.seq, second.seq]);
+      expect(events.map((event) => event.payload)).toEqual([first.event, second.event]);
+    });
+
+    it('assigns a UUID when the accepted execution does not supply one', () => {
+      const started = store.beginExecution(sid);
+
+      expect(started.token.executionId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(store.getSession(sid)?.executionId).toBe(started.token.executionId);
+    });
+
+    it('keeps an execution generation stable across legacy state and conversation lifecycle changes', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      store.setSessionState(sid, 'DETACHED', { force: true });
+      const lifecycle = store.setSessionLifecycle(sid, 'CLOSING');
+
+      expect(store.getSession(sid)).toMatchObject({
+        executionGeneration: started.token.generation,
+        executionId: started.token.executionId,
+        executionPhase: 'RUNNING',
+        lifecycleState: 'CLOSING',
+      });
+      expect(
+        store.getSessionEvents(sid).find((event) => event.seq === lifecycle.seq)?.payload,
+      ).toMatchObject({
+        sessionId: sid,
+        lifecycleState: 'CLOSING',
+      });
+    });
+
+    it('allows valid phase changes, persists the terminal reason, and makes terminal final', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      const action = store.transitionExecution(started.token, 'REQUIRES_ACTION');
+      const resumed = store.transitionExecution(started.token, 'RUNNING');
+      const terminal = store.transitionExecution(started.token, 'TERMINAL', 'completed');
+      const afterTerminal = store.transitionExecution(started.token, 'RUNNING');
+
+      expect(action).toMatchObject({
+        applied: true,
+        status: 'applied',
+        event: { phase: 'REQUIRES_ACTION', clientState: 'requires_action' },
+      });
+      expect(resumed).toMatchObject({
+        applied: true,
+        status: 'applied',
+        event: { phase: 'RUNNING' },
+      });
+      expect(terminal).toMatchObject({
+        applied: true,
+        status: 'applied',
+        event: { phase: 'TERMINAL', clientState: 'idle', terminalReason: 'completed' },
+      });
+      expect(afterTerminal).toMatchObject({ applied: false, status: 'terminal' });
+      expect(store.getSession(sid)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'completed',
+      });
+    });
+
+    it('rejects stale execution tokens without changing the row or adding an event', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      const before = store.getSessionEvents(sid).length;
+      const staleId = store.transitionExecution(
+        { ...started.token, executionId: 'different-execution' },
+        'STOPPING',
+      );
+      const staleGeneration = store.transitionExecution(
+        { ...started.token, generation: started.token.generation + 1 },
+        'STOPPING',
+      );
+
+      expect(staleId).toMatchObject({ applied: false, status: 'stale' });
+      expect(staleGeneration).toMatchObject({ applied: false, status: 'stale' });
+      expect(
+        store.claimStop({ ...started.token, executionId: 'different-execution' }),
+      ).toMatchObject({ applied: false, status: 'stale' });
+      expect(store.getSession(sid)).toMatchObject({ executionPhase: 'RUNNING' });
+      expect(store.getSessionEvents(sid)).toHaveLength(before);
+    });
+
+    it('claims STOPPING once and makes repeated stop claims idempotent', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      const first = store.claimStop(started.token);
+      const beforeSecond = store.getSessionEvents(sid).length;
+      const second = store.claimStop(started.token);
+
+      expect(first).toMatchObject({
+        applied: true,
+        status: 'applied',
+        event: { phase: 'STOPPING' },
+      });
+      expect(second).toMatchObject({ applied: false, status: 'already_stopping' });
+      expect(store.getSessionEvents(sid)).toHaveLength(beforeSecond);
+    });
+
+    it('requires and persists only a valid terminal reason', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      expect(() => store.transitionExecution(started.token, 'TERMINAL')).toThrow(
+        'valid terminal reason',
+      );
+      expect(() => store.transitionExecution(started.token, 'RUNNING', 'completed')).toThrow(
+        'terminalReason is only valid',
+      );
+      expect(() =>
+        store.transitionExecution(started.token, 'TERMINAL', 'not-a-terminal-reason' as never),
+      ).toThrow('valid terminal reason');
+      const terminal = store.transitionExecution(started.token, 'TERMINAL', 'stopped');
+      expect(terminal.event?.terminalReason).toBe('stopped');
+      expect(store.getSession(sid)?.executionTerminalReason).toBe('stopped');
+    });
+
+    it('rolls back both the execution row and durable event when an event insert fails', () => {
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec(`
+        CREATE TRIGGER reject_execution_events
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected execution event failure'); END;
+      `);
+      expect(() => store.beginExecution(sid, 'execution-1')).toThrow(
+        'injected execution event failure',
+      );
+      expect(store.getSession(sid)).toMatchObject({
+        executionGeneration: 0,
+        executionId: null,
+        executionPhase: null,
+      });
+      expect(store.getSessionEvents(sid)).toHaveLength(0);
+
+      db.exec('DROP TRIGGER reject_execution_events');
+      const started = store.beginExecution(sid, 'execution-1');
+      const before = store.getSessionEvents(sid).length;
+      db.exec(`
+        CREATE TRIGGER reject_execution_transitions
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected execution event failure'); END;
+      `);
+      expect(() => store.claimStop(started.token)).toThrow('injected execution event failure');
+      expect(store.getSession(sid)).toMatchObject({ executionPhase: 'RUNNING' });
+      expect(store.getSessionEvents(sid)).toHaveLength(before);
+    });
+
+    it('recovers only active orphaned executions once without closing the conversation', () => {
+      const active = store.beginExecution(sid, 'execution-active');
+      store.upsertSession({ sessionId: 'requires-action-session' });
+      const requiresAction = store.beginExecution('requires-action-session', 'execution-action');
+      store.transitionExecution(requiresAction.token, 'REQUIRES_ACTION');
+      store.upsertSession({ sessionId: 'stopping-session' });
+      const stopping = store.beginExecution('stopping-session', 'execution-stopping');
+      store.claimStop(stopping.token);
+      store.upsertSession({ sessionId: 'terminal-session' });
+      const terminal = store.beginExecution('terminal-session', 'execution-terminal');
+      store.transitionExecution(terminal.token, 'TERMINAL', 'completed');
+
+      expect(store.recoverOrphanedExecutions()).toBe(3);
+      expect(store.getSession(sid)).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionId: active.token.executionId,
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(store.getSession('terminal-session')).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'completed',
+      });
+      expect(store.getSession('requires-action-session')).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(store.getSession('stopping-session')).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(store.recoverOrphanedExecutions()).toBe(0);
+    });
+
+    it('serializes sequential begins without duplicate generations', () => {
+      const executions = Array.from({ length: 4 }, (_, index) =>
+        store.beginExecution(sid, `execution-${index}`),
+      );
+      expect(executions.map((execution) => execution.token.generation)).toEqual([1, 2, 3, 4]);
+      expect(new Set(executions.map((execution) => execution.token.generation)).size).toBe(4);
+    });
+
+    it.todo(
+      'deduplicates beginExecution by clientMsgId once send receipts persist execution tokens',
+    );
+  });
+
+  describe('execution state migration', () => {
+    it('backs old rows into OPEN conversations unless closed_by is durable close evidence', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-execution-migration-'));
+      const path = join(root, 'legacy.sqlite');
+      const legacy = new Database(path);
+      legacy.exec(`
+        CREATE TABLE sessions (
+          session_id TEXT PRIMARY KEY, summary TEXT, branch TEXT, cwd TEXT,
+          mode TEXT NOT NULL DEFAULT 'agent', is_active INTEGER NOT NULL DEFAULT 1,
+          is_hidden INTEGER NOT NULL DEFAULT 0, closed_by TEXT, state TEXT,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE events (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+          type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL
+        );
+      `);
+      legacy
+        .prepare(
+          `INSERT INTO sessions (session_id, mode, is_active, is_hidden, closed_by, state, created_at, updated_at)
+         VALUES (?, 'agent', 0, 0, ?, 'ENDED', 1, 1)`,
+        )
+        .run('old-ended-open', null);
+      legacy
+        .prepare(
+          `INSERT INTO sessions (session_id, mode, is_active, is_hidden, closed_by, state, created_at, updated_at)
+         VALUES (?, 'agent', 0, 0, 'user', 'ENDED', 1, 1)`,
+        )
+        .run('old-closed');
+      legacy.close();
+
+      const migrated = new EventStore(path);
+      try {
+        expect(migrated.getSession('old-ended-open')).toMatchObject({
+          state: 'ENDED',
+          lifecycleState: 'OPEN',
+          executionGeneration: 0,
+          executionId: null,
+          executionPhase: null,
+        });
+        expect(migrated.getSession('old-closed')).toMatchObject({
+          lifecycleState: 'CLOSED',
+          executionGeneration: 0,
+          executionId: null,
+        });
+      } finally {
+        migrated.close();
+        await rm(root, { recursive: true, force: true });
+      }
     });
   });
 

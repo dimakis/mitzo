@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import type {
   MitzoMode,
   StoredEvent,
@@ -8,6 +9,11 @@ import type {
   ClientSessionState,
   EventStoreLogger,
   AccountBinding,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  SessionLifecycleState,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -31,6 +37,11 @@ export type {
   SessionState,
   ClientSessionState,
   EventStoreLogger,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  SessionLifecycleState,
 };
 
 /**
@@ -98,6 +109,12 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  lifecycle_state: string | null;
+  execution_generation: number | null;
+  execution_id: string | null;
+  execution_phase: string | null;
+  execution_terminal_reason: string | null;
+  execution_updated_at: number | null;
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
@@ -145,6 +162,12 @@ const SCHEMA = `
     mode        TEXT NOT NULL DEFAULT 'agent',
     is_active   INTEGER NOT NULL DEFAULT 1,
     is_hidden   INTEGER NOT NULL DEFAULT 0,
+    lifecycle_state TEXT NOT NULL DEFAULT 'OPEN',
+    execution_generation INTEGER NOT NULL DEFAULT 0,
+    execution_id TEXT,
+    execution_phase TEXT,
+    execution_terminal_reason TEXT,
+    execution_updated_at INTEGER,
     prompt_count     INTEGER NOT NULL DEFAULT 0,
     manually_renamed INTEGER NOT NULL DEFAULT 0,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
@@ -161,6 +184,59 @@ const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
   CLOSING: ['ENDED'],
   ENDED: ['CREATED'],
 };
+
+const EXECUTION_TERMINAL_REASONS = new Set<ExecutionTerminalReason>([
+  'completed',
+  'failed',
+  'stopped',
+  'interrupted',
+  'closed',
+  'abandoned',
+  'server_restart',
+  'startup_failed',
+]);
+
+const EXECUTION_TRANSITIONS: Record<ExecutionPhase, ExecutionPhase[]> = {
+  RUNNING: ['REQUIRES_ACTION', 'STOPPING', 'TERMINAL'],
+  REQUIRES_ACTION: ['RUNNING', 'STOPPING', 'TERMINAL'],
+  STOPPING: ['TERMINAL'],
+  TERMINAL: [],
+};
+
+export type ExecutionTransitionStatus =
+  'applied' | 'already_stopping' | 'stale' | 'terminal' | 'invalid_transition';
+
+export interface ExecutionTransitionResult {
+  applied: boolean;
+  status: ExecutionTransitionStatus;
+  token: ExecutionToken;
+  seq?: number;
+  event?: ExecutionStateChangedPayload;
+}
+
+export interface BeginExecutionResult {
+  token: ExecutionToken;
+  seq: number;
+  event: ExecutionStateChangedPayload;
+}
+
+export interface SessionLifecycleTransitionResult {
+  applied: boolean;
+  lifecycleState: SessionLifecycleState;
+  seq?: number;
+}
+
+function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
+  switch (phase) {
+    case 'RUNNING':
+    case 'STOPPING':
+      return 'running';
+    case 'REQUIRES_ACTION':
+      return 'requires_action';
+    case 'TERMINAL':
+      return 'idle';
+  }
+}
 
 export class EventStore {
   private db: Database.Database | null;
@@ -274,6 +350,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSymposium(db);
@@ -444,6 +521,53 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN last_state_change INTEGER');
       this.log.info('migrated sessions table: added last_state_change');
     }
+  }
+
+  /**
+   * Add the canonical execution identity without reinterpreting legacy runner
+   * state. Historical ENDED rows may be resumable conversations, so only an
+   * explicit closed_by marker is durable evidence that the conversation closed.
+   */
+  private migrateExecutionState(db: Database.Database): void {
+    db.transaction(() => {
+      const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+      const names = new Set(columns.map((column) => column.name));
+      const addedLifecycleState = !names.has('lifecycle_state');
+      const migrations: Array<[string, string]> = [
+        [
+          'lifecycle_state',
+          "ALTER TABLE sessions ADD COLUMN lifecycle_state TEXT NOT NULL DEFAULT 'OPEN'",
+        ],
+        [
+          'execution_generation',
+          'ALTER TABLE sessions ADD COLUMN execution_generation INTEGER NOT NULL DEFAULT 0',
+        ],
+        ['execution_id', 'ALTER TABLE sessions ADD COLUMN execution_id TEXT'],
+        ['execution_phase', 'ALTER TABLE sessions ADD COLUMN execution_phase TEXT'],
+        [
+          'execution_terminal_reason',
+          'ALTER TABLE sessions ADD COLUMN execution_terminal_reason TEXT',
+        ],
+        ['execution_updated_at', 'ALTER TABLE sessions ADD COLUMN execution_updated_at INTEGER'],
+      ];
+      for (const [column, sql] of migrations) {
+        if (!names.has(column)) {
+          db.exec(sql);
+          this.log.info(`migrated sessions table: added ${column}`);
+        }
+      }
+      if (addedLifecycleState) {
+        db.exec(`
+          UPDATE sessions
+          SET lifecycle_state = CASE WHEN closed_by IS NOT NULL THEN 'CLOSED' ELSE 'OPEN' END
+        `);
+      } else {
+        db.exec(`
+          UPDATE sessions SET lifecycle_state = 'OPEN'
+          WHERE lifecycle_state IS NULL OR lifecycle_state NOT IN ('OPEN', 'CLOSING', 'CLOSED')
+        `);
+      }
+    })();
   }
 
   private migrateBootContext(db: Database.Database): void {
@@ -650,6 +774,211 @@ export class EventStore {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /**
+   * Atomically allocate the next authoritative execution for a conversation.
+   *
+   * TODO(execution-dedupe): client message receipt recovery currently proves
+   * accepted-send ownership but does not persist an execution token. Until
+   * that receipt links to execution_id, clientMsgId is deliberately not used
+   * as a best-effort dedupe key here.
+   */
+  beginExecution(
+    sessionId: string,
+    executionId = randomUUID(),
+    _clientMsgId?: string,
+  ): BeginExecutionResult {
+    return this.db!.transaction(() => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+
+      const generation = (current.execution_generation ?? 0) + 1;
+      const token: ExecutionToken = { sessionId, executionId, generation };
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        ...token,
+        phase: 'RUNNING',
+        clientState: clientStateForExecution('RUNNING'),
+        timestamp,
+      };
+      const update = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
+          execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
+         WHERE session_id = ?`,
+      );
+      update.run(generation, executionId, timestamp, timestamp, sessionId);
+      // Do not call append(): this insert must share the immediate transaction
+      // with the row update, so a failed event rolls both changes back.
+      const seq = Number(
+        this.stmts.append.run(
+          sessionId,
+          'execution_state_changed',
+          JSON.stringify(event),
+          null,
+          null,
+        ).lastInsertRowid,
+      );
+      return { token, seq, event };
+    }).immediate();
+  }
+
+  transitionExecution(
+    token: ExecutionToken,
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): ExecutionTransitionResult {
+    this.validateExecutionTransition(nextPhase, terminalReason);
+    return this.db!.transaction(() =>
+      this.transitionExecutionInTransaction(token, nextPhase, terminalReason),
+    ).immediate();
+  }
+
+  /** Atomically claim a running execution for stop without resolving a transport owner. */
+  claimStop(token: ExecutionToken): ExecutionTransitionResult {
+    return this.db!.transaction(() =>
+      this.transitionExecutionInTransaction(token, 'STOPPING'),
+    ).immediate();
+  }
+
+  /**
+   * Conversation lifecycle is durable but intentionally has no running/idle
+   * projection. Closing a conversation does not rewrite its execution token.
+   */
+  setSessionLifecycle(
+    sessionId: string,
+    lifecycleState: SessionLifecycleState,
+  ): SessionLifecycleTransitionResult {
+    return this.db!.transaction(() => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot update lifecycle for unknown session: ${sessionId}`);
+      const currentState = (current.lifecycle_state ?? 'OPEN') as SessionLifecycleState;
+      if (currentState === lifecycleState) return { applied: false, lifecycleState: currentState };
+      if (currentState === 'CLOSED') return { applied: false, lifecycleState: currentState };
+
+      const timestamp = Date.now();
+      this.db!.prepare(
+        'UPDATE sessions SET lifecycle_state = ?, updated_at = ? WHERE session_id = ? AND lifecycle_state = ?',
+      ).run(lifecycleState, timestamp, sessionId, currentState);
+      const seq = Number(
+        this.stmts.append.run(
+          sessionId,
+          'session_lifecycle_changed',
+          JSON.stringify({ sessionId, lifecycleState, timestamp }),
+          null,
+          null,
+        ).lastInsertRowid,
+      );
+      return { applied: true, lifecycleState, seq };
+    }).immediate();
+  }
+
+  /** Terminalize only orphaned executions; conversations remain OPEN/resumable. */
+  recoverOrphanedExecutions(): number {
+    return this.db!.transaction(() => {
+      const rows = this.db!.prepare(
+        `SELECT session_id, execution_id, execution_generation
+           FROM sessions
+           WHERE execution_phase IN ('RUNNING', 'REQUIRES_ACTION', 'STOPPING')
+             AND execution_id IS NOT NULL`,
+      ).all() as Array<{
+        session_id: string;
+        execution_id: string;
+        execution_generation: number;
+      }>;
+      let recovered = 0;
+      for (const row of rows) {
+        const result = this.transitionExecutionInTransaction(
+          {
+            sessionId: row.session_id,
+            executionId: row.execution_id,
+            generation: row.execution_generation,
+          },
+          'TERMINAL',
+          'server_restart',
+        );
+        if (result.applied) recovered++;
+      }
+      return recovered;
+    }).immediate();
+  }
+
+  private validateExecutionTransition(
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !EXECUTION_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error('A valid terminal reason is required when transitioning to TERMINAL');
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL transitions');
+    }
+  }
+
+  /** Must run inside the caller's SQLite immediate transaction. */
+  private transitionExecutionInTransaction(
+    token: ExecutionToken,
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): ExecutionTransitionResult {
+    this.validateExecutionTransition(nextPhase, terminalReason);
+    const current = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+    const stale = (): ExecutionTransitionResult => ({ applied: false, status: 'stale', token });
+    if (
+      !current ||
+      current.execution_id !== token.executionId ||
+      current.execution_generation !== token.generation ||
+      !current.execution_phase
+    ) {
+      return stale();
+    }
+
+    const phase = current.execution_phase as ExecutionPhase;
+    if (phase === 'STOPPING' && nextPhase === 'STOPPING') {
+      return { applied: false, status: 'already_stopping', token };
+    }
+    if (phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+    if (!EXECUTION_TRANSITIONS[phase]?.includes(nextPhase)) {
+      return { applied: false, status: 'invalid_transition', token };
+    }
+
+    const timestamp = Date.now();
+    const event: ExecutionStateChangedPayload = {
+      ...token,
+      phase: nextPhase,
+      clientState: clientStateForExecution(nextPhase),
+      ...(terminalReason ? { terminalReason } : {}),
+      timestamp,
+    };
+    const updated = this.db!.prepare(
+      `UPDATE sessions SET
+        execution_phase = ?, execution_terminal_reason = ?, execution_updated_at = ?, updated_at = ?
+       WHERE session_id = ? AND execution_id = ? AND execution_generation = ? AND execution_phase = ?`,
+    ).run(
+      nextPhase,
+      nextPhase === 'TERMINAL' ? terminalReason : null,
+      timestamp,
+      timestamp,
+      token.sessionId,
+      token.executionId,
+      token.generation,
+      phase,
+    );
+    if (updated.changes !== 1) return stale();
+    const seq = Number(
+      this.stmts.append.run(
+        token.sessionId,
+        'execution_state_changed',
+        JSON.stringify(event),
+        null,
+        null,
+      ).lastInsertRowid,
+    );
+    return { applied: true, status: 'applied', token, seq, event };
   }
 
   /** Persist a seat-attributed event only when its provenance matches the active config. */
@@ -2208,6 +2537,13 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    lifecycleState: (row.lifecycle_state as SessionMeta['lifecycleState']) ?? 'OPEN',
+    executionGeneration: row.execution_generation ?? 0,
+    executionId: row.execution_id ?? null,
+    executionPhase: (row.execution_phase as SessionMeta['executionPhase']) ?? null,
+    executionTerminalReason:
+      (row.execution_terminal_reason as SessionMeta['executionTerminalReason']) ?? null,
+    executionUpdatedAt: row.execution_updated_at ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),

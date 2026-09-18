@@ -228,6 +228,38 @@ export type SessionState =
  */
 export type ClientSessionState = 'idle' | 'running' | 'requires_action';
 
+/** Conversation lifecycle is independent from the execution of an individual turn. */
+export type SessionLifecycleState = 'OPEN' | 'CLOSING' | 'CLOSED';
+
+/** Durable phase for a single accepted execution. */
+export type ExecutionPhase = 'RUNNING' | 'REQUIRES_ACTION' | 'STOPPING' | 'TERMINAL';
+
+/** Why a terminal execution ended. This is intentionally closed for durable replay. */
+export type ExecutionTerminalReason =
+  | 'completed'
+  | 'failed'
+  | 'stopped'
+  | 'interrupted'
+  | 'closed'
+  | 'abandoned'
+  | 'server_restart'
+  | 'startup_failed';
+
+/** Immutable identity of one execution within a long-lived conversation. */
+export interface ExecutionToken {
+  sessionId: string;
+  executionId: string;
+  generation: number;
+}
+
+/** Canonical sequenced durable event emitted for every execution transition. */
+export interface ExecutionStateChangedPayload extends ExecutionToken {
+  phase: ExecutionPhase;
+  clientState: ClientSessionState;
+  terminalReason?: ExecutionTerminalReason;
+  timestamp: number;
+}
+
 /** Server-authoritative state event emitted on every lifecycle transition. */
 export interface SessionStateEvent {
   type: 'session_state_changed';
@@ -372,6 +404,14 @@ export interface SessionMeta {
   lastSpeakerAt: number | null;
   state: SessionState | null;
   lastStateChange: number | null;
+  /** Conversation lifecycle; legacy sessions are migrated as OPEN unless durable close evidence exists. */
+  lifecycleState: SessionLifecycleState;
+  /** Incremented only when a new execution is accepted. Generation zero has no execution authority. */
+  executionGeneration: number;
+  executionId: string | null;
+  executionPhase: ExecutionPhase | null;
+  executionTerminalReason: ExecutionTerminalReason | null;
+  executionUpdatedAt: number | null;
   agentName: string | null;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
