@@ -20,6 +20,14 @@ type ReceiptInput = {
   legacyCommand: Record<string, unknown>;
 };
 
+/** A dispatch failure whose message is safe to persist and replay to a client. */
+export class SendDispatchFailure extends Error {
+  constructor(message = 'Unable to start the chat. Please retry.') {
+    super(message);
+    this.name = 'SendDispatchFailure';
+  }
+}
+
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
 
 /** HTTP command acceptance is independent of event-stream connectivity.
@@ -66,8 +74,9 @@ export function acceptSendCommand(
         store.completeNativeSendCommand(message.clientMsgId);
         sessionId = null;
       }
-      const failed = store.getSendCommand(message.clientMsgId)?.error;
-      if (failed) throw new Error(failed);
+      // Long-lived startup/query work can fail after admission resolves. Its
+      // owner records and delivers that failure directly; do not turn it into
+      // a second acknowledgement error here.
     } catch (err) {
       store.failSendCommand(
         message.clientMsgId,
@@ -139,8 +148,6 @@ export function acceptSendCommandAsync(
         store.completeNativeSendCommand(message.clientMsgId);
         sessionId = null;
       }
-      const failed = store.getSendCommand(message.clientMsgId)?.error;
-      if (failed) throw new Error(failed);
     } catch (err) {
       store.failSendCommand(
         message.clientMsgId,

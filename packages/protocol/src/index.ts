@@ -115,6 +115,11 @@ export {
   V2PermissionResponseMessage,
   V2SetModeMessage,
   IncomingWsMessageV2,
+  MAX_V2_IMAGE_COUNT,
+  MAX_V2_IMAGE_DECODED_BYTES,
+  MAX_V2_IMAGE_TOTAL_DECODED_BYTES,
+  MAX_V2_IMAGE_ENCODED_CHARS,
+  MAX_V2_CLIENT_PAYLOAD_BYTES,
 } from './ws-schemas-v2.js';
 
 // Event store — the EventStore class requires better-sqlite3 and must be

@@ -14,8 +14,23 @@
 
 import { z } from 'zod';
 
+/**
+ * The envelope limits are shared with the WebSocket listener. Image bytes are
+ * base64 on the wire, so retain enough headroom for JSON fields and four image
+ * descriptors without allowing an unbounded frame to reach validation.
+ */
+export const MAX_V2_IMAGE_COUNT = 4;
+export const MAX_V2_IMAGE_DECODED_BYTES = 10 * 1024 * 1024;
+export const MAX_V2_IMAGE_TOTAL_DECODED_BYTES = 20 * 1024 * 1024;
+export const MAX_V2_IMAGE_ENCODED_CHARS = Math.ceil(MAX_V2_IMAGE_DECODED_BYTES / 3) * 4;
+export const MAX_V2_CLIENT_PAYLOAD_BYTES =
+  Math.ceil(MAX_V2_IMAGE_TOTAL_DECODED_BYTES / 3) * 4 + 4 * 1024 * 1024;
+
 const ImageSchema = z.object({
-  data: z.string(),
+  // This is an encoded-byte ceiling, not a character-count approximation.
+  // execution-request performs the stricter decoded-byte and canonical-base64
+  // checks before any decode or hash.
+  data: z.string().max(MAX_V2_IMAGE_ENCODED_CHARS),
   mediaType: z.string(),
 });
 
@@ -87,7 +102,7 @@ export const V2SendMessage = z.object({
   cwd: z.string().optional(),
   extraTools: z.string().optional(),
   isolation: z.boolean().optional(),
-  images: z.array(ImageSchema).optional(),
+  images: z.array(ImageSchema).max(MAX_V2_IMAGE_COUNT).optional(),
   contextBlocks: z.array(z.string()).optional(),
   telosTaskId: z.string().optional(),
   agentName: z
@@ -104,7 +119,7 @@ export const V2InterruptMessage = z.object({
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
-  images: z.array(ImageSchema).optional(),
+  images: z.array(ImageSchema).max(MAX_V2_IMAGE_COUNT).optional(),
   contextBlocks: z.array(z.string()).optional(),
 });
 

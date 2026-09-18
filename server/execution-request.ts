@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { z } from 'zod';
-import type { V2SendMessage } from '@mitzo/protocol';
+import {
+  MAX_V2_IMAGE_COUNT,
+  MAX_V2_IMAGE_DECODED_BYTES,
+  MAX_V2_IMAGE_TOTAL_DECODED_BYTES,
+  type V2SendMessage,
+} from '@mitzo/protocol';
 
 type SendMessage = z.infer<typeof V2SendMessage>;
 
@@ -8,9 +13,10 @@ const MAX_STRING_BYTES = 1_000_000;
 const MAX_ARRAY_ITEMS = 1_024;
 const MAX_CANONICAL_BYTES = 2_000_000;
 // Align the per-image ceiling with image-store; V2's UI limits attachments to four.
-export const MAX_EXECUTION_IMAGE_BYTES = 10 * 1024 * 1024;
-export const MAX_EXECUTION_IMAGES = 4;
-export const MAX_EXECUTION_IMAGE_BYTES_TOTAL = 20 * 1024 * 1024;
+export const MAX_EXECUTION_IMAGE_BYTES = MAX_V2_IMAGE_DECODED_BYTES;
+export const MAX_EXECUTION_IMAGES = MAX_V2_IMAGE_COUNT;
+export const MAX_EXECUTION_IMAGE_BYTES_TOTAL = MAX_V2_IMAGE_TOTAL_DECODED_BYTES;
+export const MAX_EXECUTION_IMAGE_ENCODED_CHARS = Math.ceil(MAX_EXECUTION_IMAGE_BYTES / 3) * 4;
 
 export class ExecutionRequestValidationError extends Error {
   constructor(message: string) {
@@ -101,6 +107,13 @@ function normalizedToolSet(tools: string[] | undefined, field: string): string[]
 }
 
 function strictBase64Bytes(data: string): Uint8Array {
+  // Check before regex/decode/re-encode. The largest canonical base64 form for
+  // N bytes is ceil(N / 3) * 4; URL-safe unpadded input can only be shorter.
+  if (data.length > MAX_EXECUTION_IMAGE_ENCODED_CHARS) {
+    throw new ExecutionRequestValidationError(
+      `Image encoded data exceeds ${MAX_EXECUTION_IMAGE_ENCODED_CHARS} characters`,
+    );
+  }
   if (data.startsWith('data:')) {
     throw new ExecutionRequestValidationError(
       'Image data URLs are not accepted; send raw base64 bytes',

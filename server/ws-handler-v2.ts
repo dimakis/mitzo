@@ -55,6 +55,7 @@ import {
   stopChat,
   closeSessionByUser,
   isActive,
+  isIsolationEnabled,
   reattachChat,
   BASE_REPO,
   discoverSession,
@@ -64,8 +65,9 @@ import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
-import { acceptSendCommandAsync } from './send-command.js';
+import { acceptSendCommandAsync, SendDispatchFailure } from './send-command.js';
 import { fingerprintExecutionRequest } from './execution-request.js';
+import { DEFAULT_AGENT_NAME } from './constants.js';
 
 const log = createLogger('ws-v2');
 
@@ -80,7 +82,7 @@ export type PreparedSendV2 = {
   message: SendMsg;
   requestFingerprint: string;
   legacyCommand: Record<string, unknown>;
-  resolution: ReturnType<typeof resolveSlashCommand>;
+  effective: EffectiveExecutionOptions;
 };
 
 export type SendReceipt = {
@@ -98,11 +100,33 @@ type SendDelivery = {
 };
 
 /**
- * Resolve the validated send identity before its durable receipt is claimed.
- * Dispatch continues to perform its existing defensive checks; this prepared
- * value is the sole fingerprint authority for both REST and WebSocket sends.
+ * These are the concrete values that both receipt hashing and provider startup
+ * consume. Keeping them together prevents a stored-session default from being
+ * fingerprinted differently than the value sent to the runtime.
  */
-export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): PreparedSendV2 {
+export type EffectiveExecutionOptions = {
+  cwd: string;
+  /** Leave undefined only for a new default-isolated session. */
+  startupCwd: string | undefined;
+  accountProfiles: ReturnType<typeof loadAccountProfiles> | undefined;
+  model: string | null;
+  reasoningEffort: string | null;
+  mode: NonNullable<SendMsg['mode']>;
+  isolation: boolean;
+  extraTools: string[];
+  skillAllowedTools: string[] | undefined;
+  agentName: string;
+  resolution: ReturnType<typeof resolveSlashCommand>;
+  skillRegistry: ReturnType<typeof buildSkillRegistry>;
+  effectiveProviderPrompt: string;
+  userIntent: string;
+};
+
+/** Resolve persisted/default execution options once, before durable admission. */
+export function resolveEffectiveExecutionOptions(
+  message: SendMsg,
+  ctx: V2HandlerContext,
+): EffectiveExecutionOptions {
   const stored = message.sessionId ? ctx.eventStore.getSession(message.sessionId) : null;
   const storedBinding = stored?.accountBinding;
   const accountProfiles = message.accountId || storedBinding ? loadAccountProfiles() : undefined;
@@ -112,49 +136,95 @@ export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): Prepared
     !!message.sessionId,
     accountProfiles,
   );
-  const rawCwd = message.cwd || BASE_REPO;
-  const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+  const requestedCwd = message.cwd ?? (message.sessionId ? (stored?.cwd ?? BASE_REPO) : BASE_REPO);
+  const cwd = requestedCwd && isAllowedPath(requestedCwd) ? requestedCwd : BASE_REPO;
   const skillRegistry = buildSkillRegistry(cwd);
   const resolution = resolveSlashCommand(message.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
   if (resolution.type === 'error') throw new Error(resolution.message);
   const isSkill = resolution.type === 'skill';
-  const operation = resolution.type === 'native' ? `native:${resolution.name}` : message.type;
-  const prompt = isSkill ? resolution.renderedPrompt : message.prompt;
-  const extraTools = message.extraTools
-    ? message.extraTools
-        .split(',')
-        .map((tool) => tool.trim())
-        .filter(Boolean)
-    : [];
+  const storedModel = stored?.selectedModel ?? binding?.model ?? null;
+  const model = binding
+    ? message.accountId
+      ? (message.model ?? storedModel)
+      : (stored?.selectedModel ?? binding.model)
+    : (message.model ?? stored?.selectedModel ?? null);
+  const reasoningEffort = binding
+    ? message.accountId
+      ? message.reasoningEffort !== undefined
+        ? message.reasoningEffort
+        : message.model && message.model !== storedModel
+          ? null
+          : (stored?.reasoningEffort ?? null)
+      : (stored?.reasoningEffort ?? null)
+    : (message.reasoningEffort ?? stored?.reasoningEffort ?? null);
+  const liveMode = message.sessionId
+    ? ctx.sessionRegistry.findBySessionId(message.sessionId)?.session?.mode
+    : undefined;
+  return {
+    cwd,
+    // New sessions intentionally omit cwd so createSessionWorktrees can apply
+    // the repository isolation default; resumes use their durable cwd.
+    startupCwd: message.cwd ?? (message.sessionId ? cwd : undefined),
+    accountProfiles,
+    model,
+    reasoningEffort,
+    mode: (liveMode ?? stored?.mode ?? message.mode ?? 'agent') as NonNullable<SendMsg['mode']>,
+    isolation: isIsolationEnabled(message.isolation),
+    extraTools: message.extraTools
+      ? message.extraTools
+          .split(',')
+          .map((tool) => tool.trim())
+          .filter(Boolean)
+      : [],
+    skillAllowedTools: isSkill ? resolution.allowedTools : undefined,
+    agentName: message.agentName ?? DEFAULT_AGENT_NAME,
+    resolution,
+    skillRegistry,
+    effectiveProviderPrompt: isSkill ? resolution.renderedPrompt : message.prompt,
+    userIntent: message.prompt,
+  };
+}
+
+/**
+ * Resolve the validated send identity before its durable receipt is claimed.
+ * Dispatch continues to perform its existing defensive checks; this prepared
+ * value is the sole fingerprint authority for both REST and WebSocket sends.
+ */
+export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): PreparedSendV2 {
+  const effective = resolveEffectiveExecutionOptions(message, ctx);
+  const operation =
+    effective.resolution.type === 'native' ? `native:${effective.resolution.name}` : message.type;
+  const skill =
+    effective.resolution.type === 'skill'
+      ? {
+          name: effective.resolution.name,
+          renderedPrompt: effective.resolution.renderedPrompt,
+          allowedTools: effective.resolution.allowedTools,
+        }
+      : null;
   return {
     message,
     requestFingerprint: fingerprintExecutionRequest({
       operation,
       sessionId: message.sessionId,
       rawUserIntent: message.prompt,
-      effectiveProviderPrompt: prompt,
-      accountId: binding?.accountId ?? message.accountId ?? null,
-      model: binding?.model ?? message.model ?? null,
-      reasoningEffort: message.reasoningEffort ?? null,
-      mode: message.mode ?? stored?.mode ?? null,
-      cwd,
-      extraTools,
-      allowedTools: isSkill ? (resolution.allowedTools ?? []) : [],
-      isolation: message.isolation ?? null,
+      effectiveProviderPrompt: effective.effectiveProviderPrompt,
+      accountId: message.accountId ?? null,
+      model: effective.model,
+      reasoningEffort: effective.reasoningEffort,
+      mode: effective.mode,
+      cwd: effective.cwd,
+      extraTools: effective.extraTools,
+      allowedTools: effective.skillAllowedTools ?? [],
+      isolation: effective.isolation,
       images: message.images ?? [],
       contextBlocks: message.contextBlocks ?? [],
       telosTaskId: message.telosTaskId ?? null,
-      agentName: message.agentName ?? null,
-      skill: isSkill
-        ? {
-            name: resolution.name,
-            renderedPrompt: resolution.renderedPrompt,
-            allowedTools: resolution.allowedTools,
-          }
-        : null,
+      agentName: effective.agentName,
+      skill,
     }),
     legacyCommand: message as Record<string, unknown>,
-    resolution,
+    effective,
   };
 }
 
@@ -695,7 +765,10 @@ export async function handleSendV2(
   } catch (error) {
     transport.send({
       type: 'error',
-      error: error instanceof Error ? error.message : 'Send failed',
+      error:
+        error instanceof SendDispatchFailure
+          ? error.message
+          : 'Unable to start the chat. Please retry.',
     });
   }
 }
@@ -713,18 +786,8 @@ export function dispatchPreparedSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
-        const storedBinding = msg.sessionId
-          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
-          : null;
-        const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
-        // Validation-only gate before dispatch; startup revalidates against this same snapshot.
-        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
-        const rawCwd = msg.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
-        const skillRegistry = buildSkillRegistry(cwd);
-        const resolution =
-          prepared?.resolution ??
-          resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const effective = prepared?.effective ?? resolveEffectiveExecutionOptions(msg, ctx);
+        const { accountProfiles, resolution, skillRegistry } = effective;
 
         if (resolution.type === 'native') {
           void ctx.nativeCommands
@@ -748,16 +811,11 @@ export function dispatchPreparedSendV2(
           return 'native';
         }
 
-        if (resolution.type === 'error') {
-          transport.send({ type: 'error', error: resolution.message });
-          return;
-        }
-
-        const prompt = resolution.type === 'skill' ? resolution.renderedPrompt : msg.prompt;
+        const prompt = effective.effectiveProviderPrompt;
         // Preflight sees exactly what the user typed, including a meaningful
         // slash-command name, never the rendered skill body.
-        const userIntent = msg.prompt;
-        const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
+        const userIntent = effective.userIntent;
+        const skillAllowedTools = effective.skillAllowedTools;
 
         if (resolution.type === 'skill') {
           transport.send({
@@ -865,7 +923,8 @@ export function dispatchPreparedSendV2(
                     msg.accountId ? msg.model : undefined,
                     msg.accountId ? msg.reasoningEffort : undefined,
                   );
-            if (!accepted) throw new Error('Session is not accepting input. Please retry.');
+            if (!accepted)
+              throw new SendDispatchFailure('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;
           }
@@ -895,30 +954,29 @@ export function dispatchPreparedSendV2(
           ctx.connRegistry.watch(connectionId, sessionId);
           ctx.connRegistry.setActive(connectionId, sessionId);
           span.setAttribute('routing.decision', 'resume');
-          startChat(transport, sessionClientId, prompt, {
+          applySkillPolicy(sessionClientId);
+          void startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: effective.startupCwd,
+            model: effective.model ?? undefined,
+            reasoningEffort: effective.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
-            extraTools: msg.extraTools,
+            extraTools: effective.extraTools.join(','),
             skillAllowedTools,
-            isolation: msg.isolation,
+            isolation: effective.isolation,
             resumePermission,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             telosTaskId: msg.telosTaskId,
-            agentName: msg.agentName,
+            agentName: effective.agentName,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
-              type: 'error',
-              error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
-          applySkillPolicy(sessionClientId);
+          }).catch(() => {
+            const failure = new SendDispatchFailure();
+            ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
+            transport.send({ type: 'error', error: failure.message });
+          });
         } else {
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
@@ -926,40 +984,36 @@ export function dispatchPreparedSendV2(
             ctx.connRegistry.watch(connectionId, resolvedId);
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
-          startChat(transport, sessionClientId, prompt, {
+          applySkillPolicy(sessionClientId);
+          void startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: effective.startupCwd,
+            model: effective.model ?? undefined,
+            reasoningEffort: effective.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
-            extraTools: msg.extraTools,
+            extraTools: effective.extraTools.join(','),
             skillAllowedTools,
-            isolation: msg.isolation,
-            mode: msg.mode,
+            isolation: effective.isolation,
+            mode: effective.mode,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
             telosTaskId: msg.telosTaskId,
-            agentName: msg.agentName,
+            agentName: effective.agentName,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
-              type: 'error',
-              error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
-          applySkillPolicy(sessionClientId);
+          }).catch(() => {
+            const failure = new SendDispatchFailure();
+            ctx.eventStore.failSendCommand(msg.clientMsgId, failure.message);
+            transport.send({ type: 'error', error: failure.message });
+          });
         }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
         span.setStatus({ code: SpanStatusCode.ERROR, message });
-        transport.send({
-          type: 'error',
-          error: err instanceof Error ? err.message : 'Send failed',
-        });
+        throw err instanceof SendDispatchFailure ? err : new SendDispatchFailure();
       }
     },
   );

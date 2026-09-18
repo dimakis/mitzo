@@ -14,6 +14,7 @@ import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer, WebSocket } from 'ws';
+import { MAX_V2_CLIENT_PAYLOAD_BYTES } from '@mitzo/protocol';
 import { WsTransport } from './ws-transport.js';
 import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
 import {
@@ -276,7 +277,11 @@ const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
 const server = USE_TLS
   ? createHttpsServer({ cert: readFileSync(CERT_PATH), key: readFileSync(KEY_PATH) }, app)
   : createServer(app);
-const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+const wss = new WebSocketServer({
+  noServer: true,
+  perMessageDeflate: false,
+  maxPayload: MAX_V2_CLIENT_PAYLOAD_BYTES,
+});
 
 // Declared early so broadcast closures can reference it safely (assigned after orchestrator init)
 // eslint-disable-next-line prefer-const

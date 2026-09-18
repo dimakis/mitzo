@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_V2_IMAGE_ENCODED_CHARS, V2SendMessage } from '@mitzo/protocol';
 import {
   canonicalizeExecutionRequest,
   fingerprintExecutionRequest,
@@ -150,6 +151,22 @@ describe('execution request fingerprint', () => {
     expect(fingerprintExecutionRequest({ ...request, images: image('aGVsbG8=') })).not.toBe(
       fingerprintExecutionRequest({ ...request, images: image('d29ybGQ=') }),
     );
+  });
+
+  it('rejects oversized encoded image data before decode and schema admission', () => {
+    const tooLong = 'A'.repeat(MAX_V2_IMAGE_ENCODED_CHARS + 1);
+    expect(() => validatedExecutionImages([{ mediaType: 'image/png', data: tooLong }])).toThrow(
+      'encoded data exceeds',
+    );
+    expect(() =>
+      V2SendMessage.parse({
+        type: 'send',
+        sessionId: null,
+        prompt: 'image',
+        clientMsgId: 'oversized-before-decode',
+        images: [{ mediaType: 'image/png', data: tooLong }],
+      }),
+    ).toThrow();
   });
 
   it('enforces decoded image count, per-image, aggregate, and boundary limits', () => {

@@ -4,6 +4,7 @@ import type { SessionTransport } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
+import { EventStore } from '../event-store.js';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
@@ -11,6 +12,7 @@ vi.mock('../chat.js', () => ({
   interruptChat: vi.fn(),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
+  isIsolationEnabled: vi.fn().mockReturnValue(true),
   reattachChat: vi.fn().mockReturnValue(true),
   rekeyChat: vi.fn().mockReturnValue(true),
   BASE_REPO: '/tmp/test-repo',
@@ -3941,6 +3943,71 @@ describe('dispatchV2Message session_suspend', () => {
     expect(sessionReg.suspend).toHaveBeenCalledWith('conn-1:sess-1', 5);
   });
 });
+// ─── Durable WS receipt failures ─────────────────────────────────────────────
+
+describe('handleSendV2 durable receipt failures', () => {
+  it('persists one safe startup failure and replays it without rerouting', async () => {
+    const store = new EventStore(':memory:');
+    const ctx = createContext({ eventStore: store });
+    const transport = mockTransport();
+    ctx.connRegistry.register('receipt-failure', transport);
+    const message = {
+      type: 'send' as const,
+      sessionId: null,
+      prompt: 'safe prompt',
+      clientMsgId: 'receipt-failure-1',
+    };
+    try {
+      vi.mocked(startChat).mockClear();
+      vi.mocked(startChat).mockRejectedValueOnce(new Error('provider secret: do-not-persist'));
+
+      await handleSendV2('receipt-failure', transport, message, ctx);
+      expect(startChat).toHaveBeenCalledOnce();
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBe(
+        'Unable to start the chat. Please retry.',
+      );
+      expect(JSON.stringify(store.getSendCommand(message.clientMsgId))).not.toContain(
+        'provider secret',
+      );
+      expect(transport.sent).toEqual([
+        { type: 'error', error: 'Unable to start the chat. Please retry.' },
+      ]);
+
+      await handleSendV2('receipt-failure', transport, message, ctx);
+      expect(startChat).toHaveBeenCalledOnce();
+      expect(transport.sent).toEqual([
+        { type: 'error', error: 'Unable to start the chat. Please retry.' },
+        { type: 'error', error: 'Unable to start the chat. Please retry.' },
+      ]);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not start a successful exact retry twice', async () => {
+    const store = new EventStore(':memory:');
+    const ctx = createContext({ eventStore: store });
+    const transport = mockTransport();
+    ctx.connRegistry.register('receipt-success', transport);
+    const message = {
+      type: 'send' as const,
+      sessionId: null,
+      prompt: 'safe prompt',
+      clientMsgId: 'receipt-success-1',
+    };
+    try {
+      vi.mocked(startChat).mockClear();
+      vi.mocked(startChat).mockResolvedValueOnce(undefined);
+      await handleSendV2('receipt-success', transport, message, ctx);
+      await handleSendV2('receipt-success', transport, message, ctx);
+      expect(startChat).toHaveBeenCalledOnce();
+      expect(transport.sent).toEqual([]);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 // ─── handleSendV2 agentName parameter ────────────────────────────────────────
 
 describe('handleSendV2 agentName', () => {
@@ -3968,7 +4035,7 @@ describe('handleSendV2 agentName', () => {
     expect(options.agentName).toBe('mitzo-telos');
   });
 
-  it('omits agentName when not provided in message', () => {
+  it('forwards the concrete default agentName when not provided in message', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const ctx = createContext();
     const transport = mockTransport();
@@ -3988,7 +4055,7 @@ describe('handleSendV2 agentName', () => {
 
     const callArgs = (startChat as ReturnType<typeof vi.fn>).mock.calls[0];
     const options = callArgs[3];
-    expect(options.agentName).toBeUndefined();
+    expect(options.agentName).toBe('mitzo-conversational');
   });
 
   it('rejects path traversal attempts via schema validation', () => {
