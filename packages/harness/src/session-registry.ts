@@ -274,6 +274,21 @@ export class SessionRegistry {
     return { runtimeLeaseId: session.runtimeLeaseId, sessionId: session.sessionId };
   }
 
+  /** Claim activation only if this exact immutable runtime remains registered. */
+  beginPendingActivationForLease(lease: RuntimeSessionLease): RuntimeSessionLease | undefined {
+    const session = this.resolveLease(lease)?.session;
+    if (
+      !session ||
+      session.currentExecution ||
+      session.activatingPending ||
+      session.pendingExecutions.length === 0
+    ) {
+      return undefined;
+    }
+    session.activatingPending = true;
+    return lease;
+  }
+
   completePendingActivation(lease: RuntimeSessionLease): void {
     const session = this.resolveLease(lease)?.session;
     if (session) session.activatingPending = false;

@@ -174,6 +174,29 @@ export class ConnectionRegistry {
   }
 
   /**
+   * Record a fallback physical delivery for watcher connections sharing this
+   * transport. It advances only the immediately expected durable sequence, so
+   * a fallback can never skip a replay gap or advance an unrelated watcher.
+   */
+  recordFallbackDelivery(sessionId: string, transport: SessionTransport, seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 1) return;
+    for (const { connectionId, transport: watchedTransport } of this.getConnectionsWatching(
+      sessionId,
+    )) {
+      if (watchedTransport !== transport) continue;
+      const cursors = this.cursors.get(connectionId);
+      if (!cursors) continue;
+      const current = cursors.get(sessionId) ?? 0;
+      if (seq === current + 1) cursors.set(sessionId, seq);
+    }
+  }
+
+  /** Read-only cursor inspection for replay/delivery assertions. */
+  getCursor(connectionId: string, sessionId: string): number | undefined {
+    return this.cursors.get(connectionId)?.get(sessionId);
+  }
+
+  /**
    * Send a message to every open connection regardless of watched sessions.
    * Used for global events (update_available, inbox_updated, task state).
    */

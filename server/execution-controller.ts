@@ -58,13 +58,15 @@ function sendOnce(
   transport: SessionTransport,
   data: Record<string, unknown>,
   sent: Set<SessionTransport>,
-): void {
-  if (sent.has(transport) || !transport.isOpen()) return;
+): boolean {
+  if (sent.has(transport) || !transport.isOpen()) return false;
   try {
     transport.send(data);
     sent.add(transport);
+    return true;
   } catch {
     // Durable replay remains the recovery path for a failed live transport.
+    return false;
   }
 }
 
@@ -79,12 +81,20 @@ export function broadcastStoredExecutionEvent(
   if (!resolved || stored.event.sessionId !== lease.sessionId) return new Set();
   const data: Record<string, unknown> = { ...stored.event, seq: stored.seq };
   const sent = connections?.broadcast(lease.sessionId, data) ?? new Set<SessionTransport>();
-  if (registry.isSuspended(resolved.clientId)) {
+  const suspended = registry.isSuspended(resolved.clientId);
+  if (suspended) {
     registry.bufferEvent(resolved.clientId, data);
-    return sent;
   }
-  if (registry.isAttached(resolved.clientId)) sendOnce(resolved.session.transport, data, sent);
-  for (const observer of resolved.session.observers) sendOnce(observer, data, sent);
+  if (!suspended && registry.isAttached(resolved.clientId)) {
+    if (sendOnce(resolved.session.transport, data, sent)) {
+      connections?.recordFallbackDelivery(lease.sessionId, resolved.session.transport, stored.seq);
+    }
+  }
+  for (const observer of resolved.session.observers) {
+    if (sendOnce(observer, data, sent)) {
+      connections?.recordFallbackDelivery(lease.sessionId, observer, stored.seq);
+    }
+  }
   return sent;
 }
 
@@ -105,19 +115,29 @@ export class ExecutionController {
   }
 
   async finishExecution(
-    clientId: string,
+    lease: RuntimeSessionLease,
     token: ExecutionToken,
     reason: ExecutionTerminalReason,
   ): Promise<FinishExecutionResult> {
-    const lease = this.options.registry.getRuntimeLease(clientId);
-    if (!lease || token.sessionId !== lease.sessionId) return { stale: true };
+    const resolved = this.options.registry.resolveRuntimeLease(lease);
+    const current = resolved?.session.currentExecution;
+    if (
+      !resolved ||
+      token.sessionId !== lease.sessionId ||
+      !current ||
+      current.sessionId !== token.sessionId ||
+      current.executionId !== token.executionId ||
+      current.generation !== token.generation
+    ) {
+      return { stale: true };
+    }
     const transition = this.options.eventStore.transitionExecution(token, 'TERMINAL', reason);
     if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
     this.broadcastTransition(lease, transition);
     const cleared = this.options.registry.clearCurrentExecution(lease, token);
     if (!cleared) return { transition };
-    const current = this.options.registry.resolveRuntimeLease(lease);
-    const next = current ? await this.activateNextExecution(current.clientId) : undefined;
+    const nextLease = this.options.registry.beginPendingActivationForLease(lease);
+    const next = nextLease ? await this.activateClaimedLease(nextLease) : undefined;
     return { transition, ...(next ? { next } : {}) };
   }
 

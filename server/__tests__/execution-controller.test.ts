@@ -92,8 +92,9 @@ describe('ExecutionController', () => {
     );
 
     const first = await controller.activateNextExecution(CLIENT_ID);
-    const second = await controller.finishExecution(CLIENT_ID, first!.token!, 'completed');
-    const third = await controller.finishExecution(CLIENT_ID, second.next!.token!, 'completed');
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const second = await controller.finishExecution(lease, first!.token!, 'completed');
+    const third = await controller.finishExecution(lease, second.next!.token!, 'completed');
 
     expect(order).toEqual(['one', 'two', 'three']);
     expect([
@@ -250,12 +251,13 @@ describe('ExecutionController', () => {
     const stale = { ...first!.token!, generation: 99 };
     const before = store.getSessionEvents(SESSION_ID).length;
 
-    const staleResult = await controller.finishExecution(CLIENT_ID, stale, 'failed');
-    expect(staleResult.transition.applied).toBe(false);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const staleResult = await controller.finishExecution(lease, stale, 'failed');
+    expect(staleResult.stale).toBe(true);
     expect(store.getSessionEvents(SESSION_ID)).toHaveLength(before);
     expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(first!.token);
 
-    const finished = await controller.finishExecution(CLIENT_ID, first!.token!, 'completed');
+    const finished = await controller.finishExecution(lease, first!.token!, 'completed');
     expect(finished.transition.applied).toBe(true);
     expect(finished.next?.token).toMatchObject({ executionId: 'next', generation: 2 });
   });
@@ -353,14 +355,43 @@ describe('ExecutionController', () => {
     controller.enqueueExecution(CLIENT_ID, prepared('two'));
     const activation = controller.activateNextExecution(CLIENT_ID);
     const token = registry.get(CLIENT_ID)!.currentExecution!;
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
     const observer = fakeTransport();
     registry.addObserver(SESSION_ID, observer);
     expect(registry.rekey(CLIENT_ID, 'client-rekeyed')).toBe(true);
     resolveDispatch();
     expect((await activation)?.token).toEqual(token);
-    const finished = await controller.finishExecution('client-rekeyed', token, 'completed');
+    const finished = await controller.finishExecution(lease, token, 'completed');
     expect(finished.next?.token).toMatchObject({ executionId: 'two', generation: 2 });
     expect(registry.get('client-rekeyed')?.observers).toContain(observer);
+  });
+
+  it('does not terminalize or clear a same-session ABA replacement on a late finish', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('original'));
+    const activated = await controller.activateNextExecution(CLIENT_ID);
+    const originalLease = registry.getRuntimeLease(CLIENT_ID)!;
+    store.transitionExecution(activated!.token!, 'TERMINAL', 'completed');
+    registry.remove(CLIENT_ID);
+    const replacementTransport = fakeTransport();
+    registry.register(CLIENT_ID, {
+      transport: replacementTransport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: SESSION_ID,
+    });
+    const replacement = store.beginExecution(SESSION_ID, 'replacement-finish', 'message-r', 'fp-r');
+    registry.get(CLIENT_ID)!.currentExecution = replacement.token;
+    const before = store.getSessionEvents(SESSION_ID).length;
+
+    expect(await controller.finishExecution(originalLease, activated!.token!, 'completed')).toEqual(
+      {
+        stale: true,
+      },
+    );
+    expect(store.getSessionEvents(SESSION_ID)).toHaveLength(before);
+    expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(replacement.token);
+    expect(replacementTransport.sent).toEqual([]);
   });
 
   it('cannot let an ABA late failure affect a replacement runtime', async () => {
@@ -605,6 +636,129 @@ describe('broadcastStoredExecutionEvent', () => {
     expect(driver.sent).toHaveLength(1);
     expect(observer.sent).toHaveLength(1);
     expect(closed.send).not.toHaveBeenCalled();
+    registry.dispose();
+    store.close();
+  });
+
+  it('buffers once for a suspended driver while watcher and observer remain live', () => {
+    const store = new EventStore(':memory:');
+    const registry = new SessionRegistry();
+    const connections = new ConnectionRegistry();
+    const driver = fakeTransport();
+    const watcher = fakeTransport();
+    const observer = fakeTransport();
+    store.upsertSession({ sessionId: SESSION_ID });
+    registry.register(CLIENT_ID, {
+      transport: driver,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: SESSION_ID,
+    });
+    registry.addObserver(SESSION_ID, observer);
+    connections.register('watcher', watcher);
+    connections.watch('watcher', SESSION_ID);
+    registry.suspend(CLIENT_ID, 0);
+    const begun = store.beginExecution(
+      SESSION_ID,
+      'suspended',
+      'message-suspended',
+      'fp-suspended',
+    );
+    broadcastStoredExecutionEvent(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      { seq: begun.seq!, event: begun.event! },
+      registry,
+      connections,
+    );
+    expect(driver.sent).toEqual([]);
+    expect(watcher.sent).toHaveLength(1);
+    expect(observer.sent).toHaveLength(1);
+    const replay = registry.resume(CLIENT_ID);
+    expect(replay).toHaveLength(1);
+    for (const event of replay) driver.send(event);
+    expect(driver.sent).toHaveLength(1);
+    expect(watcher.sent).toHaveLength(1);
+    expect(observer.sent).toHaveLength(1);
+    registry.dispose();
+    store.close();
+  });
+
+  it('advances only a same-transport watcher cursor after fallback delivery', () => {
+    const store = new EventStore(':memory:');
+    const registry = new SessionRegistry();
+    const connections = new ConnectionRegistry();
+    const sent: Record<string, unknown>[] = [];
+    let attempts = 0;
+    const shared: SessionTransport = {
+      send(event) {
+        attempts += 1;
+        if (attempts === 1) throw new Error('transient watcher failure');
+        sent.push(event);
+      },
+      isOpen: () => true,
+    };
+    store.upsertSession({ sessionId: SESSION_ID });
+    registry.register(CLIENT_ID, {
+      transport: shared,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: SESSION_ID,
+    });
+    connections.register('shared-watcher', shared);
+    connections.watch('shared-watcher', SESSION_ID);
+    const begun = store.beginExecution(SESSION_ID, 'cursor', 'message-cursor', 'fp-cursor');
+    broadcastStoredExecutionEvent(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      { seq: begun.seq!, event: begun.event! },
+      registry,
+      connections,
+    );
+    expect(sent).toHaveLength(1);
+    expect(connections.getCursor('shared-watcher', SESSION_ID)).toBe(begun.seq);
+
+    const other = fakeTransport();
+    connections.recordFallbackDelivery(SESSION_ID, other, begun.seq! + 1);
+    connections.recordFallbackDelivery(SESSION_ID, shared, begun.seq! + 2);
+    expect(connections.getCursor('shared-watcher', SESSION_ID)).toBe(begun.seq);
+    registry.dispose();
+    store.close();
+  });
+
+  it('leaves watcher cursors unchanged when every physical send fails', () => {
+    const store = new EventStore(':memory:');
+    const registry = new SessionRegistry();
+    const connections = new ConnectionRegistry();
+    const broken: SessionTransport = {
+      send: () => {
+        throw new Error('broken');
+      },
+      isOpen: () => true,
+    };
+    store.upsertSession({ sessionId: SESSION_ID });
+    registry.register(CLIENT_ID, {
+      transport: broken,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: SESSION_ID,
+    });
+    connections.register('broken-watcher', broken);
+    connections.watch('broken-watcher', SESSION_ID);
+    const begun = store.beginExecution(
+      SESSION_ID,
+      'broken-cursor',
+      'message-broken-cursor',
+      'fp-broken-cursor',
+    );
+    broadcastStoredExecutionEvent(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      { seq: begun.seq!, event: begun.event! },
+      registry,
+      connections,
+    );
+    expect(connections.getCursor('broken-watcher', SESSION_ID)).toBeUndefined();
     registry.dispose();
     store.close();
   });
