@@ -15,6 +15,10 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
   return {
     ...actual,
     handleSendV2: vi.fn(),
+    prepareSendV2: vi.fn((message) => ({
+      requestFingerprint: 'prepared-test-fingerprint',
+      legacyCommand: message,
+    })),
     handleStopV2: vi.fn(),
     handleInterruptV2: vi.fn(),
     handlePermissionResponseV2: vi.fn().mockReturnValue(true),

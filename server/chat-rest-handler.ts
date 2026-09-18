@@ -19,6 +19,7 @@ import {
 import type { V2HandlerContext } from './ws-handler-v2.js';
 import {
   handleSendV2,
+  prepareSendV2,
   handleStopV2,
   handleInterruptV2,
   handlePermissionResponseV2,
@@ -132,9 +133,14 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
+      const prepared = prepareSendV2(msg, ctx);
       const receipt = await acceptSendCommandAsync(
         ctx.eventStore,
         msg,
+        {
+          requestFingerprint: prepared.requestFingerprint,
+          legacyCommand: prepared.legacyCommand,
+        },
         async (command, sessionId) => {
           const delegate = new SseTransport(connectionId, sseRegistry);
           const transport = {
@@ -166,6 +172,8 @@ export function createChatRestRouter(
           };
           const outcome = await handleSendV2(connectionId, transport, command, ctx, {
             initialSessionId: command.sessionId ? undefined : sessionId,
+            skipReceipt: true,
+            prepared,
           });
           if (outcome === 'native') return false;
         },

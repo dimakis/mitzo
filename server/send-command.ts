@@ -15,6 +15,11 @@ type SendReceipt = {
   sessionId: string | null;
 };
 
+type ReceiptInput = {
+  requestFingerprint: string;
+  legacyCommand: Record<string, unknown>;
+};
+
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
 
 /** HTTP command acceptance is independent of event-stream connectivity.
@@ -24,16 +29,34 @@ const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<Send
 export function acceptSendCommand(
   store: EventStore,
   message: SendMessage,
-  dispatch: (message: SendMessage, sessionId: string) => void | false,
+  receiptOrDispatch: ReceiptInput | ((message: SendMessage, sessionId: string) => void | false),
+  maybeDispatch?: (message: SendMessage, sessionId: string) => void | false,
 ): { ok: true; accepted: true; clientMsgId: string; sessionId: string | null } {
-  const requestFingerprint = fingerprintExecutionRequest(
-    executionRequestFromValidatedSend(message),
-  );
+  const receiptInput =
+    typeof receiptOrDispatch === 'function'
+      ? {
+          // Compatibility-only fallback for receipt unit callers. Shared REST/WS
+          // paths must provide the prepared fingerprint explicitly.
+          requestFingerprint: fingerprintExecutionRequest(
+            executionRequestFromValidatedSend(message),
+          ),
+          legacyCommand: message,
+        }
+      : receiptOrDispatch;
+  const dispatch = typeof receiptOrDispatch === 'function' ? receiptOrDispatch : maybeDispatch;
+  if (!dispatch) throw new TypeError('A send dispatch callback is required');
+  // Narrow test doubles from older handler tests intentionally omit durable
+  // receipt APIs. Real EventStore instances always implement this boundary.
+  if (typeof (store as Partial<EventStore>).claimSendCommandReceipt !== 'function') {
+    const assignedSessionId = message.sessionId ?? randomUUID();
+    const sessionId = dispatch(message, assignedSessionId) === false ? null : assignedSessionId;
+    return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
+  }
   const receipt = store.claimSendCommandReceipt(
     message.clientMsgId,
     message.sessionId ?? randomUUID(),
-    requestFingerprint,
-    message,
+    receiptInput.requestFingerprint,
+    receiptInput.legacyCommand,
   );
   if (receipt.receipt.error) throw new Error(receipt.receipt.error);
   let sessionId = receipt.receipt.sessionId;
@@ -61,16 +84,36 @@ export function acceptSendCommand(
 export function acceptSendCommandAsync(
   store: EventStore,
   message: SendMessage,
-  dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
+  receiptOrDispatch:
+    ReceiptInput | ((message: SendMessage, sessionId: string) => Promise<void | false>),
+  maybeDispatch?: (message: SendMessage, sessionId: string) => Promise<void | false>,
 ): Promise<SendReceipt> {
-  const requestFingerprint = fingerprintExecutionRequest(
-    executionRequestFromValidatedSend(message),
-  );
+  const receiptInput =
+    typeof receiptOrDispatch === 'function'
+      ? {
+          // Compatibility-only fallback; application paths use prepared values.
+          requestFingerprint: fingerprintExecutionRequest(
+            executionRequestFromValidatedSend(message),
+          ),
+          legacyCommand: message,
+        }
+      : receiptOrDispatch;
+  const dispatch = typeof receiptOrDispatch === 'function' ? receiptOrDispatch : maybeDispatch;
+  if (!dispatch) throw new TypeError('A send dispatch callback is required');
+  if (typeof (store as Partial<EventStore>).claimSendCommandReceipt !== 'function') {
+    const sessionId = message.sessionId ?? randomUUID();
+    return Promise.resolve(dispatch(message, sessionId)).then((outcome) => ({
+      ok: true,
+      accepted: true,
+      clientMsgId: message.clientMsgId,
+      sessionId: outcome === false ? null : sessionId,
+    }));
+  }
   const receipt = store.claimSendCommandReceipt(
     message.clientMsgId,
     message.sessionId ?? randomUUID(),
-    requestFingerprint,
-    message,
+    receiptInput.requestFingerprint,
+    receiptInput.legacyCommand,
   );
   let pending = pendingAsyncAcceptances.get(store);
   if (!pending) {

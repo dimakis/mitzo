@@ -7,6 +7,17 @@ type SendMessage = z.infer<typeof V2SendMessage>;
 const MAX_STRING_BYTES = 1_000_000;
 const MAX_ARRAY_ITEMS = 1_024;
 const MAX_CANONICAL_BYTES = 2_000_000;
+// Align the per-image ceiling with image-store; V2's UI limits attachments to four.
+export const MAX_EXECUTION_IMAGE_BYTES = 10 * 1024 * 1024;
+export const MAX_EXECUTION_IMAGES = 4;
+export const MAX_EXECUTION_IMAGE_BYTES_TOTAL = 20 * 1024 * 1024;
+
+export class ExecutionRequestValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExecutionRequestValidationError';
+  }
+}
 
 export type ExecutionRequestInput = {
   operation: string;
@@ -89,18 +100,64 @@ function normalizedToolSet(tools: string[] | undefined, field: string): string[]
   ].sort();
 }
 
-function imageBytes(data: string | Uint8Array): Uint8Array {
-  if (typeof data !== 'string') return data;
-  // V2 validation supplies base64 image data. Hash decoded bytes, never the text.
-  return Buffer.from(data, 'base64');
+function strictBase64Bytes(data: string): Uint8Array {
+  if (data.startsWith('data:')) {
+    throw new ExecutionRequestValidationError(
+      'Image data URLs are not accepted; send raw base64 bytes',
+    );
+  }
+  if (/\s/.test(data) || data.length === 0) {
+    throw new ExecutionRequestValidationError('Image data must be non-empty canonical base64');
+  }
+  const standard = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  const url = /^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$/;
+  if (!standard.test(data) && !url.test(data)) {
+    throw new ExecutionRequestValidationError('Image data must be canonical base64');
+  }
+  const encoding = standard.test(data) ? 'base64' : 'base64url';
+  const bytes = Buffer.from(data, encoding);
+  const canonical = bytes.toString(encoding);
+  if (canonical !== data) {
+    throw new ExecutionRequestValidationError(
+      'Image data must use canonical base64 padding and alphabet',
+    );
+  }
+  return bytes;
+}
+
+export function validatedExecutionImages(
+  images: Array<{ mediaType: string; data: string | Uint8Array }> | undefined,
+): Array<{ mediaType: string; bytes: Uint8Array }> {
+  const input = images ?? [];
+  if (input.length > MAX_EXECUTION_IMAGES) {
+    throw new ExecutionRequestValidationError(
+      `Too many images; maximum is ${MAX_EXECUTION_IMAGES}`,
+    );
+  }
+  let total = 0;
+  return input.map((image) => {
+    const bytes = typeof image.data === 'string' ? strictBase64Bytes(image.data) : image.data;
+    if (bytes.byteLength > MAX_EXECUTION_IMAGE_BYTES) {
+      throw new ExecutionRequestValidationError(
+        `Image exceeds ${MAX_EXECUTION_IMAGE_BYTES} decoded bytes`,
+      );
+    }
+    total += bytes.byteLength;
+    if (total > MAX_EXECUTION_IMAGE_BYTES_TOTAL) {
+      throw new ExecutionRequestValidationError(
+        `Images exceed ${MAX_EXECUTION_IMAGE_BYTES_TOTAL} decoded bytes in total`,
+      );
+    }
+    return { mediaType: boundedString(image.mediaType, 'images.mediaType'), bytes };
+  });
 }
 
 export function canonicalizeExecutionRequest(
   input: ExecutionRequestInput,
 ): CanonicalExecutionRequest {
-  const images = boundedArray(input.images ?? [], 'images').map((image) => ({
-    mediaType: boundedString(image.mediaType, 'images.mediaType'),
-    bytesHash: sha256Base64url(imageBytes(image.data)),
+  const images = validatedExecutionImages(input.images).map((image) => ({
+    mediaType: image.mediaType,
+    bytesHash: sha256Base64url(image.bytes),
   }));
   const contextBlockHashes = boundedArray(input.contextBlocks ?? [], 'contextBlocks').map(
     (content) => sha256Base64url(boundedString(content, 'contextBlocks.content')),

@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalizeExecutionRequest,
   fingerprintExecutionRequest,
+  MAX_EXECUTION_IMAGE_BYTES,
+  MAX_EXECUTION_IMAGES,
+  MAX_EXECUTION_IMAGE_BYTES_TOTAL,
   sha256Base64url,
   stableSerializeJson,
+  validatedExecutionImages,
   type ExecutionRequestInput,
 } from '../execution-request.js';
 
@@ -126,5 +130,59 @@ describe('execution request fingerprint', () => {
     expect(() => stableSerializeJson({ nope: undefined })).toThrow('non-JSON');
     expect(() => stableSerializeJson({ nope: new Date() })).toThrow('plain objects');
     expect(() => stableSerializeJson(circular)).toThrow('circular');
+  });
+
+  it('strictly validates canonical image bytes before hashing', () => {
+    const image = (data: string | Uint8Array) => [{ mediaType: 'image/png', data }];
+    expect(validatedExecutionImages(image('aGVsbG8='))[0].bytes).toEqual(Buffer.from('hello'));
+    expect(validatedExecutionImages(image('aGVsbG8'))[0].bytes).toEqual(Buffer.from('hello'));
+    for (const malformed of [
+      'aGV sbG8=',
+      'aGVsbG8===',
+      'aGVsbG8$',
+      'data:image/png;base64,aGVsbG8=',
+    ]) {
+      expect(() => validatedExecutionImages(image(malformed))).toThrow('Image data');
+    }
+    expect(fingerprintExecutionRequest({ ...request, images: image('aGVsbG8=') })).toBe(
+      fingerprintExecutionRequest({ ...request, images: image('aGVsbG8') }),
+    );
+    expect(fingerprintExecutionRequest({ ...request, images: image('aGVsbG8=') })).not.toBe(
+      fingerprintExecutionRequest({ ...request, images: image('d29ybGQ=') }),
+    );
+  });
+
+  it('enforces decoded image count, per-image, aggregate, and boundary limits', () => {
+    const atPerImageLimit = Buffer.alloc(MAX_EXECUTION_IMAGE_BYTES);
+    expect(
+      validatedExecutionImages([{ mediaType: 'image/png', data: atPerImageLimit }]),
+    ).toHaveLength(1);
+    expect(() =>
+      validatedExecutionImages([
+        { mediaType: 'image/png', data: Buffer.alloc(MAX_EXECUTION_IMAGE_BYTES + 1) },
+      ]),
+    ).toThrow('Image exceeds');
+    expect(() =>
+      validatedExecutionImages(
+        Array.from({ length: MAX_EXECUTION_IMAGES + 1 }, () => ({
+          mediaType: 'image/png',
+          data: Buffer.alloc(1),
+        })),
+      ),
+    ).toThrow('Too many images');
+    const aggregate = [
+      { mediaType: 'image/png', data: Buffer.alloc(MAX_EXECUTION_IMAGE_BYTES) },
+      { mediaType: 'image/png', data: Buffer.alloc(MAX_EXECUTION_IMAGE_BYTES) },
+    ];
+    expect(validatedExecutionImages(aggregate)).toHaveLength(2);
+    expect(() =>
+      validatedExecutionImages([
+        ...aggregate,
+        {
+          mediaType: 'image/png',
+          data: Buffer.alloc(MAX_EXECUTION_IMAGE_BYTES_TOTAL - 2 * MAX_EXECUTION_IMAGE_BYTES + 1),
+        },
+      ]),
+    ).toThrow('Images exceed');
   });
 });

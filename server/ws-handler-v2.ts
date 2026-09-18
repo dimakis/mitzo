@@ -64,6 +64,8 @@ import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
+import { acceptSendCommandAsync } from './send-command.js';
+import { fingerprintExecutionRequest } from './execution-request.js';
 
 const log = createLogger('ws-v2');
 
@@ -72,6 +74,88 @@ export interface V2HandlerContext {
   sessionRegistry: SessionRegistry;
   eventStore: EventStore;
   nativeCommands: NativeCommandRegistry;
+}
+
+export type PreparedSendV2 = {
+  message: SendMsg;
+  requestFingerprint: string;
+  legacyCommand: Record<string, unknown>;
+  resolution: ReturnType<typeof resolveSlashCommand>;
+};
+
+export type SendReceipt = {
+  ok: true;
+  accepted: true;
+  clientMsgId: string;
+  sessionId: string | null;
+};
+
+type SendDelivery = {
+  initialSessionId?: string;
+  /** REST has already claimed the shared receipt with this prepared request. */
+  skipReceipt?: boolean;
+  prepared?: PreparedSendV2;
+};
+
+/**
+ * Resolve the validated send identity before its durable receipt is claimed.
+ * Dispatch continues to perform its existing defensive checks; this prepared
+ * value is the sole fingerprint authority for both REST and WebSocket sends.
+ */
+export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): PreparedSendV2 {
+  const stored = message.sessionId ? ctx.eventStore.getSession(message.sessionId) : null;
+  const storedBinding = stored?.accountBinding;
+  const accountProfiles = message.accountId || storedBinding ? loadAccountProfiles() : undefined;
+  const binding = resolveAccountSelection(
+    message,
+    storedBinding,
+    !!message.sessionId,
+    accountProfiles,
+  );
+  const rawCwd = message.cwd || BASE_REPO;
+  const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+  const skillRegistry = buildSkillRegistry(cwd);
+  const resolution = resolveSlashCommand(message.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+  if (resolution.type === 'error') throw new Error(resolution.message);
+  const isSkill = resolution.type === 'skill';
+  const operation = resolution.type === 'native' ? `native:${resolution.name}` : message.type;
+  const prompt = isSkill ? resolution.renderedPrompt : message.prompt;
+  const extraTools = message.extraTools
+    ? message.extraTools
+        .split(',')
+        .map((tool) => tool.trim())
+        .filter(Boolean)
+    : [];
+  return {
+    message,
+    requestFingerprint: fingerprintExecutionRequest({
+      operation,
+      sessionId: message.sessionId,
+      rawUserIntent: message.prompt,
+      effectiveProviderPrompt: prompt,
+      accountId: binding?.accountId ?? message.accountId ?? null,
+      model: binding?.model ?? message.model ?? null,
+      reasoningEffort: message.reasoningEffort ?? null,
+      mode: message.mode ?? stored?.mode ?? null,
+      cwd,
+      extraTools,
+      allowedTools: isSkill ? (resolution.allowedTools ?? []) : [],
+      isolation: message.isolation ?? null,
+      images: message.images ?? [],
+      contextBlocks: message.contextBlocks ?? [],
+      telosTaskId: message.telosTaskId ?? null,
+      agentName: message.agentName ?? null,
+      skill: isSkill
+        ? {
+            name: resolution.name,
+            renderedPrompt: resolution.renderedPrompt,
+            allowedTools: resolution.allowedTools,
+          }
+        : null,
+    }),
+    legacyCommand: message as Record<string, unknown>,
+    resolution,
+  };
 }
 
 function assertActiveAccountIdentity(
@@ -564,12 +648,65 @@ export async function handleSwitchSession(
   });
 }
 
-export function handleSendV2(
+/**
+ * Shared receipt boundary for REST and WebSocket sends. Exact duplicates never
+ * enter routing, echo, queue, or provider startup a second time.
+ */
+export async function handleSendV2(
   connectionId: string,
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string },
+  delivery?: SendDelivery,
+): Promise<SendReceipt | 'native' | void> {
+  if (delivery?.skipReceipt) {
+    return dispatchPreparedSendV2(connectionId, transport, msg, ctx, delivery, delivery.prepared);
+  }
+  let prepared: PreparedSendV2;
+  try {
+    prepared = prepareSendV2(msg, ctx);
+  } catch (error) {
+    transport.send({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Send preparation failed',
+    });
+    return;
+  }
+  try {
+    return await acceptSendCommandAsync(
+      ctx.eventStore,
+      msg,
+      {
+        requestFingerprint: prepared.requestFingerprint,
+        legacyCommand: prepared.legacyCommand,
+      },
+      async () => {
+        const outcome = await dispatchPreparedSendV2(
+          connectionId,
+          transport,
+          msg,
+          ctx,
+          delivery,
+          prepared,
+        );
+        return outcome === 'native' ? false : undefined;
+      },
+    );
+  } catch (error) {
+    transport.send({
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Send failed',
+    });
+  }
+}
+
+export function dispatchPreparedSendV2(
+  connectionId: string,
+  transport: SessionTransport,
+  msg: SendMsg,
+  ctx: V2HandlerContext,
+  delivery?: SendDelivery,
+  prepared?: PreparedSendV2,
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
@@ -585,7 +722,9 @@ export function handleSendV2(
         const rawCwd = msg.cwd || BASE_REPO;
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
-        const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const resolution =
+          prepared?.resolution ??
+          resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
 
         if (resolution.type === 'native') {
           void ctx.nativeCommands
