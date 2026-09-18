@@ -383,6 +383,64 @@ describe('ConnectionRegistry', () => {
       vi.useRealTimers();
     });
 
+    it('replays outstanding terminal events for inactive sessions, then skips future ticks', async () => {
+      vi.useFakeTimers();
+      const store = new EventStore(':memory:');
+      store.upsertSession({ sessionId: 'terminal' });
+      const terminalSeq = store.append('terminal', 'terminal', { type: 'terminal' });
+      const t = mockTransport(true);
+      (t.send as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('terminal live send failed');
+      });
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'terminal');
+      registry.broadcast('terminal', { type: 'terminal', seq: terminalSeq });
+      store.setSessionState('terminal', 'ENDED');
+      const finalSeq = store.getLatestSessionSeq('terminal');
+      registry.setEventStore({
+        getEventsAfter: (sessionId, afterSeq, limit) =>
+          store.getEventsAfter(sessionId, afterSeq, limit),
+        getLatestSessionSeq: (sessionId) => store.getLatestSessionSeq(sessionId),
+        isSessionActive: (sessionId) => store.getSessionState(sessionId) !== 'ENDED',
+      });
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'terminal')).toBe(finalSeq);
+      expect(registry.getBlockedSeq('conn-1', 'terminal')).toBeUndefined();
+      expect(t.send).toHaveBeenCalledTimes(3);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(t.send).toHaveBeenCalledTimes(3);
+      registry.stopPeriodicSync();
+      store.close();
+      vi.useRealTimers();
+    });
+
+    it('catches up an inactive cursor even when no live failure was recorded', async () => {
+      vi.useFakeTimers();
+      const store = new EventStore(':memory:');
+      store.upsertSession({ sessionId: 'offline-terminal' });
+      store.append('offline-terminal', 'terminal', { type: 'terminal' });
+      store.setSessionState('offline-terminal', 'ENDED');
+      const t = mockTransport(true);
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'offline-terminal');
+      registry.setEventStore({
+        getEventsAfter: (sessionId, afterSeq, limit) =>
+          store.getEventsAfter(sessionId, afterSeq, limit),
+        getLatestSessionSeq: (sessionId) => store.getLatestSessionSeq(sessionId),
+        isSessionActive: () => false,
+      });
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'offline-terminal')).toBe(
+        store.getLatestSessionSeq('offline-terminal'),
+      );
+      expect(t.send).toHaveBeenCalledTimes(2);
+      registry.stopPeriodicSync();
+      store.close();
+      vi.useRealTimers();
+    });
+
     it('cleans up cursors when connection is removed', () => {
       registry.register('conn-1', mockTransport());
       registry.watch('conn-1', 'sess-a');
@@ -572,7 +630,7 @@ describe('ConnectionRegistry', () => {
       expect(t.send).not.toHaveBeenCalled();
     });
 
-    it('skips ended sessions when isSessionActive is provided', async () => {
+    it('skips caught-up ended sessions when isSessionActive is provided', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);
       const store = mockEventStore([
@@ -588,6 +646,7 @@ describe('ConnectionRegistry', () => {
       registry.register('conn-1', t);
       registry.watch('conn-1', 'sess-ended');
       registry.watch('conn-1', 'sess-active');
+      registry.resetCursor('conn-1', 'sess-ended', 10);
       registry.startPeriodicSync();
 
       await vi.advanceTimersByTimeAsync(5000);

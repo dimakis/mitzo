@@ -332,6 +332,7 @@ export class EventStore {
     hasUserMessage: Database.Statement;
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
+    latestSessionSeq: Database.Statement;
     sessionEvents: Database.Statement;
     getSession: Database.Statement;
     listSessions: Database.Statement;
@@ -533,6 +534,9 @@ export class EventStore {
       ),
       eventsAfterLimited: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+      ),
+      latestSessionSeq: db.prepare(
+        'SELECT COALESCE(MAX(seq), 0) AS seq FROM events WHERE session_id = ?',
       ),
       sessionEvents: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
@@ -1544,8 +1548,8 @@ export class EventStore {
 
   /** Highest global sequence stored for this session, or zero when it has no events. */
   getLatestSessionSeq(sessionId: string): number {
-    const events = this.getEventsAfter(sessionId, 0);
-    return events.at(-1)?.seq ?? 0;
+    const row = this.stmts.latestSessionSeq.get(sessionId) as { seq: number };
+    return Number(row.seq);
   }
 
   getSessionEvents(sessionId: string): StoredEvent[] {

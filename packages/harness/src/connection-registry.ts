@@ -274,12 +274,24 @@ export class ConnectionRegistry {
         if (!connCursors) continue;
 
         for (const sessionId of conn.watchedSessions) {
-          // Skip ended sessions to avoid unnecessary EventStore queries
-          if (this.eventStore.isSessionActive && !this.eventStore.isSessionActive(sessionId)) {
+          const cursor = connCursors.get(sessionId) ?? 0;
+          const gap = this.getDeliveryGap(connectionId, sessionId);
+          let latest: number | undefined;
+          try {
+            latest = this.eventStore.getLatestSessionSeq?.(sessionId);
+          } catch (err) {
+            log.warn('periodic sync: EventStore high-water fetch failed', {
+              connectionId,
+              sessionId,
+              error: err instanceof Error ? err.message : String(err),
+            });
             continue;
           }
-
-          const cursor = connCursors.get(sessionId) ?? 0;
+          const inactive = this.eventStore.isSessionActive?.(sessionId) === false;
+          // Terminal sessions still need delivery when a live event failed or
+          // a reconnect cursor trails durable high-water. Only a fully caught
+          // up inactive session is safe to skip.
+          if (inactive && gap === undefined && latest !== undefined && cursor >= latest) continue;
 
           // Fetch missed events from EventStore
           let missedEvents: Array<{ seq: number; payload: Record<string, unknown> }>;
@@ -294,7 +306,12 @@ export class ConnectionRegistry {
             continue;
           }
 
-          if (missedEvents.length === 0) continue;
+          if (missedEvents.length === 0) {
+            if (latest !== undefined && cursor >= latest) {
+              this.deliveryGaps.get(connectionId)?.delete(sessionId);
+            }
+            continue;
+          }
 
           log.info('periodic sync: retrying missed events', {
             connectionId,
@@ -320,7 +337,6 @@ export class ConnectionRegistry {
               break;
             }
           }
-          const latest = this.eventStore.getLatestSessionSeq?.(sessionId);
           if (
             latest !== undefined &&
             (this.cursors.get(connectionId)?.get(sessionId) ?? 0) >= latest

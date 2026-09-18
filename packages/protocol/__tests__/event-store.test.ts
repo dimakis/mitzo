@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -115,6 +115,15 @@ describe('EventStore', () => {
       for (let i = 1; i < events.length; i++) {
         expect(events[i].seq).toBeGreaterThan(events[i - 1].seq);
       }
+    });
+
+    it('gets session high-water with a prepared aggregate query, not event materialization', () => {
+      for (let index = 0; index < 100; index++) store.append('sess-1', 'event', { index });
+      const latest = store.append('sess-2', 'event', { unrelated: true });
+      const getEventsAfter = vi.spyOn(store, 'getEventsAfter');
+      expect(store.getLatestSessionSeq('sess-1')).toBe(latest - 1);
+      expect(store.getLatestSessionSeq('missing')).toBe(0);
+      expect(getEventsAfter).not.toHaveBeenCalled();
     });
   });
 
