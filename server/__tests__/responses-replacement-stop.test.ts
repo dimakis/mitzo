@@ -1,4 +1,7 @@
 import { expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ManagedSession } from '@mitzo/harness';
 import { ExecutionController } from '../execution-controller.js';
 
@@ -12,6 +15,58 @@ vi.mock('../responses-chat-session.js', () => ({
 }));
 
 const chat = await import('../chat.js');
+
+it('stages validated interrupt images into Responses provider input once', async () => {
+  const clientId = `responses-image-${Date.now()}`;
+  const sessionId = `responses-image-session-${Date.now()}`;
+  const cwd = mkdtempSync(join(tmpdir(), 'mitzo-responses-image-'));
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset();
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-old-image-turn',
+    ).token;
+    const images = [
+      { data: Buffer.from('responses-provider-image').toString('base64'), mediaType: 'image/png' },
+    ];
+
+    await expect(
+      chat.interruptChat(clientId, 'inspect image', images, undefined, 'responses-image-interrupt'),
+    ).resolves.toEqual({ kind: 'accepted' });
+    const providerPrompt = responses.prepare.mock.calls[0][1] as string;
+    const stagedPath = providerPrompt.match(/- (.+\.png)$/m)?.[1];
+    expect(stagedPath).toMatch(new RegExp(`^${join(cwd, '.mitzo-images')}/`));
+    expect(readFileSync(stagedPath!)).toEqual(Buffer.from('responses-provider-image'));
+    expect(
+      (push.mock.calls[0][0] as { message: { message: { content: string } } }).message.message
+        .content,
+    ).toBe(providerPrompt);
+
+    await expect(
+      chat.interruptChat(clientId, 'inspect image', images, undefined, 'responses-image-interrupt'),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
+    expect(readdirSync(join(cwd, '.mitzo-images'))).toHaveLength(1);
+  } finally {
+    chat.registry.abort(clientId);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
 
 it('does not prepare or push a Responses replacement after stop wins during interrupt idle wait', async () => {
   const clientId = `responses-stop-race-${Date.now()}`;

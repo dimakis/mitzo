@@ -34,7 +34,7 @@ import type {
 } from '@mitzo/harness';
 import type { ExecutionEnvelope, ExecutionToken } from '@mitzo/protocol';
 import { execFileSync } from 'child_process';
-import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, unlinkSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { randomUUID } from 'crypto';
@@ -934,6 +934,7 @@ export function assemblePrompt(
   cwd: string,
   images?: Array<{ data: string; mediaType: string }>,
   contextBlocks?: string[],
+  onImagesStaged?: (paths: string[]) => void,
 ): string {
   let result = prompt;
 
@@ -980,11 +981,23 @@ export function assemblePrompt(
   // Append image references
   if (images?.length) {
     const paths = stageImages(cwd, images);
+    onImagesStaged?.(paths);
     const imageRefs = paths.map((p) => `- ${p}`).join('\n');
     result = `${result}\n\nI've attached ${paths.length} image(s). Read them using the Read tool:\n${imageRefs}`;
   }
 
   return result;
+}
+
+/** Undo only paths created for an admission that never became durable. */
+function removeStagedImages(paths: Iterable<string>): void {
+  for (const path of paths) {
+    try {
+      unlinkSync(path);
+    } catch {
+      // A partial provider staging cleanup must not affect another admission.
+    }
+  }
 }
 
 function stageImages(cwd: string, images: Array<{ data: string; mediaType: string }>): string[] {
@@ -2494,10 +2507,14 @@ export async function interruptChat(
     // Context expansion is deliberately after idempotency preflight; it does
     // not stage images, and image paths are created only by provider dispatch.
     let fullPrompt: string;
+    let stagedImagePaths: string[] = [];
     try {
-      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
+      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks, (paths) => {
+        stagedImagePaths = paths;
+      });
     } catch {
       registry.releaseRuntimeOwnerReservation(ownerReservation);
+      removeStagedImages(stagedImagePaths);
       return { kind: 'unavailable_unreported' };
     }
     const imageRefs = images
@@ -2628,9 +2645,13 @@ export async function interruptChat(
       });
     } catch {
       removeImages(imageRefs?.map((image) => image.id) ?? []);
+      removeStagedImages(stagedImagePaths);
       return { kind: 'unavailable_unreported' };
     }
-    if (!replacement.admission) removeImages(imageRefs?.map((image) => image.id) ?? []);
+    if (!replacement.admission) {
+      removeImages(imageRefs?.map((image) => image.id) ?? []);
+      removeStagedImages(stagedImagePaths);
+    }
     if (replacement.error instanceof PendingExecutionOverflowError)
       return { kind: 'unavailable_unreported' };
     if (replacement.error && !replacement.admission) return { kind: 'conflict' };

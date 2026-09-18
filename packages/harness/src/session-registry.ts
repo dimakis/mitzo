@@ -268,6 +268,9 @@ export class SessionRegistry {
       | 'pendingExecutionBytes'
       | 'replacingExecution'
       | 'ownerReservation'
+      | 'replacementInputBarrier'
+      | 'replacementInputCount'
+      | 'replacementInputBytes'
       | 'ownerRevision'
     > & {
       sessionId?: string;

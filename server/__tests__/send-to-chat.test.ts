@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventStore, registry, sendToChat, interruptChat } from '../chat.js';
@@ -281,9 +281,11 @@ describe('sendToChat emits user_message via transport', () => {
 
 describe('interruptChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-interrupt';
+  const tempDirs: string[] = [];
 
   afterEach(() => {
     registry.abort(CLIENT_ID);
+    for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
   it('sends a user_message event after persisting', async () => {
@@ -723,6 +725,86 @@ describe('interruptChat emits user_message via transport', () => {
     expect(pushSpy).not.toHaveBeenCalled();
     expect(eventStore.getSession(sessionId)?.selectedModel).toBe('claude-sonnet-4-6');
     expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
+  });
+
+  it('stages validated interrupt images into the Anthropic provider prompt once', async () => {
+    const transport = mockTransport();
+    const push = vi.fn();
+    const sessionId = `sess-anthropic-image-${Date.now()}`;
+    const cwd = mkdtempSync(join(tmpdir(), 'mitzo-anthropic-image-'));
+    tempDirs.push(cwd);
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.cwd = cwd;
+    session.inputQueue = { push, close: vi.fn() };
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    activateInterruptExecution(CLIENT_ID);
+    const images = [
+      { data: Buffer.from('provider-visible-image').toString('base64'), mediaType: 'image/png' },
+    ];
+
+    await expect(
+      interruptChat(CLIENT_ID, 'inspect image', images, undefined, 'anthropic-image-interrupt'),
+    ).resolves.toEqual({ kind: 'accepted' });
+    const providerContent = (
+      push.mock.calls[0][0] as {
+        message: { message: { content: string } };
+      }
+    ).message.message.content;
+    const stagedPath = providerContent.match(/- (.+\.png)$/m)?.[1];
+    expect(stagedPath).toMatch(
+      new RegExp(`^${cwd.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.mitzo-images/`),
+    );
+    expect(readFileSync(stagedPath!)).toEqual(Buffer.from('provider-visible-image'));
+
+    await expect(
+      interruptChat(CLIENT_ID, 'inspect image', images, undefined, 'anthropic-image-interrupt'),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(push).toHaveBeenCalledOnce();
+    expect(readdirSync(join(cwd, '.mitzo-images'))).toHaveLength(1);
+  });
+
+  it('removes staged interrupt files when durable replacement admission fails', async () => {
+    const transport = mockTransport();
+    const cwd = mkdtempSync(join(tmpdir(), 'mitzo-anthropic-image-failure-'));
+    tempDirs.push(cwd);
+    const sessionId = `sess-anthropic-image-failure-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = sessionId;
+    session.cwd = cwd;
+    session.inputQueue = { push: vi.fn(), close: vi.fn() };
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    activateInterruptExecution(CLIENT_ID);
+    const admission = vi.spyOn(eventStore, 'admitReplacement').mockImplementationOnce(() => {
+      throw new Error('injected admission failure');
+    });
+
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'will not persist',
+        [{ data: 'c3RhZ2VkLWJ1dC1yZW1vdmVk', mediaType: 'image/png' }],
+        undefined,
+        'anthropic-image-failure',
+      ),
+    ).resolves.toEqual({ kind: 'unavailable_unreported' });
+    admission.mockRestore();
+    const imageDirectory = join(cwd, '.mitzo-images');
+    expect(existsSync(imageDirectory) ? readdirSync(imageDirectory) : []).toEqual([]);
   });
 
   it('bounds stalled Anthropic replacement envelopes before durable admission', async () => {
