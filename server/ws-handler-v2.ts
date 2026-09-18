@@ -771,13 +771,18 @@ export async function handleSendV2(
         requestFingerprint: prepared.requestFingerprint,
         legacyCommand: prepared.legacyCommand,
       },
-      async () => {
+      async (_command, assignedSessionId) => {
         const outcome = await dispatchPreparedSendV2(
           connectionId,
           transport,
           msg,
           ctx,
-          delivery,
+          {
+            ...delivery,
+            // The receipt is the durable allocation authority. Never mint a
+            // second id in the WebSocket path after it has been claimed.
+            initialSessionId: msg.sessionId ? undefined : assignedSessionId,
+          },
           prepared,
         );
         return outcome === 'native' ? false : undefined;

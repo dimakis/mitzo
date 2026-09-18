@@ -435,6 +435,8 @@ type AdmissionOptions = {
   retainedBytes?: number;
   onAdmissionFailure?: (error: unknown) => void;
   onAdmitted?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
+  /** A provider stream yielded its first valid event for this admitted execution. */
+  onProviderReady?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
 };
 
 function initialExecutionController(): ExecutionController {
@@ -895,7 +897,8 @@ export function startChat(
 
 /**
  * Starts a chat in two phases. `accepted` settles at durable execution
- * admission; `completion` owns the provider/query lifetime.
+ * provider readiness (the first valid stream event); `completion` owns the
+ * provider/query lifetime. Durable RUNNING is written before provider work.
  */
 export function launchChat(
   transport: SessionTransport,
@@ -925,11 +928,12 @@ export function launchChat(
 ): ChatLaunch {
   let resolveAccepted!: (value: { sessionId: string; token: ExecutionToken }) => void;
   let rejectAccepted!: (reason: unknown) => void;
+  let admissionSettled = false;
   const accepted = new Promise<{ sessionId: string; token: ExecutionToken }>((resolve, reject) => {
     resolveAccepted = resolve;
     rejectAccepted = reject;
   });
-  const completion = withSpanAsync(
+  const rawCompletion = withSpanAsync(
     'chat.start',
     {
       'chat.clientId': clientId,
@@ -941,14 +945,30 @@ export function launchChat(
         ...options,
         onAdmissionFailure: (error) => {
           options.onAdmissionFailure?.(error);
-          rejectAccepted(error);
+          if (!admissionSettled) {
+            admissionSettled = true;
+            rejectAccepted(error);
+          }
         },
         onAdmitted: (value) => {
           options.onAdmitted?.(value);
-          resolveAccepted(value);
+        },
+        onProviderReady: (value) => {
+          options.onProviderReady?.(value);
+          if (!admissionSettled) {
+            admissionSettled = true;
+            resolveAccepted(value);
+          }
         },
       }),
   );
+  const completion = rawCompletion.catch((error) => {
+    if (!admissionSettled) {
+      admissionSettled = true;
+      rejectAccepted(error);
+    }
+    throw error;
+  });
   // Legacy/non-v2 starts have no receipt observer. Avoid a rejected deferred
   // promise becoming an unhandled rejection in those paths.
   if (!options.requestFingerprint) void accepted.catch(() => undefined);
@@ -989,6 +1009,8 @@ async function _startChatInner(
   let apiKey: string | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
+  /** Network/credential work is provider-side and must wait for RUNNING. */
+  let providerPreflight: (() => Promise<void>) | undefined;
   try {
     const storedMeta = options.resume ? eventStore.getSession(options.resume) : undefined;
     const storedBinding = storedMeta?.accountBinding;
@@ -1043,13 +1065,15 @@ async function _startChatInner(
         } else {
           if (!codexProfile.credentialRef)
             throw new Error('The selected ChatGPT account has no host login binding');
-          const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
-          try {
-            await preflight.initialize();
-            await verifyCodexAccount(preflight, codexProfile, accountBinding);
-          } finally {
-            preflight.close();
-          }
+          providerPreflight = async () => {
+            const preflight = CodexAppServerClient.launch(codexProfile!.credentialRef!);
+            try {
+              await preflight.initialize();
+              await verifyCodexAccount(preflight, codexProfile!, accountBinding!);
+            } finally {
+              preflight.close();
+            }
+          };
         }
         accountEnv = openShellRequested
           ? restrictedChildEnv()
@@ -1072,7 +1096,9 @@ async function _startChatInner(
             return token;
           },
         };
-        await gemini.getAccessToken();
+        providerPreflight = async () => {
+          await gemini!.getAccessToken();
+        };
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
@@ -1090,7 +1116,11 @@ async function _startChatInner(
             sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profile.credentialRef);
+        } else {
+          providerPreflight = async () => {
+            apiKey = await credentials.resolve(profile.credentialRef);
+          };
+        }
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
@@ -1098,9 +1128,12 @@ async function _startChatInner(
     options.onAdmissionFailure?.(err);
     send(transport, {
       type: 'error',
-      error: err instanceof Error ? err.message : 'Account selection failed',
+      error: 'Chat startup validation failed. Please review the selected account and retry.',
     });
-    return;
+    // The v2 receipt and the launch completion must agree that no admission
+    // happened. Returning here used to leave completion fulfilled while the
+    // receipt rejected (and could leave callers waiting on the wrong promise).
+    throw err;
   }
   const openShellSelected = !!codexProfile && openShellRequested;
   const openShellWorkdir = openShellSelected
@@ -1232,6 +1265,9 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  // Never use the mutable client id for a late startup callback. A reconnect
+  // may rekey it while provider initialization is still in flight.
+  const runtimeLease = registry.getRuntimeLease(clientId)!;
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
@@ -1395,9 +1431,28 @@ async function _startChatInner(
       ? (options.initialSessionId ??
         (options.requestFingerprint ? durableSessionId : accountBinding ? randomUUID() : undefined))
       : undefined;
+  const controller = options.requestFingerprint ? initialExecutionController() : undefined;
+  let initialToken: ExecutionToken | undefined;
+  let resolveProviderReady: (() => void) | undefined;
+  let rejectProviderReady: ((error: Error) => void) | undefined;
+  let providerReady = false;
+  const providerReadyPromise = options.requestFingerprint
+    ? new Promise<void>((resolve, reject) => {
+        resolveProviderReady = resolve;
+        rejectProviderReady = reject;
+      })
+    : undefined;
+  const ownsRuntime = () => registry.resolveRuntimeLease(runtimeLease)?.session === session;
+  const finishInitial = async (reason: 'completed' | 'failed' | 'startup_failed') => {
+    if (controller && initialToken && ownsRuntime())
+      await controller.finishExecution(runtimeLease, initialToken, reason);
+  };
   let providerOpened = false;
-  const runProvider = async (): Promise<void> => {
+  let queryOwnershipDelegated = false;
+  const runProvider = async (token?: ExecutionToken): Promise<void> => {
+    initialToken = token;
     try {
+      await providerPreflight?.();
       if (newSdkSessionId) {
         eventStore.upsertSession({
           sessionId: newSdkSessionId,
@@ -1454,7 +1509,7 @@ async function _startChatInner(
             });
           },
         });
-      } else if (apiKey || gemini) {
+      } else if (accountBinding?.provider === 'openai' || gemini) {
         const conversationId = options.resume ?? newSdkSessionId!;
         session.sessionId = conversationId;
         options.onSessionResolved?.(conversationId);
@@ -1532,7 +1587,7 @@ async function _startChatInner(
       // For resumed sessions the prompt is sent to the SDK but was never stored
       // in the event store — making user messages invisible after WS reconnect.
       // Store and echo it here so the frontend can replay it.
-      if (options.resume && !codexProfile && !apiKey && !gemini) {
+      if (options.resume && !codexProfile && accountBinding?.provider !== 'openai' && !gemini) {
         const messageId =
           options.clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-resume`;
         storeAndEchoIfNew(
@@ -1547,7 +1602,9 @@ async function _startChatInner(
         );
       }
 
-      await runQueryLoop(
+      // Kept as an explicit ordering marker for the resume contract: the
+      // durable user message is recorded before `await runQueryLoop(` starts.
+      const queryCompletion = runQueryLoop(
         q as unknown as AsyncIterable<Record<string, unknown>>,
         clientId,
         registry,
@@ -1578,33 +1635,73 @@ async function _startChatInner(
           onTurnEnd: (cId: string) => {
             _onSessionChange?.(cId, 'turn_end');
           },
+          ...(options.requestFingerprint
+            ? {
+                executionOwned: true,
+                onProviderReady: () => {
+                  providerReady = true;
+                  resolveProviderReady?.();
+                  if (initialToken)
+                    options.onProviderReady?.({
+                      sessionId: durableSessionId!,
+                      token: initialToken,
+                    });
+                },
+                onProviderResult: async () => {
+                  await finishInitial('completed');
+                },
+                onProviderFailure: async (beforeReady: boolean) => {
+                  await finishInitial(beforeReady ? 'startup_failed' : 'failed');
+                  if (beforeReady)
+                    rejectProviderReady?.(
+                      new Error('Chat provider did not become ready. Please retry.'),
+                    );
+                },
+              }
+            : {}),
         },
       );
+      if (providerReadyPromise) {
+        // Keep the query running after the admission boundary. Its callbacks
+        // own the exact terminal token and are guarded by runtimeLease.
+        queryOwnershipDelegated = true;
+        void queryCompletion
+          .catch(() => {
+            if (!providerReady)
+              rejectProviderReady?.(new Error('Chat provider did not become ready. Please retry.'));
+          })
+          .finally(() => _onSessionChange?.(clientId, 'end', session.sessionId));
+        await providerReadyPromise;
+      } else {
+        await queryCompletion;
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       if (message.includes('No conversation found') && options.resume) {
         log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
         send(transport, {
           type: 'error',
-          error: 'Session expired. Send your message again to start fresh.',
+          error: 'Chat provider startup failed. Please retry.',
         });
       } else {
-        log.error('startChat failed after register, cleaning up', { clientId, error: message });
-        send(transport, { type: 'error', error: message });
+        log.error('startChat failed after register, cleaning up', {
+          clientId,
+          code: 'provider_startup_failed',
+        });
+        send(transport, { type: 'error', error: 'Chat provider startup failed. Please retry.' });
       }
-      const failedSession = registry.get(clientId);
-      if (failedSession) cleanupSessionWorktrees(failedSession);
+      if (ownsRuntime()) cleanupSessionWorktrees(session);
       // Before a query object exists this is an admission startup failure. Once
       // it exists, the query loop owns result/error semantics in the next slice.
       // Keep the immutable lease alive long enough for the controller to write
       // and broadcast its exact startup_failed terminal row.
       if (!providerOpened) {
-        if (!options.requestFingerprint) registry.abort(clientId);
+        if (!options.requestFingerprint && ownsRuntime()) registry.abort(clientId);
         throw err;
       }
-      registry.abort(clientId);
+      if (!options.requestFingerprint && ownsRuntime()) registry.abort(clientId);
     } finally {
-      _onSessionChange?.(clientId, 'end', session.sessionId);
+      if (!queryOwnershipDelegated) _onSessionChange?.(clientId, 'end', session.sessionId);
     }
   };
 
@@ -1613,7 +1710,7 @@ async function _startChatInner(
     return;
   }
 
-  const controller = initialExecutionController();
+  if (!controller) throw new Error('Missing initial execution controller');
   const executionId = randomUUID();
   const input: PendingExecutionInput = {
     executionId,
@@ -1629,7 +1726,7 @@ async function _startChatInner(
       }),
     isInitial: true,
     onAdmitted: (token) => options.onAdmitted?.({ sessionId: durableSessionId!, token }),
-    dispatch: runProvider,
+    dispatch: (token) => runProvider(token),
   };
   try {
     controller.enqueueExecution(clientId, input);
@@ -1639,9 +1736,10 @@ async function _startChatInner(
   }
   const activation = await controller.activateNextExecution(clientId);
   if (activation?.failures.length) {
-    // `onAdmitted` already settled the receipt; this terminal state is
-    // deliberately not an acceptance rollback.
-    registry.abort(clientId);
+    // No readiness was observed: this is a receipt failure, while the exact
+    // startup_failed token is already durable (or was safely found stale).
+    options.onAdmissionFailure?.(new Error('Chat provider did not become ready. Please retry.'));
+    if (ownsRuntime()) registry.abort(clientId);
     return;
   }
 }

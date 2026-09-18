@@ -185,6 +185,14 @@ export interface QueryLoopOptions {
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
   onTurnEnd?: (clientId: string) => void;
+  /** First syntactically valid event from the provider stream, not query allocation. */
+  onProviderReady?: () => void;
+  /** A provider result ended this admitted initial execution. */
+  onProviderResult?: () => Promise<void> | void;
+  /** The stream failed before or after readiness. The callback owns execution terminal state. */
+  onProviderFailure?: (beforeReady: boolean) => Promise<void> | void;
+  /** The caller owns canonical execution lifecycle rather than legacy session state. */
+  executionOwned?: boolean;
 }
 
 export async function runQueryLoop(
@@ -237,6 +245,10 @@ async function _runQueryLoopInner(
   const connRegistry = options?.connRegistry;
   const onSessionResolved = options?.onSessionResolved;
   const onInitialPrompt = options?.onInitialPrompt;
+  const onProviderReady = options?.onProviderReady;
+  const onProviderResult = options?.onProviderResult;
+  const onProviderFailure = options?.onProviderFailure;
+  const executionOwned = options?.executionOwned === true;
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -429,6 +441,7 @@ async function _runQueryLoopInner(
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
+          onProviderReady?.();
           // Session state machine: mark ACTIVE on first SDK event (resume path)
           const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
@@ -561,6 +574,7 @@ async function _runQueryLoopInner(
           }
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
+          await onProviderResult?.();
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
@@ -1360,11 +1374,12 @@ async function _runQueryLoopInner(
           }
         }
       }
-    } catch (err: unknown) {
+    } catch {
       caughtError = true;
+      await onProviderFailure?.(!firstEventReceived);
       span.setStatus({
         code: SpanStatusCode.ERROR,
-        message: err instanceof Error ? err.message : 'unknown',
+        message: 'provider_stream_failed',
       });
       const currentSession = currentOwnerSession();
       if (currentSession) {
@@ -1374,9 +1389,14 @@ async function _runQueryLoopInner(
           log.warn('query loop timed out waiting for first event', { clientId, seconds });
           send(currentSession.transport, { type: 'error', error: message });
         } else if (!abortController.signal.aborted) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          log.warn('query loop error', { clientId, error: message });
-          send(currentSession.transport, { type: 'error', error: message });
+          // Provider errors can contain credentials, endpoints, paths, or
+          // prompt fragments. The client/receipt boundary gets only this
+          // stable safe message; diagnostics stay out of normal logs.
+          log.warn('query loop error', { clientId, code: 'provider_stream_failed' });
+          send(currentSession.transport, {
+            type: 'error',
+            error: 'Chat provider stream failed. Please retry.',
+          });
         }
       }
     } finally {
@@ -1430,7 +1450,7 @@ async function _runQueryLoopInner(
       }
       // Mark session as ended in durable store (P1: setSessionState syncs is_active)
       const terminalSessionId = resolvedSessionId ?? finalSession?.sessionId;
-      if (store && terminalSessionId) {
+      if (!executionOwned && store && terminalSessionId) {
         const terminalSeq = store.setSessionState(terminalSessionId, 'ENDED', {
           clientId,
           reason: caughtError ? 'error' : 'completed',
