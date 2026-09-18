@@ -22,7 +22,11 @@ import type { EventStore } from './event-store.js';
 
 type ExecutionStore = Pick<
   EventStore,
-  'beginExecution' | 'transitionExecution' | 'admitReplacement' | 'getReplacementAdmission'
+  | 'beginExecution'
+  | 'transitionExecution'
+  | 'admitReplacement'
+  | 'getReplacementAdmission'
+  | 'getExecutionAdmission'
 >;
 
 export class PendingExecutionOverflowError extends Error {
@@ -64,6 +68,15 @@ export interface FinishExecutionResult {
   transition?: ExecutionTransitionResult;
   next?: ActivationResult;
   stale?: true;
+}
+
+export interface PendingAdmissionResult {
+  /** The receipt is already durable and must not re-dispatch provider work. */
+  durableDuplicate?: ExecutionToken;
+  /** A queued exact retry shares this bounded entry's activation receipt. */
+  pending?: PendingExecutionInput;
+  conflict?: true;
+  unavailable?: true;
 }
 
 export interface ReplaceExecutionResult {
@@ -134,6 +147,42 @@ export class ExecutionController {
     if (!this.options.registry.enqueuePendingExecution(clientId, prepared)) {
       throw new PendingExecutionOverflowError(clientId);
     }
+  }
+
+  /**
+   * Admit ordinary follow-up work through the canonical bounded FIFO. Pending
+   * receipts are held only by the bounded queue; once RUNNING, EventStore is
+   * the idempotency authority across retry/reconnect/restart.
+   */
+  admitPendingExecution(clientId: string, prepared: PendingExecutionInput): PendingAdmissionResult {
+    const session = this.options.registry.get(clientId);
+    if (!session?.sessionId) return { unavailable: true };
+    const durable = this.options.eventStore.getExecutionAdmission(
+      session.sessionId,
+      prepared.clientMsgId,
+    );
+    if (durable) {
+      if (durable.requestFingerprint !== prepared.requestFingerprint) return { conflict: true };
+      return { durableDuplicate: durable.token };
+    }
+    const pending = this.options.registry.findPendingExecution(clientId, prepared.clientMsgId);
+    if (pending) {
+      if (pending.requestFingerprint !== prepared.requestFingerprint) return { conflict: true };
+      return { pending };
+    }
+    try {
+      this.enqueueExecution(clientId, prepared);
+    } catch (error) {
+      prepared.onRejected?.(error);
+      throw error;
+    }
+    // The activation chain owns provider failures as exact terminal rows.
+    // Observe it here so a caller only awaiting its durable receipt cannot
+    // create an unhandled rejection if the runtime disappears concurrently.
+    void this.activateNextExecution(clientId).catch((error: unknown) => {
+      prepared.onRejected?.(error);
+    });
+    return { pending: prepared };
   }
 
   async activateNextExecution(clientId: string): Promise<ActivationResult | undefined> {
@@ -364,12 +413,16 @@ export class ExecutionController {
     clientId: string,
     message = 'Execution cancelled before activation',
   ): ActivationFailure[] {
-    return this.options.registry.drainPendingExecutions(clientId).map((pending) => ({
-      executionId: pending.executionId,
-      clientMsgId: pending.clientMsgId,
-      requestFingerprint: pending.requestFingerprint,
-      error: new Error(message),
-    }));
+    return this.options.registry.drainPendingExecutions(clientId).map((pending) => {
+      const error = new Error(message);
+      pending.onRejected?.(error);
+      return {
+        executionId: pending.executionId,
+        clientMsgId: pending.clientMsgId,
+        requestFingerprint: pending.requestFingerprint,
+        error,
+      };
+    });
   }
 
   private async activateClaimedLease(lease: RuntimeSessionLease): Promise<ActivationResult> {
@@ -411,6 +464,7 @@ export class ExecutionController {
             requestFingerprint: pending.requestFingerprint,
             error,
           });
+          pending.onRejected?.(error);
           // A removed lease has no owner for this late provider completion.
           // Do not mutate the durable stream of a newly registered runtime
           // that happens to reuse the same client id/session id.

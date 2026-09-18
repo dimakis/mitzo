@@ -49,6 +49,10 @@ export interface PendingExecutionInput {
   isInitial: boolean;
   /** Called after the durable RUNNING row and current lease are visible. */
   onAdmitted?: (token: ExecutionToken) => void;
+  /** Settles a locally pending transport receipt when activation is cancelled. */
+  onRejected?: (error: unknown) => void;
+  /** Shared only while the bounded input has no durable RUNNING row yet. */
+  admissionReceipt?: Promise<boolean>;
   dispatch: (token: ExecutionToken) => Promise<void> | void;
 }
 
@@ -345,6 +349,13 @@ export class SessionRegistry {
     session.pendingExecutions.push(input);
     session.pendingExecutionBytes += input.retainedBytes;
     return true;
+  }
+
+  /** Bounded lookup for a receipt that has not yet acquired a RUNNING row. */
+  findPendingExecution(clientId: string, clientMsgId: string): PendingExecutionInput | undefined {
+    return this.sessions
+      .get(clientId)
+      ?.pendingExecutions.find((input) => input.clientMsgId === clientMsgId);
   }
 
   /** Claim the controller activation slot. It is released by completePendingActivation(). */

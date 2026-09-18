@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eventStore, registry, sendToChat, interruptChat, stageImages } from '../chat.js';
+import { ExecutionController } from '../execution-controller.js';
 import { MAX_V2_PROMPT_CHARS } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
 import { QUERY_FIRST_EVENT_TIMEOUT_MS } from '../constants.js';
@@ -395,6 +396,62 @@ describe('interruptChat emits user_message via transport', () => {
     expect(userMsgs).toHaveLength(1);
     // inputQueue should only get ONE push (no double-queue on retry)
     expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('admits ordinary active follow-ups FIFO and coalesces queued exact retries', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const sessionId = `sess-send-fifo-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    const initial = eventStore.beginExecution(
+      sessionId,
+      'active-initial',
+      'initial-send',
+      'fp-initial',
+    );
+    session.currentExecution = initial.token;
+
+    const first = sendToChat(CLIENT_ID, 'first FIFO follow-up', undefined, undefined, 'fifo-one');
+    const exactRetry = sendToChat(
+      CLIENT_ID,
+      'first FIFO follow-up',
+      undefined,
+      undefined,
+      'fifo-one',
+    );
+    const conflict = sendToChat(CLIENT_ID, 'different payload', undefined, undefined, 'fifo-one');
+    const second = sendToChat(CLIENT_ID, 'second FIFO follow-up', undefined, undefined, 'fifo-two');
+    await expect(conflict).resolves.toBe(false);
+    expect(registry.get(CLIENT_ID)?.pendingExecutions).toHaveLength(2);
+    expect(pushSpy).not.toHaveBeenCalled();
+
+    const controller = new ExecutionController({ registry, eventStore });
+    await controller.finishExecution(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      initial.token,
+      'completed',
+    );
+    await expect(Promise.all([first, exactRetry])).resolves.toEqual([true, true]);
+    expect(registry.get(CLIENT_ID)?.currentExecution).toMatchObject({ generation: 2 });
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+
+    const firstToken = registry.get(CLIENT_ID)!.currentExecution!;
+    await controller.finishExecution(registry.getRuntimeLease(CLIENT_ID)!, firstToken, 'completed');
+    await expect(second).resolves.toBe(true);
+    expect(registry.get(CLIENT_ID)?.currentExecution).toMatchObject({ generation: 3 });
+    expect(pushSpy).toHaveBeenCalledTimes(2);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(2);
   });
 
   it('replays an Anthropic receipt before a later active-model policy check', async () => {

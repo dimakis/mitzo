@@ -1232,6 +1232,23 @@ export class EventStore {
     };
   }
 
+  /** Read any durable execution receipt, including ordinary FIFO follow-ups. */
+  getExecutionAdmission(
+    sessionId: string,
+    clientMsgId: string,
+  ): { token: ExecutionToken; requestFingerprint: string } | undefined {
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation, request_fingerprint
+       FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as
+      { execution_id: string; generation: number; request_fingerprint: string | null } | undefined;
+    if (!row || row.request_fingerprint === null) return undefined;
+    return {
+      token: { sessionId, executionId: row.execution_id, generation: row.generation },
+      requestFingerprint: row.request_fingerprint,
+    };
+  }
+
   transitionExecution(
     token: ExecutionToken,
     nextPhase: ExecutionPhase,

@@ -84,6 +84,7 @@ import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
 import {
+  fingerprintExecutionRequest,
   interruptReceiptFingerprint,
   normalizeInterruptContextSelectors,
   validatedExecutionImages,
@@ -1637,7 +1638,10 @@ async function _startChatInner(
       ? (options.initialSessionId ??
         (options.requestFingerprint ? durableSessionId : accountBinding ? randomUUID() : undefined))
       : undefined;
-  const controller = options.requestFingerprint ? initialExecutionController() : undefined;
+  // One controller owns every token carried by this long-lived provider
+  // stream. Initial launch uses it for receipt admission; later FIFO inputs
+  // use the same callbacks once their envelopes are consumed.
+  const controller = initialExecutionController();
   let initialToken: ExecutionToken | undefined;
   let resolveProviderReady: (() => void) | undefined;
   let rejectProviderReady: ((error: Error) => void) | undefined;
@@ -1871,30 +1875,40 @@ async function _startChatInner(
           onTurnEnd: (cId: string) => {
             _onSessionChange?.(cId, 'turn_end');
           },
-          ...(options.requestFingerprint
+          ...(options.requestFingerprint ? { executionOwned: true } : {}),
+          ...(runtimeLease
             ? {
-                executionOwned: true,
-                onProviderReady: (providerToken) => {
-                  const resolved = runtimeLease && registry.resolveRuntimeLease(runtimeLease);
-                  const current = resolved?.session.currentExecution;
-                  if (
-                    !initialToken ||
-                    (providerToken &&
-                      (providerToken.executionId !== initialToken.executionId ||
-                        providerToken.generation !== initialToken.generation)) ||
-                    !resolved ||
-                    resolved.session !== session ||
-                    current?.executionId !== initialToken.executionId ||
-                    current.generation !== initialToken.generation
-                  )
-                    return;
-                  providerReady = true;
-                  resolveProviderReady?.();
-                  options.onProviderReady?.({ sessionId: durableSessionId!, token: initialToken });
-                },
+                ...(options.requestFingerprint
+                  ? {
+                      onProviderReady: (providerToken: ExecutionToken | undefined) => {
+                        const resolved = runtimeLease && registry.resolveRuntimeLease(runtimeLease);
+                        const current = resolved?.session.currentExecution;
+                        if (
+                          !initialToken ||
+                          (providerToken &&
+                            (providerToken.executionId !== initialToken.executionId ||
+                              providerToken.generation !== initialToken.generation)) ||
+                          !resolved ||
+                          resolved.session !== session ||
+                          current?.executionId !== initialToken.executionId ||
+                          current.generation !== initialToken.generation
+                        )
+                          return;
+                        providerReady = true;
+                        resolveProviderReady?.();
+                        options.onProviderReady?.({
+                          sessionId: durableSessionId!,
+                          token: initialToken,
+                        });
+                      },
+                    }
+                  : {}),
                 onProviderResult: async (outcome, providerToken) => {
                   const ownedToken = providerToken ?? initialToken;
-                  if (!ownedToken || !runtimeLease || !ownsRuntime()) return false;
+                  // Untagged legacy startup results retain the historical
+                  // projection path. Tagged FIFO turns are controller-owned.
+                  if (!ownedToken) return;
+                  if (!ownsRuntime()) return false;
                   const current =
                     registry.resolveRuntimeLease(runtimeLease)?.session.currentExecution;
                   if (
@@ -2195,8 +2209,134 @@ function validateNativeModelSelection(
   );
 }
 
-/** Push a follow-up message into a running session. */
+/**
+ * Admit an ordinary follow-up through the canonical bounded FIFO. The receipt
+ * remains pending only until its exact RUNNING generation is durable; provider
+ * delivery and terminal outcome are intentionally separate from admission.
+ */
 export async function sendToChat(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+  model?: string,
+  reasoningEffort?: string | null,
+  signal?: AbortSignal,
+  userIntent?: string,
+  executionToken?: ExecutionToken,
+): Promise<boolean> {
+  // Interrupt/replacement dispatch already owns a durable execution token and
+  // must cross the provider boundary directly instead of recursively queuing.
+  if (executionToken)
+    return dispatchToChat(
+      clientId,
+      prompt,
+      images,
+      contextBlocks,
+      clientMsgId,
+      model,
+      reasoningEffort,
+      signal,
+      userIntent,
+      executionToken,
+    );
+  if (signal?.aborted) return false;
+  const session = registry.get(clientId);
+  // Pre-session callers retain the legacy direct path; there is no stable
+  // session id on which to create an execution receipt yet.
+  if (!session?.sessionId || !session.inputQueue || !eventStore.getSession(session.sessionId))
+    return dispatchToChat(
+      clientId,
+      prompt,
+      images,
+      contextBlocks,
+      clientMsgId,
+      model,
+      reasoningEffort,
+      signal,
+      userIntent,
+    );
+  // New commands still obey the active provider's immutable-session model
+  // rule. (An already-tokenized dispatch below repeats this fence after any
+  // queue wait, before provider work.)
+  if (
+    !getCodexRuntime(session) &&
+    !getResponsesRuntime(session) &&
+    model &&
+    model !== session.model
+  ) {
+    send(session.transport, {
+      type: 'error',
+      sessionId: session.sessionId,
+      error:
+        'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+    });
+    return false;
+  }
+  const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+  let requestFingerprint: string;
+  try {
+    // This hashes only caller-supplied immutable wire intent. Effective
+    // provider state is selected during the exact token's dispatch.
+    requestFingerprint = fingerprintExecutionRequest({
+      operation: 'send',
+      sessionId: session.sessionId,
+      rawUserIntent: userIntent ?? prompt,
+      effectiveProviderPrompt: prompt,
+      model,
+      reasoningEffort,
+      images: images ?? [],
+      contextBlocks: contextBlocks ?? [],
+    });
+  } catch {
+    return false;
+  }
+  let settleReceipt!: (accepted: boolean) => void;
+  const receipt = new Promise<boolean>((resolve) => {
+    settleReceipt = resolve;
+  });
+  const prepared: PendingExecutionInput = {
+    executionId: randomUUID(),
+    clientMsgId: messageId,
+    requestFingerprint,
+    retainedBytes: preparedRequestRetainedBytes({ prompt, images, contextBlocks }),
+    isInitial: false,
+    admissionReceipt: receipt,
+    onAdmitted: () => settleReceipt(true),
+    onRejected: () => settleReceipt(false),
+    dispatch: async (token) => {
+      if (
+        !(await dispatchToChat(
+          clientId,
+          prompt,
+          images,
+          contextBlocks,
+          messageId,
+          model,
+          reasoningEffort,
+          signal,
+          userIntent,
+          token,
+        ))
+      )
+        throw new Error('provider did not accept queued follow-up');
+    },
+  };
+  let admission;
+  try {
+    admission = initialExecutionController().admitPendingExecution(clientId, prepared);
+  } catch {
+    return false;
+  }
+  if (admission.conflict || admission.unavailable) return false;
+  if (admission.durableDuplicate) return true;
+  // Exact concurrent retries share the original bounded input and promise.
+  return admission.pending?.admissionReceipt ?? false;
+}
+
+/** Deliver a follow-up whose execution token is already durable and current. */
+async function dispatchToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
