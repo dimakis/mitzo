@@ -278,7 +278,8 @@ export class ExecutionAdmissionError extends Error {
       | 'active_execution'
       | 'execution_id_conflict'
       | 'fingerprint_required'
-      | 'fingerprint_conflict',
+      | 'fingerprint_conflict'
+      | 'legacy_admission_identity_required',
     message: string,
   ) {
     super(message);
@@ -877,7 +878,14 @@ export class EventStore {
       if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
       const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint);
       const duplicate = this.findExecutionAdmission(sessionId, clientMsgId);
-      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, executionId, fingerprint);
+      if (duplicate)
+        return this.resolveAdmissionDuplicate(
+          duplicate,
+          current,
+          clientMsgId!,
+          executionId,
+          fingerprint,
+        );
       this.assertExecutionAdmission(current, sessionId);
       return this.beginExecutionInTransaction(
         current,
@@ -905,13 +913,20 @@ export class EventStore {
     }
     return this.db!.transaction(() => {
       const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint);
-      const duplicate = this.findExecutionAdmission(expectedOldToken.sessionId, clientMsgId);
-      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, newExecutionId, fingerprint);
       const current = this.stmts.getSession.get(expectedOldToken.sessionId) as
         SessionRow | undefined;
       if (!current)
         throw new Error(
           `Cannot replace execution for unknown session: ${expectedOldToken.sessionId}`,
+        );
+      const duplicate = this.findExecutionAdmission(expectedOldToken.sessionId, clientMsgId);
+      if (duplicate)
+        return this.resolveAdmissionDuplicate(
+          duplicate,
+          current,
+          clientMsgId!,
+          newExecutionId,
+          fingerprint,
         );
       this.assertLifecycleOpen(current, expectedOldToken.sessionId);
       const terminal = this.transitionExecutionInTransaction(
@@ -1031,16 +1046,44 @@ export class EventStore {
 
   private resolveAdmissionDuplicate(
     admission: { token: ExecutionToken; requestFingerprint: string | null },
+    current: SessionRow,
+    clientMsgId: string,
     requestedExecutionId: string | undefined,
     requestFingerprint: string | undefined,
   ): BeginExecutionResult {
+    const { token } = admission;
+    if (admission.requestFingerprint === null) {
+      if (!requestedExecutionId) {
+        throw new ExecutionAdmissionError(
+          'legacy_admission_identity_required',
+          'A legacy admission retry must include its original executionId',
+        );
+      }
+      if (requestedExecutionId !== token.executionId) {
+        throw new ExecutionAdmissionError(
+          'execution_id_conflict',
+          'clientMsgId is already admitted for a different executionId',
+        );
+      }
+      if (
+        current.execution_id !== token.executionId ||
+        current.execution_generation !== token.generation ||
+        current.execution_phase === null
+      ) {
+        throw new ExecutionAdmissionError(
+          'execution_id_conflict',
+          'Legacy admission no longer matches the canonical execution token',
+        );
+      }
+      this.adoptLegacyAdmissionFingerprint(token.sessionId, clientMsgId, requestFingerprint!);
+      return { token, duplicate: true };
+    }
     if (admission.requestFingerprint !== requestFingerprint) {
       throw new ExecutionAdmissionError(
         'fingerprint_conflict',
         'clientMsgId is already admitted for a different request fingerprint',
       );
     }
-    const { token } = admission;
     if (requestedExecutionId && requestedExecutionId !== token.executionId) {
       throw new ExecutionAdmissionError(
         'execution_id_conflict',
@@ -1048,6 +1091,34 @@ export class EventStore {
       );
     }
     return { token, duplicate: true };
+  }
+
+  /**
+   * Pre-fingerprint receipts cannot safely be retried by key alone. Once an
+   * exact legacy token proves identity, bind the opaque fingerprint without
+   * allocating an execution or appending another event. Current writers
+   * always insert non-null fingerprints; NULL only exists after an upgrade
+   * from the immediately previous Slice 1 table shape.
+   */
+  private adoptLegacyAdmissionFingerprint(
+    sessionId: string,
+    clientMsgId: string,
+    requestFingerprint: string,
+  ): void {
+    const adopted = this.db!.prepare(
+      `UPDATE execution_admissions SET request_fingerprint = ?
+       WHERE session_id = ? AND client_msg_id = ? AND request_fingerprint IS NULL`,
+    ).run(requestFingerprint, sessionId, clientMsgId);
+    if (adopted.changes === 1) return;
+
+    // Immediate transactions serialize normal callers, but a re-read keeps
+    // this safe if a future call path changes that locking discipline.
+    const reread = this.findExecutionAdmission(sessionId, clientMsgId);
+    if (reread?.requestFingerprint === requestFingerprint) return;
+    throw new ExecutionAdmissionError(
+      'fingerprint_conflict',
+      'clientMsgId admission fingerprint changed while adopting a legacy receipt',
+    );
   }
 
   private validateAdmissionFingerprint(

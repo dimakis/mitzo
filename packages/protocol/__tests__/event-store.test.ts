@@ -1385,6 +1385,190 @@ describe('EventStore', () => {
       }
     });
 
+    it('adopts a legacy admission fingerprint only after an exact canonical token match', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-admission-fingerprint-migration-'));
+      const path = join(root, 'previous-slice.sqlite');
+      const previous = new Database(path);
+      previous.exec(`
+        CREATE TABLE sessions (
+          session_id TEXT PRIMARY KEY, summary TEXT, branch TEXT, cwd TEXT,
+          mode TEXT NOT NULL DEFAULT 'agent', is_active INTEGER NOT NULL DEFAULT 1,
+          is_hidden INTEGER NOT NULL DEFAULT 0, closed_by TEXT, state TEXT,
+          lifecycle_state TEXT NOT NULL DEFAULT 'OPEN',
+          execution_generation INTEGER NOT NULL DEFAULT 0,
+          execution_id TEXT, execution_phase TEXT,
+          execution_terminal_reason TEXT, execution_updated_at INTEGER,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE execution_admissions (
+          session_id TEXT NOT NULL, client_msg_id TEXT NOT NULL,
+          execution_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (session_id, client_msg_id)
+        );
+        CREATE TABLE events (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+          type TEXT NOT NULL, payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT 1
+        );
+      `);
+      previous
+        .prepare(
+          `INSERT INTO sessions (
+            session_id, mode, is_active, is_hidden, state, lifecycle_state,
+            execution_generation, execution_id, execution_phase, execution_updated_at,
+            created_at, updated_at
+          ) VALUES ('legacy-admission', 'agent', 1, 0, 'ACTIVE', 'OPEN', 1,
+            'legacy-execution', 'RUNNING', 1, 1, 1)`,
+        )
+        .run();
+      previous
+        .prepare(
+          `INSERT INTO execution_admissions (session_id, client_msg_id, execution_id, generation)
+           VALUES ('legacy-admission', 'legacy-client-message', 'legacy-execution', 1)`,
+        )
+        .run();
+      previous
+        .prepare(
+          `INSERT INTO sessions (
+            session_id, mode, is_active, is_hidden, state, lifecycle_state,
+            execution_generation, execution_id, execution_phase, execution_updated_at,
+            created_at, updated_at
+          ) VALUES ('legacy-admission-stale', 'agent', 1, 0, 'ACTIVE', 'OPEN', 2,
+            'newer-execution', 'RUNNING', 1, 1, 1)`,
+        )
+        .run();
+      previous
+        .prepare(
+          `INSERT INTO execution_admissions (session_id, client_msg_id, execution_id, generation)
+           VALUES ('legacy-admission-stale', 'legacy-stale-client-message', 'legacy-execution', 1)`,
+        )
+        .run();
+      previous.close();
+
+      const migrated = new EventStore(path);
+      try {
+        const beforeEvents = migrated.getSessionEvents('legacy-admission');
+        const beforeGeneration = migrated.getSession('legacy-admission')?.executionGeneration;
+        let missingIdentity: unknown;
+        try {
+          migrated.beginExecution(
+            'legacy-admission',
+            undefined,
+            'legacy-client-message',
+            'opaque-request-fingerprint',
+          );
+        } catch (error) {
+          missingIdentity = error;
+        }
+        expect(missingIdentity).toMatchObject({ code: 'legacy_admission_identity_required' });
+        expect(migrated.getSessionEvents('legacy-admission')).toEqual(beforeEvents);
+        expect(migrated.getSession('legacy-admission')?.executionGeneration).toBe(beforeGeneration);
+
+        expect(() =>
+          migrated.beginExecution(
+            'legacy-admission',
+            'wrong-execution',
+            'legacy-client-message',
+            'opaque-request-fingerprint',
+          ),
+        ).toThrow('different executionId');
+        expect(migrated.getSessionEvents('legacy-admission')).toEqual(beforeEvents);
+        expect(migrated.getSession('legacy-admission')?.executionGeneration).toBe(beforeGeneration);
+        const migratedDb = (migrated as unknown as { db: Database.Database }).db;
+        expect(
+          migratedDb
+            .prepare(
+              `SELECT request_fingerprint FROM execution_admissions
+               WHERE session_id = 'legacy-admission' AND client_msg_id = 'legacy-client-message'`,
+            )
+            .get(),
+        ).toEqual({ request_fingerprint: null });
+
+        expect(() =>
+          migrated.beginExecution(
+            'legacy-admission-stale',
+            'legacy-execution',
+            'legacy-stale-client-message',
+            'opaque-request-fingerprint',
+          ),
+        ).toThrow('no longer matches the canonical execution token');
+        expect(migrated.getSessionEvents('legacy-admission-stale')).toHaveLength(0);
+        expect(migrated.getSession('legacy-admission-stale')).toMatchObject({
+          executionId: 'newer-execution',
+          executionGeneration: 2,
+        });
+
+        expect(
+          migrated.beginExecution(
+            'legacy-admission',
+            'legacy-execution',
+            'legacy-client-message',
+            'opaque-request-fingerprint',
+          ),
+        ).toEqual({
+          token: {
+            sessionId: 'legacy-admission',
+            executionId: 'legacy-execution',
+            generation: 1,
+          },
+          duplicate: true,
+        });
+        expect(migrated.getSessionEvents('legacy-admission')).toEqual(beforeEvents);
+        expect(migrated.getSession('legacy-admission')?.executionGeneration).toBe(beforeGeneration);
+        expect(
+          migrated.beginExecution(
+            'legacy-admission',
+            undefined,
+            'legacy-client-message',
+            'opaque-request-fingerprint',
+          ),
+        ).toMatchObject({ duplicate: true });
+        expect(() =>
+          migrated.beginExecution(
+            'legacy-admission',
+            undefined,
+            'legacy-client-message',
+            'other-opaque-request-fingerprint',
+          ),
+        ).toThrow('different request fingerprint');
+      } finally {
+        migrated.close();
+      }
+
+      const raw = new Database(path, { readonly: true });
+      try {
+        expect(
+          raw
+            .prepare(
+              `SELECT request_fingerprint FROM execution_admissions
+               WHERE session_id = 'legacy-admission' AND client_msg_id = 'legacy-client-message'`,
+            )
+            .get(),
+        ).toEqual({ request_fingerprint: 'opaque-request-fingerprint' });
+      } finally {
+        raw.close();
+      }
+
+      const reopened = new EventStore(path);
+      try {
+        expect(
+          reopened.beginExecution(
+            'legacy-admission',
+            undefined,
+            'legacy-client-message',
+            'opaque-request-fingerprint',
+          ),
+        ).toMatchObject({
+          duplicate: true,
+          token: { executionId: 'legacy-execution', generation: 1 },
+        });
+      } finally {
+        reopened.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
     it('repairs prior Slice 1 closed rows with active executions exactly once on startup', async () => {
       const root = await mkdtemp(join(tmpdir(), 'mitzo-execution-repair-'));
       const path = join(root, 'previous-slice.sqlite');
