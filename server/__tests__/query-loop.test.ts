@@ -2318,7 +2318,7 @@ it('signals readiness on a real stream event while completion remains held until
   async function* heldStream() {
     yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'first' } } };
     await resultGate;
-    yield { type: 'result', session_id: 'ready-session' };
+    yield { type: 'result', session_id: 'ready-session', subtype: 'success' };
   }
 
   let completed = false;
@@ -2331,7 +2331,7 @@ it('signals readiness on a real stream event while completion remains held until
     undefined,
     {
       onProviderReady: () => calls.push('ready'),
-      onProviderResult: () => calls.push('result'),
+      onProviderResult: (outcome) => calls.push(outcome),
     },
   ).then(() => {
     completed = true;
@@ -2341,7 +2341,7 @@ it('signals readiness on a real stream event while completion remains held until
   expect(completed).toBe(false);
   releaseResult();
   await loop;
-  expect(calls).toEqual(['ready', 'result']);
+  expect(calls).toEqual(['ready', 'completed']);
 });
 
 it('reports a pre-ready provider failure without exposing its raw error', async () => {

@@ -435,7 +435,7 @@ type AdmissionOptions = {
   retainedBytes?: number;
   onAdmissionFailure?: (error: unknown) => void;
   onAdmitted?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
-  /** A provider stream yielded its first valid event for this admitted execution. */
+  /** Internal provider-stream readiness signal used only for terminal classification. */
   onProviderReady?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
   /** Internal ownership record used only by the launch-wide failure boundary. */
   _launchOwnership?: LaunchOwnership;
@@ -997,13 +997,13 @@ export function launchChat(
         },
         onAdmitted: (value) => {
           options.onAdmitted?.(value);
-        },
-        onProviderReady: (value) => {
-          options.onProviderReady?.(value);
           if (!admissionSettled) {
             admissionSettled = true;
             resolveAccepted(value);
           }
+        },
+        onProviderReady: (value) => {
+          options.onProviderReady?.(value);
         },
       }),
   );
@@ -1702,16 +1702,22 @@ async function _startChatInner(
             ? {
                 executionOwned: true,
                 onProviderReady: () => {
+                  const resolved = runtimeLease && registry.resolveRuntimeLease(runtimeLease);
+                  const current = resolved?.session.currentExecution;
+                  if (
+                    !initialToken ||
+                    !resolved ||
+                    resolved.session !== session ||
+                    current?.executionId !== initialToken.executionId ||
+                    current.generation !== initialToken.generation
+                  )
+                    return;
                   providerReady = true;
                   resolveProviderReady?.();
-                  if (initialToken)
-                    options.onProviderReady?.({
-                      sessionId: durableSessionId!,
-                      token: initialToken,
-                    });
+                  options.onProviderReady?.({ sessionId: durableSessionId!, token: initialToken });
                 },
-                onProviderResult: async () => {
-                  await finishInitial('completed');
+                onProviderResult: async (outcome) => {
+                  await finishInitial(outcome);
                 },
                 onProviderFailure: async (beforeReady: boolean) => {
                   await finishInitial(beforeReady ? 'startup_failed' : 'failed');
@@ -2518,13 +2524,16 @@ export function closeSessionByUser(clientId: string): void {
 }
 
 export function stopChat(clientId: string) {
-  withSpan('session.stop', { 'session.clientId': clientId }, () => {
+  return withSpanAsync('session.stop', { 'session.clientId': clientId }, async () => {
     const session = registry.get(clientId);
+    const lease = registry.getRuntimeLease(clientId);
+    const token = session?.currentExecution;
+    if (lease && token) await initialExecutionController().finishExecution(lease, token, 'stopped');
     if (session) {
       cleanupSessionWorktrees(session);
       if (session.sessionId) clearSessionImages(session.sessionId);
       session.inputQueue?.close();
-      session.queryInstance?.close();
+      session.queryInstance?.close?.();
     }
     registry.abort(clientId);
   });

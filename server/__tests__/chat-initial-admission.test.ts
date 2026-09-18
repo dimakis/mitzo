@@ -39,7 +39,7 @@ async function freshChat() {
   return { chat, root };
 }
 
-it('keeps initial acceptance pending until a provider event while RUNNING is already owned', async () => {
+it('acknowledges initial admission before provider readiness while completion remains held', async () => {
   const { chat, root } = await freshChat();
   const sessionId = '5f68a371-73d1-4994-a512-b71d4bc44c65';
   let releaseFirst!: () => void;
@@ -91,15 +91,13 @@ it('keeps initial acceptance pending until a provider event while RUNNING is alr
     const running = chat.eventStore.getSession(sessionId);
     expect(runtime?.session.currentExecution).toMatchObject({ sessionId, generation: 1 });
     expect(running).toMatchObject({ sessionId, executionPhase: 'RUNNING', executionGeneration: 1 });
-    await expect(Promise.race([launch.accepted, Promise.resolve('pending')])).resolves.toBe(
-      'pending',
-    );
-
-    releaseFirst();
     await expect(launch.accepted).resolves.toMatchObject({
       sessionId,
       token: { sessionId, generation: 1 },
     });
+    expect(completed).toBe(false);
+
+    releaseFirst();
     expect(completed).toBe(false);
 
     releaseResult();
@@ -147,11 +145,8 @@ it('terminalizes a pre-ready provider failure without leaking raw provider diagn
         requestFingerprint: 'failed-initial-fingerprint',
       },
     );
-    await expect(launch.accepted).rejects.toThrow(
-      'Chat provider did not become ready. Please retry.',
-    );
-    // The compatibility completion follows the query loop; admission itself
-    // must reject as soon as the pre-ready terminal row is durable.
+    await expect(launch.accepted).resolves.toMatchObject({ sessionId, token: { generation: 1 } });
+    // Provider failure follows a durable admission; it cannot revoke the receipt.
     void launch.completion.catch(() => undefined);
     await vi.waitFor(() =>
       expect(chat.eventStore.getSession(sessionId)?.executionTerminalReason).toBe('startup_failed'),
@@ -172,6 +167,58 @@ it('terminalizes a pre-ready provider failure without leaking raw provider diagn
     expect(persisted).not.toContain('/private/provider/path');
     expect(persisted).not.toContain('provider.invalid');
     expect(persisted).not.toContain('prompt=hello');
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('stops an admitted pre-ready execution before removing its runtime', async () => {
+  const { chat, root } = await freshChat();
+  const sessionId = '8a68a371-73d1-4994-a512-b71d4bc44c65';
+  vi.mocked(query).mockImplementation(
+    (args) =>
+      (async function* () {
+        await new Promise<void>((resolve) => {
+          args.options?.abortController?.signal.addEventListener('abort', () => resolve(), {
+            once: true,
+          });
+        });
+        if (Date.now() < 0) yield {};
+      })() as ReturnType<typeof query>,
+  );
+
+  try {
+    const launch = chat.launchChat(
+      { send: () => {}, isOpen: () => true },
+      'stopped-driver',
+      'hello',
+      {
+        cwd: root,
+        isolation: false,
+        initialSessionId: sessionId,
+        clientMsgId: 'stopped-initial-message',
+        requestFingerprint: 'stopped-initial-fingerprint',
+      },
+    );
+    await expect(launch.accepted).resolves.toMatchObject({ sessionId, token: { generation: 1 } });
+    void launch.completion.catch(() => undefined);
+    await chat.stopChat('stopped-driver');
+
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'stopped',
+    });
+    expect(chat.registry.findBySessionId(sessionId)).toBeNull();
+    expect(
+      chat.eventStore
+        .getSessionEvents(sessionId)
+        .filter((event) => event.payload.phase === 'TERMINAL'),
+    ).toHaveLength(1);
+    await expect(launch.completion).rejects.toThrow(
+      'Chat provider did not become ready. Please retry.',
+    );
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

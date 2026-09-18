@@ -188,7 +188,7 @@ export interface QueryLoopOptions {
   /** First syntactically valid event from the provider stream, not query allocation. */
   onProviderReady?: () => void;
   /** A provider result ended this admitted initial execution. */
-  onProviderResult?: () => Promise<void> | void;
+  onProviderResult?: (outcome: 'completed' | 'failed') => Promise<void> | void;
   /** The stream failed before or after readiness. The callback owns execution terminal state. */
   onProviderFailure?: (beforeReady: boolean) => Promise<void> | void;
   /** The caller owns canonical execution lifecycle rather than legacy session state. */
@@ -426,6 +426,7 @@ async function _runQueryLoopInner(
   // the configured model is unreachable (e.g. requested via Vertex AI before
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
+  let terminalOutcomeAttempted = false;
   let timedOut = false;
   const firstEventTimer = setTimeout(() => {
     if (!firstEventReceived) {
@@ -438,6 +439,8 @@ async function _runQueryLoopInner(
     // outer try ensures span.end() always fires
     try {
       for await (const msg of q) {
+        const currentSession = currentOwnerSession();
+        if (!currentSession) break;
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
@@ -448,8 +451,6 @@ async function _runQueryLoopInner(
             store.setSessionState(sid, 'ACTIVE', { clientId, reason: 'first_sdk_event' });
           }
         }
-        const currentSession = currentOwnerSession();
-        if (!currentSession) break;
         if (!resolvedSessionId && currentSession.sessionId) {
           resolvedSessionId = currentSession.sessionId;
           flushPreSessionBuffer();
@@ -574,7 +575,10 @@ async function _runQueryLoopInner(
           }
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
-          await onProviderResult?.();
+          terminalOutcomeAttempted = true;
+          await onProviderResult?.(
+            (msg as Record<string, unknown>).subtype === 'success' ? 'completed' : 'failed',
+          );
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
@@ -1374,6 +1378,7 @@ async function _runQueryLoopInner(
           }
         }
       }
+      if (!terminalOutcomeAttempted) await onProviderFailure?.(!firstEventReceived);
     } catch {
       caughtError = true;
       await onProviderFailure?.(!firstEventReceived);
