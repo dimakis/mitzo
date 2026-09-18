@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type {
   MitzoMode,
   StoredEvent,
@@ -131,6 +132,19 @@ export interface SendCommandReceipt {
   sessionId: string | null;
   payload: Record<string, unknown>;
   error: string | null;
+  requestFingerprint: string | null;
+}
+
+export interface SendCommandReceiptClaim {
+  receipt: SendCommandReceipt;
+  duplicate: boolean;
+}
+
+export class SendCommandConflictError extends Error {
+  constructor(message = 'Command ID already used for a different request') {
+    super(message);
+    this.name = 'SendCommandConflictError';
+  }
 }
 
 /** Metadata-only upsert. Lifecycle and execution authority have dedicated APIs. */
@@ -159,6 +173,7 @@ const SCHEMA = `
     client_msg_id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     payload TEXT NOT NULL,
+    request_fingerprint TEXT,
     error TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
@@ -334,7 +349,13 @@ export class EventStore {
     const row = this.db!.prepare('SELECT * FROM send_commands WHERE client_msg_id = ?').get(
       clientMsgId,
     ) as
-      | { client_msg_id: string; session_id: string; payload: string; error: string | null }
+      | {
+          client_msg_id: string;
+          session_id: string;
+          payload: string;
+          error: string | null;
+          request_fingerprint: string | null;
+        }
       | undefined;
     return (
       row && {
@@ -342,6 +363,7 @@ export class EventStore {
         sessionId: row.session_id || null,
         payload: JSON.parse(row.payload),
         error: row.error,
+        requestFingerprint: row.request_fingerprint,
       }
     );
   }
@@ -359,10 +381,76 @@ export class EventStore {
     clientMsgId: string,
     sessionId: string,
     payload: Record<string, unknown>,
+    requestFingerprint?: string,
   ): void {
     this.db!.prepare(
-      'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
-    ).run(clientMsgId, sessionId, JSON.stringify(payload));
+      `INSERT INTO send_commands (client_msg_id, session_id, payload, request_fingerprint)
+       VALUES (?, ?, ?, ?)`,
+    ).run(
+      clientMsgId,
+      sessionId,
+      JSON.stringify(requestFingerprint === undefined ? payload : {}),
+      requestFingerprint ?? null,
+    );
+  }
+
+  /**
+   * Claim a durable send receipt. New fingerprinted receipts retain no request
+   * body; historical payload receipts are adopted only after an exact compare.
+   */
+  claimSendCommandReceipt(
+    clientMsgId: string,
+    sessionId: string,
+    requestFingerprint: string,
+    legacyCommand: Record<string, unknown>,
+  ): SendCommandReceiptClaim {
+    if (
+      typeof requestFingerprint !== 'string' ||
+      requestFingerprint.length === 0 ||
+      requestFingerprint.length > 512
+    ) {
+      throw new TypeError(
+        'requestFingerprint must be a non-empty string of at most 512 characters',
+      );
+    }
+    return this.db!.transaction(() => {
+      const existing = this.getSendCommand(clientMsgId);
+      if (!existing) {
+        this.insertSendCommand(clientMsgId, sessionId, {}, requestFingerprint);
+        return {
+          receipt: {
+            clientMsgId,
+            sessionId,
+            payload: {},
+            error: null,
+            requestFingerprint,
+          },
+          duplicate: false,
+        };
+      }
+      if (existing.requestFingerprint !== null) {
+        if (existing.requestFingerprint !== requestFingerprint)
+          throw new SendCommandConflictError();
+        return { receipt: existing, duplicate: true };
+      }
+      if (!isDeepStrictEqual(existing.payload, legacyCommand)) {
+        throw new SendCommandConflictError();
+      }
+      const adopted = this.db!.prepare(
+        `UPDATE send_commands SET request_fingerprint = ?, payload = '{}'
+         WHERE client_msg_id = ? AND request_fingerprint IS NULL`,
+      ).run(requestFingerprint, clientMsgId);
+      if (adopted.changes !== 1) {
+        const reread = this.getSendCommand(clientMsgId);
+        if (!reread || reread.requestFingerprint !== requestFingerprint)
+          throw new SendCommandConflictError();
+        return { receipt: reread, duplicate: true };
+      }
+      return {
+        receipt: { ...existing, payload: {}, requestFingerprint },
+        duplicate: true,
+      };
+    }).immediate();
   }
 
   completeNativeSendCommand(clientMsgId: string): void {
@@ -415,6 +503,7 @@ export class EventStore {
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA);
 
+    this.migrateSendCommandFingerprint(db);
     this.migratePromptTracking(db);
     this.migrateUsageTracking(db);
     this.migrateWorktreeTracking(db);
@@ -499,6 +588,16 @@ export class EventStore {
       getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
     };
     this.repairLegacyClosedSessions();
+  }
+
+  private migrateSendCommandFingerprint(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('send_commands')").all() as Array<{
+      name: string;
+    }>;
+    if (!columns.some((column) => column.name === 'request_fingerprint')) {
+      db.exec('ALTER TABLE send_commands ADD COLUMN request_fingerprint TEXT');
+      this.log.info('migrated send_commands table: added request_fingerprint');
+    }
   }
 
   private migratePromptTracking(db: Database.Database): void {

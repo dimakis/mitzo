@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { acceptSendCommand, acceptSendCommandAsync } from '../send-command.js';
 
@@ -20,7 +24,10 @@ describe('durable send acceptance', () => {
       expect(retry).toEqual(first);
       expect(dispatch).toHaveBeenCalledTimes(1);
       expect(dispatch).toHaveBeenCalledWith(message, first.sessionId);
-      expect(store.getSendCommand(message.clientMsgId)?.payload).toEqual(message);
+      expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
+        payload: {},
+        requestFingerprint: expect.any(String),
+      });
     } finally {
       store.close();
     }
@@ -33,6 +40,19 @@ describe('durable send acceptance', () => {
       expect(() => acceptSendCommand(store, { ...message, prompt: 'different' }, vi.fn())).toThrow(
         /different/i,
       );
+    } finally {
+      store.close();
+    }
+  });
+
+  it('rejects request changes beyond the prompt while preserving the original receipt', () => {
+    const store = new EventStore(':memory:');
+    try {
+      acceptSendCommand(store, { ...message, model: 'model-a' }, vi.fn());
+      expect(() => acceptSendCommand(store, { ...message, model: 'model-b' }, vi.fn())).toThrow(
+        'different request',
+      );
+      expect(store.getSendCommand(message.clientMsgId)?.payload).toEqual({});
     } finally {
       store.close();
     }
@@ -146,6 +166,125 @@ describe('durable send acceptance', () => {
       expect(store.getSendCommand(message.clientMsgId)?.error).toBe('probe failed');
     } finally {
       store.close();
+    }
+  });
+
+  it('adopts an exact legacy payload receipt once, then fingerprints it across restart', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-send-command-adoption-'));
+    const path = join(root, 'receipts.sqlite');
+    const store = new EventStore(path);
+    try {
+      store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
+      const first = acceptSendCommand(store, message, vi.fn());
+      expect(first.sessionId).toBe('legacy-session');
+      expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
+        payload: {},
+        requestFingerprint: expect.any(String),
+      });
+      expect(acceptSendCommand(store, message, vi.fn())).toEqual(first);
+    } finally {
+      store.close();
+    }
+    const reopened = new EventStore(path);
+    try {
+      expect(acceptSendCommand(reopened, message, vi.fn())).toMatchObject({
+        sessionId: 'legacy-session',
+      });
+      expect(() =>
+        acceptSendCommand(reopened, { ...message, prompt: 'different legacy prompt' }, vi.fn()),
+      ).toThrow('different request');
+    } finally {
+      reopened.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('coalesces concurrent retries while adopting a legacy receipt', async () => {
+    const store = new EventStore(':memory:');
+    const dispatch = vi.fn();
+    try {
+      store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
+      const [first, second] = await Promise.all([
+        Promise.resolve().then(() => acceptSendCommand(store, message, dispatch)),
+        Promise.resolve().then(() => acceptSendCommand(store, message, dispatch)),
+      ]);
+      expect(first).toEqual(second);
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
+        payload: {},
+        requestFingerprint: expect.any(String),
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not mutate a legacy receipt when its canonical command differs', () => {
+    const store = new EventStore(':memory:');
+    try {
+      store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
+      expect(() =>
+        acceptSendCommand(store, { ...message, prompt: 'different legacy prompt' }, vi.fn()),
+      ).toThrow('different request');
+      expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
+        payload: message,
+        requestFingerprint: null,
+      });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('isolates receipt identity across client message IDs and target sessions', () => {
+    const store = new EventStore(':memory:');
+    try {
+      acceptSendCommand(store, { ...message, sessionId: 'session-a' }, vi.fn());
+      acceptSendCommand(
+        store,
+        { ...message, clientMsgId: 'other-client-message', sessionId: 'session-b' },
+        vi.fn(),
+      );
+      expect(() =>
+        acceptSendCommand(store, { ...message, sessionId: 'session-b' }, vi.fn()),
+      ).toThrow('different request');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('migrates a previous send_commands table with a nullable fingerprint', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-send-command-migration-'));
+    const path = join(root, 'legacy.sqlite');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE send_commands (
+        client_msg_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+        payload TEXT NOT NULL, error TEXT,
+        created_at INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE sessions (
+        session_id TEXT PRIMARY KEY, mode TEXT NOT NULL DEFAULT 'agent',
+        is_active INTEGER NOT NULL DEFAULT 1, is_hidden INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE TABLE events (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+        type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL DEFAULT 1
+      );
+    `);
+    legacy
+      .prepare(`INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)`)
+      .run(message.clientMsgId, 'legacy-session', JSON.stringify(message));
+    legacy.close();
+    const migrated = new EventStore(path);
+    try {
+      expect(migrated.getSendCommand(message.clientMsgId)?.requestFingerprint).toBeNull();
+      expect(acceptSendCommand(migrated, message, vi.fn())).toMatchObject({
+        sessionId: 'legacy-session',
+      });
+    } finally {
+      migrated.close();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

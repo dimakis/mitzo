@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
 import type { z } from 'zod';
 import type { V2SendMessage } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
+import {
+  executionRequestFromValidatedSend,
+  fingerprintExecutionRequest,
+} from './execution-request.js';
 
 type SendMessage = z.infer<typeof V2SendMessage>;
 type SendReceipt = {
@@ -23,13 +26,18 @@ export function acceptSendCommand(
   message: SendMessage,
   dispatch: (message: SendMessage, sessionId: string) => void | false,
 ): { ok: true; accepted: true; clientMsgId: string; sessionId: string | null } {
-  const existing = store.getSendCommand(message.clientMsgId);
-  if (existing && !isDeepStrictEqual(existing.payload, message))
-    throw new Error('Command ID already used for a different message');
-  if (existing?.error) throw new Error(existing.error);
-  let sessionId = existing ? existing.sessionId : (message.sessionId ?? randomUUID());
-  if (!existing) {
-    store.insertSendCommand(message.clientMsgId, sessionId!, message);
+  const requestFingerprint = fingerprintExecutionRequest(
+    executionRequestFromValidatedSend(message),
+  );
+  const receipt = store.claimSendCommandReceipt(
+    message.clientMsgId,
+    message.sessionId ?? randomUUID(),
+    requestFingerprint,
+    message,
+  );
+  if (receipt.receipt.error) throw new Error(receipt.receipt.error);
+  let sessionId = receipt.receipt.sessionId;
+  if (!receipt.duplicate) {
     try {
       if (dispatch(message, sessionId!) === false) {
         store.completeNativeSendCommand(message.clientMsgId);
@@ -55,9 +63,15 @@ export function acceptSendCommandAsync(
   message: SendMessage,
   dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
 ): Promise<SendReceipt> {
-  const existing = store.getSendCommand(message.clientMsgId);
-  if (existing && !isDeepStrictEqual(existing.payload, message))
-    throw new Error('Command ID already used for a different message');
+  const requestFingerprint = fingerprintExecutionRequest(
+    executionRequestFromValidatedSend(message),
+  );
+  const receipt = store.claimSendCommandReceipt(
+    message.clientMsgId,
+    message.sessionId ?? randomUUID(),
+    requestFingerprint,
+    message,
+  );
   let pending = pendingAsyncAcceptances.get(store);
   if (!pending) {
     pending = new Map();
@@ -65,26 +79,31 @@ export function acceptSendCommandAsync(
   }
   const inFlight = pending.get(message.clientMsgId);
   if (inFlight) return inFlight;
-  if (existing?.error) throw new Error(existing.error);
+  if (receipt.receipt.error) throw new Error(receipt.receipt.error);
+  if (receipt.duplicate) {
+    return Promise.resolve({
+      ok: true,
+      accepted: true,
+      clientMsgId: message.clientMsgId,
+      sessionId: receipt.receipt.sessionId,
+    });
+  }
 
   const admission = (async (): Promise<SendReceipt> => {
-    let sessionId = existing ? existing.sessionId : (message.sessionId ?? randomUUID());
-    if (!existing) {
-      store.insertSendCommand(message.clientMsgId, sessionId!, message);
-      try {
-        if ((await dispatch(message, sessionId!)) === false) {
-          store.completeNativeSendCommand(message.clientMsgId);
-          sessionId = null;
-        }
-        const failed = store.getSendCommand(message.clientMsgId)?.error;
-        if (failed) throw new Error(failed);
-      } catch (err) {
-        store.failSendCommand(
-          message.clientMsgId,
-          err instanceof Error ? err.message : 'Send failed',
-        );
-        throw err;
+    let sessionId = receipt.receipt.sessionId;
+    try {
+      if ((await dispatch(message, sessionId!)) === false) {
+        store.completeNativeSendCommand(message.clientMsgId);
+        sessionId = null;
       }
+      const failed = store.getSendCommand(message.clientMsgId)?.error;
+      if (failed) throw new Error(failed);
+    } catch (err) {
+      store.failSendCommand(
+        message.clientMsgId,
+        err instanceof Error ? err.message : 'Send failed',
+      );
+      throw err;
     }
     return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
   })();
