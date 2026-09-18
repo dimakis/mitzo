@@ -899,6 +899,7 @@ export class SessionRegistry {
     // check isClosingOut() to distinguish 'abandoned' vs 'closed' status.
     session.abortController.abort();
     this.clearReplacementInputBarrier(session);
+    this.rejectPendingExecutions(session, 'Execution cancelled because the runtime closed');
     session.observers.clear();
     session.currentExecution = undefined;
     session.pendingExecutions = [];
@@ -920,6 +921,7 @@ export class SessionRegistry {
     const session = this.sessions.get(clientId);
     if (session) {
       this.clearReplacementInputBarrier(session);
+      this.rejectPendingExecutions(session, 'Execution cancelled because the runtime ended');
       session.observers.clear();
       session.currentExecution = undefined;
       session.pendingExecutions = [];
@@ -935,6 +937,16 @@ export class SessionRegistry {
     this.attached.delete(clientId);
     this.closingOut.delete(clientId);
     this.userClosing.delete(clientId);
+  }
+
+  private rejectPendingExecutions(session: ManagedSession, message: string): void {
+    for (const pending of session.pendingExecutions) {
+      try {
+        pending.onRejected?.(new Error(message));
+      } catch {
+        // A receipt observer cannot prevent bounded runtime teardown.
+      }
+    }
   }
 
   /**

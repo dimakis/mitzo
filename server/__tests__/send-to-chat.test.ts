@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eventStore, registry, sendToChat, interruptChat, stageImages } from '../chat.js';
+import { eventStore, registry, sendToChat, interruptChat, stageImages, stopChat } from '../chat.js';
 import { ExecutionController } from '../execution-controller.js';
 import { MAX_V2_PROMPT_CHARS } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -452,6 +452,39 @@ describe('interruptChat emits user_message via transport', () => {
     expect(
       eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
     ).toHaveLength(2);
+  });
+
+  it('drains queued follow-up receipts on stop without dispatching them', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const sessionId = `sess-send-stop-${Date.now()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { close: vi.fn(), interrupt: vi.fn(), stopTask: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    session.currentExecution = eventStore.beginExecution(
+      sessionId,
+      'active-stop',
+      'initial-stop',
+      'fp-stop',
+    ).token;
+
+    const queued = sendToChat(CLIENT_ID, 'must not dispatch', undefined, undefined, 'queued-stop');
+    expect(registry.get(CLIENT_ID)?.pendingExecutions).toHaveLength(1);
+    await stopChat(CLIENT_ID);
+    await expect(queued).resolves.toBe(false);
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'stopped',
+    });
   });
 
   it('replays an Anthropic receipt before a later active-model policy check', async () => {
