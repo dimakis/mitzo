@@ -83,7 +83,7 @@ import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
-import { fingerprintExecutionRequest, validatedExecutionImages } from './execution-request.js';
+import { interruptReceiptFingerprint, validatedExecutionImages } from './execution-request.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -911,23 +911,6 @@ export function buildOpenShellWorkspaceSystemPrompt(workdir: string, wtId: strin
 
 const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
 const CONTEXT_BLOCK_TOTAL_MAX_BYTES = 512 * 1024;
-
-/**
- * Receipt identity is the immutable wire selector sequence, never mutable
- * file contents. The expanded prompt is snapshotted atomically in the durable
- * user_message row, so retry/restart cannot be changed by later file edits.
- */
-function contextBlockFingerprintInputs(names?: string[]): string[] {
-  if (!names?.length) return [];
-  if (names.length > 16) throw new Error('Too many attached context blocks');
-  const seen = new Set<string>();
-  return names.map((name) => {
-    if (!name || Buffer.byteLength(name, 'utf8') > 128 || seen.has(name))
-      throw new Error('Invalid duplicate or oversized context selector');
-    seen.add(name);
-    return name;
-  });
-}
 
 /** Escape characters that would break XML attribute values. */
 function escapeXmlAttr(s: string): string {
@@ -2383,6 +2366,8 @@ export type InterruptOwnershipRequest = {
   expectedTransport?: SessionTransport;
   requesterConnectionId: string;
   requesterTransport: SessionTransport;
+  /** Explicit wire routing identity, never inferred from mutable session metadata. */
+  accountId?: string;
   /** Runs after the lease+revision CAS but before a provider can observe the new input. */
   onCommitted?: () => void;
   /** Runs only if onCommitted failed and the committed owner is still current. */
@@ -2390,37 +2375,8 @@ export type InterruptOwnershipRequest = {
 };
 
 /** Stable replacement identity shared by live admission and restart retry fencing. */
-export function interruptFingerprint(input: {
-  sessionId: string;
-  prompt: string;
-  expectedExecutionId: string;
-  expectedGeneration: number;
-  images?: Array<{ data: string; mediaType: string }>;
-  contextBlocks?: string[];
-  accountId?: string;
-  model?: string;
-  reasoningEffort?: string | null;
-  mode?: string | null;
-  cwd?: string | null;
-}): string {
-  return fingerprintExecutionRequest({
-    operation: 'interrupt',
-    sessionId: input.sessionId,
-    expectedExecutionId: input.expectedExecutionId,
-    expectedGeneration: input.expectedGeneration,
-    rawUserIntent: input.prompt,
-    // Context is bound through its selector and bounded file-content hash;
-    // image bytes are validated and hashed by fingerprintExecutionRequest.
-    effectiveProviderPrompt: input.prompt,
-    accountId: input.accountId ?? null,
-    model: input.model ?? null,
-    reasoningEffort: input.reasoningEffort ?? null,
-    mode: input.mode ?? null,
-    cwd: input.cwd ?? null,
-    images: input.images ?? [],
-    contextBlocks: contextBlockFingerprintInputs(input.contextBlocks),
-  });
-}
+/** Re-exported for legacy callers; implementation is provider/session-independent. */
+export const interruptFingerprint = interruptReceiptFingerprint;
 
 /** Interrupt the current generation through a durable, typed admission boundary. */
 export async function interruptChat(
@@ -2521,10 +2477,9 @@ export async function interruptChat(
         expectedGeneration: expectedToken.generation,
         images,
         contextBlocks,
-        model: selectedModel ?? undefined,
-        reasoningEffort: selectedReasoningEffort,
-        mode: session.mode,
-        cwd: session.cwd,
+        accountId: replacementOwnership.accountId,
+        model,
+        reasoningEffort,
       });
     } catch {
       return { kind: 'unavailable_unreported' };

@@ -221,3 +221,75 @@ it('validates and durably persists the effective Responses replacement selection
     chat.registry.abort(clientId);
   }
 });
+
+it('returns an omitted-model Responses receipt after later runtime selection changes', async () => {
+  const clientId = `responses-omitted-retry-${Date.now()}`;
+  const sessionId = `responses-omitted-retry-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset();
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    model: 'initial-model',
+    cwd: '/first/worktree',
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: {
+        accountId: 'native-account',
+        accountLabel: 'Native account',
+        provider: 'openai',
+        model: 'initial-model',
+        profileRevision: 'test',
+      },
+      selectedModel: 'initial-model',
+      reasoningEffort: 'low',
+    });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-omitted-old',
+    ).token;
+    const clientMsgId = 'responses-omitted-model-retry';
+
+    await expect(
+      chat.interruptChat(clientId, 'same wire request', undefined, undefined, clientMsgId),
+    ).resolves.toEqual({ kind: 'accepted' });
+
+    // A later generation/runtime can legitimately choose a different native
+    // selection and workspace. Those are durable execution metadata, never
+    // the original command's receipt identity.
+    session.model = 'later-model';
+    session.mode = 'auto';
+    session.cwd = '/later/worktree';
+    chat.eventStore.upsertSession({
+      sessionId,
+      selectedModel: 'later-model',
+      reasoningEffort: 'high',
+    });
+    await expect(
+      chat.interruptChat(clientId, 'same wire request', undefined, undefined, clientMsgId),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(responses.prepare).toHaveBeenCalledOnce();
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'same wire request',
+        undefined,
+        undefined,
+        clientMsgId,
+        'explicitly-different-wire-model',
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});

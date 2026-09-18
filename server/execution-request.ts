@@ -279,6 +279,51 @@ export function fingerprintExecutionRequest(input: ExecutionRequestInput): strin
   return sha256Base64url(stableSerializeJson(canonicalizeExecutionRequest(input)));
 }
 
+/**
+ * Receipt identity for an interrupt is intentionally narrower than a provider
+ * execution request. It is a pure function of immutable wire intent plus the
+ * predecessor token: changing a session's effective model, mode, workspace,
+ * or an attached file after admission must not turn an exact lost-ack retry
+ * into a conflict. The expanded prompt and effective native selection are
+ * durable admission data, not receipt identity.
+ */
+export function interruptReceiptFingerprint(input: {
+  sessionId: string;
+  prompt: string;
+  expectedExecutionId: string;
+  expectedGeneration: number;
+  images?: Array<{ data: string; mediaType: string }>;
+  contextBlocks?: string[];
+  accountId?: string | null;
+  model?: string | null;
+  reasoningEffort?: string | null;
+}): string {
+  const selectors = input.contextBlocks ?? [];
+  if (selectors.length > 16) throw new Error('Too many attached context blocks');
+  const seen = new Set<string>();
+  for (const selector of selectors) {
+    if (!selector || Buffer.byteLength(selector, 'utf8') > 128 || seen.has(selector))
+      throw new Error('Invalid duplicate or oversized context selector');
+    seen.add(selector);
+  }
+  return fingerprintExecutionRequest({
+    operation: 'interrupt',
+    sessionId: input.sessionId,
+    expectedExecutionId: input.expectedExecutionId,
+    expectedGeneration: input.expectedGeneration,
+    rawUserIntent: input.prompt,
+    // The wire prompt, rather than a mutable expanded provider prompt, is the
+    // interrupt command's immutable user intent.
+    effectiveProviderPrompt: input.prompt,
+    accountId: input.accountId ?? null,
+    model: input.model ?? null,
+    reasoningEffort: input.reasoningEffort ?? null,
+    images: input.images ?? [],
+    // These are validated selectors in client order, never file contents.
+    contextBlocks: selectors,
+  });
+}
+
 function splitExtraTools(extraTools: string | undefined): string[] {
   return extraTools
     ? extraTools

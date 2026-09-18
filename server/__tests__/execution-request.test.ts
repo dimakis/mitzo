@@ -3,6 +3,7 @@ import { MAX_V2_IMAGE_ENCODED_CHARS, V2SendMessage } from '@mitzo/protocol';
 import {
   canonicalizeExecutionRequest,
   fingerprintExecutionRequest,
+  interruptReceiptFingerprint,
   MAX_EXECUTION_IMAGE_BYTES,
   MAX_EXECUTION_IMAGES,
   MAX_EXECUTION_IMAGE_BYTES_TOTAL,
@@ -37,6 +38,53 @@ const request: ExecutionRequestInput = {
 };
 
 describe('execution request fingerprint', () => {
+  it('keeps interrupt receipt identity to immutable wire intent, not mutable runtime state', () => {
+    const wire = {
+      sessionId: 'session',
+      prompt: 'replace the active turn',
+      expectedExecutionId: 'old-token',
+      expectedGeneration: 7,
+      images: [{ mediaType: 'image/png', data: 'aW1hZ2UtYnl0ZXM=' }],
+      contextBlocks: ['attached-file'],
+    };
+    const fingerprint = interruptReceiptFingerprint(wire);
+    // File contents are intentionally not an input: the durable user_message
+    // snapshots expansion, while the receipt binds only selector identity.
+    const afterAttachedFileChanged = interruptReceiptFingerprint({
+      ...wire,
+      contextBlocks: ['attached-file'],
+    });
+    expect(afterAttachedFileChanged).toBe(fingerprint);
+
+    // Compatibility callers cannot accidentally smuggle mutable session state
+    // into the narrow receipt function; it has no model/mode/cwd inputs beyond
+    // explicit wire selection.
+    const withIgnoredRuntimeFields = interruptReceiptFingerprint as unknown as (
+      input: typeof wire & {
+        mode?: string;
+        cwd?: string;
+        effectiveModel?: string;
+        effectiveReasoning?: string;
+      },
+    ) => string;
+    expect(
+      withIgnoredRuntimeFields({
+        ...wire,
+        mode: 'auto',
+        cwd: '/a/new/worktree',
+        effectiveModel: 'later-model',
+        effectiveReasoning: 'high',
+      }),
+    ).toBe(fingerprint);
+    expect(interruptReceiptFingerprint({ ...wire, model: 'explicit-model' })).not.toBe(fingerprint);
+    expect(
+      interruptReceiptFingerprint({
+        ...wire,
+        images: [{ mediaType: 'image/png', data: 'Y2hhbmdlZC1pbWFnZQ==' }],
+      }),
+    ).not.toBe(fingerprint);
+  });
+
   it('is stable across recursively reordered object keys', () => {
     expect(stableSerializeJson({ z: [{ b: 2, a: 1 }], a: { d: null, c: true } })).toBe(
       '{"a":{"c":true,"d":null},"z":[{"a":1,"b":2}]}',

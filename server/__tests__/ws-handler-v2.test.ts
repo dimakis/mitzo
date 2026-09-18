@@ -5,6 +5,7 @@ import { effectivePermissionMode } from '@mitzo/harness';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { V2SendMessage } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
+import { interruptReceiptFingerprint } from '../execution-request.js';
 
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
@@ -16,7 +17,6 @@ vi.mock('../chat.js', () => ({
     ownership?.onCommitted?.();
     return true;
   }),
-  interruptFingerprint: vi.fn().mockReturnValue('historical-fingerprint'),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   isIsolationEnabled: vi.fn().mockReturnValue(true),
@@ -1556,10 +1556,24 @@ describe('handleInterruptV2', () => {
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue(null);
     const eventStore = mockEventStore();
+    // Recovery may observe a later generation's session metadata. The old
+    // interrupt receipt must still be checked only against its original wire
+    // command and predecessor token.
+    eventStore.getSession.mockReturnValue({
+      selectedModel: 'later-model',
+      reasoningEffort: 'high',
+      mode: 'auto',
+      cwd: '/later/worktree',
+    });
     eventStore.getReplacementAdmission.mockReturnValue({
       token: { sessionId: 'sess-recovered', executionId: 'replacement', generation: 2 },
       expectedOldToken: { sessionId: 'sess-recovered', executionId: 'old', generation: 1 },
-      requestFingerprint: 'historical-fingerprint',
+      requestFingerprint: interruptReceiptFingerprint({
+        sessionId: 'sess-recovered',
+        prompt: 'same durable direction',
+        expectedExecutionId: 'old',
+        expectedGeneration: 1,
+      }),
     });
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],

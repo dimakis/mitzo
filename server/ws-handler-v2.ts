@@ -1,5 +1,6 @@
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
 import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
+import { interruptReceiptFingerprint } from './execution-request.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -52,7 +53,6 @@ import {
   startChat,
   sendToChat,
   interruptChat,
-  interruptFingerprint,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -1130,17 +1130,16 @@ export async function handleInterruptV2(
       // return that historical admission rather than starting a new provider
       // turn from the replacement prompt.
       if (historicalReplacement && (!found || !isActive(found.clientId))) {
-        const fingerprint = interruptFingerprint({
+        const fingerprint = interruptReceiptFingerprint({
           sessionId: msg.sessionId,
           prompt: msg.prompt,
           expectedExecutionId: historicalReplacement.expectedOldToken.executionId,
           expectedGeneration: historicalReplacement.expectedOldToken.generation,
           images: msg.images,
           contextBlocks: msg.contextBlocks,
+          accountId: msg.accountId,
           model: msg.accountId ? msg.model : undefined,
           reasoningEffort: msg.accountId ? msg.reasoningEffort : undefined,
-          mode: ctx.eventStore.getSession(msg.sessionId)?.mode,
-          cwd: ctx.eventStore.getSession(msg.sessionId)?.cwd,
         });
         if (fingerprint !== historicalReplacement.requestFingerprint) {
           transport.send({
@@ -1233,6 +1232,7 @@ export async function handleInterruptV2(
               expectedTransport: oldTransport,
               requesterConnectionId: connectionId,
               requesterTransport: transport,
+              accountId: msg.accountId,
               onCommitted: () => {
                 if (!isOwner) {
                   try {
