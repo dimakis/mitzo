@@ -1884,7 +1884,7 @@ export class EventStore {
     sessionId: string,
     newState: SessionState,
     opts?: { clientId?: string; reason?: string; force?: boolean },
-  ): void {
+  ): number {
     const current = this.getSession(sessionId);
     const fromState = (current?.state as SessionState) ?? null;
     // This persisted value is also the execution generation used by reconnect
@@ -1912,7 +1912,7 @@ export class EventStore {
 
     // Emit session_state_changed event for client consumption (P0)
     const clientState = toClientState(newState);
-    this.append(sessionId, 'session_state_changed', {
+    const seq = this.append(sessionId, 'session_state_changed', {
       sessionId,
       state: clientState,
       internalState: newState,
@@ -1928,6 +1928,8 @@ export class EventStore {
       clientId: opts?.clientId,
       reason: opts?.reason,
     });
+
+    return seq;
   }
 
   getSessionState(sessionId: string): SessionState | null {

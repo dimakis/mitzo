@@ -10,7 +10,7 @@ import {
 } from './constants.js';
 import { createLogger } from './logger.js';
 import type { SessionRegistry, SnapshotBlock } from './session-registry.js';
-import type { EventStore } from './event-store.js';
+import { toClientState, type EventStore } from './event-store.js';
 import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
@@ -1429,11 +1429,31 @@ async function _runQueryLoopInner(
         });
       }
       // Mark session as ended in durable store (P1: setSessionState syncs is_active)
-      if (store && resolvedSessionId) {
-        store.setSessionState(resolvedSessionId, 'ENDED', {
+      const terminalSessionId = resolvedSessionId ?? finalSession?.sessionId;
+      if (store && terminalSessionId) {
+        const terminalSeq = store.setSessionState(terminalSessionId, 'ENDED', {
           clientId,
           reason: caughtError ? 'error' : 'completed',
         });
+        // setSessionState persists a sequenced event but cannot itself fan it
+        // out. Deliver that exact event to an already reconnected watcher so
+        // its cursor advances and a later reconnect cannot replay the terminal
+        // transition a second time.
+        if (connRegistry?.hasOpenWatchers(terminalSessionId)) {
+          const generation = store.getSession(terminalSessionId)?.lastStateChange;
+          if (generation !== undefined) {
+            connRegistry.broadcast(terminalSessionId, {
+              v: 2,
+              type: 'session_state_changed',
+              sessionId: terminalSessionId,
+              state: toClientState('ENDED'),
+              internalState: 'ENDED',
+              timestamp: generation,
+              generation,
+              seq: terminalSeq,
+            });
+          }
+        }
       }
       // Clean up any open subagent spans (ERROR if catch was entered)
       const subagentCleanupStatus = caughtError ? SpanStatusCode.ERROR : SpanStatusCode.OK;

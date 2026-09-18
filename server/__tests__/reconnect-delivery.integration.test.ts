@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
@@ -43,6 +44,7 @@ async function createReconnectHarness() {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-reconnect-'));
+  execFileSync('git', ['init'], { cwd: root, stdio: 'pipe' });
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubGlobal(
@@ -69,17 +71,28 @@ async function createReconnectHarness() {
   app.use('/api/chat', createChatRestRouter(streams, ctx));
 
   const inputs: string[] = [];
-  const outputQueue = new AsyncQueue<ClientEvent>();
-  let inputConsumer: Promise<void> | undefined;
+  const runners: Array<{
+    inputs: string[];
+    outputQueue: InstanceType<typeof AsyncQueue>;
+    close: ReturnType<typeof vi.fn>;
+    abortSignal: AbortSignal | undefined;
+  }> = [];
+  const inputConsumers: Promise<void>[] = [];
   vi.mocked(query).mockImplementation(((args) => {
+    const outputQueue = new AsyncQueue<ClientEvent>();
+    const runnerInputs: string[] = [];
     const fake = {
       async *[Symbol.asyncIterator]() {
         const prompt = args.prompt as AsyncIterable<{ message: { content: string } }> & {
           close?: () => void;
         };
-        inputConsumer ??= (async () => {
-          for await (const input of prompt) inputs.push(input.message.content);
+        const inputConsumer = (async () => {
+          for await (const input of prompt) {
+            inputs.push(input.message.content);
+            runnerInputs.push(input.message.content);
+          }
         })();
+        inputConsumers.push(inputConsumer);
         try {
           yield* outputQueue;
         } finally {
@@ -91,6 +104,12 @@ async function createReconnectHarness() {
       stopTask: vi.fn(),
       setPermissionMode: vi.fn(),
     };
+    runners.push({
+      inputs: runnerInputs,
+      outputQueue,
+      close: fake.close,
+      abortSignal: args.options?.abortController?.signal,
+    });
     return fake as unknown as ReturnType<typeof query>;
   }) as typeof query);
 
@@ -151,6 +170,7 @@ async function createReconnectHarness() {
 
   let loseNextAcknowledgement = false;
   let sendRequests = 0;
+  let stopRequests = 0;
   const sseFetch = async (url: string, init?: RequestInit) => {
     const response = request(app)
       .post(url)
@@ -165,6 +185,7 @@ async function createReconnectHarness() {
         throw new Error('simulated lost acknowledgement');
       }
     }
+    if (url.endsWith('/stop')) stopRequests++;
     return new Response(JSON.stringify(result.body), { status: result.status });
   };
   const apiTransport: TransportAdapter = { fetch: async () => new Response(JSON.stringify([])) };
@@ -184,13 +205,13 @@ async function createReconnectHarness() {
   }
   async function dispose() {
     store.getState().invalidateAuthentication();
-    outputQueue.close();
+    for (const runner of runners) runner.outputQueue.close();
     for (const [, session] of chat.registry.entries()) {
       session.inputQueue?.close();
       session.queryInstance?.close();
     }
     await waitFor(() => expect(Array.from(chat.registry.entries())).toHaveLength(0));
-    await inputConsumer;
+    await Promise.all(inputConsumers);
     connections.dispose();
     streams.destroy();
     chat.eventStore.close();
@@ -204,10 +225,16 @@ async function createReconnectHarness() {
     store,
     sources,
     inputs,
-    outputQueue,
+    get outputQueue() {
+      return runners[0].outputQueue;
+    },
+    runners,
     clientFrames,
     get sendRequests() {
       return sendRequests;
+    },
+    get stopRequests() {
+      return stopRequests;
     },
     loseNextAcknowledgement: () => {
       loseNextAcknowledgement = true;
@@ -493,6 +520,101 @@ it('replays one offline completion and then advances the reconnect cursor past i
     expect(runningTransitions).toEqual([true, false]);
   } finally {
     unsubscribe();
+    await h.dispose();
+  }
+});
+
+it('stops the replacement execution exactly once after its prompt bypasses a pending reconnect', async () => {
+  const h = await createReconnectHarness();
+  try {
+    h.sources[0].welcome();
+    h.store.getState().sendMessage('old execution', { cwd: h.root, isolation: false });
+    await h.waitFor(() => expect(h.store.getState().sessions.active).toBeTruthy());
+    const sessionId = h.store.getState().sessions.active!;
+    await h.waitFor(() => expect(h.runners).toHaveLength(1));
+    await h.waitFor(() => expect(h.runners[0].inputs).toEqual(['old execution']));
+    for (const event of streamingEvents(sessionId, 'old-online')) h.outputQueue.push(event);
+    await h.waitFor(() =>
+      expect(h.clientFrames.some(({ event }) => event.type === 'block_delta')).toBe(true),
+    );
+    const oldRuntimeId = h.chat.registry.findBySessionId(sessionId)!.clientId;
+    const oldRunner = h.runners[0];
+    const oldCloseCalls = oldRunner.close.mock.calls.length;
+    const oldCursor = Math.max(
+      ...h.clientFrames
+        .map(({ event }) => event)
+        .filter((event) => event.sessionId === sessionId && typeof event.seq === 'number')
+        .map((event) => event.seq as number),
+    );
+    h.store.getState().sendSuspend();
+    await h.waitFor(() => expect(h.chat.registry.isSuspended(oldRuntimeId)).toBe(true));
+    h.sources[0].serverClose();
+    h.outputQueue.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+    h.outputQueue.push({ type: 'assistant', session_id: sessionId, message: { content: [] } });
+    h.outputQueue.push({ type: 'result', session_id: sessionId });
+    h.outputQueue.close();
+    await h.waitFor(() => expect(h.chat.eventStore.getSessionState(sessionId)).toBe('ENDED'));
+    await h.waitFor(() => expect(Array.from(h.chat.registry.entries())).toHaveLength(0));
+    const oldTerminal = h.chat.eventStore
+      .getEventsAfter(sessionId, oldCursor)
+      .find(
+        (event) =>
+          event.type === 'session_state_changed' && event.payload.internalState === 'ENDED',
+      )!;
+    expect(oldRunner.close).toHaveBeenCalledTimes(oldCloseCalls);
+
+    // The fresh source exists, but its welcome is deliberately withheld. The
+    // prompt outbox must still admit the replacement execution independently.
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(2));
+    h.store.getState().sendMessage('replacement execution');
+    await h.waitFor(() => expect(h.runners).toHaveLength(2));
+    await h.waitFor(() => expect(h.runners[1].inputs).toEqual(['replacement execution']));
+    const replacementRuntimeId = h.chat.registry.findBySessionId(sessionId)!.clientId;
+    expect(replacementRuntimeId).not.toBe(oldRuntimeId);
+    await h.waitFor(() => expect(h.sendRequests).toBe(2));
+
+    // Control messages do wait for replay readiness, unlike prompts.
+    h.store.getState().stopGeneration();
+    expect(h.stopRequests).toBe(0);
+    expect(h.runners[1].close).not.toHaveBeenCalled();
+
+    h.sources[1].welcome();
+    await h.waitFor(() => expect(h.store.getState().connection.status).toBe('connected'));
+    await h.waitFor(() => expect(h.stopRequests).toBe(1));
+    await h.waitFor(() => expect(h.runners[1].close).toHaveBeenCalledTimes(1));
+    await h.waitFor(() => expect(h.runners[1].abortSignal?.aborted).toBe(true));
+    await h.waitFor(() => expect(Array.from(h.chat.registry.entries())).toHaveLength(0));
+    expect(oldRunner.close).toHaveBeenCalledTimes(oldCloseCalls);
+    expect(h.runners).toHaveLength(2);
+    expect(h.inputs).toEqual(['old execution', 'replacement execution']);
+    expect(h.sendRequests).toBe(2);
+
+    const allEvents = h.chat.eventStore.getEventsAfter(sessionId, 0);
+    const replacementTerminal = allEvents.filter(
+      (event) =>
+        event.type === 'session_state_changed' &&
+        event.payload.internalState === 'ENDED' &&
+        Number(event.payload.generation) > Number(oldTerminal.payload.generation),
+    );
+    expect(replacementTerminal).toHaveLength(1);
+    const replacementTerminalEvent = replacementTerminal[0];
+    const replacementEnds = allEvents.filter(
+      (event) => event.type === 'session_end' && event.seq < replacementTerminalEvent.seq,
+    );
+    expect(replacementEnds.at(-1)?.seq).toBe(replacementTerminalEvent.seq - 1);
+    await h.waitFor(() =>
+      expect(
+        h.sources[1].events.filter(
+          (event) =>
+            event.type === 'session_state_changed' &&
+            event.generation === replacementTerminalEvent.payload.generation &&
+            event.internalState === 'ENDED',
+        ),
+      ).toHaveLength(1),
+    );
+    expect(h.sources[1].events.filter((event) => event.type === 'session_end')).toHaveLength(2);
+  } finally {
     await h.dispose();
   }
 });
