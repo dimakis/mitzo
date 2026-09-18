@@ -12,7 +12,7 @@ import {
   V2SetModeMessage,
   IncomingWsMessageV2,
 } from '../src/ws-schemas-v2.js';
-import { MAX_V2_PROMPT_CHARS } from '../src/ws-schemas-v2.js';
+import { MAX_V2_CONTEXT_BLOCKS, MAX_V2_PROMPT_CHARS } from '../src/ws-schemas-v2.js';
 
 describe('v2 hello handshake', () => {
   it('accepts hello with protocolVersion 2', () => {
@@ -176,6 +176,25 @@ describe('v2 interrupt / stop / permission_response / set_mode', () => {
         prompt: 'x'.repeat(MAX_V2_PROMPT_CHARS + 1),
         clientMsgId: 'u-too-large',
       }).success,
+    ).toBe(false);
+  });
+
+  it('rejects duplicate, oversized, and overlong context selectors before dispatch', () => {
+    const base = { type: 'interrupt', sessionId: 'sess-1', prompt: 'wait', clientMsgId: 'ctx' };
+    expect(V2InterruptMessage.safeParse({ ...base, contextBlocks: ['one', 'one'] }).success).toBe(
+      false,
+    );
+    expect(
+      V2InterruptMessage.safeParse({
+        ...base,
+        contextBlocks: Array.from(
+          { length: MAX_V2_CONTEXT_BLOCKS + 1 },
+          (_, index) => `b-${index}`,
+        ),
+      }).success,
+    ).toBe(false);
+    expect(
+      V2InterruptMessage.safeParse({ ...base, contextBlocks: ['x'.repeat(129)] }).success,
     ).toBe(false);
   });
 

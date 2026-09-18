@@ -1135,9 +1135,12 @@ export async function handleInterruptV2(
           prompt: msg.prompt,
           expectedExecutionId: historicalReplacement.expectedOldToken.executionId,
           expectedGeneration: historicalReplacement.expectedOldToken.generation,
+          images: msg.images,
           contextBlocks: msg.contextBlocks,
           model: msg.accountId ? msg.model : undefined,
           reasoningEffort: msg.accountId ? msg.reasoningEffort : undefined,
+          mode: ctx.eventStore.getSession(msg.sessionId)?.mode,
+          cwd: ctx.eventStore.getSession(msg.sessionId)?.cwd,
         });
         if (fingerprint !== historicalReplacement.requestFingerprint) {
           transport.send({

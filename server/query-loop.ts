@@ -206,7 +206,7 @@ export interface QueryLoopOptions {
   onProviderResult?: (
     outcome: 'completed' | 'failed',
     token?: ExecutionToken,
-  ) => Promise<void> | void;
+  ) => Promise<boolean | void> | boolean | void;
   /** The stream failed before or after readiness. The callback owns execution terminal state. */
   onProviderFailure?: (beforeReady: boolean, token?: ExecutionToken) => Promise<void> | void;
   /** The caller owns canonical execution lifecycle rather than legacy session state. */
@@ -606,7 +606,8 @@ async function _runQueryLoopInner(
           terminalOutcomeAttempted = true;
           const outcome = classifyProviderResultOutcome(msg as Record<string, unknown>);
           if (outcome === 'failed') lifecycleTerminalReason = 'error';
-          await onProviderResult?.(outcome, providerToken);
+          const executionTerminalApplied =
+            (await onProviderResult?.(outcome, providerToken)) !== false;
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
@@ -694,9 +695,17 @@ async function _runQueryLoopInner(
           span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
           span.setAttribute('session.duration_ms', usageData.durationMs);
           span.setAttribute('session.cost_usd', usageData.totalCostUsd);
-          emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+          // An old token may finish after an admitted replacement is current.
+          // Its usage is still durable, but an unversioned session_end would
+          // incorrectly clear the replacement's client-side running state.
+          if (!options?.executionOwned || executionTerminalApplied)
+            emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
-          if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
+          if (
+            (!options?.executionOwned || executionTerminalApplied) &&
+            resultSid &&
+            connRegistry?.hasOpenWatchers(resultSid)
+          ) {
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
               resultSid,
               true,

@@ -26,6 +26,9 @@ export const MAX_V2_IMAGE_ENCODED_CHARS = Math.ceil(MAX_V2_IMAGE_DECODED_BYTES /
 export const MAX_V2_CLIENT_PAYLOAD_BYTES =
   Math.ceil(MAX_V2_IMAGE_TOTAL_DECODED_BYTES / 3) * 4 + 4 * 1024 * 1024;
 export const MAX_V2_PROMPT_CHARS = 1_000_000;
+/** Context selectors identify configured files; bound them before file I/O. */
+export const MAX_V2_CONTEXT_BLOCKS = 16;
+export const MAX_V2_CONTEXT_BLOCK_NAME_CHARS = 128;
 
 const ImageSchema = z.object({
   // This is an encoded-byte ceiling, not a character-count approximation.
@@ -34,6 +37,13 @@ const ImageSchema = z.object({
   data: z.string().max(MAX_V2_IMAGE_ENCODED_CHARS),
   mediaType: z.string(),
 });
+
+const ContextBlocksSchema = z
+  .array(z.string().min(1).max(MAX_V2_CONTEXT_BLOCK_NAME_CHARS))
+  .max(MAX_V2_CONTEXT_BLOCKS)
+  .refine((names) => new Set(names).size === names.length, {
+    message: 'Context block names must be unique',
+  });
 
 // ─── Handshake ──────────────────────────────────────────────────────────────
 
@@ -104,7 +114,7 @@ export const V2SendMessage = z.object({
   extraTools: z.string().optional(),
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).max(MAX_V2_IMAGE_COUNT).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema.optional(),
   telosTaskId: z.string().optional(),
   agentName: z
     .string()
@@ -123,7 +133,7 @@ export const V2InterruptMessage = z.object({
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
   images: z.array(ImageSchema).max(MAX_V2_IMAGE_COUNT).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema.optional(),
 });
 
 export const V2StopMessage = z.object({

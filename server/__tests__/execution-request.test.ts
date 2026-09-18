@@ -151,6 +151,9 @@ describe('execution request fingerprint', () => {
     expect(fingerprintExecutionRequest({ ...request, images: image('aGVsbG8=') })).not.toBe(
       fingerprintExecutionRequest({ ...request, images: image('d29ybGQ=') }),
     );
+    expect(() =>
+      validatedExecutionImages([{ mediaType: 'application/octet-stream', data: 'aGVsbG8=' }]),
+    ).toThrow('media type');
   });
 
   it('rejects oversized encoded image data before decode and schema admission', () => {

@@ -36,7 +36,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -57,7 +57,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
-import { clearSessionImages, storeImage } from './image-store.js';
+import { clearSessionImages, removeImages, storeImage } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   GIT_BRANCH_TIMEOUT_MS,
@@ -72,6 +72,11 @@ import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
+import {
+  fingerprintExecutionRequest,
+  sha256Base64url,
+  validatedExecutionImages,
+} from './execution-request.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -89,14 +94,41 @@ type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
  * `currentExecution`, which can be replaced while an old provider finalizer is
  * still in flight.
  */
+type ProviderTurnBinding = {
+  token?: ExecutionToken;
+  terminal: Promise<void>;
+  releaseTerminal: () => void;
+  begin(token: ExecutionToken | undefined): void;
+};
+
+function makeProviderTurnBinding(): ProviderTurnBinding {
+  const releaseTerminal = () => undefined;
+  return {
+    terminal: Promise.resolve(),
+    releaseTerminal,
+    begin(token: ExecutionToken | undefined) {
+      let release!: () => void;
+      this.terminal = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      this.releaseTerminal = release;
+      this.token = token;
+    },
+  };
+}
+
 function executionBoundSdkPrompt(
   input: AsyncIterable<ProviderInput> & { close?: () => void },
-  active: { token?: ExecutionToken },
+  active: ProviderTurnBinding,
 ): AsyncIterable<SDKUserMessage> & { close?: () => void } {
   return {
     async *[Symbol.asyncIterator]() {
       for await (const envelope of input) {
-        active.token = envelope.executionToken;
+        // The SDK may pull its next prompt before it yields the preceding
+        // result. Do not rebind output ownership until that terminal boundary
+        // has been observed; otherwise an old result could end the replacement.
+        if (active.token) await active.terminal;
+        active.begin(envelope.executionToken);
         yield envelope.message;
       }
     },
@@ -109,17 +141,19 @@ function executionBoundSdkPrompt(
 }
 
 /** Copy the local input token onto every provider event, including EOF/error paths. */
-function executionBoundQuery(
-  query: QueryInstance,
-  active: { token?: ExecutionToken },
-): QueryInstance {
+function executionBoundQuery(query: QueryInstance, active: ProviderTurnBinding): QueryInstance {
   return {
     async *[Symbol.asyncIterator]() {
-      for await (const event of query) {
-        yield {
-          ...event,
-          ...(active.token ? { mitzoExecutionToken: active.token } : {}),
-        };
+      try {
+        for await (const event of query) {
+          if (event.type === 'result') active.releaseTerminal();
+          yield {
+            ...event,
+            ...(active.token ? { mitzoExecutionToken: active.token } : {}),
+          };
+        }
+      } finally {
+        active.releaseTerminal();
       }
     },
     setPermissionMode: query.setPermissionMode,
@@ -860,6 +894,34 @@ export function buildOpenShellWorkspaceSystemPrompt(workdir: string, wtId: strin
 }
 
 const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
+const CONTEXT_BLOCK_TOTAL_MAX_BYTES = 512 * 1024;
+
+/**
+ * Fingerprint configured context without assembling it into a provider prompt.
+ * The selector and the bounded content hash are both part of an interrupt
+ * receipt, so a retry cannot silently apply changed file contents.
+ */
+function contextBlockFingerprintInputs(names?: string[]): string[] {
+  if (!names?.length) return [];
+  const config = getRepoConfig();
+  let total = 0;
+  return names.map((name) => {
+    const filePath = config.contextBlocks[name];
+    if (!filePath) return `${name}:missing`;
+    let bytes: Buffer;
+    try {
+      bytes = Buffer.from(readFileSync(filePath));
+    } catch {
+      return `${name}:unreadable`;
+    }
+    if (bytes.byteLength > CONTEXT_BLOCK_MAX_BYTES)
+      bytes = bytes.subarray(0, CONTEXT_BLOCK_MAX_BYTES);
+    total += bytes.byteLength;
+    if (total > CONTEXT_BLOCK_TOTAL_MAX_BYTES)
+      throw new Error('Attached context exceeds the maximum expanded size');
+    return `${name}:${sha256Base64url(bytes)}`;
+  });
+}
 
 /** Escape characters that would break XML attribute values. */
 function escapeXmlAttr(s: string): string {
@@ -1576,7 +1638,7 @@ async function _startChatInner(
       ...(token ? { executionToken: token } : {}),
       ...(options.clientMsgId ? { commandId: options.clientMsgId } : {}),
     });
-    const activeProviderInput: { token?: ExecutionToken } = { token };
+    const activeProviderInput = makeProviderTurnBinding();
     try {
       await providerPreflight?.();
       if (newSdkSessionId) {
@@ -1788,7 +1850,7 @@ async function _startChatInner(
                 },
                 onProviderResult: async (outcome, providerToken) => {
                   const ownedToken = providerToken ?? initialToken;
-                  if (!ownedToken || !runtimeLease || !ownsRuntime()) return;
+                  if (!ownedToken || !runtimeLease || !ownsRuntime()) return false;
                   const current =
                     registry.resolveRuntimeLease(runtimeLease)?.session.currentExecution;
                   if (
@@ -1796,8 +1858,13 @@ async function _startChatInner(
                     current.executionId !== ownedToken.executionId ||
                     current.generation !== ownedToken.generation
                   )
-                    return;
-                  await controller?.finishExecution(runtimeLease, ownedToken, outcome);
+                    return false;
+                  const finished = await controller?.finishExecution(
+                    runtimeLease,
+                    ownedToken,
+                    outcome,
+                  );
+                  return finished?.transition?.applied === true;
                 },
                 onProviderFailure: async (beforeReady: boolean, providerToken) => {
                   const ownedToken = providerToken ?? initialToken;
@@ -2212,13 +2279,9 @@ export async function sendToChat(
         selectionReasoningEffort = selection.reasoningEffort;
         if (model) session.model = selection.model;
         acknowledge();
-        void codex.resumeAfterExplicitSend().catch(() =>
-          send(session.transport, {
-            type: 'error',
-            sessionId: session.sessionId,
-            error: 'Message saved. Mitzo could not reconnect yet.',
-          }),
-        );
+        // Replacement dispatch must not acknowledge a RUNNING token while
+        // Codex still has not definitively resumed its explicit command.
+        await codex.resumeAfterExplicitSend();
       } catch {
         if (signal?.aborted) return false;
         send(session.transport, {
@@ -2261,11 +2324,31 @@ export function interruptFingerprint(input: {
   prompt: string;
   expectedExecutionId: string;
   expectedGeneration: number;
+  images?: Array<{ data: string; mediaType: string }>;
   contextBlocks?: string[];
+  accountId?: string;
   model?: string;
   reasoningEffort?: string | null;
+  mode?: string | null;
+  cwd?: string | null;
 }): string {
-  return createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  return fingerprintExecutionRequest({
+    operation: 'interrupt',
+    sessionId: input.sessionId,
+    expectedExecutionId: input.expectedExecutionId,
+    expectedGeneration: input.expectedGeneration,
+    rawUserIntent: input.prompt,
+    // Context is bound through its selector and bounded file-content hash;
+    // image bytes are validated and hashed by fingerprintExecutionRequest.
+    effectiveProviderPrompt: input.prompt,
+    accountId: input.accountId ?? null,
+    model: input.model ?? null,
+    reasoningEffort: input.reasoningEffort ?? null,
+    mode: input.mode ?? null,
+    cwd: input.cwd ?? null,
+    images: input.images ?? [],
+    contextBlocks: contextBlockFingerprintInputs(input.contextBlocks),
+  });
 }
 
 /** Interrupt the current generation through a durable, typed admission boundary. */
@@ -2309,7 +2392,6 @@ export async function interruptChat(
         return { kind: 'unavailable_unreported' };
       }
     }
-    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const lease = registry.getRuntimeLease(clientId);
     const currentToken = session.currentExecution;
@@ -2331,20 +2413,49 @@ export async function interruptChat(
       })();
     if (!replacementOwnership) return { kind: 'unavailable_unreported' };
     const expectedToken = priorAdmission?.expectedOldToken ?? currentToken!;
+    // Validate and fingerprint the complete immutable command before any
+    // image-store write or .mitzo-images staging. Exact retries return from
+    // this preflight without rebuilding provider input.
+    try {
+      validatedExecutionImages(images);
+    } catch {
+      return { kind: 'unavailable_unreported' };
+    }
+    let fingerprint: string;
+    try {
+      fingerprint = interruptFingerprint({
+        sessionId: session.sessionId,
+        prompt,
+        expectedExecutionId: expectedToken.executionId,
+        expectedGeneration: expectedToken.generation,
+        images,
+        contextBlocks,
+        model,
+        reasoningEffort,
+        mode: session.mode,
+        cwd: session.cwd,
+      });
+    } catch {
+      return { kind: 'unavailable_unreported' };
+    }
+    if (priorAdmission) {
+      if (priorAdmission.requestFingerprint !== fingerprint) return { kind: 'conflict' };
+      return { kind: 'duplicate_already_accepted' };
+    }
+    // Context expansion is deliberately after idempotency preflight; it does
+    // not stage images, and image paths are created only by provider dispatch.
+    let fullPrompt: string;
+    try {
+      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+    } catch {
+      return { kind: 'unavailable_unreported' };
+    }
     const imageRefs = images
       ?.map((image) => {
         const id = storeImage(session.sessionId!, image.data, image.mediaType);
         return id ? { id, mediaType: image.mediaType } : undefined;
       })
       .filter((image): image is { id: string; mediaType: string } => !!image);
-    const fingerprint = interruptFingerprint({
-      sessionId: session.sessionId,
-      prompt,
-      expectedExecutionId: expectedToken.executionId,
-      expectedGeneration: expectedToken.generation,
-      model,
-      reasoningEffort,
-    });
     const controller = initialExecutionController();
     let replacement;
     try {
@@ -2376,8 +2487,18 @@ export async function interruptChat(
           }
         },
         dispatch: async (token) => {
+          const ownsReplacement = () => {
+            const resolved = registry.resolveRuntimeLease(lease);
+            const current = resolved?.session.currentExecution;
+            return (
+              resolved?.session === session &&
+              current?.executionId === token.executionId &&
+              current.generation === token.generation
+            );
+          };
           if (codex) {
             await codex.interrupt();
+            if (!ownsReplacement()) throw new Error('replacement execution is no longer current');
             if (
               !(await sendToChat(
                 clientId,
@@ -2395,6 +2516,7 @@ export async function interruptChat(
               throw new Error('provider did not accept interrupt message');
           } else if (responses) {
             await session.queryInstance!.interrupt();
+            if (!ownsReplacement()) throw new Error('replacement execution is no longer current');
             responses.prepare(messageId, fullPrompt, {
               ...(model ? { model } : {}),
               ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
@@ -2411,6 +2533,7 @@ export async function interruptChat(
               ),
             );
             await session.queryInstance!.interrupt();
+            if (!ownsReplacement()) throw new Error('replacement execution is no longer current');
             session.inputQueue!.push({
               message: makeUserMessage(fullPrompt, 'now'),
               executionToken: token,
@@ -2421,8 +2544,10 @@ export async function interruptChat(
         },
       });
     } catch {
+      removeImages(imageRefs?.map((image) => image.id) ?? []);
       return { kind: 'unavailable_unreported' };
     }
+    if (!replacement.admission) removeImages(imageRefs?.map((image) => image.id) ?? []);
     if (replacement.error instanceof PendingExecutionOverflowError)
       return { kind: 'unavailable_unreported' };
     if (replacement.error && !replacement.admission) return { kind: 'conflict' };

@@ -366,6 +366,47 @@ describe('ExecutionController', () => {
     expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
   });
 
+  it('returns an older durable replacement receipt after a newer replacement is current', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const dispatchA = vi.fn();
+    const a = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-a',
+      clientMsgId: 'replacement-a-message',
+      requestFingerprint: 'replacement-a-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-a-message', text: 'A' },
+      dispatch: dispatchA,
+    });
+    const b = await controller.replaceExecution(lease, {
+      expectedToken: a.token!,
+      executionId: 'replacement-b',
+      clientMsgId: 'replacement-b-message',
+      requestFingerprint: 'replacement-b-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-b-message', text: 'B' },
+      dispatch: vi.fn(),
+    });
+    const retryDispatch = vi.fn();
+
+    const retry = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-a',
+      clientMsgId: 'replacement-a-message',
+      requestFingerprint: 'replacement-a-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-a-message', text: 'A' },
+      dispatch: retryDispatch,
+    });
+
+    expect(retry.admission?.duplicate).toBe(true);
+    expect(retry.token).toEqual(a.token);
+    expect(retryDispatch).not.toHaveBeenCalled();
+    expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(b.token);
+  });
+
   it('stops only the current token and drains pending work without activating a successor', async () => {
     const dispatchNext = vi.fn();
     controller.enqueueExecution(CLIENT_ID, prepared('current'));

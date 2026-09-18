@@ -17,6 +17,12 @@ export const MAX_EXECUTION_IMAGE_BYTES = MAX_V2_IMAGE_DECODED_BYTES;
 export const MAX_EXECUTION_IMAGES = MAX_V2_IMAGE_COUNT;
 export const MAX_EXECUTION_IMAGE_BYTES_TOTAL = MAX_V2_IMAGE_TOTAL_DECODED_BYTES;
 export const MAX_EXECUTION_IMAGE_ENCODED_CHARS = Math.ceil(MAX_EXECUTION_IMAGE_BYTES / 3) * 4;
+export const EXECUTION_IMAGE_MEDIA_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
 
 export class ExecutionRequestValidationError extends Error {
   constructor(message: string) {
@@ -28,6 +34,9 @@ export class ExecutionRequestValidationError extends Error {
 export type ExecutionRequestInput = {
   operation: string;
   sessionId?: string | null;
+  /** Interrupt replacement is tied to this exact predecessor token. */
+  expectedExecutionId?: string | null;
+  expectedGeneration?: number | null;
   rawUserIntent: string;
   effectiveProviderPrompt: string;
   accountId?: string | null;
@@ -62,6 +71,8 @@ export type ExecutionRequestInput = {
 export type CanonicalExecutionRequest = {
   operation: string;
   sessionId: string | null;
+  expectedExecutionId: string | null;
+  expectedGeneration: number | null;
   rawUserIntentHash: string;
   effectiveProviderPromptHash: string;
   accountId: string | null;
@@ -149,6 +160,9 @@ export function validatedExecutionImages(
   }
   let total = 0;
   return input.map((image) => {
+    if (!EXECUTION_IMAGE_MEDIA_TYPES.has(image.mediaType)) {
+      throw new ExecutionRequestValidationError('Image media type is not supported');
+    }
     const bytes = typeof image.data === 'string' ? strictBase64Bytes(image.data) : image.data;
     if (bytes.byteLength > MAX_EXECUTION_IMAGE_BYTES) {
       throw new ExecutionRequestValidationError(
@@ -187,6 +201,15 @@ export function canonicalizeExecutionRequest(
   return {
     operation: boundedString(input.operation, 'operation'),
     sessionId: nullableString(input.sessionId, 'sessionId'),
+    expectedExecutionId: nullableString(input.expectedExecutionId, 'expectedExecutionId'),
+    expectedGeneration:
+      input.expectedGeneration === undefined || input.expectedGeneration === null
+        ? null
+        : Number.isSafeInteger(input.expectedGeneration)
+          ? input.expectedGeneration
+          : (() => {
+              throw new TypeError('expectedGeneration must be a safe integer');
+            })(),
     rawUserIntentHash: sha256Base64url(boundedString(input.rawUserIntent, 'rawUserIntent')),
     effectiveProviderPromptHash: sha256Base64url(
       boundedString(input.effectiveProviderPrompt, 'effectiveProviderPrompt'),

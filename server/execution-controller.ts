@@ -182,14 +182,10 @@ export class ExecutionController {
       lease.sessionId,
       prepared.clientMsgId,
     );
-    const resolvedPrior = this.options.registry.resolveRuntimeLease(lease);
-    if (
-      prior &&
-      resolvedPrior &&
-      (!resolvedPrior.session.currentExecution ||
-        (resolvedPrior.session.currentExecution.executionId === prior.token.executionId &&
-          resolvedPrior.session.currentExecution.generation === prior.token.generation))
-    ) {
+    // A durable receipt takes precedence over mutable runtime state. In
+    // particular, retrying replacement A after B became current must return A
+    // without claiming activation or touching a provider.
+    if (prior) {
       try {
         const admission = this.options.eventStore.admitReplacement({
           expectedOldToken: prior.expectedOldToken,
@@ -245,6 +241,19 @@ export class ExecutionController {
           // the displaced owner. Its durable rows are replayable once a valid
           // owner reconnects, but no provider work or live broadcast occurs.
           if (terminal.applied) this.options.registry.clearCurrentExecution(lease, admission.token);
+          return { token: admission.token, admission, stale: true, notDispatched: true };
+        }
+        const afterPreparation = this.options.registry.resolveRuntimeLease(lease);
+        const afterToken = afterPreparation?.session.currentExecution;
+        if (
+          !afterPreparation ||
+          !afterToken ||
+          afterToken.executionId !== admission.token.executionId ||
+          afterToken.generation !== admission.token.generation
+        ) {
+          // A stop/replacement won while an awaited CAS/preflight settled.
+          // Never broadcast or dispatch into that newer runtime.
+          this.options.eventStore.transitionExecution(admission.token, 'TERMINAL', 'failed');
           return { token: admission.token, admission, stale: true, notDispatched: true };
         }
         this.broadcastReplacementRows(lease, admission.rows);
@@ -419,7 +428,14 @@ export class ExecutionController {
         if (sendOnce(observer, data, sent))
           this.options.connections?.recordFallbackDelivery(lease.sessionId, observer, row.seq);
       }
-      if (!suspended && sent.size === 0) sendOnce(resolved.session.transport, data, sent);
+      if (!suspended && sent.size === 0) {
+        if (sendOnce(resolved.session.transport, data, sent))
+          this.options.connections?.recordFallbackDelivery(
+            lease.sessionId,
+            resolved.session.transport,
+            row.seq,
+          );
+      }
     }
   }
 }

@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+const MAX_CONTEXT_BLOCKS = 16;
+const MAX_CONTEXT_BLOCK_NAME_CHARS = 128;
+const ContextBlocksSchema = z
+  .array(z.string().min(1).max(MAX_CONTEXT_BLOCK_NAME_CHARS))
+  .max(MAX_CONTEXT_BLOCKS)
+  .refine((names) => new Set(names).size === names.length, {
+    message: 'Context block names must be unique',
+  });
+
 const ImageSchema = z.object({
   data: z.string(),
   mediaType: z.string(),
@@ -30,7 +39,7 @@ export const SendMessage = z.object({
   extraTools: z.string().optional(),
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema.optional(),
   traceparent,
 });
 
@@ -39,7 +48,7 @@ export const InterruptMessage = z.object({
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1),
   images: z.array(ImageSchema).optional(),
-  contextBlocks: z.array(z.string()).optional(),
+  contextBlocks: ContextBlocksSchema.optional(),
   traceparent,
 });
 

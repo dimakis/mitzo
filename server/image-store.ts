@@ -68,6 +68,11 @@ export function clearSessionImages(sessionId: string): number {
   return count;
 }
 
+/** Undo an uncommitted admission's image allocation without touching another request. */
+export function removeImages(imageIds: Iterable<string>): void {
+  for (const id of imageIds) images.delete(id);
+}
+
 /** Reset the entire store. Test-only. */
 export function _resetForTest(): void {
   images.clear();
