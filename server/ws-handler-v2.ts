@@ -109,6 +109,7 @@ export type EffectiveExecutionOptions = {
   /** Leave undefined only for a new default-isolated session. */
   startupCwd: string | undefined;
   accountProfiles: ReturnType<typeof loadAccountProfiles> | undefined;
+  accountId: string | undefined;
   model: string | null;
   reasoningEffort: string | null;
   mode: NonNullable<SendMsg['mode']>;
@@ -157,18 +158,21 @@ export function resolveEffectiveExecutionOptions(
           : (stored?.reasoningEffort ?? null)
       : (stored?.reasoningEffort ?? null)
     : (message.reasoningEffort ?? stored?.reasoningEffort ?? null);
-  const liveMode = message.sessionId
-    ? ctx.sessionRegistry.findBySessionId(message.sessionId)?.session?.mode
+  const liveSession = message.sessionId
+    ? ctx.sessionRegistry.findBySessionId(message.sessionId)?.session
     : undefined;
   return {
     cwd,
     // New sessions intentionally omit cwd so createSessionWorktrees can apply
     // the repository isolation default; resumes use their durable cwd.
-    startupCwd: message.cwd ?? (message.sessionId ? cwd : undefined),
+    startupCwd: message.cwd !== undefined || message.sessionId ? cwd : undefined,
     accountProfiles,
+    accountId: binding?.accountId ?? message.accountId,
     model,
     reasoningEffort,
-    mode: (liveMode ?? stored?.mode ?? message.mode ?? 'agent') as NonNullable<SendMsg['mode']>,
+    mode: (liveSession
+      ? effectivePermissionMode(liveSession)
+      : (stored?.mode ?? message.mode ?? 'agent')) as NonNullable<SendMsg['mode']>,
     isolation: isIsolationEnabled(message.isolation),
     extraTools: message.extraTools
       ? message.extraTools
@@ -209,7 +213,7 @@ export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): Prepared
       sessionId: message.sessionId,
       rawUserIntent: message.prompt,
       effectiveProviderPrompt: effective.effectiveProviderPrompt,
-      accountId: message.accountId ?? null,
+      accountId: effective.accountId ?? null,
       model: effective.model,
       reasoningEffort: effective.reasoningEffort,
       mode: effective.mode,
@@ -960,7 +964,7 @@ export function dispatchPreparedSendV2(
             cwd: effective.startupCwd,
             model: effective.model ?? undefined,
             reasoningEffort: effective.reasoningEffort,
-            accountId: msg.accountId,
+            accountId: effective.accountId,
             accountProfiles,
             extraTools: effective.extraTools.join(','),
             skillAllowedTools,
@@ -990,7 +994,7 @@ export function dispatchPreparedSendV2(
             cwd: effective.startupCwd,
             model: effective.model ?? undefined,
             reasoningEffort: effective.reasoningEffort,
-            accountId: msg.accountId,
+            accountId: effective.accountId,
             accountProfiles,
             extraTools: effective.extraTools.join(','),
             skillAllowedTools,

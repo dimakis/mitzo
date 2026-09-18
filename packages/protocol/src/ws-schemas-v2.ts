@@ -25,6 +25,7 @@ export const MAX_V2_IMAGE_TOTAL_DECODED_BYTES = 20 * 1024 * 1024;
 export const MAX_V2_IMAGE_ENCODED_CHARS = Math.ceil(MAX_V2_IMAGE_DECODED_BYTES / 3) * 4;
 export const MAX_V2_CLIENT_PAYLOAD_BYTES =
   Math.ceil(MAX_V2_IMAGE_TOTAL_DECODED_BYTES / 3) * 4 + 4 * 1024 * 1024;
+export const MAX_V2_PROMPT_CHARS = 1_000_000;
 
 const ImageSchema = z.object({
   // This is an encoded-byte ceiling, not a character-count approximation.
@@ -93,7 +94,7 @@ export const SessionCloseMessage = z.object({
 export const V2SendMessage = z.object({
   type: z.literal('send'),
   sessionId: z.string().min(1).nullable(),
-  prompt: z.string().min(1),
+  prompt: z.string().min(1).max(MAX_V2_PROMPT_CHARS),
   clientMsgId: z.string().min(1),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
