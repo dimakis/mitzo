@@ -1154,7 +1154,6 @@ async function _startChatInner(
       cwd,
       mode,
       branch,
-      isActive: true,
       ...(worktreePath ? { wtId } : {}),
       ...(options.telosTaskId ? { telosTaskId: options.telosTaskId } : {}),
       ...(existingMeta ? { updatedAt: existingMeta.updatedAt } : {}),
@@ -2130,7 +2129,6 @@ export function closeSessionByUser(clientId: string): void {
       if (session.sessionId) {
         eventStore.upsertSession({
           sessionId: session.sessionId,
-          isActive: false,
           closedBy: 'user',
         });
       }
@@ -2398,10 +2396,10 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
         summary: entry.summary || null,
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
-        isActive: false,
         updatedAt: entry.lastModified,
         createdAt: entry.lastModified,
       });
+      eventStore.markSessionInactive(sessionId);
       reconciledCount++;
     }
   }
@@ -2506,10 +2504,10 @@ export async function syncSessionTimestamps(): Promise<void> {
         summary: entry.summary || null,
         cwd: entry.cwd ?? (BASE_REPO || null),
         branch: entry.branch ?? null,
-        isActive: false,
         updatedAt: entry.lastModified,
         createdAt: entry.lastModified,
       });
+      eventStore.markSessionInactive(sessionId);
       synced++;
     } else if (Math.abs(existing.updatedAt - entry.lastModified) > 60_000) {
       // Timestamp drifted from filesystem — sync it back.
@@ -2545,8 +2543,8 @@ export async function discoverSession(
       summary: info.summary || null,
       cwd: info.cwd ?? null,
       branch: info.gitBranch ?? null,
-      isActive: false,
     });
+    eventStore.markSessionInactive(sessionId);
     log.info('discovered and backfilled session', { sessionId, cwd: info.cwd });
     return eventStore.getSession(sessionId);
   } catch (err: unknown) {

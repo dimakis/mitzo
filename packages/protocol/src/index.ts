@@ -27,6 +27,7 @@ export type {
   ExecutionTerminalReason,
   ExecutionToken,
   ExecutionStateChangedPayload,
+  SessionLifecycleChangedPayload,
   SessionStateEvent,
   StoredEvent,
   SessionMeta,

@@ -5,6 +5,7 @@ const mockUpsertSession = vi.fn();
 const mockGetSession = vi.fn();
 const mockListSessionsMeta = vi.fn().mockReturnValue([]);
 const mockGetKnownSessionIds = vi.fn().mockReturnValue(new Set());
+const mockMarkSessionInactive = vi.fn();
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -22,7 +23,7 @@ const mockEventStore = {
   listSessionsLimited: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
-  markSessionInactive: vi.fn(),
+  markSessionInactive: mockMarkSessionInactive,
   hideSession: vi.fn(),
   incrementPromptCount: vi.fn().mockReturnValue(1),
   recordUsage: vi.fn(),
@@ -284,9 +285,9 @@ describe('syncSessionTimestamps', () => {
       expect.objectContaining({
         sessionId: 'sess-new',
         summary: 'New from FS',
-        isActive: false,
       }),
     );
+    expect(mockMarkSessionInactive).toHaveBeenCalledWith('sess-new');
   });
 
   it('syncs timestamp when drift exceeds 60s', async () => {

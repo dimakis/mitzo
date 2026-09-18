@@ -16,6 +16,7 @@ import type {
   StoredEvent,
   SessionMeta,
 } from '../src/types.js';
+import type { SessionUpsert } from '../src/event-store.js';
 
 describe('protocol types', () => {
   it('MitzoMode accepts valid values', () => {
@@ -205,5 +206,13 @@ describe('protocol types', () => {
     };
     expect(meta.promptCount).toBe(3);
     expect(meta.totalCostUsd).toBe(0.01);
+  });
+
+  it('SessionUpsert is metadata-only and cannot carry execution authority', () => {
+    const metadata: SessionUpsert = { sessionId: 's1', summary: 'metadata only' };
+    // @ts-expect-error execution generation is server-authoritative.
+    const invalid: SessionUpsert = { sessionId: 's1', executionGeneration: 1 };
+    expect(metadata.summary).toBe('metadata only');
+    expect(invalid.sessionId).toBe('s1');
   });
 });

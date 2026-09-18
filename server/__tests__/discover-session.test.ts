@@ -4,6 +4,7 @@ const mockGetSessionInfo = vi.fn();
 const mockUpsertSession = vi.fn();
 const mockGetSession = vi.fn();
 const mockGetKnownSessionIds = vi.fn();
+const mockMarkSessionInactive = vi.fn();
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -20,7 +21,7 @@ const mockEventStore = {
   listSessions: vi.fn().mockReturnValue([]),
   getEventsAfter: vi.fn().mockReturnValue([]),
   getSessionEvents: vi.fn().mockReturnValue([]),
-  markSessionInactive: vi.fn(),
+  markSessionInactive: mockMarkSessionInactive,
   hideSession: vi.fn(),
   incrementPromptCount: vi.fn().mockReturnValue(1),
   recordUsage: vi.fn(),
@@ -142,9 +143,9 @@ describe('getSessions reconciliation', () => {
         summary: 'Orphan',
         cwd: '/projects/bar',
         branch: 'feat',
-        isActive: false,
       }),
     );
+    expect(mockMarkSessionInactive).toHaveBeenCalledWith('sess-orphan');
 
     // Backfilled sessions should appear in the returned list
     const ids = result.sessions.map((s: { id: string }) => s.id);

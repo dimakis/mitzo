@@ -878,11 +878,13 @@ describe('EventStore', () => {
 
     it('allocates monotonically increasing execution tokens with matching durable events', () => {
       const first = store.beginExecution(sid, 'execution-1');
+      store.transitionExecution(first.token, 'TERMINAL', 'completed');
       const second = store.beginExecution(sid, 'execution-2');
 
       expect(first).toMatchObject({
         token: { sessionId: sid, executionId: 'execution-1', generation: 1 },
         event: {
+          type: 'execution_state_changed',
           sessionId: sid,
           executionId: 'execution-1',
           generation: 1,
@@ -901,7 +903,9 @@ describe('EventStore', () => {
       });
       const events = store
         .getSessionEvents(sid)
-        .filter((event) => event.type === 'execution_state_changed');
+        .filter(
+          (event) => event.type === 'execution_state_changed' && event.payload.phase === 'RUNNING',
+        );
       expect(events.map((event) => event.seq)).toEqual([first.seq, second.seq]);
       expect(events.map((event) => event.payload)).toEqual([first.event, second.event]);
     });
@@ -913,6 +917,100 @@ describe('EventStore', () => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
       );
       expect(store.getSession(sid)?.executionId).toBe(started.token.executionId);
+    });
+
+    it('rejects active overwrite and admits only OPEN conversations', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      expect(() => store.beginExecution(sid, 'execution-2')).toThrow('Cannot overwrite active');
+      store.transitionExecution(started.token, 'TERMINAL', 'completed');
+      store.setSessionLifecycle(sid, 'CLOSING');
+      expect(() => store.beginExecution(sid, 'execution-2')).toThrow('CLOSING session');
+
+      store.upsertSession({ sessionId: 'closed-session' });
+      store.setSessionLifecycle('closed-session', 'CLOSED');
+      expect(() => store.beginExecution('closed-session', 'execution-3')).toThrow('CLOSED session');
+    });
+
+    it('returns the original admission token after a lost acknowledgement without a new event', () => {
+      const first = store.beginExecution(sid, 'execution-1', 'client-message-1');
+      const before = store.getSessionEvents(sid).length;
+      const retry = store.beginExecution(sid, undefined, 'client-message-1');
+
+      expect(first.duplicate).toBe(false);
+      expect(retry).toEqual({ token: first.token, duplicate: true });
+      expect(store.getSessionEvents(sid)).toHaveLength(before);
+      expect(store.getSession(sid)?.executionGeneration).toBe(1);
+      expect(() => store.beginExecution(sid, 'conflicting-id', 'client-message-1')).toThrow(
+        'different executionId',
+      );
+    });
+
+    it('replaces an exact active execution with two ordered durable events', () => {
+      const old = store.beginExecution(sid, 'execution-old');
+      const replacement = store.replaceExecution(old.token, 'execution-new', 'replacement-message');
+      const events = store
+        .getSessionEvents(sid)
+        .filter((event) => event.type === 'execution_state_changed');
+
+      expect(replacement).toMatchObject({
+        duplicate: false,
+        token: { sessionId: sid, executionId: 'execution-new', generation: 2 },
+        previousTerminalEvent: {
+          type: 'execution_state_changed',
+          executionId: 'execution-old',
+          generation: 1,
+          phase: 'TERMINAL',
+          terminalReason: 'interrupted',
+        },
+        event: { type: 'execution_state_changed', phase: 'RUNNING', generation: 2 },
+      });
+      expect(events.slice(-2).map((event) => event.payload)).toEqual([
+        replacement.previousTerminalEvent,
+        replacement.event,
+      ]);
+      expect(replacement.previousTerminalSeq).toBeLessThan(replacement.seq!);
+      expect(store.getSession(sid)).toMatchObject({
+        executionId: 'execution-new',
+        executionGeneration: 2,
+        executionPhase: 'RUNNING',
+      });
+      const beforeRetry = store.getSessionEvents(sid).length;
+      expect(store.replaceExecution(old.token, undefined, 'replacement-message')).toEqual({
+        token: replacement.token,
+        duplicate: true,
+      });
+      expect(store.getSessionEvents(sid)).toHaveLength(beforeRetry);
+      expect(() =>
+        store.replaceExecution(old.token, 'conflicting-replacement', 'replacement-message'),
+      ).toThrow('different executionId');
+    });
+
+    it('rejects stale replacement and rolls back replacement if either event cannot persist', () => {
+      const old = store.beginExecution(sid, 'execution-old');
+      const beforeStale = store.getSessionEvents(sid).length;
+      expect(() =>
+        store.replaceExecution(
+          { ...old.token, generation: old.token.generation + 1 },
+          'execution-new',
+        ),
+      ).toThrow('Expected execution is stale');
+      expect(store.getSessionEvents(sid)).toHaveLength(beforeStale);
+
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec(`
+        CREATE TRIGGER reject_replacement_events
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected replacement failure'); END;
+      `);
+      expect(() =>
+        store.replaceExecution(old.token, 'execution-new', 'replacement-message'),
+      ).toThrow('injected replacement failure');
+      expect(store.getSession(sid)).toMatchObject({
+        executionId: 'execution-old',
+        executionGeneration: 1,
+        executionPhase: 'RUNNING',
+      });
+      expect(store.getSessionEvents(sid)).toHaveLength(beforeStale);
     });
 
     it('keeps an execution generation stable across legacy state and conversation lifecycle changes', () => {
@@ -929,9 +1027,105 @@ describe('EventStore', () => {
       expect(
         store.getSessionEvents(sid).find((event) => event.seq === lifecycle.seq)?.payload,
       ).toMatchObject({
+        type: 'session_lifecycle_changed',
         sessionId: sid,
         lifecycleState: 'CLOSING',
       });
+    });
+
+    it('enforces legal lifecycle edges and rejects CLOSED while an execution is active', () => {
+      expect(store.setSessionLifecycle(sid, 'OPEN')).toEqual({
+        applied: false,
+        lifecycleState: 'OPEN',
+      });
+      store.setSessionLifecycle(sid, 'CLOSING');
+      expect(() => store.setSessionLifecycle(sid, 'OPEN')).toThrow('Invalid lifecycle transition');
+      store.setSessionLifecycle(sid, 'CLOSED');
+      expect(store.setSessionLifecycle(sid, 'CLOSED')).toEqual({
+        applied: false,
+        lifecycleState: 'CLOSED',
+      });
+
+      store.upsertSession({ sessionId: 'active-close-session' });
+      store.beginExecution('active-close-session', 'execution-active');
+      expect(() => store.setSessionLifecycle('active-close-session', 'CLOSED')).toThrow(
+        'active execution',
+      );
+      expect(store.getSession('active-close-session')).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionPhase: 'RUNNING',
+      });
+    });
+
+    it('closeSession atomically terminalizes an active execution before closing the conversation', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      const close = store.closeSession(sid);
+      const events = store.getSessionEvents(sid);
+
+      expect(close).toMatchObject({
+        applied: true,
+        lifecycleState: 'CLOSED',
+        terminalEvent: {
+          type: 'execution_state_changed',
+          executionId: started.token.executionId,
+          phase: 'TERMINAL',
+          terminalReason: 'closed',
+        },
+      });
+      expect(events.slice(-2).map((event) => event.type)).toEqual([
+        'execution_state_changed',
+        'session_lifecycle_changed',
+      ]);
+      expect(events.at(-1)?.payload).toMatchObject({
+        type: 'session_lifecycle_changed',
+        lifecycleState: 'CLOSED',
+      });
+      expect(store.getSession(sid)).toMatchObject({
+        lifecycleState: 'CLOSED',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'closed',
+        isActive: false,
+      });
+      expect(store.closeSession(sid)).toEqual({ applied: false, lifecycleState: 'CLOSED' });
+      expect(() => store.beginExecution(sid, 'after-close')).toThrow('CLOSED session');
+    });
+
+    it('promotes a legacy closedBy write through the same atomic close transaction', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      store.upsertSession({ sessionId: sid, closedBy: 'user' });
+
+      expect(store.getSession(sid)).toMatchObject({
+        closedBy: 'user',
+        lifecycleState: 'CLOSED',
+        executionId: started.token.executionId,
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'closed',
+        isActive: false,
+      });
+      expect(
+        store
+          .getSessionEvents(sid)
+          .slice(-2)
+          .map((event) => event.type),
+      ).toEqual(['execution_state_changed', 'session_lifecycle_changed']);
+    });
+
+    it('rolls back closeSession when lifecycle event insertion fails', () => {
+      const started = store.beginExecution(sid, 'execution-1');
+      const before = store.getSessionEvents(sid).length;
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec(`
+        CREATE TRIGGER reject_lifecycle_events
+        BEFORE INSERT ON events WHEN NEW.type = 'session_lifecycle_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected lifecycle failure'); END;
+      `);
+      expect(() => store.closeSession(sid)).toThrow('injected lifecycle failure');
+      expect(store.getSession(sid)).toMatchObject({
+        lifecycleState: 'OPEN',
+        executionId: started.token.executionId,
+        executionPhase: 'RUNNING',
+      });
+      expect(store.getSessionEvents(sid)).toHaveLength(before);
     });
 
     it('allows valid phase changes, persists the terminal reason, and makes terminal final', () => {
@@ -1083,16 +1277,14 @@ describe('EventStore', () => {
     });
 
     it('serializes sequential begins without duplicate generations', () => {
-      const executions = Array.from({ length: 4 }, (_, index) =>
-        store.beginExecution(sid, `execution-${index}`),
-      );
+      const executions = Array.from({ length: 4 }, (_, index) => {
+        const execution = store.beginExecution(sid, `execution-${index}`);
+        if (index < 3) store.transitionExecution(execution.token, 'TERMINAL', 'completed');
+        return execution;
+      });
       expect(executions.map((execution) => execution.token.generation)).toEqual([1, 2, 3, 4]);
       expect(new Set(executions.map((execution) => execution.token.generation)).size).toBe(4);
     });
-
-    it.todo(
-      'deduplicates beginExecution by clientMsgId once send receipts persist execution tokens',
-    );
   });
 
   describe('execution state migration', () => {
@@ -1109,7 +1301,8 @@ describe('EventStore', () => {
         );
         CREATE TABLE events (
           seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
-          type TEXT NOT NULL, payload TEXT NOT NULL, created_at INTEGER NOT NULL
+          type TEXT NOT NULL, payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
         );
       `);
       legacy
@@ -1140,6 +1333,21 @@ describe('EventStore', () => {
           executionGeneration: 0,
           executionId: null,
         });
+        migrated.upsertSession({ sessionId: 'old-ended-open', closedBy: 'user' });
+        expect(migrated.getSession('old-ended-open')).toMatchObject({
+          closedBy: 'user',
+          lifecycleState: 'CLOSED',
+        });
+        expect(() => migrated.beginExecution('old-ended-open', 'after-legacy-close')).toThrow(
+          'CLOSED session',
+        );
+        migrated.close();
+        const restarted = new EventStore(path);
+        try {
+          expect(restarted.getSession('old-ended-open')?.lifecycleState).toBe('CLOSED');
+        } finally {
+          restarted.close();
+        }
       } finally {
         migrated.close();
         await rm(root, { recursive: true, force: true });

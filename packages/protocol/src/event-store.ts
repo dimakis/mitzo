@@ -14,6 +14,7 @@ import type {
   ExecutionTerminalReason,
   ExecutionToken,
   SessionLifecycleState,
+  SessionLifecycleChangedPayload,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -42,6 +43,7 @@ export type {
   ExecutionTerminalReason,
   ExecutionToken,
   SessionLifecycleState,
+  SessionLifecycleChangedPayload,
 };
 
 /**
@@ -131,9 +133,26 @@ export interface SendCommandReceipt {
   error: string | null;
 }
 
-type SessionUpsert = Partial<
-  Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
-> & { sessionId: string };
+/** Metadata-only upsert. Lifecycle and execution authority have dedicated APIs. */
+export interface SessionUpsert {
+  sessionId: string;
+  summary?: string | null;
+  branch?: string | null;
+  cwd?: string | null;
+  mode?: MitzoMode;
+  initialPrompt?: string | null;
+  wtId?: string | null;
+  goalId?: string | null;
+  telosTaskId?: string | null;
+  closedBy?: SessionMeta['closedBy'];
+  agentName?: string | null;
+  bootContext?: string | null;
+  accountBinding?: AccountBinding | null;
+  selectedModel?: string | null;
+  reasoningEffort?: string | null;
+  createdAt?: number;
+  updatedAt?: number;
+}
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS send_commands (
@@ -142,6 +161,15 @@ const SCHEMA = `
     payload TEXT NOT NULL,
     error TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
+  CREATE TABLE IF NOT EXISTS execution_admissions (
+    session_id TEXT NOT NULL,
+    client_msg_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
+    PRIMARY KEY (session_id, client_msg_id)
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -216,14 +244,49 @@ export interface ExecutionTransitionResult {
 
 export interface BeginExecutionResult {
   token: ExecutionToken;
-  seq: number;
-  event: ExecutionStateChangedPayload;
+  duplicate: boolean;
+  seq?: number;
+  event?: ExecutionStateChangedPayload;
+}
+
+export interface ReplaceExecutionResult extends BeginExecutionResult {
+  previousTerminalSeq?: number;
+  previousTerminalEvent?: ExecutionStateChangedPayload;
 }
 
 export interface SessionLifecycleTransitionResult {
   applied: boolean;
   lifecycleState: SessionLifecycleState;
   seq?: number;
+}
+
+export interface CloseSessionResult {
+  applied: boolean;
+  lifecycleState: SessionLifecycleState;
+  terminalSeq?: number;
+  terminalEvent?: ExecutionStateChangedPayload;
+  lifecycleSeq?: number;
+  lifecycleEvent?: SessionLifecycleChangedPayload;
+}
+
+export class ExecutionAdmissionError extends Error {
+  constructor(
+    readonly code: 'lifecycle_not_open' | 'active_execution' | 'execution_id_conflict',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ExecutionAdmissionError';
+  }
+}
+
+export class SessionLifecycleError extends Error {
+  constructor(
+    readonly code: 'invalid_transition' | 'active_execution',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'SessionLifecycleError';
+  }
 }
 
 function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
@@ -567,6 +630,12 @@ export class EventStore {
           WHERE lifecycle_state IS NULL OR lifecycle_state NOT IN ('OPEN', 'CLOSING', 'CLOSED')
         `);
       }
+      // closed_by is legacy durable close evidence. Preserve its monotonic
+      // meaning on every startup, including databases already migrated once.
+      db.exec(`
+        UPDATE sessions SET lifecycle_state = 'CLOSED', is_active = 0
+        WHERE closed_by IS NOT NULL
+      `);
     })();
   }
 
@@ -776,51 +845,73 @@ export class EventStore {
     return Number(result.lastInsertRowid);
   }
 
-  /**
-   * Atomically allocate the next authoritative execution for a conversation.
-   *
-   * TODO(execution-dedupe): client message receipt recovery currently proves
-   * accepted-send ownership but does not persist an execution token. Until
-   * that receipt links to execution_id, clientMsgId is deliberately not used
-   * as a best-effort dedupe key here.
-   */
+  /** Atomically allocate the next authoritative execution for an OPEN conversation. */
   beginExecution(
     sessionId: string,
-    executionId = randomUUID(),
-    _clientMsgId?: string,
+    executionId?: string,
+    clientMsgId?: string,
   ): BeginExecutionResult {
     return this.db!.transaction(() => {
       const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+      const duplicate = this.findExecutionAdmission(sessionId, clientMsgId);
+      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, executionId);
+      this.assertExecutionAdmission(current, sessionId);
+      return this.beginExecutionInTransaction(
+        current,
+        sessionId,
+        executionId ?? randomUUID(),
+        clientMsgId,
+      );
+    }).immediate();
+  }
 
-      const generation = (current.execution_generation ?? 0) + 1;
-      const token: ExecutionToken = { sessionId, executionId, generation };
-      const timestamp = Date.now();
-      const event: ExecutionStateChangedPayload = {
-        ...token,
-        phase: 'RUNNING',
-        clientState: clientStateForExecution('RUNNING'),
-        timestamp,
+  /**
+   * Intentional replacement is the only way to supersede a non-terminal
+   * execution. The old terminal and new RUNNING events are one transaction.
+   */
+  replaceExecution(
+    expectedOldToken: ExecutionToken,
+    newExecutionId?: string,
+    clientMsgId?: string,
+    oldReason: ExecutionTerminalReason = 'interrupted',
+  ): ReplaceExecutionResult {
+    if (!EXECUTION_TERMINAL_REASONS.has(oldReason)) {
+      throw new Error('A valid terminal reason is required when replacing an execution');
+    }
+    return this.db!.transaction(() => {
+      const duplicate = this.findExecutionAdmission(expectedOldToken.sessionId, clientMsgId);
+      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, newExecutionId);
+      const current = this.stmts.getSession.get(expectedOldToken.sessionId) as
+        SessionRow | undefined;
+      if (!current)
+        throw new Error(
+          `Cannot replace execution for unknown session: ${expectedOldToken.sessionId}`,
+        );
+      this.assertLifecycleOpen(current, expectedOldToken.sessionId);
+      const terminal = this.transitionExecutionInTransaction(
+        expectedOldToken,
+        'TERMINAL',
+        oldReason,
+      );
+      if (!terminal.applied) {
+        throw new ExecutionAdmissionError(
+          'active_execution',
+          'Expected execution is stale or terminal',
+        );
+      }
+      const refreshed = this.stmts.getSession.get(expectedOldToken.sessionId) as SessionRow;
+      const replacement = this.beginExecutionInTransaction(
+        refreshed,
+        expectedOldToken.sessionId,
+        newExecutionId ?? randomUUID(),
+        clientMsgId,
+      );
+      return {
+        ...replacement,
+        previousTerminalSeq: terminal.seq,
+        previousTerminalEvent: terminal.event,
       };
-      const update = this.db!.prepare(
-        `UPDATE sessions SET
-          execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
-          execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
-         WHERE session_id = ?`,
-      );
-      update.run(generation, executionId, timestamp, timestamp, sessionId);
-      // Do not call append(): this insert must share the immediate transaction
-      // with the row update, so a failed event rolls both changes back.
-      const seq = Number(
-        this.stmts.append.run(
-          sessionId,
-          'execution_state_changed',
-          JSON.stringify(event),
-          null,
-          null,
-        ).lastInsertRowid,
-      );
-      return { token, seq, event };
     }).immediate();
   }
 
@@ -842,10 +933,7 @@ export class EventStore {
     ).immediate();
   }
 
-  /**
-   * Conversation lifecycle is durable but intentionally has no running/idle
-   * projection. Closing a conversation does not rewrite its execution token.
-   */
+  /** Conversation lifecycle is durable and has no running/idle projection. */
   setSessionLifecycle(
     sessionId: string,
     lifecycleState: SessionLifecycleState,
@@ -853,25 +941,18 @@ export class EventStore {
     return this.db!.transaction(() => {
       const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       if (!current) throw new Error(`Cannot update lifecycle for unknown session: ${sessionId}`);
-      const currentState = (current.lifecycle_state ?? 'OPEN') as SessionLifecycleState;
-      if (currentState === lifecycleState) return { applied: false, lifecycleState: currentState };
-      if (currentState === 'CLOSED') return { applied: false, lifecycleState: currentState };
-
-      const timestamp = Date.now();
-      this.db!.prepare(
-        'UPDATE sessions SET lifecycle_state = ?, updated_at = ? WHERE session_id = ? AND lifecycle_state = ?',
-      ).run(lifecycleState, timestamp, sessionId, currentState);
-      const seq = Number(
-        this.stmts.append.run(
-          sessionId,
-          'session_lifecycle_changed',
-          JSON.stringify({ sessionId, lifecycleState, timestamp }),
-          null,
-          null,
-        ).lastInsertRowid,
-      );
-      return { applied: true, lifecycleState, seq };
+      return this.setSessionLifecycleInTransaction(current, sessionId, lifecycleState);
     }).immediate();
+  }
+
+  /** Atomically terminalize an active execution, then durably close its conversation. */
+  closeSession(sessionId: string, reason: ExecutionTerminalReason = 'closed'): CloseSessionResult {
+    if (!EXECUTION_TERMINAL_REASONS.has(reason)) {
+      throw new Error('A valid terminal reason is required when closing a session');
+    }
+    return this.db!.transaction(() =>
+      this.closeSessionInTransaction(sessionId, reason),
+    ).immediate();
   }
 
   /** Terminalize only orphaned executions; conversations remain OPEN/resumable. */
@@ -902,6 +983,200 @@ export class EventStore {
       }
       return recovered;
     }).immediate();
+  }
+
+  private findExecutionAdmission(
+    sessionId: string,
+    clientMsgId: string | undefined,
+  ): ExecutionToken | undefined {
+    if (!clientMsgId) return undefined;
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation FROM execution_admissions
+       WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as { execution_id: string; generation: number } | undefined;
+    return row && { sessionId, executionId: row.execution_id, generation: row.generation };
+  }
+
+  private resolveAdmissionDuplicate(
+    token: ExecutionToken,
+    requestedExecutionId: string | undefined,
+  ): BeginExecutionResult {
+    if (requestedExecutionId && requestedExecutionId !== token.executionId) {
+      throw new ExecutionAdmissionError(
+        'execution_id_conflict',
+        'clientMsgId is already admitted for a different executionId',
+      );
+    }
+    return { token, duplicate: true };
+  }
+
+  private assertLifecycleOpen(current: SessionRow, sessionId: string): void {
+    if (current.lifecycle_state !== 'OPEN') {
+      throw new ExecutionAdmissionError(
+        'lifecycle_not_open',
+        `Cannot begin execution for ${current.lifecycle_state ?? 'unknown'} session: ${sessionId}`,
+      );
+    }
+  }
+
+  private assertExecutionAdmission(current: SessionRow, sessionId: string): void {
+    this.assertLifecycleOpen(current, sessionId);
+    if (current.execution_phase !== null && current.execution_phase !== 'TERMINAL') {
+      throw new ExecutionAdmissionError(
+        'active_execution',
+        `Cannot overwrite active execution for session: ${sessionId}`,
+      );
+    }
+    if (current.execution_phase === null && current.execution_id !== null) {
+      throw new ExecutionAdmissionError(
+        'active_execution',
+        `Cannot begin execution with incomplete execution identity for session: ${sessionId}`,
+      );
+    }
+  }
+
+  /** Must run inside the caller's SQLite immediate transaction. */
+  private beginExecutionInTransaction(
+    current: SessionRow,
+    sessionId: string,
+    executionId: string,
+    clientMsgId: string | undefined,
+  ): BeginExecutionResult {
+    const generation = (current.execution_generation ?? 0) + 1;
+    const token: ExecutionToken = { sessionId, executionId, generation };
+    const timestamp = Date.now();
+    const event: ExecutionStateChangedPayload = {
+      type: 'execution_state_changed',
+      ...token,
+      phase: 'RUNNING',
+      clientState: clientStateForExecution('RUNNING'),
+      timestamp,
+    };
+    const update = this.db!.prepare(
+      `UPDATE sessions SET
+        execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
+        execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
+       WHERE session_id = ? AND lifecycle_state = 'OPEN'
+         AND ((execution_id IS NULL AND execution_phase IS NULL) OR execution_phase = 'TERMINAL')`,
+    ).run(generation, executionId, timestamp, timestamp, sessionId);
+    if (update.changes !== 1) {
+      throw new ExecutionAdmissionError(
+        'active_execution',
+        `Execution admission changed for session: ${sessionId}`,
+      );
+    }
+    const seq = this.appendExecutionEventInTransaction(sessionId, event);
+    if (clientMsgId) {
+      this.db!.prepare(
+        `INSERT INTO execution_admissions (session_id, client_msg_id, execution_id, generation)
+         VALUES (?, ?, ?, ?)`,
+      ).run(sessionId, clientMsgId, executionId, generation);
+    }
+    return { token, duplicate: false, seq, event };
+  }
+
+  private appendExecutionEventInTransaction(
+    sessionId: string,
+    event: ExecutionStateChangedPayload,
+  ): number {
+    return Number(
+      this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+        .lastInsertRowid,
+    );
+  }
+
+  /** Must run inside the caller's SQLite immediate transaction. */
+  private setSessionLifecycleInTransaction(
+    current: SessionRow,
+    sessionId: string,
+    lifecycleState: SessionLifecycleState,
+  ): SessionLifecycleTransitionResult {
+    const currentState = current.lifecycle_state as SessionLifecycleState;
+    const validStates: SessionLifecycleState[] = ['OPEN', 'CLOSING', 'CLOSED'];
+    if (!validStates.includes(lifecycleState) || !validStates.includes(currentState)) {
+      throw new SessionLifecycleError('invalid_transition', 'Unknown session lifecycle state');
+    }
+    if (currentState === lifecycleState) return { applied: false, lifecycleState: currentState };
+    const allowed: Record<SessionLifecycleState, SessionLifecycleState[]> = {
+      OPEN: ['CLOSING', 'CLOSED'],
+      CLOSING: ['CLOSED'],
+      CLOSED: [],
+    };
+    if (!allowed[currentState].includes(lifecycleState)) {
+      throw new SessionLifecycleError(
+        'invalid_transition',
+        `Invalid lifecycle transition: ${currentState} -> ${lifecycleState}`,
+      );
+    }
+    if (
+      lifecycleState === 'CLOSED' &&
+      current.execution_phase &&
+      current.execution_phase !== 'TERMINAL'
+    ) {
+      throw new SessionLifecycleError(
+        'active_execution',
+        'Cannot close a session with an active execution; use closeSession',
+      );
+    }
+    const timestamp = Date.now();
+    const updated = this.db!.prepare(
+      'UPDATE sessions SET lifecycle_state = ?, updated_at = ? WHERE session_id = ? AND lifecycle_state = ?',
+    ).run(lifecycleState, timestamp, sessionId, currentState);
+    if (updated.changes !== 1) {
+      throw new SessionLifecycleError(
+        'invalid_transition',
+        'Lifecycle changed before transition could apply',
+      );
+    }
+    const event: SessionLifecycleChangedPayload = {
+      type: 'session_lifecycle_changed',
+      sessionId,
+      lifecycleState,
+      timestamp,
+    };
+    const seq = Number(
+      this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+        .lastInsertRowid,
+    );
+    return { applied: true, lifecycleState, seq };
+  }
+
+  /** Must run inside the caller's SQLite immediate transaction. */
+  private closeSessionInTransaction(
+    sessionId: string,
+    reason: ExecutionTerminalReason,
+  ): CloseSessionResult {
+    const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+    if (!current) throw new Error(`Cannot close unknown session: ${sessionId}`);
+    if (current.lifecycle_state === 'CLOSED') {
+      this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
+      return { applied: false, lifecycleState: 'CLOSED' };
+    }
+
+    let terminal: ExecutionTransitionResult | undefined;
+    if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
+      terminal = this.transitionExecutionInTransaction(
+        {
+          sessionId,
+          executionId: current.execution_id!,
+          generation: current.execution_generation ?? 0,
+        },
+        'TERMINAL',
+        reason,
+      );
+      if (!terminal.applied)
+        throw new Error(`Could not terminalize active execution for ${sessionId}`);
+    }
+    const refreshed = this.stmts.getSession.get(sessionId) as SessionRow;
+    const lifecycle = this.setSessionLifecycleInTransaction(refreshed, sessionId, 'CLOSED');
+    // Preserve legacy close semantics while runtime handlers still read is_active.
+    this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
+    return {
+      applied: lifecycle.applied || !!terminal?.applied,
+      lifecycleState: lifecycle.lifecycleState,
+      ...(terminal?.seq ? { terminalSeq: terminal.seq, terminalEvent: terminal.event } : {}),
+      ...(lifecycle.seq ? { lifecycleSeq: lifecycle.seq } : {}),
+    };
   }
 
   private validateExecutionTransition(
@@ -948,6 +1223,7 @@ export class EventStore {
 
     const timestamp = Date.now();
     const event: ExecutionStateChangedPayload = {
+      type: 'execution_state_changed',
       ...token,
       phase: nextPhase,
       clientState: clientStateForExecution(nextPhase),
@@ -969,15 +1245,7 @@ export class EventStore {
       phase,
     );
     if (updated.changes !== 1) return stale();
-    const seq = Number(
-      this.stmts.append.run(
-        token.sessionId,
-        'execution_state_changed',
-        JSON.stringify(event),
-        null,
-        null,
-      ).lastInsertRowid,
-    );
+    const seq = this.appendExecutionEventInTransaction(token.sessionId, event);
     return { applied: true, status: 'applied', token, seq, event };
   }
 
@@ -1960,6 +2228,18 @@ export class EventStore {
   }
 
   upsertSession(meta: SessionUpsert): void {
+    if (meta.closedBy) {
+      this.db!.transaction(() => {
+        const current = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+        if (current) this.closeSessionInTransaction(meta.sessionId, 'closed');
+        this.upsertSessionFields(meta);
+      }).immediate();
+      return;
+    }
+    this.upsertSessionFields(meta);
+  }
+
+  private upsertSessionFields(meta: SessionUpsert): void {
     const existing = this.getSession(meta.sessionId);
     if (existing) {
       const fields: string[] = [];
@@ -1979,10 +2259,6 @@ export class EventStore {
       if (meta.mode !== undefined) {
         fields.push('mode = ?');
         values.push(meta.mode);
-      }
-      if (meta.isActive !== undefined) {
-        fields.push('is_active = ?');
-        values.push(meta.isActive ? 1 : 0);
       }
       if (meta.initialPrompt !== undefined) {
         fields.push('initial_prompt = ?');
@@ -2059,7 +2335,7 @@ export class EventStore {
         meta.branch ?? null,
         meta.cwd ?? null,
         meta.mode ?? 'agent',
-        meta.isActive === false ? 0 : 1,
+        meta.closedBy ? 0 : 1,
         meta.initialPrompt ?? null,
         meta.wtId ?? null,
         meta.goalId ?? null,
@@ -2070,7 +2346,9 @@ export class EventStore {
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
         meta.selectedModel ?? null,
         meta.reasoningEffort ?? null,
+        meta.closedBy ? 'CLOSED' : 'OPEN',
       ];
+      cols.push('lifecycle_state');
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
         vals.push(meta.updatedAt);

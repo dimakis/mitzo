@@ -551,7 +551,6 @@ async function handleSessionCreate(
         sessionId: wtId,
         summary: summary ?? initialPrompt.slice(0, 100),
         initialPrompt,
-        isActive: true,
         mode: mode ?? 'agent',
         agentName: DEFAULT_AGENT_NAME,
       });

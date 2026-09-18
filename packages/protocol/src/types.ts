@@ -254,9 +254,18 @@ export interface ExecutionToken {
 
 /** Canonical sequenced durable event emitted for every execution transition. */
 export interface ExecutionStateChangedPayload extends ExecutionToken {
+  type: 'execution_state_changed';
   phase: ExecutionPhase;
   clientState: ClientSessionState;
   terminalReason?: ExecutionTerminalReason;
+  timestamp: number;
+}
+
+/** Canonical durable lifecycle event; it has no execution/running projection. */
+export interface SessionLifecycleChangedPayload {
+  type: 'session_lifecycle_changed';
+  sessionId: string;
+  lifecycleState: SessionLifecycleState;
   timestamp: number;
 }
 
