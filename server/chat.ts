@@ -73,11 +73,7 @@ import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
 import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
-import {
-  fingerprintExecutionRequest,
-  sha256Base64url,
-  validatedExecutionImages,
-} from './execution-request.js';
+import { fingerprintExecutionRequest, validatedExecutionImages } from './execution-request.js';
 
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
@@ -904,29 +900,19 @@ const CONTEXT_BLOCK_MAX_BYTES = 100 * 1024; // 100 KB
 const CONTEXT_BLOCK_TOTAL_MAX_BYTES = 512 * 1024;
 
 /**
- * Fingerprint configured context without assembling it into a provider prompt.
- * The selector and the bounded content hash are both part of an interrupt
- * receipt, so a retry cannot silently apply changed file contents.
+ * Receipt identity is the immutable wire selector sequence, never mutable
+ * file contents. The expanded prompt is snapshotted atomically in the durable
+ * user_message row, so retry/restart cannot be changed by later file edits.
  */
 function contextBlockFingerprintInputs(names?: string[]): string[] {
   if (!names?.length) return [];
-  const config = getRepoConfig();
-  let total = 0;
+  if (names.length > 16) throw new Error('Too many attached context blocks');
+  const seen = new Set<string>();
   return names.map((name) => {
-    const filePath = config.contextBlocks[name];
-    if (!filePath) return `${name}:missing`;
-    let bytes: Buffer;
-    try {
-      bytes = Buffer.from(readFileSync(filePath));
-    } catch {
-      return `${name}:unreadable`;
-    }
-    if (bytes.byteLength > CONTEXT_BLOCK_MAX_BYTES)
-      bytes = bytes.subarray(0, CONTEXT_BLOCK_MAX_BYTES);
-    total += bytes.byteLength;
-    if (total > CONTEXT_BLOCK_TOTAL_MAX_BYTES)
-      throw new Error('Attached context exceeds the maximum expanded size');
-    return `${name}:${sha256Base64url(bytes)}`;
+    if (!name || Buffer.byteLength(name, 'utf8') > 128 || seen.has(name))
+      throw new Error('Invalid duplicate or oversized context selector');
+    seen.add(name);
+    return name;
   });
 }
 
@@ -951,6 +937,7 @@ export function assemblePrompt(
   if (contextBlocks?.length) {
     const config = getRepoConfig();
     const blocks: string[] = [];
+    let expandedBytes = 0;
     for (const name of contextBlocks) {
       const filePath = config.contextBlocks[name];
       if (!filePath) continue;
@@ -972,6 +959,9 @@ export function assemblePrompt(
           maxBytes: CONTEXT_BLOCK_MAX_BYTES,
         });
       }
+      expandedBytes += Buffer.byteLength(content, 'utf8');
+      if (expandedBytes > CONTEXT_BLOCK_TOTAL_MAX_BYTES)
+        throw new Error('Attached context exceeds the maximum expanded size');
       const safeName = escapeXmlAttr(name);
       const safePath = escapeXmlAttr(filePath);
       blocks.push(`<context name="${safeName}" source="${safePath}">\n${content}\n</context>`);
@@ -2467,7 +2457,7 @@ export async function interruptChat(
     // not stage images, and image paths are created only by provider dispatch.
     let fullPrompt: string;
     try {
-      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+      fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     } catch {
       registry.releaseRuntimeOwnerReservation(ownerReservation);
       return { kind: 'unavailable_unreported' };
