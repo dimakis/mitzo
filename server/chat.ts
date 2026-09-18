@@ -1767,8 +1767,9 @@ async function _startChatInner(
       // and broadcast its exact startup_failed terminal row.
       if (!providerOpened) {
         if (!options.requestFingerprint) {
-          if (session.sessionId)
-            eventStore.setSessionState(session.sessionId, 'ENDED', {
+          const endingSessionId = session.sessionId ?? newSdkSessionId;
+          if (endingSessionId)
+            eventStore.setSessionState(endingSessionId, 'ENDED', {
               clientId,
               reason: 'startup_failed',
             });
