@@ -1208,6 +1208,13 @@ export async function handleInterruptV2(
           return;
         }
         const oldTransport = found.session?.transport;
+        const oldConnectionState = ctx.connRegistry.get(ownerConnection);
+        const requesterConnectionState = ctx.connRegistry.get(connectionId);
+        const oldWasWatching = oldConnectionState?.watchedSessions.has(msg.sessionId) ?? false;
+        const oldActiveSession = oldConnectionState?.activeSession ?? null;
+        const requesterWasWatching =
+          requesterConnectionState?.watchedSessions.has(msg.sessionId) ?? false;
+        const requesterActiveSession = requesterConnectionState?.activeSession ?? null;
         // Takeover is tentative. The durable interrupt admission below owns
         // provider/task side effects only after its lease+revision CAS commits.
         // A rejected/stale request leaves owner, watches, and permissions alone.
@@ -1223,6 +1230,7 @@ export async function handleInterruptV2(
             msg.accountId ? msg.reasoningEffort : undefined,
             {
               expected: ownerSnapshot,
+              expectedTransport: oldTransport,
               requesterConnectionId: connectionId,
               requesterTransport: transport,
               onCommitted: () => {
@@ -1243,6 +1251,15 @@ export async function handleInterruptV2(
                     clientId: activeClientId,
                     reason: 'reattach',
                   });
+              },
+              onRollback: () => {
+                // The registry rollback succeeded only when the committed
+                // revision was still current, so restoring these connection
+                // views cannot displace a newer owner.
+                if (!requesterWasWatching) ctx.connRegistry.unwatch(connectionId, msg.sessionId);
+                ctx.connRegistry.setActive(connectionId, requesterActiveSession);
+                if (oldWasWatching) ctx.connRegistry.watch(ownerConnection, msg.sessionId);
+                ctx.connRegistry.setActive(ownerConnection, oldActiveSession);
               },
             },
           );

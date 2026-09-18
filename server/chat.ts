@@ -2312,10 +2312,14 @@ export type InterruptOutcome =
 /** Ownership is captured by the transport boundary before replacement admission. */
 export type InterruptOwnershipRequest = {
   expected: RuntimeOwnerSnapshot;
+  /** Transport paired with expected owner for an ABA-safe rollback. */
+  expectedTransport?: SessionTransport;
   requesterConnectionId: string;
   requesterTransport: SessionTransport;
   /** Runs after the lease+revision CAS but before a provider can observe the new input. */
   onCommitted?: () => void;
+  /** Runs only if onCommitted failed and the committed owner is still current. */
+  onRollback?: () => void;
 };
 
 /** Stable replacement identity shared by live admission and restart retry fencing. */
@@ -2406,6 +2410,7 @@ export async function interruptChat(
         return expected
           ? {
               expected,
+              expectedTransport: session.transport,
               requesterConnectionId: expected.ownerConnectionId,
               requesterTransport: session.transport,
             }
@@ -2479,10 +2484,21 @@ export async function interruptChat(
             )
           )
             return false;
+          const committed = registry.getRuntimeOwnerSnapshot(lease);
           try {
             replacementOwnership.onCommitted?.();
             return true;
           } catch {
+            // Only a snapshot from this CAS can be reverted. A newer owner
+            // may have won while callback work was in flight.
+            if (committed) {
+              const rolledBack = registry.rollbackRuntimeOwner(
+                committed,
+                replacementOwnership.expected,
+                replacementOwnership.expectedTransport ?? session.transport,
+              );
+              if (rolledBack) replacementOwnership.onRollback?.();
+            }
             return false;
           }
         },

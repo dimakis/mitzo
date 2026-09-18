@@ -202,6 +202,47 @@ describe('SessionRegistry', () => {
       expect(registry.compareAndSwapRuntimeOwner(snapshot, 'late', fakeTransport())).toBe(false);
       expect(registry.get('new:session')?.ownerRevision).toBe(snapshot.ownerRevision + 1);
     });
+
+    it('rolls back only its own committed owner revision', () => {
+      const oldTransport = fakeTransport();
+      const nextTransport = fakeTransport();
+      registry.register('old:session', {
+        transport: oldTransport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const lease = registry.getRuntimeLease('old:session')!;
+      const before = registry.getRuntimeOwnerSnapshot(lease)!;
+      expect(registry.compareAndSwapRuntimeOwner(before, 'next', nextTransport)).toBe(true);
+      const committed = registry.getRuntimeOwnerSnapshot(lease)!;
+
+      expect(registry.rollbackRuntimeOwner(committed, before, oldTransport)).toBe(true);
+      expect(registry.get('old:session')).toMatchObject({
+        ownerConnectionId: before.ownerConnectionId,
+        transport: oldTransport,
+      });
+    });
+
+    it('never rolls back over a newer owner handoff', () => {
+      const oldTransport = fakeTransport();
+      registry.register('old:session', {
+        transport: oldTransport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const lease = registry.getRuntimeLease('old:session')!;
+      const before = registry.getRuntimeOwnerSnapshot(lease)!;
+      registry.compareAndSwapRuntimeOwner(before, 'middle', fakeTransport());
+      const committed = registry.getRuntimeOwnerSnapshot(lease)!;
+      registry.compareAndSwapRuntimeOwner(committed, 'newest', fakeTransport());
+
+      expect(registry.rollbackRuntimeOwner(committed, before, oldTransport)).toBe(false);
+      expect(registry.get('old:session')?.ownerConnectionId).toBe('newest');
+    });
   });
 
   describe('detach', () => {

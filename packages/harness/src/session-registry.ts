@@ -563,6 +563,23 @@ export class SessionRegistry {
     return true;
   }
 
+  /**
+   * Revert a just-committed ownership handoff only when no later handoff won.
+   * `committed` includes the revision allocated by the CAS, so this can never
+   * overwrite a newer owner in an ABA race.
+   */
+  rollbackRuntimeOwner(
+    committed: RuntimeOwnerSnapshot,
+    previous: RuntimeOwnerSnapshot,
+    previousTransport: SessionTransport,
+  ): boolean {
+    return this.compareAndSwapRuntimeOwner(
+      committed,
+      previous.ownerConnectionId,
+      previousTransport,
+    );
+  }
+
   /** Promote a known live connection outside a delayed replacement transaction. */
   promoteRuntimeOwner(
     clientId: string,
