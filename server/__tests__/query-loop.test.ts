@@ -2306,3 +2306,68 @@ it('continues tool events through the new owner after the same session is rekeye
   );
   expect(registry.remove).toHaveBeenCalledWith('new');
 });
+
+it('signals readiness on a real stream event while completion remains held until result', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  let releaseResult!: () => void;
+  const resultGate = new Promise<void>((resolve) => {
+    releaseResult = resolve;
+  });
+  const calls: string[] = [];
+  async function* heldStream() {
+    yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'first' } } };
+    await resultGate;
+    yield { type: 'result', session_id: 'ready-session' };
+  }
+
+  let completed = false;
+  const loop = runQueryLoop(
+    heldStream(),
+    'ready-client',
+    registry,
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      onProviderReady: () => calls.push('ready'),
+      onProviderResult: () => calls.push('result'),
+    },
+  ).then(() => {
+    completed = true;
+  });
+
+  await vi.waitFor(() => expect(calls).toEqual(['ready']));
+  expect(completed).toBe(false);
+  releaseResult();
+  await loop;
+  expect(calls).toEqual(['ready', 'result']);
+});
+
+it('reports a pre-ready provider failure without exposing its raw error', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  const failures: boolean[] = [];
+  async function* brokenStream() {
+    if (Date.now() < 0) yield {};
+    throw new Error('secret-token /private/path https://provider.invalid prompt text');
+  }
+
+  await runQueryLoop(
+    brokenStream(),
+    'failed-client',
+    registry,
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      onProviderFailure: (beforeReady) => failures.push(beforeReady),
+    },
+  );
+
+  expect(failures).toEqual([true]);
+  expect(JSON.stringify(transport.sent)).not.toContain('secret-token');
+  expect(transport.sent).toContainEqual(
+    expect.objectContaining({ type: 'error', error: 'Chat provider stream failed. Please retry.' }),
+  );
+});

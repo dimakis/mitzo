@@ -437,7 +437,50 @@ type AdmissionOptions = {
   onAdmitted?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
   /** A provider stream yielded its first valid event for this admitted execution. */
   onProviderReady?: (accepted: { sessionId: string; token: ExecutionToken }) => void;
+  /** Internal ownership record used only by the launch-wide failure boundary. */
+  _launchOwnership?: LaunchOwnership;
 };
+
+/** Resources acquired while a launch is still reversible (before RUNNING). */
+type LaunchOwnership = {
+  admitted: boolean;
+  session?: ManagedSession;
+  runtimeLease?: { runtimeLeaseId: string; sessionId: string };
+  repoWorktrees?: Map<string, { path: string; wtId: string }>;
+};
+
+/**
+ * Dispose only the exact runtime this launch created. Never act on a mutable
+ * client id: a reconnect/rekey may already have installed a replacement.
+ * Session metadata intentionally remains as inactive/open history; it has no
+ * execution row before admission and no active runtime after this cleanup.
+ */
+function cleanupLaunchOwnership(ownership: LaunchOwnership): void {
+  const lease = ownership.runtimeLease;
+  if (lease) {
+    const resolved = registry.resolveRuntimeLease(lease);
+    if (resolved && resolved.session === ownership.session) {
+      cleanupSessionWorktrees(resolved.session);
+      registry.abort(resolved.clientId);
+      return;
+    }
+  }
+  // A failure between worktree creation and registry.register has no session
+  // object yet, but those worktrees are still exclusively ours and untouched.
+  if (!ownership.session && ownership.repoWorktrees) {
+    const config = getRepoConfig();
+    for (const [name, { wtId }] of ownership.repoWorktrees) {
+      const repoPath = name === 'primary' ? BASE_REPO : config.repos[name];
+      if (!repoPath) continue;
+      try {
+        removeWorktree(wtId, repoPath);
+      } catch {
+        // Best-effort cleanup; worktree GC remains the safe fallback.
+      }
+    }
+    ownership.repoWorktrees.clear();
+  }
+}
 
 function initialExecutionController(): ExecutionController {
   return new ExecutionController({ registry, eventStore, connections: _connRegistry ?? undefined });
@@ -933,6 +976,7 @@ export function launchChat(
     resolveAccepted = resolve;
     rejectAccepted = reject;
   });
+  const ownership: LaunchOwnership = { admitted: false };
   const rawCompletion = withSpanAsync(
     'chat.start',
     {
@@ -943,6 +987,7 @@ export function launchChat(
     async () =>
       _startChatInner(transport, clientId, prompt, {
         ...options,
+        _launchOwnership: ownership,
         onAdmissionFailure: (error) => {
           options.onAdmissionFailure?.(error);
           if (!admissionSettled) {
@@ -963,6 +1008,7 @@ export function launchChat(
       }),
   );
   const completion = rawCompletion.catch((error) => {
+    if (!ownership.admitted) cleanupLaunchOwnership(ownership);
     if (!admissionSettled) {
       admissionSettled = true;
       rejectAccepted(error);
@@ -1186,6 +1232,7 @@ async function _startChatInner(
         repoWorktrees: new Map<string, { path: string; wtId: string }>(),
       }
     : createSessionWorktrees(transport, baseCwd, wtId, options);
+  if (options._launchOwnership) options._launchOwnership.repoWorktrees = repoWorktrees;
 
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
@@ -1268,6 +1315,10 @@ async function _startChatInner(
   // Never use the mutable client id for a late startup callback. A reconnect
   // may rekey it while provider initialization is still in flight.
   const runtimeLease = registry.getRuntimeLease(clientId)!;
+  if (options._launchOwnership) {
+    options._launchOwnership.session = session;
+    options._launchOwnership.runtimeLease = runtimeLease;
+  }
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
@@ -1449,6 +1500,7 @@ async function _startChatInner(
   };
   let providerOpened = false;
   let queryOwnershipDelegated = false;
+  let executionCompletion: Promise<void> | undefined;
   const runProvider = async (token?: ExecutionToken): Promise<void> => {
     initialToken = token;
     try {
@@ -1652,10 +1704,12 @@ async function _startChatInner(
                 },
                 onProviderFailure: async (beforeReady: boolean) => {
                   await finishInitial(beforeReady ? 'startup_failed' : 'failed');
-                  if (beforeReady)
+                  if (beforeReady) {
+                    if (ownsRuntime()) cleanupSessionWorktrees(session);
                     rejectProviderReady?.(
                       new Error('Chat provider did not become ready. Please retry.'),
                     );
+                  }
                 },
               }
             : {}),
@@ -1665,6 +1719,7 @@ async function _startChatInner(
         // Keep the query running after the admission boundary. Its callbacks
         // own the exact terminal token and are guarded by runtimeLease.
         queryOwnershipDelegated = true;
+        executionCompletion = queryCompletion;
         void queryCompletion
           .catch(() => {
             if (!providerReady)
@@ -1725,7 +1780,10 @@ async function _startChatInner(
         extraTools: options.extraTools,
       }),
     isInitial: true,
-    onAdmitted: (token) => options.onAdmitted?.({ sessionId: durableSessionId!, token }),
+    onAdmitted: (token) => {
+      if (options._launchOwnership) options._launchOwnership.admitted = true;
+      options.onAdmitted?.({ sessionId: durableSessionId!, token });
+    },
     dispatch: (token) => runProvider(token),
   };
   try {
@@ -1740,8 +1798,12 @@ async function _startChatInner(
     // startup_failed token is already durable (or was safely found stale).
     options.onAdmissionFailure?.(new Error('Chat provider did not become ready. Please retry.'));
     if (ownsRuntime()) registry.abort(clientId);
-    return;
+    throw new Error('Chat provider did not become ready. Please retry.');
   }
+  // Controller dispatch stops at first provider readiness so a v2 receipt can
+  // return promptly. Existing startChat callers still observe the complete
+  // query lifetime through this separate completion promise.
+  await executionCompletion;
 }
 
 /**
