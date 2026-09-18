@@ -8,6 +8,7 @@ export type {
   PendingExecutionInput,
   PreparedReplacementInput,
   RuntimeSessionLease,
+  RuntimeOwnerSnapshot,
   ActiveSessionInfo,
   CloseoutHandler,
 } from './session-registry.js';

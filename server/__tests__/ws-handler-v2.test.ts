@@ -9,7 +9,13 @@ import { EventStore } from '../event-store.js';
 vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
   sendToChat: vi.fn().mockResolvedValue(true),
-  interruptChat: vi.fn().mockResolvedValue(true),
+  interruptChat: vi.fn().mockImplementation(async (...args: unknown[]) => {
+    // The production boundary commits the owner inside this callback before
+    // delivery. Keep the handler double faithful to that typed contract.
+    const ownership = args[7] as { onCommitted?: () => void } | undefined;
+    ownership?.onCommitted?.();
+    return true;
+  }),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   isIsolationEnabled: vi.fn().mockReturnValue(true),
@@ -117,6 +123,16 @@ function mockSessionRegistry() {
     suspend: vi.fn(),
     isSuspended: vi.fn().mockReturnValue(false),
     resume: vi.fn().mockReturnValue([]),
+    getRuntimeLease: vi.fn((clientId: string) => ({
+      runtimeLeaseId: `lease:${clientId}`,
+      sessionId: clientId.split(':').slice(1).join(':') || 'sess-1',
+    })),
+    getRuntimeOwnerSnapshot: vi.fn((lease: { runtimeLeaseId: string; sessionId: string }) => ({
+      ...lease,
+      ownerConnectionId: 'c1',
+      ownerRevision: 1,
+    })),
+    promoteRuntimeOwner: vi.fn().mockReturnValue(true),
   };
 }
 
@@ -1474,7 +1490,10 @@ describe('handleInterruptV2', () => {
   it('reports an interrupt resume startup rejection to the client', async () => {
     vi.mocked(startChat).mockRejectedValueOnce(new Error('Resume failed'));
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
     });
@@ -2383,7 +2402,10 @@ describe('dispatchV2Message', () => {
         }),
     );
     const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'driver-1', session: {} });
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'driver-1',
+      session: { ownerConnectionId: 'c1' },
+    });
     (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -3187,6 +3209,7 @@ describe('handleInterruptV2 forwarding', () => {
       'i3',
       undefined,
       undefined,
+      expect.objectContaining({ requesterConnectionId: 'c1' }),
     );
   });
 
@@ -3231,6 +3254,7 @@ describe('handleInterruptV2 forwarding', () => {
       'i-model',
       'claude-opus-4-6',
       undefined,
+      expect.objectContaining({ requesterConnectionId: 'c1' }),
     );
   });
 
@@ -3308,6 +3332,7 @@ describe('handleInterruptV2 forwarding', () => {
       'i-legacy',
       undefined,
       undefined,
+      expect.objectContaining({ requesterConnectionId: 'c1' }),
     );
   });
 
@@ -3588,8 +3613,9 @@ describe('handleInterruptV2 connection ownership', () => {
     expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(false);
     // Pending permissions denied
     expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
-    // Session rekeyed and interrupt proceeds
-    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    // The CAS itself swaps the registered transport before provider work;
+    // reattachChat is intentionally not part of replacement takeover.
+    expect(reattachChat).not.toHaveBeenCalled();
     expect(rekeyChat).not.toHaveBeenCalled();
     expect(interruptChat).toHaveBeenCalled();
     // No active_elsewhere error
@@ -3623,7 +3649,7 @@ describe('handleInterruptV2 connection ownership', () => {
       ctx,
     );
 
-    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(reattachChat).not.toHaveBeenCalled();
     expect(interruptChat).toHaveBeenCalled();
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),
@@ -3661,6 +3687,7 @@ describe('handleInterruptV2 connection ownership', () => {
       'i6',
       undefined,
       undefined,
+      expect.objectContaining({ requesterConnectionId: 'c1' }),
     );
   });
 
@@ -3816,7 +3843,9 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
       ctx,
     );
 
-    expect(reattachChat).toHaveBeenCalledWith('dead-conn:sess-1', transport);
+    // Replacement ownership is committed by lease+revision CAS, not by the
+    // legacy reattach helper.
+    expect(reattachChat).not.toHaveBeenCalled();
     expect(rekeyChat).not.toHaveBeenCalled();
     // The query loop retains the original runtime key.
     expect(interruptChat).toHaveBeenCalledWith(
@@ -3827,6 +3856,7 @@ describe('handleInterruptV2 rekey after detached reattach', () => {
       'i-rk',
       undefined,
       undefined,
+      expect.objectContaining({ requesterConnectionId: 'new-conn' }),
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);

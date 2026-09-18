@@ -137,6 +137,73 @@ describe('SessionRegistry', () => {
     });
   });
 
+  describe('runtime owner CAS', () => {
+    it('moves an exact lease owner once and rejects a delayed stale takeover', () => {
+      const oldTransport = fakeTransport();
+      const nextTransport = fakeTransport();
+      registry.register('old-connection:session', {
+        transport: oldTransport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const lease = registry.getRuntimeLease('old-connection:session')!;
+      const snapshot = registry.getRuntimeOwnerSnapshot(lease)!;
+
+      expect(registry.compareAndSwapRuntimeOwner(snapshot, 'new-connection', nextTransport)).toBe(
+        true,
+      );
+      expect(registry.get('old-connection:session')).toMatchObject({
+        ownerConnectionId: 'new-connection',
+        transport: nextTransport,
+        ownerRevision: snapshot.ownerRevision + 1,
+      });
+      expect(
+        registry.compareAndSwapRuntimeOwner(snapshot, 'late-connection', fakeTransport()),
+      ).toBe(false);
+      expect(registry.get('old-connection:session')?.ownerConnectionId).toBe('new-connection');
+    });
+
+    it('does not let a same-id runtime ABA satisfy an old owner snapshot', () => {
+      registry.register('connection:session', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const oldLease = registry.getRuntimeLease('connection:session')!;
+      const oldSnapshot = registry.getRuntimeOwnerSnapshot(oldLease)!;
+      registry.remove('connection:session');
+      registry.register('connection:session', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+
+      expect(registry.compareAndSwapRuntimeOwner(oldSnapshot, 'late', fakeTransport())).toBe(false);
+      expect(registry.get('connection:session')?.ownerConnectionId).toBe('connection');
+    });
+
+    it('invalidates an owner snapshot across a runtime rekey', () => {
+      registry.register('old:session', {
+        transport: fakeTransport(),
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const snapshot = registry.getRuntimeOwnerSnapshot(registry.getRuntimeLease('old:session')!)!;
+
+      expect(registry.rekey('old:session', 'new:session')).toBe(true);
+      expect(registry.compareAndSwapRuntimeOwner(snapshot, 'late', fakeTransport())).toBe(false);
+      expect(registry.get('new:session')?.ownerRevision).toBe(snapshot.ownerRevision + 1);
+    });
+  });
+
   describe('detach', () => {
     it('detaches a session without aborting it', () => {
       const abort = new AbortController();

@@ -524,7 +524,11 @@ export function handleReconnect(
           if (conn) {
             reattachChat(found!.clientId, conn.transport);
             if (ownerConnection !== connectionId) {
-              if (found!.session) found!.session.ownerConnectionId = connectionId;
+              ctx.sessionRegistry.promoteRuntimeOwner(
+                found!.clientId,
+                connectionId,
+                conn.transport,
+              );
               log.info('took over suspended session on reconnect', {
                 connectionId,
                 sessionId: entry.sessionId,
@@ -561,7 +565,7 @@ export function handleReconnect(
             const conn = ctx.connRegistry.get(connectionId);
             if (conn) {
               reattachChat(found.clientId, conn.transport);
-              if (found.session) found.session.ownerConnectionId = connectionId;
+              ctx.sessionRegistry.promoteRuntimeOwner(found.clientId, connectionId, conn.transport);
               log.info('reattached detached session on reconnect', {
                 connectionId,
                 sessionId: entry.sessionId,
@@ -935,7 +939,7 @@ export function dispatchPreparedSendV2(
               denyPendingBySession(sessionId);
 
               reattachChat(found.clientId, transport);
-              if (found.session) found.session.ownerConnectionId = connectionId;
+              ctx.sessionRegistry.promoteRuntimeOwner(found.clientId, connectionId, transport);
               log.info('takeover on send', {
                 connectionId,
                 sessionId,
@@ -945,7 +949,7 @@ export function dispatchPreparedSendV2(
               });
             } else if (isDetached) {
               reattachChat(found.clientId, transport);
-              if (found.session) found.session.ownerConnectionId = connectionId;
+              ctx.sessionRegistry.promoteRuntimeOwner(found.clientId, connectionId, transport);
               log.info('reattached own detached session on send', {
                 connectionId,
                 sessionId,
@@ -1159,9 +1163,22 @@ export async function handleInterruptV2(
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
+        const runtimeLease = ctx.sessionRegistry.getRuntimeLease(activeClientId);
+        const ownerSnapshot = runtimeLease
+          ? ctx.sessionRegistry.getRuntimeOwnerSnapshot(runtimeLease)
+          : undefined;
+        if (!ownerSnapshot) {
+          transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            error: 'Unable to interrupt the chat. Please retry.',
+          });
+          return;
+        }
+        const oldTransport = found.session?.transport;
         // Takeover is tentative. The durable interrupt admission below owns
-        // provider/task side effects first; rejected attempts leave owner,
-        // watches, permissions, and active-session state untouched.
+        // provider/task side effects only after its lease+revision CAS commits.
+        // A rejected/stale request leaves owner, watches, and permissions alone.
         let rawOutcome: Awaited<ReturnType<typeof interruptChat>> | boolean;
         try {
           rawOutcome = await interruptChat(
@@ -1172,6 +1189,30 @@ export async function handleInterruptV2(
             msg.clientMsgId,
             msg.accountId ? msg.model : undefined,
             msg.accountId ? msg.reasoningEffort : undefined,
+            {
+              expected: ownerSnapshot,
+              requesterConnectionId: connectionId,
+              requesterTransport: transport,
+              onCommitted: () => {
+                if (!isOwner) {
+                  try {
+                    if (oldTransport?.isOpen())
+                      oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
+                  } catch {
+                    // Best-effort displacement notice; durable replay is authoritative.
+                  }
+                  ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
+                  denyPendingBySession(msg.sessionId);
+                }
+                ctx.connRegistry.watch(connectionId, msg.sessionId);
+                ctx.connRegistry.setActive(connectionId, msg.sessionId);
+                if (isDetached)
+                  ctx.eventStore.setSessionState(msg.sessionId, 'ACTIVE', {
+                    clientId: activeClientId,
+                    reason: 'reattach',
+                  });
+              },
+            },
           );
         } catch {
           rawOutcome = { kind: 'unavailable_unreported' as const };
@@ -1202,14 +1243,6 @@ export async function handleInterruptV2(
         if (outcome.kind === 'rejected_already_reported') return;
 
         if (!isOwner) {
-          const oldTransport = found.session?.transport;
-          if (oldTransport?.isOpen()) {
-            oldTransport.send({ type: 'session_takeover', sessionId: msg.sessionId });
-          }
-          ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
-          denyPendingBySession(msg.sessionId);
-          reattachChat(found.clientId, transport);
-          if (found.session) found.session.ownerConnectionId = connectionId;
           log.info('takeover on interrupt', {
             connectionId,
             sessionId: msg.sessionId,
@@ -1217,12 +1250,7 @@ export async function handleInterruptV2(
             newClientId: activeClientId,
             storeState,
           });
-        } else if (isDetached) {
-          reattachChat(found.clientId, transport);
-          if (found.session) found.session.ownerConnectionId = connectionId;
         }
-        ctx.connRegistry.watch(connectionId, msg.sessionId);
-        ctx.connRegistry.setActive(connectionId, msg.sessionId);
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }

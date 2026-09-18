@@ -29,6 +29,7 @@ import type {
   ConnectionRegistry,
   ManagedSession,
   PendingExecutionInput,
+  RuntimeOwnerSnapshot,
 } from '@mitzo/harness';
 import type { ExecutionEnvelope, ExecutionToken } from '@mitzo/protocol';
 import { execFileSync } from 'child_process';
@@ -2240,6 +2241,15 @@ export type InterruptOutcome =
   | { kind: 'conflict' }
   | { kind: 'unavailable_unreported' };
 
+/** Ownership is captured by the transport boundary before replacement admission. */
+export type InterruptOwnershipRequest = {
+  expected: RuntimeOwnerSnapshot;
+  requesterConnectionId: string;
+  requesterTransport: SessionTransport;
+  /** Runs after the lease+revision CAS but before a provider can observe the new input. */
+  onCommitted?: () => void;
+};
+
 function interruptFingerprint(input: {
   sessionId: string;
   prompt: string;
@@ -2261,6 +2271,7 @@ export async function interruptChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
+  ownership?: InterruptOwnershipRequest,
 ): Promise<InterruptOutcome> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
@@ -2300,6 +2311,19 @@ export async function interruptChat(
       ? eventStore.getReplacementAdmission(session.sessionId, clientMsgId)
       : undefined;
     if (!lease || (!currentToken && !priorAdmission)) return { kind: 'unavailable_unreported' };
+    const replacementOwnership: InterruptOwnershipRequest | undefined =
+      ownership ??
+      (() => {
+        const expected = registry.getRuntimeOwnerSnapshot(lease);
+        return expected
+          ? {
+              expected,
+              requesterConnectionId: expected.ownerConnectionId,
+              requesterTransport: session.transport,
+            }
+          : undefined;
+      })();
+    if (!replacementOwnership) return { kind: 'unavailable_unreported' };
     const expectedToken = priorAdmission?.expectedOldToken ?? currentToken!;
     const imageRefs = images
       ?.map((image) => {
@@ -2328,6 +2352,22 @@ export async function interruptChat(
           text: fullPrompt,
           ...(imageRefs?.length ? { images: imageRefs } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
+        },
+        beforeDispatch: async () => {
+          if (
+            !registry.compareAndSwapRuntimeOwner(
+              replacementOwnership.expected,
+              replacementOwnership.requesterConnectionId,
+              replacementOwnership.requesterTransport,
+            )
+          )
+            return false;
+          try {
+            replacementOwnership.onCommitted?.();
+            return true;
+          } catch {
+            return false;
+          }
         },
         dispatch: async (token) => {
           if (codex) {
@@ -2379,6 +2419,7 @@ export async function interruptChat(
     }
     if (replacement.error && !replacement.admission) return { kind: 'conflict' };
     if (replacement.busy) return { kind: 'unavailable_unreported' };
+    if (replacement.notDispatched) return { kind: 'unavailable_unreported' };
     if (!replacement.admission) return { kind: 'unavailable_unreported' };
     return replacement.admission.duplicate
       ? { kind: 'duplicate_already_accepted' }

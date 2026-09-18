@@ -418,14 +418,121 @@ describe('interruptChat emits user_message via transport', () => {
     activateInterruptExecution(CLIENT_ID);
     const first = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
     const second = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
-    await Promise.resolve();
-    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(interruptSpy).toHaveBeenCalledTimes(1));
     releaseInterrupt();
     await expect(Promise.all([first, second])).resolves.toEqual([
       { kind: 'accepted' },
       { kind: 'duplicate_already_accepted' },
     ]);
     expect(pushSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('commits replacement ownership before provider delivery and never redoes it for a retry', async () => {
+    const oldTransport = mockTransport();
+    const requesterTransport = mockTransport();
+    const pushSpy = vi.fn();
+    const interruptSpy = vi.fn(() => {
+      const current = registry.get(CLIENT_ID)!;
+      expect(current.transport).toBe(requesterTransport);
+      expect(current.ownerConnectionId).toBe('requester');
+    });
+    const messageId = `user-int-owner-${Date.now()}`;
+
+    registry.register(CLIENT_ID, {
+      transport: oldTransport,
+      ownerConnectionId: 'old-owner',
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-owner-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
+    activateInterruptExecution(CLIENT_ID);
+
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const expected = registry.getRuntimeOwnerSnapshot(lease)!;
+    const committed = vi.fn();
+    await expect(
+      interruptChat(CLIENT_ID, 'Take over', undefined, undefined, messageId, undefined, undefined, {
+        expected,
+        requesterConnectionId: 'requester',
+        requesterTransport,
+        onCommitted: committed,
+      }),
+    ).resolves.toEqual({ kind: 'accepted' });
+
+    expect(committed).toHaveBeenCalledOnce();
+    expect(interruptSpy).toHaveBeenCalledOnce();
+    expect(pushSpy).toHaveBeenCalledOnce();
+    expect(oldTransport._sent).toEqual([]);
+    expect(requesterTransport._sent.some((row) => row.type === 'user_message')).toBe(true);
+
+    await expect(
+      interruptChat(CLIENT_ID, 'Take over', undefined, undefined, messageId, undefined, undefined, {
+        // A completed receipt must short-circuit before a stale owner snapshot
+        // could cause another ownership mutation or provider delivery.
+        expected,
+        requesterConnectionId: 'different-requester',
+        requesterTransport: oldTransport,
+        onCommitted: committed,
+      }),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(committed).toHaveBeenCalledOnce();
+    expect(interruptSpy).toHaveBeenCalledOnce();
+    expect(pushSpy).toHaveBeenCalledOnce();
+  });
+
+  it('terminalizes a replacement admitted with a stale owner snapshot without provider delivery', async () => {
+    const oldTransport = mockTransport();
+    const newerOwnerTransport = mockTransport();
+    const requesterTransport = mockTransport();
+    const interruptSpy = vi.fn();
+    const pushSpy = vi.fn();
+
+    registry.register(CLIENT_ID, {
+      transport: oldTransport,
+      ownerConnectionId: 'old-owner',
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.sessionId = `sess-int-stale-owner-${Date.now()}`;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
+    activateInterruptExecution(CLIENT_ID);
+
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const staleOwner = registry.getRuntimeOwnerSnapshot(lease)!;
+    expect(registry.promoteRuntimeOwner(CLIENT_ID, 'newer-owner', newerOwnerTransport)).toBe(true);
+
+    await expect(
+      interruptChat(
+        CLIENT_ID,
+        'Must not deliver',
+        undefined,
+        undefined,
+        `user-int-stale-owner-${Date.now()}`,
+        undefined,
+        undefined,
+        {
+          expected: staleOwner,
+          requesterConnectionId: 'requester',
+          requesterTransport,
+        },
+      ),
+    ).resolves.toEqual({ kind: 'unavailable_unreported' });
+
+    expect(interruptSpy).not.toHaveBeenCalled();
+    expect(pushSpy).not.toHaveBeenCalled();
+    expect(oldTransport._sent).toEqual([]);
+    expect(newerOwnerTransport._sent).toEqual([]);
+    expect(requesterTransport._sent).toEqual([]);
+    expect(registry.get(CLIENT_ID)?.transport).toBe(newerOwnerTransport);
+    expect(eventStore.getSession(session.sessionId)?.executionPhase).toBe('TERMINAL');
+    expect(eventStore.getSession(session.sessionId)?.executionTerminalReason).toBe('failed');
   });
 
   it('rejects a mismatched payload under an accepted interrupt ID without redelivery', async () => {

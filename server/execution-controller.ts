@@ -70,6 +70,8 @@ export interface ReplaceExecutionResult {
   admission?: ReplacementAdmissionResult;
   busy?: true;
   stale?: true;
+  /** Durable admission succeeded, but an ownership precondition prevented dispatch. */
+  notDispatched?: true;
   error?: unknown;
 }
 
@@ -227,6 +229,19 @@ export class ExecutionController {
           )
         )
           return { stale: true };
+        const dispatchAllowed = (await prepared.beforeDispatch?.(admission.token)) ?? true;
+        if (!dispatchAllowed) {
+          const terminal = this.options.eventStore.transitionExecution(
+            admission.token,
+            'TERMINAL',
+            'failed',
+          );
+          // A rejected ownership CAS must not deliver the new generation to
+          // the displaced owner. Its durable rows are replayable once a valid
+          // owner reconnects, but no provider work or live broadcast occurs.
+          if (terminal.applied) this.options.registry.clearCurrentExecution(lease, admission.token);
+          return { token: admission.token, admission, stale: true, notDispatched: true };
+        }
         this.broadcastReplacementRows(lease, admission.rows);
         prepared.onAdmitted?.(admission.token);
         try {

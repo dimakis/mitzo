@@ -283,6 +283,35 @@ describe('ExecutionController', () => {
     expect(finished.next?.token).toMatchObject({ executionId: 'next', generation: 2 });
   });
 
+  it('terminalizes an admitted replacement without broadcasting or dispatching when owner CAS is stale', async () => {
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const dispatch = vi.fn();
+    const before = transport.sent.length;
+
+    const replacement = await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-owner-stale',
+      clientMsgId: 'replacement-owner-stale-message',
+      requestFingerprint: 'replacement-owner-stale-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-owner-stale-message', text: 'replace' },
+      beforeDispatch: () => false,
+      dispatch,
+    });
+
+    expect(replacement).toMatchObject({ stale: true, notDispatched: true });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(registry.get(CLIENT_ID)?.currentExecution).toBeUndefined();
+    expect(transport.sent).toHaveLength(before);
+    expect(store.getSession(SESSION_ID)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionGeneration: 2,
+      executionTerminalReason: 'failed',
+    });
+  });
+
   it('stops only the current token and drains pending work without activating a successor', async () => {
     const dispatchNext = vi.fn();
     controller.enqueueExecution(CLIENT_ID, prepared('current'));

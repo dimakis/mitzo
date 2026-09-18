@@ -1194,12 +1194,23 @@ function handleChatWs(
           'ws.interrupt',
           { 'ws.client_id': clientId, 'ws.client_msg_id': msg.clientMsgId ?? '' },
           async () => {
+            const lease = registry.getRuntimeLease(clientId);
+            const expected = lease ? registry.getRuntimeOwnerSnapshot(lease) : undefined;
             const outcome = await interruptChat(
               clientId,
               msg.prompt,
               msg.images,
               msg.contextBlocks,
               msg.clientMsgId,
+              undefined,
+              undefined,
+              expected
+                ? {
+                    expected,
+                    requesterConnectionId: clientId,
+                    requesterTransport: transport,
+                  }
+                : undefined,
             );
             if (outcome.kind === 'unavailable_unreported' || outcome.kind === 'conflict') {
               try {

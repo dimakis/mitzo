@@ -66,6 +66,8 @@ export interface PreparedReplacementInput {
   selectedModel?: string | null;
   reasoningEffort?: string | null;
   onAdmitted?: (token: ExecutionToken) => void;
+  /** Commit transport ownership after durable admission and before any live delivery. */
+  beforeDispatch?: (token: ExecutionToken) => Promise<boolean> | boolean;
   dispatch: (token: ExecutionToken) => Promise<void> | void;
 }
 
@@ -75,11 +77,19 @@ export interface RuntimeSessionLease {
   sessionId: string;
 }
 
+/** A compare-and-swap snapshot of the transport allowed to drive a runtime. */
+export interface RuntimeOwnerSnapshot extends RuntimeSessionLease {
+  ownerConnectionId: string;
+  ownerRevision: number;
+}
+
 export interface ManagedSession {
   /** Never changes for this object; invalidated when the runtime is removed. */
   readonly runtimeLeaseId: string;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
+  /** Monotonic owner epoch; guards takeovers across reconnect/rekey ABA. */
+  ownerRevision: number;
   transport: SessionTransport;
   abortController: AbortController;
   sessionId?: string;
@@ -166,6 +176,11 @@ export interface ActiveSessionInfo {
 
 export type CloseoutHandler = (clientId: string) => void;
 
+function ownerConnectionForClientId(clientId: string): string {
+  const separator = clientId.indexOf(':');
+  return separator === -1 ? clientId : clientId.slice(0, separator);
+}
+
 export class SessionRegistry {
   private sessions = new Map<string, ManagedSession>();
   private leases = new Map<string, string>();
@@ -222,6 +237,7 @@ export class SessionRegistry {
       | 'runtimeLeaseId'
       | 'pendingExecutionBytes'
       | 'replacingExecution'
+      | 'ownerRevision'
     > & {
       sessionId?: string;
     },
@@ -247,6 +263,8 @@ export class SessionRegistry {
       pendingExecutionBytes: 0,
       activatingPending: false,
       replacingExecution: false,
+      ownerConnectionId: init.ownerConnectionId ?? ownerConnectionForClientId(clientId),
+      ownerRevision: 1,
     };
     this.sessions.set(clientId, session);
     this.leases.set(session.runtimeLeaseId, clientId);
@@ -490,6 +508,7 @@ export class SessionRegistry {
     if (!session) return false;
 
     session.transport = transport;
+    session.ownerRevision += 1;
     this.attached.add(clientId);
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
@@ -497,6 +516,63 @@ export class SessionRegistry {
     this.userClosing.delete(clientId);
     this.clearSuspendState(clientId);
     return true;
+  }
+
+  /** Capture the exact runtime and owner expected by a delayed replacement request. */
+  getRuntimeOwnerSnapshot(lease: RuntimeSessionLease): RuntimeOwnerSnapshot | undefined {
+    const resolved = this.resolveLease(lease);
+    if (!resolved) return undefined;
+    return {
+      ...lease,
+      ownerConnectionId:
+        resolved.session.ownerConnectionId ?? ownerConnectionForClientId(resolved.clientId),
+      ownerRevision: resolved.session.ownerRevision,
+    };
+  }
+
+  /**
+   * Atomically make a requester the runtime's transport owner. This is the
+   * only replacement-time ownership transition: provider work must wait until
+   * it succeeds so an older connection cannot receive a new generation.
+   */
+  compareAndSwapRuntimeOwner(
+    expected: RuntimeOwnerSnapshot,
+    nextOwnerConnectionId: string,
+    nextTransport: SessionTransport,
+  ): boolean {
+    const resolved = this.resolveLease(expected);
+    if (!resolved) return false;
+    const session = resolved.session;
+    const currentOwner = session.ownerConnectionId ?? ownerConnectionForClientId(resolved.clientId);
+    if (
+      currentOwner !== expected.ownerConnectionId ||
+      session.ownerRevision !== expected.ownerRevision
+    )
+      return false;
+    const changed =
+      session.ownerConnectionId !== nextOwnerConnectionId || session.transport !== nextTransport;
+    session.ownerConnectionId = nextOwnerConnectionId;
+    session.transport = nextTransport;
+    if (changed) session.ownerRevision += 1;
+    this.attached.add(resolved.clientId);
+    this.clearDetachTimer(resolved.clientId);
+    this.clearCloseoutTimer(resolved.clientId);
+    this.closingOut.delete(resolved.clientId);
+    this.userClosing.delete(resolved.clientId);
+    this.clearSuspendState(resolved.clientId);
+    return true;
+  }
+
+  /** Promote a known live connection outside a delayed replacement transaction. */
+  promoteRuntimeOwner(
+    clientId: string,
+    ownerConnectionId: string,
+    transport: SessionTransport,
+  ): boolean {
+    const lease = this.getRuntimeLease(clientId);
+    if (!lease) return false;
+    const expected = this.getRuntimeOwnerSnapshot(lease);
+    return !!expected && this.compareAndSwapRuntimeOwner(expected, ownerConnectionId, transport);
   }
 
   /**
@@ -508,6 +584,11 @@ export class SessionRegistry {
   rekey(oldId: string, newId: string): boolean {
     const session = this.sessions.get(oldId);
     if (!session || (oldId !== newId && this.sessions.has(newId))) return false;
+
+    // A key move changes the authority used by legacy routing fallbacks.
+    // Invalidate snapshots captured before it even when the transport object
+    // itself is retained, so a delayed replacement cannot win an ABA race.
+    if (oldId !== newId) session.ownerRevision += 1;
 
     this.sessions.delete(oldId);
     this.sessions.set(newId, session);
