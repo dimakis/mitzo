@@ -242,8 +242,8 @@ function sendExecutionSnapshot(
   lastSeq: number,
   ctx: V2HandlerContext,
 ): void {
-  const state = ctx.eventStore.getSessionState(sessionId);
   const meta = ctx.eventStore.getSession(sessionId);
+  const state = meta?.state;
   if (!state || !meta) return; // old sessions degrade to ordinary durable replay
   const generation = meta.lastStateChange ?? 0;
   ctx.connRegistry.get(connectionId)?.transport.send({
@@ -337,10 +337,10 @@ export function handleReconnect(
           // during suspension. Do not send this transient buffer again.
           reconciledSuspendEvents = ctx.sessionRegistry.resume(found!.clientId).length;
 
-          if (ownerConnection !== connectionId) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found!.clientId, conn.transport);
+          const conn = ctx.connRegistry.get(connectionId);
+          if (conn) {
+            reattachChat(found!.clientId, conn.transport);
+            if (ownerConnection !== connectionId) {
               if (found!.session) found!.session.ownerConnectionId = connectionId;
               log.info('took over suspended session on reconnect', {
                 connectionId,

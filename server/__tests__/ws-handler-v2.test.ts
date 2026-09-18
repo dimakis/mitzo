@@ -277,7 +277,7 @@ describe('handleReconnect', () => {
     eventStore.getEventsAfter.mockReturnValue([
       { seq: 7, sessionId: 'sess-1', payload: { type: 'block_delta', sessionId: 'sess-1' } },
     ]);
-    eventStore.getSession.mockReturnValue({ lastStateChange: 42, mode: 'agent' });
+    eventStore.getSession.mockReturnValue({ lastStateChange: 42, state: 'ACTIVE', mode: 'agent' });
     eventStore.getSessionState.mockReturnValue('ACTIVE');
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
@@ -509,6 +509,8 @@ describe('boot_context replay', () => {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       totalCostUsd: 0,
+      state: 'ACTIVE',
+      lastStateChange: 1,
     });
     eventStore.getSessionState.mockReturnValue('ACTIVE');
 
@@ -689,6 +691,8 @@ describe('handleSwitchSession', () => {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       totalCostUsd: 0,
+      state: 'ACTIVE',
+      lastStateChange: 1,
     };
 
     (discoverSession as ReturnType<typeof vi.fn>).mockResolvedValueOnce(discoveredMeta);
@@ -755,6 +759,8 @@ describe('handleSwitchSession', () => {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
       totalCostUsd: 0,
+      state: 'ACTIVE',
+      lastStateChange: 1,
     });
     eventStore.getSessionState.mockReturnValue('ACTIVE');
 
@@ -3860,7 +3866,11 @@ describe('handleReconnect suspend resume', () => {
     ]);
 
     const eventStore = mockEventStore();
-    eventStore.getSession.mockReturnValue({ isActive: true });
+    eventStore.getSession.mockReturnValue({
+      isActive: true,
+      state: 'ACTIVE',
+      lastStateChange: 42,
+    });
 
     const ctx = createContext({
       sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
@@ -3878,6 +3888,7 @@ describe('handleReconnect suspend resume', () => {
     );
 
     expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
+    expect(reattachChat).toHaveBeenCalledWith('conn-1:sess-1', transport);
     // Buffered events should NOT be replayed — EventStore replay covers them.
     // resume() is called only to clear suspend state.
     expect(
@@ -3886,6 +3897,15 @@ describe('handleReconnect suspend resume', () => {
     // Buffered events are reconciled through EventStore; the transition still
     // tells the client that suspension ended.
     expect(transport.sent.some((m) => m.type === 'session_resumed' && m.replayed === 0)).toBe(true);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_execution_snapshot',
+        sessionId: 'sess-1',
+        state: 'running',
+        internalState: 'ACTIVE',
+        generation: 42,
+      }),
+    );
   });
 });
 
