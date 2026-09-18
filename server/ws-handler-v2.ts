@@ -326,9 +326,17 @@ export function handleReconnect(
           const ownerConnection =
             found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
           if (ownerConnection !== connectionId) {
-            const oldTransport = found!.session?.transport;
-            if (oldTransport?.isOpen())
-              oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
+            // The managed session's transport can be the REST admission
+            // delegate, which reports itself open even after its underlying
+            // SSE stream has disappeared. Use the registered owner transport
+            // so a dead stream cannot persist/broadcast a stale takeover into
+            // the reconnect replay currently being assembled.
+            const oldConnection = ctx.connRegistry.get(ownerConnection);
+            if (oldConnection?.transport.isOpen())
+              oldConnection.transport.send({
+                type: 'session_takeover',
+                sessionId: entry.sessionId,
+              });
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
             denyPendingBySession(entry.sessionId);
           }
