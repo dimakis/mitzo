@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ManagedSession } from '@mitzo/harness';
+import { ExecutionController } from '../execution-controller.js';
 const runtime = vi.hoisted(() => ({
   admitExplicitSend: vi.fn(),
   enqueue: vi.fn(),
@@ -178,6 +179,76 @@ it('terminalizes a replacement when Codex resume rejects, without retrying the p
     expect(runtime.interrupt).toHaveBeenCalledTimes(1);
     expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
     expect(runtime.cancelQueued).toHaveBeenCalledTimes(1);
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('delivers queued ordinary Codex follow-ups with their activated tokens', async () => {
+  vi.restoreAllMocks();
+  const clientId = `codex-fifo-${Date.now()}`;
+  const sessionId = `codex-fifo-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'codex-fifo-active',
+      'codex-fifo-initial',
+      'codex-fifo-initial-fp',
+    ).token;
+
+    const first = chat.sendToChat(
+      clientId,
+      'first Codex FIFO',
+      undefined,
+      undefined,
+      'codex-fifo-1',
+    );
+    const second = chat.sendToChat(
+      clientId,
+      'second Codex FIFO',
+      undefined,
+      undefined,
+      'codex-fifo-2',
+    );
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+    await expect(first).resolves.toBe(true);
+    expect(runtime.admitExplicitSend.mock.calls[0][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 2 }),
+    });
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      chat.registry.get(clientId)!.currentExecution!,
+      'completed',
+    );
+    await expect(second).resolves.toBe(true);
+    expect(runtime.admitExplicitSend.mock.calls[1][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 3 }),
+    });
+    expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(2);
   } finally {
     chat.registry.abort(clientId);
   }

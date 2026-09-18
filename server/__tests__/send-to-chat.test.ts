@@ -443,12 +443,18 @@ describe('interruptChat emits user_message via transport', () => {
     await expect(Promise.all([first, exactRetry])).resolves.toEqual([true, true]);
     expect(registry.get(CLIENT_ID)?.currentExecution).toMatchObject({ generation: 2 });
     expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy.mock.calls[0][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 2 }),
+    });
 
     const firstToken = registry.get(CLIENT_ID)!.currentExecution!;
     await controller.finishExecution(registry.getRuntimeLease(CLIENT_ID)!, firstToken, 'completed');
     await expect(second).resolves.toBe(true);
     expect(registry.get(CLIENT_ID)?.currentExecution).toMatchObject({ generation: 3 });
     expect(pushSpy).toHaveBeenCalledTimes(2);
+    expect(pushSpy.mock.calls[1][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 3 }),
+    });
     expect(
       eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
     ).toHaveLength(2);

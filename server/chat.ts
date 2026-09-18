@@ -2490,6 +2490,7 @@ async function dispatchToChat(
       if (acknowledge()) return true;
       session.inputQueue.push({
         message: makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
+        ...(executionToken ? { executionToken } : {}),
       } satisfies ProviderInput);
     }
     return true;

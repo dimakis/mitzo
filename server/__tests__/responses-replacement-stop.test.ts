@@ -140,6 +140,68 @@ it('does not prepare or push a Responses replacement after stop wins during inte
   }
 });
 
+it('delivers queued ordinary Responses follow-ups with their activated tokens', async () => {
+  const clientId = `responses-fifo-${Date.now()}`;
+  const sessionId = `responses-fifo-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset();
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-fifo-active',
+      'responses-fifo-initial',
+      'responses-fifo-initial-fp',
+    ).token;
+
+    const first = chat.sendToChat(clientId, 'first Responses FIFO', undefined, undefined, 'resp-1');
+    const second = chat.sendToChat(
+      clientId,
+      'second Responses FIFO',
+      undefined,
+      undefined,
+      'resp-2',
+    );
+    expect(push).not.toHaveBeenCalled();
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+    await expect(first).resolves.toBe(true);
+    expect(push.mock.calls[0][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 2 }),
+    });
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      chat.registry.get(clientId)!.currentExecution!,
+      'completed',
+    );
+    await expect(second).resolves.toBe(true);
+    expect(push.mock.calls[1][0]).toMatchObject({
+      executionToken: expect.objectContaining({ generation: 3 }),
+    });
+    expect(responses.prepare).toHaveBeenCalledTimes(2);
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
 it('validates and durably persists the effective Responses replacement selection before dispatch', async () => {
   const clientId = `responses-selection-${Date.now()}`;
   const sessionId = `responses-selection-session-${Date.now()}`;
