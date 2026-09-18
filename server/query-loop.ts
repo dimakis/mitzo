@@ -1,4 +1,5 @@
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
+import type { ExecutionToken } from '@mitzo/protocol';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
 import { storeImage } from './image-store.js';
@@ -200,11 +201,14 @@ export interface QueryLoopOptions {
   /** Called when an assistant turn completes (snapshot cleared). */
   onTurnEnd?: (clientId: string) => void;
   /** First syntactically valid event from the provider stream, not query allocation. */
-  onProviderReady?: () => void;
+  onProviderReady?: (token?: ExecutionToken) => void;
   /** A provider result ended this admitted initial execution. */
-  onProviderResult?: (outcome: 'completed' | 'failed') => Promise<void> | void;
+  onProviderResult?: (
+    outcome: 'completed' | 'failed',
+    token?: ExecutionToken,
+  ) => Promise<void> | void;
   /** The stream failed before or after readiness. The callback owns execution terminal state. */
-  onProviderFailure?: (beforeReady: boolean) => Promise<void> | void;
+  onProviderFailure?: (beforeReady: boolean, token?: ExecutionToken) => Promise<void> | void;
   /** The caller owns canonical execution lifecycle rather than legacy session state. */
   executionOwned?: boolean;
 }
@@ -262,6 +266,7 @@ async function _runQueryLoopInner(
   const onProviderReady = options?.onProviderReady;
   const onProviderResult = options?.onProviderResult;
   const onProviderFailure = options?.onProviderFailure;
+  let providerToken: ExecutionToken | undefined;
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -454,12 +459,20 @@ async function _runQueryLoopInner(
     // outer try ensures span.end() always fires
     try {
       for await (const msg of q) {
+        const tagged = (msg as Record<string, unknown>).mitzoExecutionToken;
+        if (
+          tagged &&
+          typeof tagged === 'object' &&
+          typeof (tagged as ExecutionToken).executionId === 'string' &&
+          typeof (tagged as ExecutionToken).generation === 'number'
+        )
+          providerToken = tagged as ExecutionToken;
         const currentSession = currentOwnerSession();
         if (!currentSession) break;
         if (!firstEventReceived) {
           firstEventReceived = true;
           clearTimeout(firstEventTimer);
-          onProviderReady?.();
+          onProviderReady?.(providerToken);
           // Session state machine: mark ACTIVE on first SDK event (resume path)
           const sid = resolvedSessionId || currentOwnerSession()?.sessionId;
           if (store && sid) {
@@ -593,7 +606,7 @@ async function _runQueryLoopInner(
           terminalOutcomeAttempted = true;
           const outcome = classifyProviderResultOutcome(msg as Record<string, unknown>);
           if (outcome === 'failed') lifecycleTerminalReason = 'error';
-          await onProviderResult?.(outcome);
+          await onProviderResult?.(outcome, providerToken);
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);
@@ -1395,7 +1408,7 @@ async function _runQueryLoopInner(
       }
       if (!terminalOutcomeAttempted && !wasDeliberatelyStopped()) {
         lifecycleTerminalReason = 'error';
-        await onProviderFailure?.(!firstEventReceived);
+        await onProviderFailure?.(!firstEventReceived, providerToken);
       }
     } catch {
       const deliberatelyStopped = wasDeliberatelyStopped();
@@ -1404,7 +1417,7 @@ async function _runQueryLoopInner(
       } else {
         caughtError = true;
         lifecycleTerminalReason = 'error';
-        await onProviderFailure?.(!firstEventReceived);
+        await onProviderFailure?.(!firstEventReceived, providerToken);
         span.setStatus({
           code: SpanStatusCode.ERROR,
           message: 'provider_stream_failed',

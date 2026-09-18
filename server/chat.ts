@@ -30,7 +30,7 @@ import type {
   ManagedSession,
   PendingExecutionInput,
 } from '@mitzo/harness';
-import type { ExecutionToken } from '@mitzo/protocol';
+import type { ExecutionEnvelope, ExecutionToken } from '@mitzo/protocol';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -79,6 +79,49 @@ export function setTaskStore(store: TaskStore): void {
 
 type QueryInstance = AsyncIterable<Record<string, unknown>> &
   NonNullable<ManagedSession['queryInstance']>;
+
+type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
+
+/**
+ * Keep provider output tied to the input turn that caused it.  The holder is
+ * local to one provider stream: it is deliberately not the session's mutable
+ * `currentExecution`, which can be replaced while an old provider finalizer is
+ * still in flight.
+ */
+function executionBoundSdkPrompt(
+  input: AsyncIterable<ProviderInput>,
+  active: { token?: ExecutionToken },
+): AsyncIterable<SDKUserMessage> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for await (const envelope of input) {
+        active.token = envelope.executionToken;
+        yield envelope.message;
+      }
+    },
+  };
+}
+
+/** Copy the local input token onto every provider event, including EOF/error paths. */
+function executionBoundQuery(
+  query: QueryInstance,
+  active: { token?: ExecutionToken },
+): QueryInstance {
+  return {
+    async *[Symbol.asyncIterator]() {
+      for await (const event of query) {
+        yield {
+          ...event,
+          ...(active.token ? { mitzoExecutionToken: active.token } : {}),
+        };
+      }
+    },
+    setPermissionMode: query.setPermissionMode,
+    interrupt: query.interrupt,
+    close: query.close,
+    stopTask: query.stopTask,
+  };
+}
 
 /** Validate and adapt SDK messages at the boundary instead of asserting incompatible iterables. */
 export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
@@ -1298,8 +1341,7 @@ async function _startChatInner(
     (options.requestFingerprint ? randomUUID() : undefined);
 
   // Streaming-input queue — kept open for the session lifetime.
-  const inputQueue = new AsyncQueue<SDKUserMessage>();
-  inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  const inputQueue = new AsyncQueue<ProviderInput>();
 
   if (!options.resume && durableSessionId) {
     eventStore.upsertSession({
@@ -1511,10 +1553,6 @@ async function _startChatInner(
     : undefined;
   const ownsRuntime = () =>
     !!runtimeLease && registry.resolveRuntimeLease(runtimeLease)?.session === session;
-  const finishInitial = async (reason: 'completed' | 'failed' | 'startup_failed') => {
-    if (controller && initialToken && runtimeLease && ownsRuntime())
-      await controller.finishExecution(runtimeLease, initialToken, reason);
-  };
   const isDeliberatelyStopped = () =>
     !!initialToken &&
     session.stoppedExecution?.executionId === initialToken.executionId &&
@@ -1524,6 +1562,15 @@ async function _startChatInner(
   let executionCompletion: Promise<void> | undefined;
   const runProvider = async (token?: ExecutionToken): Promise<void> => {
     initialToken = token;
+    // The first prompt is admitted to the provider stream only after the
+    // execution token exists.  Every subsequent provider result is therefore
+    // attributable to this immutable token rather than to a session lookup.
+    inputQueue.push({
+      message: makeUserMessage(fullPrompt, 'now'),
+      ...(token ? { executionToken: token } : {}),
+      ...(options.clientMsgId ? { commandId: options.clientMsgId } : {}),
+    });
+    const activeProviderInput: { token?: ExecutionToken } = { token };
     try {
       await providerPreflight?.();
       if (newSdkSessionId) {
@@ -1568,6 +1615,7 @@ async function _startChatInner(
           reasoningEffort: options.reasoningEffort,
           images: options.images,
           messageId,
+          executionToken: token,
           systemPrompt: systemPromptAppend,
           env: sessionEnv,
           mcpServers: allMcpServers,
@@ -1614,38 +1662,41 @@ async function _startChatInner(
           onDemandCreate: buildOnDemandCreate(wtId),
         });
       } else
-        q = adaptSdkQuery(
-          query({
-            prompt: inputQueue as AsyncIterable<SDKUserMessage>,
-            options: {
-              cwd,
-              env: sessionEnv,
-              abortController,
-              includePartialMessages: true,
-              settingSources: ['project'],
-              systemPrompt: {
-                type: 'preset',
-                preset: 'claude_code',
-                append: systemPromptAppend,
-              },
-              permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
-              allowedTools: [...mcpAllowed, ...extraTools],
-              thinking: resolveThinking(options.model),
-              ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
-              ...(resolvedResume ? { resume: resolvedResume } : {}),
-              ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
-              ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
-              hooks: buildSessionPermissionHooks(
-                buildPermissionHandler(clientId, registry, {
+        q = executionBoundQuery(
+          adaptSdkQuery(
+            query({
+              prompt: executionBoundSdkPrompt(inputQueue, activeProviderInput),
+              options: {
+                cwd,
+                env: sessionEnv,
+                abortController,
+                includePartialMessages: true,
+                settingSources: ['project'],
+                systemPrompt: {
+                  type: 'preset',
+                  preset: 'claude_code',
+                  append: systemPromptAppend,
+                },
+                permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
+                allowedTools: [...mcpAllowed, ...extraTools],
+                thinking: resolveThinking(options.model),
+                ...(options.model ? { model: parseModelSpec(options.model).model } : {}),
+                ...(resolvedResume ? { resume: resolvedResume } : {}),
+                ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
+                ...(Object.keys(allMcpServers).length > 0 ? { mcpServers: allMcpServers } : {}),
+                hooks: buildSessionPermissionHooks(
+                  buildPermissionHandler(clientId, registry, {
+                    onDemandCreate: buildOnDemandCreate(wtId),
+                  }),
+                  hooks,
+                ),
+                canUseTool: buildPermissionHandler(clientId, registry, {
                   onDemandCreate: buildOnDemandCreate(wtId),
                 }),
-                hooks,
-              ),
-              canUseTool: buildPermissionHandler(clientId, registry, {
-                onDemandCreate: buildOnDemandCreate(wtId),
-              }),
-            },
-          }),
+              },
+            }),
+          ),
+          activeProviderInput,
         );
 
       session.queryInstance = q;
@@ -1711,11 +1762,14 @@ async function _startChatInner(
           ...(options.requestFingerprint
             ? {
                 executionOwned: true,
-                onProviderReady: () => {
+                onProviderReady: (providerToken) => {
                   const resolved = runtimeLease && registry.resolveRuntimeLease(runtimeLease);
                   const current = resolved?.session.currentExecution;
                   if (
                     !initialToken ||
+                    (providerToken &&
+                      (providerToken.executionId !== initialToken.executionId ||
+                        providerToken.generation !== initialToken.generation)) ||
                     !resolved ||
                     resolved.session !== session ||
                     current?.executionId !== initialToken.executionId ||
@@ -1726,13 +1780,49 @@ async function _startChatInner(
                   resolveProviderReady?.();
                   options.onProviderReady?.({ sessionId: durableSessionId!, token: initialToken });
                 },
-                onProviderResult: async (outcome) => {
-                  await finishInitial(outcome);
+                onProviderResult: async (outcome, providerToken) => {
+                  const ownedToken = providerToken ?? initialToken;
+                  if (!ownedToken || !runtimeLease || !ownsRuntime()) return;
+                  const current =
+                    registry.resolveRuntimeLease(runtimeLease)?.session.currentExecution;
+                  if (
+                    !current ||
+                    current.executionId !== ownedToken.executionId ||
+                    current.generation !== ownedToken.generation
+                  )
+                    return;
+                  await controller?.finishExecution(runtimeLease, ownedToken, outcome);
                 },
-                onProviderFailure: async (beforeReady: boolean) => {
-                  if (isDeliberatelyStopped()) return;
-                  await finishInitial(beforeReady ? 'startup_failed' : 'failed');
-                  if (beforeReady) {
+                onProviderFailure: async (beforeReady: boolean, providerToken) => {
+                  const ownedToken = providerToken ?? initialToken;
+                  if (!ownedToken || !runtimeLease) return;
+                  // Runtime removal can unwind the initial stream before it
+                  // emits an event. Preserve the initial launch completion
+                  // contract, but never let an old tagged turn reject it once
+                  // a replacement token is current.
+                  if (!ownsRuntime()) {
+                    if (beforeReady && ownedToken === initialToken && !isDeliberatelyStopped())
+                      rejectProviderReady?.(
+                        new Error('Chat provider did not become ready. Please retry.'),
+                      );
+                    return;
+                  }
+                  const current =
+                    registry.resolveRuntimeLease(runtimeLease)?.session.currentExecution;
+                  if (
+                    !current ||
+                    current.executionId !== ownedToken.executionId ||
+                    current.generation !== ownedToken.generation ||
+                    (session.stoppedExecution?.executionId === ownedToken.executionId &&
+                      session.stoppedExecution.generation === ownedToken.generation)
+                  )
+                    return;
+                  await controller?.finishExecution(
+                    runtimeLease,
+                    ownedToken,
+                    beforeReady ? 'startup_failed' : 'failed',
+                  );
+                  if (beforeReady && ownedToken === initialToken) {
                     if (ownsRuntime()) cleanupSessionWorktrees(session);
                     rejectProviderReady?.(
                       new Error('Chat provider did not become ready. Please retry.'),
@@ -1999,6 +2089,7 @@ export async function sendToChat(
   reasoningEffort?: string | null,
   signal?: AbortSignal,
   userIntent?: string,
+  executionToken?: ExecutionToken,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -2108,6 +2199,7 @@ export async function sendToChat(
             images,
             reasoningEffort,
             ...(model ? { model } : {}),
+            ...(executionToken ? { executionToken } : {}),
           },
           signal,
         );
@@ -2133,9 +2225,9 @@ export async function sendToChat(
       }
     } else {
       if (acknowledge()) return true;
-      session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
-      );
+      session.inputQueue.push({
+        message: makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
+      } satisfies ProviderInput);
     }
     return true;
   });
@@ -2237,7 +2329,7 @@ export async function interruptChat(
           ...(imageRefs?.length ? { images: imageRefs } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
         },
-        dispatch: async (_token) => {
+        dispatch: async (token) => {
           if (codex) {
             await codex.interrupt();
             if (
@@ -2249,6 +2341,9 @@ export async function interruptChat(
                 messageId,
                 model,
                 reasoningEffort,
+                undefined,
+                undefined,
+                token,
               ))
             )
               throw new Error('provider did not accept interrupt message');
@@ -2258,7 +2353,11 @@ export async function interruptChat(
               ...(model ? { model } : {}),
               ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
             });
-            session.inputQueue!.push(makeUserMessage(fullPrompt, 'now', messageId));
+            session.inputQueue!.push({
+              message: makeUserMessage(fullPrompt, 'now', messageId),
+              executionToken: token,
+              commandId: messageId,
+            } satisfies ProviderInput);
           } else {
             await Promise.allSettled(
               [...session.activeTaskIds.keys()].map((taskId) =>
@@ -2266,7 +2365,11 @@ export async function interruptChat(
               ),
             );
             await session.queryInstance!.interrupt();
-            session.inputQueue!.push(makeUserMessage(fullPrompt, 'now'));
+            session.inputQueue!.push({
+              message: makeUserMessage(fullPrompt, 'now'),
+              executionToken: token,
+              commandId: messageId,
+            } satisfies ProviderInput);
           }
           if (model) session.model = model;
         },
@@ -2400,7 +2503,10 @@ function queueCloseoutPrompt(
     void codex
       .startQueued()
       .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
-  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
+  else
+    session.inputQueue?.push({
+      message: makeUserMessage(prompt, 'now', responses ? messageId : undefined),
+    } satisfies ProviderInput);
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.

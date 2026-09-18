@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, ExecutionEnvelope } from '@mitzo/protocol';
 import { NativeResponsesRunner } from './native-responses-runner.js';
 import { NativeResponsesStore } from './native-responses-store.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
@@ -41,7 +41,12 @@ interface Options {
   gemini?: GeminiOptions;
   session: ManagedSession;
   registry: SessionRegistry;
-  input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
+  input: AsyncIterable<
+    ExecutionEnvelope<{
+      message: { content: unknown };
+      mitzoMessageId?: string;
+    }>
+  > & {
     close(): void;
   };
   systemPrompt: string;
@@ -154,8 +159,9 @@ export async function openResponsesChat(options: Options) {
     async *[Symbol.asyncIterator]() {
       try {
         yield { type: 'system', subtype: 'init', session_id: options.conversationId };
-        for await (const message of options.input) {
+        for await (const envelope of options.input) {
           signal.throwIfAborted();
+          const message = envelope.message;
           if (typeof message.message.content !== 'string')
             throw new Error('API chat currently supports text input');
           interrupted = false;
@@ -167,14 +173,24 @@ export async function openResponsesChat(options: Options) {
             )) {
               if (event.type === 'result')
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
-              yield { ...event };
+              yield {
+                ...event,
+                ...(envelope.executionToken
+                  ? { mitzoExecutionToken: envelope.executionToken }
+                  : {}),
+              };
             }
           } catch {
             if (!interrupted || signal.aborted)
               throw new Error(
                 'API turn failed or was interrupted. Inspect the task before retrying.',
               );
-            yield { type: 'result', session_id: options.conversationId, is_error: true };
+            yield {
+              type: 'result',
+              session_id: options.conversationId,
+              is_error: true,
+              ...(envelope.executionToken ? { mitzoExecutionToken: envelope.executionToken } : {}),
+            };
           }
         }
       } finally {

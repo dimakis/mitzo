@@ -33,6 +33,14 @@ const CommandInput = z
       .max(10)
       .optional(),
     allowedTools: z.array(z.string()).optional(),
+    executionToken: z
+      .object({
+        sessionId: z.string().min(1),
+        executionId: z.string().min(1),
+        generation: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type CodexCommandInput = z.infer<typeof CommandInput>;
@@ -56,6 +64,7 @@ function idempotencyInput(input: CodexCommandInput, includeIntent: boolean): str
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.images !== undefined ? { images: input.images } : {}),
     ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+    ...(input.executionToken !== undefined ? { executionToken: input.executionToken } : {}),
   });
 }
 

@@ -633,6 +633,7 @@ export class CodexConversation {
         providerTransportFailed &&
         !this.automaticTransportRecoveryAttempted &&
         this.queue().some((command) => command.status === 'queued');
+      const executionToken = this.active.command.executionToken;
       this.active.abort.abort();
       if (status === 'completed')
         this.opts.store.finish(
@@ -653,7 +654,7 @@ export class CodexConversation {
       if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
-      this.mapper?.notification(method, params);
+      this.mapper?.notification(method, params, executionToken);
       if (status === 'failed')
         this.opts.onError?.(new Error(codexTurnFailureDiagnostic(turn.data.error)));
       this.opts.onQueueChange?.();
@@ -663,7 +664,7 @@ export class CodexConversation {
         .catch((e) => this.opts.onError?.(e instanceof Error ? e : new Error('Codex turn failed')));
       return;
     }
-    this.mapper?.notification(method, params);
+    this.mapper?.notification(method, params, this.active?.command.executionToken);
   }
   private async request(
     method: string,

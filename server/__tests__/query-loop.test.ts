@@ -2376,6 +2376,56 @@ it('reports a pre-ready provider failure without exposing its raw error', async 
   );
 });
 
+it('reports result, failure, and clean EOF against the tagged provider execution', async () => {
+  const transport = fakeTransport();
+  const registry = fakeRegistry(transport);
+  const old = { sessionId: 'saved', executionId: 'old', generation: 1 };
+  const replacement = { sessionId: 'saved', executionId: 'new', generation: 2 };
+  const results: Array<{ outcome: string; token?: unknown }> = [];
+  const failures: Array<{ beforeReady: boolean; token?: unknown }> = [];
+  async function* resultStream() {
+    yield { type: 'system', subtype: 'init', session_id: 'saved', mitzoExecutionToken: old };
+    yield {
+      type: 'result',
+      session_id: 'saved',
+      is_error: false,
+      mitzoExecutionToken: replacement,
+    };
+  }
+  await runQueryLoop(
+    resultStream(),
+    'tagged-client',
+    registry,
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      onProviderResult: (outcome, token) => results.push({ outcome, token }),
+    },
+  );
+  expect(results).toEqual([{ outcome: 'completed', token: replacement }]);
+
+  async function* eofStream() {
+    yield {
+      type: 'stream_event',
+      event: { type: 'message_start', message: { id: 'new' } },
+      mitzoExecutionToken: replacement,
+    };
+  }
+  await runQueryLoop(
+    eofStream(),
+    'tagged-client',
+    fakeRegistry(fakeTransport()),
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      onProviderFailure: (beforeReady, token) => failures.push({ beforeReady, token }),
+    },
+  );
+  expect(failures).toEqual([{ beforeReady: false, token: replacement }]);
+});
+
 describe('provider result outcome classification', () => {
   it('recognizes emitted Anthropic, Codex, and native Responses/Gemini result shapes', () => {
     expect(classifyProviderResultOutcome({ type: 'result', subtype: 'success' })).toBe('completed');

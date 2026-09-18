@@ -37,3 +37,10 @@ export class AsyncQueue<T> implements AsyncIterable<T> {
     }
   }
 }
+
+/** Provider-agnostic command envelope. Adapters copy this token onto terminal events. */
+export interface ExecutionEnvelope<T> {
+  executionToken?: import('./types.js').ExecutionToken;
+  commandId?: string;
+  message: T;
+}

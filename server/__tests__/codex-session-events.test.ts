@@ -49,6 +49,20 @@ it('maps streamed text and completion using application identity and ignores oth
     'content_block_stop',
   ]);
 });
+
+it('binds a Codex completion to the exact command execution token', () => {
+  const events: Record<string, unknown>[] = [];
+  const token = { sessionId: 'app', executionId: 'replacement', generation: 2 };
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  mapper.notification(
+    'turn/completed',
+    { threadId: 'provider', turn: { id: 'replacement-turn', status: 'completed' } },
+    token,
+  );
+  expect(events).toContainEqual(
+    expect.objectContaining({ type: 'result', mitzoExecutionToken: token }),
+  );
+});
 it('handles final-only text, repeated completion, and flushes partial text on interruption', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'provider', 'model', (e) => events.push(e));

@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { SessionRegistry } from '@mitzo/harness';
 import { AsyncQueue } from '../async-queue.js';
+import type { ExecutionEnvelope } from '@mitzo/protocol';
 const calls = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
   prompts: [] as string[],
@@ -38,9 +39,9 @@ it('runs successive user turns with a private credential and closes its input qu
     cwd: '/tmp',
     sessionAllowList: new Set(),
   });
-  const input = new AsyncQueue<{ message: { content: string } }>();
-  input.push({ message: { content: 'first' } });
-  input.push({ message: { content: 'second' } });
+  const input = new AsyncQueue<ExecutionEnvelope<{ message: { content: string } }>>();
+  input.push({ message: { message: { content: 'first' } } });
+  input.push({ message: { message: { content: 'second' } } });
   input.close();
   const chat = await openResponsesChat({
     conversationId: 'app',
@@ -69,6 +70,47 @@ it('runs successive user turns with a private credential and closes its input qu
   expect(calls.options[0].tools).toEqual(
     expect.arrayContaining([expect.objectContaining({ name: 'AskUserQuestion' })]),
   );
+  registry.dispose();
+});
+
+it('copies each immutable input token onto native result events', async () => {
+  const registry = new SessionRegistry();
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const token = { sessionId: 'app', executionId: 'replacement', generation: 2 };
+  const input = new AsyncQueue<ExecutionEnvelope<{ message: { content: string } }>>();
+  input.push({ message: { message: { content: 'replacement prompt' } }, executionToken: token });
+  input.close();
+  const chat = await openResponsesChat({
+    conversationId: 'app',
+    binding: {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'openai',
+      model: 'test',
+      profileRevision: 'revision',
+    },
+    apiKey: 'private-test-key',
+    session: registry.get('client')!,
+    registry,
+    input,
+    systemPrompt: 'context',
+    env: { PATH: '/usr/bin:/bin' },
+    mcpServers: {},
+    store: {} as never,
+  });
+  const events = [] as Record<string, unknown>[];
+  for await (const event of chat) events.push(event);
+  expect(events.filter((event) => event.type === 'result')).toEqual([
+    expect.objectContaining({ mitzoExecutionToken: token }),
+  ]);
   registry.dispose();
 });
 

@@ -87,6 +87,7 @@ export {
 
 // Async queue
 export { AsyncQueue } from './async-queue.js';
+export type { ExecutionEnvelope } from './async-queue.js';
 
 // WS schemas (v1 — legacy, used during migration)
 export {

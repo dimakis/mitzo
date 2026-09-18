@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { StreamEvent } from '@mitzo/harness';
+import type { ExecutionToken } from '@mitzo/protocol';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
@@ -20,17 +21,24 @@ export class CodexSessionEvents {
     output_tokens: number;
     cache_read_input_tokens: number;
   };
+  private executionToken?: ExecutionToken;
   constructor(
     private conversationId: string,
     private threadId: string,
     private model: string,
     private emit: (event: ObjectValue) => void,
   ) {}
+  private emitEvent(event: ObjectValue) {
+    this.emit({
+      ...event,
+      ...(this.executionToken ? { mitzoExecutionToken: this.executionToken } : {}),
+    });
+  }
   setModel(model: string) {
     this.model = model;
   }
   private stream(event: StreamEvent) {
-    this.emit({ type: 'stream_event', event, parent_tool_use_id: null });
+    this.emitEvent({ type: 'stream_event', event, parent_tool_use_id: null });
   }
   private start(id: string, kind: 'text' | 'thinking' = 'text') {
     let item = this.texts.get(id);
@@ -61,7 +69,7 @@ export class CodexSessionEvents {
     if (!item || item.closed) return;
     item.closed = true;
     this.stream({ type: 'content_block_stop', index: 0 });
-    this.emit({
+    this.emitEvent({
       type: 'assistant',
       session_id: this.conversationId,
       parent_tool_use_id: null,
@@ -77,7 +85,8 @@ export class CodexSessionEvents {
   flush() {
     for (const [id] of this.texts) this.complete(id);
   }
-  notification(method: string, params: ObjectValue) {
+  notification(method: string, params: ObjectValue, executionToken?: ExecutionToken) {
+    this.executionToken = executionToken;
     if (params.threadId !== this.threadId) return;
     if (method === 'turn/started') {
       this.turnFinished = false;
@@ -264,7 +273,7 @@ export class CodexSessionEvents {
       this.finishedTurns.add(turn.id);
       this.turnFinished = true;
       this.flush();
-      this.emit({
+      this.emitEvent({
         type: 'result',
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
@@ -296,7 +305,7 @@ export class CodexSessionEvents {
       delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) },
     });
     this.stream({ type: 'content_block_stop', index: 0 });
-    this.emit({
+    this.emitEvent({
       type: 'assistant',
       session_id: this.conversationId,
       parent_tool_use_id: null,
@@ -305,7 +314,7 @@ export class CodexSessionEvents {
     return id;
   }
   toolResult(id: string, content: string, isError: boolean) {
-    this.emit({
+    this.emitEvent({
       type: 'user',
       parent_tool_use_id: null,
       message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },

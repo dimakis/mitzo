@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, ExecutionToken } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
@@ -189,6 +189,7 @@ interface Options {
   reasoningEffort?: string | null;
   images?: Array<{ data: string; mediaType: string }>;
   messageId: string;
+  executionToken?: ExecutionToken;
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
@@ -689,6 +690,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       model: options.model,
       reasoningEffort: options.reasoningEffort,
       images: options.images,
+      ...(options.executionToken ? { executionToken: options.executionToken } : {}),
     });
   } catch (error) {
     close();
