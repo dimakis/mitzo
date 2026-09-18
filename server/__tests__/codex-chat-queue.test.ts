@@ -6,6 +6,7 @@ import type { ManagedSession } from '@mitzo/harness';
 const runtime = vi.hoisted(() => ({
   admitExplicitSend: vi.fn(),
   enqueue: vi.fn(),
+  interrupt: vi.fn().mockResolvedValue(undefined),
   send: vi.fn().mockResolvedValue(undefined),
   resumeAfterExplicitSend: vi.fn().mockResolvedValue(undefined),
 }));
@@ -22,6 +23,7 @@ beforeEach(() => {
     reasoningEffort: undefined,
   });
   runtime.enqueue.mockReset();
+  runtime.interrupt.mockReset().mockResolvedValue(undefined);
   runtime.resumeAfterExplicitSend.mockReset().mockResolvedValue(undefined);
   runtime.send.mockReset().mockImplementation(async (_input, onEnqueued?: () => void) => {
     onEnqueued?.();
@@ -102,4 +104,64 @@ it('queues image and thinking input on an existing conversation', async () => {
     },
     undefined,
   );
+});
+
+it('terminalizes a replacement when Codex resume rejects, without retrying the provider', async () => {
+  // Earlier queue tests intentionally use temporary registry spies. This
+  // replacement exercise needs the real immutable lease/controller path.
+  vi.restoreAllMocks();
+  const clientId = `codex-replacement-${Date.now()}`;
+  const sessionId = `codex-replacement-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(sessionId, 'codex-old-turn').token;
+    runtime.resumeAfterExplicitSend.mockRejectedValueOnce(new Error('resume denied'));
+
+    const outcome = await chat.interruptChat(
+      clientId,
+      'replacement',
+      undefined,
+      undefined,
+      'codex-replacement-message',
+    );
+    expect(outcome).toEqual({ kind: 'accepted' });
+
+    const stored = chat.eventStore.getSession(sessionId)!;
+    expect(stored).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionGeneration: 2,
+      executionTerminalReason: 'failed',
+    });
+    expect(chat.registry.get(clientId)?.currentExecution).toBeUndefined();
+    expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
+
+    await expect(
+      chat.interruptChat(
+        clientId,
+        'replacement',
+        undefined,
+        undefined,
+        'codex-replacement-message',
+      ),
+    ).resolves.toEqual({ kind: 'duplicate_already_accepted' });
+    expect(runtime.interrupt).toHaveBeenCalledTimes(1);
+    expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(1);
+  } finally {
+    chat.registry.abort(clientId);
+  }
 });

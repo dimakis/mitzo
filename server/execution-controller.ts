@@ -262,14 +262,17 @@ export class ExecutionController {
           await prepared.dispatch(admission.token);
         } catch (error) {
           const resolved = this.options.registry.resolveRuntimeLease(lease);
-          if (!resolved) return { stale: true };
+          // Admission is already durable. A stop/replacement/removal that
+          // wins while provider work unwinds must not turn its exact retry
+          // into an unavailable receipt.
+          if (!resolved) return { token: admission.token, admission, stale: true };
           const current = resolved.session.currentExecution;
           if (
             !current ||
             current.executionId !== admission.token.executionId ||
             current.generation !== admission.token.generation
           )
-            return { stale: true };
+            return { token: admission.token, admission, stale: true };
           const terminal = this.options.eventStore.transitionExecution(
             admission.token,
             'TERMINAL',

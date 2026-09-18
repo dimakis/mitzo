@@ -94,14 +94,15 @@ type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
  * `currentExecution`, which can be replaced while an old provider finalizer is
  * still in flight.
  */
-type ProviderTurnBinding = {
+export type ProviderTurnBinding = {
   token?: ExecutionToken;
   terminal: Promise<void>;
   releaseTerminal: () => void;
   begin(token: ExecutionToken | undefined): void;
 };
 
-function makeProviderTurnBinding(): ProviderTurnBinding {
+/** @internal Kept exported so adapter race coverage exercises the real token fence. */
+export function makeProviderTurnBinding(): ProviderTurnBinding {
   const releaseTerminal = () => undefined;
   return {
     terminal: Promise.resolve(),
@@ -117,7 +118,8 @@ function makeProviderTurnBinding(): ProviderTurnBinding {
   };
 }
 
-function executionBoundSdkPrompt(
+/** @internal Provider adapter boundary; output ownership is intentionally immutable per turn. */
+export function executionBoundSdkPrompt(
   input: AsyncIterable<ProviderInput> & { close?: () => void },
   active: ProviderTurnBinding,
 ): AsyncIterable<SDKUserMessage> & { close?: () => void } {
@@ -141,7 +143,11 @@ function executionBoundSdkPrompt(
 }
 
 /** Copy the local input token onto every provider event, including EOF/error paths. */
-function executionBoundQuery(query: QueryInstance, active: ProviderTurnBinding): QueryInstance {
+/** @internal Provider adapter boundary; output ownership is intentionally immutable per turn. */
+export function executionBoundQuery(
+  query: QueryInstance,
+  active: ProviderTurnBinding,
+): QueryInstance {
   return {
     async *[Symbol.asyncIterator]() {
       try {
