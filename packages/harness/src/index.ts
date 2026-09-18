@@ -9,6 +9,7 @@ export type {
   PreparedReplacementInput,
   RuntimeSessionLease,
   RuntimeOwnerSnapshot,
+  RuntimeOwnerReservation,
   ActiveSessionInfo,
   CloseoutHandler,
 } from './session-registry.js';

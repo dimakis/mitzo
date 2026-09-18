@@ -203,6 +203,7 @@ export class ExecutionController {
       const resolved = this.options.registry.resolveRuntimeLease(lease);
       return resolved ? { busy: true } : { stale: true };
     }
+    let ownerReservation: unknown;
     try {
       if (
         !Number.isSafeInteger(prepared.retainedBytes) ||
@@ -211,15 +212,28 @@ export class ExecutionController {
       ) {
         return { error: new PendingExecutionOverflowError(lease.runtimeLeaseId) };
       }
-      const admission = this.options.eventStore.admitReplacement({
-        expectedOldToken: prepared.expectedToken,
-        executionId: prepared.executionId,
-        clientMsgId: prepared.clientMsgId,
-        requestFingerprint: prepared.requestFingerprint,
-        userMessage: prepared.userMessage,
-        selectedModel: prepared.selectedModel,
-        reasoningEffort: prepared.reasoningEffort,
-      });
+      // No durable replacement row may be committed until the requester has
+      // fenced competing owner transitions. A historical receipt bypassed
+      // this above, so it remains side-effect free.
+      if (prepared.reserveOwner) {
+        ownerReservation = prepared.reserveOwner();
+        if (!ownerReservation) return { busy: true };
+      }
+      let admission: ReplacementAdmissionResult;
+      try {
+        admission = this.options.eventStore.admitReplacement({
+          expectedOldToken: prepared.expectedToken,
+          executionId: prepared.executionId,
+          clientMsgId: prepared.clientMsgId,
+          requestFingerprint: prepared.requestFingerprint,
+          userMessage: prepared.userMessage,
+          selectedModel: prepared.selectedModel,
+          reasoningEffort: prepared.reasoningEffort,
+        });
+      } catch (error) {
+        if (ownerReservation) prepared.releaseOwner?.(ownerReservation);
+        throw error;
+      }
       if (!this.options.registry.resolveRuntimeLease(lease)) return { stale: true };
       if (!admission.duplicate) {
         if (
@@ -230,6 +244,18 @@ export class ExecutionController {
           )
         )
           return { stale: true };
+        if (ownerReservation && !prepared.commitOwner?.(ownerReservation)) {
+          // The receipt is durable, so it must be returned as accepted even
+          // though the provider cannot be routed. Terminalize only this new
+          // token; exact retry will replay its receipt without side effects.
+          const terminal = this.options.eventStore.transitionExecution(
+            admission.token,
+            'TERMINAL',
+            'failed',
+          );
+          if (terminal.applied) this.options.registry.clearCurrentExecution(lease, admission.token);
+          return { token: admission.token, admission, stale: true, notDispatched: true };
+        }
         const dispatchAllowed = (await prepared.beforeDispatch?.(admission.token)) ?? true;
         if (!dispatchAllowed) {
           const terminal = this.options.eventStore.transitionExecution(
@@ -285,6 +311,7 @@ export class ExecutionController {
       }
       return { token: admission.token, admission };
     } finally {
+      if (ownerReservation) prepared.releaseOwner?.(ownerReservation);
       this.options.registry.completeReplacementExecution(lease);
     }
   }

@@ -66,6 +66,12 @@ export interface PreparedReplacementInput {
   selectedModel?: string | null;
   reasoningEffort?: string | null;
   onAdmitted?: (token: ExecutionToken) => void;
+  /** Fence owner changes before the EventStore transaction. Exact duplicate receipts skip this. */
+  reserveOwner?: () => unknown | undefined;
+  /** Commit the already-reserved owner before any broadcast/provider work. */
+  commitOwner?: (reservation: unknown) => boolean;
+  /** Release a pre-admission reservation when the transaction cannot commit. */
+  releaseOwner?: (reservation: unknown) => void;
   /** Commit transport ownership after durable admission and before any live delivery. */
   beforeDispatch?: (token: ExecutionToken) => Promise<boolean> | boolean;
   dispatch: (token: ExecutionToken) => Promise<void> | void;
@@ -81,6 +87,14 @@ export interface RuntimeSessionLease {
 export interface RuntimeOwnerSnapshot extends RuntimeSessionLease {
   ownerConnectionId: string;
   ownerRevision: number;
+}
+
+/** A short-lived fence around durable replacement admission. It deliberately
+ * does not route output until commitReservedRuntimeOwner succeeds. */
+export interface RuntimeOwnerReservation extends RuntimeOwnerSnapshot {
+  readonly reservationId: symbol;
+  readonly nextOwnerConnectionId: string;
+  readonly nextTransport: SessionTransport;
 }
 
 export interface ManagedSession {
@@ -147,6 +161,8 @@ export interface ManagedSession {
   activatingPending: boolean;
   /** Serializes replacement admission against another interrupt/stop. */
   replacingExecution: boolean;
+  /** Prevents attachment/takeover/rekey from changing ownership mid-admission. */
+  ownerReservation?: RuntimeOwnerReservation;
 }
 
 /** Never expand permissions until a transition succeeds; apply downgrades immediately. */
@@ -237,6 +253,7 @@ export class SessionRegistry {
       | 'runtimeLeaseId'
       | 'pendingExecutionBytes'
       | 'replacingExecution'
+      | 'ownerReservation'
       | 'ownerRevision'
     > & {
       sessionId?: string;
@@ -263,6 +280,7 @@ export class SessionRegistry {
       pendingExecutionBytes: 0,
       activatingPending: false,
       replacingExecution: false,
+      ownerReservation: undefined,
       ownerConnectionId: init.ownerConnectionId ?? ownerConnectionForClientId(clientId),
       ownerRevision: 1,
     };
@@ -505,7 +523,7 @@ export class SessionRegistry {
    */
   reattach(clientId: string, transport: SessionTransport): boolean {
     const session = this.sessions.get(clientId);
-    if (!session) return false;
+    if (!session || session.ownerReservation) return false;
 
     session.transport = transport;
     session.ownerRevision += 1;
@@ -541,7 +559,7 @@ export class SessionRegistry {
     nextTransport: SessionTransport,
   ): boolean {
     const resolved = this.resolveLease(expected);
-    if (!resolved) return false;
+    if (!resolved || resolved.session.ownerReservation) return false;
     const session = resolved.session;
     const currentOwner = session.ownerConnectionId ?? ownerConnectionForClientId(resolved.clientId);
     if (
@@ -580,6 +598,69 @@ export class SessionRegistry {
     );
   }
 
+  /** Reserve an unchanged owner snapshot before durable replacement admission. */
+  reserveRuntimeOwner(
+    expected: RuntimeOwnerSnapshot,
+    nextOwnerConnectionId: string,
+    nextTransport: SessionTransport,
+  ): RuntimeOwnerReservation | undefined {
+    const resolved = this.resolveLease(expected);
+    if (!resolved) return undefined;
+    const session = resolved.session;
+    const currentOwner = session.ownerConnectionId ?? ownerConnectionForClientId(resolved.clientId);
+    if (
+      session.ownerReservation ||
+      currentOwner !== expected.ownerConnectionId ||
+      session.ownerRevision !== expected.ownerRevision
+    )
+      return undefined;
+    const reservation: RuntimeOwnerReservation = {
+      ...expected,
+      reservationId: Symbol('runtime-owner-reservation'),
+      nextOwnerConnectionId,
+      nextTransport,
+    };
+    session.ownerReservation = reservation;
+    return reservation;
+  }
+
+  /** Make a previously fenced handoff visible immediately before provider work. */
+  commitReservedRuntimeOwner(reservation: RuntimeOwnerReservation): boolean {
+    const resolved = this.resolveLease(reservation);
+    if (!resolved || resolved.session.ownerReservation !== reservation) return false;
+    const session = resolved.session;
+    const currentOwner = session.ownerConnectionId ?? ownerConnectionForClientId(resolved.clientId);
+    if (
+      currentOwner !== reservation.ownerConnectionId ||
+      session.ownerRevision !== reservation.ownerRevision
+    ) {
+      session.ownerReservation = undefined;
+      return false;
+    }
+    const changed =
+      session.ownerConnectionId !== reservation.nextOwnerConnectionId ||
+      session.transport !== reservation.nextTransport;
+    session.ownerConnectionId = reservation.nextOwnerConnectionId;
+    session.transport = reservation.nextTransport;
+    if (changed) session.ownerRevision += 1;
+    session.ownerReservation = undefined;
+    this.attached.add(resolved.clientId);
+    this.clearDetachTimer(resolved.clientId);
+    this.clearCloseoutTimer(resolved.clientId);
+    this.closingOut.delete(resolved.clientId);
+    this.userClosing.delete(resolved.clientId);
+    this.clearSuspendState(resolved.clientId);
+    return true;
+  }
+
+  /** DB failure/stale preflight: restore the exact no-routing state. */
+  releaseRuntimeOwnerReservation(reservation: RuntimeOwnerReservation): boolean {
+    const resolved = this.resolveLease(reservation);
+    if (!resolved || resolved.session.ownerReservation !== reservation) return false;
+    resolved.session.ownerReservation = undefined;
+    return true;
+  }
+
   /** Promote a known live connection outside a delayed replacement transaction. */
   promoteRuntimeOwner(
     clientId: string,
@@ -600,7 +681,8 @@ export class SessionRegistry {
    */
   rekey(oldId: string, newId: string): boolean {
     const session = this.sessions.get(oldId);
-    if (!session || (oldId !== newId && this.sessions.has(newId))) return false;
+    if (!session || session.ownerReservation || (oldId !== newId && this.sessions.has(newId)))
+      return false;
 
     // A key move changes the authority used by legacy routing fallbacks.
     // Invalidate snapshots captured before it even when the transport object

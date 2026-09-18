@@ -243,6 +243,32 @@ describe('SessionRegistry', () => {
       expect(registry.rollbackRuntimeOwner(committed, before, oldTransport)).toBe(false);
       expect(registry.get('old:session')?.ownerConnectionId).toBe('newest');
     });
+
+    it('fences takeover, reattach, and rekey until reserved ownership commits or rolls back', () => {
+      const oldTransport = fakeTransport();
+      const requester = fakeTransport();
+      registry.register('old:session', {
+        transport: oldTransport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: new Set(),
+        sessionId: 'session',
+      });
+      const lease = registry.getRuntimeLease('old:session')!;
+      const expected = registry.getRuntimeOwnerSnapshot(lease)!;
+      const reservation = registry.reserveRuntimeOwner(expected, 'requester', requester)!;
+
+      expect(registry.compareAndSwapRuntimeOwner(expected, 'racer', fakeTransport())).toBe(false);
+      expect(registry.reattach('old:session', fakeTransport())).toBe(false);
+      expect(registry.rekey('old:session', 'new:session')).toBe(false);
+      expect(registry.get('old:session')).toMatchObject({
+        ownerConnectionId: expected.ownerConnectionId,
+        transport: oldTransport,
+      });
+
+      expect(registry.releaseRuntimeOwnerReservation(reservation)).toBe(true);
+      expect(registry.compareAndSwapRuntimeOwner(expected, 'racer', requester)).toBe(true);
+    });
   });
 
   describe('detach', () => {

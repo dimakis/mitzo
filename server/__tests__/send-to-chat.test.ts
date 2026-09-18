@@ -484,7 +484,7 @@ describe('interruptChat emits user_message via transport', () => {
     expect(pushSpy).toHaveBeenCalledOnce();
   });
 
-  it('terminalizes a replacement admitted with a stale owner snapshot without provider delivery', async () => {
+  it('rejects a stale owner snapshot before replacement admission or provider delivery', async () => {
     const oldTransport = mockTransport();
     const newerOwnerTransport = mockTransport();
     const requesterTransport = mockTransport();
@@ -531,8 +531,14 @@ describe('interruptChat emits user_message via transport', () => {
     expect(newerOwnerTransport._sent).toEqual([]);
     expect(requesterTransport._sent).toEqual([]);
     expect(registry.get(CLIENT_ID)?.transport).toBe(newerOwnerTransport);
-    expect(eventStore.getSession(session.sessionId)?.executionPhase).toBe('TERMINAL');
-    expect(eventStore.getSession(session.sessionId)?.executionTerminalReason).toBe('failed');
+    // Owner fencing runs before EventStore admission: the old generation
+    // remains truthful and no phantom replacement/user-message is replayable.
+    expect(eventStore.getSession(session.sessionId)?.executionPhase).toBe('RUNNING');
+    expect(
+      eventStore
+        .getSessionEvents(session.sessionId!)
+        .filter((event) => event.type === 'user_message'),
+    ).toHaveLength(0);
   });
 
   it('rejects a mismatched payload under an accepted interrupt ID without redelivery', async () => {

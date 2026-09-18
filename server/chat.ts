@@ -29,6 +29,7 @@ import type {
   ConnectionRegistry,
   ManagedSession,
   PendingExecutionInput,
+  RuntimeOwnerReservation,
   RuntimeOwnerSnapshot,
 } from '@mitzo/harness';
 import type { ExecutionEnvelope, ExecutionToken } from '@mitzo/protocol';
@@ -2453,12 +2454,22 @@ export async function interruptChat(
       if (priorAdmission.requestFingerprint !== fingerprint) return { kind: 'conflict' };
       return { kind: 'duplicate_already_accepted' };
     }
+    // Fence owner changes before context/image preparation. This prevents a
+    // stale requester from growing image storage or committing a replacement
+    // while a newer connection takes ownership.
+    const ownerReservation = registry.reserveRuntimeOwner(
+      replacementOwnership.expected,
+      replacementOwnership.requesterConnectionId,
+      replacementOwnership.requesterTransport,
+    );
+    if (!ownerReservation) return { kind: 'unavailable_unreported' };
     // Context expansion is deliberately after idempotency preflight; it does
     // not stage images, and image paths are created only by provider dispatch.
     let fullPrompt: string;
     try {
       fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
     } catch {
+      registry.releaseRuntimeOwnerReservation(ownerReservation);
       return { kind: 'unavailable_unreported' };
     }
     const imageRefs = images
@@ -2481,32 +2492,23 @@ export async function interruptChat(
           ...(imageRefs?.length ? { images: imageRefs } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
         },
-        beforeDispatch: async () => {
-          if (
-            !registry.compareAndSwapRuntimeOwner(
-              replacementOwnership.expected,
-              replacementOwnership.requesterConnectionId,
-              replacementOwnership.requesterTransport,
-            )
-          )
+        reserveOwner: () => ownerReservation,
+        commitOwner: (reservation) => {
+          if (!registry.commitReservedRuntimeOwner(reservation as RuntimeOwnerReservation))
             return false;
-          const committed = registry.getRuntimeOwnerSnapshot(lease);
+          // Connection/watch bookkeeping is deliberately best-effort after
+          // the non-fallible owner commit. It cannot invalidate the durable
+          // receipt or route provider work back to the displaced owner.
           try {
             replacementOwnership.onCommitted?.();
-            return true;
           } catch {
-            // Only a snapshot from this CAS can be reverted. A newer owner
-            // may have won while callback work was in flight.
-            if (committed) {
-              const rolledBack = registry.rollbackRuntimeOwner(
-                committed,
-                replacementOwnership.expected,
-                replacementOwnership.expectedTransport ?? session.transport,
-              );
-              if (rolledBack) replacementOwnership.onRollback?.();
-            }
-            return false;
+            // A later reconnect owns recovery; never roll a committed
+            // revision back through a potentially newer owner.
           }
+          return true;
+        },
+        releaseOwner: (reservation) => {
+          registry.releaseRuntimeOwnerReservation(reservation as RuntimeOwnerReservation);
         },
         dispatch: async (token) => {
           const ownsReplacement = () => {
