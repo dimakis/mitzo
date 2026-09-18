@@ -2426,6 +2426,56 @@ it('reports result, failure, and clean EOF against the tagged provider execution
   expect(failures).toEqual([{ beforeReady: false, token: replacement }]);
 });
 
+it('resets terminal tracking when a replacement token reaches clean EOF', async () => {
+  const old = { sessionId: 'saved', executionId: 'old', generation: 1 };
+  const replacement = { sessionId: 'saved', executionId: 'new', generation: 2 };
+  const failures: unknown[] = [];
+  async function* stream() {
+    yield { type: 'result', session_id: 'saved', mitzoExecutionToken: old };
+    yield {
+      type: 'stream_event',
+      event: { type: 'message_start' },
+      mitzoExecutionToken: replacement,
+    };
+  }
+  await runQueryLoop(
+    stream(),
+    'tagged-client',
+    fakeRegistry(fakeTransport()),
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      onProviderFailure: (_beforeReady, token) => failures.push(token),
+    },
+  );
+  expect(failures).toEqual([replacement]);
+});
+
+it('does not emit session_end when a stale predecessor result loses execution ownership', async () => {
+  const transport = fakeTransport();
+  async function* stream() {
+    yield {
+      type: 'result',
+      session_id: 'saved',
+      mitzoExecutionToken: { sessionId: 'saved', executionId: 'old', generation: 1 },
+    };
+  }
+  await runQueryLoop(
+    stream(),
+    'tagged-client',
+    fakeRegistry(transport),
+    new AbortController(),
+    undefined,
+    undefined,
+    {
+      executionOwned: true,
+      onProviderResult: () => false,
+    },
+  );
+  expect(transport.sent.some((event) => event.type === 'session_end')).toBe(false);
+});
+
 describe('provider result outcome classification', () => {
   it('recognizes emitted Anthropic, Codex, and native Responses/Gemini result shapes', () => {
     expect(classifyProviderResultOutcome({ type: 'result', subtype: 'success' })).toBe('completed');

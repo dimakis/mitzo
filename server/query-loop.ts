@@ -445,6 +445,7 @@ async function _runQueryLoopInner(
   // that model has landed there) and would otherwise hang indefinitely.
   let firstEventReceived = false;
   let terminalOutcomeAttempted = false;
+  let terminalTokenKey: string | undefined;
   let lifecycleTerminalReason: 'completed' | 'error' | 'stopped' = 'completed';
   const wasDeliberatelyStopped = () => !!ownedSession?.stoppedExecution;
   let timedOut = false;
@@ -467,6 +468,13 @@ async function _runQueryLoopInner(
           typeof (tagged as ExecutionToken).generation === 'number'
         )
           providerToken = tagged as ExecutionToken;
+        const providerTokenKey = providerToken
+          ? `${providerToken.sessionId}:${providerToken.executionId}:${providerToken.generation}`
+          : undefined;
+        if (providerTokenKey && terminalTokenKey && providerTokenKey !== terminalTokenKey) {
+          terminalOutcomeAttempted = false;
+          terminalTokenKey = undefined;
+        }
         const currentSession = currentOwnerSession();
         if (!currentSession) break;
         if (!firstEventReceived) {
@@ -604,6 +612,7 @@ async function _runQueryLoopInner(
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           terminalOutcomeAttempted = true;
+          terminalTokenKey = providerTokenKey;
           const outcome = classifyProviderResultOutcome(msg as Record<string, unknown>);
           if (outcome === 'failed') lifecycleTerminalReason = 'error';
           const executionTerminalApplied =
