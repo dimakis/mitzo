@@ -74,11 +74,17 @@ async function createReconnectHarness() {
   vi.mocked(query).mockImplementation(((args) => {
     const fake = {
       async *[Symbol.asyncIterator]() {
+        const prompt = args.prompt as AsyncIterable<{ message: { content: string } }> & {
+          close?: () => void;
+        };
         inputConsumer ??= (async () => {
-          for await (const input of args.prompt as AsyncIterable<{ message: { content: string } }>)
-            inputs.push(input.message.content);
+          for await (const input of prompt) inputs.push(input.message.content);
         })();
-        yield* outputQueue;
+        try {
+          yield* outputQueue;
+        } finally {
+          prompt.close?.();
+        }
       },
       close: vi.fn(() => outputQueue.close()),
       interrupt: vi.fn(),
@@ -368,6 +374,125 @@ it('replays every offline durable event before the authoritative running snapsho
     expect(h.store.getState().messages.running).toBe(true);
     expect(h.chat.registry.isSuspended(runtimeId)).toBe(false);
   } finally {
+    await h.dispose();
+  }
+});
+
+it('replays one offline completion and then advances the reconnect cursor past its terminal state', async () => {
+  const h = await createReconnectHarness();
+  const runningTransitions: boolean[] = [];
+  let previousRunning = h.store.getState().messages.running;
+  const unsubscribe = h.store.subscribe((state) => {
+    if (state.messages.running !== previousRunning) {
+      previousRunning = state.messages.running;
+      runningTransitions.push(previousRunning);
+    }
+  });
+  try {
+    h.sources[0].welcome();
+    h.store.getState().sendMessage('finish while offline', { cwd: h.root, isolation: false });
+    await h.waitFor(() => expect(h.store.getState().sessions.active).toBeTruthy());
+    const sessionId = h.store.getState().sessions.active!;
+    await h.waitFor(() => expect(h.inputs).toEqual(['finish while offline']));
+    for (const event of streamingEvents(sessionId, 'online')) h.outputQueue.push(event);
+    await h.waitFor(() =>
+      expect(h.clientFrames.some(({ event }) => event.type === 'block_delta')).toBe(true),
+    );
+
+    // A real reconnect establishes the store's authoritative running state
+    // before the browser backgrounds and loses its SSE stream.
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(2));
+    h.sources[1].welcome();
+    await h.waitFor(() => expect(h.store.getState().messages.running).toBe(true));
+    await h.waitFor(() => expect(h.store.getState().connection.status).toBe('connected'));
+    const oldSeq = Math.max(
+      ...h.clientFrames
+        .map(({ event }) => event)
+        .filter((event) => event.sessionId === sessionId && typeof event.seq === 'number')
+        .map((event) => event.seq as number),
+    );
+    const runtimeId = h.chat.registry.findBySessionId(sessionId)!.clientId;
+    h.store.getState().sendSuspend();
+    await h.waitFor(() => expect(h.chat.registry.isSuspended(runtimeId)).toBe(true));
+    h.sources[1].serverClose();
+
+    h.outputQueue.push({ type: 'stream_event', event: { type: 'content_block_stop', index: 0 } });
+    h.outputQueue.push({ type: 'assistant', session_id: sessionId, message: { content: [] } });
+    h.outputQueue.push({ type: 'result', session_id: sessionId });
+    h.outputQueue.close();
+    await h.waitFor(() => expect(h.chat.eventStore.getSessionState(sessionId)).toBe('ENDED'));
+    await h.waitFor(() => expect(Array.from(h.chat.registry.entries())).toHaveLength(0));
+
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(3));
+    const completionReplay = h.sources[2];
+    completionReplay.welcome();
+    await h.waitFor(() =>
+      expect(
+        completionReplay.events.some((event) => event.type === 'session_execution_snapshot'),
+      ).toBe(true),
+    );
+    const expectedReplay = h.chat.eventStore.getEventsAfter(sessionId, oldSeq);
+    const replayed = completionReplay.events.filter(
+      (event) => event.sessionId === sessionId && typeof event.seq === 'number',
+    );
+    expect(replayed.map((event) => event.seq)).toEqual(expectedReplay.map((event) => event.seq));
+    expect(replayed.map((event) => event.seq)).toEqual(
+      [...replayed.map((event) => event.seq)].sort((a, b) => Number(a) - Number(b)),
+    );
+    expect(new Set(replayed.map((event) => event.seq)).size).toBe(replayed.length);
+
+    const terminalEvent = expectedReplay.filter((event) => event.type === 'session_end');
+    const terminalState = expectedReplay.filter(
+      (event) => event.type === 'session_state_changed' && event.payload.internalState === 'ENDED',
+    );
+    expect(terminalEvent).toHaveLength(1);
+    expect(terminalState).toHaveLength(1);
+    expect(completionReplay.events.filter((event) => event.type === 'session_end')).toHaveLength(1);
+    expect(
+      completionReplay.events.filter(
+        (event) => event.type === 'session_state_changed' && event.internalState === 'ENDED',
+      ),
+    ).toHaveLength(1);
+    const snapshotIndex = completionReplay.events.findIndex(
+      (event) => event.type === 'session_execution_snapshot',
+    );
+    const lastReplayIndex = completionReplay.events.reduce(
+      (last, event, index) =>
+        event.sessionId === sessionId && typeof event.seq === 'number' ? index : last,
+      -1,
+    );
+    expect(snapshotIndex).toBeGreaterThan(lastReplayIndex);
+    expect(completionReplay.events[snapshotIndex]).toMatchObject({
+      type: 'session_execution_snapshot',
+      sessionId,
+      state: 'idle',
+      internalState: 'ENDED',
+      generation: terminalState[0].payload.generation,
+      lastSeq: expectedReplay.at(-1)!.seq,
+    });
+    await h.waitFor(() => expect(h.store.getState().messages.running).toBe(false));
+    expect(runningTransitions).toEqual([true, false]);
+
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(4));
+    const caughtUp = h.sources[3];
+    caughtUp.welcome();
+    await h.waitFor(() =>
+      expect(caughtUp.events.some((event) => event.type === 'session_execution_snapshot')).toBe(
+        true,
+      ),
+    );
+    expect(caughtUp.events.filter((event) => event.type === 'session_end')).toHaveLength(0);
+    expect(
+      caughtUp.events.filter(
+        (event) => event.type === 'session_state_changed' && event.internalState === 'ENDED',
+      ),
+    ).toHaveLength(0);
+    expect(runningTransitions).toEqual([true, false]);
+  } finally {
+    unsubscribe();
     await h.dispose();
   }
 });

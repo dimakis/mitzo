@@ -364,6 +364,10 @@ export function handleReconnect(
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             ...evt.payload,
+            // State-transition payloads predate the v2 envelope and omit
+            // their own type. The durable row type is authoritative for every
+            // replayed event, including those legacy-shaped transitions.
+            type: evt.type,
             seq: evt.seq,
           } as Record<string, unknown>);
         }

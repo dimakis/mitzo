@@ -3816,7 +3816,11 @@ describe('handleReconnect suspend resume', () => {
 
     const eventStore = mockEventStore();
     eventStore.getEventsAfter.mockReturnValue([
-      { seq: 1, payload: { type: 'block_delta', delta: 'durable-text', sessionId: 'sess-1' } },
+      {
+        seq: 1,
+        type: 'block_delta',
+        payload: { type: 'block_delta', delta: 'durable-text', sessionId: 'sess-1' },
+      },
     ]);
 
     const ctx = createContext({
