@@ -931,23 +931,36 @@ describe('EventStore', () => {
       expect(() => store.beginExecution('closed-session', 'execution-3')).toThrow('CLOSED session');
     });
 
-    it('returns the original admission token after a lost acknowledgement without a new event', () => {
-      const first = store.beginExecution(sid, 'execution-1', 'client-message-1');
+    it('requires an opaque fingerprint and returns the original token for an exact direct-WS retry', () => {
+      expect(() =>
+        store.beginExecution(sid, 'execution-missing-fingerprint', 'client-message-1'),
+      ).toThrow('requestFingerprint');
+      const first = store.beginExecution(sid, 'execution-1', 'client-message-1', 'request-a');
       const before = store.getSessionEvents(sid).length;
-      const retry = store.beginExecution(sid, undefined, 'client-message-1');
+      const retry = store.beginExecution(sid, undefined, 'client-message-1', 'request-a');
 
       expect(first.duplicate).toBe(false);
       expect(retry).toEqual({ token: first.token, duplicate: true });
       expect(store.getSessionEvents(sid)).toHaveLength(before);
       expect(store.getSession(sid)?.executionGeneration).toBe(1);
-      expect(() => store.beginExecution(sid, 'conflicting-id', 'client-message-1')).toThrow(
-        'different executionId',
+      expect(() => store.beginExecution(sid, undefined, 'client-message-1', 'request-b')).toThrow(
+        'different request fingerprint',
       );
+      expect(store.getSessionEvents(sid)).toHaveLength(before);
+      expect(store.getSession(sid)?.executionGeneration).toBe(1);
+      expect(() =>
+        store.beginExecution(sid, 'conflicting-id', 'client-message-1', 'request-a'),
+      ).toThrow('different executionId');
     });
 
     it('replaces an exact active execution with two ordered durable events', () => {
       const old = store.beginExecution(sid, 'execution-old');
-      const replacement = store.replaceExecution(old.token, 'execution-new', 'replacement-message');
+      const replacement = store.replaceExecution(
+        old.token,
+        'execution-new',
+        'replacement-message',
+        'replacement-request',
+      );
       const events = store
         .getSessionEvents(sid)
         .filter((event) => event.type === 'execution_state_changed');
@@ -975,13 +988,20 @@ describe('EventStore', () => {
         executionPhase: 'RUNNING',
       });
       const beforeRetry = store.getSessionEvents(sid).length;
-      expect(store.replaceExecution(old.token, undefined, 'replacement-message')).toEqual({
+      expect(
+        store.replaceExecution(old.token, undefined, 'replacement-message', 'replacement-request'),
+      ).toEqual({
         token: replacement.token,
         duplicate: true,
       });
       expect(store.getSessionEvents(sid)).toHaveLength(beforeRetry);
       expect(() =>
-        store.replaceExecution(old.token, 'conflicting-replacement', 'replacement-message'),
+        store.replaceExecution(
+          old.token,
+          'conflicting-replacement',
+          'replacement-message',
+          'replacement-request',
+        ),
       ).toThrow('different executionId');
     });
 
@@ -1003,7 +1023,12 @@ describe('EventStore', () => {
         BEGIN SELECT RAISE(ABORT, 'injected replacement failure'); END;
       `);
       expect(() =>
-        store.replaceExecution(old.token, 'execution-new', 'replacement-message'),
+        store.replaceExecution(
+          old.token,
+          'execution-new',
+          'replacement-message',
+          'replacement-request',
+        ),
       ).toThrow('injected replacement failure');
       expect(store.getSession(sid)).toMatchObject({
         executionId: 'execution-old',
@@ -1026,7 +1051,8 @@ describe('EventStore', () => {
       });
       expect(
         store.getSessionEvents(sid).find((event) => event.seq === lifecycle.seq)?.payload,
-      ).toMatchObject({
+      ).toEqual(lifecycle.event);
+      expect(lifecycle.event).toMatchObject({
         type: 'session_lifecycle_changed',
         sessionId: sid,
         lifecycleState: 'CLOSING',
@@ -1040,7 +1066,11 @@ describe('EventStore', () => {
       });
       store.setSessionLifecycle(sid, 'CLOSING');
       expect(() => store.setSessionLifecycle(sid, 'OPEN')).toThrow('Invalid lifecycle transition');
-      store.setSessionLifecycle(sid, 'CLOSED');
+      const closed = store.setSessionLifecycle(sid, 'CLOSED');
+      expect(store.getSession(sid)?.isActive).toBe(false);
+      expect(closed.event).toEqual(
+        store.getSessionEvents(sid).find((event) => event.seq === closed.seq)?.payload,
+      );
       expect(store.setSessionLifecycle(sid, 'CLOSED')).toEqual({
         applied: false,
         lifecycleState: 'CLOSED',
@@ -1080,6 +1110,7 @@ describe('EventStore', () => {
         type: 'session_lifecycle_changed',
         lifecycleState: 'CLOSED',
       });
+      expect(close.lifecycleEvent).toEqual(events.at(-1)?.payload);
       expect(store.getSession(sid)).toMatchObject({
         lifecycleState: 'CLOSED',
         executionPhase: 'TERMINAL',
@@ -1350,6 +1381,85 @@ describe('EventStore', () => {
         }
       } finally {
         migrated.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it('repairs prior Slice 1 closed rows with active executions exactly once on startup', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-execution-repair-'));
+      const path = join(root, 'previous-slice.sqlite');
+      const previous = new Database(path);
+      previous.exec(`
+        CREATE TABLE sessions (
+          session_id TEXT PRIMARY KEY, summary TEXT, branch TEXT, cwd TEXT,
+          mode TEXT NOT NULL DEFAULT 'agent', is_active INTEGER NOT NULL DEFAULT 1,
+          is_hidden INTEGER NOT NULL DEFAULT 0, closed_by TEXT, state TEXT,
+          lifecycle_state TEXT NOT NULL DEFAULT 'OPEN',
+          execution_generation INTEGER NOT NULL DEFAULT 0,
+          execution_id TEXT, execution_phase TEXT,
+          execution_terminal_reason TEXT, execution_updated_at INTEGER,
+          created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE execution_admissions (
+          session_id TEXT NOT NULL, client_msg_id TEXT NOT NULL,
+          execution_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT 1,
+          PRIMARY KEY (session_id, client_msg_id)
+        );
+        CREATE TABLE events (
+          seq INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+          type TEXT NOT NULL, payload TEXT NOT NULL,
+          created_at INTEGER NOT NULL DEFAULT 1
+        );
+      `);
+      const insert = previous.prepare(
+        `INSERT INTO sessions (
+          session_id, mode, is_active, is_hidden, closed_by, state, lifecycle_state,
+          execution_generation, execution_id, execution_phase, execution_updated_at,
+          created_at, updated_at
+        ) VALUES (?, 'agent', 1, 0, 'user', 'ACTIVE', ?, 1, ?, 'RUNNING', 1, 1, 1)`,
+      );
+      insert.run('previous-open-running', 'OPEN', 'legacy-execution-open');
+      insert.run('previous-closed-running', 'CLOSED', 'legacy-execution-closed');
+      previous.close();
+
+      const repaired = new EventStore(path);
+      try {
+        expect(repaired.getSession('previous-open-running')).toMatchObject({
+          lifecycleState: 'CLOSED',
+          executionId: 'legacy-execution-open',
+          executionPhase: 'TERMINAL',
+          executionTerminalReason: 'closed',
+          isActive: false,
+        });
+        expect(repaired.getSession('previous-closed-running')).toMatchObject({
+          lifecycleState: 'CLOSED',
+          executionId: 'legacy-execution-closed',
+          executionPhase: 'TERMINAL',
+          executionTerminalReason: 'closed',
+          isActive: false,
+        });
+        expect(
+          repaired.getSessionEvents('previous-open-running').map((event) => event.payload.type),
+        ).toEqual(['execution_state_changed', 'session_lifecycle_changed']);
+        expect(
+          repaired.getSessionEvents('previous-closed-running').map((event) => event.payload.type),
+        ).toEqual(['execution_state_changed']);
+      } finally {
+        repaired.close();
+      }
+
+      const restarted = new EventStore(path);
+      try {
+        expect(restarted.getSessionEvents('previous-open-running')).toHaveLength(2);
+        expect(restarted.getSessionEvents('previous-closed-running')).toHaveLength(1);
+        expect(restarted.getSession('previous-closed-running')).toMatchObject({
+          lifecycleState: 'CLOSED',
+          executionPhase: 'TERMINAL',
+          isActive: false,
+        });
+      } finally {
+        restarted.close();
         await rm(root, { recursive: true, force: true });
       }
     });

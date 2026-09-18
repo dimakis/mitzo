@@ -166,6 +166,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS execution_admissions (
     session_id TEXT NOT NULL,
     client_msg_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
     execution_id TEXT NOT NULL,
     generation INTEGER NOT NULL,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
@@ -258,6 +259,7 @@ export interface SessionLifecycleTransitionResult {
   applied: boolean;
   lifecycleState: SessionLifecycleState;
   seq?: number;
+  event?: SessionLifecycleChangedPayload;
 }
 
 export interface CloseSessionResult {
@@ -271,7 +273,12 @@ export interface CloseSessionResult {
 
 export class ExecutionAdmissionError extends Error {
   constructor(
-    readonly code: 'lifecycle_not_open' | 'active_execution' | 'execution_id_conflict',
+    readonly code:
+      | 'lifecycle_not_open'
+      | 'active_execution'
+      | 'execution_id_conflict'
+      | 'fingerprint_required'
+      | 'fingerprint_conflict',
     message: string,
   ) {
     super(message);
@@ -490,6 +497,7 @@ export class EventStore {
       ),
       getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
     };
+    this.repairLegacyClosedSessions();
   }
 
   private migratePromptTracking(db: Database.Database): void {
@@ -620,23 +628,35 @@ export class EventStore {
         }
       }
       if (addedLifecycleState) {
-        db.exec(`
-          UPDATE sessions
-          SET lifecycle_state = CASE WHEN closed_by IS NOT NULL THEN 'CLOSED' ELSE 'OPEN' END
-        `);
+        db.exec("UPDATE sessions SET lifecycle_state = 'OPEN'");
       } else {
         db.exec(`
           UPDATE sessions SET lifecycle_state = 'OPEN'
           WHERE lifecycle_state IS NULL OR lifecycle_state NOT IN ('OPEN', 'CLOSING', 'CLOSED')
         `);
       }
-      // closed_by is legacy durable close evidence. Preserve its monotonic
-      // meaning on every startup, including databases already migrated once.
-      db.exec(`
-        UPDATE sessions SET lifecycle_state = 'CLOSED', is_active = 0
-        WHERE closed_by IS NOT NULL
-      `);
+      const admissionColumns = db
+        .prepare("PRAGMA table_info('execution_admissions')")
+        .all() as Array<{ name: string }>;
+      if (!admissionColumns.some((column) => column.name === 'request_fingerprint')) {
+        db.exec('ALTER TABLE execution_admissions ADD COLUMN request_fingerprint TEXT');
+        this.log.info('migrated execution_admissions table: added request_fingerprint');
+      }
     })();
+  }
+
+  /**
+   * closed_by is durable legacy close evidence. Reconcile it after prepared
+   * statements exist so active canonical executions and their events can be
+   * repaired in the same immediate transaction.
+   */
+  private repairLegacyClosedSessions(): void {
+    this.db!.transaction(() => {
+      const rows = this.db!.prepare(
+        'SELECT session_id FROM sessions WHERE closed_by IS NOT NULL',
+      ).all() as Array<{ session_id: string }>;
+      for (const row of rows) this.closeSessionInTransaction(row.session_id, 'closed');
+    }).immediate();
   }
 
   private migrateBootContext(db: Database.Database): void {
@@ -850,18 +870,21 @@ export class EventStore {
     sessionId: string,
     executionId?: string,
     clientMsgId?: string,
+    requestFingerprint?: string,
   ): BeginExecutionResult {
     return this.db!.transaction(() => {
       const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+      const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint);
       const duplicate = this.findExecutionAdmission(sessionId, clientMsgId);
-      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, executionId);
+      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, executionId, fingerprint);
       this.assertExecutionAdmission(current, sessionId);
       return this.beginExecutionInTransaction(
         current,
         sessionId,
         executionId ?? randomUUID(),
         clientMsgId,
+        fingerprint,
       );
     }).immediate();
   }
@@ -874,14 +897,16 @@ export class EventStore {
     expectedOldToken: ExecutionToken,
     newExecutionId?: string,
     clientMsgId?: string,
+    requestFingerprint?: string,
     oldReason: ExecutionTerminalReason = 'interrupted',
   ): ReplaceExecutionResult {
     if (!EXECUTION_TERMINAL_REASONS.has(oldReason)) {
       throw new Error('A valid terminal reason is required when replacing an execution');
     }
     return this.db!.transaction(() => {
+      const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint);
       const duplicate = this.findExecutionAdmission(expectedOldToken.sessionId, clientMsgId);
-      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, newExecutionId);
+      if (duplicate) return this.resolveAdmissionDuplicate(duplicate, newExecutionId, fingerprint);
       const current = this.stmts.getSession.get(expectedOldToken.sessionId) as
         SessionRow | undefined;
       if (!current)
@@ -906,6 +931,7 @@ export class EventStore {
         expectedOldToken.sessionId,
         newExecutionId ?? randomUUID(),
         clientMsgId,
+        fingerprint,
       );
       return {
         ...replacement,
@@ -988,19 +1014,33 @@ export class EventStore {
   private findExecutionAdmission(
     sessionId: string,
     clientMsgId: string | undefined,
-  ): ExecutionToken | undefined {
+  ): { token: ExecutionToken; requestFingerprint: string | null } | undefined {
     if (!clientMsgId) return undefined;
     const row = this.db!.prepare(
-      `SELECT execution_id, generation FROM execution_admissions
+      `SELECT execution_id, generation, request_fingerprint FROM execution_admissions
        WHERE session_id = ? AND client_msg_id = ?`,
-    ).get(sessionId, clientMsgId) as { execution_id: string; generation: number } | undefined;
-    return row && { sessionId, executionId: row.execution_id, generation: row.generation };
+    ).get(sessionId, clientMsgId) as
+      { execution_id: string; generation: number; request_fingerprint: string | null } | undefined;
+    return (
+      row && {
+        token: { sessionId, executionId: row.execution_id, generation: row.generation },
+        requestFingerprint: row.request_fingerprint,
+      }
+    );
   }
 
   private resolveAdmissionDuplicate(
-    token: ExecutionToken,
+    admission: { token: ExecutionToken; requestFingerprint: string | null },
     requestedExecutionId: string | undefined,
+    requestFingerprint: string | undefined,
   ): BeginExecutionResult {
+    if (admission.requestFingerprint !== requestFingerprint) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different request fingerprint',
+      );
+    }
+    const { token } = admission;
     if (requestedExecutionId && requestedExecutionId !== token.executionId) {
       throw new ExecutionAdmissionError(
         'execution_id_conflict',
@@ -1008,6 +1048,32 @@ export class EventStore {
       );
     }
     return { token, duplicate: true };
+  }
+
+  private validateAdmissionFingerprint(
+    clientMsgId: string | undefined,
+    requestFingerprint: string | undefined,
+  ): string | undefined {
+    if (!clientMsgId) {
+      if (requestFingerprint !== undefined) {
+        throw new ExecutionAdmissionError(
+          'fingerprint_required',
+          'requestFingerprint requires a clientMsgId',
+        );
+      }
+      return undefined;
+    }
+    if (
+      typeof requestFingerprint !== 'string' ||
+      requestFingerprint.trim().length === 0 ||
+      requestFingerprint.length > 512
+    ) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'A non-empty requestFingerprint of at most 512 characters is required with clientMsgId',
+      );
+    }
+    return requestFingerprint;
   }
 
   private assertLifecycleOpen(current: SessionRow, sessionId: string): void {
@@ -1041,6 +1107,7 @@ export class EventStore {
     sessionId: string,
     executionId: string,
     clientMsgId: string | undefined,
+    requestFingerprint: string | undefined,
   ): BeginExecutionResult {
     const generation = (current.execution_generation ?? 0) + 1;
     const token: ExecutionToken = { sessionId, executionId, generation };
@@ -1068,9 +1135,10 @@ export class EventStore {
     const seq = this.appendExecutionEventInTransaction(sessionId, event);
     if (clientMsgId) {
       this.db!.prepare(
-        `INSERT INTO execution_admissions (session_id, client_msg_id, execution_id, generation)
-         VALUES (?, ?, ?, ?)`,
-      ).run(sessionId, clientMsgId, executionId, generation);
+        `INSERT INTO execution_admissions
+          (session_id, client_msg_id, request_fingerprint, execution_id, generation)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(sessionId, clientMsgId, requestFingerprint, executionId, generation);
     }
     return { token, duplicate: false, seq, event };
   }
@@ -1096,7 +1164,12 @@ export class EventStore {
     if (!validStates.includes(lifecycleState) || !validStates.includes(currentState)) {
       throw new SessionLifecycleError('invalid_transition', 'Unknown session lifecycle state');
     }
-    if (currentState === lifecycleState) return { applied: false, lifecycleState: currentState };
+    if (currentState === lifecycleState) {
+      if (lifecycleState === 'CLOSED') {
+        this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
+      }
+      return { applied: false, lifecycleState: currentState };
+    }
     const allowed: Record<SessionLifecycleState, SessionLifecycleState[]> = {
       OPEN: ['CLOSING', 'CLOSED'],
       CLOSING: ['CLOSED'],
@@ -1128,6 +1201,9 @@ export class EventStore {
         'Lifecycle changed before transition could apply',
       );
     }
+    if (lifecycleState === 'CLOSED') {
+      this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
+    }
     const event: SessionLifecycleChangedPayload = {
       type: 'session_lifecycle_changed',
       sessionId,
@@ -1138,7 +1214,7 @@ export class EventStore {
       this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
         .lastInsertRowid,
     );
-    return { applied: true, lifecycleState, seq };
+    return { applied: true, lifecycleState, seq, event };
   }
 
   /** Must run inside the caller's SQLite immediate transaction. */
@@ -1148,11 +1224,6 @@ export class EventStore {
   ): CloseSessionResult {
     const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
     if (!current) throw new Error(`Cannot close unknown session: ${sessionId}`);
-    if (current.lifecycle_state === 'CLOSED') {
-      this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
-      return { applied: false, lifecycleState: 'CLOSED' };
-    }
-
     let terminal: ExecutionTransitionResult | undefined;
     if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
       terminal = this.transitionExecutionInTransaction(
@@ -1169,13 +1240,11 @@ export class EventStore {
     }
     const refreshed = this.stmts.getSession.get(sessionId) as SessionRow;
     const lifecycle = this.setSessionLifecycleInTransaction(refreshed, sessionId, 'CLOSED');
-    // Preserve legacy close semantics while runtime handlers still read is_active.
-    this.db!.prepare('UPDATE sessions SET is_active = 0 WHERE session_id = ?').run(sessionId);
     return {
       applied: lifecycle.applied || !!terminal?.applied,
       lifecycleState: lifecycle.lifecycleState,
       ...(terminal?.seq ? { terminalSeq: terminal.seq, terminalEvent: terminal.event } : {}),
-      ...(lifecycle.seq ? { lifecycleSeq: lifecycle.seq } : {}),
+      ...(lifecycle.seq ? { lifecycleSeq: lifecycle.seq, lifecycleEvent: lifecycle.event } : {}),
     };
   }
 
