@@ -248,7 +248,6 @@ async function _runQueryLoopInner(
   const onProviderReady = options?.onProviderReady;
   const onProviderResult = options?.onProviderResult;
   const onProviderFailure = options?.onProviderFailure;
-  const executionOwned = options?.executionOwned === true;
   // Tool input buffers keyed by content block index (reset per message_start).
   const toolInputBuffers = new Map<
     number,
@@ -1455,7 +1454,10 @@ async function _runQueryLoopInner(
       }
       // Mark session as ended in durable store (P1: setSessionState syncs is_active)
       const terminalSessionId = resolvedSessionId ?? finalSession?.sessionId;
-      if (!executionOwned && store && terminalSessionId) {
+      // Execution-owned starts keep their canonical terminal token, but legacy
+      // reconnect clients still require the derived session lifecycle terminal
+      // after the durable session_end. This projection never mutates the token.
+      if (store && terminalSessionId) {
         const terminalSeq = store.setSessionState(terminalSessionId, 'ENDED', {
           clientId,
           reason: caughtError ? 'error' : 'completed',

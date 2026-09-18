@@ -155,7 +155,7 @@ it('terminalizes a pre-ready provider failure without leaking raw provider diagn
     expect(chat.eventStore.getSession(sessionId)).toMatchObject({
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'startup_failed',
-      isActive: true,
+      isActive: false,
     });
     expect(chat.registry.findBySessionId(sessionId)).toBeNull();
     const persisted = JSON.stringify({
