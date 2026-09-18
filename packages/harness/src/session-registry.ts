@@ -50,6 +50,25 @@ export interface PendingExecutionInput {
   dispatch: (token: ExecutionToken) => Promise<void> | void;
 }
 
+/** Provider work prepared for an atomic replacement of the current execution. */
+export interface PreparedReplacementInput {
+  expectedToken: ExecutionToken;
+  executionId?: string;
+  clientMsgId: string;
+  requestFingerprint: string;
+  retainedBytes: number;
+  userMessage: {
+    messageId: string;
+    text: string;
+    images?: Array<{ id: string; mediaType: string }>;
+    contextBlocks?: string[];
+  };
+  selectedModel?: string | null;
+  reasoningEffort?: string | null;
+  onAdmitted?: (token: ExecutionToken) => void;
+  dispatch: (token: ExecutionToken) => Promise<void> | void;
+}
+
 /** Immutable identity for one registered runtime, safe across client-id rekeys. */
 export interface RuntimeSessionLease {
   runtimeLeaseId: string;
@@ -116,6 +135,8 @@ export interface ManagedSession {
   pendingExecutionBytes: number;
   /** Serializes admission/activation while a dispatcher yields. */
   activatingPending: boolean;
+  /** Serializes replacement admission against another interrupt/stop. */
+  replacingExecution: boolean;
 }
 
 /** Never expand permissions until a transition succeeds; apply downgrades immediately. */
@@ -200,6 +221,7 @@ export class SessionRegistry {
       | 'activatingPending'
       | 'runtimeLeaseId'
       | 'pendingExecutionBytes'
+      | 'replacingExecution'
     > & {
       sessionId?: string;
     },
@@ -224,6 +246,7 @@ export class SessionRegistry {
       pendingExecutions: [],
       pendingExecutionBytes: 0,
       activatingPending: false,
+      replacingExecution: false,
     };
     this.sessions.set(clientId, session);
     this.leases.set(session.runtimeLeaseId, clientId);
@@ -343,6 +366,48 @@ export class SessionRegistry {
       return false;
     }
     session.currentExecution = undefined;
+    return true;
+  }
+
+  /** Claim replacement only for this immutable runtime and exact current token. */
+  claimReplacementExecution(lease: RuntimeSessionLease, token: ExecutionToken): boolean {
+    const session = this.resolveLease(lease)?.session;
+    const current = session?.currentExecution;
+    if (
+      !session ||
+      session.replacingExecution ||
+      !current ||
+      current.sessionId !== token.sessionId ||
+      current.executionId !== token.executionId ||
+      current.generation !== token.generation
+    )
+      return false;
+    session.replacingExecution = true;
+    return true;
+  }
+
+  completeReplacementExecution(lease: RuntimeSessionLease): void {
+    const session = this.resolveLease(lease)?.session;
+    if (session) session.replacingExecution = false;
+  }
+
+  /** CAS current token after durable old-terminal/new-running replacement. */
+  replaceCurrentExecution(
+    lease: RuntimeSessionLease,
+    expected: ExecutionToken,
+    replacement: ExecutionToken,
+  ): boolean {
+    const session = this.resolveLease(lease)?.session;
+    const current = session?.currentExecution;
+    if (
+      !session ||
+      !current ||
+      current.executionId !== expected.executionId ||
+      current.generation !== expected.generation ||
+      replacement.sessionId !== lease.sessionId
+    )
+      return false;
+    session.currentExecution = replacement;
     return true;
   }
 
@@ -546,6 +611,7 @@ export class SessionRegistry {
     session.pendingExecutions = [];
     session.pendingExecutionBytes = 0;
     session.activatingPending = false;
+    session.replacingExecution = false;
     this.leases.delete(session.runtimeLeaseId);
     this.sessions.delete(clientId);
     this.attached.delete(clientId);
@@ -565,6 +631,7 @@ export class SessionRegistry {
       session.pendingExecutions = [];
       session.pendingExecutionBytes = 0;
       session.activatingPending = false;
+      session.replacingExecution = false;
       this.leases.delete(session.runtimeLeaseId);
     }
     this.clearDetachTimer(clientId);

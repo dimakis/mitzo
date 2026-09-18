@@ -14,6 +14,27 @@ function mockTransport(open = true): SessionTransport & { _sent: Record<string, 
   };
 }
 
+function activateInterruptExecution(clientId: string): void {
+  const session = registry.get(clientId)!;
+  eventStore.upsertSession({ sessionId: session.sessionId! });
+  const existing = eventStore.getSession(session.sessionId!);
+  if (existing?.executionPhase && existing.executionPhase !== 'TERMINAL' && existing.executionId) {
+    eventStore.transitionExecution(
+      {
+        sessionId: session.sessionId!,
+        executionId: existing.executionId,
+        generation: existing.executionGeneration,
+      },
+      'TERMINAL',
+      'completed',
+    );
+  }
+  session.currentExecution = eventStore.beginExecution(
+    session.sessionId!,
+    `interrupt-active-${session.sessionId}`,
+  ).token;
+}
+
 describe('sendToChat emits user_message via transport', () => {
   const CLIENT_ID = 'test-client-send';
   const tempDirs: string[] = [];
@@ -283,6 +304,7 @@ describe('interruptChat emits user_message via transport', () => {
       stopTask: vi.fn().mockResolvedValue(undefined),
     };
 
+    activateInterruptExecution(CLIENT_ID);
     const result = await interruptChat(CLIENT_ID, 'Urgent message');
     expect(result).toMatchObject({ kind: 'accepted' });
 
@@ -317,6 +339,7 @@ describe('interruptChat emits user_message via transport', () => {
     };
 
     const clientMsgId = `user-${Date.now()}-def`;
+    activateInterruptExecution(CLIENT_ID);
     const result = await interruptChat(CLIENT_ID, 'Urgent', undefined, undefined, clientMsgId);
     expect(result).toMatchObject({ kind: 'accepted' });
 
@@ -349,6 +372,7 @@ describe('interruptChat emits user_message via transport', () => {
     };
 
     const clientMsgId = `user-int-dedup-${Date.now()}`;
+    activateInterruptExecution(CLIENT_ID);
     expect(
       await interruptChat(CLIENT_ID, 'First', undefined, undefined, clientMsgId),
     ).toMatchObject({
@@ -391,6 +415,7 @@ describe('interruptChat emits user_message via transport', () => {
     session.inputQueue = { push: pushSpy, close: vi.fn() };
     session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
 
+    activateInterruptExecution(CLIENT_ID);
     const first = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
     const second = interruptChat(CLIENT_ID, 'Only once', undefined, undefined, messageId);
     await Promise.resolve();
@@ -398,7 +423,7 @@ describe('interruptChat emits user_message via transport', () => {
     releaseInterrupt();
     await expect(Promise.all([first, second])).resolves.toEqual([
       { kind: 'accepted' },
-      { kind: 'accepted' },
+      { kind: 'duplicate_already_accepted' },
     ]);
     expect(pushSpy).toHaveBeenCalledTimes(1);
   });
@@ -419,6 +444,7 @@ describe('interruptChat emits user_message via transport', () => {
     session.inputQueue = { push: pushSpy, close: vi.fn() };
     session.queryInstance = { interrupt: interruptSpy, close: vi.fn(), stopTask: vi.fn() };
 
+    activateInterruptExecution(CLIENT_ID);
     await expect(
       interruptChat(CLIENT_ID, 'First', undefined, undefined, messageId),
     ).resolves.toMatchObject({
@@ -457,6 +483,7 @@ describe('interruptChat emits user_message via transport', () => {
     };
     eventStore.upsertSession({ sessionId });
 
+    activateInterruptExecution(CLIENT_ID);
     await expect(
       interruptChat(CLIENT_ID, 'Persist despite socket', undefined, undefined, messageId),
     ).resolves.toMatchObject({
@@ -494,20 +521,16 @@ describe('interruptChat emits user_message via transport', () => {
     };
     eventStore.upsertSession({ sessionId });
 
-    await expect(
-      interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
-    ).resolves.toMatchObject({ kind: 'unavailable_unreported' });
-    expect(pushSpy).not.toHaveBeenCalled();
-    expect(transport._sent.some((message) => message.type === 'user_message')).toBe(false);
-    expect(
-      eventStore.getSessionEvents(sessionId).some((event) => event.type === 'user_message'),
-    ).toBe(false);
-
+    activateInterruptExecution(CLIENT_ID);
     await expect(
       interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
     ).resolves.toMatchObject({ kind: 'accepted' });
-    expect(interruptSpy).toHaveBeenCalledTimes(2);
-    expect(pushSpy).toHaveBeenCalledTimes(1);
+
+    await expect(
+      interruptChat(CLIENT_ID, 'Retry this', undefined, undefined, clientMsgId),
+    ).resolves.toMatchObject({ kind: 'duplicate_already_accepted' });
+    expect(interruptSpy).toHaveBeenCalledTimes(1);
+    expect(pushSpy).not.toHaveBeenCalled();
     expect(transport._sent.filter((message) => message.type === 'user_message')).toHaveLength(1);
     expect(
       eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
@@ -538,6 +561,7 @@ describe('interruptChat emits user_message via transport', () => {
     session.activeTaskIds.set('task-abc', 'tool-1');
     session.activeTaskIds.set('task-def', 'tool-2');
 
+    activateInterruptExecution(CLIENT_ID);
     await interruptChat(CLIENT_ID, 'Stop everything');
 
     expect(stopTaskSpy).toHaveBeenCalledTimes(2);
@@ -569,6 +593,7 @@ describe('interruptChat emits user_message via transport', () => {
     };
     eventStore.upsertSession({ sessionId, selectedModel: session.model });
 
+    activateInterruptExecution(CLIENT_ID);
     expect(
       await interruptChat(
         CLIENT_ID,

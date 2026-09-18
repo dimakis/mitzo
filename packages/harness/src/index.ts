@@ -6,6 +6,7 @@ export { SessionRegistry, effectivePermissionMode } from './session-registry.js'
 export type {
   ManagedSession,
   PendingExecutionInput,
+  PreparedReplacementInput,
   RuntimeSessionLease,
   ActiveSessionInfo,
   CloseoutHandler,

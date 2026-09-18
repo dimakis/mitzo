@@ -56,7 +56,7 @@ import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
-import { clearSessionImages } from './image-store.js';
+import { clearSessionImages, storeImage } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
 import {
   GIT_BRANCH_TIMEOUT_MS,
@@ -126,7 +126,7 @@ let _onSessionsChanged: (() => void) | null = null;
 export function setSessionsChangedCallback(cb: () => void): void {
   _onSessionsChanged = cb;
 }
-import { EventStore, SendCommandConflictError } from './event-store.js';
+import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { accountSessionName } from './account-session-name.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
@@ -2148,12 +2148,11 @@ export type InterruptOutcome =
   | { kind: 'conflict' }
   | { kind: 'unavailable_unreported' };
 
-const pendingInterruptAdmissions = new Map<string, Promise<InterruptOutcome>>();
-
 function interruptFingerprint(input: {
   sessionId: string;
   prompt: string;
-  images?: Array<{ data: string; mediaType: string }>;
+  expectedExecutionId: string;
+  expectedGeneration: number;
   contextBlocks?: string[];
   model?: string;
   reasoningEffort?: string | null;
@@ -2203,108 +2202,84 @@ export async function interruptChat(
     }
     const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
-    const previews = imagePreviews(images);
+    const lease = registry.getRuntimeLease(clientId);
+    const currentToken = session.currentExecution;
+    const priorAdmission = clientMsgId
+      ? eventStore.getReplacementAdmission(session.sessionId, clientMsgId)
+      : undefined;
+    if (!lease || (!currentToken && !priorAdmission)) return { kind: 'unavailable_unreported' };
+    const expectedToken = priorAdmission?.expectedOldToken ?? currentToken!;
+    const imageRefs = images
+      ?.map((image) => {
+        const id = storeImage(session.sessionId!, image.data, image.mediaType);
+        return id ? { id, mediaType: image.mediaType } : undefined;
+      })
+      .filter((image): image is { id: string; mediaType: string } => !!image);
     const fingerprint = interruptFingerprint({
       sessionId: session.sessionId,
       prompt,
-      images,
-      contextBlocks,
+      expectedExecutionId: expectedToken.executionId,
+      expectedGeneration: expectedToken.generation,
       model,
       reasoningEffort,
     });
-    let claim;
+    const controller = initialExecutionController();
+    let replacement;
     try {
-      claim = eventStore.claimInterruptCommand(messageId, session.sessionId, fingerprint);
-    } catch (error) {
-      if (error instanceof SendCommandConflictError) return { kind: 'conflict' };
-      return { kind: 'unavailable_unreported' };
-    }
-    if (claim.duplicate && claim.state === 'ACCEPTED')
-      return { kind: 'duplicate_already_accepted' };
-    const pendingKey = `${session.sessionId}:${messageId}`;
-    if (claim.duplicate && claim.state === 'PENDING') {
-      const pending = pendingInterruptAdmissions.get(pendingKey);
-      if (pending) return pending;
-      // A PENDING row without an in-process owner is conservatively made
-      // retryable; startup performs the same recovery after a process crash.
-      eventStore.retryInterruptCommand(messageId);
-      return interruptChat(
-        clientId,
-        prompt,
-        images,
-        contextBlocks,
-        messageId,
-        model,
-        reasoningEffort,
-      );
-    }
-
-    const admission = (async (): Promise<InterruptOutcome> => {
-      try {
-        if (codex || responses) {
-          if (codex) await codex.interrupt();
-          else await session.queryInstance!.interrupt();
-          const delivered = await sendToChat(
-            clientId,
-            prompt,
-            images,
-            contextBlocks,
-            messageId,
-            model,
-            reasoningEffort,
-          );
-          if (!delivered) throw new Error('provider did not accept interrupt message');
-        } else {
-          // Claiming above precedes these destructive task/provider calls.
-          const stops = [...session.activeTaskIds.keys()].map((taskId) =>
-            session.queryInstance!.stopTask(taskId).catch(() => undefined),
-          );
-          await Promise.allSettled(stops);
-          await session.queryInstance!.interrupt();
-          // Queue before persisting history: an ordinary storage exception can
-          // leave an unacknowledged queued message, but never durable history
-          // that falsely claims a message was queued.
-          session.inputQueue!.push(makeUserMessage(fullPrompt, 'now'));
-          const echo = storeUserMessageIfNew(
-            session.sessionId!,
-            messageId,
-            fullPrompt,
-            clientId,
-            previews,
-            contextBlocks,
-          );
-          if (model || reasoningEffort !== undefined) {
-            eventStore.upsertSession({
-              sessionId: session.sessionId!,
-              ...(model ? { selectedModel: model } : {}),
-              ...(reasoningEffort !== undefined
-                ? { reasoningEffort: reasoningEffort || null }
-                : {}),
+      replacement = await controller.replaceExecution(lease, {
+        expectedToken,
+        clientMsgId: messageId,
+        requestFingerprint: fingerprint,
+        retainedBytes: Buffer.byteLength(fullPrompt, 'utf8'),
+        userMessage: {
+          messageId,
+          text: fullPrompt,
+          ...(imageRefs?.length ? { images: imageRefs } : {}),
+          ...(contextBlocks?.length ? { contextBlocks } : {}),
+        },
+        dispatch: async (_token) => {
+          if (codex) {
+            await codex.interrupt();
+            if (
+              !(await sendToChat(
+                clientId,
+                prompt,
+                images,
+                contextBlocks,
+                messageId,
+                model,
+                reasoningEffort,
+              ))
+            )
+              throw new Error('provider did not accept interrupt message');
+          } else if (responses) {
+            await session.queryInstance!.interrupt();
+            responses.prepare(messageId, fullPrompt, {
+              ...(model ? { model } : {}),
+              ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
             });
+            session.inputQueue!.push(makeUserMessage(fullPrompt, 'now', messageId));
+          } else {
+            await Promise.allSettled(
+              [...session.activeTaskIds.keys()].map((taskId) =>
+                session.queryInstance!.stopTask(taskId).catch(() => undefined),
+              ),
+            );
+            await session.queryInstance!.interrupt();
+            session.inputQueue!.push(makeUserMessage(fullPrompt, 'now'));
           }
           if (model) session.model = model;
-          eventStore.acceptInterruptCommand(messageId);
-          if (echo) {
-            send(session.transport, echo);
-            broadcastToObservers(session.observers, echo);
-          }
-          return { kind: 'accepted' };
-        }
-        eventStore.acceptInterruptCommand(messageId);
-        return { kind: 'accepted' };
-      } catch {
-        // Rejections are retryable and intentionally never persist a provider
-        // error, prompt echo, ownership change, or model selection.
-        eventStore.retryInterruptCommand(messageId);
-        return { kind: 'unavailable_unreported' };
-      }
-    })();
-    pendingInterruptAdmissions.set(pendingKey, admission);
-    void admission.finally(() => {
-      if (pendingInterruptAdmissions.get(pendingKey) === admission)
-        pendingInterruptAdmissions.delete(pendingKey);
-    });
-    return admission;
+        },
+      });
+    } catch {
+      return { kind: 'unavailable_unreported' };
+    }
+    if (replacement.error && !replacement.admission) return { kind: 'conflict' };
+    if (replacement.busy) return { kind: 'unavailable_unreported' };
+    if (!replacement.admission) return { kind: 'unavailable_unreported' };
+    return replacement.admission.duplicate
+      ? { kind: 'duplicate_already_accepted' }
+      : { kind: 'accepted' };
   });
 }
 

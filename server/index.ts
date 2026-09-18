@@ -1331,7 +1331,6 @@ checkPort(PORT).then((inUse) => {
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
     eventStore.recoverPendingSendCommands();
-    eventStore.recoverPendingInterruptCommands();
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
     // Eagerly reconcile sessions so the first /api/sessions request is fast and accurate.

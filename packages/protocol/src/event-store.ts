@@ -1195,6 +1195,34 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Read-only lookup used to make an exact replacement retry independent of current generation. */
+  getReplacementAdmission(
+    sessionId: string,
+    clientMsgId: string,
+  ): { token: ExecutionToken; expectedOldToken: ExecutionToken } | undefined {
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation, expected_execution_id, expected_generation
+       FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as
+      | {
+          execution_id: string;
+          generation: number;
+          expected_execution_id: string | null;
+          expected_generation: number | null;
+        }
+      | undefined;
+    if (!row || row.expected_execution_id === null || row.expected_generation === null)
+      return undefined;
+    return {
+      token: { sessionId, executionId: row.execution_id, generation: row.generation },
+      expectedOldToken: {
+        sessionId,
+        executionId: row.expected_execution_id,
+        generation: row.expected_generation,
+      },
+    };
+  }
+
   transitionExecution(
     token: ExecutionToken,
     nextPhase: ExecutionPhase,
