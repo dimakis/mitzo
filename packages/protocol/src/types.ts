@@ -236,6 +236,25 @@ export interface SessionStateEvent {
   /** Internal lifecycle state for debugging (not used for UI). */
   internalState: SessionState;
   timestamp: number;
+  /** Persisted execution generation; absent in historical replay payloads. */
+  generation?: number;
+}
+
+/**
+ * Atomic server-authoritative execution reconciliation sent after replay and
+ * on session selection. `generation` is the persisted lifecycle revision
+ * (`lastStateChange`), not a transport or connection identifier.
+ */
+export interface SessionExecutionSnapshot {
+  type: 'session_execution_snapshot';
+  sessionId: string;
+  executionId: string;
+  generation: number;
+  state: ClientSessionState;
+  internalState: SessionState;
+  /** Last durable event included in the preceding replay. */
+  lastSeq: number;
+  terminalReason?: 'completed' | 'closed';
 }
 
 export interface Session {

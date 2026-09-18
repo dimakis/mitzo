@@ -1914,6 +1914,7 @@ export class EventStore {
       state: clientState,
       internalState: newState,
       timestamp: now,
+      generation: now,
     });
 
     this.log.info('session state transition', {

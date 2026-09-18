@@ -272,6 +272,40 @@ describe('handleReconnect', () => {
     ]);
   });
 
+  it('reconciles execution after ordered replay without relying on transport state', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      { seq: 7, sessionId: 'sess-1', payload: { type: 'block_delta', sessionId: 'sess-1' } },
+    ]);
+    eventStore.getSession.mockReturnValue({ lastStateChange: 42, mode: 'agent' });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 5 }] },
+      ctx,
+    );
+
+    const replayIndex = transport.sent.findIndex((message) => message.type === 'block_delta');
+    const snapshotIndex = transport.sent.findIndex(
+      (message) => message.type === 'session_execution_snapshot',
+    );
+    expect(snapshotIndex).toBeGreaterThan(replayIndex);
+    expect(transport.sent[snapshotIndex]).toMatchObject({
+      sessionId: 'sess-1',
+      executionId: 'sess-1:42',
+      generation: 42,
+      state: 'running',
+      internalState: 'ACTIVE',
+      lastSeq: 7,
+    });
+  });
+
   it('reattaches detached session on reconnect', () => {
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
 
@@ -747,6 +781,12 @@ describe('handleSwitchSession', () => {
       internalState: 'ACTIVE',
     });
     expect(stateMsg).toHaveProperty('timestamp');
+    expect(transport.sent[2]).toMatchObject({
+      type: 'session_execution_snapshot',
+      sessionId: 'sess-1',
+      state: 'running',
+      internalState: 'ACTIVE',
+    });
   });
 
   it('no session_state_changed when getSessionState returns null', async () => {

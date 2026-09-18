@@ -231,6 +231,33 @@ function sendBootContext(connectionId: string, sessionId: string, ctx: V2Handler
   }
 }
 
+/**
+ * Reconcile execution independently of the transport that carried replay.
+ * The EventStore owns this revision, so a stale connection cannot manufacture
+ * an idle transition for a live runner.
+ */
+function sendExecutionSnapshot(
+  connectionId: string,
+  sessionId: string,
+  lastSeq: number,
+  ctx: V2HandlerContext,
+): void {
+  const state = ctx.eventStore.getSessionState(sessionId);
+  const meta = ctx.eventStore.getSession(sessionId);
+  if (!state || !meta) return; // old sessions degrade to ordinary durable replay
+  const generation = meta.lastStateChange ?? 0;
+  ctx.connRegistry.get(connectionId)?.transport.send({
+    type: 'session_execution_snapshot',
+    sessionId,
+    executionId: `${sessionId}:${generation}`,
+    generation,
+    state: toClientState(state),
+    internalState: state,
+    lastSeq,
+    ...(state === 'ENDED' ? { terminalReason: 'completed' } : {}),
+  });
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export function handleHello(
@@ -390,6 +417,7 @@ export function handleReconnect(
         // Re-send boot_context so pills reappear after reconnect.
         // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
         sendBootContext(connectionId, entry.sessionId, ctx);
+        sendExecutionSnapshot(connectionId, entry.sessionId, newCursor, ctx);
 
         log.info('reconnect replay', {
           connectionId,
@@ -501,6 +529,7 @@ export async function handleSwitchSession(
           timestamp: Date.now(),
         });
       }
+      sendExecutionSnapshot(connectionId, msg.sessionId, 0, ctx);
 
       // Re-send boot_context so pills appear on session switch.
       // Uses shared helper with hot (in-memory) + cold (EventStore) paths.

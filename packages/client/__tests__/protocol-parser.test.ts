@@ -1056,6 +1056,52 @@ describe('session_state_changed', () => {
   });
 });
 
+describe('session_execution_snapshot', () => {
+  it('keeps a running execution when an older connection snapshot arrives later', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const callbacks = makeCallbacks();
+    const running = parseServerMessage(
+      { type: 'session_execution_snapshot', sessionId: 'sid-1', generation: 20, state: 'running' },
+      state,
+      callbacks,
+      POOL_KEY,
+    );
+    const staleTerminal = parseServerMessage(
+      { type: 'session_execution_snapshot', sessionId: 'sid-1', generation: 19, state: 'idle' },
+      state,
+      callbacks,
+      POOL_KEY,
+    );
+    expect(running.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'running',
+    });
+    expect(staleTerminal.messagesActions).toHaveLength(0);
+  });
+
+  it('does not let an older terminal lifecycle event clear a newer running snapshot', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    parseServerMessage(
+      { type: 'session_execution_snapshot', sessionId: 'sid-1', generation: 20, state: 'running' },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const stale = parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        generation: 19,
+        state: 'idle',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(stale.messagesActions).toHaveLength(0);
+  });
+});
+
 // ─── session_close_ack ──────────────────────────────────────────────────────
 
 describe('session_close_ack', () => {

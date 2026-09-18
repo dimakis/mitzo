@@ -60,6 +60,8 @@ export interface ProtocolCallbacks {
 export interface ProtocolParserState {
   /** Currently tracked session ID (used for expiry detection). */
   currentSessionId: string | undefined;
+  /** Highest authoritative execution generation reconciled per session. */
+  executionGenerationBySession?: Map<string, number>;
 }
 
 // ─── Parser result ───────────────────────────────────────────────────────────
@@ -276,6 +278,18 @@ export function parseServerMessage(
 
     case 'session_state_changed': {
       // Server-authoritative state — derive running from this event only
+      const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
+      const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
+      const generations = (state.executionGenerationBySession ??= new Map());
+      if (sessionId && generation !== undefined) {
+        const previous = generations.get(sessionId);
+        if (previous !== undefined && generation < previous) break;
+        generations.set(sessionId, generation);
+      } else if (sessionId && generations.has(sessionId)) {
+        // Historical payloads did not carry a generation. Once a current
+        // snapshot exists, accepting one would let a stale transport erase it.
+        break;
+      }
       if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
         result.messagesActions.push({
           type: 'SESSION_STATE_CHANGED',
@@ -283,6 +297,25 @@ export function parseServerMessage(
         });
       } else if (typeof msg.state === 'string') {
         console.warn('[mitzo] unknown session state:', msg.state);
+      }
+      break;
+    }
+
+    case 'session_execution_snapshot': {
+      const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
+      const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
+      if (!sessionId || generation === undefined) break;
+      const generations = (state.executionGenerationBySession ??= new Map());
+      const previous = generations.get(sessionId);
+      // A replaced connection can still deliver a stale snapshot. Never let
+      // it clear a newer execution that has already been reconciled.
+      if (previous !== undefined && generation < previous) break;
+      generations.set(sessionId, generation);
+      if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
+        result.messagesActions.push({
+          type: 'SESSION_STATE_CHANGED',
+          state: msg.state as ClientSessionState,
+        });
       }
       break;
     }
