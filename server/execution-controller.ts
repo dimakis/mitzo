@@ -80,8 +80,13 @@ export function broadcastStoredExecutionEvent(
   const resolved = registry.resolveRuntimeLease(lease);
   if (!resolved || stored.event.sessionId !== lease.sessionId) return new Set();
   const data: Record<string, unknown> = { ...stored.event, seq: stored.seq };
-  const sent = connections?.broadcast(lease.sessionId, data) ?? new Set<SessionTransport>();
   const suspended = registry.isSuspended(resolved.clientId);
+  const suspendedDriver = suspended
+    ? new Set<SessionTransport>([resolved.session.transport])
+    : undefined;
+  const sent =
+    connections?.broadcast(lease.sessionId, data, { excludeTransports: suspendedDriver }) ??
+    new Set<SessionTransport>();
   if (suspended) {
     registry.bufferEvent(resolved.clientId, data);
   }
@@ -91,6 +96,7 @@ export function broadcastStoredExecutionEvent(
     }
   }
   for (const observer of resolved.session.observers) {
+    if (suspended && observer === resolved.session.transport) continue;
     if (sendOnce(observer, data, sent)) {
       connections?.recordFallbackDelivery(lease.sessionId, observer, stored.seq);
     }

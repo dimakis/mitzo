@@ -684,6 +684,49 @@ describe('broadcastStoredExecutionEvent', () => {
     store.close();
   });
 
+  it('excludes a suspended owner that is also a watcher from live fan-out', () => {
+    const store = new EventStore(':memory:');
+    const registry = new SessionRegistry();
+    const connections = new ConnectionRegistry();
+    const driver = fakeTransport();
+    const watcher = fakeTransport();
+    const observer = fakeTransport();
+    store.upsertSession({ sessionId: SESSION_ID });
+    registry.register(CLIENT_ID, {
+      transport: driver,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId: SESSION_ID,
+    });
+    registry.addObserver(SESSION_ID, driver);
+    registry.addObserver(SESSION_ID, observer);
+    connections.register('owner', driver);
+    connections.watch('owner', SESSION_ID);
+    connections.register('distinct', watcher);
+    connections.watch('distinct', SESSION_ID);
+    registry.suspend(CLIENT_ID, 0);
+    const begun = store.beginExecution(SESSION_ID, 'owner-suspended', 'message-owner', 'fp-owner');
+    broadcastStoredExecutionEvent(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      { seq: begun.seq!, event: begun.event! },
+      registry,
+      connections,
+    );
+    expect(driver.sent).toEqual([]);
+    expect(connections.getCursor('owner', SESSION_ID)).toBeUndefined();
+    expect(watcher.sent).toHaveLength(1);
+    expect(observer.sent).toHaveLength(1);
+    const replay = registry.resume(CLIENT_ID);
+    expect(replay).toHaveLength(1);
+    driver.send(replay[0]);
+    expect(driver.sent).toHaveLength(1);
+    expect(watcher.sent).toHaveLength(1);
+    expect(observer.sent).toHaveLength(1);
+    registry.dispose();
+    store.close();
+  });
+
   it('advances only a same-transport watcher cursor after fallback delivery', () => {
     const store = new EventStore(':memory:');
     const registry = new SessionRegistry();

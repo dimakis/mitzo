@@ -28,6 +28,11 @@ export interface Connection {
   activeSession: string | null;
 }
 
+export interface BroadcastOptions {
+  /** Transports intentionally withheld for a separate durable replay path. */
+  excludeTransports?: ReadonlySet<SessionTransport>;
+}
+
 /** Event store interface for periodic sync — injected to avoid circular deps */
 export interface EventStoreAdapter {
   getEventsAfter(
@@ -142,32 +147,32 @@ export class ConnectionRegistry {
    * aborting the broadcast loop. Updates delivery cursor on success
    * so periodic sync can retry failures.
    */
-  broadcast(sessionId: string, data: Record<string, unknown>): Set<SessionTransport> {
+  broadcast(
+    sessionId: string,
+    data: Record<string, unknown>,
+    options: BroadcastOptions = {},
+  ): Set<SessionTransport> {
     const seq = data.seq as number | undefined;
     const delivered = new Set<SessionTransport>();
-    const deliveredConnectionIds = new Set<string>();
+    const grouped = new Map<SessionTransport, string[]>();
     for (const { connectionId, transport } of this.getConnectionsWatching(sessionId, true)) {
-      if (delivered.has(transport)) {
-        deliveredConnectionIds.add(connectionId);
-        continue;
-      }
+      if (options.excludeTransports?.has(transport)) continue;
+      const connectionIds = grouped.get(transport) ?? [];
+      connectionIds.push(connectionId);
+      grouped.set(transport, connectionIds);
+    }
+    for (const [transport, connectionIds] of grouped) {
       try {
         transport.send(data);
         delivered.add(transport);
-        deliveredConnectionIds.add(connectionId);
+        if (seq !== undefined) {
+          for (const connectionId of connectionIds) {
+            this.advanceCursorContiguously(connectionId, sessionId, seq);
+          }
+        }
       } catch {
-        log.warn('broadcast send failed', { connectionId, sessionId, seq });
+        log.warn('broadcast send failed', { connectionId: connectionIds[0], sessionId, seq });
         // Cursor not updated → periodic sync will retry
-      }
-    }
-    // Shared transport objects receive one physical send, but each watching
-    // connection advances its independent replay cursor.
-    if (seq !== undefined) {
-      for (const connectionId of deliveredConnectionIds) {
-        const connCursors = this.cursors.get(connectionId);
-        if (!connCursors) continue;
-        const current = connCursors.get(sessionId) ?? 0;
-        if (seq > current) connCursors.set(sessionId, seq);
       }
     }
     return delivered;
@@ -184,10 +189,7 @@ export class ConnectionRegistry {
       sessionId,
     )) {
       if (watchedTransport !== transport) continue;
-      const cursors = this.cursors.get(connectionId);
-      if (!cursors) continue;
-      const current = cursors.get(sessionId) ?? 0;
-      if (seq === current + 1) cursors.set(sessionId, seq);
+      this.advanceCursorContiguously(connectionId, sessionId, seq);
     }
   }
 
@@ -286,10 +288,7 @@ export class ConnectionRegistry {
             try {
               conn.transport.send({ ...evt.payload, seq: evt.seq });
               // Update cursor on success
-              const current = connCursors.get(sessionId) ?? 0;
-              if (evt.seq > current) {
-                connCursors.set(sessionId, evt.seq);
-              }
+              this.advanceCursorContiguously(connectionId, sessionId, evt.seq);
             } catch {
               // Still failing — stop here, retry next sync round
               log.warn('periodic sync: retry failed, stopping batch', {
@@ -323,5 +322,13 @@ export class ConnectionRegistry {
     this.stopPeriodicSync();
     this.connections.clear();
     this.cursors.clear();
+  }
+
+  private advanceCursorContiguously(connectionId: string, sessionId: string, seq: number): void {
+    if (!Number.isSafeInteger(seq) || seq < 1) return;
+    const cursors = this.cursors.get(connectionId);
+    if (!cursors) return;
+    const current = cursors.get(sessionId) ?? 0;
+    if (seq === current + 1) cursors.set(sessionId, seq);
   }
 }

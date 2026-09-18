@@ -264,6 +264,44 @@ describe('ConnectionRegistry', () => {
       expect(t.send).toHaveBeenCalledTimes(3);
     });
 
+    it('does not advance across a failed gap and periodic replay restores contiguous order', async () => {
+      vi.useFakeTimers();
+      const t = mockTransport(true);
+      (t.send as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        throw new Error('seq 6 failed');
+      });
+      registry.register('conn-1', t);
+      registry.watch('conn-1', 'sess-a');
+      registry.resetCursor('conn-1', 'sess-a', 5);
+      registry.broadcast('sess-a', { type: 'six', seq: 6 });
+      registry.broadcast('sess-a', { type: 'seven', seq: 7 });
+      expect(registry.getCursor('conn-1', 'sess-a')).toBe(5);
+
+      const store = mockEventStore([
+        { seq: 6, payload: { type: 'six' } },
+        { seq: 7, payload: { type: 'seven' } },
+      ]);
+      registry.setEventStore(store);
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.getCursor('conn-1', 'sess-a')).toBe(7);
+      registry.stopPeriodicSync();
+      vi.useRealTimers();
+    });
+
+    it('advances shared watcher cursors independently and only when contiguous', () => {
+      const shared = mockTransport(true);
+      registry.register('at-five', shared);
+      registry.register('at-zero', shared);
+      registry.watch('at-five', 'sess-a');
+      registry.watch('at-zero', 'sess-a');
+      registry.resetCursor('at-five', 'sess-a', 5);
+      registry.broadcast('sess-a', { type: 'six', seq: 6 });
+      expect(shared.send).toHaveBeenCalledOnce();
+      expect(registry.getCursor('at-five', 'sess-a')).toBe(6);
+      expect(registry.getCursor('at-zero', 'sess-a')).toBeUndefined();
+    });
+
     it('cleans up cursors when connection is removed', () => {
       registry.register('conn-1', mockTransport());
       registry.watch('conn-1', 'sess-a');
