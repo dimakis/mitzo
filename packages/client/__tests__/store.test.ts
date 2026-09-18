@@ -548,6 +548,38 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
+  it('keeps a newer running execution through stale lifecycle delivery', () => {
+    lastWs.simulateMessage({
+      type: 'session_execution_snapshot',
+      sessionId: 'test-session',
+      generation: 20,
+      state: 'running',
+    });
+    expect(store.getState().messages.running).toBe(true);
+
+    lastWs.simulateMessage({
+      type: 'session_execution_snapshot',
+      sessionId: 'test-session',
+      generation: 19,
+      state: 'idle',
+    });
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'test-session',
+      generation: 19,
+      state: 'idle',
+    });
+    expect(store.getState().messages.running).toBe(true);
+
+    lastWs.simulateMessage({
+      type: 'session_execution_snapshot',
+      sessionId: 'test-session',
+      generation: 21,
+      state: 'idle',
+    });
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('dispatches task_state updates', () => {
     lastWs.simulateMessage({
       type: 'task_state',
