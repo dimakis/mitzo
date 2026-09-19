@@ -1,6 +1,7 @@
 node_modules/
 dist/
 frontend/dist/
+frontend/dist-ios/
 *.db
 *.db-wal
 *.db-shm
