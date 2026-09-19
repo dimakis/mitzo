@@ -808,15 +808,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         typeof msg.clientMsgId === 'string' ? (msg.clientMsgId as string) : undefined;
       const sessionId = typeof msg.sessionId === 'string' ? (msg.sessionId as string) : undefined;
       const pendingSessionId = clientMsgId ? pendingSendSessions.get(clientMsgId) : undefined;
-      // This durable event is correlated to both the client command and its
-      // session. Never let a foreign replay clear a local pending command.
+      const ownsPendingCommand =
+        !!clientMsgId &&
+        pendingSendIds.has(clientMsgId) &&
+        (pendingSessionId === undefined ||
+          pendingSessionId === null ||
+          pendingSessionId === sessionId);
+      // Pending-send maps are intentionally transient. After a full reload a
+      // durable replay still needs to surface this session's terminal queue
+      // failure, but an ID associated with another live session must remain
+      // isolated from the active conversation.
+      const isActiveSessionReplay =
+        msg.replay === true &&
+        !!sessionId &&
+        parserState.currentSessionId === sessionId &&
+        pendingSessionId === undefined;
       if (
         !clientMsgId ||
         !sessionId ||
-        !pendingSendIds.has(clientMsgId) ||
-        (pendingSessionId !== undefined &&
-          pendingSessionId !== null &&
-          pendingSessionId !== sessionId)
+        isTerminalSend(clientMsgId, sessionId) ||
+        (!ownsPendingCommand && !isActiveSessionReplay)
       )
         return;
       pendingSendIds.delete(clientMsgId);

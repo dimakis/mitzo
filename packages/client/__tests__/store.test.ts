@@ -624,6 +624,46 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
+  it('surfaces a replayed queued-send failure after reload without transient pending IDs', () => {
+    // `pendingSendIds` exists only in this page instance. The durable failure
+    // can be replayed after reload before this store has emitted any private
+    // outbox receipt for the original command.
+    lastWs.simulateMessage({
+      type: 'queued_send_failed',
+      v: 2,
+      replay: true,
+      seq: 43,
+      sessionId: 'test-session',
+      clientMsgId: 'replayed-after-reload',
+      error: 'Queued message could not be started. Please retry.',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe('Queued message could not be started. Please retry.');
+
+    // The durable terminal fence still suppresses duplicate/reordered private
+    // receipts for the historical command.
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: 'replayed-after-reload',
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe('Queued message could not be started. Please retry.');
+  });
+
+  it('ignores an unknown live queued-send failure in the active session', () => {
+    lastWs.simulateMessage({
+      type: 'queued_send_failed',
+      v: 2,
+      sessionId: 'test-session',
+      clientMsgId: 'unknown-live-command',
+      error: 'must not surface',
+    });
+
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBeNull();
+  });
+
   it('keeps a durable queued failure through late private receipts for that session', () => {
     store.getState().sendMessage('queued follow-up');
     const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
