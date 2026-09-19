@@ -40,7 +40,7 @@
     "webSearch": "disabled"
   },
   "release": {
-    "mitzoSourceCommit": "9db39f64db1eb9786023c259e0024724199b7506",
+    "mitzoSourceCommit": "80184a1dd181c9277bfb047d3efcc11325d1d77c",
     "openshellCli": {
       "identity": "openshell",
       "path": "/opt/homebrew/bin/openshell",
@@ -70,8 +70,8 @@
       }
     },
     "transport": {
-      "publicOrigin": "https://dimakis-mac.tail:3100",
-      "webSocketOrigin": "wss://dimakis-mac.tail:3100",
+      "publicOrigin": "https://dimakis-mac.taildfe858.ts.net:3100",
+      "webSocketOrigin": "wss://dimakis-mac.taildfe858.ts.net:3100",
       "tlsRequired": true
     }
   }
