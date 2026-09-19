@@ -488,6 +488,10 @@ export class CodexConversation {
         this.opts.runtimeConfig ??
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
       const modelProvider = this.opts.modelProvider ?? 'openai';
+      // The mapper intentionally survives the transport swap so already
+      // rendered public events retain their identity. Give it a narrow replay
+      // window before app-server resumes the provider thread.
+      this.mapper?.beginReconnectReplay();
       const result = z
         .object({
           thread: z.object({ id: z.string().min(1) }),

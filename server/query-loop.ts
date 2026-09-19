@@ -1309,6 +1309,16 @@ async function _runQueryLoopInner(
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
             log.info('compaction completed', { clientId, numCompactions });
+            // Reflect an actual provider lifecycle event immediately. This
+            // gives the token bar an explicit status without manufacturing a
+            // compaction from token usage alone.
+            emit({
+              type: 'token_update',
+              agentContext: agentContextTokens,
+              contextCeiling: CONTEXT_CEILING_TOKENS,
+              turnIndex,
+              numCompactions,
+            });
           }
 
           // Track subagent task lifecycle for interrupt cancellation
