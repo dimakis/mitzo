@@ -787,6 +787,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
       if (visible) {
+        const queuedStatus = 'Queued behind the current response…';
+        // An HTTP receipt can race the durable user-message echo. Once that
+        // echo consumed this pending ID, a late queued receipt must not revive
+        // a status which has no subsequent accepted receipt to clear it.
+        const shouldShowQueuedStatus =
+          msg.type === '_send_queued' && !!clientMsgId && pendingSendIds.has(clientMsgId);
         if (
           awaitingSessionId &&
           (msg.type === '_send_failed' || (msg.type === '_send_accepted' && msg.sessionId === null))
@@ -805,7 +811,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ? 'Reconnecting — your message will retry automatically.'
                 : 'Sending…'
               : msg.type === '_send_queued'
-                ? 'Queued behind the current response…'
+                ? shouldShowQueuedStatus
+                  ? queuedStatus
+                  : store.getState().sendStatus
                 : null,
         });
         if (
@@ -844,8 +852,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // A pending FIFO receipt becomes active only when the server durably
     // echoes its user message. This keeps the local running guard intact
     // without retaining a second HTTP request or provider enqueue.
-    if (msg.type === 'user_message' && typeof msg.messageId === 'string')
-      pendingSendIds.delete(msg.messageId);
+    if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
+      const consumedPending = pendingSendIds.delete(msg.messageId);
+      // The final durable echo owns the only remaining local send. Clear any
+      // delivery label (including `Sending…`) now; otherwise a late queued
+      // receipt could leave it stuck. Keep the label for another local send.
+      if (consumedPending && pendingSendIds.size === 0) store.setState({ sendStatus: null });
+    }
 
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept

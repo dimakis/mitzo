@@ -1612,6 +1612,74 @@ describe('delivery status', () => {
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe(error);
   });
+
+  it('clears queued delivery status when its receipt arrives before the durable echo', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+
+    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: command.clientMsgId });
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBe('Queued behind the current response…');
+
+    lastWs.simulateMessage({
+      type: 'user_message',
+      clientMsgId: command.clientMsgId,
+      messageId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+  });
+
+  it('does not show queued delivery status when the durable echo beats its receipt', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+
+    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: command.clientMsgId });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      clientMsgId: command.clientMsgId,
+      messageId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+  });
+
+  it('keeps queued delivery status while another local send remains pending', () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('first queued follow-up');
+    store.getState().sendMessage('second queued follow-up');
+    const commands = lastWs.parsedSent().filter((message) => message.type === 'send');
+    const [first, second] = commands;
+
+    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: first.clientMsgId });
+    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: second.clientMsgId });
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: first.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      clientMsgId: first.clientMsgId,
+      messageId: first.clientMsgId,
+      sessionId: 'test-session',
+    });
+
+    expect(store.getState().sendStatus).toBe('Queued behind the current response…');
+  });
 });
 it('sends question answers without losing the request identity', async () => {
   const store = createReadyStore();
