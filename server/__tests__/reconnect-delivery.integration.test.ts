@@ -171,10 +171,11 @@ async function createReconnectHarness() {
   let loseNextAcknowledgement = false;
   let sendRequests = 0;
   let stopRequests = 0;
+  const sendPayloads: Array<Record<string, unknown>> = [];
   const sseFetch = async (url: string, init?: RequestInit) => {
-    const response = request(app)
-      .post(url)
-      .send(JSON.parse(String(init?.body ?? '{}')));
+    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    if (url.endsWith('/send')) sendPayloads.push(body);
+    const response = request(app).post(url).send(body);
     for (const [key, value] of Object.entries(init?.headers ?? {}))
       response.set(key, String(value));
     const result = await response;
@@ -236,6 +237,7 @@ async function createReconnectHarness() {
     get stopRequests() {
       return stopRequests;
     },
+    sendPayloads,
     loseNextAcknowledgement: () => {
       loseNextAcknowledgement = true;
     },
@@ -306,6 +308,132 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
     await h.dispose();
   }
 });
+
+it('keeps active-session FIFO admission durable through an offline SSE reconnect', async () => {
+  const h = await createReconnectHarness();
+  const runningTransitions: boolean[] = [];
+  let previousRunning = h.store.getState().messages.running;
+  const unsubscribe = h.store.subscribe((state) => {
+    if (state.messages.running !== previousRunning) {
+      previousRunning = state.messages.running;
+      runningTransitions.push(previousRunning);
+    }
+  });
+  try {
+    h.sources[0].welcome();
+    h.store.getState().sendMessage('A', { cwd: h.root, isolation: false });
+    await h.waitFor(() => expect(h.store.getState().sessions.active).toBeTruthy());
+    const sessionId = h.store.getState().sessions.active!;
+    await h.waitFor(() => expect(h.inputs).toEqual(['A']));
+    const runtimeId = h.chat.registry.findBySessionId(sessionId)!.clientId;
+    const initial = h.chat.registry.get(runtimeId)!.currentExecution!;
+
+    // The owning browser backgrounds. A new SSE source exists but has not
+    // completed reconnect/replay, so B and C use the durable REST outbox
+    // without a live acknowledgement stream.
+    h.store.getState().sendSuspend();
+    await h.waitFor(() => expect(h.chat.registry.isSuspended(runtimeId)).toBe(true));
+    h.sources[0].serverClose();
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(2));
+    h.loseNextAcknowledgement();
+    h.store.getState().sendMessage('B');
+    h.store.getState().sendMessage('C');
+    await h.waitFor(() =>
+      expect(h.sendPayloads.filter((payload) => payload.prompt === 'B')).toHaveLength(1),
+    );
+    const bClientMsgId = h.sendPayloads.find((payload) => payload.prompt === 'B')!.clientMsgId;
+    expect(typeof bClientMsgId).toBe('string');
+    // A queued receipt has no RUNNING generation yet. It must not be
+    // observable as an active provider turn before A's exact result.
+    expect(h.chat.registry.get(runtimeId)!.currentExecution).toMatchObject(initial);
+    expect(
+      h.chat.eventStore
+        .getEventsAfter(sessionId, 0)
+        .filter(
+          (event) => event.type === 'execution_state_changed' && event.payload.phase === 'RUNNING',
+        ),
+    ).toHaveLength(1);
+
+    h.outputQueue.push({ type: 'result', session_id: sessionId });
+    await h.waitFor(() => expect(h.inputs).toEqual(['A', 'B']));
+    await h.waitFor(() =>
+      expect(h.sendPayloads.filter((payload) => payload.prompt === 'B')).toHaveLength(2),
+    );
+    // The retry is a lost-ack duplicate: same durable command identity, one
+    // provider enqueue, and no second generation.
+    expect(
+      h.sendPayloads
+        .filter((payload) => payload.prompt === 'B')
+        .map((payload) => payload.clientMsgId),
+    ).toEqual([bClientMsgId, bClientMsgId]);
+    expect(h.inputs.filter((input) => input === 'B')).toHaveLength(1);
+    await h.waitFor(() =>
+      expect(h.sendPayloads.filter((payload) => payload.prompt === 'C')).toHaveLength(1),
+    );
+    expect(h.inputs).toEqual(['A', 'B']);
+
+    h.outputQueue.push({ type: 'result', session_id: sessionId });
+    await h.waitFor(() => expect(h.inputs).toEqual(['A', 'B', 'C']));
+    h.outputQueue.push({ type: 'result', session_id: sessionId });
+    await h.waitFor(() =>
+      expect(
+        h.chat.eventStore
+          .getEventsAfter(sessionId, 0)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' && event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(3),
+    );
+
+    const executions = h.chat.eventStore
+      .getEventsAfter(sessionId, 0)
+      .filter((event) => event.type === 'execution_state_changed');
+    const running = executions.filter((event) => event.payload.phase === 'RUNNING');
+    expect(running.map((event) => event.payload.generation)).toEqual([1, 2, 3]);
+    expect(new Set(running.map((event) => event.payload.executionId)).size).toBe(3);
+    expect(executions.filter((event) => event.payload.phase === 'TERMINAL')).toHaveLength(3);
+    expect(h.chat.registry.get(runtimeId)!.currentExecution).toBeUndefined();
+    expect(h.chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionGeneration: 3,
+    });
+    expect(
+      h.chat.eventStore
+        .getEventsAfter(sessionId, 0)
+        .filter((event) => event.type === 'session_end'),
+    ).toHaveLength(2);
+    // Reconnect after the offline sequence replays the authoritative durable
+    // event order once, then supplies its snapshot.
+    h.sources[1].welcome();
+    await h.waitFor(() => expect(h.store.getState().connection.status).toBe('connected'));
+    await h.waitFor(() => expect(h.store.getState().messages.running).toBe(false));
+    // The predecessor result does not emit an unversioned legacy end after a
+    // successor is already RUNNING; the running UI remains true across A→B→C.
+    expect(runningTransitions).toEqual([true, false]);
+    h.store.getState().forceReconnect();
+    await h.waitFor(() => expect(h.sources).toHaveLength(3));
+    const replay = h.sources[2];
+    replay.welcome();
+    await h.waitFor(() =>
+      expect(replay.events.some((event) => event.type === 'session_execution_snapshot')).toBe(true),
+    );
+    const replayed = replay.events.filter(
+      (event) => event.sessionId === sessionId && typeof event.seq === 'number',
+    );
+    expect(replayed.map((event) => event.seq)).toEqual(
+      [...replayed.map((event) => event.seq)].sort((left, right) => Number(left) - Number(right)),
+    );
+    expect(new Set(replayed.map((event) => event.seq)).size).toBe(replayed.length);
+    expect(
+      replay.events.findIndex((event) => event.type === 'session_execution_snapshot'),
+    ).toBeGreaterThanOrEqual(replayed.length);
+  } finally {
+    unsubscribe();
+    await h.dispose();
+  }
+}, 15_000);
 
 it('replays every offline durable event before the authoritative running snapshot after SSE loss', async () => {
   const h = await createReconnectHarness();
@@ -395,9 +523,11 @@ it('replays every offline durable event before the authoritative running snapsho
       type: 'session_execution_snapshot',
       sessionId,
       state: 'running',
-      internalState: 'ACTIVE',
+      internalState: 'RUNNING',
+      generation: h.chat.eventStore.getSession(sessionId)!.executionGeneration,
       lastSeq: expectedReplay.at(-1)!.seq,
     });
+    expect(replayed.every((event) => event.replay === true)).toBe(true);
     expect(h.store.getState().messages.running).toBe(true);
     expect(h.chat.registry.isSuspended(runtimeId)).toBe(false);
   } finally {
@@ -495,8 +625,8 @@ it('replays one offline completion and then advances the reconnect cursor past i
       type: 'session_execution_snapshot',
       sessionId,
       state: 'idle',
-      internalState: 'ENDED',
-      generation: terminalState[0].payload.generation,
+      internalState: 'TERMINAL',
+      generation: h.chat.eventStore.getSession(sessionId)!.executionGeneration,
       lastSeq: expectedReplay.at(-1)!.seq,
     });
     await h.waitFor(() => expect(h.store.getState().messages.running).toBe(false));

@@ -1922,7 +1922,14 @@ async function _startChatInner(
                     ownedToken,
                     outcome,
                   );
-                  return finished?.transition?.applied === true;
+                  // `session_end` is intentionally unversioned for older
+                  // transports.  Once FIFO activation has durably moved to a
+                  // successor, emitting it for the predecessor would clear
+                  // the client's running UI after the successor's RUNNING
+                  // event.  Returning false suppresses that legacy
+                  // projection while retaining the predecessor's canonical
+                  // terminal execution event and usage/history processing.
+                  return finished?.transition?.applied === true && !finished.next?.token;
                 },
                 onProviderFailure: async (beforeReady: boolean, providerToken) => {
                   const ownedToken = providerToken ?? initialToken;

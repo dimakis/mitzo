@@ -327,6 +327,42 @@ describe('handleReconnect', () => {
     });
   });
 
+  it('reconciles terminal canonical execution independently of an attached runtime', () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      state: 'ACTIVE',
+      lastStateChange: 1_000_000,
+      executionId: 'execution-3',
+      executionGeneration: 3,
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'completed',
+    });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 9 }] },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_execution_snapshot',
+        sessionId: 'sess-1',
+        executionId: 'execution-3',
+        generation: 3,
+        state: 'idle',
+        internalState: 'TERMINAL',
+        terminalReason: 'completed',
+      }),
+    );
+  });
+
   it('replays a replacement boundary in durable sequence before its snapshot', () => {
     const eventStore = mockEventStore();
     eventStore.getEventsAfter.mockReturnValue([

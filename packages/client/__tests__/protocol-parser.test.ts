@@ -1057,6 +1057,87 @@ describe('session_state_changed', () => {
 });
 
 describe('session_execution_snapshot', () => {
+  it('records replayed execution generations without replaying historical UI states', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const historical = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'execution-3',
+        generation: 3,
+        phase: 'TERMINAL',
+        clientState: 'idle',
+        replay: true,
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const snapshot = parseServerMessage(
+      {
+        type: 'session_execution_snapshot',
+        sessionId: 'sid-1',
+        executionId: 'execution-3',
+        generation: 3,
+        state: 'idle',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(historical.messagesActions).toHaveLength(0);
+    expect(snapshot.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'idle',
+    });
+  });
+
+  it('uses canonical execution events and keeps lifecycle timestamps in a separate domain', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        generation: 1_000_000,
+        state: 'running',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const terminal = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'execution-3',
+        generation: 3,
+        phase: 'TERMINAL',
+        clientState: 'idle',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const staleRuntime = parseServerMessage(
+      {
+        type: 'session_state_changed',
+        sessionId: 'sid-1',
+        generation: 1_000_001,
+        state: 'running',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(terminal.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'idle',
+    });
+    expect(staleRuntime.messagesActions).toHaveLength(0);
+  });
+
   it('keeps a running execution when an older connection snapshot arrives later', () => {
     const state = makeState({ currentSessionId: 'sid-1' });
     const callbacks = makeCallbacks();

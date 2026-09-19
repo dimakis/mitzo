@@ -419,8 +419,32 @@ function sendExecutionSnapshot(
   ctx: V2HandlerContext,
 ): void {
   const meta = ctx.eventStore.getSession(sessionId);
-  const state = meta?.state;
-  if (!state || !meta) return; // old sessions degrade to ordinary durable replay
+  if (!meta) return;
+  if (meta.executionPhase && meta.executionId) {
+    const state =
+      meta.executionPhase === 'TERMINAL'
+        ? 'idle'
+        : meta.executionPhase === 'REQUIRES_ACTION'
+          ? 'requires_action'
+          : 'running';
+    ctx.connRegistry.get(connectionId)?.transport.send({
+      type: 'session_execution_snapshot',
+      sessionId,
+      executionId: meta.executionId,
+      generation: meta.executionGeneration,
+      state,
+      internalState: meta.executionPhase,
+      lastSeq,
+      ...(meta.executionTerminalReason ? { terminalReason: meta.executionTerminalReason } : {}),
+    });
+    return;
+  }
+
+  // Compatibility for sessions created before canonical execution state was
+  // persisted. Keep their legacy lifecycle reconciliation in its own client
+  // generation domain.
+  const state = meta.state;
+  if (!state) return;
   const generation = meta.lastStateChange ?? 0;
   ctx.connRegistry.get(connectionId)?.transport.send({
     type: 'session_execution_snapshot',
@@ -549,6 +573,10 @@ export function handleReconnect(
             // replayed event, including those legacy-shaped transitions.
             type: evt.type,
             seq: evt.seq,
+            // Replayed lifecycle rows are historical evidence, not a series
+            // of live UI transitions. The authoritative execution snapshot
+            // sent after this batch reconciles the current running state.
+            replay: true,
           } as Record<string, unknown>);
         }
 

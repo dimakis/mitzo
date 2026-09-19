@@ -226,6 +226,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
+  // The HTTP outbox is intentionally acknowledged in order. A queued prompt
+  // can therefore still be client-local when the preceding server execution
+  // emits its legacy, unversioned session_end. Keep the running indicator up
+  // until the last locally queued prompt has either been accepted or failed.
+  const pendingSendIds = new Set<string>();
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -301,6 +306,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = id;
       connection.clearPendingSends();
+      pendingSendIds.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -347,6 +353,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
+      pendingSendIds.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -766,6 +773,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      const clientMsgId =
+        typeof msg.clientMsgId === 'string' ? (msg.clientMsgId as string) : undefined;
+      if (clientMsgId) {
+        if (msg.type === '_send_pending') pendingSendIds.add(clientMsgId);
+        else pendingSendIds.delete(clientMsgId);
+      }
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
@@ -842,6 +855,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
+    if (msg.type === 'session_end' && pendingSendIds.size > 0) return;
     if (
       !awaitingModeHydration &&
       (msg.type === 'session_id' ||
@@ -863,6 +877,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const action of result.messagesActions) {
+      if (
+        action.type === 'SESSION_STATE_CHANGED' &&
+        action.state === 'idle' &&
+        pendingSendIds.size > 0
+      )
+        continue;
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),
       }));

@@ -62,6 +62,8 @@ export interface ProtocolParserState {
   currentSessionId: string | undefined;
   /** Highest authoritative execution generation reconciled per session. */
   executionGenerationBySession?: Map<string, number>;
+  /** Highest legacy lifecycle generation reconciled per session. */
+  sessionStateGenerationBySession?: Map<string, number>;
 }
 
 // ─── Parser result ───────────────────────────────────────────────────────────
@@ -277,10 +279,16 @@ export function parseServerMessage(
       break;
 
     case 'session_state_changed': {
-      // Server-authoritative state — derive running from this event only
+      // Legacy runtime lifecycle. Its generation is a timestamp and therefore
+      // must never share a comparison domain with canonical execution
+      // generations (1, 2, 3, ...).
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
       const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
-      const generations = (state.executionGenerationBySession ??= new Map());
+      if (msg.replay === true) break;
+      // Once canonical execution state exists, runtime attachment events are
+      // transport diagnostics only and cannot drive the execution UI.
+      if (sessionId && state.executionGenerationBySession?.has(sessionId)) break;
+      const generations = (state.sessionStateGenerationBySession ??= new Map());
       if (sessionId && generation !== undefined) {
         const previous = generations.get(sessionId);
         if (previous !== undefined && generation < previous) break;
@@ -297,6 +305,34 @@ export function parseServerMessage(
         });
       } else if (typeof msg.state === 'string') {
         console.warn('[mitzo] unknown session state:', msg.state);
+      }
+      break;
+    }
+
+    case 'execution_state_changed': {
+      const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
+      const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
+      if (!sessionId || generation === undefined) break;
+      const generations = (state.executionGenerationBySession ??= new Map());
+      const previous = generations.get(sessionId);
+      if (previous !== undefined && generation < previous) break;
+      generations.set(sessionId, generation);
+      if (msg.replay === true) break;
+      const clientState =
+        typeof msg.clientState === 'string'
+          ? msg.clientState
+          : msg.phase === 'TERMINAL'
+            ? 'idle'
+            : msg.phase === 'REQUIRES_ACTION'
+              ? 'requires_action'
+              : msg.phase === 'RUNNING' || msg.phase === 'STOPPING'
+                ? 'running'
+                : undefined;
+      if (typeof clientState === 'string' && VALID_CLIENT_STATES.has(clientState)) {
+        result.messagesActions.push({
+          type: 'SESSION_STATE_CHANGED',
+          state: clientState as ClientSessionState,
+        });
       }
       break;
     }

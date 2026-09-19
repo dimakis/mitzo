@@ -548,6 +548,41 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
+  it('does not clear running between sequential outbox sends', () => {
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+    });
+
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+    lastWs.simulateMessage({
+      type: 'execution_state_changed',
+      sessionId: 'test-session',
+      executionId: 'execution-1',
+      generation: 1,
+      phase: 'TERMINAL',
+      clientState: 'idle',
+    });
+    expect(store.getState().messages.running).toBe(true);
+
+    lastWs.simulateMessage({
+      type: '_send_accepted',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: 'execution_state_changed',
+      sessionId: 'test-session',
+      executionId: 'execution-2',
+      generation: 2,
+      phase: 'TERMINAL',
+      clientState: 'idle',
+    });
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('keeps a newer running execution through stale lifecycle delivery', () => {
     lastWs.simulateMessage({
       type: 'session_execution_snapshot',
