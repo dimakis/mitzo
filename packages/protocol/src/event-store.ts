@@ -14,6 +14,7 @@ import type {
   ExecutionStateChangedPayload,
   ExecutionTerminalReason,
   ExecutionToken,
+  QueuedSendFailedPayload,
   SessionLifecycleState,
   SessionLifecycleChangedPayload,
 } from './types.js';
@@ -43,6 +44,7 @@ export type {
   ExecutionStateChangedPayload,
   ExecutionTerminalReason,
   ExecutionToken,
+  QueuedSendFailedPayload,
   SessionLifecycleState,
   SessionLifecycleChangedPayload,
 };
@@ -138,6 +140,13 @@ export interface SendCommandReceipt {
 export interface SendCommandReceiptClaim {
   receipt: SendCommandReceipt;
   duplicate: boolean;
+}
+
+/** Atomic, idempotent terminal outcome for a send that never emitted user_message. */
+export interface QueuedSendFailureResult {
+  applied: boolean;
+  seq?: number;
+  event?: QueuedSendFailedPayload;
 }
 
 export class SendCommandConflictError extends Error {
@@ -502,26 +511,58 @@ export class EventStore {
     for (const row of rows) {
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
-      this.failSendCommand(row.client_msg_id, error);
       if (!this.getSession(row.session_id)) {
-        const payload = JSON.parse(row.payload);
+        const payload = JSON.parse(row.payload) as { prompt?: string };
         this.upsertSession({ sessionId: row.session_id, initialPrompt: payload.prompt });
       }
-      this.append(row.session_id, 'error', {
-        type: 'error',
-        v: 2,
-        sessionId: row.session_id,
-        error,
-      });
-      this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
+      const failure = this.failQueuedSendCommand(row.session_id, row.client_msg_id, error);
+      if (failure.applied)
+        this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
     }
   }
 
+  /**
+   * Fail a queued send only while it is still pre-activation. The receipt
+   * update and sequenced event share one immediate transaction so duplicate
+   * teardown callbacks cannot create duplicate replay rows.
+   */
+  failQueuedSendCommand(
+    sessionId: string,
+    clientMsgId: string,
+    error: string,
+  ): QueuedSendFailureResult {
+    return this.db!.transaction(() => {
+      const command = this.db!.prepare(
+        `SELECT session_id, error FROM send_commands
+             WHERE client_msg_id = ? AND session_id = ?`,
+      ).get(clientMsgId, sessionId) as { session_id: string; error: string | null } | undefined;
+      if (command?.error !== null) return { applied: false };
+      if (this.stmts.hasUserMessage.get(sessionId, clientMsgId) != null) return { applied: false };
+      const updated = this.db!.prepare(
+        `UPDATE send_commands SET error = ?
+             WHERE client_msg_id = ? AND session_id = ? AND error IS NULL`,
+      ).run(error, clientMsgId, sessionId);
+      if (updated.changes !== 1) return { applied: false };
+      const event: QueuedSendFailedPayload = {
+        type: 'queued_send_failed',
+        v: 2,
+        sessionId,
+        clientMsgId,
+        error,
+        timestamp: Date.now(),
+      };
+      const seq = Number(
+        this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, seq, event };
+    }).immediate();
+  }
+
   failSendCommand(clientMsgId: string, error: string): void {
-    this.db!.prepare('UPDATE send_commands SET error = ? WHERE client_msg_id = ?').run(
-      error,
-      clientMsgId,
-    );
+    this.db!.prepare(
+      'UPDATE send_commands SET error = ? WHERE client_msg_id = ? AND error IS NULL',
+    ).run(error, clientMsgId);
   }
 
   constructor(dbPath: string, logger?: EventStoreLogger) {

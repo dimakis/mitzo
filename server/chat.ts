@@ -82,7 +82,11 @@ import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
 import type { TaskStore } from './task-store.js';
 import { loadAgentDef } from './agent-loader.js';
-import { ExecutionController, PendingExecutionOverflowError } from './execution-controller.js';
+import {
+  broadcastStoredEvent,
+  ExecutionController,
+  PendingExecutionOverflowError,
+} from './execution-controller.js';
 import {
   fingerprintExecutionRequest,
   interruptReceiptFingerprint,
@@ -600,6 +604,34 @@ function cleanupLaunchOwnership(ownership: LaunchOwnership): void {
 
 function initialExecutionController(): ExecutionController {
   return new ExecutionController({ registry, eventStore, connections: _connRegistry ?? undefined });
+}
+
+const QUEUED_SEND_FAILURE_MESSAGE = 'Queued message could not be started. Please retry.';
+
+/**
+ * A FIFO send has a durable receipt before it reaches its user-message echo.
+ * Record exactly one safe terminal event if that bounded input is rejected;
+ * when a runtime still owns the session, deliver the exact persisted row live.
+ */
+function failQueuedSendBeforeActivation(
+  clientId: string,
+  sessionId: string,
+  clientMsgId: string,
+): void {
+  const failure = eventStore.failQueuedSendCommand(
+    sessionId,
+    clientMsgId,
+    QUEUED_SEND_FAILURE_MESSAGE,
+  );
+  if (!failure.applied || failure.seq === undefined || !failure.event) return;
+  const lease = registry.getRuntimeLease(clientId);
+  if (lease)
+    broadcastStoredEvent(
+      lease,
+      { seq: failure.seq, event: failure.event },
+      registry,
+      _connRegistry ?? undefined,
+    );
 }
 
 /** Byte accounting is intentionally based only on the already validated request payload. */
@@ -2330,7 +2362,12 @@ export function sendToChat(
       isInitial: false,
       admissionReceipt: receipt,
       onAdmitted: () => settleReceipt(true),
-      onRejected: () => settleReceipt(false),
+      onRejected: () => {
+        // Never include a provider/preflight exception in a durable event.
+        // The EventStore guard makes repeated teardown callbacks harmless.
+        failQueuedSendBeforeActivation(clientId, session.sessionId!, messageId);
+        settleReceipt(false);
+      },
       dispatch: async (token) => {
         if (
           !(await dispatchToChat(

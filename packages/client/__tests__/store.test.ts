@@ -554,6 +554,7 @@ describe('WS → store wiring', () => {
     lastWs.simulateMessage({
       type: '_send_pending',
       clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
     });
 
     lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
@@ -588,6 +589,74 @@ describe('WS → store wiring', () => {
       phase: 'TERMINAL',
       clientState: 'idle',
     });
+    expect(store.getState().messages.running).toBe(false);
+  });
+
+  it('applies a replayed queued-send failure only to its pending session', () => {
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
+
+    // This is the same sequenced event a reconnect would replay after B was
+    // restored as locally pending. It releases only B's local guard.
+    lastWs.simulateMessage({
+      type: 'queued_send_failed',
+      v: 2,
+      seq: 42,
+      sessionId: 'test-session',
+      clientMsgId: command.clientMsgId,
+      error: 'Queued message could not be started. Please retry.',
+    });
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe('Queued message could not be started. Please retry.');
+
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+    expect(store.getState().messages.running).toBe(false);
+  });
+
+  it('does not let a foreign queued-send failure release this session pending guard', () => {
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
+
+    lastWs.simulateMessage({
+      type: 'queued_send_failed',
+      v: 2,
+      sessionId: 'other-session',
+      clientMsgId: command.clientMsgId,
+      error: 'foreign failure',
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().sendError).toBeNull();
+  });
+
+  it('does not let another session pending send suppress this session terminal state', () => {
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: 'pending-other-session',
+      sessionId: 'other-session',
+    });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
+
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+
     expect(store.getState().messages.running).toBe(false);
   });
 
@@ -1664,8 +1733,16 @@ describe('delivery status', () => {
     const commands = lastWs.parsedSent().filter((message) => message.type === 'send');
     const [first, second] = commands;
 
-    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: first.clientMsgId });
-    lastWs.simulateMessage({ type: '_send_pending', clientMsgId: second.clientMsgId });
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: first.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: second.clientMsgId,
+      sessionId: 'test-session',
+    });
     lastWs.simulateMessage({
       type: '_send_queued',
       clientMsgId: first.clientMsgId,

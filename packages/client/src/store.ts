@@ -231,6 +231,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // emits its legacy, unversioned session_end. Keep the running indicator up
   // until the last locally queued prompt has either been accepted or failed.
   const pendingSendIds = new Set<string>();
+  // Pending delivery is session-scoped: a queued command from another tab or
+  // restored session must never suppress this session's terminal transition.
+  const pendingSendSessions = new Map<string, string | null>();
+
+  const hasPendingSendForSession = (sessionId: string | undefined): boolean => {
+    if (!sessionId) return false;
+    for (const pendingSessionId of pendingSendSessions.values()) {
+      if (pendingSessionId === sessionId) return true;
+    }
+    return false;
+  };
 
   function fetchAndRestoreMessages(sessionId: string) {
     if (recoveryInFlight) return;
@@ -307,6 +318,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = id;
       connection.clearPendingSends();
       pendingSendIds.clear();
+      pendingSendSessions.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -354,6 +366,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
       pendingSendIds.clear();
+      pendingSendSessions.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -767,6 +780,33 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('mitzo:auth-lost'));
       return;
     }
+    if (msg.type === 'queued_send_failed') {
+      const clientMsgId =
+        typeof msg.clientMsgId === 'string' ? (msg.clientMsgId as string) : undefined;
+      const sessionId = typeof msg.sessionId === 'string' ? (msg.sessionId as string) : undefined;
+      const pendingSessionId = clientMsgId ? pendingSendSessions.get(clientMsgId) : undefined;
+      // This durable event is correlated to both the client command and its
+      // session. Never let a foreign replay clear a local pending command.
+      if (
+        !clientMsgId ||
+        !sessionId ||
+        !pendingSendIds.has(clientMsgId) ||
+        (pendingSessionId !== undefined &&
+          pendingSessionId !== null &&
+          pendingSessionId !== sessionId)
+      )
+        return;
+      pendingSendIds.delete(clientMsgId);
+      pendingSendSessions.delete(clientMsgId);
+      store.setState({
+        sendError:
+          typeof msg.error === 'string'
+            ? msg.error
+            : 'Queued message could not be started. Please retry.',
+        sendStatus: hasPendingSendForSession(sessionId) ? store.getState().sendStatus : null,
+      });
+      return;
+    }
     if (
       msg.type === '_send_pending' ||
       msg.type === '_send_queued' ||
@@ -780,8 +820,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         // `_send_pending` is emitted synchronously on outbox enqueue, before
         // either the HTTP receipt or the durable user-message echo. A later
         // `_send_queued` must not re-add an ID whose echo already arrived.
-        if (msg.type === '_send_pending') pendingSendIds.add(clientMsgId);
-        else if (msg.type !== '_send_queued') pendingSendIds.delete(clientMsgId);
+        if (msg.type === '_send_pending') {
+          pendingSendIds.add(clientMsgId);
+          if (typeof msg.sessionId === 'string')
+            pendingSendSessions.set(clientMsgId, msg.sessionId as string);
+          else if (!pendingSendSessions.has(clientMsgId))
+            pendingSendSessions.set(clientMsgId, null);
+        } else if (msg.type === '_send_queued') {
+          if (pendingSendIds.has(clientMsgId) && typeof msg.sessionId === 'string')
+            pendingSendSessions.set(clientMsgId, msg.sessionId as string);
+        } else {
+          pendingSendIds.delete(clientMsgId);
+          pendingSendSessions.delete(clientMsgId);
+        }
       }
       const visible = store
         .getState()
@@ -853,11 +904,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // echoes its user message. This keeps the local running guard intact
     // without retaining a second HTTP request or provider enqueue.
     if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
-      const consumedPending = pendingSendIds.delete(msg.messageId);
+      const pendingSessionId = pendingSendSessions.get(msg.messageId);
+      const eventSessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
+      const matchesPendingSession =
+        pendingSessionId === undefined ||
+        pendingSessionId === null ||
+        pendingSessionId === eventSessionId;
+      const consumedPending = matchesPendingSession && pendingSendIds.delete(msg.messageId);
+      if (consumedPending) pendingSendSessions.delete(msg.messageId);
       // The final durable echo owns the only remaining local send. Clear any
       // delivery label (including `Sending…`) now; otherwise a late queued
       // receipt could leave it stuck. Keep the label for another local send.
-      if (consumedPending && pendingSendIds.size === 0) store.setState({ sendStatus: null });
+      if (consumedPending && !hasPendingSendForSession(eventSessionId))
+        store.setState({ sendStatus: null });
     }
 
     // Session-scoped event filtering for multiplexed v2 connections:
@@ -880,7 +939,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
-    if (msg.type === 'session_end' && pendingSendIds.size > 0) return;
+    if (msg.type === 'session_end' && hasPendingSendForSession(eventSessionId)) return;
     if (
       !awaitingModeHydration &&
       (msg.type === 'session_id' ||
@@ -905,7 +964,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (
         action.type === 'SESSION_STATE_CHANGED' &&
         action.state === 'idle' &&
-        pendingSendIds.size > 0
+        hasPendingSendForSession(eventSessionId)
       )
         continue;
       store.setState((s) => ({

@@ -261,6 +261,17 @@ export interface ExecutionStateChangedPayload extends ExecutionToken {
   timestamp: number;
 }
 
+/** Durable terminal outcome for a FIFO send that never reached user-message activation. */
+export interface QueuedSendFailedPayload {
+  type: 'queued_send_failed';
+  v: 2;
+  sessionId: string;
+  clientMsgId: string;
+  /** Deliberately safe, user-facing failure text. */
+  error: string;
+  timestamp: number;
+}
+
 /** Canonical durable lifecycle event; it has no execution/running projection. */
 export interface SessionLifecycleChangedPayload {
   type: 'session_lifecycle_changed';

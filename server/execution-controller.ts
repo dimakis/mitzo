@@ -41,6 +41,12 @@ export interface StoredExecutionEvent {
   event: ExecutionStateChangedPayload;
 }
 
+/** Any already-persisted, session-scoped event eligible for live delivery. */
+export interface StoredBroadcastEvent {
+  seq: number;
+  event: { type: string; sessionId: string };
+}
+
 export interface ExecutionControllerOptions {
   registry: SessionRegistry;
   eventStore: ExecutionStore;
@@ -106,9 +112,9 @@ function sendOnce(
 }
 
 /** Deliver the exact durable row; it never appends or allocates a new seq. */
-export function broadcastStoredExecutionEvent(
+export function broadcastStoredEvent(
   lease: RuntimeSessionLease,
-  stored: StoredExecutionEvent,
+  stored: StoredBroadcastEvent,
   registry: SessionRegistry,
   connections?: ConnectionRegistry,
 ): Set<SessionTransport> {
@@ -137,6 +143,16 @@ export function broadcastStoredExecutionEvent(
     }
   }
   return sent;
+}
+
+/** Execution-state specialization retained for callers and focused tests. */
+export function broadcastStoredExecutionEvent(
+  lease: RuntimeSessionLease,
+  stored: StoredExecutionEvent,
+  registry: SessionRegistry,
+  connections?: ConnectionRegistry,
+): Set<SessionTransport> {
+  return broadcastStoredEvent(lease, stored, registry, connections);
 }
 
 /** Isolated per-runtime execution admission; production provider wiring comes later. */

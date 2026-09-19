@@ -464,6 +464,7 @@ describe('interruptChat emits user_message via transport', () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();
     const sessionId = `sess-send-stop-${Date.now()}`;
+    const queuedClientMsgId = `queued-stop-${Date.now()}-${Math.random()}`;
     registry.register(CLIENT_ID, {
       transport,
       abortController: new AbortController(),
@@ -482,7 +483,15 @@ describe('interruptChat emits user_message via transport', () => {
       'fp-stop',
     ).token;
 
-    const queued = sendToChat(CLIENT_ID, 'must not dispatch', undefined, undefined, 'queued-stop');
+    // The HTTP receipt is durable before the bounded FIFO entry exists.
+    eventStore.insertSendCommand(queuedClientMsgId, sessionId, {}, 'queued-stop-fingerprint');
+    const queued = sendToChat(
+      CLIENT_ID,
+      'must not dispatch',
+      undefined,
+      undefined,
+      queuedClientMsgId,
+    );
     expect(registry.get(CLIENT_ID)?.pendingExecutions).toHaveLength(1);
     await stopChat(CLIENT_ID);
     await expect(queued).resolves.toBe(false);
@@ -491,6 +500,23 @@ describe('interruptChat emits user_message via transport', () => {
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'stopped',
     });
+    const failures = eventStore
+      .getSessionEvents(sessionId)
+      .filter((event) => event.type === 'queued_send_failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0].payload).toMatchObject({
+      sessionId,
+      clientMsgId: queuedClientMsgId,
+      error: 'Queued message could not be started. Please retry.',
+    });
+    expect(transport._sent).toContainEqual(
+      expect.objectContaining({
+        type: 'queued_send_failed',
+        clientMsgId: queuedClientMsgId,
+        sessionId,
+        seq: failures[0].seq,
+      }),
+    );
   });
 
   it('replays an Anthropic receipt before a later active-model policy check', async () => {

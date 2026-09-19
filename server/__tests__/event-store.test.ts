@@ -31,6 +31,56 @@ describe('EventStore', () => {
     expect(store.hasRecentSendCommandForSession('session-1', Date.now() - 1000)).toBe(false);
   });
 
+  it('atomically records one session-scoped queued-send failure before user activation', () => {
+    store.insertSendCommand('queued-command', 'session-queued', { prompt: 'continue' });
+
+    const first = store.failQueuedSendCommand(
+      'session-queued',
+      'queued-command',
+      'Queued message could not be started. Please retry.',
+    );
+    const duplicate = store.failQueuedSendCommand(
+      'session-queued',
+      'queued-command',
+      'Queued message could not be started. Please retry.',
+    );
+
+    expect(first).toMatchObject({
+      applied: true,
+      event: {
+        type: 'queued_send_failed',
+        sessionId: 'session-queued',
+        clientMsgId: 'queued-command',
+      },
+    });
+    expect(duplicate).toEqual({ applied: false });
+    expect(store.getSendCommand('queued-command')?.error).toBe(
+      'Queued message could not be started. Please retry.',
+    );
+    expect(
+      store
+        .getSessionEvents('session-queued')
+        .filter((event) => event.type === 'queued_send_failed'),
+    ).toHaveLength(1);
+  });
+
+  it('recovery emits the correlated durable queued-send failure exactly once', () => {
+    store.insertSendCommand('restart-command', 'session-restart', { prompt: 'continue' });
+
+    store.recoverPendingSendCommands();
+    store.recoverPendingSendCommands();
+
+    expect(store.getSendCommand('restart-command')?.error).toContain('Server restarted');
+    const failures = store
+      .getSessionEvents('session-restart')
+      .filter((event) => event.type === 'queued_send_failed');
+    expect(failures).toHaveLength(1);
+    expect(failures[0].payload).toMatchObject({
+      sessionId: 'session-restart',
+      clientMsgId: 'restart-command',
+    });
+  });
+
   describe('append', () => {
     it('returns incrementing sequence numbers', () => {
       const seq1 = store.append('sess-1', 'message_start', { messageId: 'm1' });
