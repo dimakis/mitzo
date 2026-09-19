@@ -258,6 +258,86 @@ it('fails queued FIFO work instead of admitting it while a provider stream tears
   }
 });
 
+it('fails queued FIFO work instead of admitting it after an explicit failed result', async () => {
+  const { chat, root } = await freshChat();
+  const sessionId = '7c68a371-73d1-4994-a512-b71d4bc44c65';
+  let releaseFailedResult!: () => void;
+  const failedResult = new Promise<void>((resolve) => {
+    releaseFailedResult = resolve;
+  });
+  vi.mocked(query).mockImplementation(
+    () =>
+      (async function* () {
+        yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'first' } } };
+        await failedResult;
+        yield {
+          type: 'result',
+          session_id: sessionId,
+          subtype: 'error_max_turns',
+          usage: {},
+          total_cost_usd: 0,
+          num_turns: 1,
+        };
+      })() as ReturnType<typeof query>,
+  );
+
+  try {
+    const launch = chat.launchChat(
+      { send: () => {}, isOpen: () => true },
+      'failed-result-fifo-driver',
+      'initial request',
+      {
+        cwd: root,
+        isolation: false,
+        initialSessionId: sessionId,
+        clientMsgId: 'failed-result-initial',
+        requestFingerprint: 'failed-result-initial-fingerprint',
+      },
+    );
+    await expect(launch.accepted).resolves.toMatchObject({ token: { generation: 1 } });
+
+    chat.eventStore.insertSendCommand(
+      'failed-result-queued',
+      sessionId,
+      {},
+      'failed-result-queued-fingerprint',
+    );
+    const queued = chat.sendToChat(
+      'failed-result-fifo-driver',
+      'must not inherit a failed provider result',
+      undefined,
+      undefined,
+      'failed-result-queued',
+    );
+    expect(chat.registry.findBySessionId(sessionId)?.session.pendingExecutions).toHaveLength(1);
+
+    // `result` callbacks happen before query-loop teardown. A failure must
+    // terminalize only its own token and leave the queued receipt to teardown.
+    releaseFailedResult();
+    await expect(queued).resolves.toBe(false);
+    await expect(launch.completion).resolves.toBeUndefined();
+
+    const events = chat.eventStore.getSessionEvents(sessionId);
+    expect(
+      events.filter(
+        (event) => event.type === 'execution_state_changed' && event.payload.phase === 'RUNNING',
+      ),
+    ).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'user_message')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'queued_send_failed')).toHaveLength(1);
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionGeneration: 1,
+      executionTerminalReason: 'failed',
+    });
+    expect(chat.registry.findBySessionId(sessionId)).toBeNull();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('stops an admitted pre-ready execution before removing its runtime', async () => {
   const { chat, root } = await freshChat();
   const sessionId = '8a68a371-73d1-4994-a512-b71d4bc44c65';

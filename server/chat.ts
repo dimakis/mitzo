@@ -1965,6 +1965,12 @@ async function _startChatInner(
                     runtimeLease,
                     ownedToken,
                     outcome,
+                    // A failed result ends the provider stream, so its
+                    // query-loop finally block will remove this runtime.
+                    // Do not admit a FIFO successor into a provider that can
+                    // no longer consume it. Completed turns retain normal
+                    // long-lived-stream FIFO activation.
+                    outcome === 'completed' ? undefined : { activateNext: false },
                   );
                   // `session_end` is intentionally unversioned for older
                   // transports.  Once FIFO activation has durably moved to a
