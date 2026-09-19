@@ -13,7 +13,7 @@ final class WatchRelayCoordinator: @unchecked Sendable {
 
     private var serverURL: URL {
         let stored = UserDefaults.standard.string(forKey: "mitzo_server_url")
-        return URL(string: stored ?? "https://dimakis-mac.tail:3100")!
+        return URL(string: stored ?? "https://dimakis-mac.taildfe858.ts.net:3100")!
     }
 
     init() {

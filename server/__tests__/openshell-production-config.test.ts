@@ -36,63 +36,65 @@ const config = {
 };
 
 const releaseTransport = {
-  publicOrigin: 'https://dimakis-mac.tail:3100',
-  webSocketOrigin: 'wss://dimakis-mac.tail:3100',
+  publicOrigin: 'https://dimakis-mac.taildfe858.ts.net:3100',
+  webSocketOrigin: 'wss://dimakis-mac.taildfe858.ts.net:3100',
   tlsRequired: true,
 };
+
+const certificateBackedProductionOrigin = 'https://dimakis-mac.taildfe858.ts.net:3100';
 
 // A deliberately non-production RSA pair used only to prove the local
 // deployment preflight reads the same certs/cert.pem and certs/key.pem paths
 // that the server will load. It is valid only for the fixture hostname.
 const fixtureCertificate = `-----BEGIN CERTIFICATE-----
-MIIDNDCCAhygAwIBAgIUI+RLjIP6L9lc6wpHjSDbIKeJmikwDQYJKoZIhvcNAQEL
-BQAwGzEZMBcGA1UEAwwQZGltYWtpcy1tYWMudGFpbDAeFw0yNjA5MTkyMTQwNDBa
-Fw0zNjA5MTYyMTQwNDBaMBsxGTAXBgNVBAMMEGRpbWFraXMtbWFjLnRhaWwwggEi
-MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDdbZk7xkWuw+C3X2Aaa+Jno22q
-uaOYEoBQWVBOINV5uqomw/Wd5GLiA8+RBP/HLGXFapC3LdznR0o3oHldg80WfLr8
-47oKTgpvz8kCheaCxJQ50gvU1GygSdGQPPxVwdaGSNGRZrojsUVM5H9ypvJ1KDgG
-y9n2iWHZb3Wdsec6VOohpVSUZcI51eogBleSkC+qu2ezMIVRGLHBzkMH0M+vbVNA
-H5ia7uNSYZ1KlZPoqM0/qJe1vVERaD6DKbsIJFeppxFHXWzlWzFnkrPLCWnLYTsk
-2FLtCfBTiaED/mW/l6R12QuQgvKhKFjB8JNyk1TISvhXSQhTtnQ+l/93Xnr3AgMB
-AAGjcDBuMB0GA1UdDgQWBBTYzYDZe1s/wMMStLL6lvmLoUJyGzAfBgNVHSMEGDAW
-gBTYzYDZe1s/wMMStLL6lvmLoUJyGzAPBgNVHRMBAf8EBTADAQH/MBsGA1UdEQQU
-MBKCEGRpbWFraXMtbWFjLnRhaWwwDQYJKoZIhvcNAQELBQADggEBACssB8pRX+4e
-Expz7jzlVAH1nVwb01lb39QikLCrZClGXWvFBqLhcZdK3XOsn1sRxdKD7YgFgG7e
-PaCNJn7ZJVJKw/98cTQOSL7Kl5wt+jXGi5VdUde35oB8V0o3D7jdfefpEQ3lOdu4
-SQvzpqYsudWePK2Qre5zPcSdTqwO0O4LqjUHnwWoE/Q4RC/BWYvfbkl1sjmObLaF
-DPeQPN19ijFqHHrIptEtBNUyadzk+Z/bKl43z+jvwAxhX+V3J22I34OwBKL6Hn1k
-JN+xCoT3GqTxOAcOw6a5RV0GOI9/teSobW11tM3kOapmmigwgEPwuMUrywnZVLBt
-qIcrKHbQSc0=
+MIIDWzCCAkOgAwIBAgIUANvCwQm4lDFkObhMT5jzqMney4cwDQYJKoZIhvcNAQEL
+BQAwKDEmMCQGA1UEAwwdZGltYWtpcy1tYWMudGFpbGRmZTg1OC50cy5uZXQwHhcN
+MjYwOTE5MjIwOTEwWhcNMzYwOTE2MjIwOTEwWjAoMSYwJAYDVQQDDB1kaW1ha2lz
+LW1hYy50YWlsZGZlODU4LnRzLm5ldDCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC
+AQoCggEBAKWGangQeyTsaIfmfO4rggGj0O2tp1l6ATwEylwwKq06fU5bg7S+8QGB
+Ao+Sv8uBoc/TAxEpXOs464KUYyKob23q6bWi13tQOmd78R3HcJ2hlmgiG3Juyil/
+NpsAGrjUWw/iy58dpZCrC/ysl6GAtoGJUtlkQLmJmykHohYjVjVK+KenJCKb12kX
+WrH43mVDV+K/duuGtjKaTA/eqz9WKt4GSjLMhjmyq6fDqFvkfXUg0Hko9WotoirI
+uWXNFySOubx6FQowebP/Iyt6/f9HF8+A57RN6JZOBGB/IXbO1jdLp9WQqtlNJSE+
+yk2JRfiSde6NOe43m8lUeaPepma6nXkCAwEAAaN9MHswHQYDVR0OBBYEFD4wm2Lb
+/w+Idt1UNX8SYYHK+jGjMB8GA1UdIwQYMBaAFD4wm2Lb/w+Idt1UNX8SYYHK+jGj
+MA8GA1UdEwEB/wQFMAMBAf8wKAYDVR0RBCEwH4IdZGltYWtpcy1tYWMudGFpbGRm
+ZTg1OC50cy5uZXQwDQYJKoZIhvcNAQELBQADggEBAGFjsCsKDyl5aSZ2rA+8xd3c
+NMroQRQM1umPrJpEQKnuHOfx7vq6WeTVltIvaRizefeDg4mUFDJaf7TsHd1oel2X
+uQdFcj20AKI3YV/dmb7THmoGCzohHEAy0fx82f+2KYNrgKa/TnSwnD78Iqf9369a
+JJ0l+1JOxiPLHW3UUDmXeBovtQ0zlJpQt1SfiPj5i3E/T0QgKovW25bTJslqbHQb
+1RErKlE65Agc3137o+RSOjT3bHIBKXYzNVTfHhg63mUxrTJxVz3mBglGPDtm21zx
+fw4Z+pS15QESJ2LZBcsKdKlxSQfZBxkVSOEo4wkRMUFbUxnUEHYNLS6SC6xjI48=
 -----END CERTIFICATE-----
 `;
 
 const fixturePrivateKey = `-----BEGIN PRIVATE KEY-----
-MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDdbZk7xkWuw+C3
-X2Aaa+Jno22quaOYEoBQWVBOINV5uqomw/Wd5GLiA8+RBP/HLGXFapC3LdznR0o3
-oHldg80WfLr847oKTgpvz8kCheaCxJQ50gvU1GygSdGQPPxVwdaGSNGRZrojsUVM
-5H9ypvJ1KDgGy9n2iWHZb3Wdsec6VOohpVSUZcI51eogBleSkC+qu2ezMIVRGLHB
-zkMH0M+vbVNAH5ia7uNSYZ1KlZPoqM0/qJe1vVERaD6DKbsIJFeppxFHXWzlWzFn
-krPLCWnLYTsk2FLtCfBTiaED/mW/l6R12QuQgvKhKFjB8JNyk1TISvhXSQhTtnQ+
-l/93Xnr3AgMBAAECggEAQ9hvgZ2sPzK8WWNLTn0s52VvVkbAJfnRQA1FqlKsJjq4
-JN2ZFfJjC+5v/HbEKlJjsnwG8GGIlILG7klotmsKfW/lWVQrbjngP8cyR2ggq4Ox
-CRBfWKxnxisoH2JYTKxyXz3TnJIVyZbo7Xj7xfT6SER0+jwewkfw588bgiB/AWNu
-RLOq9jVNxMqIl4O03B8953F9DcGl8iCyv/WZGnqGk5MUpl5F4XnDwQQLZYkkjRcU
-iYUaAM/BT7uYsSUem1lI0S+Wh3vfWCBXnx31l+uZiQKY0pttOp3xi73JhBNe2Oln
-c8y2XlVRC8Njq7mZM1id0hSLKZmSEwqYsdQ57o/AgQKBgQD2zJX4QD7hs12pXP1H
-/V575bmaeSxqRyL85KpYNUJkUzB0+0rbnD08xKiQM2i9zbW9dVtVU4SELCgQMkY4
-UkyH0Sx43/eDyNvFrAoW6S1btL6/JICC/SfzkX4uUa4x1IngBNQTEr2UY52oHlqZ
-2BKcjwmS4izFk94dy3a+hvVwdwKBgQDlruAUf3FpnFYU5JyT2KIm1Jmc8bjXVwEw
-MU8fLIqRjdjnJiO4NgI2hv5+jYVMYnYnoQax7e5yzpw28zues1H2GTLk21rimmbB
-XbIm1/1ZSqDn2kWyzkTGW2NXL8ZJ2uXig1ZRYYR8N8lbZLmaJ6ITDje16Z/BPY0i
-9W9rPfBpgQJ/em8D9yPoDg/tZxe6jvwi41QTv45delvP/6Vw3FGPnjWm1GHVwRzB
-RGRLOz5Ft+NVRafyp2HHW8qMFXzbWRV64eXjKhPxtm7umCHA35zN47DG8AwrtM/i
-AfMrpc7fm9jUjU3X555kbjj8/WoRiECo+wH6veN2Uo4Ior9NKTfKiwKBgQC8b+TX
-7FcX1nOpYIY1ph4izXnaEVcdFPyclVfcs6ZcFIxH2Dql/2mBYu+Y1HLwYDef+7SK
-djKTbn8rdhML+QLdbX8b0/uUvihfrIdk5v+sKlYo4iMct64lLwUpmsCMB1Njq20+
-B0uyvfItUU4U8z89cwSx8qJm4CDS9Zob2g1MAQKBgC2p+ViV6CO8amFLXhN/wJ63
-GBSAEJZptGLYrRPCwo4pql20FBFKhxSm8FTr9nVhKAc2OLRe/zOrHc9c2JTfeoZM
-je783XEP9UacTAppwMXOc6UR8L+bLAgOWvRsZyE7Yd8welP40GftP/wGg+feC8a+
-vdVPpduBm7oJB5HR49nB
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQClhmp4EHsk7GiH
+5nzuK4IBo9DtradZegE8BMpcMCqtOn1OW4O0vvEBgQKPkr/LgaHP0wMRKVzrOOuC
+lGMiqG9t6um1otd7UDpne/Edx3CdoZZoIhtybsopfzabABq41FsP4sufHaWQqwv8
+rJehgLaBiVLZZEC5iZspB6IWI1Y1SvinpyQim9dpF1qx+N5lQ1fiv3brhrYymkwP
+3qs/VireBkoyzIY5squnw6hb5H11INB5KPVqLaIqyLllzRckjrm8ehUKMHmz/yMr
+ev3/RxfPgOe0TeiWTgRgfyF2ztY3S6fVkKrZTSUhPspNiUX4knXujTnuN5vJVHmj
+3qZmup15AgMBAAECggEAAk4l77gjCqaJkI2i4x6KzU+2JyC5RxJWyWVEwDgRHOQc
+HKbtf0CYMK3nwUqrUp3I+CIREXfrRbQuXrK6OSBYVxMW8TyXBSXFOnZDgKurrAus
+ih1ESlM80FgSN8AmBYZuABs9GhRna/ZwjF117DmxjL1+qyjPz9J/QqOgPhJJpnnN
+aumi9rs36/jWfB0sZnEZWdzZQEHYksm1CiLJ93t0PSuvwzeRg2tJVH4PWSzWcCBU
+9/siHCvQ5Oeiy5q+xUiy6fZIze2TZOhn76IAWQlQavwumFNHdwb1REUQzYEHJCy3
+U2oijmtkDZg3XBeh76iUQ+SEdpZV/N6wmhvK4Fb/hQKBgQDXlRgUy/WYFTKDQ3Sv
+qMMz6n61EtcAlB05khw2iaZm2je+/GsEEMN1GLEtPJgo///Ah1uUuabToHQRz4sa
+xd89pj0PmFO6xA2Pz/AnNVu2oSADTs7UP6APxmqHL/0iEv13clR6nyGymqXuqbqo
+/Jln8mh47Xbwi77FmovHxO3VdwKBgQDEjtAz0/1njPkJ3/ZEWPDppDQkK5/ASVA5
+yIIC1cky7UvN9JTy1w3a+t8RTE8mUejnK0Vzu4+KEf0Un/EHVnBNqQpDtP7C6lC8
+/PInN/+Tzq4VtiP7xsUiRjfnUpcvAiVhLCt/tVBIFZ7asXWGpsm2gyanoyFA04Y4
+Mn/JmLqgjwKBgQCmxsTWceMRQHTPb4P50MkShLp5QpXp8KubOhlxZ5O/xdmSepwf
+jQhosi1/HX1pWoJ0Y0LKD8WrulmQ3cpzb9iATPa39dPwjHMhanATJQhKhOPLK1B+
+iqo9Cfanlsxxa9eCbIRGSI09Kr5roAqzaJcU/0crJin5dWKkZCb26LZFiQKBgELF
+XPbuQbwGiKcRHMB1EkncTRYod5lDjmxCr9+0rieNst2hA2RHJ97GsDZZHN4gnyTA
+b1R0V7uIhteVybQ7aeUH0oPTnWOrY4f/yWcHP9v/LuYTPMAP8vHEtsLvLIp8iSQs
+dA5rEn2aUp9p/0mhqQ5GGUCDSw2RjZvTk9Nw/Z0DAoGAWrwQtdr8yl4xZHXC9j8w
+EX01U9OLGcBvMMFXxAA7nkfAuX+9wNEG6/mN4arkc6an9IWBImj3M0TWdnaS+gRQ
+AlVCaaFUn2RmCUN+mKhrbtKwyFcmOMDjOLfuRCQvjuCZMynFhH/tgC1lI2daQX3/
+2gTR4+Q+Z0ulBDjgTELk0Lo=
 -----END PRIVATE KEY-----
 `;
 
@@ -223,7 +225,11 @@ describe('OpenShell production bundle validation', () => {
         ...releaseRollbackInputs,
         accountProfiles: lock.release.rollbackInputs.accountProfiles,
       },
-      transport: releaseTransport,
+      transport: {
+        publicOrigin: expect.any(String),
+        webSocketOrigin: expect.any(String),
+        tlsRequired: true,
+      },
     });
     // Source commit A must remain testable while it still carries the prior
     // release metadata. The metadata-only wrapper B supplies the real
@@ -244,6 +250,19 @@ describe('OpenShell production bundle validation', () => {
       },
     };
     expect(() => validateReleaseIdentity(releaseFixture)).not.toThrow();
+  });
+
+  it('pins the certificate-backed Tailnet endpoint in the production environment example', () => {
+    const env = readFileSync(
+      new URL('../../infra/openshell/production.env.example', import.meta.url),
+      'utf8',
+    );
+    expect(env).toContain(`MITZO_PUBLIC_ORIGIN=${certificateBackedProductionOrigin}`);
+    expect(env).toContain('MITZO_REQUIRE_TLS=1');
+    expect(releaseTransport.publicOrigin).toBe(certificateBackedProductionOrigin);
+    expect(releaseTransport.webSocketOrigin).toBe(
+      certificateBackedProductionOrigin.replace(/^https:/, 'wss:'),
+    );
   });
 
   it('pins the external account-profile contents in the release fixture', () => {
@@ -279,7 +298,7 @@ describe('OpenShell production bundle validation', () => {
     expect(() =>
       validateReleaseTransport(
         {
-          MITZO_PUBLIC_ORIGIN: 'http://dimakis-mac.tail:3100',
+          MITZO_PUBLIC_ORIGIN: 'http://dimakis-mac.taildfe858.ts.net:3100',
           MITZO_REQUIRE_TLS: '1',
           PORT: '3100',
         },
@@ -310,10 +329,10 @@ describe('OpenShell production bundle validation', () => {
       ),
     ).toThrow('port does not match PORT');
 
-    const defaultHttpsOrigin = 'https://dimakis-mac.tail';
+    const defaultHttpsOrigin = 'https://dimakis-mac.taildfe858.ts.net';
     const transport = {
       publicOrigin: defaultHttpsOrigin,
-      webSocketOrigin: 'wss://dimakis-mac.tail',
+      webSocketOrigin: 'wss://dimakis-mac.taildfe858.ts.net',
       tlsRequired: true,
     };
     expect(() =>
