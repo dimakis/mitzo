@@ -232,6 +232,46 @@ describe('chat-rest-handler', () => {
     expect(handleSendV2).toHaveBeenCalledOnce();
   });
 
+  it('keeps an ordinary FIFO REST receipt pending until queued admission settles', async () => {
+    let rejectAdmission!: (error: Error) => void;
+    vi.mocked(handleSendV2).mockResolvedValueOnce({
+      queued: true,
+      completion: new Promise<void>((_resolve, reject) => {
+        rejectAdmission = reject;
+      }),
+    });
+    const message = {
+      type: 'send',
+      sessionId: 'fifo-rest-session',
+      prompt: 'wait for durable admission',
+      clientMsgId: 'fifo-rest-pending',
+    };
+
+    const first = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    expect(first.status).toBe(202);
+    expect(first.body).toMatchObject({ accepted: true, pending: true });
+    expect(eventStore.getSendCommand(message.clientMsgId)?.error).toBeNull();
+
+    // Teardown before FIFO activation rejects the shared admission receipt.
+    // A retry must surface its durable failure rather than look accepted.
+    rejectAdmission(new Error('queue cancelled during teardown'));
+    await vi.waitFor(() =>
+      expect(eventStore.getSendCommand(message.clientMsgId)?.error).toBe(
+        'queue cancelled during teardown',
+      ),
+    );
+    const retry = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    expect(retry.status).toBe(422);
+    expect(retry.body.error).toBe('queue cancelled during teardown');
+    expect(handleSendV2).toHaveBeenCalledOnce();
+  });
+
   it('rejects requests with unknown connection (requireConnection path)', async () => {
     const res = await request(testApp)
       .post('/api/chat/stop')

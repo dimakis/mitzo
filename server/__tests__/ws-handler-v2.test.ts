@@ -215,7 +215,10 @@ describe('handleReconnect', () => {
         seq: 6,
         sessionId: 'sess-1',
         type: 'block_delta',
-        payload: { v: 2, type: 'block_delta', delta: 'hi', sessionId: 'sess-1' },
+        // A durable payload need not duplicate its owner. In particular, the
+        // atomic FIFO user_message row omits it and reconnect must restore it
+        // from the enclosing event row.
+        payload: { v: 2, type: 'block_delta', delta: 'hi' },
       },
     ]);
 
@@ -232,7 +235,14 @@ describe('handleReconnect', () => {
     );
 
     expect(eventStore.getEventsAfter).toHaveBeenCalledWith('sess-1', 5);
-    expect(transport.sent.some((m) => m.type === 'block_delta' && m.seq === 6)).toBe(true);
+    expect(transport.sent).toContainEqual({
+      v: 2,
+      type: 'block_delta',
+      delta: 'hi',
+      sessionId: 'sess-1',
+      seq: 6,
+      replay: true,
+    });
   });
 
   it('auto-watches all reconnected sessions', () => {
@@ -426,6 +436,64 @@ describe('handleReconnect', () => {
       sessionId: 'sess-1',
       lastSeq: 13,
     });
+  });
+
+  it('replays an offline FIFO admission with its session identity before the running snapshot', () => {
+    const eventStore = mockEventStore();
+    eventStore.getEventsAfter.mockReturnValue([
+      {
+        seq: 21,
+        sessionId: 'sess-fifo',
+        type: 'user_message',
+        payload: { v: 2, type: 'user_message', messageId: 'fifo-pending', text: 'B' },
+      },
+      {
+        seq: 22,
+        sessionId: 'sess-fifo',
+        type: 'execution_state_changed',
+        payload: { executionId: 'fifo-execution', generation: 2, phase: 'RUNNING' },
+      },
+    ]);
+    eventStore.getSession.mockReturnValue({
+      state: 'ACTIVE',
+      executionId: 'fifo-execution',
+      executionGeneration: 2,
+      executionPhase: 'RUNNING',
+    });
+    eventStore.getSessionState.mockReturnValue('ACTIVE');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    // The previous connection disappeared after commit but before it saw the
+    // echo. Reconnect must deliver session-scoped rows so the client can clear
+    // its pending receipt before processing the authoritative running state.
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-fifo', lastSeq: 20 }] },
+      ctx,
+    );
+
+    const replay = transport.sent.filter((row) => row.replay === true);
+    expect(replay).toEqual([
+      expect.objectContaining({
+        type: 'user_message',
+        sessionId: 'sess-fifo',
+        messageId: 'fifo-pending',
+        seq: 21,
+      }),
+      expect.objectContaining({
+        type: 'execution_state_changed',
+        sessionId: 'sess-fifo',
+        phase: 'RUNNING',
+        seq: 22,
+      }),
+    ]);
+    expect(
+      transport.sent.findIndex((row) => row.type === 'session_execution_snapshot'),
+    ).toBeGreaterThan(transport.sent.findIndex((row) => row.seq === 22));
   });
 
   it('reattaches detached session on reconnect', () => {

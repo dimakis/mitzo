@@ -34,8 +34,13 @@ import {
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
 import { createLogger } from './logger.js';
+import type { QueuedSendDispatch } from './send-command.js';
 
 const log = createLogger('chat-rest');
+
+function isQueuedSendDispatch(value: unknown): value is QueuedSendDispatch {
+  return !!value && typeof value === 'object' && (value as { queued?: unknown }).queued === true;
+}
 
 function getConnectionId(req: Request, res: Response): string | null {
   const connectionId = req.headers['x-connection-id'] as string | undefined;
@@ -172,7 +177,11 @@ export function createChatRestRouter(
             skipReceipt: true,
             prepared,
           });
-          if (outcome === 'native') return false;
+          // Keep the FIFO admission marker intact for acceptSendCommandAsync.
+          // Collapsing it to undefined acknowledges a REST send as complete
+          // while it can still be rejected during queued admission/teardown.
+          if (isQueuedSendDispatch(outcome)) return outcome;
+          return outcome === 'native' ? false : undefined;
         },
       );
       res.status(202).json(receipt);

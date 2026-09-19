@@ -576,6 +576,11 @@ export function handleReconnect(
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             ...evt.payload,
+            // Event payloads are intentionally provider/event shaped and do
+            // not all repeat their owning session. Live delivery supplies the
+            // same envelope field, so replay must restore it from the durable
+            // row before the client matches a pending FIFO receipt.
+            sessionId: evt.sessionId,
             // State-transition payloads predate the v2 envelope and omit
             // their own type. The durable row type is authoritative for every
             // replayed event, including those legacy-shaped transitions.
