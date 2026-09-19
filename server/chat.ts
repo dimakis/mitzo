@@ -2003,6 +2003,7 @@ async function _startChatInner(
                     runtimeLease,
                     ownedToken,
                     beforeReady ? 'startup_failed' : 'failed',
+                    { activateNext: false },
                   );
                   if (beforeReady && ownedToken === initialToken) {
                     if (ownsRuntime()) cleanupSessionWorktrees(session);

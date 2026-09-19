@@ -174,6 +174,90 @@ it('terminalizes a pre-ready provider failure without leaking raw provider diagn
   }
 });
 
+it('fails queued FIFO work instead of admitting it while a provider stream tears down', async () => {
+  const { chat, root } = await freshChat();
+  const sessionId = '7b68a371-73d1-4994-a512-b71d4bc44c65';
+  let providerReady!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    providerReady = resolve;
+  });
+  let failStream!: () => void;
+  const streamFailure = new Promise<void>((resolve) => {
+    failStream = resolve;
+  });
+  vi.mocked(query).mockImplementation(
+    () =>
+      (async function* () {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'provider-ready-first-event' } },
+        };
+        await streamFailure;
+        throw new Error('provider stream failed after admission');
+      })() as ReturnType<typeof query>,
+  );
+
+  try {
+    const launch = chat.launchChat(
+      { send: () => {}, isOpen: () => true },
+      'provider-failure-fifo-driver',
+      'initial request',
+      {
+        cwd: root,
+        isolation: false,
+        initialSessionId: sessionId,
+        clientMsgId: 'provider-failure-initial',
+        requestFingerprint: 'provider-failure-initial-fingerprint',
+        onProviderReady: () => providerReady(),
+      },
+    );
+    await expect(launch.accepted).resolves.toMatchObject({ token: { generation: 1 } });
+    await ready;
+
+    // HTTP/REST admission creates this durable receipt before the bounded
+    // FIFO closure. Teardown must turn it into the one safe terminal event.
+    chat.eventStore.insertSendCommand(
+      'provider-failure-queued',
+      sessionId,
+      {},
+      'provider-failure-queued-fingerprint',
+    );
+    const queued = chat.sendToChat(
+      'provider-failure-fifo-driver',
+      'must not inherit a dying provider',
+      undefined,
+      undefined,
+      'provider-failure-queued',
+    );
+    expect(chat.registry.findBySessionId(sessionId)?.session.pendingExecutions).toHaveLength(1);
+
+    // The query loop invokes its provider-failure callback before its finally
+    // block removes the runtime. That callback must not pump this FIFO head.
+    failStream();
+    await expect(queued).resolves.toBe(false);
+    await expect(launch.completion).resolves.toBeUndefined();
+
+    const events = chat.eventStore.getSessionEvents(sessionId);
+    expect(
+      events.filter(
+        (event) => event.type === 'execution_state_changed' && event.payload.phase === 'RUNNING',
+      ),
+    ).toHaveLength(1);
+    expect(events.filter((event) => event.type === 'user_message')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'queued_send_failed')).toHaveLength(1);
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionGeneration: 1,
+      executionTerminalReason: 'failed',
+    });
+    expect(chat.registry.findBySessionId(sessionId)).toBeNull();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('stops an admitted pre-ready execution before removing its runtime', async () => {
   const { chat, root } = await freshChat();
   const sessionId = '8a68a371-73d1-4994-a512-b71d4bc44c65';

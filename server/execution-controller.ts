@@ -215,6 +215,7 @@ export class ExecutionController {
     lease: RuntimeSessionLease,
     token: ExecutionToken,
     reason: ExecutionTerminalReason,
+    options?: { activateNext?: boolean },
   ): Promise<FinishExecutionResult> {
     const resolved = this.options.registry.resolveRuntimeLease(lease);
     const current = resolved?.session.currentExecution;
@@ -236,6 +237,11 @@ export class ExecutionController {
     if (transition.applied) this.options.registry.releaseReplacementInputBarrier(lease, token);
     const cleared = this.options.registry.clearCurrentExecution(lease, token);
     if (!cleared) return { transition };
+    // A provider stream failure is about to remove this runtime. It cannot
+    // safely claim and dispatch another FIFO item between this terminal row
+    // and query-loop teardown; queued inputs will receive their pre-admission
+    // rejection from that teardown instead.
+    if (options?.activateNext === false) return { transition };
     const nextLease = this.options.registry.beginPendingActivationForLease(lease);
     const next = nextLease ? await this.activateClaimedLease(nextLease) : undefined;
     return { transition, ...(next ? { next } : {}) };
