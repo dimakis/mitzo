@@ -192,11 +192,13 @@ export class ExecutionController {
       prepared.onRejected?.(error);
       throw error;
     }
-    // The activation chain owns provider failures as exact terminal rows.
-    // Observe it here so a caller only awaiting its durable receipt cannot
-    // create an unhandled rejection if the runtime disappears concurrently.
+    // Observe activation failures so they cannot become unhandled while an
+    // HTTP caller awaits its receipt. `onRejected` is strictly pre-admission:
+    // once the input has left the bounded queue, the durable RUNNING token
+    // owns any provider failure through its canonical TERMINAL row.
     void this.activateNextExecution(clientId).catch((error: unknown) => {
-      prepared.onRejected?.(error);
+      if (this.options.registry.findPendingExecution(clientId, prepared.clientMsgId) === prepared)
+        prepared.onRejected?.(error);
     });
     return { pending: prepared };
   }
@@ -467,7 +469,11 @@ export class ExecutionController {
         this.broadcastBegin(lease, begin);
         // Receipt acknowledgement is allowed once the exact durable token is
         // visible. Provider startup remains a separate, terminalizable phase.
-        pending.onAdmitted?.(begin.token);
+        try {
+          pending.onAdmitted?.(begin.token);
+        } catch {
+          // Durable admission is already visible; notifications cannot undo it.
+        }
         try {
           await pending.dispatch(begin.token);
           if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
@@ -480,7 +486,9 @@ export class ExecutionController {
             requestFingerprint: pending.requestFingerprint,
             error,
           });
-          pending.onRejected?.(error);
+          // This token has already crossed the durable RUNNING boundary and
+          // notified its receipt owner. Do not reinterpret a provider/setup
+          // failure as a queued-send rejection: terminalize this exact token.
           // A removed lease has no owner for this late provider completion.
           // Do not mutate the durable stream of a newly registered runtime
           // that happens to reuse the same client id/session id.

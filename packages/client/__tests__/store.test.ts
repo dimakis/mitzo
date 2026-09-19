@@ -624,6 +624,60 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
+  it('keeps a durable queued failure through late private receipts for that session', () => {
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    const safeError = 'Queued message could not be started. Please retry.';
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: 'queued_send_failed',
+      v: 2,
+      sessionId: 'test-session',
+      clientMsgId: command.clientMsgId,
+      error: safeError,
+    });
+
+    // Replay can beat a held HTTP completion. None of these receipt hints may
+    // revive queued status or replace the authoritative safe failure.
+    for (const late of [
+      { type: '_send_queued' },
+      { type: '_send_accepted' },
+      { type: '_send_failed', error: 'late receipt error' },
+      { type: '_send_uncertain', error: 'late uncertainty' },
+    ]) {
+      lastWs.simulateMessage({
+        ...late,
+        clientMsgId: command.clientMsgId,
+        sessionId: 'test-session',
+      });
+    }
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe(safeError);
+
+    // The tombstone is correlated, rather than global: a new command still
+    // gets ordinary receipt/status handling.
+    store.getState().sendMessage('unrelated queued follow-up');
+    const next = lastWs
+      .parsedSent()
+      .filter((message) => message.type === 'send')
+      .at(-1)!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: next.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: '_send_queued',
+      clientMsgId: next.clientMsgId,
+      sessionId: 'test-session',
+    });
+    expect(store.getState().sendStatus).toBe('Queued behind the current response…');
+  });
+
   it('does not let a foreign queued-send failure release this session pending guard', () => {
     store.getState().sendMessage('queued follow-up');
     const command = lastWs.parsedSent().find((message) => message.type === 'send')!;

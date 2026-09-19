@@ -519,6 +519,68 @@ describe('interruptChat emits user_message via transport', () => {
     );
   });
 
+  it('terminalizes an admitted dispatch failure without rejecting its queued receipt', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn(() => {
+      throw new Error('provider input preparation failed');
+    });
+    const sessionId = `sess-admitted-dispatch-failure-${Date.now()}`;
+    const clientMsgId = `admitted-dispatch-failure-${Date.now()}-${Math.random()}`;
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+    const active = eventStore.beginExecution(sessionId, 'active-before-dispatch-failure');
+    session.currentExecution = active.token;
+    // This mirrors the durable pending HTTP receipt before B enters FIFO.
+    eventStore.insertSendCommand(clientMsgId, sessionId, {}, 'dispatch-failure-fingerprint');
+
+    const queued = sendToChat(
+      CLIENT_ID,
+      'B must terminalize canonically',
+      undefined,
+      undefined,
+      clientMsgId,
+    );
+    const controller = new ExecutionController({ registry, eventStore });
+    await controller.finishExecution(
+      registry.getRuntimeLease(CLIENT_ID)!,
+      active.token,
+      'completed',
+    );
+
+    // Admission settles the receipt before provider preparation. The later
+    // throw is represented by B's durable TERMINAL failed execution, not a
+    // queued-send failure that would change its historical receipt.
+    await expect(queued).resolves.toBe(true);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(eventStore.getSession(sessionId)).toMatchObject({
+      executionGeneration: 2,
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
+    expect(eventStore.getSendCommand(clientMsgId)).toMatchObject({ error: null });
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'queued_send_failed'),
+    ).toHaveLength(0);
+
+    // Exact retries replay the admitted historical execution receipt without
+    // enqueueing provider work or producing another durable user echo.
+    await expect(
+      sendToChat(CLIENT_ID, 'B must terminalize canonically', undefined, undefined, clientMsgId),
+    ).resolves.toBe(true);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(1);
+  });
+
   it('replays an Anthropic receipt before a later active-model policy check', async () => {
     const transport = mockTransport();
     const pushSpy = vi.fn();

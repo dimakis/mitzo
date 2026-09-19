@@ -49,7 +49,11 @@ export interface PendingExecutionInput {
   isInitial: boolean;
   /** Called after the durable RUNNING row and current lease are visible. */
   onAdmitted?: (token: ExecutionToken) => void;
-  /** Settles a locally pending transport receipt when activation is cancelled. */
+  /**
+   * Settles a locally pending transport receipt only before durable admission
+   * (for example queue overflow or runtime teardown). Once onAdmitted fires,
+   * later provider failures belong to that token's canonical terminal row.
+   */
   onRejected?: (error: unknown) => void;
   /** Shared only while the bounded input has no durable RUNNING row yet. */
   admissionReceipt?: Promise<boolean>;

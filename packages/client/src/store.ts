@@ -234,6 +234,27 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // Pending delivery is session-scoped: a queued command from another tab or
   // restored session must never suppress this session's terminal transition.
   const pendingSendSessions = new Map<string, string | null>();
+  // Durable queue rejection can overtake the private HTTP receipt on a
+  // reconnect. Keep a bounded, session-keyed fence so that late private
+  // receipts cannot re-arm a command that the authoritative event settled.
+  const MAX_TERMINAL_SEND_TOMBSTONES = 256;
+  const terminalSendTombstones = new Map<string, true>();
+  const terminalSendKey = (sessionId: string, clientMsgId: string): string =>
+    JSON.stringify([sessionId, clientMsgId]);
+  const rememberTerminalSend = (sessionId: string, clientMsgId: string): void => {
+    const key = terminalSendKey(sessionId, clientMsgId);
+    terminalSendTombstones.delete(key);
+    terminalSendTombstones.set(key, true);
+    if (terminalSendTombstones.size > MAX_TERMINAL_SEND_TOMBSTONES)
+      terminalSendTombstones.delete(terminalSendTombstones.keys().next().value!);
+  };
+  const isTerminalSend = (clientMsgId: string, sessionId: unknown): boolean => {
+    const receiptSessionId = typeof sessionId === 'string' ? sessionId : undefined;
+    const scopedSessionId = receiptSessionId ?? parserState.currentSessionId;
+    return (
+      !!scopedSessionId && terminalSendTombstones.has(terminalSendKey(scopedSessionId, clientMsgId))
+    );
+  };
 
   const hasPendingSendForSession = (sessionId: string | undefined): boolean => {
     if (!sessionId) return false;
@@ -319,6 +340,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.clearPendingSends();
       pendingSendIds.clear();
       pendingSendSessions.clear();
+      terminalSendTombstones.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -367,6 +389,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.clearPendingSends();
       pendingSendIds.clear();
       pendingSendSessions.clear();
+      terminalSendTombstones.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -798,6 +821,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return;
       pendingSendIds.delete(clientMsgId);
       pendingSendSessions.delete(clientMsgId);
+      rememberTerminalSend(sessionId, clientMsgId);
       store.setState({
         sendError:
           typeof msg.error === 'string'
@@ -816,6 +840,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ) {
       const clientMsgId =
         typeof msg.clientMsgId === 'string' ? (msg.clientMsgId as string) : undefined;
+      // Private receipts are delivery hints, not durable state. A matching
+      // queued_send_failed already settled this command, so ignore any late
+      // pending/queued/accepted/failed/uncertain receipt for that session.
+      if (clientMsgId && isTerminalSend(clientMsgId, msg.sessionId)) return;
       if (clientMsgId) {
         // `_send_pending` is emitted synchronously on outbox enqueue, before
         // either the HTTP receipt or the durable user-message echo. A later
