@@ -60,13 +60,18 @@ import {
   reattachChat,
   BASE_REPO,
   discoverSession,
+  isQueuedSendAdmission,
 } from './chat.js';
 import { setSkillPolicy, clearSkillPolicy } from './skill-policy.js';
 import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
-import { acceptSendCommandAsync, SendDispatchFailure } from './send-command.js';
+import {
+  acceptSendCommandAsync,
+  SendDispatchFailure,
+  type QueuedSendDispatch,
+} from './send-command.js';
 import { fingerprintExecutionRequest } from './execution-request.js';
 import { DEFAULT_AGENT_NAME } from './constants.js';
 
@@ -108,6 +113,7 @@ export type SendReceipt = {
   accepted: true;
   clientMsgId: string;
   sessionId: string | null;
+  pending?: true;
 };
 
 type SendDelivery = {
@@ -432,6 +438,7 @@ function sendExecutionSnapshot(
       sessionId,
       executionId: meta.executionId,
       generation: meta.executionGeneration,
+      generationDomain: 'execution',
       state,
       internalState: meta.executionPhase,
       lastSeq,
@@ -451,6 +458,7 @@ function sendExecutionSnapshot(
     sessionId,
     executionId: `${sessionId}:${generation}`,
     generation,
+    generationDomain: 'lifecycle',
     state: toClientState(state),
     internalState: state,
     lastSeq,
@@ -782,7 +790,7 @@ export async function handleSendV2(
   msg: SendMsg,
   ctx: V2HandlerContext,
   delivery?: SendDelivery,
-): Promise<SendReceipt | 'native' | void> {
+): Promise<SendReceipt | 'native' | QueuedSendDispatch | void> {
   if (delivery?.skipReceipt) {
     return dispatchPreparedSendV2(connectionId, transport, msg, ctx, delivery, delivery.prepared);
   }
@@ -818,7 +826,10 @@ export async function handleSendV2(
           },
           prepared,
         );
-        return outcome === 'native' ? false : undefined;
+        // Preserve the detached FIFO-admission marker through the receipt
+        // boundary. Collapsing it to `undefined` would turn a queued command
+        // back into a synchronous accepted receipt.
+        return outcome === 'native' ? false : outcome;
       },
     );
   } catch (error) {
@@ -839,8 +850,8 @@ export function dispatchPreparedSendV2(
   ctx: V2HandlerContext,
   delivery?: SendDelivery,
   prepared?: PreparedSendV2,
-): Promise<'native' | void> {
-  return withSpanAsync<'native' | void>(
+): Promise<'native' | QueuedSendDispatch | void> {
+  return withSpanAsync<'native' | QueuedSendDispatch | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
@@ -988,9 +999,9 @@ export function dispatchPreparedSendV2(
             applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
-            const accepted =
+            const admission =
               resolution.type === 'skill'
-                ? await sendToChat(
+                ? sendToChat(
                     activeClientId,
                     prompt,
                     msg.images,
@@ -1001,7 +1012,7 @@ export function dispatchPreparedSendV2(
                     undefined,
                     userIntent,
                   )
-                : await sendToChat(
+                : sendToChat(
                     activeClientId,
                     prompt,
                     msg.images,
@@ -1010,7 +1021,19 @@ export function dispatchPreparedSendV2(
                     msg.accountId ? msg.model : undefined,
                     msg.accountId ? msg.reasoningEffort : undefined,
                   );
-            if (!accepted)
+            // FIFO sends return an immediate durable pending receipt. Keep
+            // their completion observed by the receipt layer, but never hold
+            // this HTTP dispatch behind the predecessor's provider turn.
+            if (isQueuedSendAdmission(admission)) {
+              return {
+                queued: true,
+                completion: admission.then((accepted) => {
+                  if (!accepted)
+                    throw new SendDispatchFailure('Session is not accepting input. Please retry.');
+                }),
+              };
+            }
+            if (!(await admission))
               throw new SendDispatchFailure('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
             return;

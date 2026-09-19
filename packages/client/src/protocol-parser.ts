@@ -103,6 +103,32 @@ export interface ParseResult {
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const VALID_CLIENT_STATES: ReadonlySet<string> = new Set(['idle', 'running', 'requires_action']);
+const LEGACY_SESSION_STATES: ReadonlySet<string> = new Set([
+  'CREATED',
+  'STARTING',
+  'ACTIVE',
+  'DETACHED',
+  'SUSPENDED',
+  'CLOSING',
+  'ENDED',
+]);
+
+/**
+ * Snapshots emitted before canonical executions used `lastStateChange` as a
+ * generation. Keep that timestamp domain out of the canonical 1, 2, 3... map.
+ * The fallback recognizes the old wire shape so mixed-version reconnects remain
+ * safe while newer servers make the domain explicit.
+ */
+function isLegacyLifecycleSnapshot(msg: WsMsg, sessionId: string, generation: number): boolean {
+  const fields = msg as Record<string, unknown>;
+  if (fields.generationDomain === 'lifecycle') return true;
+  if (fields.generationDomain === 'execution') return false;
+  return (
+    typeof fields.internalState === 'string' &&
+    LEGACY_SESSION_STATES.has(fields.internalState) &&
+    fields.executionId === `${sessionId}:${generation}`
+  );
+}
 
 // ─── Parser ──────────────────────────────────────────────────────────────────
 
@@ -341,6 +367,21 @@ export function parseServerMessage(
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
       const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
       if (!sessionId || generation === undefined) break;
+      if (isLegacyLifecycleSnapshot(msg, sessionId, generation)) {
+        const lifecycleGenerations = (state.sessionStateGenerationBySession ??= new Map());
+        const previous = lifecycleGenerations.get(sessionId);
+        if (previous !== undefined && generation < previous) break;
+        lifecycleGenerations.set(sessionId, generation);
+        // Canonical execution state is authoritative once it has been seen.
+        if (state.executionGenerationBySession?.has(sessionId)) break;
+        if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
+          result.messagesActions.push({
+            type: 'SESSION_STATE_CHANGED',
+            state: msg.state as ClientSessionState,
+          });
+        }
+        break;
+      }
       const generations = (state.executionGenerationBySession ??= new Map());
       const previous = generations.get(sessionId);
       // A replaced connection can still deliver a stale snapshot. Never let

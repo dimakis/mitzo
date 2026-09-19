@@ -75,7 +75,10 @@ export class SseConnection implements ChatConnection {
         this._connectionId ? { 'X-Connection-ID': this._connectionId } : {},
       notify: (event) => {
         this.listener?.(event);
-        if (event.type === '_send_accepted' && typeof event.sessionId === 'string') {
+        if (
+          (event.type === '_send_accepted' || event.type === '_send_queued') &&
+          typeof event.sessionId === 'string'
+        ) {
           const sessionId = event.sessionId as string;
           if (!this.seqBySession.has(sessionId)) {
             this.seqBySession.set(sessionId, 0);

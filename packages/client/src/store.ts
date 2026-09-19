@@ -769,6 +769,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
     if (
       msg.type === '_send_pending' ||
+      msg.type === '_send_queued' ||
       msg.type === '_send_failed' ||
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
@@ -776,8 +777,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const clientMsgId =
         typeof msg.clientMsgId === 'string' ? (msg.clientMsgId as string) : undefined;
       if (clientMsgId) {
+        // `_send_pending` is emitted synchronously on outbox enqueue, before
+        // either the HTTP receipt or the durable user-message echo. A later
+        // `_send_queued` must not re-add an ID whose echo already arrived.
         if (msg.type === '_send_pending') pendingSendIds.add(clientMsgId);
-        else pendingSendIds.delete(clientMsgId);
+        else if (msg.type !== '_send_queued') pendingSendIds.delete(clientMsgId);
       }
       const visible = store
         .getState()
@@ -800,7 +804,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ? msg.retrying
                 ? 'Reconnecting — your message will retry automatically.'
                 : 'Sending…'
-              : null,
+              : msg.type === '_send_queued'
+                ? 'Queued behind the current response…'
+                : null,
         });
         if (
           msg.type === '_send_accepted' &&
@@ -834,6 +840,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+
+    // A pending FIFO receipt becomes active only when the server durably
+    // echoes its user message. This keeps the local running guard intact
+    // without retaining a second HTTP request or provider enqueue.
+    if (msg.type === 'user_message' && typeof msg.messageId === 'string')
+      pendingSendIds.delete(msg.messageId);
 
     // Session-scoped event filtering for multiplexed v2 connections:
     // - No sessionId on the event → global (task_state, inbox_updated, etc.) → always accept

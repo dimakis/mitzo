@@ -158,12 +158,38 @@ describe('durable send acceptance', () => {
       const original = acceptSendCommandAsync(store, message, dispatch);
       const retry = acceptSendCommandAsync(store, message, dispatch);
 
-      expect(retry).toBe(original);
+      await expect(retry).resolves.toMatchObject({ accepted: true, pending: true });
       expect(dispatch).toHaveBeenCalledOnce();
       rejectAdmission(new Error('probe failed'));
       await expect(original).rejects.toThrow('probe failed');
-      await expect(retry).rejects.toThrow('probe failed');
       expect(store.getSendCommand(message.clientMsgId)?.error).toBe('probe failed');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('returns durable pending receipts immediately for queued originals and exact retries', async () => {
+    const store = new EventStore(':memory:');
+    let activate!: () => void;
+    const completion = new Promise<void>((resolve) => {
+      activate = resolve;
+    });
+    const dispatch = vi.fn(async () => ({ queued: true as const, completion }));
+    try {
+      const original = acceptSendCommandAsync(store, message, dispatch);
+      const retry = acceptSendCommandAsync(store, message, dispatch);
+
+      await expect(original).resolves.toMatchObject({ accepted: true, pending: true });
+      await expect(retry).resolves.toMatchObject({ accepted: true, pending: true });
+      expect(dispatch).toHaveBeenCalledOnce();
+      expect(store.getSendCommand(message.clientMsgId)).toMatchObject({ error: null });
+
+      activate();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const afterActivation = await acceptSendCommandAsync(store, message, dispatch);
+      expect(afterActivation).toMatchObject({ accepted: true });
+      expect(afterActivation).not.toHaveProperty('pending');
+      expect(dispatch).toHaveBeenCalledOnce();
     } finally {
       store.close();
     }

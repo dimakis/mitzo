@@ -8,11 +8,20 @@ import {
 } from './execution-request.js';
 
 type SendMessage = z.infer<typeof V2SendMessage>;
-type SendReceipt = {
+export type SendReceipt = {
   ok: true;
   accepted: true;
   clientMsgId: string;
   sessionId: string | null;
+  /** The durable command is accepted but awaits FIFO activation. */
+  pending?: true;
+};
+
+/** A dispatcher can detach bounded FIFO activation from the HTTP receipt. */
+export type QueuedSendDispatch = {
+  queued: true;
+  /** Resolves only when the queued execution was admitted; rejects on cancellation/failure. */
+  completion: Promise<void>;
 };
 
 type ReceiptInput = {
@@ -28,7 +37,19 @@ export class SendDispatchFailure extends Error {
   }
 }
 
-const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
+const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<void>>>();
+
+function pendingReceipt(receipt: { clientMsgId: string; sessionId: string | null }): SendReceipt {
+  return { ok: true, accepted: true, pending: true, ...receipt };
+}
+
+function acceptedReceipt(receipt: { clientMsgId: string; sessionId: string | null }): SendReceipt {
+  return { ok: true, accepted: true, ...receipt };
+}
+
+function isQueuedSendDispatch(value: unknown): value is QueuedSendDispatch {
+  return !!value && typeof value === 'object' && (value as { queued?: unknown }).queued === true;
+}
 
 /** HTTP command acceptance is independent of event-stream connectivity.
  * A receipt is durable before dispatch; retries return that same receipt.
@@ -94,8 +115,12 @@ export function acceptSendCommandAsync(
   store: EventStore,
   message: SendMessage,
   receiptOrDispatch:
-    ReceiptInput | ((message: SendMessage, sessionId: string) => Promise<void | false>),
-  maybeDispatch?: (message: SendMessage, sessionId: string) => Promise<void | false>,
+    | ReceiptInput
+    | ((message: SendMessage, sessionId: string) => Promise<void | false | QueuedSendDispatch>),
+  maybeDispatch?: (
+    message: SendMessage,
+    sessionId: string,
+  ) => Promise<void | false | QueuedSendDispatch>,
 ): Promise<SendReceipt> {
   const receiptInput =
     typeof receiptOrDispatch === 'function'
@@ -111,12 +136,12 @@ export function acceptSendCommandAsync(
   if (!dispatch) throw new TypeError('A send dispatch callback is required');
   if (typeof (store as Partial<EventStore>).claimSendCommandReceipt !== 'function') {
     const sessionId = message.sessionId ?? randomUUID();
-    return Promise.resolve(dispatch(message, sessionId)).then((outcome) => ({
-      ok: true,
-      accepted: true,
-      clientMsgId: message.clientMsgId,
-      sessionId: outcome === false ? null : sessionId,
-    }));
+    return Promise.resolve(dispatch(message, sessionId)).then((outcome) =>
+      acceptedReceipt({
+        clientMsgId: message.clientMsgId,
+        sessionId: outcome === false ? null : sessionId,
+      }),
+    );
   }
   const receipt = store.claimSendCommandReceipt(
     message.clientMsgId,
@@ -130,23 +155,35 @@ export function acceptSendCommandAsync(
     pendingAsyncAcceptances.set(store, pending);
   }
   const inFlight = pending.get(message.clientMsgId);
-  if (inFlight) return inFlight;
   if (receipt.receipt.error) throw new Error(receipt.receipt.error);
+  // Never make a retry retain an HTTP worker while the original waits in a
+  // bounded FIFO. The command ID is already durable, so the typed pending
+  // receipt is enough for ordered outbox progress and exact idempotency.
+  if (inFlight)
+    return Promise.resolve(
+      pendingReceipt({
+        clientMsgId: message.clientMsgId,
+        sessionId: receipt.receipt.sessionId,
+      }),
+    );
   if (receipt.duplicate) {
-    return Promise.resolve({
-      ok: true,
-      accepted: true,
-      clientMsgId: message.clientMsgId,
-      sessionId: receipt.receipt.sessionId,
-    });
+    return Promise.resolve(
+      acceptedReceipt({ clientMsgId: message.clientMsgId, sessionId: receipt.receipt.sessionId }),
+    );
   }
 
-  const admission = (async (): Promise<SendReceipt> => {
-    let sessionId = receipt.receipt.sessionId;
+  const dispatchOutcome = Promise.resolve().then(() =>
+    dispatch(message, receipt.receipt.sessionId!),
+  );
+  const tracking = (async (): Promise<void> => {
     try {
-      if ((await dispatch(message, sessionId!)) === false) {
+      const outcome = await dispatchOutcome;
+      if (isQueuedSendDispatch(outcome)) {
+        await outcome.completion;
+        return;
+      }
+      if (outcome === false) {
         store.completeNativeSendCommand(message.clientMsgId);
-        sessionId = null;
       }
     } catch (err) {
       store.failSendCommand(
@@ -155,12 +192,33 @@ export function acceptSendCommandAsync(
       );
       throw err;
     }
-    return { ok: true, accepted: true, clientMsgId: message.clientMsgId, sessionId };
   })();
   const clearPending = () => {
-    if (pending.get(message.clientMsgId) === admission) pending.delete(message.clientMsgId);
+    if (pending.get(message.clientMsgId) === tracking) pending.delete(message.clientMsgId);
   };
-  pending.set(message.clientMsgId, admission);
-  void admission.then(clearPending, clearPending);
-  return admission;
+  pending.set(message.clientMsgId, tracking);
+  void tracking.then(clearPending, clearPending);
+  return dispatchOutcome.then(
+    (outcome) => {
+      if (isQueuedSendDispatch(outcome))
+        return pendingReceipt({
+          clientMsgId: message.clientMsgId,
+          sessionId: receipt.receipt.sessionId,
+        });
+      return tracking.then(() =>
+        acceptedReceipt({
+          clientMsgId: message.clientMsgId,
+          sessionId: sessionIdForOutcome(outcome, receipt.receipt.sessionId),
+        }),
+      );
+    },
+    (error) => tracking.then(() => Promise.reject(error)),
+  );
+}
+
+function sessionIdForOutcome(
+  outcome: void | false | QueuedSendDispatch,
+  sessionId: string | null,
+): string | null {
+  return outcome === false ? null : sessionId;
 }

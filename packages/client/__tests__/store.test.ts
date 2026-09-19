@@ -567,8 +567,16 @@ describe('WS → store wiring', () => {
     });
     expect(store.getState().messages.running).toBe(true);
 
+    // The queued HTTP receipt can arrive after the durable echo; it must not
+    // re-arm the local running guard once the server has taken ownership.
     lastWs.simulateMessage({
-      type: '_send_accepted',
+      type: 'user_message',
+      clientMsgId: command.clientMsgId,
+      messageId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    lastWs.simulateMessage({
+      type: '_send_queued',
       clientMsgId: command.clientMsgId,
       sessionId: 'test-session',
     });

@@ -144,6 +144,7 @@ export class SendOutbox {
       } else {
         if (
           receipt.accepted !== true ||
+          (receipt.pending !== true && receipt.pending !== undefined) ||
           receipt.clientMsgId !== entry.body.clientMsgId ||
           (typeof receipt.sessionId !== 'string' && receipt.sessionId !== null)
         )
@@ -157,7 +158,7 @@ export class SendOutbox {
           }
         }
         this.config.notify({
-          type: '_send_accepted',
+          type: receipt.pending === true ? '_send_queued' : '_send_accepted',
           ...receipt,
           originalSessionId: entry.body.sessionId,
         });

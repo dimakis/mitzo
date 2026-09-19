@@ -54,3 +54,46 @@ it('keeps a predecessor result on its token when the SDK pulls replacement input
   expect(binding.token).toEqual(replacementToken);
   input.close();
 });
+
+it('does not let an untagged legacy result inherit a queued FIFO token', async () => {
+  const input = new AsyncQueue<{
+    executionToken?: ExecutionToken;
+    message: { type: 'user'; message: { role: 'user'; content: string } };
+  }>();
+  const binding = makeProviderTurnBinding();
+  const prompts = executionBoundSdkPrompt(input, binding)[Symbol.asyncIterator]();
+
+  input.push({
+    message: { type: 'user', message: { role: 'user', content: 'legacy initial turn' } },
+  });
+  await expect(prompts.next()).resolves.toMatchObject({
+    value: { message: { content: 'legacy initial turn' } },
+  });
+
+  input.push({
+    executionToken: replacementToken,
+    message: { type: 'user', message: { role: 'user', content: 'FIFO follow-up' } },
+  });
+  const followUpPull = prompts.next();
+  let pulled = false;
+  void followUpPull.then(() => {
+    pulled = true;
+  });
+  await Promise.resolve();
+  expect(pulled).toBe(false);
+
+  async function* legacyResult() {
+    yield { type: 'result', subtype: 'success' } as Record<string, unknown>;
+  }
+  const result = await executionBoundQuery(legacyResult() as never, binding)
+    [Symbol.asyncIterator]()
+    .next();
+  expect(result.value).toMatchObject({ type: 'result' });
+  expect(result.value).not.toHaveProperty('mitzoExecutionToken');
+
+  await expect(followUpPull).resolves.toMatchObject({
+    value: { message: { content: 'FIFO follow-up' } },
+  });
+  expect(binding.token).toEqual(replacementToken);
+  input.close();
+});

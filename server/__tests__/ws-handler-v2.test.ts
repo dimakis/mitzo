@@ -24,6 +24,8 @@ vi.mock('../chat.js', () => ({
   rekeyChat: vi.fn().mockReturnValue(true),
   BASE_REPO: '/tmp/test-repo',
   discoverSession: vi.fn().mockResolvedValue(null),
+  isQueuedSendAdmission: (value: unknown) =>
+    !!value && typeof value === 'object' && (value as { queued?: unknown }).queued === true,
 }));
 
 vi.mock('../app.js', () => ({
@@ -321,6 +323,7 @@ describe('handleReconnect', () => {
       sessionId: 'sess-1',
       executionId: 'sess-1:42',
       generation: 42,
+      generationDomain: 'lifecycle',
       state: 'running',
       internalState: 'ACTIVE',
       lastSeq: 7,
@@ -356,6 +359,7 @@ describe('handleReconnect', () => {
         sessionId: 'sess-1',
         executionId: 'execution-3',
         generation: 3,
+        generationDomain: 'execution',
         state: 'idle',
         internalState: 'TERMINAL',
         terminalReason: 'completed',

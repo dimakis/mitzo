@@ -99,6 +99,11 @@ type QueryInstance = AsyncIterable<Record<string, unknown>> &
   NonNullable<ManagedSession['queryInstance']>;
 
 type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
+export type QueuedSendAdmission = Promise<boolean> & { queued: true };
+
+export function isQueuedSendAdmission(value: Promise<boolean>): value is QueuedSendAdmission {
+  return (value as Partial<QueuedSendAdmission>).queued === true;
+}
 
 /**
  * Keep provider output tied to the input turn that caused it.  The holder is
@@ -108,6 +113,8 @@ type ProviderInput = ExecutionEnvelope<SDKUserMessage>;
  */
 export type ProviderTurnBinding = {
   token?: ExecutionToken;
+  /** True from provider input consumption through that turn's terminal boundary. */
+  active: boolean;
   terminal: Promise<void>;
   releaseTerminal: () => void;
   /** Runs synchronously when an envelope crosses the provider boundary. */
@@ -119,6 +126,7 @@ export type ProviderTurnBinding = {
 export function makeProviderTurnBinding(): ProviderTurnBinding {
   const releaseTerminal = () => undefined;
   return {
+    active: false,
     terminal: Promise.resolve(),
     releaseTerminal,
     begin(token: ExecutionToken | undefined) {
@@ -126,7 +134,11 @@ export function makeProviderTurnBinding(): ProviderTurnBinding {
       this.terminal = new Promise<void>((resolve) => {
         release = resolve;
       });
-      this.releaseTerminal = release;
+      this.active = true;
+      this.releaseTerminal = () => {
+        this.active = false;
+        release();
+      };
       this.token = token;
     },
   };
@@ -143,7 +155,7 @@ export function executionBoundSdkPrompt(
         // The SDK may pull its next prompt before it yields the preceding
         // result. Do not rebind output ownership until that terminal boundary
         // has been observed; otherwise an old result could end the replacement.
-        if (active.token) await active.terminal;
+        if (active.active) await active.terminal;
         active.begin(envelope.executionToken);
         active.onConsumed?.(envelope.executionToken);
         yield envelope.message;
@@ -2221,7 +2233,7 @@ function validateNativeModelSelection(
  * remains pending only until its exact RUNNING generation is durable; provider
  * delivery and terminal outcome are intentionally separate from admission.
  */
-export async function sendToChat(
+export function sendToChat(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
@@ -2233,113 +2245,123 @@ export async function sendToChat(
   userIntent?: string,
   executionToken?: ExecutionToken,
 ): Promise<boolean> {
-  // Interrupt/replacement dispatch already owns a durable execution token and
-  // must cross the provider boundary directly instead of recursively queuing.
-  if (executionToken)
-    return dispatchToChat(
-      clientId,
-      prompt,
-      images,
-      contextBlocks,
-      clientMsgId,
-      model,
-      reasoningEffort,
-      signal,
-      userIntent,
-      executionToken,
-    );
-  if (signal?.aborted) return false;
-  const session = registry.get(clientId);
-  // Pre-session callers retain the legacy direct path; there is no stable
-  // session id on which to create an execution receipt yet.
-  if (!session?.sessionId || !session.inputQueue || !eventStore.getSession(session.sessionId))
-    return dispatchToChat(
-      clientId,
-      prompt,
-      images,
-      contextBlocks,
-      clientMsgId,
-      model,
-      reasoningEffort,
-      signal,
-      userIntent,
-    );
-  // New commands still obey the active provider's immutable-session model
-  // rule. (An already-tokenized dispatch below repeats this fence after any
-  // queue wait, before provider work.)
-  if (
-    !getCodexRuntime(session) &&
-    !getResponsesRuntime(session) &&
-    model &&
-    model !== session.model
-  ) {
-    send(session.transport, {
-      type: 'error',
-      sessionId: session.sessionId,
-      error:
-        'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
-    });
-    return false;
-  }
-  const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
-  let requestFingerprint: string;
+  // This is intentionally not `async`: the FIFO receipt carries an own
+  // marker consumed by the HTTP dispatch boundary. Keep the prior async
+  // failure contract nonetheless—synchronous setup failures reject.
   try {
-    // This hashes only caller-supplied immutable wire intent. Effective
-    // provider state is selected during the exact token's dispatch.
-    requestFingerprint = fingerprintExecutionRequest({
-      operation: 'send',
-      sessionId: session.sessionId,
-      rawUserIntent: userIntent ?? prompt,
-      effectiveProviderPrompt: prompt,
-      model,
-      reasoningEffort,
-      images: images ?? [],
-      contextBlocks: contextBlocks ?? [],
-    });
-  } catch {
-    return false;
+    // Interrupt/replacement dispatch already owns a durable execution token and
+    // must cross the provider boundary directly instead of recursively queuing.
+    if (executionToken)
+      return dispatchToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+        signal,
+        userIntent,
+        executionToken,
+      );
+    if (signal?.aborted) return Promise.resolve(false);
+    const session = registry.get(clientId);
+    // Pre-session callers retain the legacy direct path; there is no stable
+    // session id on which to create an execution receipt yet.
+    if (!session?.sessionId || !session.inputQueue || !eventStore.getSession(session.sessionId))
+      return dispatchToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        model,
+        reasoningEffort,
+        signal,
+        userIntent,
+      );
+    // New commands still obey the active provider's immutable-session model
+    // rule. (An already-tokenized dispatch below repeats this fence after any
+    // queue wait, before provider work.)
+    if (
+      !getCodexRuntime(session) &&
+      !getResponsesRuntime(session) &&
+      model &&
+      model !== session.model
+    ) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error:
+          'Changing models in an active Anthropic session is not supported. Start a new task to use the selected model.',
+      });
+      return Promise.resolve(false);
+    }
+    const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
+    let requestFingerprint: string;
+    try {
+      // This hashes only caller-supplied immutable wire intent. Effective
+      // provider state is selected during the exact token's dispatch.
+      requestFingerprint = fingerprintExecutionRequest({
+        operation: 'send',
+        sessionId: session.sessionId,
+        rawUserIntent: userIntent ?? prompt,
+        effectiveProviderPrompt: prompt,
+        model,
+        reasoningEffort,
+        images: images ?? [],
+        contextBlocks: contextBlocks ?? [],
+      });
+    } catch {
+      return Promise.resolve(false);
+    }
+    let settleReceipt!: (accepted: boolean) => void;
+    const receipt = Object.assign(
+      new Promise<boolean>((resolve) => {
+        settleReceipt = resolve;
+      }),
+      { queued: true as const },
+    );
+    const prepared: PendingExecutionInput = {
+      executionId: randomUUID(),
+      clientMsgId: messageId,
+      requestFingerprint,
+      retainedBytes: preparedRequestRetainedBytes({ prompt, images, contextBlocks }),
+      isInitial: false,
+      admissionReceipt: receipt,
+      onAdmitted: () => settleReceipt(true),
+      onRejected: () => settleReceipt(false),
+      dispatch: async (token) => {
+        if (
+          !(await dispatchToChat(
+            clientId,
+            prompt,
+            images,
+            contextBlocks,
+            messageId,
+            model,
+            reasoningEffort,
+            signal,
+            userIntent,
+            token,
+          ))
+        )
+          throw new Error('provider did not accept queued follow-up');
+      },
+    };
+    let admission;
+    try {
+      admission = initialExecutionController().admitPendingExecution(clientId, prepared);
+    } catch {
+      return Promise.resolve(false);
+    }
+    if (admission.conflict || admission.unavailable) return Promise.resolve(false);
+    if (admission.durableDuplicate) return Promise.resolve(true);
+    // Exact concurrent retries share the original bounded input and promise.
+    return admission.pending?.admissionReceipt ?? Promise.resolve(false);
+  } catch (error) {
+    return Promise.reject(error);
   }
-  let settleReceipt!: (accepted: boolean) => void;
-  const receipt = new Promise<boolean>((resolve) => {
-    settleReceipt = resolve;
-  });
-  const prepared: PendingExecutionInput = {
-    executionId: randomUUID(),
-    clientMsgId: messageId,
-    requestFingerprint,
-    retainedBytes: preparedRequestRetainedBytes({ prompt, images, contextBlocks }),
-    isInitial: false,
-    admissionReceipt: receipt,
-    onAdmitted: () => settleReceipt(true),
-    onRejected: () => settleReceipt(false),
-    dispatch: async (token) => {
-      if (
-        !(await dispatchToChat(
-          clientId,
-          prompt,
-          images,
-          contextBlocks,
-          messageId,
-          model,
-          reasoningEffort,
-          signal,
-          userIntent,
-          token,
-        ))
-      )
-        throw new Error('provider did not accept queued follow-up');
-    },
-  };
-  let admission;
-  try {
-    admission = initialExecutionController().admitPendingExecution(clientId, prepared);
-  } catch {
-    return false;
-  }
-  if (admission.conflict || admission.unavailable) return false;
-  if (admission.durableDuplicate) return true;
-  // Exact concurrent retries share the original bounded input and promise.
-  return admission.pending?.admissionReceipt ?? false;
 }
 
 /** Deliver a follow-up whose execution token is already durable and current. */

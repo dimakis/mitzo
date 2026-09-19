@@ -293,8 +293,13 @@ export interface SessionExecutionSnapshot {
   sessionId: string;
   executionId: string;
   generation: number;
+  /**
+   * Names the ordering domain used by `generation`. Older servers omitted it;
+   * clients infer their legacy lifecycle snapshots from `internalState`.
+   */
+  generationDomain?: 'execution' | 'lifecycle';
   state: ClientSessionState;
-  internalState: SessionState;
+  internalState: SessionState | ExecutionPhase;
   /** Last durable event included in the preceding replay. */
   lastSeq: number;
   terminalReason?: 'completed' | 'closed';

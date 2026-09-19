@@ -1138,6 +1138,64 @@ describe('session_execution_snapshot', () => {
     expect(staleRuntime.messagesActions).toHaveLength(0);
   });
 
+  it('does not let an older lifecycle snapshot eclipse canonical FIFO generations', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const legacySnapshot = parseServerMessage(
+      {
+        type: 'session_execution_snapshot',
+        sessionId: 'sid-1',
+        executionId: 'sid-1:1700000000000',
+        generation: 1_700_000_000_000,
+        // Older servers omitted the explicit domain. The historical wire
+        // shape must still be isolated from canonical execution generations.
+        internalState: 'ACTIVE',
+        state: 'running',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const running = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'fifo-1',
+        generation: 1,
+        phase: 'RUNNING',
+        clientState: 'running',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const terminal = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'fifo-1',
+        generation: 1,
+        phase: 'TERMINAL',
+        clientState: 'idle',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(legacySnapshot.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'running',
+    });
+    expect(running.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'running',
+    });
+    expect(terminal.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'idle',
+    });
+  });
+
   it('keeps a running execution when an older connection snapshot arrives later', () => {
     const state = makeState({ currentSessionId: 'sid-1' });
     const callbacks = makeCallbacks();
