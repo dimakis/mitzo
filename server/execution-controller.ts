@@ -15,6 +15,7 @@ import type {
 import type { StoredEvent } from '@mitzo/protocol';
 import type {
   BeginExecutionResult,
+  ExecutionAdmissionResult,
   ExecutionTransitionResult,
   ReplacementAdmissionResult,
 } from '@mitzo/protocol/event-store';
@@ -23,6 +24,7 @@ import type { EventStore } from './event-store.js';
 type ExecutionStore = Pick<
   EventStore,
   | 'beginExecution'
+  | 'admitExecution'
   | 'transitionExecution'
   | 'admitReplacement'
   | 'getReplacementAdmission'
@@ -449,12 +451,36 @@ export class ExecutionController {
       while (true) {
         const pending = this.options.registry.peekPendingExecution(lease);
         if (!pending) return { failures };
-        const begin = this.options.eventStore.beginExecution(
-          lease.sessionId,
-          pending.executionId,
-          pending.clientMsgId,
-          pending.requestFingerprint,
-        );
+        let begin: BeginExecutionResult | ExecutionAdmissionResult;
+        try {
+          begin = pending.userMessage
+            ? this.options.eventStore.admitExecution(
+                lease.sessionId,
+                pending.executionId,
+                pending.clientMsgId,
+                pending.requestFingerprint,
+                pending.userMessage,
+              )
+            : this.options.eventStore.beginExecution(
+                lease.sessionId,
+                pending.executionId,
+                pending.clientMsgId,
+                pending.requestFingerprint,
+              );
+        } catch (error: unknown) {
+          // This failed before a RUNNING token was committed. Discard exactly
+          // this queue head so its receipt can settle and a later FIFO item is
+          // not stranded behind a rolled-back admission.
+          if (!this.options.registry.shiftPendingExecution(lease)) return { failures, stale: true };
+          pending.onRejected?.(error);
+          failures.push({
+            executionId: pending.executionId,
+            clientMsgId: pending.clientMsgId,
+            requestFingerprint: pending.requestFingerprint,
+            error,
+          });
+          continue;
+        }
         if (!this.options.registry.resolveRuntimeLease(lease)) return { failures, stale: true };
         if (begin.duplicate) {
           if (!this.options.registry.shiftPendingExecution(lease)) return { failures, stale: true };
@@ -466,7 +492,9 @@ export class ExecutionController {
           this.options.registry.clearCurrentExecution(lease, begin.token);
           return { failures, stale: true };
         }
-        this.broadcastBegin(lease, begin);
+        if ('rows' in begin && Array.isArray(begin.rows))
+          this.broadcastAdmissionRows(lease, begin.rows);
+        else this.broadcastBegin(lease, begin);
         // Receipt acknowledgement is allowed once the exact durable token is
         // visible. Provider startup remains a separate, terminalizable phase.
         try {
@@ -515,6 +543,23 @@ export class ExecutionController {
       broadcastStoredExecutionEvent(
         lease,
         { seq: result.seq, event: result.event },
+        this.options.registry,
+        this.options.connections,
+      );
+    }
+  }
+
+  private broadcastAdmissionRows(lease: RuntimeSessionLease, rows: StoredEvent[]): void {
+    for (const row of rows) {
+      broadcastStoredEvent(
+        lease,
+        {
+          seq: row.seq,
+          event: { ...row.payload, sessionId: row.sessionId } as {
+            type: string;
+            sessionId: string;
+          },
+        },
         this.options.registry,
         this.options.connections,
       );

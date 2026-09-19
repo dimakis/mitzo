@@ -276,6 +276,20 @@ export interface BeginExecutionResult {
   event?: ExecutionStateChangedPayload;
 }
 
+/** Durable user input atomically coupled to an ordinary FIFO admission. */
+export interface ExecutionAdmissionUserMessage {
+  messageId: string;
+  text: string;
+  /** Existing chat preview representation; never provider staging paths. */
+  images?: string[];
+  contextBlocks?: string[];
+}
+
+export interface ExecutionAdmissionResult extends BeginExecutionResult {
+  /** Exact durable rows in replay/broadcast order: user_message, RUNNING. */
+  rows: StoredEvent[];
+}
+
 export interface ReplaceExecutionResult extends BeginExecutionResult {
   previousTerminalSeq?: number;
   previousTerminalEvent?: ExecutionStateChangedPayload;
@@ -1089,6 +1103,71 @@ export class EventStore {
   }
 
   /**
+   * Atomically admit ordinary FIFO work. The user echo is durable before the
+   * RUNNING token and both rows commit together, so pending receipt completion
+   * and reconnect replay share one causal boundary.
+   */
+  admitExecution(
+    sessionId: string,
+    executionId: string,
+    clientMsgId: string,
+    requestFingerprint: string,
+    userMessage: ExecutionAdmissionUserMessage,
+  ): ExecutionAdmissionResult {
+    if (userMessage.messageId !== clientMsgId)
+      throw new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'Execution user message must use the command clientMsgId',
+      );
+    this.assertExecutionAdmissionUserMessage(userMessage);
+    return this.db!.transaction(() => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+      const fingerprint = this.validateAdmissionFingerprint(clientMsgId, requestFingerprint)!;
+      const duplicate = this.findExecutionAdmission(sessionId, clientMsgId);
+      if (duplicate) {
+        const resolved = this.resolveAdmissionDuplicate(
+          duplicate,
+          current,
+          clientMsgId,
+          executionId,
+          fingerprint,
+        );
+        return { ...resolved, rows: [] };
+      }
+      this.assertExecutionAdmission(current, sessionId);
+      const userPayload = {
+        type: 'user_message',
+        v: 2,
+        ts: Date.now(),
+        messageId: userMessage.messageId,
+        text: userMessage.text,
+        ...(userMessage.images?.length ? { images: userMessage.images } : {}),
+        ...(userMessage.contextBlocks?.length ? { contextBlocks: userMessage.contextBlocks } : {}),
+      };
+      const userSeq = Number(
+        this.stmts.append.run(sessionId, 'user_message', JSON.stringify(userPayload), null, null)
+          .lastInsertRowid,
+      );
+      this.stmts.updateLastSpeaker.run('user', sessionId);
+      const refreshed = this.stmts.getSession.get(sessionId) as SessionRow;
+      const begin = this.beginExecutionInTransaction(
+        refreshed,
+        sessionId,
+        executionId,
+        clientMsgId,
+        fingerprint,
+      );
+      const rows = this.getEventsAfter(sessionId, userSeq - 1).filter(
+        (row) => row.seq === userSeq || row.seq === begin.seq,
+      );
+      if (rows.length !== 2)
+        throw new Error('Execution admission did not persist all durable rows');
+      return { ...begin, rows };
+    }).immediate();
+  }
+
+  /**
    * Intentional replacement is the only way to supersede a non-terminal
    * execution. The old terminal and new RUNNING events are one transaction.
    */
@@ -1626,6 +1705,21 @@ export class EventStore {
       )
     ) {
       throw new ExecutionAdmissionError('fingerprint_required', 'Invalid replacement user message');
+    }
+  }
+
+  private assertExecutionAdmissionUserMessage(message: ExecutionAdmissionUserMessage): void {
+    if (
+      !message.messageId ||
+      typeof message.text !== 'string' ||
+      message.messageId.length > 512 ||
+      message.text.length > 1_000_000 ||
+      (message.images?.length ?? 0) > 128 ||
+      (message.contextBlocks?.length ?? 0) > 512 ||
+      message.images?.some((image) => typeof image !== 'string' || image.length > 10_000_000) ||
+      message.contextBlocks?.some((block) => typeof block !== 'string' || block.length > 16_384)
+    ) {
+      throw new ExecutionAdmissionError('fingerprint_required', 'Invalid execution user message');
     }
   }
 

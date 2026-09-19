@@ -47,6 +47,17 @@ export interface PendingExecutionInput {
   retainedBytes: number;
   /** Initial startup failures have a more precise durable terminal reason. */
   isInitial: boolean;
+  /**
+   * Ordinary FIFO work supplies its already assembled durable echo. The
+   * controller commits it atomically before RUNNING; initial startup inputs
+   * retain their separate launch lifecycle and omit it.
+   */
+  userMessage?: {
+    messageId: string;
+    text: string;
+    images?: string[];
+    contextBlocks?: string[];
+  };
   /** Called after the durable RUNNING row and current lease are visible. */
   onAdmitted?: (token: ExecutionToken) => void;
   /**

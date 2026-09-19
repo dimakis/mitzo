@@ -193,6 +193,63 @@ describe('ExecutionController', () => {
     expect(order).toEqual(['accepted', 'dispatch']);
   });
 
+  it('broadcasts the ordinary echo then RUNNING before admitting or dispatching', async () => {
+    const order: string[] = [];
+    controller.enqueueExecution(CLIENT_ID, {
+      ...prepared('atomic-echo', () => {
+        order.push('dispatch');
+      }),
+      clientMsgId: 'atomic-echo-message',
+      requestFingerprint: 'atomic-echo-fingerprint',
+      userMessage: { messageId: 'atomic-echo-message', text: 'atomic echo' },
+      onAdmitted: () => order.push('accepted'),
+    });
+
+    await controller.activateNextExecution(CLIENT_ID);
+
+    expect(transport.sent.map((event) => event.phase ?? event.type)).toEqual([
+      'user_message',
+      'RUNNING',
+    ]);
+    expect(order).toEqual(['accepted', 'dispatch']);
+    expect(store.getSessionEvents(SESSION_ID).map((event) => event.type)).toEqual([
+      'user_message',
+      'execution_state_changed',
+    ]);
+  });
+
+  it('drops a rolled-back ordinary admission and advances the next FIFO item', async () => {
+    const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+    db.exec(`
+      CREATE TRIGGER reject_ordinary_running
+      BEFORE INSERT ON events
+      WHEN NEW.type = 'execution_state_changed' AND NEW.payload LIKE '%reject-me%'
+      BEGIN SELECT RAISE(ABORT, 'injected ordinary failure'); END;
+    `);
+    const rejected = vi.fn();
+    const nextDispatch = vi.fn();
+    controller.enqueueExecution(CLIENT_ID, {
+      ...prepared('reject-me'),
+      userMessage: { messageId: 'message-reject-me', text: 'reject me' },
+      onRejected: rejected,
+    });
+    controller.enqueueExecution(CLIENT_ID, prepared('next-after-rollback', nextDispatch));
+
+    const activation = await controller.activateNextExecution(CLIENT_ID);
+
+    expect(rejected).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'injected ordinary failure' }),
+    );
+    expect(nextDispatch).toHaveBeenCalledOnce();
+    expect(activation).toMatchObject({
+      failures: [{ executionId: 'reject-me' }],
+      token: { executionId: 'next-after-rollback', generation: 1 },
+    });
+    expect(store.getSessionEvents(SESSION_ID).map((event) => event.payload.phase)).toEqual([
+      'RUNNING',
+    ]);
+  });
+
   it('terminalizes a dispatch failure and advances to the next FIFO item', async () => {
     const order: string[] = [];
     controller.enqueueExecution(

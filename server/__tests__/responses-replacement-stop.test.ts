@@ -140,6 +140,75 @@ it('does not prepare or push a Responses replacement after stop wins during inte
   }
 });
 
+it('keeps provider-only image staging out of an ordinary FIFO durable echo', async () => {
+  const clientId = `responses-fifo-image-${Date.now()}`;
+  const sessionId = `responses-fifo-image-session-${Date.now()}`;
+  const cwd = mkdtempSync(join(tmpdir(), 'mitzo-responses-fifo-image-'));
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset();
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-fifo-image-active',
+    ).token;
+    const images = [
+      {
+        data: Buffer.from('ordinary-fifo-provider-image').toString('base64'),
+        mediaType: 'image/png',
+      },
+    ];
+    const queued = chat.sendToChat(
+      clientId,
+      'inspect this image',
+      images,
+      undefined,
+      'responses-fifo-image-message',
+    );
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+
+    await expect(queued).resolves.toBe(true);
+    const providerPrompt = responses.prepare.mock.calls[0][1] as string;
+    expect(providerPrompt).toContain(join(cwd, '.mitzo-images'));
+    expect(
+      (push.mock.calls[0][0] as { message: { message: { content: string } } }).message.message
+        .content,
+    ).toBe(providerPrompt);
+    const durableEcho = chat.eventStore
+      .getSessionEvents(sessionId)
+      .find((event) => event.type === 'user_message')!.payload;
+    expect(durableEcho).toMatchObject({
+      text: 'inspect this image',
+      images: [`data:image/png;base64,${images[0].data}`],
+    });
+    expect(JSON.stringify(durableEcho)).not.toContain('.mitzo-images');
+  } finally {
+    chat.registry.abort(clientId);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
 it('delivers queued ordinary Responses follow-ups with their activated tokens', async () => {
   const clientId = `responses-fifo-${Date.now()}`;
   const sessionId = `responses-fifo-session-${Date.now()}`;
@@ -187,6 +256,16 @@ it('delivers queued ordinary Responses follow-ups with their activated tokens', 
     expect(push.mock.calls[0][0]).toMatchObject({
       executionToken: expect.objectContaining({ generation: 2 }),
     });
+    // A lost acknowledgement replays the durable token without a second
+    // provider dispatch or live echo.
+    await expect(
+      chat.sendToChat(clientId, 'first Responses FIFO', undefined, undefined, 'resp-1'),
+    ).resolves.toBe(true);
+    expect(responses.prepare).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledOnce();
+    expect(
+      transport.send.mock.calls.filter(([event]) => event.type === 'user_message'),
+    ).toHaveLength(1);
     await controller.finishExecution(
       chat.registry.getRuntimeLease(clientId)!,
       chat.registry.get(clientId)!.currentExecution!,
@@ -197,6 +276,70 @@ it('delivers queued ordinary Responses follow-ups with their activated tokens', 
       executionToken: expect.objectContaining({ generation: 3 }),
     });
     expect(responses.prepare).toHaveBeenCalledTimes(2);
+    expect(
+      transport.send.mock.calls.filter(([event]) => event.type === 'user_message'),
+    ).toHaveLength(2);
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('broadcasts an ordinary Responses echo before a later provider failure terminalizes it', async () => {
+  const clientId = `responses-admission-failure-${Date.now()}`;
+  const sessionId = `responses-admission-failure-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  responses.prepare.mockReset().mockImplementation(() => {
+    throw new Error('provider preparation failed');
+  });
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'responses-failure-active',
+    ).token;
+    const queued = chat.sendToChat(
+      clientId,
+      'durable before provider failure',
+      undefined,
+      undefined,
+      'responses-admission-failure-message',
+    );
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+
+    await expect(queued).resolves.toBe(true);
+    expect(push).not.toHaveBeenCalled();
+    expect(
+      transport.send.mock.calls
+        .map(([event]) => event as Record<string, unknown>)
+        .filter(
+          (event) => event.type === 'user_message' || event.type === 'execution_state_changed',
+        )
+        .map((event) => event.phase ?? event.type),
+    ).toEqual(['TERMINAL', 'user_message', 'RUNNING', 'TERMINAL']);
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
   } finally {
     chat.registry.abort(clientId);
   }

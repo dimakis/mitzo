@@ -984,6 +984,78 @@ describe('EventStore', () => {
       ).toThrow('different executionId');
     });
 
+    it('atomically persists an ordinary user echo before RUNNING and replays no rows for a retry', () => {
+      const admitted = store.admitExecution(
+        sid,
+        'execution-echo',
+        'message-echo',
+        'fingerprint-echo',
+        { messageId: 'message-echo', text: 'inspect this' },
+      );
+
+      expect(admitted.duplicate).toBe(false);
+      expect(admitted.rows.map((row) => row.type)).toEqual([
+        'user_message',
+        'execution_state_changed',
+      ]);
+      expect(admitted.rows.map((row) => row.seq)).toEqual([
+        admitted.rows[0].seq,
+        admitted.rows[0].seq + 1,
+      ]);
+      expect(admitted.rows[1].payload).toMatchObject({
+        phase: 'RUNNING',
+        executionId: admitted.token.executionId,
+      });
+
+      const beforeRetry = store.getSessionEvents(sid);
+      expect(
+        store.admitExecution(sid, 'execution-echo', 'message-echo', 'fingerprint-echo', {
+          messageId: 'message-echo',
+          text: 'inspect this',
+        }),
+      ).toEqual({ token: admitted.token, duplicate: true, rows: [] });
+      expect(store.getSessionEvents(sid)).toEqual(beforeRetry);
+    });
+
+    it('rolls back the whole ordinary admission and permits an image-only echo', () => {
+      const db = (store as unknown as { db: Database.Database }).db;
+      db.exec(`
+        CREATE TRIGGER reject_running_admission
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected ordinary admission failure'); END;
+      `);
+
+      expect(() =>
+        store.admitExecution(
+          sid,
+          'execution-rollback',
+          'message-rollback',
+          'fingerprint-rollback',
+          { messageId: 'message-rollback', text: 'will roll back' },
+        ),
+      ).toThrow('injected ordinary admission failure');
+      expect(store.getSessionEvents(sid)).toEqual([]);
+      expect(store.getSession(sid)).toMatchObject({ executionGeneration: 0, executionId: null });
+
+      db.exec('DROP TRIGGER reject_running_admission');
+      const imageOnly = store.admitExecution(
+        sid,
+        'execution-image-only',
+        'message-image-only',
+        'fingerprint-image-only',
+        {
+          messageId: 'message-image-only',
+          text: '',
+          images: ['data:image/png;base64,aGVsbG8='],
+        },
+      );
+      expect(imageOnly.rows[0].payload).toMatchObject({
+        type: 'user_message',
+        text: '',
+        images: ['data:image/png;base64,aGVsbG8='],
+      });
+    });
+
     it('replaces an exact active execution with two ordered durable events', () => {
       const old = store.beginExecution(sid, 'execution-old');
       const replacement = store.replaceExecution(

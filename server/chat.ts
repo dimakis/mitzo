@@ -2347,6 +2347,48 @@ export function sendToChat(
     } catch {
       return Promise.resolve(false);
     }
+    const controller = initialExecutionController();
+    // Do not assemble/stage provider input for a durable or concurrently
+    // pending exact retry. The controller remains the identity authority;
+    // this cheap preflight merely preserves the receipt-only retry boundary.
+    if (
+      eventStore.getExecutionAdmission(session.sessionId, messageId) ||
+      registry.findPendingExecution(clientId, messageId)
+    ) {
+      const existing = controller.admitPendingExecution(clientId, {
+        executionId: randomUUID(),
+        clientMsgId: messageId,
+        requestFingerprint,
+        retainedBytes: 0,
+        isInitial: false,
+        dispatch: () => undefined,
+      });
+      if (existing.conflict || existing.unavailable) return Promise.resolve(false);
+      if (existing.durableDuplicate) return Promise.resolve(true);
+      return existing.pending?.admissionReceipt ?? Promise.resolve(false);
+    }
+    // The FIFO admission owns the durable echo, so construct exactly the
+    // provider prompt that will later be dispatched before queueing it. Image
+    // paths are retained by this bounded input and removed if it is rejected
+    // before the transaction commits.
+    const usesCodex = !!getCodexRuntime(session);
+    let fullPrompt: string;
+    let stagedImagePaths: string[] = [];
+    try {
+      fullPrompt = assemblePrompt(
+        prompt,
+        session.cwd ?? '.',
+        usesCodex ? undefined : images,
+        contextBlocks,
+        (paths) => {
+          stagedImagePaths = paths;
+        },
+      );
+    } catch {
+      removeStagedImages(stagedImagePaths);
+      return Promise.resolve(false);
+    }
+    const previews = imagePreviews(images);
     let settleReceipt!: (accepted: boolean) => void;
     const receipt = Object.assign(
       new Promise<boolean>((resolve) => {
@@ -2358,14 +2400,33 @@ export function sendToChat(
       executionId: randomUUID(),
       clientMsgId: messageId,
       requestFingerprint,
-      retainedBytes: preparedRequestRetainedBytes({ prompt, images, contextBlocks }),
+      retainedBytes: preparedRequestRetainedBytes({ prompt: fullPrompt, images, contextBlocks }),
       isInitial: false,
+      userMessage: {
+        messageId,
+        // Durable chat history is the client-visible request. `fullPrompt`
+        // may contain ephemeral provider staging paths, so it remains solely
+        // in the bounded dispatcher closure.
+        text: prompt,
+        ...(previews?.length ? { images: previews } : {}),
+        ...(contextBlocks?.length ? { contextBlocks } : {}),
+      },
       admissionReceipt: receipt,
-      onAdmitted: () => settleReceipt(true),
+      onAdmitted: () => {
+        // The controller has already broadcast the exact persisted
+        // user_message and RUNNING rows. Lifecycle hooks and auto-rename now
+        // observe that same durable boundary rather than a provider ack.
+        _onSessionChange?.(clientId, 'user_message');
+        tryAutoRename(session.sessionId!, clientId).catch(() => {
+          /* errors logged internally */
+        });
+        settleReceipt(true);
+      },
       onRejected: () => {
         // Never include a provider/preflight exception in a durable event.
         // The EventStore guard makes repeated teardown callbacks harmless.
         failQueuedSendBeforeActivation(clientId, session.sessionId!, messageId);
+        removeStagedImages(stagedImagePaths);
         settleReceipt(false);
       },
       dispatch: async (token) => {
@@ -2381,6 +2442,7 @@ export function sendToChat(
             signal,
             userIntent,
             token,
+            { fullPrompt, userMessagePersisted: true },
           ))
         )
           throw new Error('provider did not accept queued follow-up');
@@ -2388,12 +2450,29 @@ export function sendToChat(
     };
     let admission;
     try {
-      admission = initialExecutionController().admitPendingExecution(clientId, prepared);
+      admission = controller.admitPendingExecution(clientId, prepared);
     } catch {
+      // enqueueExecution calls onRejected for its known overflow path. This
+      // second cleanup is harmless there and covers a synchronous admission
+      // failure before the controller can take ownership of the staging.
+      removeStagedImages(stagedImagePaths);
       return Promise.resolve(false);
     }
-    if (admission.conflict || admission.unavailable) return Promise.resolve(false);
-    if (admission.durableDuplicate) return Promise.resolve(true);
+    if (admission.conflict || admission.unavailable) {
+      removeStagedImages(stagedImagePaths);
+      return Promise.resolve(false);
+    }
+    if (admission.durableDuplicate) {
+      removeStagedImages(stagedImagePaths);
+      return Promise.resolve(true);
+    }
+    if (admission.pending && admission.pending !== prepared) {
+      // Another exact retry won the synchronous queue slot while this request
+      // was preparing provider input. Its receipt is authoritative; this
+      // attempt must release any staging it never handed to the dispatcher.
+      removeStagedImages(stagedImagePaths);
+      return admission.pending.admissionReceipt ?? Promise.resolve(false);
+    }
     // Exact concurrent retries share the original bounded input and promise.
     return admission.pending?.admissionReceipt ?? Promise.resolve(false);
   } catch (error) {
@@ -2413,6 +2492,7 @@ async function dispatchToChat(
   signal?: AbortSignal,
   userIntent?: string,
   executionToken?: ExecutionToken,
+  admission?: { fullPrompt: string; userMessagePersisted: boolean },
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -2437,17 +2517,19 @@ async function dispatchToChat(
       });
       return false;
     }
-    const fullPrompt = assemblePrompt(
-      prompt,
-      session.cwd ?? '.',
-      codex ? undefined : images,
-      contextBlocks,
-    );
+    const fullPrompt =
+      admission?.fullPrompt ??
+      assemblePrompt(prompt, session.cwd ?? '.', codex ? undefined : images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
-    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
+    if (
+      responses &&
+      !admission?.userMessagePersisted &&
+      session.sessionId &&
+      eventStore.hasUserMessage(session.sessionId, messageId)
+    )
       return true;
     if (responses) {
       try {
@@ -2481,20 +2563,23 @@ async function dispatchToChat(
               : {}),
           });
         }
-        const isDup = storeAndEchoIfNew(
-          session.sessionId,
-          messageId,
-          fullPrompt,
-          clientId,
-          session.transport,
-          session.observers,
-          previews,
-          contextBlocks,
-        );
-        tryAutoRename(session.sessionId, clientId).catch(() => {
-          /* errors logged internally */
-        });
-        return isDup;
+        if (!admission?.userMessagePersisted) {
+          const isDup = storeAndEchoIfNew(
+            session.sessionId,
+            messageId,
+            fullPrompt,
+            clientId,
+            session.transport,
+            session.observers,
+            previews,
+            contextBlocks,
+          );
+          tryAutoRename(session.sessionId, clientId).catch(() => {
+            /* errors logged internally */
+          });
+          return isDup;
+        }
+        return false;
       } else {
         // Pre-session-resolve: no eventStore to dedup against.
         // The frontend deduplicates echoes by messageId, and server-generated

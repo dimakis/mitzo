@@ -239,6 +239,15 @@ it('delivers queued ordinary Codex follow-ups with their activated tokens', asyn
     expect(runtime.admitExplicitSend.mock.calls[0][0]).toMatchObject({
       executionToken: expect.objectContaining({ generation: 2 }),
     });
+    // A retry after the durable boundary must not redeliver either the Codex
+    // command or its exact live echo.
+    await expect(
+      chat.sendToChat(clientId, 'first Codex FIFO', undefined, undefined, 'codex-fifo-1'),
+    ).resolves.toBe(true);
+    expect(runtime.admitExplicitSend).toHaveBeenCalledOnce();
+    expect(
+      transport.send.mock.calls.filter(([event]) => event.type === 'user_message'),
+    ).toHaveLength(1);
     await controller.finishExecution(
       chat.registry.getRuntimeLease(clientId)!,
       chat.registry.get(clientId)!.currentExecution!,
@@ -249,6 +258,127 @@ it('delivers queued ordinary Codex follow-ups with their activated tokens', asyn
       executionToken: expect.objectContaining({ generation: 3 }),
     });
     expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledTimes(2);
+    expect(
+      transport.send.mock.calls.filter(([event]) => event.type === 'user_message'),
+    ).toHaveLength(2);
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('admits an image-only Codex follow-up with an empty durable text echo', async () => {
+  vi.restoreAllMocks();
+  const clientId = `codex-image-only-${Date.now()}`;
+  const sessionId = `codex-image-only-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'codex-image-only-active',
+    ).token;
+    const images = [{ data: 'aGVsbG8=', mediaType: 'image/png' }];
+    const queued = chat.sendToChat(clientId, '', images, undefined, 'codex-image-only-message');
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+
+    await expect(queued).resolves.toBe(true);
+    expect(runtime.admitExplicitSend).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'codex-image-only-message', prompt: '', images }),
+      undefined,
+    );
+    expect(
+      chat.eventStore.getSessionEvents(sessionId).find((event) => event.type === 'user_message')
+        ?.payload,
+    ).toMatchObject({
+      text: '',
+      images: ['data:image/png;base64,aGVsbG8='],
+    });
+  } finally {
+    chat.registry.abort(clientId);
+  }
+});
+
+it('broadcasts an ordinary Codex echo before a later provider failure terminalizes it', async () => {
+  vi.restoreAllMocks();
+  const clientId = `codex-admission-failure-${Date.now()}`;
+  const sessionId = `codex-admission-failure-session-${Date.now()}`;
+  const transport = { send: vi.fn(), isOpen: () => true };
+  runtime.admitExplicitSend.mockRejectedValueOnce(new Error('Codex queue unavailable'));
+  chat.registry.register(clientId, {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId,
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  try {
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = {
+      push: vi.fn(),
+      close: vi.fn(),
+    } as unknown as ManagedSession['inputQueue'];
+    session.queryInstance = { interrupt: vi.fn(), close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    session.currentExecution = chat.eventStore.beginExecution(
+      sessionId,
+      'codex-failure-active',
+    ).token;
+    const queued = chat.sendToChat(
+      clientId,
+      'durable before Codex provider failure',
+      undefined,
+      undefined,
+      'codex-admission-failure-message',
+    );
+    const controller = new ExecutionController({
+      registry: chat.registry,
+      eventStore: chat.eventStore,
+    });
+
+    await controller.finishExecution(
+      chat.registry.getRuntimeLease(clientId)!,
+      session.currentExecution,
+      'completed',
+    );
+
+    await expect(queued).resolves.toBe(true);
+    expect(runtime.cancelQueued).toHaveBeenCalledWith('codex-admission-failure-message');
+    expect(
+      transport.send.mock.calls
+        .map(([event]) => event as Record<string, unknown>)
+        .filter(
+          (event) => event.type === 'user_message' || event.type === 'execution_state_changed',
+        )
+        .map((event) => event.phase ?? event.type),
+    ).toEqual(['TERMINAL', 'user_message', 'RUNNING', 'TERMINAL']);
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
   } finally {
     chat.registry.abort(clientId);
   }

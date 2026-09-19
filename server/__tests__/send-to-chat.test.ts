@@ -2,7 +2,15 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { eventStore, registry, sendToChat, interruptChat, stageImages, stopChat } from '../chat.js';
+import {
+  eventStore,
+  registry,
+  sendToChat,
+  interruptChat,
+  setSessionChangeCallback,
+  stageImages,
+  stopChat,
+} from '../chat.js';
 import { ExecutionController } from '../execution-controller.js';
 import { MAX_V2_PROMPT_CHARS } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -102,6 +110,33 @@ describe('sendToChat emits user_message via transport', () => {
     );
     expect(userMsgEvents).toHaveLength(1);
     expect((userMsgEvents[0] as Record<string, unknown>).messageId).toBe(clientMsgId);
+  });
+
+  it('notifies session change and schedules auto-rename at durable admission', async () => {
+    const transport = mockTransport();
+    const pushSpy = vi.fn();
+    const sessionId = `sess-admission-session-change-${Date.now()}`;
+    const changes: string[] = [];
+    setSessionChangeCallback((_clientId, event) => changes.push(event));
+    registry.register(CLIENT_ID, {
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get(CLIENT_ID)!;
+    session.inputQueue = { push: pushSpy, close: vi.fn() };
+    eventStore.upsertSession({ sessionId });
+
+    try {
+      await expect(sendToChat(CLIENT_ID, 'rename after durable echo')).resolves.toBe(true);
+      expect(changes).toEqual(['user_message']);
+      expect(eventStore.getSession(sessionId)?.promptCount).toBe(1);
+      expect(pushSpy).toHaveBeenCalledOnce();
+    } finally {
+      setSessionChangeCallback(() => undefined);
+    }
   });
 
   it('persists and echoes image previews and context block names', async () => {
