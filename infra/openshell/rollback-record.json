@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "stackLockSha256": "6b628d5399077330d5bf36dc3d5a60502f29ce3fec95ec77d4cd14a634387f32",
+    "mitzoSourceCommit": "9db39f64db1eb9786023c259e0024724199b7506",
+    "openshellCli": {
+      "identity": "openshell",
+      "path": "/opt/homebrew/bin/openshell",
+      "version": "0.0.116-mitzo.2",
+      "sourceCommit": "b4c459f92446167afcb0a2dcf7d9fa6c8945e59c"
+    },
+    "gatewayService": "sh.brew.openshell",
+    "podmanSupervisor": {
+      "launchdLabel": "com.mitzo.podman-machine",
+      "artifactPath": "infra/com.mitzo.podman-machine.plist",
+      "artifactSha256": "50a2d70ddc64ccbbcfe18a9a9af285aa8980947a7ed3606c7cea72f8e17f779b"
+    },
+    "runtime": {
+      "image": "localhost/mitzo-mgmt-runtime:release-387c13ed-20260911",
+      "digest": "sha256:8e5e6f59bb89e2238cf8763d6ab143762d27b2d23edd7c5a9bab6f9373bb3c07",
+      "mitzoSourceCommit": "387c13ed7245230b70eac12759d0aa8cc07f31d0",
+      "mgmtSourceCommit": "c1413c0091075f3d3552993cb1a5468747217e64",
+      "baseImage": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e",
+      "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
+    },
+    "rollbackInputs": {
+      "accountProfiles": {
+        "bundleId": "mitzo-openshell-accounts-v1",
+        "reference": "MITZO_ACCOUNT_PROFILES_FILE",
+        "sha256": "e0120afa3e32c174fcc1efdf7f13d4e6890e3350fa773d90ce14cdd61897ee07"
+      },
+      "policy": {
+        "reference": "MITZO_OPENSHELL_POLICY",
+        "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+      },
+      "seed": {
+        "bundleId": "mgmt",
+        "baselineReference": "MITZO_OPENSHELL_SEED/../baseline.json",
+        "startingCommit": "c1413c0091075f3d3552993cb1a5468747217e64"
+      }
+    }
+  },
+  "restoreOrder": [
+    "quiesce Mitzo and the OpenShell gateway",
+    "restore this matched stack lock, account profile, policy, seed, runtime image, gateway binary, and Podman supervisor artifact",
+    "run the production preflight before restarting the old stack",
+    "retain existing sandboxes; do not delete them during rollback"
+  ]
+}
