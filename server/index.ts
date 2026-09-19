@@ -85,6 +85,7 @@ import {
 } from './openshell-lifecycle-controller.js';
 import { openShellRuntimeConfig } from './openshell-runtime.js';
 import { openShellLifecycleEnabled } from './openshell-lifecycle.js';
+import { assertTlsAvailable, shouldStartPlaintextWatchOsListener } from './transport-security.js';
 import {
   OpenShellLifecycleObservability,
   openShellLifecycleObservabilityThresholds,
@@ -273,6 +274,7 @@ const PROJECT_ROOT = join(__filename, '..', '..');
 const CERT_PATH = join(PROJECT_ROOT, 'certs', 'cert.pem');
 const KEY_PATH = join(PROJECT_ROOT, 'certs', 'key.pem');
 const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+assertTlsAvailable(process.env, USE_TLS);
 
 // WebSocket for chat — use HTTPS when certs are available
 const server = USE_TLS
@@ -1321,8 +1323,9 @@ checkPort(PORT).then((inUse) => {
     process.exit(1);
   }
 
-  // Plain HTTP listener for watchOS (can't trust self-signed TLS certs)
-  if (USE_TLS) {
+  // Plain HTTP listener for watchOS (can't trust self-signed TLS certs).
+  // Never expose this compatibility listener in a required-TLS release.
+  if (shouldStartPlaintextWatchOsListener(process.env, USE_TLS)) {
     const httpServer = createServer(app);
     const HTTP_PORT = PORT + 1;
     httpServer.listen(HTTP_PORT, () => {

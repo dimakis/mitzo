@@ -1,9 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { createHash, generateKeyPairSync } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
+  main,
+  validateReleaseIdentity,
+  validateReleaseTransport,
   validateStaticConfig,
+  validateRollbackRecord,
+  verifyBakedBrowserOrigin,
   verifyAccountBindings,
+  verifyAccountProfileIntegrity,
+  verifyCleanTrackedWorktree,
+  verifyCheckoutReleaseProvenance,
+  verifyLocalReleaseIdentity,
+  verifyReleaseTls,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const manifest = {
@@ -20,6 +33,108 @@ const config = {
   MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
   MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
   OPENSHELL_WORKSPACE: 'default',
+};
+
+const releaseTransport = {
+  publicOrigin: 'https://dimakis-mac.tail:3100',
+  webSocketOrigin: 'wss://dimakis-mac.tail:3100',
+  tlsRequired: true,
+};
+
+// A deliberately non-production RSA pair used only to prove the local
+// deployment preflight reads the same certs/cert.pem and certs/key.pem paths
+// that the server will load. It is valid only for the fixture hostname.
+const fixtureCertificate = `-----BEGIN CERTIFICATE-----
+MIIDNDCCAhygAwIBAgIUI+RLjIP6L9lc6wpHjSDbIKeJmikwDQYJKoZIhvcNAQEL
+BQAwGzEZMBcGA1UEAwwQZGltYWtpcy1tYWMudGFpbDAeFw0yNjA5MTkyMTQwNDBa
+Fw0zNjA5MTYyMTQwNDBaMBsxGTAXBgNVBAMMEGRpbWFraXMtbWFjLnRhaWwwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDdbZk7xkWuw+C3X2Aaa+Jno22q
+uaOYEoBQWVBOINV5uqomw/Wd5GLiA8+RBP/HLGXFapC3LdznR0o3oHldg80WfLr8
+47oKTgpvz8kCheaCxJQ50gvU1GygSdGQPPxVwdaGSNGRZrojsUVM5H9ypvJ1KDgG
+y9n2iWHZb3Wdsec6VOohpVSUZcI51eogBleSkC+qu2ezMIVRGLHBzkMH0M+vbVNA
+H5ia7uNSYZ1KlZPoqM0/qJe1vVERaD6DKbsIJFeppxFHXWzlWzFnkrPLCWnLYTsk
+2FLtCfBTiaED/mW/l6R12QuQgvKhKFjB8JNyk1TISvhXSQhTtnQ+l/93Xnr3AgMB
+AAGjcDBuMB0GA1UdDgQWBBTYzYDZe1s/wMMStLL6lvmLoUJyGzAfBgNVHSMEGDAW
+gBTYzYDZe1s/wMMStLL6lvmLoUJyGzAPBgNVHRMBAf8EBTADAQH/MBsGA1UdEQQU
+MBKCEGRpbWFraXMtbWFjLnRhaWwwDQYJKoZIhvcNAQELBQADggEBACssB8pRX+4e
+Expz7jzlVAH1nVwb01lb39QikLCrZClGXWvFBqLhcZdK3XOsn1sRxdKD7YgFgG7e
+PaCNJn7ZJVJKw/98cTQOSL7Kl5wt+jXGi5VdUde35oB8V0o3D7jdfefpEQ3lOdu4
+SQvzpqYsudWePK2Qre5zPcSdTqwO0O4LqjUHnwWoE/Q4RC/BWYvfbkl1sjmObLaF
+DPeQPN19ijFqHHrIptEtBNUyadzk+Z/bKl43z+jvwAxhX+V3J22I34OwBKL6Hn1k
+JN+xCoT3GqTxOAcOw6a5RV0GOI9/teSobW11tM3kOapmmigwgEPwuMUrywnZVLBt
+qIcrKHbQSc0=
+-----END CERTIFICATE-----
+`;
+
+const fixturePrivateKey = `-----BEGIN PRIVATE KEY-----
+MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAQDdbZk7xkWuw+C3
+X2Aaa+Jno22quaOYEoBQWVBOINV5uqomw/Wd5GLiA8+RBP/HLGXFapC3LdznR0o3
+oHldg80WfLr847oKTgpvz8kCheaCxJQ50gvU1GygSdGQPPxVwdaGSNGRZrojsUVM
+5H9ypvJ1KDgGy9n2iWHZb3Wdsec6VOohpVSUZcI51eogBleSkC+qu2ezMIVRGLHB
+zkMH0M+vbVNAH5ia7uNSYZ1KlZPoqM0/qJe1vVERaD6DKbsIJFeppxFHXWzlWzFn
+krPLCWnLYTsk2FLtCfBTiaED/mW/l6R12QuQgvKhKFjB8JNyk1TISvhXSQhTtnQ+
+l/93Xnr3AgMBAAECggEAQ9hvgZ2sPzK8WWNLTn0s52VvVkbAJfnRQA1FqlKsJjq4
+JN2ZFfJjC+5v/HbEKlJjsnwG8GGIlILG7klotmsKfW/lWVQrbjngP8cyR2ggq4Ox
+CRBfWKxnxisoH2JYTKxyXz3TnJIVyZbo7Xj7xfT6SER0+jwewkfw588bgiB/AWNu
+RLOq9jVNxMqIl4O03B8953F9DcGl8iCyv/WZGnqGk5MUpl5F4XnDwQQLZYkkjRcU
+iYUaAM/BT7uYsSUem1lI0S+Wh3vfWCBXnx31l+uZiQKY0pttOp3xi73JhBNe2Oln
+c8y2XlVRC8Njq7mZM1id0hSLKZmSEwqYsdQ57o/AgQKBgQD2zJX4QD7hs12pXP1H
+/V575bmaeSxqRyL85KpYNUJkUzB0+0rbnD08xKiQM2i9zbW9dVtVU4SELCgQMkY4
+UkyH0Sx43/eDyNvFrAoW6S1btL6/JICC/SfzkX4uUa4x1IngBNQTEr2UY52oHlqZ
+2BKcjwmS4izFk94dy3a+hvVwdwKBgQDlruAUf3FpnFYU5JyT2KIm1Jmc8bjXVwEw
+MU8fLIqRjdjnJiO4NgI2hv5+jYVMYnYnoQax7e5yzpw28zues1H2GTLk21rimmbB
+XbIm1/1ZSqDn2kWyzkTGW2NXL8ZJ2uXig1ZRYYR8N8lbZLmaJ6ITDje16Z/BPY0i
+9W9rPfBpgQJ/em8D9yPoDg/tZxe6jvwi41QTv45delvP/6Vw3FGPnjWm1GHVwRzB
+RGRLOz5Ft+NVRafyp2HHW8qMFXzbWRV64eXjKhPxtm7umCHA35zN47DG8AwrtM/i
+AfMrpc7fm9jUjU3X555kbjj8/WoRiECo+wH6veN2Uo4Ior9NKTfKiwKBgQC8b+TX
+7FcX1nOpYIY1ph4izXnaEVcdFPyclVfcs6ZcFIxH2Dql/2mBYu+Y1HLwYDef+7SK
+djKTbn8rdhML+QLdbX8b0/uUvihfrIdk5v+sKlYo4iMct64lLwUpmsCMB1Njq20+
+B0uyvfItUU4U8z89cwSx8qJm4CDS9Zob2g1MAQKBgC2p+ViV6CO8amFLXhN/wJ63
+GBSAEJZptGLYrRPCwo4pql20FBFKhxSm8FTr9nVhKAc2OLRe/zOrHc9c2JTfeoZM
+je783XEP9UacTAppwMXOc6UR8L+bLAgOWvRsZyE7Yd8welP40GftP/wGg+feC8a+
+vdVPpduBm7oJB5HR49nB
+-----END PRIVATE KEY-----
+`;
+
+function writeFixtureTls(root: string) {
+  const certs = join(root, 'certs');
+  mkdirSync(certs);
+  writeFileSync(join(certs, 'cert.pem'), fixtureCertificate);
+  writeFileSync(join(certs, 'key.pem'), fixturePrivateKey);
+}
+
+const lockedPodmanSupervisor = {
+  launchdLabel: 'com.mitzo.podman-machine',
+  artifactPath: 'infra/com.mitzo.podman-machine.plist',
+  artifactSha256: '50a2d70ddc64ccbbcfe18a9a9af285aa8980947a7ed3606c7cea72f8e17f779b',
+};
+
+const fixtureAccountProfiles = JSON.stringify([
+  {
+    id: 'personal',
+    provider: 'openai-codex',
+    sandboxProvider: 'personal-chatgpt',
+    sandboxProviderType: 'openai-codex-oauth',
+    sandboxProviderId: 'provider-1',
+    sandboxGrantId: 'grant-1',
+  },
+]);
+
+const releaseRollbackInputs = {
+  accountProfiles: {
+    bundleId: 'mitzo-openshell-accounts-v1',
+    reference: 'MITZO_ACCOUNT_PROFILES_FILE',
+    sha256: createHash('sha256').update(fixtureAccountProfiles).digest('hex'),
+  },
+  policy: {
+    reference: 'MITZO_OPENSHELL_POLICY',
+    sha256: 'ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20',
+  },
+  seed: {
+    bundleId: 'mgmt',
+    baselineReference: 'MITZO_OPENSHELL_SEED/../baseline.json',
+    startingCommit: 'c1413c0091075f3d3552993cb1a5468747217e64',
+  },
 };
 
 describe('OpenShell production bundle validation', () => {
@@ -91,6 +206,571 @@ describe('OpenShell production bundle validation', () => {
       automatic: ['github'],
       grantable: ['google-workspace'],
     });
+    expect(lock.release).toEqual({
+      // The release wrapper itself changes this value to its source parent.
+      // Keep the assertion tied to the staged release fixture so that wrapper
+      // B can point at source commit A without changing source tests.
+      mitzoSourceCommit: lock.release.mitzoSourceCommit,
+      openshellCli: {
+        identity: 'openshell',
+        path: '/opt/homebrew/bin/openshell',
+        version: '0.0.116-mitzo.2',
+        sourceCommit: 'b4c459f92446167afcb0a2dcf7d9fa6c8945e59c',
+      },
+      gatewayService: 'sh.brew.openshell',
+      podmanSupervisor: lockedPodmanSupervisor,
+      rollbackInputs: {
+        ...releaseRollbackInputs,
+        accountProfiles: lock.release.rollbackInputs.accountProfiles,
+      },
+      transport: releaseTransport,
+    });
+    // Source commit A must remain testable while it still carries the prior
+    // release metadata. The metadata-only wrapper B supplies the real
+    // external profile digest; this fixture exercises the required shape and
+    // keeps the static provider-contract assertion independent of that
+    // external file's contents.
+    const releaseFixture = {
+      ...lock,
+      release: {
+        ...lock.release,
+        rollbackInputs: {
+          ...lock.release.rollbackInputs,
+          accountProfiles: {
+            ...lock.release.rollbackInputs.accountProfiles,
+            sha256: releaseRollbackInputs.accountProfiles.sha256,
+          },
+        },
+      },
+    };
+    expect(() => validateReleaseIdentity(releaseFixture)).not.toThrow();
+  });
+
+  it('pins the external account-profile contents in the release fixture', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-account-profile-integrity-'));
+    const accountsPath = join(output, 'accounts.json');
+    try {
+      writeFileSync(accountsPath, fixtureAccountProfiles);
+      const manifest = { release: { rollbackInputs: releaseRollbackInputs } };
+      expect(
+        verifyAccountProfileIntegrity({ MITZO_ACCOUNT_PROFILES_FILE: accountsPath }, manifest),
+      ).toBe(accountsPath);
+
+      writeFileSync(accountsPath, JSON.stringify([{ id: 'replacement-profile' }]));
+      expect(() =>
+        verifyAccountProfileIntegrity({ MITZO_ACCOUNT_PROFILES_FILE: accountsPath }, manifest),
+      ).toThrow('account profiles hash does not match the stack lock');
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('requires the baked Tailnet HTTPS/WSS transport contract', () => {
+    expect(
+      validateReleaseTransport(
+        {
+          MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin,
+          MITZO_REQUIRE_TLS: '1',
+          PORT: '3100',
+        },
+        { release: { transport: releaseTransport } },
+      ),
+    ).toEqual(releaseTransport);
+    expect(() =>
+      validateReleaseTransport(
+        {
+          MITZO_PUBLIC_ORIGIN: 'http://dimakis-mac.tail:3100',
+          MITZO_REQUIRE_TLS: '1',
+          PORT: '3100',
+        },
+        { release: { transport: releaseTransport } },
+      ),
+    ).toThrow('public origin');
+    expect(() =>
+      validateReleaseTransport(
+        {
+          MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin,
+          MITZO_REQUIRE_TLS: '0',
+          PORT: '3100',
+        },
+        { release: { transport: releaseTransport } },
+      ),
+    ).toThrow('MITZO_REQUIRE_TLS=1');
+  });
+
+  it('rejects a public-origin port that differs from the server listener', () => {
+    expect(() =>
+      validateReleaseTransport(
+        {
+          MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin,
+          MITZO_REQUIRE_TLS: '1',
+          PORT: '443',
+        },
+        { release: { transport: releaseTransport } },
+      ),
+    ).toThrow('port does not match PORT');
+
+    const defaultHttpsOrigin = 'https://dimakis-mac.tail';
+    const transport = {
+      publicOrigin: defaultHttpsOrigin,
+      webSocketOrigin: 'wss://dimakis-mac.tail',
+      tlsRequired: true,
+    };
+    expect(() =>
+      validateReleaseTransport(
+        { MITZO_PUBLIC_ORIGIN: defaultHttpsOrigin, MITZO_REQUIRE_TLS: '1', PORT: '3100' },
+        { release: { transport } },
+      ),
+    ).toThrow('port does not match PORT');
+    expect(
+      validateReleaseTransport(
+        { MITZO_PUBLIC_ORIGIN: defaultHttpsOrigin, MITZO_REQUIRE_TLS: '1', PORT: '443' },
+        { release: { transport } },
+      ),
+    ).toEqual(transport);
+  });
+
+  it('requires a matching, readable, unexpired certificate with the public hostname SAN', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-release-tls-'));
+    try {
+      writeFixtureTls(output);
+      const config = { MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin };
+      expect(() =>
+        verifyReleaseTls(config, { root: output, now: Date.parse('2026-09-20T00:00:00Z') }),
+      ).not.toThrow();
+      expect(() =>
+        verifyReleaseTls(
+          { MITZO_PUBLIC_ORIGIN: 'https://other-host.tail:3100' },
+          { root: output, now: Date.parse('2026-09-20T00:00:00Z') },
+        ),
+      ).toThrow('SAN does not match');
+      expect(() =>
+        verifyReleaseTls(config, { root: output, now: Date.parse('2036-09-15T00:00:00Z') }),
+      ).toThrow('expires too soon');
+      writeFileSync(join(output, 'certs', 'cert.pem'), 'not a certificate');
+      expect(() => verifyReleaseTls(config, { root: output })).toThrow('valid X.509 certificate');
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when TLS material is missing or the private key does not match', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-release-tls-mismatch-'));
+    try {
+      const config = { MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin };
+      expect(() => verifyReleaseTls(config, { root: output })).toThrow(
+        'TLS certificate does not exist',
+      );
+      writeFixtureTls(output);
+      const mismatchedPrivateKey = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+      }).privateKey.export({
+        type: 'pkcs8',
+        format: 'pem',
+      });
+      writeFileSync(join(output, 'certs', 'key.pem'), mismatchedPrivateKey);
+      expect(() => verifyReleaseTls(config, { root: output })).toThrow(
+        'does not match the private key',
+      );
+      writeFileSync(join(output, 'certs', 'key.pem'), fixtureCertificate);
+      expect(() => verifyReleaseTls(config, { root: output })).toThrow('valid private key');
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on the locked transport and rollback record even when OpenShell is disabled', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-disabled-preflight-'));
+    const buildDir = join(output, 'dist');
+    const manifestPath = join(output, 'stack-lock.json');
+    const rollbackPath = join(output, 'rollback.json');
+    const envPath = join(output, '.env');
+    const accountsPath = join(output, 'accounts.json');
+    const supervisorArtifact = 'disabled-mode supervisor fixture';
+    const release = {
+      mitzoSourceCommit: '17c1a346dccbf6b1ccb5eb1e938171efc330c24d',
+      openshellCli: {
+        identity: 'openshell',
+        path: '/opt/homebrew/bin/openshell',
+        version: '0.0.116-mitzo.2',
+        sourceCommit: 'b4c459f92446167afcb0a2dcf7d9fa6c8945e59c',
+      },
+      gatewayService: 'sh.brew.openshell',
+      podmanSupervisor: {
+        launchdLabel: 'com.mitzo.podman-machine',
+        artifactPath: 'infra/supervisor.plist',
+        artifactSha256: createHash('sha256').update(supervisorArtifact).digest('hex'),
+      },
+      rollbackInputs: releaseRollbackInputs,
+      transport: releaseTransport,
+    };
+    const lock = {
+      schemaVersion: 1,
+      runtime: { image: 'fixture', mgmtSourceCommit: releaseRollbackInputs.seed.startingCommit },
+      policy: { sha256: releaseRollbackInputs.policy.sha256 },
+      release,
+    };
+    const localIdentityRunCommand = (command: string, args: string[]) => {
+      if (command === 'git' && args.includes('status')) return '';
+      if (command === 'git') return release.mitzoSourceCommit;
+      if (command === release.openshellCli.path && args[0] === '--version')
+        return `OpenShell ${release.openshellCli.version}`;
+      throw new Error(`unexpected live-service command: ${command} ${args.join(' ')}`);
+    };
+    const writeDisabledEnv = (overrides: Record<string, string> = {}) => {
+      const values = {
+        MITZO_OPENSHELL_ENABLED: '0',
+        MITZO_OPENSHELL_STACK_MANIFEST: manifestPath,
+        MITZO_OPENSHELL_ROLLBACK_RECORD: rollbackPath,
+        MITZO_ACCOUNT_PROFILES_FILE: accountsPath,
+        MITZO_OPENSHELL_CLI: release.openshellCli.path,
+        MITZO_OPENSHELL_GATEWAY_SERVICE: release.gatewayService,
+        MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin,
+        MITZO_REQUIRE_TLS: '1',
+        PORT: '3100',
+        ...overrides,
+      };
+      writeFileSync(
+        envPath,
+        Object.entries(values)
+          .map(([key, value]) => `${key}=${value}`)
+          .join('\n'),
+      );
+    };
+    try {
+      writeFixtureTls(output);
+      writeFileSync(accountsPath, fixtureAccountProfiles);
+      mkdirSync(join(output, 'infra'));
+      writeFileSync(join(output, 'infra', 'supervisor.plist'), supervisorArtifact);
+      writeFileSync(manifestPath, JSON.stringify(lock));
+      const stackLockSha256 = createHash('sha256').update(readFileSync(manifestPath)).digest('hex');
+      writeFileSync(
+        rollbackPath,
+        JSON.stringify({
+          schemaVersion: 1,
+          release: {
+            stackLockSha256,
+            mitzoSourceCommit: release.mitzoSourceCommit,
+            openshellCli: release.openshellCli,
+            gatewayService: release.gatewayService,
+            podmanSupervisor: release.podmanSupervisor,
+            runtime: lock.runtime,
+            rollbackInputs: release.rollbackInputs,
+          },
+        }),
+      );
+      writeDisabledEnv();
+      // The bundle is intentionally isolated from the lock and env fixture so
+      // a lock value cannot satisfy the browser-origin check by itself.
+      // `main` needs an existing output directory; an asset with the baked
+      // origin is enough for this local transport-only preflight.
+      mkdirSync(buildDir);
+      writeFileSync(join(output, 'dist', 'app.js'), `origin=${releaseTransport.publicOrigin}`);
+      const preflight = () =>
+        main([envPath], {}, { buildDir, root: output, runCommand: localIdentityRunCommand });
+      expect(preflight).not.toThrow();
+      writeFileSync(accountsPath, JSON.stringify([{ id: 'replacement-profile' }]));
+      expect(preflight).toThrow('account profiles hash does not match the stack lock');
+      writeFileSync(accountsPath, fixtureAccountProfiles);
+      writeDisabledEnv({ MITZO_REQUIRE_TLS: '0' });
+      expect(preflight).toThrow('MITZO_REQUIRE_TLS=1');
+      writeDisabledEnv({ MITZO_OPENSHELL_CLI: '/wrong/openshell' });
+      expect(preflight).toThrow('CLI path');
+      writeDisabledEnv({ MITZO_OPENSHELL_GATEWAY_SERVICE: 'wrong.service' });
+      expect(preflight).toThrow('gateway service');
+      writeDisabledEnv();
+      expect(() =>
+        main(
+          [envPath],
+          {},
+          {
+            buildDir,
+            root: output,
+            runCommand: (command: string, args: string[]) =>
+              command === 'git' && args.includes('status') ? '' : 'wrong-checkout',
+          },
+        ),
+      ).toThrow('checkout commit');
+      expect(() =>
+        main(
+          [envPath],
+          {},
+          {
+            buildDir,
+            root: output,
+            runCommand: (command: string, args: string[]) =>
+              command === 'git'
+                ? args.includes('status')
+                  ? ''
+                  : release.mitzoSourceCommit
+                : 'OpenShell wrong-version',
+          },
+        ),
+      ).toThrow('CLI identity or version');
+      writeFileSync(join(output, 'infra', 'supervisor.plist'), 'tampered');
+      expect(preflight).toThrow('supervisor artifact digest');
+      writeFileSync(join(output, 'infra', 'supervisor.plist'), supervisorArtifact);
+      writeFileSync(
+        rollbackPath,
+        JSON.stringify({
+          schemaVersion: 1,
+          release: {
+            stackLockSha256: '0'.repeat(64),
+            mitzoSourceCommit: release.mitzoSourceCommit,
+            openshellCli: release.openshellCli,
+            gatewayService: release.gatewayService,
+            podmanSupervisor: release.podmanSupervisor,
+            runtime: lock.runtime,
+            rollbackInputs: release.rollbackInputs,
+          },
+        }),
+      );
+      expect(() => main([envPath], {}, { buildDir, root: output })).toThrow(
+        'rollback record stack lock digest',
+      );
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('requires a clean tracked checkout before checking release provenance', () => {
+    const root = '/fixture/mitzo';
+    const cleanCommands: Array<[string, string[]]> = [];
+    expect(() =>
+      verifyCleanTrackedWorktree({
+        root,
+        runCommand: (command: string, args: string[]) => {
+          cleanCommands.push([command, args]);
+          return '';
+        },
+      }),
+    ).not.toThrow();
+    expect(cleanCommands).toEqual([
+      ['git', ['-C', root, 'status', '--porcelain=v1', '--untracked-files=no']],
+    ]);
+
+    for (const status of ['M  scripts/deploy.sh', ' M server/index.ts', 'UU package-lock.json']) {
+      expect(() =>
+        verifyCleanTrackedWorktree({
+          root,
+          runCommand: () => status,
+        }),
+      ).toThrow('checkout has tracked changes');
+    }
+
+    const release = { mitzoSourceCommit: 'a'.repeat(40) };
+    expect(() =>
+      verifyCheckoutReleaseProvenance(release, {
+        root,
+        runCommand: (command: string, args: string[]) => {
+          if (command !== 'git') throw new Error(`unexpected command: ${command}`);
+          if (args.includes('status')) return 'M  scripts/verify-openshell-production.mjs';
+          throw new Error('provenance must not be read from a dirty checkout');
+        },
+      }),
+    ).toThrow('checkout has tracked changes');
+  });
+
+  it('rejects every locally observable release identity mismatch without live services', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-release-identity-'));
+    const artifactPath = join(output, 'infra', 'supervisor.plist');
+    const artifact = 'podman supervisor fixture';
+    const digest = createHash('sha256').update(artifact).digest('hex');
+    const release = {
+      mitzoSourceCommit: '17c1a346dccbf6b1ccb5eb1e938171efc330c24d',
+      openshellCli: {
+        identity: 'openshell',
+        path: '/fixture/openshell',
+        version: '0.0.116-mitzo.2',
+        sourceCommit: 'b4c459f92446167afcb0a2dcf7d9fa6c8945e59c',
+      },
+      gatewayService: 'sh.brew.openshell',
+      podmanSupervisor: {
+        launchdLabel: 'com.mitzo.podman-machine',
+        artifactPath: 'infra/supervisor.plist',
+        artifactSha256: digest,
+      },
+      rollbackInputs: releaseRollbackInputs,
+    };
+    const manifest = {
+      runtime: { mgmtSourceCommit: releaseRollbackInputs.seed.startingCommit },
+      policy: { sha256: releaseRollbackInputs.policy.sha256 },
+      release,
+    };
+    const config = {
+      MITZO_OPENSHELL_CLI: release.openshellCli.path,
+      MITZO_OPENSHELL_GATEWAY_SERVICE: release.gatewayService,
+    };
+    const runCommand = (command: string, args: string[]) => {
+      if (command === 'git' && args.includes('status')) return '';
+      if (command === 'git') return release.mitzoSourceCommit;
+      if (command === release.openshellCli.path && args[0] === '--version') {
+        return `OpenShell ${release.openshellCli.version}`;
+      }
+      throw new Error(`unexpected local command: ${command}`);
+    };
+    try {
+      mkdirSync(join(output, 'infra'));
+      writeFileSync(artifactPath, artifact);
+      expect(() =>
+        validateReleaseIdentity({
+          ...manifest,
+          release: {
+            ...release,
+            rollbackInputs: {
+              ...release.rollbackInputs,
+              policy: { ...release.rollbackInputs.policy, sha256: '0'.repeat(64) },
+            },
+          },
+        }),
+      ).toThrow('policy rollback reference');
+      expect(() =>
+        verifyLocalReleaseIdentity(config, manifest, { root: output, runCommand }),
+      ).not.toThrow();
+      expect(() =>
+        verifyLocalReleaseIdentity(
+          { ...config, MITZO_OPENSHELL_CLI: '/wrong/openshell' },
+          manifest,
+          { root: output, runCommand },
+        ),
+      ).toThrow('CLI path');
+      expect(() =>
+        verifyLocalReleaseIdentity(
+          { ...config, MITZO_OPENSHELL_GATEWAY_SERVICE: 'wrong.service' },
+          manifest,
+          { root: output, runCommand },
+        ),
+      ).toThrow('gateway service');
+      expect(() =>
+        verifyLocalReleaseIdentity(config, manifest, {
+          root: output,
+          runCommand: (command: string, args: string[]) =>
+            command === 'git' && args.includes('status') ? '' : 'wrong',
+        }),
+      ).toThrow('checkout commit');
+      expect(() =>
+        verifyLocalReleaseIdentity(config, manifest, {
+          root: output,
+          runCommand: (command: string, args: string[]) =>
+            command === 'git'
+              ? args.includes('status')
+                ? ''
+                : release.mitzoSourceCommit
+              : 'OpenShell 0.0.115',
+        }),
+      ).toThrow('CLI identity or version');
+      const metadataWrapper = 'f'.repeat(40);
+      const metadataWrapperRunCommand = (command: string, args: string[]) => {
+        if (command === release.openshellCli.path && args[0] === '--version') {
+          return `OpenShell ${release.openshellCli.version}`;
+        }
+        if (command !== 'git') throw new Error(`unexpected local command: ${command}`);
+        if (args.includes('status')) return '';
+        if (args.includes('HEAD')) return metadataWrapper;
+        if (args.includes(`${metadataWrapper}^`)) return release.mitzoSourceCommit;
+        if (args.includes('diff-tree')) {
+          return [
+            'infra/openshell/production-stack.lock.json',
+            'infra/openshell/rollback-record.json',
+          ].join('\n');
+        }
+        throw new Error(`unexpected git command: ${args.join(' ')}`);
+      };
+      expect(() =>
+        verifyLocalReleaseIdentity(config, manifest, {
+          root: output,
+          runCommand: metadataWrapperRunCommand,
+        }),
+      ).not.toThrow();
+      expect(() =>
+        verifyCheckoutReleaseProvenance(release, {
+          root: output,
+          runCommand: (command: string, args: string[]) => {
+            if (command !== 'git') throw new Error(`unexpected command: ${command}`);
+            if (args.includes('status')) return '';
+            if (args.includes('HEAD')) return metadataWrapper;
+            if (args.includes(`${metadataWrapper}^`)) return release.mitzoSourceCommit;
+            return 'server/index.ts';
+          },
+        }),
+      ).toThrow('metadata wrapper contains non-release-metadata changes');
+      writeFileSync(artifactPath, 'tampered');
+      expect(() =>
+        verifyLocalReleaseIdentity(config, manifest, { root: output, runCommand }),
+      ).toThrow('supervisor artifact digest');
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a browser bundle that was built without the locked Tailnet origin', () => {
+    const output = mkdtempSync(join(tmpdir(), 'mitzo-release-build-'));
+    try {
+      writeFileSync(join(output, 'app.js'), 'const origin = "http://localhost:3100";');
+      expect(() => verifyBakedBrowserOrigin(releaseTransport.publicOrigin, output)).toThrow(
+        'does not contain the locked HTTPS public origin',
+      );
+      writeFileSync(join(output, 'app.js'), `const origin = "${releaseTransport.publicOrigin}";`);
+      expect(() => verifyBakedBrowserOrigin(releaseTransport.publicOrigin, output)).not.toThrow();
+    } finally {
+      rmSync(output, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a complete, immutable record of the release to restore', () => {
+    const lockPath = new URL('../../infra/openshell/production-stack.lock.json', import.meta.url);
+    const lockSource = readFileSync(lockPath);
+    const lock = JSON.parse(lockSource.toString());
+    const rollback = JSON.parse(
+      readFileSync(new URL('../../infra/openshell/rollback-record.json', import.meta.url), 'utf8'),
+    );
+    expect(rollback.release.stackLockSha256).toBe(
+      createHash('sha256').update(lockSource).digest('hex'),
+    );
+    expect(rollback.release.mitzoSourceCommit).toBe(lock.release.mitzoSourceCommit);
+    expect(rollback.release.openshellCli).toEqual(lock.release.openshellCli);
+    expect(rollback.release.runtime).toEqual(lock.runtime);
+    expect(rollback.release.podmanSupervisor).toEqual(lockedPodmanSupervisor);
+    expect(rollback.release.rollbackInputs).toEqual(lock.release.rollbackInputs);
+    const lockFixture = {
+      ...lock,
+      release: {
+        ...lock.release,
+        rollbackInputs: {
+          ...lock.release.rollbackInputs,
+          accountProfiles: {
+            ...lock.release.rollbackInputs.accountProfiles,
+            sha256: releaseRollbackInputs.accountProfiles.sha256,
+          },
+        },
+      },
+    };
+    const rollbackFixture = {
+      ...rollback,
+      release: {
+        ...rollback.release,
+        rollbackInputs: lockFixture.release.rollbackInputs,
+      },
+    };
+    expect(() =>
+      validateRollbackRecord(lockFixture, rollbackFixture, rollback.release.stackLockSha256),
+    ).not.toThrow();
+    expect(() =>
+      validateRollbackRecord(
+        lockFixture,
+        {
+          ...rollbackFixture,
+          release: {
+            ...rollbackFixture.release,
+            rollbackInputs: {
+              ...rollbackFixture.release.rollbackInputs,
+              seed: { ...rollbackFixture.release.rollbackInputs.seed, bundleId: 'other-seed' },
+            },
+          },
+        },
+        rollback.release.stackLockSha256,
+      ),
+    ).toThrow('rollback account, policy, or seed references');
   });
 
   it.each(['localhost/mitzo', 'localhost/mitzo:latest', 'localhost/mitzo:dev'])(

@@ -46,8 +46,14 @@ file remains the optional observability stack.
 ## Files
 
 - `production-stack.lock.json` pins the gateway and driver versions, runtime
-  image digest and provenance, policy hash, global feature settings, and service
-  provider contract.
+  image digest and provenance, policy hash, global feature settings, service
+  provider contract, release CLI/gateway/supervisor artifacts, and the browser
+  HTTPS/WSS origin.
+- `rollback-record.json` is the immutable inventory of the prior matched
+  release. It repeats the release identity plus non-secret account-profile
+  bundle, policy hash, and seed baseline references; the preflight rejects a
+  record that does not match the stack lock. Restore it as a unit; it
+  deliberately contains no credential data.
 - `production.env.example` contains the non-secret Mitzo runtime wiring. Copy
   these keys into the real ignored `.env` and replace absolute paths.
 - `account-profiles.example.json` shows the work-API and brokered personal
@@ -71,7 +77,14 @@ file remains the optional observability stack.
    its sandbox provider. Every personal subscription account must use a complete
    `openai-codex-oauth` provider/grant binding and must not retain a host
    `credentialRef`.
-5. Update the stack lock with the actual image digest and policy hash, then run:
+5. Update the stack lock and rollback record together with the actual image
+   digest, Mitzo commit, OpenShell CLI identity/version/path, gateway service,
+   Podman supervisor artifact digest, policy hash, and non-secret seed/account
+   bundle references. Set `MITZO_OPENSHELL_ROLLBACK_RECORD` and
+   `MITZO_OPENSHELL_GATEWAY_SERVICE` to their locked values. Confirm
+   `MITZO_PUBLIC_ORIGIN` is the locked Tailnet HTTPS URL, `MITZO_REQUIRE_TLS=1`,
+   and the production certificate/key pair are installed. The browser build
+   bakes this origin, and the preflight rejects a bundle without it. Then run:
 
    ```bash
    node scripts/verify-openshell-production.mjs .env
@@ -83,12 +96,12 @@ file remains the optional observability stack.
 
 ## Rollback
 
-Keep the previous Git commit, runtime image, seed, account profile, and stack
-lock together as one release. Rollback changes all five references as a unit,
-runs the preflight, and only then restarts Mitzo. Existing sandboxes are retained;
-the rollback must not delete them. If provider-profile policy composition itself
-must be rolled back, disable OpenShell routing in Mitzo first, then remove the
-gateway-global `providers_v2_enabled` setting.
+Keep the previous Git commit, runtime image, seed, account profile, stack lock,
+and `rollback-record.json` together as one release. Rollback changes all six
+references as a unit, runs the preflight, and only then restarts Mitzo. Existing
+sandboxes are retained; the rollback must not delete them. If provider-profile
+policy composition itself must be rolled back, disable OpenShell routing in
+Mitzo first, then remove the gateway-global `providers_v2_enabled` setting.
 
 ## Gateway state, backup, and upgrades
 
