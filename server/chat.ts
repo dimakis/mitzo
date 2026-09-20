@@ -2937,7 +2937,13 @@ export async function interruptChat(
                       current.generation !== token.generation
                     )
                       return;
-                    await controller.finishExecution(lease, token, 'failed');
+                    // The held envelope never crossed the provider input
+                    // boundary.  Terminalize it before tearing down this
+                    // stream, but do not activate FIFO work into a runtime
+                    // that is about to close.
+                    await controller.finishExecution(lease, token, 'failed', {
+                      activateNext: false,
+                    });
                     session.queryInstance?.close();
                     session.abortController.abort();
                   })().catch(() => {
@@ -3241,11 +3247,12 @@ export function closeSessionByUser(clientId: string): void {
 
     queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
 
-    // Register abort listener to finalize with closed_by: 'user'
-    if (session.wtId) {
-      const wtId = session.wtId;
-      const onAbort = () => {
-        if (session.sessionId) clearSessionImages(session.sessionId);
+    // Register abort listener to finalize with closed_by: 'user'. The durable
+    // close applies even to sessions without a worktree.
+    const wtId = session.wtId;
+    const onAbort = () => {
+      if (session.sessionId) clearSessionImages(session.sessionId);
+      if (wtId) {
         try {
           finalizeCloseout(BASE_REPO, wtId, {
             status: 'closed',
@@ -3256,14 +3263,14 @@ export function closeSessionByUser(clientId: string): void {
         } catch {
           // best-effort
         }
-      };
-      session.abortController.signal.addEventListener('abort', onAbort, { once: true });
-    }
-
-    // Mark inactive in event store
-    if (session.sessionId) {
-      eventStore.upsertSession({ sessionId: session.sessionId, closedBy: 'user' });
-    }
+      }
+      // `closedBy` closes the durable lifecycle and terminalizes its active
+      // execution. The closeout prompt is still queued above, so defer that
+      // irreversible transition until the runtime actually aborts.
+      if (session.sessionId)
+        eventStore.upsertSession({ sessionId: session.sessionId, closedBy: 'user' });
+    };
+    session.abortController.signal.addEventListener('abort', onAbort, { once: true });
 
     // Set a shorter timeout — 2 minutes instead of 10
     setTimeout(() => {

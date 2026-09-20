@@ -884,4 +884,49 @@ describe('closeout prompts echo to frontend', () => {
     const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
     expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT)');
   });
+
+  it('does not close a live session before its user closeout prompt reaches abort', async () => {
+    const chat = await import('../chat.js');
+    const clientId = `user-closeout-${Date.now()}`;
+    const sessionId = `user-closeout-session-${Date.now()}`;
+    const abortController = new AbortController();
+    const push = vi.fn();
+    chat.eventStore.upsertSession({ sessionId });
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+      sessionId,
+      inputQueue: { push, close: vi.fn() },
+    });
+
+    try {
+      chat.closeSessionByUser(clientId);
+      expect(push).toHaveBeenCalledOnce();
+      expect(chat.eventStore.getSession(sessionId)?.lifecycleState).toBe('OPEN');
+      expect(chat.eventStore.getSession(sessionId)?.executionPhase).not.toBe('TERMINAL');
+
+      abortController.abort();
+      expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+        lifecycleState: 'CLOSED',
+        closedBy: 'user',
+      });
+    } finally {
+      chat.registry.remove(clientId);
+    }
+  });
+
+  it('never activates FIFO work after a replacement input timeout starts teardown', () => {
+    const fnStart = chatSource.indexOf('registry.claimReplacementInputBarrier(');
+    expect(fnStart).toBeGreaterThan(-1);
+    const timeoutStart = chatSource.indexOf('() => {', fnStart);
+    const timeoutEnd = chatSource.indexOf('\n                },\n              )', timeoutStart);
+    const timeoutBody = chatSource.slice(timeoutStart, timeoutEnd);
+    expect(timeoutBody).toContain("controller.finishExecution(lease, token, 'failed', {");
+    expect(timeoutBody).toContain('activateNext: false');
+    expect(timeoutBody.indexOf('activateNext: false')).toBeLessThan(
+      timeoutBody.indexOf('session.queryInstance?.close()'),
+    );
+  });
 });

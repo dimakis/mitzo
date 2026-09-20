@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { parseServerMessage } from '../src/protocol-parser.js';
 import type { ProtocolCallbacks, ProtocolParserState } from '../src/protocol-parser.js';
+import type { SessionExecutionSnapshot } from '@mitzo/protocol';
 
 function makeState(overrides?: Partial<ProtocolParserState>): ProtocolParserState {
   return {
@@ -1216,6 +1217,74 @@ describe('session_execution_snapshot', () => {
       state: 'running',
     });
     expect(staleTerminal.messagesActions).toHaveLength(0);
+  });
+
+  it('does not resurrect a terminal execution from same-generation stale delivery', () => {
+    const state = makeState({ currentSessionId: 'sid-1' });
+    const terminal = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'execution-20',
+        generation: 20,
+        phase: 'TERMINAL',
+        clientState: 'idle',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const staleRunning = parseServerMessage(
+      {
+        type: 'execution_state_changed',
+        sessionId: 'sid-1',
+        executionId: 'execution-20',
+        generation: 20,
+        phase: 'RUNNING',
+        clientState: 'running',
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const terminalSnapshot: SessionExecutionSnapshot = {
+      type: 'session_execution_snapshot',
+      sessionId: 'sid-1',
+      executionId: 'execution-20',
+      generation: 20,
+      generationDomain: 'execution',
+      state: 'idle',
+      internalState: 'TERMINAL',
+      lastSeq: 20,
+      terminalReason: 'failed',
+    };
+    const repeatedTerminal = parseServerMessage(terminalSnapshot, state, makeCallbacks(), POOL_KEY);
+    const staleSnapshotResult = parseServerMessage(
+      {
+        type: 'session_execution_snapshot',
+        sessionId: 'sid-1',
+        executionId: 'execution-20',
+        generation: 20,
+        generationDomain: 'execution',
+        state: 'running',
+        internalState: 'RUNNING',
+        lastSeq: 20,
+      },
+      state,
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(terminal.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'idle',
+    });
+    expect(staleRunning.messagesActions).toHaveLength(0);
+    expect(repeatedTerminal.messagesActions).toContainEqual({
+      type: 'SESSION_STATE_CHANGED',
+      state: 'idle',
+    });
+    expect(staleSnapshotResult.messagesActions).toHaveLength(0);
   });
 
   it('does not let an older terminal lifecycle event clear a newer running snapshot', () => {

@@ -394,8 +394,14 @@ function browserBuildFiles(path) {
 
 export function verifyBakedBrowserOrigin(origin, buildDir = resolve(repoRoot, 'frontend', 'dist')) {
   invariant(existsSync(buildDir), 'frontend production build does not exist');
+  // Source maps, HTML, and arbitrary copied assets can contain an origin without
+  // configuring the browser runtime.  The executable Vite JavaScript chunks
+  // are where VITE_API_BASE_URL is actually baked.
   const found = browserBuildFiles(buildDir).some(
-    (path) => statSync(path).isFile() && readFileSync(path, 'utf8').includes(origin),
+    (path) =>
+      statSync(path).isFile() &&
+      path.endsWith('.js') &&
+      readFileSync(path, 'utf8').includes(origin),
   );
   invariant(found, 'frontend production build does not contain the locked HTTPS public origin');
 }

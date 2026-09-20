@@ -520,6 +520,18 @@ export class EventStore {
       WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
+      ) AND NOT EXISTS (
+        -- A pre-atomic writer could commit its execution receipt/RUNNING row
+        -- before its user echo. It was admitted, not queued: leave it for
+        -- orphaned-execution recovery rather than emitting a contradictory
+        -- queued_send_failed event during restart.
+        SELECT 1 FROM execution_admissions a
+        JOIN events e ON e.session_id = a.session_id
+          AND e.type = 'execution_state_changed'
+          AND json_extract(e.payload, '$.executionId') = a.execution_id
+          AND json_extract(e.payload, '$.generation') = a.generation
+          AND json_extract(e.payload, '$.phase') = 'RUNNING'
+        WHERE a.session_id = c.session_id AND a.client_msg_id = c.client_msg_id
       )`,
     ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
     for (const row of rows) {
@@ -1691,18 +1703,30 @@ export class EventStore {
   }
 
   private assertReplacementUserMessage(message: ReplacementUserMessage): void {
+    const hasDurableContent =
+      (typeof message.text === 'string' && message.text.length > 0) ||
+      (message.images?.length ?? 0) > 0 ||
+      (message.contextBlocks?.length ?? 0) > 0;
     if (
+      typeof message.messageId !== 'string' ||
       !message.messageId ||
-      !message.text ||
+      typeof message.text !== 'string' ||
+      !hasDurableContent ||
       message.messageId.length > 512 ||
       message.text.length > 1_000_000 ||
+      (message.images?.length ?? 0) > 128 ||
+      (message.contextBlocks?.length ?? 0) > 512 ||
       message.images?.some(
         (image) =>
+          !image ||
+          typeof image.id !== 'string' ||
           !image.id ||
+          typeof image.mediaType !== 'string' ||
           !image.mediaType ||
           image.id.includes('base64') ||
           image.id.startsWith('data:'),
-      )
+      ) ||
+      message.contextBlocks?.some((block) => typeof block !== 'string' || block.length > 16_384)
     ) {
       throw new ExecutionAdmissionError('fingerprint_required', 'Invalid replacement user message');
     }

@@ -592,7 +592,7 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
-  it('applies a replayed queued-send failure only to its pending session', () => {
+  it('applies a queued-send failure after the terminal events it had to defer', () => {
     store.getState().sendMessage('queued follow-up');
     const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
     lastWs.simulateMessage({
@@ -607,8 +607,20 @@ describe('WS → store wiring', () => {
     });
     store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
 
-    // This is the same sequenced event a reconnect would replay after B was
-    // restored as locally pending. It releases only B's local guard.
+    // The predecessor's canonical terminal transition and legacy session_end
+    // arrive before B's queued-start failure. They must remain deferred while
+    // B is pending, then apply when the final pending command fails.
+    lastWs.simulateMessage({
+      type: 'execution_state_changed',
+      sessionId: 'test-session',
+      executionId: 'execution-a',
+      generation: 1,
+      phase: 'TERMINAL',
+      clientState: 'idle',
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+    expect(store.getState().messages.running).toBe(true);
+
     lastWs.simulateMessage({
       type: 'queued_send_failed',
       v: 2,
@@ -619,8 +631,6 @@ describe('WS → store wiring', () => {
     });
     expect(store.getState().sendStatus).toBeNull();
     expect(store.getState().sendError).toBe('Queued message could not be started. Please retry.');
-
-    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
     expect(store.getState().messages.running).toBe(false);
   });
 

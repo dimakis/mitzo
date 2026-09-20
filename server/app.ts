@@ -19,6 +19,7 @@ import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createJsonRequestParser } from './request-body-limits.js';
 import {
   login,
   authenticateToken,
@@ -261,7 +262,7 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
     });
   return connectionsRouter(req, res, next);
 });
-app.use(express.json({ limit: '10mb' }));
+app.use(createJsonRequestParser());
 
 const loginLimiter = rateLimit({
   windowMs: 60_000,

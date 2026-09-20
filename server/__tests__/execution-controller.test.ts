@@ -375,6 +375,39 @@ describe('ExecutionController', () => {
     });
   });
 
+  it('envelopes replacement rows and delivers them once to both a watcher and runtime driver', async () => {
+    const watcher = fakeTransport();
+    connections.register('replacement-watcher', watcher);
+    connections.watch('replacement-watcher', SESSION_ID);
+    controller.enqueueExecution(CLIENT_ID, prepared('initial'));
+    const initial = await controller.activateNextExecution(CLIENT_ID);
+    const lease = registry.getRuntimeLease(CLIENT_ID)!;
+    const driverBefore = transport.sent.length;
+    const watcherBefore = watcher.sent.length;
+
+    await controller.replaceExecution(lease, {
+      expectedToken: initial!.token!,
+      executionId: 'replacement-delivery',
+      clientMsgId: 'replacement-delivery-message',
+      requestFingerprint: 'replacement-delivery-fingerprint',
+      retainedBytes: 0,
+      userMessage: { messageId: 'replacement-delivery-message', text: 'replace' },
+      dispatch: vi.fn(),
+    });
+
+    const expectedPhases = ['TERMINAL', 'user_message', 'RUNNING'];
+    const driverRows = transport.sent.slice(driverBefore);
+    const watcherRows = watcher.sent.slice(watcherBefore);
+    expect(driverRows.map((event) => event.phase ?? event.type)).toEqual(expectedPhases);
+    expect(watcherRows.map((event) => event.phase ?? event.type)).toEqual(expectedPhases);
+    expect(driverRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ sessionId: SESSION_ID })]),
+    );
+    expect(watcherRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ sessionId: SESSION_ID })]),
+    );
+  });
+
   it('releases its owner reservation when a concurrent replacement is busy', async () => {
     controller.enqueueExecution(CLIENT_ID, prepared('initial'));
     const initial = await controller.activateNextExecution(CLIENT_ID);

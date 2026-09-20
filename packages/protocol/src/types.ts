@@ -313,7 +313,7 @@ export interface SessionExecutionSnapshot {
   internalState: SessionState | ExecutionPhase;
   /** Last durable event included in the preceding replay. */
   lastSeq: number;
-  terminalReason?: 'completed' | 'closed';
+  terminalReason?: ExecutionTerminalReason;
 }
 
 export interface Session {

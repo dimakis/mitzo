@@ -18,6 +18,7 @@ import {
   verifyLocalReleaseIdentity,
   verifyReleaseTls,
 } from '../../scripts/verify-openshell-production.mjs';
+import { productionFrontendEnvironment } from '../../scripts/build-production-frontend.mjs';
 
 const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
@@ -263,6 +264,21 @@ describe('OpenShell production bundle validation', () => {
     expect(releaseTransport.webSocketOrigin).toBe(
       certificateBackedProductionOrigin.replace(/^https:/, 'wss:'),
     );
+  });
+
+  it('derives the baked browser origin from the deployment environment, not tracked defaults', () => {
+    const frontendProductionEnv = readFileSync(
+      new URL('../../frontend/.env.production', import.meta.url),
+      'utf8',
+    );
+    expect(frontendProductionEnv).not.toMatch(/^VITE_API_BASE_URL=/m);
+    expect(
+      productionFrontendEnvironment({ MITZO_PUBLIC_ORIGIN: releaseTransport.publicOrigin }, {}),
+    ).toEqual({ VITE_API_BASE_URL: releaseTransport.publicOrigin });
+    expect(() => productionFrontendEnvironment({}, {})).toThrow('MITZO_PUBLIC_ORIGIN is required');
+    expect(() =>
+      productionFrontendEnvironment({ MITZO_PUBLIC_ORIGIN: 'http://localhost:3100' }, {}),
+    ).toThrow('MITZO_PUBLIC_ORIGIN must be an HTTPS public origin');
   });
 
   it('pins the external account-profile contents in the release fixture', () => {
@@ -731,6 +747,11 @@ describe('OpenShell production bundle validation', () => {
       );
       writeFileSync(join(output, 'app.js'), `const origin = "${releaseTransport.publicOrigin}";`);
       expect(() => verifyBakedBrowserOrigin(releaseTransport.publicOrigin, output)).not.toThrow();
+      writeFileSync(join(output, 'source-map.json'), releaseTransport.publicOrigin);
+      writeFileSync(join(output, 'app.js'), 'const origin = "http://localhost:3100";');
+      expect(() => verifyBakedBrowserOrigin(releaseTransport.publicOrigin, output)).toThrow(
+        'does not contain the locked HTTPS public origin',
+      );
     } finally {
       rmSync(output, { recursive: true, force: true });
     }

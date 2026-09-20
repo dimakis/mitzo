@@ -1824,6 +1824,42 @@ describe('EventStore', () => {
       ).toThrow('different request fingerprint');
     });
 
+    it('admits an image-only replacement with durable image previews', () => {
+      store.upsertSession({ sessionId: 'session-1' });
+      const old = store.beginExecution('session-1', 'old-execution');
+
+      const admitted = store.admitReplacement({
+        expectedOldToken: old.token,
+        executionId: 'replacement-image-only',
+        clientMsgId: 'interrupt-image-only',
+        requestFingerprint: 'interrupt-image-only-fingerprint',
+        userMessage: {
+          messageId: 'interrupt-image-only',
+          text: '',
+          images: [{ id: 'stored-image-reference', mediaType: 'image/png' }],
+        },
+      });
+
+      expect(admitted.rows.map((row) => row.type)).toEqual([
+        'execution_state_changed',
+        'user_message',
+        'execution_state_changed',
+      ]);
+      expect(admitted.rows[1]?.payload).toMatchObject({
+        messageId: 'interrupt-image-only',
+        text: '',
+        images: [{ id: 'stored-image-reference', mediaType: 'image/png' }],
+      });
+      expect(() =>
+        store.admitReplacement({
+          expectedOldToken: admitted.token,
+          clientMsgId: 'interrupt-empty',
+          requestFingerprint: 'interrupt-empty-fingerprint',
+          userMessage: { messageId: 'interrupt-empty', text: '' },
+        }),
+      ).toThrow('Invalid replacement user message');
+    });
+
     it('rolls back every row when user event persistence fails', () => {
       store.upsertSession({ sessionId: 'session-1' });
       const old = store.beginExecution('session-1', 'old-execution');

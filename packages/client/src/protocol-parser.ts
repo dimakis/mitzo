@@ -62,6 +62,8 @@ export interface ProtocolParserState {
   currentSessionId: string | undefined;
   /** Highest authoritative execution generation reconciled per session. */
   executionGenerationBySession?: Map<string, number>;
+  /** Execution generations that have already reached their terminal projection. */
+  terminalExecutionGenerationBySession?: Map<string, number>;
   /** Highest legacy lifecycle generation reconciled per session. */
   sessionStateGenerationBySession?: Map<string, number>;
 }
@@ -339,10 +341,19 @@ export function parseServerMessage(
       const sessionId = typeof msg.sessionId === 'string' ? msg.sessionId : undefined;
       const generation = typeof msg.generation === 'number' ? msg.generation : undefined;
       if (!sessionId || generation === undefined) break;
+      const isTerminal = msg.phase === 'TERMINAL';
+      const terminalGenerations = (state.terminalExecutionGenerationBySession ??= new Map());
+      const terminalGeneration = terminalGenerations.get(sessionId);
+      // Terminal is final within a generation. A replaced connection can
+      // deliver an earlier RUNNING transition after it, but it must not
+      // resurrect the UI until a strictly newer execution is admitted.
+      if (terminalGeneration !== undefined && generation <= terminalGeneration && !isTerminal)
+        break;
       const generations = (state.executionGenerationBySession ??= new Map());
       const previous = generations.get(sessionId);
       if (previous !== undefined && generation < previous) break;
       generations.set(sessionId, generation);
+      if (isTerminal) terminalGenerations.set(sessionId, generation);
       if (msg.replay === true) break;
       const clientState =
         typeof msg.clientState === 'string'
@@ -384,10 +395,17 @@ export function parseServerMessage(
       }
       const generations = (state.executionGenerationBySession ??= new Map());
       const previous = generations.get(sessionId);
+      const isTerminal = msg.state === 'idle' || msg.internalState === 'TERMINAL';
+      const terminalGenerations = (state.terminalExecutionGenerationBySession ??= new Map());
+      const terminalGeneration = terminalGenerations.get(sessionId);
       // A replaced connection can still deliver a stale snapshot. Never let
-      // it clear a newer execution that has already been reconciled.
+      // it clear a newer execution that has already been reconciled, or
+      // revive a terminal execution at the same generation.
       if (previous !== undefined && generation < previous) break;
+      if (terminalGeneration !== undefined && generation <= terminalGeneration && !isTerminal)
+        break;
       generations.set(sessionId, generation);
+      if (isTerminal) terminalGenerations.set(sessionId, generation);
       if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
         result.messagesActions.push({
           type: 'SESSION_STATE_CHANGED',

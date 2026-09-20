@@ -234,6 +234,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // Pending delivery is session-scoped: a queued command from another tab or
   // restored session must never suppress this session's terminal transition.
   const pendingSendSessions = new Map<string, string | null>();
+  // A running execution can reach its durable terminal transition while a
+  // later FIFO send is still waiting for its private receipt.  Keep that
+  // terminal projection until the final pending send either becomes durable
+  // or fails; otherwise a queue failure arriving after the terminal events
+  // leaves the UI permanently running.
+  const deferredTerminalActions = new Map<string, MessagesAction[]>();
   // Durable queue rejection can overtake the private HTTP receipt on a
   // reconnect. Keep a bounded, session-keyed fence so that late private
   // receipts cannot re-arm a command that the authoritative event settled.
@@ -262,6 +268,27 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (pendingSessionId === sessionId) return true;
     }
     return false;
+  };
+
+  const deferTerminalAction = (sessionId: string | undefined, action: MessagesAction): void => {
+    if (!sessionId) return;
+    const actions = deferredTerminalActions.get(sessionId) ?? [];
+    actions.push(action);
+    deferredTerminalActions.set(sessionId, actions);
+  };
+
+  const discardDeferredTerminal = (sessionId: string | undefined): void => {
+    if (sessionId) deferredTerminalActions.delete(sessionId);
+  };
+
+  const applyDeferredTerminal = (sessionId: string | undefined): void => {
+    if (!sessionId || hasPendingSendForSession(sessionId)) return;
+    const actions = deferredTerminalActions.get(sessionId);
+    if (!actions) return;
+    deferredTerminalActions.delete(sessionId);
+    store.setState((s) => ({
+      messages: actions.reduce((messages, action) => messagesReducer(messages, action), s.messages),
+    }));
   };
 
   function fetchAndRestoreMessages(sessionId: string) {
@@ -340,6 +367,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.clearPendingSends();
       pendingSendIds.clear();
       pendingSendSessions.clear();
+      deferredTerminalActions.clear();
       terminalSendTombstones.clear();
 
       set((s) => ({
@@ -389,6 +417,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.clearPendingSends();
       pendingSendIds.clear();
       pendingSendSessions.clear();
+      deferredTerminalActions.clear();
       terminalSendTombstones.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
@@ -840,6 +869,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             : 'Queued message could not be started. Please retry.',
         sendStatus: hasPendingSendForSession(sessionId) ? store.getState().sendStatus : null,
       });
+      applyDeferredTerminal(sessionId);
       return;
     }
     if (
@@ -951,6 +981,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         pendingSessionId === eventSessionId;
       const consumedPending = matchesPendingSession && pendingSendIds.delete(msg.messageId);
       if (consumedPending) pendingSendSessions.delete(msg.messageId);
+      // The newly durable echo supersedes the predecessor terminal that was
+      // held behind this queued receipt. The provider will publish B's own
+      // lifecycle instead of applying A's stale terminal to it.
+      if (consumedPending) discardDeferredTerminal(eventSessionId);
       // The final durable echo owns the only remaining local send. Clear any
       // delivery label (including `Sending…`) now; otherwise a late queued
       // receipt could leave it stuck. Keep the label for another local send.
@@ -978,7 +1012,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;
-    if (msg.type === 'session_end' && hasPendingSendForSession(eventSessionId)) return;
+    if (msg.type === 'session_end' && hasPendingSendForSession(eventSessionId)) {
+      deferTerminalAction(eventSessionId, { type: 'SESSION_END', sessionId: eventSessionId });
+      return;
+    }
     if (
       !awaitingModeHydration &&
       (msg.type === 'session_id' ||
@@ -1004,8 +1041,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         action.type === 'SESSION_STATE_CHANGED' &&
         action.state === 'idle' &&
         hasPendingSendForSession(eventSessionId)
-      )
+      ) {
+        deferTerminalAction(eventSessionId, action);
         continue;
+      }
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),
       }));

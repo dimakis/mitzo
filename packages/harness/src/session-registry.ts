@@ -297,9 +297,28 @@ export class SessionRegistry {
   ): void {
     const previous = this.sessions.get(clientId);
     if (previous) {
-      // A runtime replacement invalidates any old provider-input wait. Do not
-      // leave its timer retaining a stale session closure until it expires.
+      // Registration replaces a whole runtime, rather than just its transport.
+      // Invalidate every client-id scoped timer/state before installing the
+      // replacement: otherwise an old suspend timeout can detach the new
+      // runtime, or a closeout timeout can abort it.  Reject pending receipts
+      // while their old closures are still reachable; no admitted token is
+      // affected because `pendingExecutions` contains only pre-admission work.
+      this.clearDetachTimer(clientId);
+      this.clearCloseoutTimer(clientId);
+      this.clearSuspendState(clientId);
+      this.closingOut.delete(clientId);
+      this.userClosing.delete(clientId);
+      this.rejectPendingExecutions(
+        previous,
+        'Execution cancelled because the runtime was replaced',
+      );
       this.clearReplacementInputBarrier(previous);
+      previous.observers.clear();
+      previous.currentExecution = undefined;
+      previous.pendingExecutions = [];
+      previous.pendingExecutionBytes = 0;
+      previous.activatingPending = false;
+      previous.replacingExecution = false;
       this.leases.delete(previous.runtimeLeaseId);
     }
     const session: ManagedSession = {

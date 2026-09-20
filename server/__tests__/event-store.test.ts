@@ -81,6 +81,27 @@ describe('EventStore', () => {
     });
   });
 
+  it('does not misclassify an admitted pre-atomic send as a queued failure on restart', () => {
+    const sessionId = 'session-admitted-before-echo';
+    const clientMsgId = 'admitted-before-echo';
+    store.upsertSession({ sessionId });
+    store.insertSendCommand(clientMsgId, sessionId, { prompt: 'continue' });
+    const admitted = store.beginExecution(
+      sessionId,
+      'execution-admitted-before-echo',
+      clientMsgId,
+      'fingerprint-admitted-before-echo',
+    );
+
+    store.recoverPendingSendCommands();
+
+    expect(admitted.token).toMatchObject({ sessionId, generation: 1 });
+    expect(store.getSendCommand(clientMsgId)?.error).toBeNull();
+    expect(
+      store.getSessionEvents(sessionId).filter((event) => event.type === 'queued_send_failed'),
+    ).toHaveLength(0);
+  });
+
   describe('append', () => {
     it('returns incrementing sequence numbers', () => {
       const seq1 = store.append('sess-1', 'message_start', { messageId: 'm1' });

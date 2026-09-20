@@ -9,7 +9,7 @@ echo "Building packages + server..."
 npm run build:server
 
 echo "Building frontend..."
-npm run build
+node scripts/build-production-frontend.mjs .env
 
 # Production validation inspects the pinned runtime image, so Podman must be
 # available before the preflight runs.

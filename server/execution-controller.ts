@@ -585,30 +585,23 @@ export class ExecutionController {
 
   private broadcastReplacementRows(lease: RuntimeSessionLease, rows: StoredEvent[]): void {
     for (const row of rows) {
-      const resolved = this.options.registry.resolveRuntimeLease(lease);
-      if (!resolved) return;
-      const data = { ...row.payload, seq: row.seq };
-      const suspended = this.options.registry.isSuspended(resolved.clientId);
-      const suspendedDriver = suspended
-        ? new Set<SessionTransport>([resolved.session.transport])
-        : undefined;
-      const sent =
-        this.options.connections?.broadcast(lease.sessionId, data, {
-          excludeTransports: suspendedDriver,
-        }) ?? new Set<SessionTransport>();
-      for (const observer of resolved.session.observers) {
-        if (suspended && observer === resolved.session.transport) continue;
-        if (sendOnce(observer, data, sent))
-          this.options.connections?.recordFallbackDelivery(lease.sessionId, observer, row.seq);
-      }
-      if (!suspended && sent.size === 0) {
-        if (sendOnce(resolved.session.transport, data, sent))
-          this.options.connections?.recordFallbackDelivery(
-            lease.sessionId,
-            resolved.session.transport,
-            row.seq,
-          );
-      }
+      // Replacement admission is the same durable replay boundary as an
+      // ordinary FIFO admission. Use the common path so every stored row has
+      // its authoritative session envelope and the attached runtime driver
+      // receives it even when another watcher was already broadcast to.
+      // sendOnce keeps a shared physical transport from observing it twice.
+      broadcastStoredEvent(
+        lease,
+        {
+          seq: row.seq,
+          event: { ...row.payload, sessionId: row.sessionId } as {
+            type: string;
+            sessionId: string;
+          },
+        },
+        this.options.registry,
+        this.options.connections,
+      );
     }
   }
 }

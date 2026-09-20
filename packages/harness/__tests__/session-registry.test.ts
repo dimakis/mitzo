@@ -136,6 +136,70 @@ describe('SessionRegistry', () => {
         pendingExecutionBytes: 0,
       });
     });
+
+    it('fully neutralizes a replaced runtime before installing the new one', () => {
+      vi.useFakeTimers();
+      try {
+        const rejected = vi.fn();
+        const oldAbort = new AbortController();
+        registry.setCloseoutHandler(() => {});
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: oldAbort,
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'old-session',
+        });
+        expect(
+          registry.enqueuePendingExecution('client-1', {
+            executionId: 'pending',
+            clientMsgId: 'pending-message',
+            requestFingerprint: 'pending-fingerprint',
+            retainedBytes: 1,
+            isInitial: false,
+            onRejected: rejected,
+            dispatch: () => undefined,
+          }),
+        ).toBe(true);
+
+        // Give the old registration every client-id scoped delayed state that
+        // could otherwise fire against the replacement.
+        registry.detach('client-1');
+        vi.advanceTimersByTime(DETACHED_TTL_MS - CLOSEOUT_LEAD_MS);
+        expect(registry.isClosingOut('client-1')).toBe(true);
+        registry.markUserClose('client-1');
+        registry.suspend('client-1', 0);
+        expect(registry.isSuspended('client-1')).toBe(true);
+
+        const newAbort = new AbortController();
+        registry.register('client-1', {
+          transport: fakeTransport(),
+          abortController: newAbort,
+          mode: 'agent',
+          sessionAllowList: new Set(),
+          sessionId: 'new-session',
+        });
+
+        expect(rejected).toHaveBeenCalledOnce();
+        expect(registry.get('client-1')).toMatchObject({
+          sessionId: 'new-session',
+          pendingExecutions: [],
+          pendingExecutionBytes: 0,
+        });
+        expect(registry.isClosingOut('client-1')).toBe(false);
+        expect(registry.isUserClose('client-1')).toBe(false);
+        expect(registry.isSuspended('client-1')).toBe(false);
+
+        // Neither stale closeout nor suspended timers may detach/abort the
+        // replacement after it has been registered.
+        vi.advanceTimersByTime(CLOSEOUT_TIMEOUT_MS + SUSPEND_GRACE_MS + 1);
+        expect(registry.isAttached('client-1')).toBe(true);
+        expect(newAbort.signal.aborted).toBe(false);
+        expect(oldAbort.signal.aborted).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('runtime owner CAS', () => {
