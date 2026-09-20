@@ -381,6 +381,39 @@ async function _runQueryLoopInner(
     preSessionBuffer.length = 0;
   }
 
+  /**
+   * A Codex runtime may retain its adapter queue after it has emitted a
+   * terminal failed result so that its private recovery record can be
+   * inspected.  That must not leave the public session lifecycle ACTIVE:
+   * websocket routing would otherwise treat the user's next ordinary send as
+   * an interrupt against a token which was already terminalized.
+   *
+   * Keep this projection independent of query-loop teardown.  Other
+   * providers normally close their iterator immediately, but Codex is
+   * deliberately allowed to keep it open.
+   */
+  function projectFailedResultTerminal(sessionId: string) {
+    if (!store || store.getSessionState(sessionId) === 'ENDED') return;
+    const seq = store.setSessionState(sessionId, 'ENDED', {
+      clientId,
+      reason: 'error',
+    });
+    if (!connRegistry?.hasOpenWatchers(sessionId)) return;
+    const generation = store.getSession(sessionId)?.lastStateChange;
+    if (generation === undefined) return;
+    connRegistry.broadcast(sessionId, {
+      v: 2,
+      type: 'session_state_changed',
+      sessionId,
+      state: toClientState('ENDED'),
+      internalState: 'ENDED',
+      timestamp: generation,
+      generation,
+      reason: 'error',
+      seq,
+    });
+  }
+
   function nextBlockId(): string {
     return `b${blockCounter++}`;
   }
@@ -626,6 +659,17 @@ async function _runQueryLoopInner(
           if (outcome === 'failed') lifecycleTerminalReason = 'error';
           const executionTerminalApplied =
             (await onProviderResult?.(outcome, providerToken)) !== false;
+          // A failed Codex turn can leave its adapter iterator open while the
+          // private queue remains available for explicit recovery.  Project
+          // the terminal session state now instead of waiting for `finally`,
+          // so the next ordinary user send follows resume routing rather than
+          // being rejected as an interrupt of an already-terminal token.
+          if (outcome === 'failed' && executionTerminalApplied) {
+            const failedSessionId =
+              (typeof msg.session_id === 'string' ? msg.session_id : undefined) ??
+              currentSession.sessionId;
+            if (failedSessionId) projectFailedResultTerminal(failedSessionId);
+          }
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
           forceFlushPendingMessage(currentSession);

@@ -2546,6 +2546,53 @@ describe('provider result outcome classification', () => {
     }
   });
 
+  it('projects a failed result to ENDED before a recovery-capable Codex stream closes', async () => {
+    const sessionId = 'codex-held-failed-result';
+    const store = new EventStore(':memory:');
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    registry.get('terminal-client')!.sessionId = sessionId;
+    store.upsertSession({ sessionId });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* stream() {
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { id: 'provider-start' } },
+      };
+      yield { type: 'result', session_id: sessionId, is_error: true };
+      // Codex keeps its adapter queue alive after a failed turn so recovery
+      // metadata can be inspected. The public lifecycle must nevertheless
+      // become inactive before this iterator eventually closes.
+      await held;
+    }
+
+    const completion = runQueryLoop(
+      stream(),
+      'terminal-client',
+      registry,
+      new AbortController(),
+      store,
+      undefined,
+      {
+        executionOwned: true,
+        onProviderResult: () => true,
+      },
+    );
+
+    await vi.waitFor(() => {
+      expect(store.getSessionState(sessionId)).toBe('ENDED');
+      expect(transport.sent.some((event) => event.type === 'session_end')).toBe(true);
+    });
+    expect(registry.get('terminal-client')).not.toBeNull();
+
+    release();
+    await completion;
+    store.close();
+  });
+
   it('projects a deliberate exact stop through an abort unwind without a provider error', async () => {
     const store = new EventStore(':memory:');
     const transport = fakeTransport();
