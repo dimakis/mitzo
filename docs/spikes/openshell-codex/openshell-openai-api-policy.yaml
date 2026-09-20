@@ -18,6 +18,9 @@ network_policies:
           protocol: rest,
           enforcement: enforce,
           access: read-write,
+          # Codex Responses embeds the scoped credential marker in JSON. Keep
+          # inspection fail-closed while allowing OpenShell to replace it.
+          request_body_credential_rewrite: true,
         }
     binaries:
       - { path: /usr/bin/curl }

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "release": {
-    "stackLockSha256": "dd97106ec52e33647ecf1cc4ce7203efaf5762c5def39a141fe3ff2b08a5d91c",
+    "stackLockSha256": "77d581f718947fed4039bf9af31404a21cce32d7680790bfcd64be33d6790c04",
     "mitzoSourceCommit": "a76b41bf2d2215e94ea5fac2f3d3521d664791c2",
     "openshellCli": {
       "identity": "openshell",
@@ -31,7 +31,7 @@
       },
       "policy": {
         "reference": "MITZO_OPENSHELL_POLICY",
-        "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+        "sha256": "484084c6841339516154c49d90c76087524996fa34092acf7a1b0b9f3ca196aa"
       },
       "seed": {
         "bundleId": "mgmt",

@@ -130,7 +130,7 @@ const releaseRollbackInputs = {
   },
   policy: {
     reference: 'MITZO_OPENSHELL_POLICY',
-    sha256: 'ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20',
+    sha256: '484084c6841339516154c49d90c76087524996fa34092acf7a1b0b9f3ca196aa',
   },
   seed: {
     bundleId: 'mgmt',
@@ -831,6 +831,20 @@ describe('OpenShell production bundle validation', () => {
     expect(profile).toContain('protocol: rest');
     expect(profile).toContain('request_body_credential_rewrite: true');
     expect(profile).not.toContain('protocol: websocket');
+  });
+
+  it('keeps the OpenAI API policy on inspectable REST with request-body credential rewriting', () => {
+    const policy = readFileSync(
+      new URL(
+        '../../docs/spikes/openshell-codex/openshell-openai-api-policy.yaml',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    expect(policy).toContain('protocol: rest');
+    expect(policy).toContain('enforcement: enforce');
+    expect(policy).toContain('request_body_credential_rewrite: true');
+    expect(policy).not.toContain('allow_uninspected_credentials');
   });
 
   it('keeps sandbox-native Google Workspace reads within the requested data services', () => {

@@ -17,7 +17,7 @@
     "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
   },
   "policy": {
-    "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+    "sha256": "484084c6841339516154c49d90c76087524996fa34092acf7a1b0b9f3ca196aa"
   },
   "serviceProviders": [
     {
@@ -61,7 +61,7 @@
       },
       "policy": {
         "reference": "MITZO_OPENSHELL_POLICY",
-        "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+        "sha256": "484084c6841339516154c49d90c76087524996fa34092acf7a1b0b9f3ca196aa"
       },
       "seed": {
         "bundleId": "mgmt",
