@@ -209,10 +209,10 @@ describe('OpenShell production bundle validation', () => {
       grantable: ['google-workspace'],
     });
     expect(lock.release).toEqual({
-      // The release wrapper itself changes this value to its source parent.
-      // Keep the assertion tied to the staged release fixture so that wrapper
-      // B can point at source commit A without changing source tests.
-      mitzoSourceCommit: lock.release.mitzoSourceCommit,
+      // The metadata-only wrapper deploys the exact policy source commit.
+      // Its own commit is necessarily one child later because the lock cannot
+      // contain its own object ID.
+      mitzoSourceCommit: '4164f2526d270471adab725c5c0f0e01a15f21b5',
       openshellCli: {
         identity: 'openshell',
         path: '/opt/homebrew/bin/openshell',
