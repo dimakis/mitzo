@@ -829,6 +829,7 @@ describe('OpenShell production bundle validation', () => {
       'utf8',
     );
     expect(profile).toContain('protocol: rest');
+    expect(profile).toContain('request_body_credential_rewrite: true');
     expect(profile).not.toContain('protocol: websocket');
   });
 

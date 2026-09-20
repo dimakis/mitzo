@@ -19,6 +19,10 @@ endpoints:
     protocol: rest
     access: read-write
     enforcement: enforce
+    # Codex sends the gateway placeholder in its JSON Responses body. Keep the
+    # body on the inspected, bounded rewrite path rather than rejecting it as
+    # credential-bearing traffic that cannot be inspected.
+    request_body_credential_rewrite: true
 binaries:
   - /usr/bin/curl
   - /usr/bin/codex
