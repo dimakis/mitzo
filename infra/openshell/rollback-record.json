@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "release": {
-    "stackLockSha256": "f3bcbe89c3b0ca38b7df6d3daf4266512861c27599e5ed66e6f07bf843da104b",
-    "mitzoSourceCommit": "ae4615e5efede6a30bb8e9a7be24e156d136a4da",
+    "stackLockSha256": "6f8219d206c658a6a50319d45dbdaf93bc52b8947da8e9446d088292baf0e3e0",
+    "mitzoSourceCommit": "7925ed3cfb116bf96c909d0bb0adb056e86c8641",
     "openshellCli": {
       "identity": "openshell",
       "path": "/opt/homebrew/bin/openshell",
