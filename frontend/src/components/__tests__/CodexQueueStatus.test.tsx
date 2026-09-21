@@ -211,40 +211,53 @@ it('does not offer retry for a saved non-retryable failure', async () => {
 });
 
 it('reattaches a disconnected provider in the background while preserving the failed turn', async () => {
-  vi.mocked(apiFetch)
-    .mockResolvedValueOnce(
-      meta({
-        paused: true,
-        connected: false,
-        queued: 0,
-        interrupted: 0,
-        failed: 1,
-        retryable: true,
-        recovering: false,
-      }),
-    )
-    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ ok: true }) } as Response)
-    .mockResolvedValueOnce(
-      meta({
-        paused: true,
-        connected: true,
-        queued: 0,
-        interrupted: 0,
-        failed: 1,
-        retryable: true,
-        recovering: false,
-      }),
-    );
+  const disconnected = meta({
+    paused: true,
+    connected: false,
+    queued: 0,
+    interrupted: 0,
+    failed: 1,
+    retryable: true,
+    recovering: false,
+  });
+  const connected = meta({
+    paused: true,
+    connected: true,
+    queued: 0,
+    interrupted: 0,
+    failed: 1,
+    retryable: true,
+    recovering: false,
+  });
+  let metadataReads = 0;
+  let reattachRequests = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (String(url).endsWith('/codex-queue/reattach')) {
+      reattachRequests += 1;
+      return {
+        ok: true,
+        status: reattachRequests === 1 ? 202 : 200,
+        json: async () => ({ ok: true }),
+      } as Response;
+    }
+    metadataReads += 1;
+    // The first asynchronous startup has not connected yet. The component
+    // must keep polling and allow another idempotent reattach request.
+    return metadataReads < 3 ? disconnected : connected;
+  });
 
   render(<CodexQueueStatus sessionId="detached" />);
   expect(
     await screen.findByText('Restarting provider… The failed turn remains saved.'),
   ).toBeTruthy();
-  await waitFor(() =>
-    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/detached/codex-queue/reattach', {
-      method: 'POST',
-      signal: expect.any(AbortSignal),
-    }),
+  await waitFor(
+    () =>
+      expect(
+        vi
+          .mocked(apiFetch)
+          .mock.calls.filter(([url]) => url === '/api/sessions/detached/codex-queue/reattach'),
+      ).toHaveLength(2),
+    { timeout: 5000 },
   );
   expect(await screen.findByRole('button', { name: 'Retry saved turn' })).toBeTruthy();
   expect(screen.getByText('Provider restarted. The failed turn is ready for review.')).toBeTruthy();

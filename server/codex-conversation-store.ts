@@ -321,19 +321,16 @@ export class CodexConversationStore {
       | undefined;
     const failed = this.db
       .prepare(
-        `SELECT c.retry_not_before,c.retryable,c.ambiguous,
-          EXISTS(SELECT 1 FROM codex_tools t
-            WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id) AS tools_ran
-        FROM codex_commands c
-        WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
-        ORDER BY c.sequence DESC LIMIT 1`,
+        `SELECT retry_not_before,retryable,ambiguous
+        FROM codex_commands
+        WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
+        ORDER BY sequence DESC LIMIT 1`,
       )
       .get(id) as
       | {
           retry_not_before: number | null;
           retryable: number | null;
           ambiguous: number | null;
-          tools_ran: number;
         }
       | undefined;
     return {
@@ -347,9 +344,7 @@ export class CodexConversationStore {
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
       ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
       ...(failed ? { retryable: failed.retryable === 1 } : {}),
-      ...(failed
-        ? { requiresRetryConfirmation: failed.ambiguous === 1 && failed.tools_ran === 1 }
-        : {}),
+      ...(failed ? { requiresRetryConfirmation: failed.ambiguous === 1 } : {}),
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
@@ -402,8 +397,9 @@ export class CodexConversationStore {
       return 'cancelled';
     })();
   }
-  /** Provider call IDs do not provide semantic side-effect deduplication, so
-   * ambiguous turns that claimed tools require explicit confirmation. */
+  /** Provider call IDs do not provide semantic side-effect deduplication. Some
+   * provider-native tools also execute outside claimTool(), so every ambiguous
+   * turn requires explicit confirmation rather than guessing that it was safe. */
   retryLatestFailed(
     id: string,
     b: AccountBinding,
@@ -414,12 +410,10 @@ export class CodexConversationStore {
       this.read(id, b);
       const row = this.db
         .prepare(
-          `SELECT c.id,c.retry_not_before,c.retryable,c.ambiguous,
-            EXISTS(SELECT 1 FROM codex_tools t
-              WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id) AS tools_ran
-          FROM codex_commands c
-          WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
-          ORDER BY c.sequence DESC LIMIT 1`,
+          `SELECT id,retry_not_before,retryable,ambiguous
+          FROM codex_commands
+          WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0
+          ORDER BY sequence DESC LIMIT 1`,
         )
         .get(id) as
         | {
@@ -427,14 +421,12 @@ export class CodexConversationStore {
             retry_not_before: number | null;
             retryable: number | null;
             ambiguous: number | null;
-            tools_ran: number;
           }
         | undefined;
       if (!row) return 'not_found';
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
-      if (row.ambiguous === 1 && row.tools_ran === 1 && !confirmAmbiguous)
-        return 'confirmation_required';
+      if (row.ambiguous === 1 && !confirmAmbiguous) return 'confirmation_required';
       this.db
         .prepare(
           "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",

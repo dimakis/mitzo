@@ -196,7 +196,12 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           );
       })
       .finally(() => {
-        if (epoch === sessionEpoch.current) setReattaching(false);
+        if (epoch === sessionEpoch.current) {
+          // This is an in-flight latch, not a permanent one-shot guard. The
+          // metadata poll can now retry a failed/unfinished background start.
+          reattachRequested.current = null;
+          setReattaching(false);
+        }
       });
   }, [queue, sessionId]);
 
