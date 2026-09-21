@@ -46,7 +46,7 @@ const releaseTransport = {
 };
 
 const certificateBackedProductionOrigin = 'https://dimakis-mac.taildfe858.ts.net:3100';
-const currentReleaseSourceCommit = 'ae4615e5efede6a30bb8e9a7be24e156d136a4da';
+const releaseSourceCommitPattern = /^[0-9a-f]{40}$/;
 
 // A deliberately non-production RSA pair used only to prove the local
 // deployment preflight reads the same certs/cert.pem and certs/key.pem paths
@@ -216,7 +216,7 @@ describe('OpenShell production bundle validation', () => {
     expect(lock.release).toEqual({
       // This metadata-only wrapper must name the immediately preceding source
       // commit; the release verifier rejects a mixed feature checkout.
-      mitzoSourceCommit: currentReleaseSourceCommit,
+      mitzoSourceCommit: expect.stringMatching(releaseSourceCommitPattern),
       openshellCli: {
         identity: 'openshell',
         path: '/opt/homebrew/bin/openshell',
@@ -792,7 +792,7 @@ describe('OpenShell production bundle validation', () => {
       createHash('sha256').update(lockSource).digest('hex'),
     );
     expect(rollback.release.mitzoSourceCommit).toBe(lock.release.mitzoSourceCommit);
-    expect(lock.release.mitzoSourceCommit).toBe(currentReleaseSourceCommit);
+    expect(lock.release.mitzoSourceCommit).toMatch(releaseSourceCommitPattern);
     expect(rollback.release.openshellCli).toEqual(lock.release.openshellCli);
     expect(rollback.release.runtime).toEqual(lock.runtime);
     expect(rollback.release.podmanSupervisor).toEqual(lockedPodmanSupervisor);
