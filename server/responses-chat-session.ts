@@ -16,6 +16,7 @@ import {
   type NativeToolOptions,
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
+import { classifyProviderFailure } from './provider-failure.js';
 
 let privateStore: NativeResponsesStore | undefined;
 const runtimes = new WeakMap<ManagedSession, NativeResponsesRunner>();
@@ -169,10 +170,23 @@ export async function openResponsesChat(options: Options) {
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
               yield { ...event };
             }
-          } catch {
+          } catch (error) {
+            if (!interrupted && !signal.aborted && options.binding.provider === 'openai') {
+              const providerFailure = classifyProviderFailure(error, {
+                correlationId: message.mitzoMessageId ?? randomUUID(),
+              });
+              yield {
+                type: 'result',
+                session_id: options.conversationId,
+                is_error: true,
+                provider_failure: providerFailure,
+              };
+              return;
+            }
             if (!interrupted || signal.aborted)
               throw new Error(
                 'API turn failed or was interrupted. Inspect the task before retrying.',
+                { cause: error },
               );
             yield { type: 'result', session_id: options.conversationId, is_error: true };
           }

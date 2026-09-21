@@ -22,6 +22,7 @@ import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
 import type { ProviderFailure } from '@mitzo/protocol';
+import { providerFailureTelemetry } from './provider-failure.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -575,6 +576,21 @@ async function _runQueryLoopInner(
           const providerFailure = isError ? result.provider_failure : undefined;
           caughtError ||= isError;
           if (providerFailure) {
+            const telemetry = providerFailureTelemetry(providerFailure);
+            log.warn('provider turn failed', {
+              clientId,
+              sessionId: msg.session_id,
+              ...telemetry,
+            });
+            span.setAttribute('provider.failure.category', providerFailure.category);
+            span.setAttribute('provider.failure.retryable', providerFailure.retryable);
+            span.setAttribute('provider.failure.ambiguous', providerFailure.ambiguous);
+            span.setAttribute('provider.failure.attempt', providerFailure.attempt);
+            span.setAttribute('provider.failure.correlation_id', providerFailure.correlationId);
+            if (providerFailure.code)
+              span.setAttribute('provider.failure.code', providerFailure.code);
+            if (providerFailure.retryAfterMs)
+              span.setAttribute('provider.failure.retry_after_ms', providerFailure.retryAfterMs);
             emit(
               v2('error', {
                 error: providerFailure.message,

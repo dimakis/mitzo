@@ -13,6 +13,13 @@ vi.mock('../native-responses-runner.js', () => ({
     }
     async *run(prompt: string) {
       calls.prompts.push(prompt);
+      if (prompt === 'fail')
+        throw Object.assign(new Error('OpenAI API request failed (429)'), {
+          status: 429,
+          code: 'rate_limit_error',
+          retryAfter: '7',
+          privateDiagnostic: 'Bearer sk-secret https://private.invalid',
+        });
       yield { type: 'result', session_id: 'app' };
     }
     interrupt = calls.interrupt;
@@ -123,4 +130,59 @@ it('does not start an API runner when a project startup hook fails', async () =>
     registry.dispose();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it('maps native OpenAI failures to the shared sanitized provider envelope', async () => {
+  const registry = new SessionRegistry();
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    mitzoMessageId: string;
+  }>();
+  input.push({ message: { content: 'fail' }, mitzoMessageId: 'message-429' });
+  input.close();
+  const chat = await openResponsesChat({
+    conversationId: 'app',
+    binding: {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'openai',
+      model: 'test',
+      profileRevision: 'revision',
+    },
+    apiKey: 'private-test-key',
+    session: registry.get('client')!,
+    registry,
+    input,
+    systemPrompt: 'context',
+    env: { PATH: '/usr/bin:/bin' },
+    mcpServers: {},
+    store: {} as never,
+  });
+  const events = await Array.fromAsync(chat);
+  expect(events.at(-1)).toMatchObject({
+    type: 'result',
+    session_id: 'app',
+    is_error: true,
+    provider_failure: {
+      category: 'rate_limited',
+      code: 'rate_limit_error',
+      retryable: true,
+      ambiguous: true,
+      attempt: 1,
+      correlationId: 'message-429',
+      retryAfterMs: 7_000,
+    },
+  });
+  expect(JSON.stringify(events)).not.toContain('sk-secret');
+  expect(JSON.stringify(events)).not.toContain('private.invalid');
+  registry.dispose();
 });
