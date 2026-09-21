@@ -18,7 +18,10 @@ import {
   verifyLocalReleaseIdentity,
   verifyReleaseTls,
 } from '../../scripts/verify-openshell-production.mjs';
-import { productionFrontendEnvironment } from '../../scripts/build-production-frontend.mjs';
+import {
+  productionFrontendEnvironment,
+  productionFrontendRepositoryRoot,
+} from '../../scripts/build-production-frontend.mjs';
 
 const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
@@ -279,6 +282,14 @@ describe('OpenShell production bundle validation', () => {
     expect(() =>
       productionFrontendEnvironment({ MITZO_PUBLIC_ORIGIN: 'http://localhost:3100' }, {}),
     ).toThrow('MITZO_PUBLIC_ORIGIN must be an HTTPS public origin');
+  });
+
+  it('decodes a filesystem module URL before locating the production build root', () => {
+    expect(
+      productionFrontendRepositoryRoot(
+        'file:///fixture/mitzo%20release/scripts/build-production-frontend.mjs',
+      ),
+    ).toBe('/fixture/mitzo release');
   });
 
   it('pins the external account-profile contents in the release fixture', () => {

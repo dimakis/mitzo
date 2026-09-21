@@ -2590,6 +2590,58 @@ describe('provider result outcome classification', () => {
 
     release();
     await completion;
+    expect(
+      store
+        .getSessionEvents(sessionId)
+        .filter(
+          (event) =>
+            event.type === 'session_state_changed' &&
+            (event.payload as { internalState?: string }).internalState === 'ENDED',
+        ),
+    ).toHaveLength(1);
+    store.close();
+  });
+
+  it('does not let a held failed Codex finalizer end a replacement runtime', async () => {
+    const sessionId = 'codex-held-replacement';
+    const store = new EventStore(':memory:');
+    const transport = fakeTransport();
+    const registry = fakeRegistry(transport);
+    const originalRuntime = registry.get('terminal-client')!;
+    originalRuntime.sessionId = sessionId;
+    store.upsertSession({ sessionId });
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* stream() {
+      yield { type: 'result', session_id: sessionId, is_error: true };
+      await held;
+    }
+
+    const completion = runQueryLoop(
+      stream(),
+      'terminal-client',
+      registry,
+      new AbortController(),
+      store,
+      undefined,
+      { executionOwned: true, onProviderResult: () => true },
+    );
+
+    await vi.waitFor(() => expect(store.getSessionState(sessionId)).toBe('ENDED'));
+
+    // Simulate resume admitting a new runtime for the same durable session
+    // before the old Codex adapter has closed its private recovery queue.
+    const replacementRuntime = { ...originalRuntime, sessionId };
+    vi.mocked(registry.get).mockReturnValue(replacementRuntime);
+    store.setSessionState(sessionId, 'STARTING', { clientId: 'replacement-client' });
+
+    release();
+    await completion;
+
+    expect(store.getSessionState(sessionId)).toBe('STARTING');
+    expect(registry.remove).not.toHaveBeenCalled();
     store.close();
   });
 

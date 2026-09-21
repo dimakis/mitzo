@@ -885,6 +885,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       // queued_send_failed already settled this command, so ignore any late
       // pending/queued/accepted/failed/uncertain receipt for that session.
       if (clientMsgId && isTerminalSend(clientMsgId, msg.sessionId)) return;
+      const pendingSessionId = clientMsgId ? pendingSendSessions.get(clientMsgId) : undefined;
+      let settledPendingSend = false;
       if (clientMsgId) {
         // `_send_pending` is emitted synchronously on outbox enqueue, before
         // either the HTTP receipt or the durable user-message echo. A later
@@ -899,7 +901,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           if (pendingSendIds.has(clientMsgId) && typeof msg.sessionId === 'string')
             pendingSendSessions.set(clientMsgId, msg.sessionId as string);
         } else {
-          pendingSendIds.delete(clientMsgId);
+          settledPendingSend = pendingSendIds.delete(clientMsgId);
           pendingSendSessions.delete(clientMsgId);
         }
       }
@@ -942,6 +944,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           !parserState.currentSessionId
         )
           callbacks.onSessionAssigned(msg.sessionId as string);
+      }
+      // Unlike an accepted send, a failed or uncertain receipt has no durable
+      // user-message echo which could supersede its predecessor's terminal
+      // transition. If this receipt settled the final local pending command,
+      // release the terminal actions that were held behind it.
+      if (settledPendingSend && (msg.type === '_send_failed' || msg.type === '_send_uncertain')) {
+        const sessionId =
+          typeof msg.sessionId === 'string' ? (msg.sessionId as string) : pendingSessionId;
+        applyDeferredTerminal(sessionId ?? undefined);
       }
       return;
     }

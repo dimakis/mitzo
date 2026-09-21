@@ -72,7 +72,10 @@ import {
   SendDispatchFailure,
   type QueuedSendDispatch,
 } from './send-command.js';
-import { fingerprintExecutionRequest } from './execution-request.js';
+import {
+  executionRequestFromValidatedSend,
+  fingerprintExecutionRequest,
+} from './execution-request.js';
 import { DEFAULT_AGENT_NAME } from './constants.js';
 
 const log = createLogger('ws-v2');
@@ -86,6 +89,11 @@ export interface V2HandlerContext {
 
 export type PreparedSendV2 = {
   message: SendMsg;
+  /**
+   * The full provider-execution fingerprint. This intentionally includes
+   * resolved defaults and rendered skill/context inputs, so it is not a
+   * durable HTTP/WS receipt identity.
+   */
   requestFingerprint: string;
   legacyCommand: Record<string, unknown>;
   effective: EffectiveExecutionOptions;
@@ -213,11 +221,7 @@ export function resolveEffectiveExecutionOptions(
   };
 }
 
-/**
- * Resolve the validated send identity before its durable receipt is claimed.
- * Dispatch continues to perform its existing defensive checks; this prepared
- * value is the sole fingerprint authority for both REST and WebSocket sends.
- */
+/** Resolve provider staging immediately before dispatch, after receipt claim. */
 export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): PreparedSendV2 {
   const effective = resolveEffectiveExecutionOptions(message, ctx);
   const operation =
@@ -253,6 +257,21 @@ export function prepareSendV2(message: SendMsg, ctx: V2HandlerContext): Prepared
     }),
     legacyCommand: message as Record<string, unknown>,
     effective,
+  };
+}
+
+/**
+ * Receipt identity is deliberately only immutable wire intent. A lost HTTP
+ * acknowledgement must be resolvable even if mutable session defaults, skill
+ * rendering, or context files have changed since the original admission.
+ */
+export function receiptInputForSend(message: SendMsg): {
+  requestFingerprint: string;
+  legacyCommand: Record<string, unknown>;
+} {
+  return {
+    requestFingerprint: fingerprintExecutionRequest(executionRequestFromValidatedSend(message)),
+    legacyCommand: message as Record<string, unknown>,
   };
 }
 
@@ -799,9 +818,22 @@ export async function handleSendV2(
   if (delivery?.skipReceipt) {
     return dispatchPreparedSendV2(connectionId, transport, msg, ctx, delivery, delivery.prepared);
   }
-  let prepared: PreparedSendV2;
+  let receiptInput: ReturnType<typeof receiptInputForSend>;
+  let prepared: PreparedSendV2 | undefined;
   try {
-    prepared = prepareSendV2(msg, ctx);
+    // Derive receipt identity before any mutable provider staging. An exact
+    // lost-ack retry must return its historical receipt before that work can
+    // fail or produce a different provider-execution fingerprint.
+    receiptInput = receiptInputForSend(msg);
+    // New commands preserve the existing direct preparation-error behavior.
+    // A durable receipt, in contrast, is an authoritative lost-ack retry and
+    // must skip mutable staging entirely. The claim below remains the atomic
+    // arbiter, so a concurrent first claimant cannot dispatch twice.
+    const existingReceipt =
+      typeof (ctx.eventStore as Partial<EventStore>).getSendCommand === 'function'
+        ? ctx.eventStore.getSendCommand(msg.clientMsgId)
+        : undefined;
+    if (!existingReceipt) prepared = prepareSendV2(msg, ctx);
   } catch (error) {
     transport.send({
       type: 'error',
@@ -813,11 +845,9 @@ export async function handleSendV2(
     return await acceptSendCommandAsync(
       ctx.eventStore,
       msg,
-      {
-        requestFingerprint: prepared.requestFingerprint,
-        legacyCommand: prepared.legacyCommand,
-      },
+      receiptInput,
       async (_command, assignedSessionId) => {
+        const staged = prepared ?? prepareSendV2(msg, ctx);
         const outcome = await dispatchPreparedSendV2(
           connectionId,
           transport,
@@ -829,7 +859,7 @@ export async function handleSendV2(
             // second id in the WebSocket path after it has been claimed.
             initialSessionId: msg.sessionId ? undefined : assignedSessionId,
           },
-          prepared,
+          staged,
         );
         // Preserve the detached FIFO-admission marker through the receipt
         // boundary. Collapsing it to `undefined` would turn a queued command

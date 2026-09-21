@@ -271,6 +271,12 @@ async function _runQueryLoopInner(
   let providerToken: ExecutionToken | undefined;
   let terminalOutcomeAttempted = false;
   let terminalTokenKey: string | undefined;
+  // A failed result has its public session lifecycle projected immediately so
+  // a recovery-capable Codex iterator cannot leave the client logically
+  // running. Its eventual iterator teardown must not repeat that transition:
+  // a new runtime may have admitted STARTING/ACTIVE for the same durable
+  // session while the old iterator was still held open.
+  let failedResultProjectedTerminal = false;
   const consumeExecutionToken = (token: ExecutionToken) => {
     providerToken = token;
     // Result/EOF accounting is per provider turn, not per long-lived query.
@@ -668,7 +674,10 @@ async function _runQueryLoopInner(
             const failedSessionId =
               (typeof msg.session_id === 'string' ? msg.session_id : undefined) ??
               currentSession.sessionId;
-            if (failedSessionId) projectFailedResultTerminal(failedSessionId);
+            if (failedSessionId) {
+              projectFailedResultTerminal(failedSessionId);
+              failedResultProjectedTerminal = true;
+            }
           }
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
           const snapshotBlocks = currentSession.currentSnapshot?.blocks ?? [];
@@ -1578,7 +1587,13 @@ async function _runQueryLoopInner(
       // Execution-owned starts keep their canonical terminal token, but legacy
       // reconnect clients still require the derived session lifecycle terminal
       // after the durable session_end. This projection never mutates the token.
-      if (store && terminalSessionId) {
+      // A delayed, held iterator can finish after its runtime was replaced.
+      // `finalSession` is present only while this query still owns the
+      // registry entry (or while its own abort unwind is in progress), so do
+      // not let an old finalizer overwrite the replacement's lifecycle.
+      // Failed results also projected their terminal state at the result
+      // boundary above; emitting it again here would create duplicate events.
+      if (store && terminalSessionId && finalSession && !failedResultProjectedTerminal) {
         const terminalSeq = store.setSessionState(terminalSessionId, 'ENDED', {
           clientId,
           reason: lifecycleTerminalReason,

@@ -20,6 +20,7 @@ import type { V2HandlerContext } from './ws-handler-v2.js';
 import {
   handleSendV2,
   prepareSendV2,
+  receiptInputForSend,
   handleStopV2,
   handleInterruptV2,
   handlePermissionResponseV2,
@@ -138,15 +139,17 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      const prepared = prepareSendV2(msg, ctx);
+      // Preserve the direct preparation error for a new command, but never
+      // resolve mutable provider inputs for a durable lost-ack retry.
+      const prepared = ctx.eventStore.getSendCommand(msg.clientMsgId)
+        ? undefined
+        : prepareSendV2(msg, ctx);
       const receipt = await acceptSendCommandAsync(
         ctx.eventStore,
         msg,
-        {
-          requestFingerprint: prepared.requestFingerprint,
-          legacyCommand: prepared.legacyCommand,
-        },
+        receiptInputForSend(msg),
         async (command, sessionId) => {
+          const staged = prepared ?? prepareSendV2(command, ctx);
           const delegate = new SseTransport(connectionId, sseRegistry);
           const transport = {
             // This transport accepts events into durable storage even offline.
@@ -175,7 +178,7 @@ export function createChatRestRouter(
           const outcome = await handleSendV2(connectionId, transport, command, ctx, {
             initialSessionId: command.sessionId ? undefined : sessionId,
             skipReceipt: true,
-            prepared,
+            prepared: staged,
           });
           // Keep the FIFO admission marker intact for acceptSendCommandAsync.
           // Collapsing it to undefined acknowledges a REST send as complete

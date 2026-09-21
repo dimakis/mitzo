@@ -3,9 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'dotenv';
 
-const repoRoot = resolve(new URL('..', import.meta.url).pathname);
+export function productionFrontendRepositoryRoot(moduleUrl = import.meta.url) {
+  return resolve(fileURLToPath(new URL('..', moduleUrl)));
+}
+
+const repoRoot = productionFrontendRepositoryRoot();
 
 export function productionFrontendEnvironment(config, inheritedEnv = process.env) {
   const origin = config.MITZO_PUBLIC_ORIGIN;

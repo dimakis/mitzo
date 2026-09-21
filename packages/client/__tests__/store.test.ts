@@ -634,6 +634,48 @@ describe('WS → store wiring', () => {
     expect(store.getState().messages.running).toBe(false);
   });
 
+  it.each([
+    ['_send_failed', 'Send was rejected.'],
+    [
+      '_send_uncertain',
+      'The server may have accepted this message; check the conversation before sending it again.',
+    ],
+  ])('applies deferred terminals when the final pending send receives %s', (type, error) => {
+    store.getState().sendMessage('queued follow-up');
+    const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+    lastWs.simulateMessage({
+      type: '_send_pending',
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+    });
+    store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'running' });
+
+    // The previous execution can finish while the follow-up is still only a
+    // local outbox item. Its terminal transition must stay deferred until
+    // the receipt determines whether a durable echo will follow.
+    lastWs.simulateMessage({
+      type: 'execution_state_changed',
+      sessionId: 'test-session',
+      executionId: 'execution-a',
+      generation: 1,
+      phase: 'TERMINAL',
+      clientState: 'idle',
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'test-session' });
+    expect(store.getState().messages.running).toBe(true);
+
+    lastWs.simulateMessage({
+      type,
+      clientMsgId: command.clientMsgId,
+      sessionId: 'test-session',
+      error,
+    });
+
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBe(error);
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('surfaces a replayed queued-send failure after reload without transient pending IDs', () => {
     // `pendingSendIds` exists only in this page instance. The durable failure
     // can be replayed after reload before this store has emitted any private

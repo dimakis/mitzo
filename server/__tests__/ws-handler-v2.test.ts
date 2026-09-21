@@ -4494,6 +4494,47 @@ describe('handleSendV2 durable receipt failures', () => {
     }
   });
 
+  it('returns an exact lost-ack receipt before mutable provider preparation', async () => {
+    const store = new EventStore(':memory:');
+    const ctx = createContext({ eventStore: store });
+    const transport = mockTransport();
+    ctx.connRegistry.register('receipt-preflight', transport);
+    const message = {
+      type: 'send' as const,
+      sessionId: null,
+      prompt: 'preserve this receipt',
+      clientMsgId: 'receipt-preflight-1',
+    };
+    try {
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockResolvedValue(undefined);
+      vi.mocked(resolveSlashCommand).mockReturnValue({ type: 'passthrough' });
+      vi.mocked(resolveSlashCommand).mockClear();
+
+      const first = await handleSendV2('receipt-preflight', transport, message, ctx);
+      expect(first).toEqual(expect.objectContaining({ accepted: true }));
+      expect(vi.mocked(resolveSlashCommand)).toHaveBeenCalledOnce();
+
+      // A session configuration change can make a fresh provider preparation
+      // invalid. The durable command ID still identifies the original send,
+      // so retrying a response lost after admission must not take this path.
+      vi.mocked(resolveSlashCommand).mockReturnValue({
+        type: 'error',
+        message: 'the changed skill registry is unavailable',
+      });
+      const retry = await handleSendV2('receipt-preflight', transport, message, ctx);
+
+      expect(retry).toEqual(first);
+      expect(vi.mocked(resolveSlashCommand)).toHaveBeenCalledOnce();
+      expect(vi.mocked(startChat)).toHaveBeenCalledOnce();
+    } finally {
+      vi.mocked(resolveSlashCommand).mockReturnValue({ type: 'passthrough' });
+      vi.mocked(startChat).mockReset();
+      vi.mocked(startChat).mockResolvedValue(undefined);
+      store.close();
+    }
+  });
+
   it('keeps an admitted receipt accepted when completion rejects in the same microtask as ack', async () => {
     const store = new EventStore(':memory:');
     const sessions = new SessionRegistry();
