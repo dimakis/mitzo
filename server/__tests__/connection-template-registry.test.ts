@@ -20,7 +20,9 @@ import {
   reviewedHandlerSourceArtifacts,
   reviewedHandlerSourceFingerprint,
 } from '../connections/reviewed-handler-artifacts.js';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { renderIanaAddressData } from '../../scripts/generate-iana-address-data.mjs';
 import { loadIanaAddressData } from '../../scripts/iana-address-data.mjs';
@@ -478,6 +480,44 @@ describe('connection template registry', () => {
     expect(ianaIpv4SpecialPurposeCidrs).toEqual(expected.ipv4SpecialPurposeCidrs);
     expect(ianaIpv6SpecialPurposeCidrs).toEqual(expected.ipv6SpecialPurposeCidrs);
     expect(ianaIpv6AllocatedGlobalUnicastCidrs).toEqual(expected.ipv6AllocatedGlobalUnicastCidrs);
+  });
+
+  it('rejects malformed or incomplete IANA policy snapshots before generation', async () => {
+    const valid = {
+      ipv4: 'Address Block,Globally Reachable\n10.0.0.0/8,False\n',
+      ipv6Special: 'Address Block,Globally Reachable\n::1/128,False\n',
+      ipv6Allocated: 'Prefix,Status\n2001::/23,ALLOCATED\n3fff::/20,RESERVED\n',
+    };
+    const invalidCases = [
+      { file: 'ipv4', value: 'Address Blocks,Globally Reachable\n10.0.0.0/8,False\n' },
+      { file: 'ipv4', value: 'Address Block,Globally Reachable\n' },
+      { file: 'ipv4', value: 'Address Block,Globally Reachable\n10.0.0.0/8\n' },
+      { file: 'ipv4', value: 'Address Block,Globally Reachable\nnot-a-cidr,False\n' },
+      { file: 'ipv4', value: 'Address Block,Globally Reachable\n2001::/23,False\n' },
+      { file: 'ipv4', value: 'Address Block,Globally Reachable\n10.0.0.0/8,Maybe\n' },
+      { file: 'ipv6Allocated', value: 'Prefix,Status\n2001::/23,UNKNOWN\n' },
+      { file: 'ipv6Allocated', value: 'Prefix,Status\n3fff::/20,RESERVED\n' },
+    ] as const;
+
+    for (const invalid of invalidCases) {
+      const root = await mkdtemp(join(tmpdir(), 'mitzo-iana-snapshot-'));
+      try {
+        const directory = join(root, 'server/connections/iana-data');
+        await mkdir(directory, { recursive: true });
+        await writeFile(join(directory, 'ipv4-special-purpose.csv'), valid.ipv4);
+        await writeFile(join(directory, 'ipv6-special-purpose.csv'), valid.ipv6Special);
+        await writeFile(join(directory, 'ipv6-global-unicast.csv'), valid.ipv6Allocated);
+        const filename = {
+          ipv4: 'ipv4-special-purpose.csv',
+          ipv6Special: 'ipv6-special-purpose.csv',
+          ipv6Allocated: 'ipv6-global-unicast.csv',
+        }[invalid.file];
+        await writeFile(join(directory, filename), invalid.value);
+        await expect(loadIanaAddressData(root)).rejects.toThrow();
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    }
   });
 
   it('reproduces the checked-in offline IANA table from its snapshots', async () => {
