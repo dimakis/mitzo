@@ -736,6 +736,19 @@ describe('OpenShell production bundle validation', () => {
             if (args.includes('status')) return '';
             if (args.includes('HEAD')) return metadataWrapper;
             if (args.includes(`${metadataWrapper}^`)) return release.mitzoSourceCommit;
+            if (args.includes('diff-tree')) return '';
+            throw new Error(`unexpected git command: ${args.join(' ')}`);
+          },
+        }),
+      ).toThrow('metadata wrapper contains non-release-metadata changes');
+      expect(() =>
+        verifyCheckoutReleaseProvenance(release, {
+          root: output,
+          runCommand: (command: string, args: string[]) => {
+            if (command !== 'git') throw new Error(`unexpected command: ${command}`);
+            if (args.includes('status')) return '';
+            if (args.includes('HEAD')) return metadataWrapper;
+            if (args.includes(`${metadataWrapper}^`)) return release.mitzoSourceCommit;
             return 'server/index.ts';
           },
         }),
