@@ -11,11 +11,20 @@ const binding = {
 };
 function setup(
   result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled',
-  retryResult: 'queued' | 'not_found' | 'unavailable' | 'too_early' | 'not_retryable' = 'queued',
+  retryResult:
+    | 'queued'
+    | 'not_found'
+    | 'unavailable'
+    | 'too_early'
+    | 'not_retryable'
+    | 'confirmation_required' = 'queued',
+  reattachResult: 'ready' | 'reattaching' | 'unavailable' = 'reattaching',
 ) {
   const cancel = vi.fn(() => result);
   const retry = vi.fn(async () => retryResult);
+  const reattach = vi.fn(async () => reattachResult);
   const app = express();
+  app.use(express.json());
   app.use(
     '/api/sessions',
     createCodexQueueRouter({
@@ -27,9 +36,10 @@ function setup(
       }),
       cancel,
       retry,
+      reattach,
     }),
   );
-  return { app, cancel, retry };
+  return { app, cancel, retry, reattach };
 }
 it('lists only waiting summaries and cancelled tombstone IDs', async () => {
   const { app } = setup();
@@ -68,10 +78,28 @@ it.each([
   ['unavailable', 409],
   ['too_early', 429],
   ['not_retryable', 409],
+  ['confirmation_required', 409],
 ] as const)('returns %s retry outcome', async (result, status) => {
   const { app, retry } = setup('cancelled', result);
   await request(app).post('/api/sessions/known/codex-queue/retry').expect(status);
-  expect(retry).toHaveBeenCalledWith('known', binding);
+  expect(retry).toHaveBeenCalledWith('known', binding, false);
+});
+it('passes explicit ambiguous-retry confirmation to the runtime', async () => {
+  const { app, retry } = setup();
+  await request(app)
+    .post('/api/sessions/known/codex-queue/retry')
+    .send({ confirmAmbiguous: true })
+    .expect(200);
+  expect(retry).toHaveBeenCalledWith('known', binding, true);
+});
+it.each([
+  ['ready', 200],
+  ['reattaching', 202],
+  ['unavailable', 409],
+] as const)('returns %s background reattachment outcome', async (result, status) => {
+  const { app, reattach } = setup('cancelled', 'queued', result);
+  await request(app).post('/api/sessions/known/codex-queue/reattach').expect(status);
+  expect(reattach).toHaveBeenCalledWith('known', binding);
 });
 it('does not retry an unknown conversation', async () => {
   const { app, retry } = setup();

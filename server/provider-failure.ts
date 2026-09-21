@@ -117,11 +117,16 @@ export function classifyProviderFailure(
   const text = diagnosticText(value);
   const category = categoryFor(text);
   const code = sanitizedCode(value);
+  const permanentLimit =
+    (!!code && NON_RETRYABLE_LIMIT_CODES.has(code)) ||
+    /(?:insufficient[_ -]?quota|quota (?:exhausted|exceeded)|spend[_ -]?limit|usage[_ -]?limit|credit balance)/i.test(
+      text,
+    );
   const retryable =
     category === 'overloaded' ||
     category === 'timeout' ||
     category === 'transport' ||
-    (category === 'rate_limited' && (!code || !NON_RETRYABLE_LIMIT_CODES.has(code)));
+    (category === 'rate_limited' && !permanentLimit);
   const delay = retryAfterMs(value);
   return {
     category,

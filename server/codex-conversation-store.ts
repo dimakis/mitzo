@@ -87,7 +87,7 @@ export class CodexConversationStore {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
         recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
-        retryable INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
+        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
@@ -144,6 +144,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN retry_not_before INTEGER');
       if (!columns.some((column) => column.name === 'retryable'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN retryable INTEGER');
+      if (!columns.some((column) => column.name === 'ambiguous'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN ambiguous INTEGER');
       if (!columns.some((column) => column.name === 'attempt'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
       // Legacy recovery rows could not persist a failure class. A failed (not
@@ -319,9 +321,21 @@ export class CodexConversationStore {
       | undefined;
     const failed = this.db
       .prepare(
-        "SELECT retry_not_before,retryable FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+        `SELECT c.retry_not_before,c.retryable,c.ambiguous,
+          EXISTS(SELECT 1 FROM codex_tools t
+            WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id) AS tools_ran
+        FROM codex_commands c
+        WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
+        ORDER BY c.sequence DESC LIMIT 1`,
       )
-      .get(id) as { retry_not_before: number | null; retryable: number | null } | undefined;
+      .get(id) as
+      | {
+          retry_not_before: number | null;
+          retryable: number | null;
+          ambiguous: number | null;
+          tools_ran: number;
+        }
+      | undefined;
     return {
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
@@ -333,6 +347,9 @@ export class CodexConversationStore {
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
       ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
       ...(failed ? { retryable: failed.retryable === 1 } : {}),
+      ...(failed
+        ? { requiresRetryConfirmation: failed.ambiguous === 1 && failed.tools_ran === 1 }
+        : {}),
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
@@ -385,24 +402,39 @@ export class CodexConversationStore {
       return 'cancelled';
     })();
   }
-  /** Explicit retry reuses the command identity so claimed tool calls remain
-   * deduplicated if the failed provider turn had ambiguous side effects. */
+  /** Provider call IDs do not provide semantic side-effect deduplication, so
+   * ambiguous turns that claimed tools require explicit confirmation. */
   retryLatestFailed(
     id: string,
     b: AccountBinding,
     now = Date.now(),
-  ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' {
+    confirmAmbiguous = false,
+  ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' | 'confirmation_required' {
     return this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          "SELECT id,retry_not_before,retryable FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+          `SELECT c.id,c.retry_not_before,c.retryable,c.ambiguous,
+            EXISTS(SELECT 1 FROM codex_tools t
+              WHERE t.conversation_id=c.conversation_id AND t.command_id=c.id) AS tools_ran
+          FROM codex_commands c
+          WHERE c.conversation_id=? AND c.status='failed' AND c.recovery_acknowledged=0
+          ORDER BY c.sequence DESC LIMIT 1`,
         )
         .get(id) as
-        { id: string; retry_not_before: number | null; retryable: number | null } | undefined;
+        | {
+            id: string;
+            retry_not_before: number | null;
+            retryable: number | null;
+            ambiguous: number | null;
+            tools_ran: number;
+          }
+        | undefined;
       if (!row) return 'not_found';
       if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
+      if (row.ambiguous === 1 && row.tools_ran === 1 && !confirmAmbiguous)
+        return 'confirmation_required';
       this.db
         .prepare(
           "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",
@@ -457,6 +489,7 @@ export class CodexConversationStore {
     recoveryStrategy: 'resume' | 'fork' = 'resume',
     retryNotBefore?: number,
     retryable = true,
+    ambiguous = false,
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -468,9 +501,9 @@ export class CodexConversationStore {
       if (commandId)
         this.db
           .prepare(
-            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=? WHERE conversation_id=? AND id=? AND status='running'",
+            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=?, ambiguous=? WHERE conversation_id=? AND id=? AND status='running'",
           )
-          .run(status, retryNotBefore ?? null, retryable ? 1 : 0, id, commandId);
+          .run(status, retryNotBefore ?? null, retryable ? 1 : 0, ambiguous ? 1 : 0, id, commandId);
       if (pending)
         this.db
           .prepare(

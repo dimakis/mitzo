@@ -171,6 +171,7 @@ export function readCodexQueue(
       failed: summary.failed,
       retryAvailableAt: summary.retryAvailableAt,
       retryable: summary.retryable,
+      requiresRetryConfirmation: summary.requiresRetryConfirmation,
     };
   } catch {
     return {
@@ -206,6 +207,8 @@ interface Options {
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
+  /** Recreate the provider runtime without admitting or replaying user intent. */
+  reattachOnly?: boolean;
 }
 
 export function selectedOpenShellAccountRoute(
@@ -715,14 +718,15 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
-    await runtime.send({
-      id: options.messageId,
-      prompt: options.prompt,
-      intent: options.intent,
-      model: options.model,
-      reasoningEffort: options.reasoningEffort,
-      images: options.images,
-    });
+    if (!options.reattachOnly)
+      await runtime.send({
+        id: options.messageId,
+        prompt: options.prompt,
+        intent: options.intent,
+        model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        images: options.images,
+      });
   } catch (error) {
     close();
     throw error;

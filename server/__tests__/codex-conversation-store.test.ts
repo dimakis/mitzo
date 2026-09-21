@@ -452,6 +452,21 @@ it('refuses explicit retry for a persisted non-retryable provider failure', () =
   s.close();
 });
 
+it('requires explicit confirmation when an ambiguous failed turn claimed tools', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'ambiguous', prompt: 'write externally' });
+  s.claimNext('c', binding);
+  expect(s.claimTool('c', binding, 'ambiguous', 'provider-call-1')).toBe(true);
+  s.pauseForRecovery('c', binding, 'ambiguous', 'failed', 'resume', undefined, true, true);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ requiresRetryConfirmation: true });
+  expect(s.retryLatestFailed('c', binding)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, Date.now(), true)).toBe('queued');
+  s.close();
+});
+
 it('does not requeue a failed command before its provider retry window', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

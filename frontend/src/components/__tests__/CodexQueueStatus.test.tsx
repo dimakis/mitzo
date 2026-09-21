@@ -162,6 +162,8 @@ it('offers an explicit retry for the saved failed turn without queued follow-ups
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith('/api/sessions/failed/codex-queue/retry', {
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ confirmAmbiguous: false }),
       signal: expect.any(AbortSignal),
     }),
   );
@@ -206,6 +208,81 @@ it('does not offer retry for a saved non-retryable failure', async () => {
     await screen.findByText('This failed turn needs attention and cannot be retried.'),
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Retry saved turn/ })).toBeNull();
+});
+
+it('reattaches a disconnected provider in the background while preserving the failed turn', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({
+        paused: true,
+        connected: false,
+        queued: 0,
+        interrupted: 0,
+        failed: 1,
+        retryable: true,
+        recovering: false,
+      }),
+    )
+    .mockResolvedValueOnce({ ok: true, status: 202, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({
+        paused: true,
+        connected: true,
+        queued: 0,
+        interrupted: 0,
+        failed: 1,
+        retryable: true,
+        recovering: false,
+      }),
+    );
+
+  render(<CodexQueueStatus sessionId="detached" />);
+  expect(
+    await screen.findByText('Restarting provider… The failed turn remains saved.'),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/detached/codex-queue/reattach', {
+      method: 'POST',
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  expect(await screen.findByRole('button', { name: 'Retry saved turn' })).toBeTruthy();
+  expect(screen.getByText('Provider restarted. The failed turn is ready for review.')).toBeTruthy();
+});
+
+it('warns before retrying an ambiguous turn that already invoked tools', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({
+        paused: true,
+        connected: true,
+        queued: 0,
+        interrupted: 0,
+        failed: 1,
+        retryable: true,
+        requiresRetryConfirmation: true,
+        recovering: false,
+      }),
+    )
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({
+        paused: false,
+        connected: true,
+        queued: 0,
+        interrupted: 0,
+        failed: 0,
+        recovering: false,
+      }),
+    );
+
+  render(<CodexQueueStatus sessionId="ambiguous" />);
+  expect(await screen.findByText(/may repeat tool actions/)).toBeTruthy();
+  await userEvent.click(screen.getByRole('button', { name: 'Retry despite possible repeats' }));
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/ambiguous/codex-queue/retry',
+    expect.objectContaining({ body: JSON.stringify({ confirmAmbiguous: true }) }),
+  );
 });
 
 it('hides to an edge control outside the status layout and stays hidden through polling', async () => {

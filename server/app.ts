@@ -177,6 +177,8 @@ export function invalidateSkillRegistries(): void {
 
 const app = express();
 
+const codexReattachments = new Map<string, Promise<void>>();
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -1548,10 +1550,37 @@ app.use(
     overview: readCodexQueueOverview,
     cancel: (id, binding, commandId) =>
       cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
-    retry: async (id) => {
+    retry: async (id, _binding, confirmAmbiguous) => {
       const session = registry.findBySessionId(id)?.session;
       const runtime = session ? getCodexRuntime(session) : undefined;
-      return runtime ? runtime.retryLatestFailed() : 'unavailable';
+      return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
+    },
+    reattach: async (id, binding) => {
+      const existing = registry.findBySessionId(id)?.session;
+      if (existing && getCodexRuntime(existing)) return 'ready';
+      const meta = eventStore.getSession(id);
+      if (!meta) return 'unavailable';
+      if (!existing && !codexReattachments.has(id)) {
+        const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
+          resume: id,
+          accountId: binding.accountId,
+          model: meta.selectedModel ?? binding.model,
+          reasoningEffort: meta.reasoningEffort,
+          agentName: meta.agentName ?? undefined,
+          reattachOnly: true,
+        })
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            log.warn('provider reattachment failed', {
+              sessionId: id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => codexReattachments.delete(id));
+        codexReattachments.set(id, operation);
+      }
+      const runtime = await waitForCodexRuntimeBySessionId(registry, id, 1000);
+      return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
     },
   }),
 );

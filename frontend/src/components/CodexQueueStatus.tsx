@@ -13,6 +13,7 @@ const Queue = z.object({
   failed: z.number().int().nonnegative().optional().default(0),
   retryAvailableAt: z.number().int().positive().optional(),
   retryable: z.boolean().optional(),
+  requiresRetryConfirmation: z.boolean().optional(),
 });
 const QueuedCommands = z.object({
   queued: z.array(z.object({ id: z.string(), preview: z.string() })),
@@ -53,6 +54,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [continuing, setContinuing] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [reattaching, setReattaching] = useState(false);
+  const reattachRequested = useRef<string | null>(null);
   const refresh = useRef<() => Promise<void>>(async () => {});
   const statusTab = useRef<HTMLButtonElement>(null);
   const hideButton = useRef<HTMLButtonElement>(null);
@@ -77,6 +80,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setCancelling(null);
     setContinuing(false);
     setRetrying(false);
+    setReattaching(false);
+    reattachRequested.current = null;
     setDrawerOpen(false);
     consumeCancelClick.current = false;
     setCollapsed(sessionId ? isHidden(sessionId) : false);
@@ -121,6 +126,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           setCommands(queued);
           setHasMore(moreQueued);
           setError('');
+          if (parsed.success && parsed.data.connected && reattachRequested.current === sessionId)
+            setNotice('Provider restarted. The failed turn is ready for review.');
         }
       } catch {
         if (!disposed && isCodex)
@@ -152,6 +159,48 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   }, [sessionId]);
 
   useEffect(() => {
+    if (
+      !sessionId ||
+      !queue ||
+      queue.failed === 0 ||
+      queue.retryable === false ||
+      queue.connected ||
+      reattachRequested.current === sessionId
+    )
+      return;
+    reattachRequested.current = sessionId;
+    const epoch = sessionEpoch.current;
+    setReattaching(true);
+    setNotice('Restarting provider… The failed turn remains saved.');
+    void apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/reattach`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(15000),
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(
+            typeof body.error === 'string'
+              ? body.error
+              : 'Mitzo could not restart the provider yet. The failed turn remains saved.',
+          );
+        }
+        if (epoch === sessionEpoch.current) await refresh.current();
+      })
+      .catch((error: unknown) => {
+        if (epoch === sessionEpoch.current)
+          setNotice(
+            error instanceof Error
+              ? error.message
+              : 'Mitzo could not restart the provider yet. The failed turn remains saved.',
+          );
+      })
+      .finally(() => {
+        if (epoch === sessionEpoch.current) setReattaching(false);
+      });
+  }, [queue, sessionId]);
+
+  useEffect(() => {
     const previous = previousCollapsed.current;
     previousCollapsed.current = collapsed;
     if (previous === null || previous === collapsed) return;
@@ -175,9 +224,13 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     : queue.failed > 0
       ? queue.retryable === false
         ? 'This failed turn needs attention and cannot be retried.'
-        : retryWaitSeconds > 0
-          ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-          : 'Previous turn failed. Retry when available.'
+        : !queue.connected || reattaching
+          ? 'Restarting provider… The failed turn remains saved.'
+          : retryWaitSeconds > 0
+            ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+            : queue.requiresRetryConfirmation
+              ? 'Retrying may repeat tool actions that already ran.'
+              : 'Previous turn failed. Retry when available.'
       : queue.paused
         ? 'Reconnection needed. Your message is saved.'
         : queue.queued > 0
@@ -237,7 +290,12 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     try {
       const response = await apiFetch(
         `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/retry`,
-        { method: 'POST', signal: AbortSignal.timeout(15000) },
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confirmAmbiguous: !!queue.requiresRetryConfirmation }),
+          signal: AbortSignal.timeout(15000),
+        },
       );
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -373,7 +431,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
                   ? 'Retrying…'
                   : retryWaitSeconds > 0
                     ? `Retry in ${retryWaitSeconds}s`
-                    : 'Retry saved turn'}
+                    : queue.requiresRetryConfirmation
+                      ? 'Retry despite possible repeats'
+                      : 'Retry saved turn'}
               </button>
             )}
           {queue.queued > 0 && (

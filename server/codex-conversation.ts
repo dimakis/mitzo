@@ -357,9 +357,14 @@ export class CodexConversation {
     if (this.paused) return;
     await this.pump();
   }
-  async retryLatestFailed() {
+  async retryLatestFailed(confirmAmbiguous = false) {
     if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
-    const result = this.opts.store.retryLatestFailed(this.opts.conversationId, this.binding);
+    const result = this.opts.store.retryLatestFailed(
+      this.opts.conversationId,
+      this.binding,
+      Date.now(),
+      confirmAmbiguous,
+    );
     if (result !== 'queued') return result;
     this.opts.onQueueChange?.();
     await this.acknowledgeRecovery();
@@ -782,6 +787,7 @@ export class CodexConversation {
           providerTransportFailed ? 'fork' : 'resume',
           providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
           providerFailure?.retryable ?? true,
+          providerFailure?.ambiguous ?? false,
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';

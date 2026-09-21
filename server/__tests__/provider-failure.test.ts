@@ -60,6 +60,13 @@ describe('classifyProviderFailure', () => {
         { correlationId: 'turn-nested-quota' },
       ),
     ).toMatchObject({ code: 'insufficient_quota', retryable: false });
+
+    expect(
+      classifyProviderFailure(
+        { message: 'Quota exhausted. Update billing to continue.' },
+        { correlationId: 'turn-quota-without-code' },
+      ),
+    ).toMatchObject({ category: 'rate_limited', retryable: false });
   });
 
   it.each([
