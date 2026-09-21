@@ -12,6 +12,7 @@ const Queue = z.object({
   interrupted: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative().optional().default(0),
   retryAvailableAt: z.number().int().positive().optional(),
+  retryable: z.boolean().optional(),
 });
 const QueuedCommands = z.object({
   queued: z.array(z.object({ id: z.string(), preview: z.string() })),
@@ -172,9 +173,11 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
       ? 'Starting workspace… Your message is saved.'
       : 'Reconnecting… Your message is saved.'
     : queue.failed > 0
-      ? retryWaitSeconds > 0
-        ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
-        : 'Previous turn failed. Retry when available.'
+      ? queue.retryable === false
+        ? 'This failed turn needs attention and cannot be retried.'
+        : retryWaitSeconds > 0
+          ? `OpenAI asked us to wait ${retryWaitSeconds}s before retrying.`
+          : 'Previous turn failed. Retry when available.'
       : queue.paused
         ? 'Reconnection needed. Your message is saved.'
         : queue.queued > 0
@@ -356,20 +359,23 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
               {continuing ? 'Reconnecting…' : 'Reconnect and continue'}
             </button>
           )}
-          {queue.failed > 0 && queue.connected && !queue.recovering && (
-            <button
-              type="button"
-              className="codex-queue-status-continue"
-              disabled={retrying || retryWaitSeconds > 0}
-              onClick={() => void retryFailed()}
-            >
-              {retrying
-                ? 'Retrying…'
-                : retryWaitSeconds > 0
-                  ? `Retry in ${retryWaitSeconds}s`
-                  : 'Retry saved turn'}
-            </button>
-          )}
+          {queue.failed > 0 &&
+            queue.retryable !== false &&
+            queue.connected &&
+            !queue.recovering && (
+              <button
+                type="button"
+                className="codex-queue-status-continue"
+                disabled={retrying || retryWaitSeconds > 0}
+                onClick={() => void retryFailed()}
+              >
+                {retrying
+                  ? 'Retrying…'
+                  : retryWaitSeconds > 0
+                    ? `Retry in ${retryWaitSeconds}s`
+                    : 'Retry saved turn'}
+              </button>
+            )}
           {queue.queued > 0 && (
             <button
               type="button"

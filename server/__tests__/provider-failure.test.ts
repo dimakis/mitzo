@@ -49,6 +49,17 @@ describe('classifyProviderFailure', () => {
       code: 'project_spend_limit_exceeded',
       retryable: false,
     });
+
+    expect(
+      classifyProviderFailure(
+        {
+          message: 'Quota exhausted',
+          type: 'rate_limit_error',
+          error: { code: 'insufficient_quota' },
+        },
+        { correlationId: 'turn-nested-quota' },
+      ),
+    ).toMatchObject({ code: 'insufficient_quota', retryable: false });
   });
 
   it.each([
@@ -103,5 +114,12 @@ describe('classifyProviderFailure', () => {
         { correlationId: 'turn-safe' },
       ),
     ).not.toHaveProperty('retryAfterMs');
+
+    expect(
+      classifyProviderFailure(
+        { message: 'high demand', code: 'sk-secret' },
+        { correlationId: 'turn-code-shaped-secret' },
+      ),
+    ).not.toHaveProperty('code');
   });
 });

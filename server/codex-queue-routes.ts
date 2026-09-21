@@ -16,7 +16,7 @@ interface Dependencies {
   retry(
     sessionId: string,
     binding: AccountBinding,
-  ): Promise<'queued' | 'not_found' | 'unavailable' | 'too_early'>;
+  ): Promise<'queued' | 'not_found' | 'unavailable' | 'too_early' | 'not_retryable'>;
 }
 /** Mounted after application authentication. Only saved, unclaimed work can be cancelled. */
 export function createCodexQueueRouter(deps: Dependencies) {
@@ -51,6 +51,10 @@ export function createCodexQueueRouter(deps: Dependencies) {
       }
       if (result === 'too_early') {
         res.status(429).json({ error: 'OpenAI asked us to wait before retrying this turn.' });
+        return;
+      }
+      if (result === 'not_retryable') {
+        res.status(409).json({ error: 'This provider failure cannot be retried safely.' });
         return;
       }
       res.json({ ok: true, status: 'queued' });

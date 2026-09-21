@@ -170,6 +170,7 @@ export function readCodexQueue(
       interrupted: summary.interrupted,
       failed: summary.failed,
       retryAvailableAt: summary.retryAvailableAt,
+      retryable: summary.retryable,
     };
   } catch {
     return {

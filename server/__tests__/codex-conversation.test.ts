@@ -1109,7 +1109,7 @@ it('attaches a sanitized typed failure to a failed provider result', async () =>
 });
 
 it('retries the saved failed command only after an explicit request', async () => {
-  const { c, callbacks, requests } = await setup();
+  const { c, callbacks, requests, events } = await setup();
   await c.send({ id: 'retry-me', prompt: 'hello' });
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
@@ -1125,6 +1125,15 @@ it('retries the saved failed command only after an explicit request', async () =
 
   expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
   expect(c.queue().find(({ id }) => id === 'retry-me')?.status).toBe('running');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'high demand', code: 'server_is_overloaded' },
+    },
+  });
+  expect(events.at(-1)).toMatchObject({ provider_failure: { attempt: 2 } });
 });
 
 it('maps known failed-turn provider diagnostics without exposing provider payloads', () => {

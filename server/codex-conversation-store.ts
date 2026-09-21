@@ -38,6 +38,7 @@ const CommandInput = z
 export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
+  attempt: number;
 };
 
 /**
@@ -86,6 +87,7 @@ export class CodexConversationStore {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
         recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
+        retryable INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
@@ -140,6 +142,10 @@ export class CodexConversationStore {
       }
       if (!columns.some((column) => column.name === 'retry_not_before'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN retry_not_before INTEGER');
+      if (!columns.some((column) => column.name === 'retryable'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN retryable INTEGER');
+      if (!columns.some((column) => column.name === 'attempt'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -261,10 +267,14 @@ export class CodexConversationStore {
     return (
       this.db
         .prepare(
-          'SELECT input,status FROM codex_commands WHERE conversation_id=? ORDER BY sequence',
+          'SELECT input,status,attempt FROM codex_commands WHERE conversation_id=? ORDER BY sequence',
         )
-        .all(id) as { input: string; status: CodexCommand['status'] }[]
-    ).map((row) => ({ ...CommandInput.parse(JSON.parse(row.input)), status: row.status }));
+        .all(id) as { input: string; status: CodexCommand['status']; attempt: number }[]
+    ).map((row) => ({
+      ...CommandInput.parse(JSON.parse(row.input)),
+      status: row.status,
+      attempt: row.attempt,
+    }));
   }
   /** Polling must not deserialize historical prompts, images, or tool inputs. */
   queueOverview(id: string, b: AccountBinding) {
@@ -309,9 +319,9 @@ export class CodexConversationStore {
       | undefined;
     const failed = this.db
       .prepare(
-        "SELECT retry_not_before FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+        "SELECT retry_not_before,retryable FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
       )
-      .get(id) as { retry_not_before: number | null } | undefined;
+      .get(id) as { retry_not_before: number | null; retryable: number | null } | undefined;
     return {
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
@@ -322,6 +332,7 @@ export class CodexConversationStore {
       reasoningEffort:
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
       ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
+      ...(failed ? { retryable: failed.retryable === 1 } : {}),
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
@@ -380,19 +391,21 @@ export class CodexConversationStore {
     id: string,
     b: AccountBinding,
     now = Date.now(),
-  ): 'queued' | 'not_found' | 'too_early' {
+  ): 'queued' | 'not_found' | 'too_early' | 'not_retryable' {
     return this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          "SELECT id,retry_not_before FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+          "SELECT id,retry_not_before,retryable FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
         )
-        .get(id) as { id: string; retry_not_before: number | null } | undefined;
+        .get(id) as
+        { id: string; retry_not_before: number | null; retryable: number | null } | undefined;
       if (!row) return 'not_found';
+      if (row.retryable !== 1) return 'not_retryable';
       if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       this.db
         .prepare(
-          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL WHERE conversation_id=? AND id=? AND status='failed'",
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL, attempt=attempt+1 WHERE conversation_id=? AND id=? AND status='failed'",
         )
         .run(id, row.id);
       return 'queued';
@@ -443,6 +456,7 @@ export class CodexConversationStore {
     status: 'interrupted' | 'failed' = 'interrupted',
     recoveryStrategy: 'resume' | 'fork' = 'resume',
     retryNotBefore?: number,
+    retryable = true,
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -454,9 +468,9 @@ export class CodexConversationStore {
       if (commandId)
         this.db
           .prepare(
-            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=? WHERE conversation_id=? AND id=? AND status='running'",
+            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=?, retryable=? WHERE conversation_id=? AND id=? AND status='running'",
           )
-          .run(status, retryNotBefore ?? null, id, commandId);
+          .run(status, retryNotBefore ?? null, retryable ? 1 : 0, id, commandId);
       if (pending)
         this.db
           .prepare(

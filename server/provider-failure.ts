@@ -1,8 +1,24 @@
 import type { ProviderFailure, ProviderFailureCategory } from '@mitzo/protocol';
 
-const SAFE_CODE = /^[a-z0-9][a-z0-9_.-]{0,79}$/i;
 const MAX_RETRY_AFTER_SECONDS = 300;
+const SAFE_PROVIDER_CODES = new Set([
+  'server_is_overloaded',
+  'service_unavailable_error',
+  'rate_limit_error',
+  'slow_down',
+  'insufficient_quota',
+  'credit_balance_exhausted',
+  'organization_spend_limit_exceeded',
+  'organization_usage_limit_exceeded',
+  'project_spend_limit_exceeded',
+  'context_length_exceeded',
+  'invalid_api_key',
+  'authentication_error',
+  'permission_denied',
+  'request_timeout',
+]);
 const NON_RETRYABLE_LIMIT_CODES = new Set([
+  'insufficient_quota',
   'credit_balance_exhausted',
   'organization_spend_limit_exceeded',
   'organization_usage_limit_exceeded',
@@ -41,8 +57,8 @@ function diagnosticText(value: unknown, depth = 0): string {
 function sanitizedCode(value: unknown): string | undefined {
   const object = record(value);
   if (!object) return undefined;
-  for (const candidate of [object.code, object.type, record(object.error)?.code]) {
-    if (typeof candidate === 'string' && SAFE_CODE.test(candidate)) return candidate;
+  for (const candidate of [record(object.error)?.code, object.code, object.type]) {
+    if (typeof candidate === 'string' && SAFE_PROVIDER_CODES.has(candidate)) return candidate;
   }
   return undefined;
 }

@@ -429,12 +429,26 @@ it('requeues only the latest unacknowledged failed command for an explicit retry
 
   expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, interrupted: 0 });
   expect(s.retryLatestFailed('c', binding)).toBe('queued');
+  expect(s.commands('c', binding).find(({ id }) => id === 'latest')?.attempt).toBe(2);
   expect(s.commands('c', binding).map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'older', status: 'failed' },
     { id: 'latest', status: 'queued' },
   ]);
   expect(s.queueSummary('c', binding)).toMatchObject({ failed: 0, queued: 1 });
   expect(s.retryLatestFailed('c', binding)).toBe('not_found');
+  s.close();
+});
+
+it('refuses explicit retry for a persisted non-retryable provider failure', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'quota', prompt: 'cannot retry' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'quota', 'failed', 'resume', undefined, false);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, retryable: false });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_retryable');
   s.close();
 });
 

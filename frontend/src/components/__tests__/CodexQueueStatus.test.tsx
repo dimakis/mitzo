@@ -188,6 +188,26 @@ it('honors the provider retry window before enabling the saved turn', async () =
   expect(apiFetch).toHaveBeenCalledTimes(1);
 });
 
+it('does not offer retry for a saved non-retryable failure', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      paused: true,
+      connected: true,
+      queued: 0,
+      interrupted: 0,
+      failed: 1,
+      retryable: false,
+      recovering: false,
+    }),
+  );
+
+  render(<CodexQueueStatus sessionId="non-retryable" />);
+  expect(
+    await screen.findByText('This failed turn needs attention and cannot be retried.'),
+  ).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Retry saved turn/ })).toBeNull();
+});
+
 it('hides to an edge control outside the status layout and stays hidden through polling', async () => {
   vi.useFakeTimers();
   vi.mocked(apiFetch).mockResolvedValue(

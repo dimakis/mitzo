@@ -753,7 +753,10 @@ export class CodexConversation {
             : 'failed';
       const providerFailure =
         status === 'failed'
-          ? classifyProviderFailure(turn.data.error, { correlationId: turn.data.id })
+          ? classifyProviderFailure(turn.data.error, {
+              correlationId: turn.data.id,
+              attempt: this.active.command.attempt,
+            })
           : undefined;
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
@@ -778,6 +781,7 @@ export class CodexConversation {
           status,
           providerTransportFailed ? 'fork' : 'resume',
           providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
+          providerFailure?.retryable ?? true,
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';
