@@ -3,6 +3,7 @@ import type { ProviderFailure, ProviderFailureCategory } from '@mitzo/protocol';
 const MAX_RETRY_AFTER_SECONDS = 300;
 const SAFE_PROVIDER_CODES = new Set([
   'server_is_overloaded',
+  'server_error',
   'service_unavailable_error',
   'rate_limit_error',
   'slow_down',
@@ -63,19 +64,32 @@ function sanitizedCode(value: unknown): string | undefined {
   return undefined;
 }
 
-function retryAfterMs(value: unknown): number | undefined {
+function httpStatus(value: unknown): number | undefined {
+  const object = record(value);
+  if (!object) return undefined;
+  const raw = object.status ?? object.statusCode ?? record(object.error)?.status;
+  const status = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
+}
+
+function retryAfterMs(value: unknown, now = Date.now()): number | undefined {
   const object = record(value);
   if (!object) return undefined;
   const raw = object.retry_after ?? object.retryAfter ?? record(object.error)?.retry_after;
-  const seconds = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
-  if (!Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_RETRY_AFTER_SECONDS)
+  const numeric = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  const delayMs = Number.isFinite(numeric)
+    ? numeric * 1_000
+    : typeof raw === 'string'
+      ? Date.parse(raw) - now
+      : NaN;
+  if (!Number.isFinite(delayMs) || delayMs <= 0 || delayMs > MAX_RETRY_AFTER_SECONDS * 1_000)
     return undefined;
-  return Math.ceil(seconds * 1_000);
+  return Math.ceil(delayMs);
 }
 
-function categoryFor(text: string): ProviderFailureCategory {
+function categoryFor(text: string, status?: number): ProviderFailureCategory {
   if (
-    /(?:server_is_overloaded|service_unavailable_error|temporar(?:ily)? overloaded|high demand)/i.test(
+    /(?:server_is_overloaded|server_error|service_unavailable_error|temporar(?:ily)? overloaded|high demand)/i.test(
       text,
     )
   )
@@ -88,7 +102,7 @@ function categoryFor(text: string): ProviderFailureCategory {
     return 'rate_limited';
   if (/timed? out|timeout/i.test(text)) return 'timeout';
   if (
-    /(?:stream.*disconnect|connection.*(?:closed|lost)|provider[_ -]?transport|transport.*(?:closed|lost|failed))/i.test(
+    /(?:fetch failed|network error|ECONNRESET|ECONNREFUSED|EPIPE|ENOTFOUND|stream.*disconnect|connection.*(?:closed|lost)|provider[_ -]?transport|transport.*(?:closed|lost|failed))/i.test(
       text,
     )
   )
@@ -107,6 +121,10 @@ function categoryFor(text: string): ProviderFailureCategory {
     )
   )
     return 'authentication';
+  if (status === 408 || status === 504) return 'timeout';
+  if (status === 429) return 'rate_limited';
+  if (status === 401 || status === 403) return 'authentication';
+  if (status !== undefined && status >= 500) return 'overloaded';
   return 'unknown';
 }
 
@@ -115,7 +133,7 @@ export function classifyProviderFailure(
   context: { correlationId: string; attempt?: number },
 ): ProviderFailure {
   const text = diagnosticText(value);
-  const category = categoryFor(text);
+  const category = categoryFor(text, httpStatus(value));
   const code = sanitizedCode(value);
   const permanentLimit =
     (!!code && NON_RETRYABLE_LIMIT_CODES.has(code)) ||
@@ -137,6 +155,19 @@ export function classifyProviderFailure(
     correlationId: context.correlationId,
     ...(delay ? { retryAfterMs: delay } : {}),
     message: PUBLIC_MESSAGES[category],
+  };
+}
+
+/** Stable, secret-free fields shared by logs and traces on every OpenAI route. */
+export function providerFailureTelemetry(failure: ProviderFailure) {
+  return {
+    providerFailureCategory: failure.category,
+    ...(failure.code ? { providerFailureCode: failure.code } : {}),
+    providerFailureRetryable: failure.retryable,
+    providerFailureAmbiguous: failure.ambiguous,
+    providerFailureAttempt: failure.attempt,
+    providerFailureCorrelationId: failure.correlationId,
+    ...(failure.retryAfterMs ? { providerFailureRetryAfterMs: failure.retryAfterMs } : {}),
   };
 }
 

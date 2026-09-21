@@ -1098,7 +1098,11 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  if (!options.reattachOnly) inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  const initialMessageId = options.clientMsgId ?? randomUUID();
+  if (!options.reattachOnly)
+    inputQueue.push(
+      makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
+    );
 
   if (options.initialSessionId) {
     eventStore.upsertSession({
@@ -1311,7 +1315,7 @@ async function _startChatInner(
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      const messageId = options.clientMsgId ?? randomUUID();
+      const messageId = initialMessageId;
       if (!options.reattachOnly)
         storeAndEchoIfNew(
           conversationId,
@@ -1358,7 +1362,7 @@ async function _startChatInner(
       send(transport, { type: 'session_id', sessionId: conversationId });
       storeAndEchoIfNew(
         conversationId,
-        options.clientMsgId ?? randomUUID(),
+        initialMessageId,
         fullPrompt,
         clientId,
         transport,

@@ -149,5 +149,5 @@ export type {
   ReasoningEventHandler,
 } from './reasoning/index.js';
 
-export { ResponsesSession } from './providers/index.js';
+export { OpenAIResponsesRequestError, ResponsesSession } from './providers/index.js';
 export type { ResponsesSessionOptions, ResponsesCheckpoint } from './providers/index.js';

@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ResponsesSession } from '../src/providers/responses-session.js';
+import {
+  OpenAIResponsesRequestError,
+  ResponsesSession,
+} from '../src/providers/responses-session.js';
 import { runAgenticLoop } from '../src/providers/sdk-adapter.js';
 import type { ConversationMessage } from '../src/providers/session-types.js';
 
@@ -275,11 +278,27 @@ describe('ResponsesSession', () => {
   });
 
   it('redacts HTTP error bodies and never retries across accounts', async () => {
-    const fetcher = vi.fn().mockResolvedValue(new Response('secret-test-key', { status: 401 }));
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: { code: 'insufficient_quota', message: 'secret-test-key https://private.invalid' },
+        }),
+        { status: 429, headers: { 'retry-after': '12' } },
+      ),
+    );
     vi.stubGlobal('fetch', fetcher);
-    await expect(
-      collect(new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' })),
-    ).rejects.toThrow('OpenAI API request failed (401)');
+    const error = await collect(
+      new ResponsesSession(config, { accountId: 'personal', apiKey: 'test' }),
+    ).catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(OpenAIResponsesRequestError);
+    expect(error).toMatchObject({
+      message: 'OpenAI API request failed (429)',
+      status: 429,
+      code: 'insufficient_quota',
+      retryAfter: '12',
+    });
+    expect(JSON.stringify(error)).not.toContain('secret-test-key');
+    expect(JSON.stringify(error)).not.toContain('private.invalid');
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 

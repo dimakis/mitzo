@@ -41,7 +41,7 @@ import {
 } from './openshell-lifecycle-controller.js';
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
-import { ProviderFailureError } from './provider-failure.js';
+import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const log = createLogger('codex-chat-session');
@@ -683,6 +683,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
               ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
             }
           : {}),
+        ...(error instanceof ProviderFailureError ? providerFailureTelemetry(error.failure) : {}),
         error: publicCodexRuntimeError(error),
       });
       // Failed provider turns are emitted by the query loop as durable v2 error
