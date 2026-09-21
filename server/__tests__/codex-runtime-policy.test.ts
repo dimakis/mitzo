@@ -40,3 +40,10 @@ it('pins an explicitly configured ChatGPT workspace', () => {
     'workspace-123',
   );
 });
+
+it('requests detailed reasoning summaries unless Codex configuration selects another level', () => {
+  expect(codexRuntimeOverrides({}).model_reasoning_summary).toBe('detailed');
+  expect(
+    codexRuntimeOverrides({ model_reasoning_summary: 'concise' }).model_reasoning_summary,
+  ).toBe('concise');
+});

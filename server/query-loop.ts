@@ -1273,6 +1273,13 @@ async function _runQueryLoopInner(
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
             log.info('compaction completed', { clientId, numCompactions });
+            emit({
+              type: 'token_update',
+              agentContext: agentContextTokens,
+              contextCeiling: CONTEXT_CEILING_TOKENS,
+              turnIndex,
+              numCompactions,
+            });
           }
 
           // Track subagent task lifecycle for interrupt cancellation
