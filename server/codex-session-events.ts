@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { StreamEvent } from '@mitzo/harness';
+import type { ProviderFailure } from '@mitzo/protocol';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
@@ -77,7 +78,7 @@ export class CodexSessionEvents {
   flush() {
     for (const [id] of this.texts) this.complete(id);
   }
-  notification(method: string, params: ObjectValue) {
+  notification(method: string, params: ObjectValue, providerFailure?: ProviderFailure) {
     if (params.threadId !== this.threadId) return;
     if (method === 'turn/started') {
       this.turnFinished = false;
@@ -268,6 +269,7 @@ export class CodexSessionEvents {
         type: 'result',
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
+        ...(providerFailure ? { provider_failure: providerFailure } : {}),
         ...(this.usage ? { usage: this.usage } : {}),
       });
       this.usage = undefined;

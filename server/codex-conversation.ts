@@ -11,6 +11,7 @@ import {
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
+import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 type ObjectValue = Record<string, unknown>;
 interface Rpc {
   initialize(): Promise<void>;
@@ -356,6 +357,19 @@ export class CodexConversation {
     if (this.paused) return;
     await this.pump();
   }
+  async retryLatestFailed(confirmAmbiguous = false) {
+    if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
+    const result = this.opts.store.retryLatestFailed(
+      this.opts.conversationId,
+      this.binding,
+      Date.now(),
+      confirmAmbiguous,
+    );
+    if (result !== 'queued') return result;
+    this.opts.onQueueChange?.();
+    await this.acknowledgeRecovery();
+    return result;
+  }
   async acknowledgeRecovery() {
     if (this.recovery) return this.recovery;
     const operation = this.continueRecovery();
@@ -683,7 +697,7 @@ export class CodexConversation {
       .object({
         id: z.string(),
         status: z.string().optional(),
-        error: z.object({ message: z.string().optional() }).optional().nullable(),
+        error: z.unknown().optional().nullable(),
       })
       .safeParse(params.turn);
     if (method === 'turn/started' && turn.success && this.active) {
@@ -742,6 +756,13 @@ export class CodexConversation {
           : turn.data.status === 'interrupted'
             ? 'interrupted'
             : 'failed';
+      const providerFailure =
+        status === 'failed'
+          ? classifyProviderFailure(turn.data.error, {
+              correlationId: turn.data.id,
+              attempt: this.active.command.attempt,
+            })
+          : undefined;
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
@@ -764,15 +785,20 @@ export class CodexConversation {
           this.active.command.id,
           status,
           providerTransportFailed ? 'fork' : 'resume',
+          providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
+          providerFailure?.retryable ?? true,
+          providerFailure?.ambiguous ?? false,
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';
       if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
-      this.mapper?.notification(method, params);
-      if (status === 'failed')
-        this.opts.onError?.(new Error(codexTurnFailureDiagnostic(turn.data.error)));
+      this.mapper?.notification(method, params, providerFailure);
+      if (providerFailure)
+        this.opts.onError?.(
+          new ProviderFailureError(providerFailure, codexTurnFailureDiagnostic(turn.data.error)),
+        );
       this.opts.onQueueChange?.();
       // Completion can arrive before turn/start resolves. Wait for that request to settle.
       Promise.resolve(this.pumping)

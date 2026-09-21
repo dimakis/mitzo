@@ -1065,6 +1065,77 @@ it('marks failed provider turns as errors without exposing provider diagnostics'
   expect(c.isPaused()).toBe(true);
 });
 
+it('attaches a sanitized typed failure to a failed provider result', async () => {
+  const { c, callbacks, events, onError } = await setup();
+  await c.send({ id: 'overloaded', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'We are experiencing high demand. Bearer sk-secret https://private.example',
+        type: 'service_unavailable_error',
+        code: 'server_is_overloaded',
+        retry_after: 9,
+      },
+    },
+  });
+
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'result',
+      session_id: 'app',
+      is_error: true,
+      provider_failure: {
+        category: 'overloaded',
+        code: 'server_is_overloaded',
+        retryable: true,
+        ambiguous: true,
+        attempt: 1,
+        correlationId: 'turn-1',
+        retryAfterMs: 9_000,
+        message:
+          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+      },
+    }),
+  );
+  expect(onError.mock.calls[0]?.[0]).toMatchObject({
+    failure: expect.objectContaining({ category: 'overloaded', correlationId: 'turn-1' }),
+  });
+  expect(await c.retryLatestFailed()).toBe('too_early');
+  expect(JSON.stringify(events)).not.toContain('sk-secret');
+  expect(JSON.stringify(events)).not.toContain('private.example');
+});
+
+it('retries the saved failed command only after an explicit request', async () => {
+  const { c, callbacks, requests, events } = await setup();
+  await c.send({ id: 'retry-me', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'high demand', code: 'server_is_overloaded' },
+    },
+  });
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+
+  expect(await c.retryLatestFailed(true)).toBe('queued');
+
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(c.queue().find(({ id }) => id === 'retry-me')?.status).toBe('running');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'high demand', code: 'server_is_overloaded' },
+    },
+  });
+  expect(events.at(-1)).toMatchObject({ provider_failure: { attempt: 2 } });
+});
+
 it('maps known failed-turn provider diagnostics without exposing provider payloads', () => {
   expect(
     codexTurnFailureDiagnostic({

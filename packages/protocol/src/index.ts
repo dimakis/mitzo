@@ -51,6 +51,8 @@ export type {
   AgentMemoryConfig,
   AgentOutput,
   AgentOutputConventions,
+  ProviderFailure,
+  ProviderFailureCategory,
 } from './types.js';
 
 // Constants

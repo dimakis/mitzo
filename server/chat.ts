@@ -841,6 +841,7 @@ export async function startChat(
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
 ) {
   return withSpanAsync(
@@ -878,6 +879,7 @@ async function _startChatInner(
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
 ) {
   const openShellAvailable =
@@ -1080,6 +1082,8 @@ async function _startChatInner(
     options.contextBlocks,
   );
   const userIntent = options.userIntent ?? prompt;
+  if (options.reattachOnly && (!options.resume || !codexProfile))
+    throw new Error('Provider-only reattachment requires a resumable Codex conversation');
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1094,7 +1098,7 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  if (!options.reattachOnly) inputQueue.push(makeUserMessage(fullPrompt, 'now'));
 
   if (options.initialSessionId) {
     eventStore.upsertSession({
@@ -1308,16 +1312,17 @@ async function _startChatInner(
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
       const messageId = options.clientMsgId ?? randomUUID();
-      storeAndEchoIfNew(
-        conversationId,
-        messageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
+      if (!options.reattachOnly)
+        storeAndEchoIfNew(
+          conversationId,
+          messageId,
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
       q = await openCodexChat({
         resume: !!options.resume,
         conversationId,
@@ -1344,6 +1349,7 @@ async function _startChatInner(
             bootContext: JSON.stringify(message),
           });
         },
+        reattachOnly: options.reattachOnly,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;

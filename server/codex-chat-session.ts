@@ -41,6 +41,7 @@ import {
 } from './openshell-lifecycle-controller.js';
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
+import { ProviderFailureError } from './provider-failure.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const log = createLogger('codex-chat-session');
@@ -74,6 +75,7 @@ function grantIntegrationTools(providers: string[]) {
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof ProviderFailureError) return error.failure.message;
   const message = error.message;
   if (
     message ===
@@ -166,9 +168,20 @@ export function readCodexQueue(
       recoveryPhase: live?.getRecoveryPhase(),
       queued: summary.queued,
       interrupted: summary.interrupted,
+      failed: summary.failed,
+      retryAvailableAt: summary.retryAvailableAt,
+      retryable: summary.retryable,
+      requiresRetryConfirmation: summary.requiresRetryConfirmation,
     };
   } catch {
-    return { paused: true, connected: false, recovering: false, queued: 0, interrupted: 0 };
+    return {
+      paused: true,
+      connected: false,
+      recovering: false,
+      queued: 0,
+      interrupted: 0,
+      failed: 0,
+    };
   }
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
@@ -194,6 +207,8 @@ interface Options {
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
+  /** Recreate the provider runtime without admitting or replaying user intent. */
+  reattachOnly?: boolean;
 }
 
 export function selectedOpenShellAccountRoute(
@@ -670,7 +685,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           : {}),
         error: publicCodexRuntimeError(error),
       });
-      if (options.session.transport?.isOpen())
+      // Failed provider turns are emitted by the query loop as durable v2 error
+      // events. Sending here would race replay and show the same failure twice.
+      if (!(error instanceof ProviderFailureError) && options.session.transport?.isOpen())
         options.session.transport.send({
           type: 'error',
           sessionId: options.conversationId,
@@ -701,14 +718,15 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
-    await runtime.send({
-      id: options.messageId,
-      prompt: options.prompt,
-      intent: options.intent,
-      model: options.model,
-      reasoningEffort: options.reasoningEffort,
-      images: options.images,
-    });
+    if (!options.reattachOnly)
+      await runtime.send({
+        id: options.messageId,
+        prompt: options.prompt,
+        intent: options.intent,
+        model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        images: options.images,
+      });
   } catch (error) {
     close();
     throw error;

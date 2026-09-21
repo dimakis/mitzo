@@ -21,6 +21,7 @@ import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
+import type { ProviderFailure } from '@mitzo/protocol';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -82,6 +83,8 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
 
 /** Shape of the SDK result event — fields we extract for usage tracking. */
 interface SdkResultEvent {
+  is_error?: boolean;
+  provider_failure?: ProviderFailure;
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -568,6 +571,17 @@ async function _runQueryLoopInner(
 
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
+          const isError = result.is_error === true;
+          const providerFailure = isError ? result.provider_failure : undefined;
+          caughtError ||= isError;
+          if (providerFailure) {
+            emit(
+              v2('error', {
+                error: providerFailure.message,
+                providerFailure,
+              }),
+            );
+          }
           const usageData = {
             inputTokens: result.usage?.input_tokens ?? 0,
             outputTokens: result.usage?.output_tokens ?? 0,
@@ -648,7 +662,14 @@ async function _runQueryLoopInner(
           span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
           span.setAttribute('session.duration_ms', usageData.durationMs);
           span.setAttribute('session.cost_usd', usageData.totalCostUsd);
-          emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+          emit(
+            v2('session_end', {
+              sessionId: msg.session_id,
+              usage: usageData,
+              ...(isError ? { terminalReason: 'failed' } : {}),
+              ...(providerFailure ? { providerFailure } : {}),
+            }),
+          );
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
           if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(

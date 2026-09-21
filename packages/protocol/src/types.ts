@@ -12,6 +12,29 @@ export type BlockType = 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
 
+export type ProviderFailureCategory =
+  | 'overloaded'
+  | 'rate_limited'
+  | 'timeout'
+  | 'transport'
+  | 'policy'
+  | 'context'
+  | 'authentication'
+  | 'unknown';
+
+/** Sanitized provider failure data that is safe to persist and replay. */
+export interface ProviderFailure {
+  category: ProviderFailureCategory;
+  code?: string;
+  retryable: boolean;
+  /** A retry may repeat work whose provider-side outcome is not known. */
+  ambiguous: boolean;
+  attempt: number;
+  correlationId: string;
+  retryAfterMs?: number;
+  message: string;
+}
+
 // --- Agent definition (shared between agent-loader and session-registry) ---
 
 export interface AgentIdentity {

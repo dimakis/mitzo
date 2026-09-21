@@ -407,10 +407,76 @@ it('summarizes metadata without loading the historical command list', () => {
   expect(s.queueSummary('c', binding)).toEqual({
     queued: 1,
     interrupted: 1,
+    failed: 0,
     model: 'test-model',
     reasoningEffort: 'high',
   });
   expect(commands).not.toHaveBeenCalled();
+  s.close();
+});
+
+it('requeues only the latest unacknowledged failed command for an explicit retry', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'older', prompt: 'older failure' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'older', 'failed');
+  s.acknowledgeRecovery('c', binding);
+  s.enqueue('c', binding, { id: 'latest', prompt: 'retry this' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'latest', 'failed');
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, interrupted: 0 });
+  expect(s.retryLatestFailed('c', binding)).toBe('queued');
+  expect(s.commands('c', binding).find(({ id }) => id === 'latest')?.attempt).toBe(2);
+  expect(s.commands('c', binding).map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'older', status: 'failed' },
+    { id: 'latest', status: 'queued' },
+  ]);
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 0, queued: 1 });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_found');
+  s.close();
+});
+
+it('refuses explicit retry for a persisted non-retryable provider failure', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'quota', prompt: 'cannot retry' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'quota', 'failed', 'resume', undefined, false);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, retryable: false });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_retryable');
+  s.close();
+});
+
+it('requires explicit confirmation for an ambiguous failed turn even without a host tool claim', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'ambiguous', prompt: 'write externally' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'ambiguous', 'failed', 'resume', undefined, true, true);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ requiresRetryConfirmation: true });
+  expect(s.retryLatestFailed('c', binding)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, Date.now(), true)).toBe('queued');
+  s.close();
+});
+
+it('does not requeue a failed command before its provider retry window', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ retryAvailableAt: 20_000 });
+  expect(s.retryLatestFailed('c', binding, 19_999)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('queued');
   s.close();
 });
 

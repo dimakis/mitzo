@@ -121,6 +121,23 @@ it('closes an initialization aborted before the first turn starts', async () => 
   expect(mocks.send).not.toHaveBeenCalled();
 });
 
+it('reattaches the provider runtime without admitting or replaying user intent', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const abort = new AbortController();
+  const chat = await openCodexChat({
+    ...options(abort),
+    resume: true,
+    reattachOnly: true,
+    prompt: '',
+    intent: undefined,
+  });
+
+  expect(mocks.initialize).toHaveBeenCalledOnce();
+  expect(mocks.send).not.toHaveBeenCalled();
+  chat.close();
+});
+
 it('waits for cold-reconnect runtime registration', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
