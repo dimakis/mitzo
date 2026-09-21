@@ -1121,7 +1121,7 @@ it('retries the saved failed command only after an explicit request', async () =
   });
   expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
 
-  await c.retryLatestFailed();
+  expect(await c.retryLatestFailed(true)).toBe('queued');
 
   expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
   expect(c.queue().find(({ id }) => id === 'retry-me')?.status).toBe('running');
