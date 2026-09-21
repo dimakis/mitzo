@@ -41,6 +41,7 @@ import {
 } from './openshell-lifecycle-controller.js';
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
+import { ProviderFailureError } from './provider-failure.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 const log = createLogger('codex-chat-session');
@@ -74,6 +75,7 @@ function grantIntegrationTools(providers: string[]) {
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof ProviderFailureError) return error.failure.message;
   const message = error.message;
   if (
     message ===
@@ -670,7 +672,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           : {}),
         error: publicCodexRuntimeError(error),
       });
-      if (options.session.transport?.isOpen())
+      // Failed provider turns are emitted by the query loop as durable v2 error
+      // events. Sending here would race replay and show the same failure twice.
+      if (!(error instanceof ProviderFailureError) && options.session.transport?.isOpen())
         options.session.transport.send({
           type: 'error',
           sessionId: options.conversationId,

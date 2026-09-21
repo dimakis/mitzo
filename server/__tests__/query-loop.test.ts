@@ -870,6 +870,53 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
     });
 
+    it('persists a provider failure before its failed terminal event', async () => {
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-provider-failure';
+      const failure = {
+        category: 'overloaded',
+        code: 'server_is_overloaded',
+        retryable: true,
+        ambiguous: true,
+        attempt: 1,
+        correlationId: 'turn-overloaded',
+        retryAfterMs: 5_000,
+        message:
+          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+      };
+
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'result',
+            session_id: 'sess-provider-failure',
+            is_error: true,
+            provider_failure: failure,
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+      );
+
+      const stored = store.getSessionEvents('sess-provider-failure');
+      const failureEvent = stored.find((event) => event.type === 'error');
+      const terminalEvent = stored.find((event) => event.type === 'session_end');
+      expect(failureEvent?.payload).toMatchObject({
+        error: failure.message,
+        providerFailure: failure,
+      });
+      expect(terminalEvent?.payload).toMatchObject({
+        terminalReason: 'failed',
+        providerFailure: failure,
+      });
+      expect(failureEvent!.seq).toBeLessThan(terminalEvent!.seq);
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({ type: 'error', providerFailure: failure }),
+      );
+    });
+
     it('injects seq into sent transport messages when store is provided', async () => {
       const session = registry.get(clientId)!;
       session.sessionId = 'sess-seq';

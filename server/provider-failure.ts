@@ -118,3 +118,13 @@ export function classifyProviderFailure(
     message: PUBLIC_MESSAGES[category],
   };
 }
+
+export class ProviderFailureError extends Error {
+  constructor(
+    readonly failure: ProviderFailure,
+    diagnostic = failure.message,
+  ) {
+    super(diagnostic);
+    this.name = 'ProviderFailureError';
+  }
+}
