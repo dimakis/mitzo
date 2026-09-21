@@ -16,7 +16,7 @@ interface Dependencies {
   retry(
     sessionId: string,
     binding: AccountBinding,
-  ): Promise<'queued' | 'not_found' | 'unavailable'>;
+  ): Promise<'queued' | 'not_found' | 'unavailable' | 'too_early'>;
 }
 /** Mounted after application authentication. Only saved, unclaimed work can be cancelled. */
 export function createCodexQueueRouter(deps: Dependencies) {
@@ -47,6 +47,10 @@ export function createCodexQueueRouter(deps: Dependencies) {
       }
       if (result === 'unavailable') {
         res.status(409).json({ error: 'Reconnect this task before retrying the saved turn.' });
+        return;
+      }
+      if (result === 'too_early') {
+        res.status(429).json({ error: 'OpenAI asked us to wait before retrying this turn.' });
         return;
       }
       res.json({ ok: true, status: 'queued' });

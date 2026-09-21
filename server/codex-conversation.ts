@@ -360,7 +360,7 @@ export class CodexConversation {
   async retryLatestFailed() {
     if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
     const result = this.opts.store.retryLatestFailed(this.opts.conversationId, this.binding);
-    if (result === 'not_found') return result;
+    if (result !== 'queued') return result;
     this.opts.onQueueChange?.();
     await this.acknowledgeRecovery();
     return result;
@@ -751,6 +751,10 @@ export class CodexConversation {
           : turn.data.status === 'interrupted'
             ? 'interrupted'
             : 'failed';
+      const providerFailure =
+        status === 'failed'
+          ? classifyProviderFailure(turn.data.error, { correlationId: turn.data.id })
+          : undefined;
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
@@ -773,16 +777,13 @@ export class CodexConversation {
           this.active.command.id,
           status,
           providerTransportFailed ? 'fork' : 'resume',
+          providerFailure?.retryAfterMs ? Date.now() + providerFailure.retryAfterMs : undefined,
         );
       this.active = undefined;
       this.paused ||= status !== 'completed';
       if (status === 'completed') this.automaticTransportRecoveryAttempted = false;
       if (recoverQueuedFollowUp) this.automaticTransportRecoveryAttempted = true;
       if (providerTransportFailed) this.retireTransportForRecovery();
-      const providerFailure =
-        status === 'failed'
-          ? classifyProviderFailure(turn.data.error, { correlationId: turn.data.id })
-          : undefined;
       this.mapper?.notification(method, params, providerFailure);
       if (providerFailure)
         this.opts.onError?.(

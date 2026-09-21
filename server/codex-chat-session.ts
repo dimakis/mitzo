@@ -169,6 +169,7 @@ export function readCodexQueue(
       queued: summary.queued,
       interrupted: summary.interrupted,
       failed: summary.failed,
+      retryAvailableAt: summary.retryAvailableAt,
     };
   } catch {
     return {

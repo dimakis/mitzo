@@ -1103,6 +1103,7 @@ it('attaches a sanitized typed failure to a failed provider result', async () =>
   expect(onError.mock.calls[0]?.[0]).toMatchObject({
     failure: expect.objectContaining({ category: 'overloaded', correlationId: 'turn-1' }),
   });
+  expect(await c.retryLatestFailed()).toBe('too_early');
   expect(JSON.stringify(events)).not.toContain('sk-secret');
   expect(JSON.stringify(events)).not.toContain('private.example');
 });

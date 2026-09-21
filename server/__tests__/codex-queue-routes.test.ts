@@ -11,7 +11,7 @@ const binding = {
 };
 function setup(
   result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled',
-  retryResult: 'queued' | 'not_found' | 'unavailable' = 'queued',
+  retryResult: 'queued' | 'not_found' | 'unavailable' | 'too_early' = 'queued',
 ) {
   const cancel = vi.fn(() => result);
   const retry = vi.fn(async () => retryResult);
@@ -66,6 +66,7 @@ it.each([
   ['queued', 200],
   ['not_found', 409],
   ['unavailable', 409],
+  ['too_early', 429],
 ] as const)('returns %s retry outcome', async (result, status) => {
   const { app, retry } = setup('cancelled', result);
   await request(app).post('/api/sessions/known/codex-queue/retry').expect(status);

@@ -438,6 +438,20 @@ it('requeues only the latest unacknowledged failed command for an explicit retry
   s.close();
 });
 
+it('does not requeue a failed command before its provider retry window', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ retryAvailableAt: 20_000 });
+  expect(s.retryLatestFailed('c', binding, 19_999)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('queued');
+  s.close();
+});
+
 it('preserves an explicit reasoning reset separately from an omitted value in metadata', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

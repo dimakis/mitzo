@@ -85,7 +85,8 @@ export class CodexConversationStore {
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
-        recovery_acknowledged INTEGER NOT NULL DEFAULT 0, UNIQUE(conversation_id,id));
+        recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
+        UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
         PRIMARY KEY(conversation_id,call_id),
@@ -137,6 +138,8 @@ export class CodexConversationStore {
           WHERE status IN ('interrupted','failed')
             AND conversation_id IN (SELECT id FROM codex_conversations WHERE recovery=0)`);
       }
+      if (!columns.some((column) => column.name === 'retry_not_before'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN retry_not_before INTEGER');
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -304,6 +307,11 @@ export class CodexConversationStore {
           reasoning_effort_type: string | null;
         }
       | undefined;
+    const failed = this.db
+      .prepare(
+        "SELECT retry_not_before FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+      )
+      .get(id) as { retry_not_before: number | null } | undefined;
     return {
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
@@ -313,6 +321,7 @@ export class CodexConversationStore {
       // an explicit JSON null. json_type keeps the user's explicit reset.
       reasoningEffort:
         latest?.reasoning_effort_type === null ? undefined : latest?.reasoning_effort,
+      ...(failed?.retry_not_before ? { retryAvailableAt: failed.retry_not_before } : {}),
     };
   }
   /** Lifecycle callers must use this raw snapshot rather than the UI-oriented
@@ -367,18 +376,23 @@ export class CodexConversationStore {
   }
   /** Explicit retry reuses the command identity so claimed tool calls remain
    * deduplicated if the failed provider turn had ambiguous side effects. */
-  retryLatestFailed(id: string, b: AccountBinding): 'queued' | 'not_found' {
+  retryLatestFailed(
+    id: string,
+    b: AccountBinding,
+    now = Date.now(),
+  ): 'queued' | 'not_found' | 'too_early' {
     return this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          "SELECT id FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+          "SELECT id,retry_not_before FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
         )
-        .get(id) as { id: string } | undefined;
+        .get(id) as { id: string; retry_not_before: number | null } | undefined;
       if (!row) return 'not_found';
+      if (row.retry_not_before && now < row.retry_not_before) return 'too_early';
       this.db
         .prepare(
-          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1 WHERE conversation_id=? AND id=? AND status='failed'",
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1, retry_not_before=NULL WHERE conversation_id=? AND id=? AND status='failed'",
         )
         .run(id, row.id);
       return 'queued';
@@ -428,6 +442,7 @@ export class CodexConversationStore {
     commandId?: string,
     status: 'interrupted' | 'failed' = 'interrupted',
     recoveryStrategy: 'resume' | 'fork' = 'resume',
+    retryNotBefore?: number,
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -439,9 +454,9 @@ export class CodexConversationStore {
       if (commandId)
         this.db
           .prepare(
-            "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
+            "UPDATE codex_commands SET status=?, recovery_acknowledged=0, retry_not_before=? WHERE conversation_id=? AND id=? AND status='running'",
           )
-          .run(status, id, commandId);
+          .run(status, retryNotBefore ?? null, id, commandId);
       if (pending)
         this.db
           .prepare(

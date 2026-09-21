@@ -168,6 +168,26 @@ it('offers an explicit retry for the saved failed turn without queued follow-ups
   expect(await screen.findByText('Retrying the saved turn.')).toBeTruthy();
 });
 
+it('honors the provider retry window before enabling the saved turn', async () => {
+  const retryAvailableAt = Date.now() + 9_000;
+  vi.mocked(apiFetch).mockResolvedValue(
+    meta({
+      paused: true,
+      connected: true,
+      queued: 0,
+      interrupted: 0,
+      failed: 1,
+      retryAvailableAt,
+      recovering: false,
+    }),
+  );
+
+  render(<CodexQueueStatus sessionId="delayed" />);
+  expect(await screen.findByText(/OpenAI asked us to wait/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Retry in/ }).hasAttribute('disabled')).toBe(true);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
 it('hides to an edge control outside the status layout and stays hidden through polling', async () => {
   vi.useFakeTimers();
   vi.mocked(apiFetch).mockResolvedValue(
