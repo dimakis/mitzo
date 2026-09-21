@@ -167,7 +167,8 @@ it('maps native OpenAI failures to the shared sanitized provider envelope', asyn
     mcpServers: {},
     store: {} as never,
   });
-  const events = await Array.fromAsync(chat);
+  const events = [];
+  for await (const event of chat) events.push(event);
   expect(events.at(-1)).toMatchObject({
     type: 'result',
     session_id: 'app',
