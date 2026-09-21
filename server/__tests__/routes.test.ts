@@ -1327,6 +1327,7 @@ describe('account catalog routes', () => {
         recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
+        failed: 0,
       })
       .mockReturnValueOnce({
         model: 'gpt-test',
@@ -1337,6 +1338,7 @@ describe('account catalog routes', () => {
         recoveryPhase: undefined,
         queued: 0,
         interrupted: 0,
+        failed: 0,
       });
     try {
       const legacy = await request(app)
@@ -1379,6 +1381,7 @@ describe('account catalog routes', () => {
       recovering: false,
       queued: 0,
       interrupted: 0,
+      failed: 0,
     });
   });
 });

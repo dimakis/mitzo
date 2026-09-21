@@ -168,9 +168,17 @@ export function readCodexQueue(
       recoveryPhase: live?.getRecoveryPhase(),
       queued: summary.queued,
       interrupted: summary.interrupted,
+      failed: summary.failed,
     };
   } catch {
-    return { paused: true, connected: false, recovering: false, queued: 0, interrupted: 0 };
+    return {
+      paused: true,
+      connected: false,
+      recovering: false,
+      queued: 0,
+      interrupted: 0,
+      failed: 0,
+    };
   }
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,

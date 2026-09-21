@@ -9,8 +9,12 @@ const binding = {
   model: 'm',
   profileRevision: 'r',
 };
-function setup(result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled') {
+function setup(
+  result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled',
+  retryResult: 'queued' | 'not_found' | 'unavailable' = 'queued',
+) {
   const cancel = vi.fn(() => result);
+  const retry = vi.fn(async () => retryResult);
   const app = express();
   app.use(
     '/api/sessions',
@@ -22,9 +26,10 @@ function setup(result: 'cancelled' | 'not_queued' | 'not_found' = 'cancelled') {
         hasMore: false,
       }),
       cancel,
+      retry,
     }),
   );
-  return { app, cancel };
+  return { app, cancel, retry };
 }
 it('lists only waiting summaries and cancelled tombstone IDs', async () => {
   const { app } = setup();
@@ -56,4 +61,18 @@ it('does not expose binding or storage errors to the client', async () => {
   });
   const res = await request(app).post('/api/sessions/known/codex-queue/waiting/cancel').expect(409);
   expect(JSON.stringify(res.body)).not.toContain('private binding detail');
+});
+it.each([
+  ['queued', 200],
+  ['not_found', 409],
+  ['unavailable', 409],
+] as const)('returns %s retry outcome', async (result, status) => {
+  const { app, retry } = setup('cancelled', result);
+  await request(app).post('/api/sessions/known/codex-queue/retry').expect(status);
+  expect(retry).toHaveBeenCalledWith('known', binding);
+});
+it('does not retry an unknown conversation', async () => {
+  const { app, retry } = setup();
+  await request(app).post('/api/sessions/other/codex-queue/retry').expect(404);
+  expect(retry).not.toHaveBeenCalled();
 });

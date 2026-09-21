@@ -1,6 +1,7 @@
 import { AccountAliases } from './account-aliases.js';
 import {
   readCodexQueue,
+  getCodexRuntime,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
@@ -1547,6 +1548,11 @@ app.use(
     overview: readCodexQueueOverview,
     cancel: (id, binding, commandId) =>
       cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    retry: async (id) => {
+      const session = registry.findBySessionId(id)?.session;
+      const runtime = session ? getCodexRuntime(session) : undefined;
+      return runtime ? runtime.retryLatestFailed() : 'unavailable';
+    },
   }),
 );
 

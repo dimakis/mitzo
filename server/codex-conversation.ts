@@ -357,6 +357,14 @@ export class CodexConversation {
     if (this.paused) return;
     await this.pump();
   }
+  async retryLatestFailed() {
+    if (!this.binding || this.closed) throw new Error('Codex conversation unavailable');
+    const result = this.opts.store.retryLatestFailed(this.opts.conversationId, this.binding);
+    if (result === 'not_found') return result;
+    this.opts.onQueueChange?.();
+    await this.acknowledgeRecovery();
+    return result;
+  }
   async acknowledgeRecovery() {
     if (this.recovery) return this.recovery;
     const operation = this.continueRecovery();

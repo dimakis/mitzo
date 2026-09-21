@@ -290,9 +290,9 @@ export class CodexConversationStore {
     this.read(id, b);
     const counts = this.db
       .prepare(
-        "SELECT SUM(status='queued') AS queued, SUM(status IN ('interrupted','failed')) AS interrupted FROM codex_commands WHERE conversation_id=?",
+        "SELECT SUM(status='queued') AS queued, SUM(status='interrupted' AND recovery_acknowledged=0) AS interrupted, SUM(status='failed' AND recovery_acknowledged=0) AS failed FROM codex_commands WHERE conversation_id=?",
       )
-      .get(id) as { queued: number | null; interrupted: number | null };
+      .get(id) as { queued: number | null; interrupted: number | null; failed: number | null };
     const latest = this.db
       .prepare(
         "SELECT json_extract(input, '$.model') AS model, json_extract(input, '$.reasoningEffort') AS reasoning_effort, json_type(input, '$.reasoningEffort') AS reasoning_effort_type FROM codex_commands WHERE conversation_id=? ORDER BY sequence DESC LIMIT 1",
@@ -307,6 +307,7 @@ export class CodexConversationStore {
     return {
       queued: counts.queued ?? 0,
       interrupted: counts.interrupted ?? 0,
+      failed: counts.failed ?? 0,
       model: latest?.model ?? b.model,
       // SQLite's json_extract returns null for either an omitted property or
       // an explicit JSON null. json_type keeps the user's explicit reset.
@@ -362,6 +363,25 @@ export class CodexConversationStore {
       if (!unresolved)
         this.db.prepare('UPDATE codex_conversations SET recovery=0 WHERE id=?').run(id);
       return 'cancelled';
+    })();
+  }
+  /** Explicit retry reuses the command identity so claimed tool calls remain
+   * deduplicated if the failed provider turn had ambiguous side effects. */
+  retryLatestFailed(id: string, b: AccountBinding): 'queued' | 'not_found' {
+    return this.db.transaction(() => {
+      this.read(id, b);
+      const row = this.db
+        .prepare(
+          "SELECT id FROM codex_commands WHERE conversation_id=? AND status='failed' AND recovery_acknowledged=0 ORDER BY sequence DESC LIMIT 1",
+        )
+        .get(id) as { id: string } | undefined;
+      if (!row) return 'not_found';
+      this.db
+        .prepare(
+          "UPDATE codex_commands SET status='queued', recovery_acknowledged=1 WHERE conversation_id=? AND id=? AND status='failed'",
+        )
+        .run(id, row.id);
+      return 'queued';
     })();
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {

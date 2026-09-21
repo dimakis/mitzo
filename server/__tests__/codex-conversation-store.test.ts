@@ -407,10 +407,34 @@ it('summarizes metadata without loading the historical command list', () => {
   expect(s.queueSummary('c', binding)).toEqual({
     queued: 1,
     interrupted: 1,
+    failed: 0,
     model: 'test-model',
     reasoningEffort: 'high',
   });
   expect(commands).not.toHaveBeenCalled();
+  s.close();
+});
+
+it('requeues only the latest unacknowledged failed command for an explicit retry', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'older', prompt: 'older failure' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'older', 'failed');
+  s.acknowledgeRecovery('c', binding);
+  s.enqueue('c', binding, { id: 'latest', prompt: 'retry this' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'latest', 'failed');
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, interrupted: 0 });
+  expect(s.retryLatestFailed('c', binding)).toBe('queued');
+  expect(s.commands('c', binding).map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'older', status: 'failed' },
+    { id: 'latest', status: 'queued' },
+  ]);
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 0, queued: 1 });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_found');
   s.close();
 });
 

@@ -131,6 +131,43 @@ it('keeps the reconnect fallback available when recovery fails', async () => {
   expect(screen.getByRole('button', { name: 'Reconnect and continue' })).toBeTruthy();
 });
 
+it('offers an explicit retry for the saved failed turn without queued follow-ups', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(
+      meta({
+        paused: true,
+        connected: true,
+        queued: 0,
+        interrupted: 0,
+        failed: 1,
+        recovering: false,
+      }),
+    )
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({
+        paused: false,
+        connected: true,
+        queued: 0,
+        interrupted: 0,
+        failed: 0,
+        recovering: false,
+      }),
+    );
+
+  render(<CodexQueueStatus sessionId="failed" />);
+  expect(await screen.findByText('Previous turn failed. Retry when available.')).toBeTruthy();
+  await userEvent.click(screen.getByRole('button', { name: 'Retry saved turn' }));
+
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith('/api/sessions/failed/codex-queue/retry', {
+      method: 'POST',
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  expect(await screen.findByText('Retrying the saved turn.')).toBeTruthy();
+});
+
 it('hides to an edge control outside the status layout and stays hidden through polling', async () => {
   vi.useFakeTimers();
   vi.mocked(apiFetch).mockResolvedValue(
