@@ -1786,7 +1786,7 @@ describe('handleSendV2 routing', () => {
     expect(startChat).not.toHaveBeenCalled();
   });
 
-  it('sends skill_invoked event for skill commands', () => {
+  it('sends skill_invoked event for admitted skill commands', async () => {
     // Reset resolveSlashCommand to plain first, then set skill for this test
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReset();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
@@ -1796,13 +1796,15 @@ describe('handleSendV2 routing', () => {
       allowedTools: ['Bash'],
       arguments: '-m "test"',
     });
-    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (startChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (_transport, _clientId, _prompt, options) => options.onStartupAdmission?.(),
+    );
 
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    await handleSendV2(
       'c1',
       transport,
       {
@@ -2613,6 +2615,32 @@ describe('handleSendV2 state-based routing', () => {
       'c1',
       transport,
       { type: 'send', sessionId: 'sess-1', prompt: '/commit -m "test"', clientMsgId: 'skill-1' },
+      ctx,
+    );
+
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'skill_invoked' }));
+  });
+
+  it('does not emit skill_invoked when startup admission fails', async () => {
+    vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+      type: 'skill',
+      name: 'commit',
+      renderedPrompt: 'Create a commit...',
+      allowedTools: ['Bash'],
+      arguments: '-m "test"',
+    });
+    vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
+      options.onStartupAdmission?.(new Error('admission storage failed'));
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: null, prompt: '/commit -m "test"', clientMsgId: 'skill-2' },
       ctx,
     );
 

@@ -90,6 +90,40 @@ describe('provider execution admission', () => {
     }
   });
 
+  it('rejects reuse of a command identity through a different account binding', () => {
+    const store = new EventStore(':memory:');
+    store.upsertSession({ sessionId: 'session-1' });
+    const base = {
+      sessionId: 'session-1',
+      clientMsgId: 'command-account',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      accountBinding: {
+        accountId: 'work',
+        provider: 'openai',
+        profileRevision: 'revision-1',
+      },
+    };
+
+    try {
+      admitProviderDispatch({ store, request: base, prepare: () => {} });
+      expect(() =>
+        preflightProviderDispatch(store, {
+          ...base,
+          accountBinding: { ...base.accountBinding, accountId: 'personal' },
+        }),
+      ).toThrow(/fingerprint/i);
+      expect(() =>
+        preflightProviderDispatch(store, {
+          ...base,
+          accountBinding: { ...base.accountBinding, profileRevision: 'revision-2' },
+        }),
+      ).toThrow(/fingerprint/i);
+    } finally {
+      store.close();
+    }
+  });
+
   it('terminalizes a failed preparation without creating a provider attempt', () => {
     const store = new EventStore(':memory:');
     store.upsertSession({ sessionId: 'session-1' });

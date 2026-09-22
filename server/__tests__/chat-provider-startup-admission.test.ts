@@ -455,6 +455,52 @@ it('terminalizes an admitted startup when native runtime initialization fails', 
   }
 });
 
+it('terminalizes and removes staged runtime state when setup fails after admission', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-native-post-admission-failure-'));
+  await writeFile(join(root, '.mitzo.json'), '{}');
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const sessionId = '88888888-8888-4888-8888-888888888888';
+  const setSessionState = chat.eventStore.setSessionState.bind(chat.eventStore);
+  vi.spyOn(chat.eventStore, 'setSessionState').mockImplementation((id, state, detail) => {
+    if (state === 'CREATED') throw new Error('session state storage failed');
+    return setSessionState(id, state, detail);
+  });
+
+  try {
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'post-admission-failure', 'queued', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'gpt-test',
+        accountProfiles: profiles(),
+        initialSessionId: sessionId,
+        clientMsgId: 'post-admission-failure',
+      }),
+    ).rejects.toThrow('session state storage failed');
+
+    const admission = chat.eventStore.getExecutionAdmission(sessionId, 'post-admission-failure');
+    expect(admission).toBeDefined();
+    expect(chat.eventStore.getProviderAttempts(admission!.token)).toEqual([]);
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'startup_failed',
+      state: 'ENDED',
+    });
+    expect(chat.registry.get('post-admission-failure')).toBeUndefined();
+    expect(native.construct).not.toHaveBeenCalled();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it('does not create runtime or transcript side effects when admission storage fails', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-native-admission-storage-failure-'));

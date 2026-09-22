@@ -604,3 +604,34 @@ export function resolveAccountSelection(
   if (resuming) throw new Error('Existing legacy tasks cannot change accounts. Start a new task.');
   return (profiles ?? loadAccountProfiles()).resolve(selection.accountId, selection.model);
 }
+
+/** Normalize the model and reasoning pair once for startup admission and dispatch. */
+export function resolveEffectiveAccountSelection(
+  selection: {
+    accountId?: string;
+    model?: string;
+    reasoningEffort?: string | null;
+  },
+  stored: { selectedModel?: string | null; reasoningEffort?: string | null } | null | undefined,
+  binding: AccountBinding | undefined,
+): { model?: string; reasoningEffort?: string | null } {
+  if (!binding) {
+    return { model: selection.model, reasoningEffort: selection.reasoningEffort };
+  }
+  const storedModel = stored?.selectedModel ?? binding.model;
+  if (!selection.accountId) {
+    return {
+      model: storedModel,
+      reasoningEffort: stored?.reasoningEffort ?? undefined,
+    };
+  }
+  return {
+    model: selection.model ?? storedModel,
+    reasoningEffort:
+      selection.reasoningEffort !== undefined
+        ? selection.reasoningEffort
+        : selection.model && selection.model !== storedModel
+          ? null
+          : (stored?.reasoningEffort ?? undefined),
+  };
+}

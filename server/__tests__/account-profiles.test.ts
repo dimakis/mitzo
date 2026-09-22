@@ -1,5 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AccountProfiles, LEGACY_MODELS, resolveAccountSelection } from '../account-profiles.js';
+import {
+  AccountProfiles,
+  LEGACY_MODELS,
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+} from '../account-profiles.js';
 import { V2SendMessage } from '@mitzo/protocol';
 
 const brokerDiscovery = vi.hoisted(() => ({
@@ -133,6 +138,17 @@ describe('explicit account binding', () => {
 });
 
 describe('saved selection policy', () => {
+  it('resets omitted reasoning when an explicit startup selection changes model', () => {
+    const binding = new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6');
+    expect(
+      resolveEffectiveAccountSelection(
+        { accountId: 'work', model: 'other' },
+        { selectedModel: 'claude-sonnet-4-6', reasoningEffort: 'high' },
+        binding,
+      ),
+    ).toEqual({ model: 'other', reasoningEffort: null });
+  });
+
   it('never upgrades a legacy session into a different billing account', async () => {
     const { resolveAccountSelection } = await import('../account-profiles.js');
     expect(() =>

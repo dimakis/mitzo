@@ -1,5 +1,9 @@
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
-import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
+import {
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+  loadAccountProfiles,
+} from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -547,16 +551,33 @@ export function handleSendV2(
               rejectStartupAdmission = reject;
             })
           : undefined;
+        let emitSkillInvoked = () => {};
+        let skillInvoked = false;
         const onStartupAdmission = (error?: unknown) => {
           if (error) rejectStartupAdmission?.(error);
-          else resolveStartupAdmission?.();
+          else {
+            if (!skillInvoked) {
+              emitSkillInvoked();
+              skillInvoked = true;
+            }
+            resolveStartupAdmission?.();
+          }
         };
-        const storedBinding = msg.sessionId
-          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
-          : null;
+        const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
+        const storedBinding = storedMeta?.accountBinding;
         const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
         // Validation-only gate before dispatch; startup revalidates against this same snapshot.
-        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
+        const accountBinding = resolveAccountSelection(
+          msg,
+          storedBinding,
+          !!msg.sessionId,
+          accountProfiles,
+        );
+        const effectiveSelection = resolveEffectiveAccountSelection(
+          msg,
+          storedMeta,
+          accountBinding,
+        );
         const rawCwd = msg.cwd || BASE_REPO;
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
@@ -595,7 +616,7 @@ export function handleSendV2(
         const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
-        const emitSkillInvoked = () => {
+        emitSkillInvoked = () => {
           if (resolution.type !== 'skill') return;
           transport.send({
             type: 'skill_invoked',
@@ -628,7 +649,6 @@ export function handleSendV2(
             storeState !== 'CLOSING' &&
             storeState !== null;
           if (!routesToActiveRuntime) {
-            const meta = ctx.eventStore.getSession(sessionId);
             const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
               sessionId,
               clientMsgId: msg.clientMsgId,
@@ -636,16 +656,13 @@ export function handleSendV2(
               cwd,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
-              model: msg.accountId ? msg.model : (meta?.selectedModel ?? undefined),
-              reasoningEffort: msg.accountId
-                ? msg.reasoningEffort
-                : (meta?.reasoningEffort ?? undefined),
+              model: effectiveSelection.model,
+              reasoningEffort: effectiveSelection.reasoningEffort,
             });
             if (duplicate) {
               log.info('duplicate cold provider send', { connectionId, sessionId });
               return;
             }
-            emitSkillInvoked();
           }
 
           // Phase 2: detect state mismatches (observability only)
@@ -770,8 +787,8 @@ export function handleSendV2(
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
             cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -802,8 +819,8 @@ export function handleSendV2(
             cwd,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
           });
           if (duplicate) {
             log.info('duplicate initial provider send', {
@@ -812,7 +829,6 @@ export function handleSendV2(
             });
             return;
           }
-          emitSkillInvoked();
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
@@ -822,8 +838,8 @@ export function handleSendV2(
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
             cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,

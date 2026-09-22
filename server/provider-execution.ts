@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ExecutionToken } from '@mitzo/protocol';
+import type { AccountBinding, ExecutionToken } from '@mitzo/protocol';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import type { EventStore } from './event-store.js';
 
@@ -10,6 +10,7 @@ export interface ProviderDispatchRequest {
   fingerprintSource?: string;
   model?: string;
   reasoningEffort?: string | null;
+  accountBinding?: Pick<AccountBinding, 'accountId' | 'provider' | 'profileRevision'>;
 }
 
 export interface ProviderDispatchAdmission {
@@ -29,6 +30,13 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
           specified: request.reasoningEffort !== undefined,
           value: request.reasoningEffort ?? null,
         },
+        accountBinding: request.accountBinding
+          ? {
+              accountId: request.accountBinding.accountId,
+              provider: request.accountBinding.provider,
+              profileRevision: request.accountBinding.profileRevision,
+            }
+          : null,
       }),
     )
     .digest('base64url');

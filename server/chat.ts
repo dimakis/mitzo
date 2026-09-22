@@ -22,6 +22,7 @@ import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
+  resolveEffectiveAccountSelection,
   LEGACY_MODELS,
   type AccountProfiles,
 } from './account-profiles.js';
@@ -867,6 +868,7 @@ export async function startChat(
     reattachOnly?: boolean;
   },
 ) {
+  const startupGuard: { admission?: ProviderDispatchAdmission } = {};
   return withSpanAsync(
     'chat.start',
     {
@@ -874,11 +876,15 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => _startChatInner(transport, clientId, prompt, options),
-  ).catch((error: unknown) => {
-    options.onStartupAdmission?.(error);
-    throw error;
-  });
+    async () => _startChatInner(transport, clientId, prompt, options, startupGuard),
+  )
+    .catch((error: unknown) => {
+      options.onStartupAdmission?.(error);
+      throw error;
+    })
+    .finally(() => {
+      cleanupUndispatchedStartup(startupGuard.admission, clientId);
+    });
 }
 
 async function _startChatInner(
@@ -908,6 +914,7 @@ async function _startChatInner(
     userIntent?: string;
     reattachOnly?: boolean;
   },
+  startupGuard: { admission?: ProviderDispatchAdmission },
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -936,16 +943,7 @@ async function _startChatInner(
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
-        model: options.accountId
-          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
-          : (storedMeta?.selectedModel ?? accountBinding.model),
-        reasoningEffort: options.accountId
-          ? options.reasoningEffort !== undefined
-            ? options.reasoningEffort
-            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
-              ? null
-              : storedMeta?.reasoningEffort
-          : storedMeta?.reasoningEffort,
+        ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
       };
       if (
         accountBinding.provider === 'openai' ||
@@ -1096,6 +1094,7 @@ async function _startChatInner(
           fingerprintSource: providerFingerprintSource(stablePrompt, options.images),
           model: options.model,
           reasoningEffort: options.reasoningEffort,
+          accountBinding,
         },
         prepare: () => {},
       });
@@ -1103,6 +1102,7 @@ async function _startChatInner(
         options.onStartupAdmission?.();
         return;
       }
+      startupGuard.admission = initialProviderAdmission;
     } catch (err: unknown) {
       options.onStartupAdmission?.(err);
       send(transport, {
@@ -1626,28 +1626,7 @@ async function _startChatInner(
   } catch (err: unknown) {
     options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
-    if (initialProviderAdmission) {
-      const current = eventStore.getSession(initialProviderAdmission.token.sessionId);
-      if (
-        current?.executionId === initialProviderAdmission.token.executionId &&
-        current.executionGeneration === initialProviderAdmission.token.generation &&
-        current.executionPhase === 'RUNNING' &&
-        eventStore.getProviderAttempts(initialProviderAdmission.token).length === 0
-      ) {
-        try {
-          eventStore.transitionExecution(
-            initialProviderAdmission.token,
-            'TERMINAL',
-            'startup_failed',
-          );
-        } catch (cleanupError) {
-          log.warn('could not persist native startup failure; restart recovery required', {
-            sessionId: initialProviderAdmission.token.sessionId,
-            error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
-          });
-        }
-      }
-    }
+    terminalizeUndispatchedStartup(initialProviderAdmission);
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
@@ -1660,7 +1639,10 @@ async function _startChatInner(
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
+        clientId,
+        reason: 'startup_failed',
+      });
     }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
@@ -1785,6 +1767,57 @@ function providerFingerprintSource(
   return JSON.stringify({ effectivePrompt: stablePrompt, images });
 }
 
+function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | undefined): boolean {
+  if (!admission) return false;
+  const current = eventStore.getSession(admission.token.sessionId);
+  if (
+    current?.executionId !== admission.token.executionId ||
+    current.executionGeneration !== admission.token.generation ||
+    current.executionPhase !== 'RUNNING' ||
+    eventStore.getProviderAttempts(admission.token).length > 0
+  ) {
+    return false;
+  }
+  try {
+    eventStore.transitionExecution(admission.token, 'TERMINAL', 'startup_failed');
+  } catch (cleanupError) {
+    log.warn('could not persist native startup failure; restart recovery required', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  return true;
+}
+
+function cleanupUndispatchedStartup(
+  admission: ProviderDispatchAdmission | undefined,
+  clientId: string,
+): void {
+  if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
+  terminalizeUndispatchedStartup(admission);
+  const current = eventStore.getSession(admission.token.sessionId);
+  const failedBeforeDispatch =
+    current?.executionId === admission.token.executionId &&
+    current.executionGeneration === admission.token.generation &&
+    current.executionPhase === 'TERMINAL' &&
+    current.executionTerminalReason === 'startup_failed';
+  if (!failedBeforeDispatch) return;
+  try {
+    eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
+      clientId,
+      reason: 'startup_failed',
+    });
+  } catch (cleanupError) {
+    log.warn('could not persist failed native startup state', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  const failedSession = registry.get(clientId);
+  if (failedSession) cleanupSessionWorktrees(failedSession);
+  registry.abort(clientId);
+}
+
 /**
  * Consult durable native-provider admission before a registry-missing resume
  * route performs takeover, watch, transcript, or runtime side effects.
@@ -1827,6 +1860,7 @@ export function preflightStartupProviderCommand(
     model: request.model ?? meta.selectedModel ?? binding.model,
     reasoningEffort:
       request.reasoningEffort !== undefined ? request.reasoningEffort : meta.reasoningEffort,
+    accountBinding: binding,
   });
 }
 
@@ -1907,6 +1941,7 @@ export async function sendToChat(
           throw new Error('Native Responses conversation already running');
         }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
+        const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
         const prepare = () =>
           responses.prepare(messageId, fullPrompt, {
             ...(model ? { model } : {}),
@@ -1923,6 +1958,7 @@ export async function sendToChat(
             fingerprintSource: providerFingerprintSource(fullPrompt, images),
             model,
             reasoningEffort,
+            accountBinding: binding,
           },
           prepare,
         });
@@ -2080,6 +2116,7 @@ export function preflightChatCommand(
   const session = registry.get(clientId);
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
   const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
   return preflightProviderDispatch(eventStore, {
     sessionId: session.sessionId,
     clientMsgId,
@@ -2087,6 +2124,7 @@ export function preflightChatCommand(
     fingerprintSource: providerFingerprintSource(stablePrompt, images),
     model,
     reasoningEffort,
+    accountBinding: binding,
   });
 }
 
