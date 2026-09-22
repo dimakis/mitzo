@@ -28,6 +28,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "canary:openai-route": "node scripts/run-openai-route-canary.mjs",
     "tracing:up": "docker compose up -d jaeger",
     "tracing:down": "docker compose stop jaeger && docker compose rm -f jaeger",
     "observability:up": "docker compose up -d",

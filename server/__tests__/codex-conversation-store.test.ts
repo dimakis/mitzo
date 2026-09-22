@@ -480,6 +480,28 @@ it('does not requeue a failed command before its provider retry window', () => {
   s.close();
 });
 
+it('persists provider retry window across store reopen', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000, true, true);
+  s.close();
+
+  s = new CodexConversationStore(path);
+  expect(s.queueSummary('c', binding)).toMatchObject({
+    failed: 1,
+    retryAvailableAt: 20_000,
+    retryable: true,
+    requiresRetryConfirmation: true,
+  });
+  expect(s.retryLatestFailed('c', binding, 19_999, true)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, 20_000, true)).toBe('queued');
+  s.close();
+});
+
 it('preserves an explicit reasoning reset separately from an omitted value in metadata', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
