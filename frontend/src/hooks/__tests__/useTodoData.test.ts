@@ -245,6 +245,36 @@ describe('useTodoData', () => {
     });
   });
 
+  it('createOutcome posts the complete outcome contract', async () => {
+    const { result } = renderHook(() => useTodoData());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const draft = {
+      summary: 'Ship searchable outcomes',
+      intent: 'People understand durable work in ten seconds.',
+      rationale: 'Progress logs currently obscure intent.',
+      acceptanceCriteria: ['Search matches outcome and context'],
+      milestones: ['Add the structured contract'],
+      profile: 'work',
+      idempotencyKey: 'session-1:message-7',
+    };
+    vi.mocked(apiFetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ ok: true, item: { id: 'created' } }),
+    } as Response);
+
+    let created;
+    await act(async () => {
+      created = await result.current.createOutcome(draft);
+    });
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/todos/outcomes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    });
+    expect(created).toEqual({ id: 'created' });
+  });
+
   it('create handles network error gracefully', async () => {
     const { result } = renderHook(() => useTodoData());
 

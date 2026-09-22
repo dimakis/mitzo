@@ -234,4 +234,58 @@ describe('TodoView', () => {
 
     expect(container.querySelector('.mitzo-logo')).toBeTruthy();
   });
+
+  it('searches outcome text and context', () => {
+    const makeItem = (id: string, summary: string, intent: string, path: string) => ({
+      id,
+      summary,
+      intent,
+      profile: 'work',
+      urgency: 0.5,
+      starred: false,
+      status: 'active' as const,
+      ageDays: 1,
+      parentId: null,
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+      sources: [],
+      contextHints: {
+        repos: [],
+        paths: [path],
+        issues: [],
+        docIds: [],
+        people: [],
+        jiraKeys: [],
+        keywords: [],
+        taskHint: '',
+      },
+    });
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [
+        makeItem('one', 'Authentication', 'Sessions survive refresh', 'server/auth.ts'),
+        makeItem('two', 'Billing', 'Invoices reconcile', 'server/billing.ts'),
+      ],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Telos items' }), {
+      target: { value: 'auth.ts' },
+    });
+
+    expect(screen.getByText('Authentication')).toBeTruthy();
+    expect(screen.queryByText('Billing')).toBeNull();
+  });
 });

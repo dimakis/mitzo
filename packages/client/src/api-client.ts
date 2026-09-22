@@ -362,6 +362,27 @@ export class MitzoApiClient {
     return res.json();
   }
 
+  async createTodoOutcome(input: {
+    summary: string;
+    intent: string;
+    rationale: string;
+    acceptanceCriteria: string[];
+    milestones: string[];
+    profile: string;
+    idempotencyKey: string;
+  }): Promise<TodoItem> {
+    const res = await this.assertOk(
+      await this.fetch('/api/todos/outcomes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(input),
+      }),
+    );
+    const result = (await res.json()) as { item: TodoItem };
+    return result.item;
+  }
+
   async todoAction(todoId: string, action: string, days?: number): Promise<void> {
     await this.assertOk(
       await this.fetch(`/api/todos/${todoId}/action`, {

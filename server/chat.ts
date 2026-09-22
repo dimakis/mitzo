@@ -640,6 +640,7 @@ export function createSessionWorktrees(
 }
 
 const TASK_MCP_SERVER_NAME = 'task-board';
+const TELOS_MCP_SERVER_NAME = 'telos';
 
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
@@ -652,6 +653,25 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
         '--import',
         'tsx',
         join(__dirname, 'task-mcp-server.ts'),
+        '--base-url',
+        `http://localhost:${port}`,
+        '--client-id',
+        clientId,
+      ],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
+    },
+  };
+}
+
+function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
+  const port = process.env.PORT || '3100';
+  return {
+    [TELOS_MCP_SERVER_NAME]: {
+      command: 'node',
+      args: [
+        '--import',
+        'tsx',
+        join(__dirname, 'telos-mcp-server.ts'),
         '--base-url',
         `http://localhost:${port}`,
         '--client-id',
@@ -1211,7 +1231,8 @@ async function _startChatInner(
 
   // Merge dynamic MCP servers (task board if active)
   const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp };
+  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
+  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);

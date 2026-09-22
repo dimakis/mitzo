@@ -76,6 +76,30 @@ describe('TodoDetailView', () => {
     expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
   });
 
+  it('renders the outcome contract separately from activity', () => {
+    mockLocation.mockReturnValue({
+      state: {
+        item: {
+          ...fullItem,
+          intent: 'Signed-in people stay authenticated after a refresh.',
+          rationale: 'Unexpected sign-outs interrupt every workflow.',
+          acceptanceCriteria: ['Refresh preserves the active session', 'Regression test passes'],
+        },
+      },
+    });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Outcome')).toBeTruthy();
+    expect(screen.getByText('Signed-in people stay authenticated after a refresh.')).toBeTruthy();
+    expect(screen.getByText('Why this matters')).toBeTruthy();
+    expect(screen.getByText('Done when')).toBeTruthy();
+    expect(screen.getByText('Regression test passes')).toBeTruthy();
+  });
+
   it('renders status, urgency, age, and profile', () => {
     const { container } = render(
       <MemoryRouter>
@@ -244,7 +268,7 @@ describe('TodoDetailView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Sub-tasks')).toBeTruthy();
+    expect(screen.getByText('Milestones')).toBeTruthy();
     expect(container.querySelector('.todo-detail-children-count')?.textContent).toBe('1/2');
     expect(screen.getByText('Sub-task one')).toBeTruthy();
     expect(screen.getByText('Sub-task two (done)')).toBeTruthy();

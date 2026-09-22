@@ -19,6 +19,14 @@ export function buildPrompt(item: TodoItem): string {
   const hints = item.contextHints;
   const lines: string[] = [`I want to work on this:`, '', `**${item.summary}**`, ''];
 
+  if (item.intent) lines.push('Outcome:', item.intent, '');
+  if (item.rationale) lines.push('Why it matters:', item.rationale, '');
+  if (item.acceptanceCriteria?.length) {
+    lines.push('Done when:', ...item.acceptanceCriteria.map((criterion) => `- ${criterion}`), '');
+  }
+  const nextMilestone = item.children.find((child) => child.status !== 'completed');
+  if (nextMilestone) lines.push('Next milestone:', `- ${nextMilestone.summary}`, '');
+
   if (item.sources[0]?.url) {
     lines.push(`Source: ${item.sources[0].url}`);
   }
@@ -51,6 +59,13 @@ export function buildTodoContext(item: TodoItem): string {
   const hints = item.contextHints;
   const lines: string[] = [];
   lines.push(`Summary: ${item.summary}`);
+  if (item.intent) lines.push(`Outcome: ${item.intent}`);
+  if (item.rationale) lines.push(`Why: ${item.rationale}`);
+  if (item.acceptanceCriteria?.length) {
+    lines.push('Done when:', ...item.acceptanceCriteria.map((criterion) => `- ${criterion}`));
+  }
+  const nextMilestone = item.children.find((child) => child.status !== 'completed');
+  if (nextMilestone) lines.push(`Next milestone: ${nextMilestone.summary}`);
   lines.push(`Status: ${item.status}`);
   lines.push(`Profile: ${item.profile}`);
   lines.push(`Urgency: ${item.urgency.toFixed(2)}`);

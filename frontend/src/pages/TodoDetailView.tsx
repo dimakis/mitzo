@@ -181,10 +181,35 @@ export function TodoDetailView() {
           )}
         </div>
 
+        {item.intent && (
+          <section className="todo-detail-contract todo-detail-outcome">
+            <h2>Outcome</h2>
+            <p>{item.intent}</p>
+          </section>
+        )}
+
+        {item.rationale && (
+          <section className="todo-detail-contract">
+            <h2>Why this matters</h2>
+            <p>{item.rationale}</p>
+          </section>
+        )}
+
+        {(item.acceptanceCriteria?.length ?? 0) > 0 && (
+          <section className="todo-detail-contract">
+            <h2>Done when</h2>
+            <ul className="todo-detail-criteria">
+              {item.acceptanceCriteria?.map((criterion) => (
+                <li key={criterion}>{criterion}</li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {item.children.length > 0 && (
           <section className="todo-detail-children">
             <h2>
-              Sub-tasks{' '}
+              Milestones{' '}
               <span className="todo-detail-children-count">
                 {item.completedChildCount}/{item.childCount}
               </span>

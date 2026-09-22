@@ -85,6 +85,8 @@ export function summarizeToolInput(toolName: string, input: Record<string, unkno
       return 'get status';
     case 'mcp__task-board__TaskBlock':
       return `${String(input.reason || '').slice(0, 60)}`;
+    case 'mcp__telos__TelosCreateOutcome':
+      return `Create outcome: ${String(input.summary || '').slice(0, 80)}`;
     case 'Agent': {
       const desc = String(input.description || '');
       const stype = String(input.subagent_type || '');

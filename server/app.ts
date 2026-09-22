@@ -82,6 +82,7 @@ import {
   CalendarResponse,
   TodoListResponse,
   TodoCreateBody,
+  TodoOutcomeCreateBody,
   TodoActionBody,
   TodoActionResponse,
   TaskCreateBody,
@@ -949,6 +950,49 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
     type: 'task_state',
     tasks: taskStore.getTree(),
   });
+});
+
+app.post('/api/internal/telos/outcomes', async (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ ok: false, error: 'Internal token required' });
+    return;
+  }
+  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const clientId = req.headers['x-client-id'] as string | undefined;
+  const sessionId =
+    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
+  const canonical = JSON.stringify(body.data);
+  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
+  const contextHints = body.data.contextHints ?? {};
+  const payload = {
+    ...body.data,
+    idempotencyKey,
+    contextHints: {
+      ...contextHints,
+      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
+    },
+  };
+  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
+  if (!existsSync(script)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [script, '--create-outcome-json', JSON.stringify(payload)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const result = JSON.parse(stdout);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ ok: false, error: message });
+  }
 });
 
 // --- Loop orchestrator API ---
@@ -2215,6 +2259,37 @@ app.post('/api/todos', async (req, res) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo create failed', { error: message });
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.post('/api/todos/outcomes', async (req, res) => {
+  const body = TodoOutcomeCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+
+  if (!existsSync(TODO_SCRIPT)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [TODO_SCRIPT, '--create-outcome-json', JSON.stringify(body.data)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const parsed = JSON.parse(stdout);
+    if (!parsed.ok) {
+      res.status(400).json(parsed);
+      return;
+    }
+    res.status(parsed.created ? 201 : 200).json(parsed);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo outcome create failed', { error: message });
     res.status(500).json({ ok: false, error: message });
   }
 });

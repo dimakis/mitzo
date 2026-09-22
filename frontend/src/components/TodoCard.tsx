@@ -195,6 +195,8 @@ export function TodoCard({
             </button>
           </div>
 
+          {item.intent && <div className="todo-card-intent">{item.intent}</div>}
+
           {/* Line 2: source + meta */}
           <div className="todo-card-line2">
             {source ? (

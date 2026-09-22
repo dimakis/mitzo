@@ -116,4 +116,30 @@ describe('buildPrompt', () => {
     expect(prompt).not.toContain('Source:');
     expect(prompt).toContain('Repos:');
   });
+
+  it('starts a session with the outcome contract and next milestone', () => {
+    const structured: TodoItem = {
+      ...fullItem,
+      intent: 'Signed-in people remain authenticated after refresh.',
+      rationale: 'Unexpected sign-outs interrupt every workflow.',
+      acceptanceCriteria: ['Refresh preserves the active session'],
+      children: [
+        {
+          ...fullItem,
+          id: 'done',
+          summary: 'Reproduce the bug',
+          status: 'completed',
+          children: [],
+        },
+        { ...fullItem, id: 'next', summary: 'Add the regression test', children: [] },
+      ],
+    };
+
+    const prompt = buildPrompt(structured);
+
+    expect(prompt).toContain('Outcome:\nSigned-in people remain authenticated after refresh.');
+    expect(prompt).toContain('Why it matters:\nUnexpected sign-outs interrupt every workflow.');
+    expect(prompt).toContain('Done when:\n- Refresh preserves the active session');
+    expect(prompt).toContain('Next milestone:\n- Add the regression test');
+  });
 });

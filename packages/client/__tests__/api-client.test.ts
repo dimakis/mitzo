@@ -155,6 +155,23 @@ describe('MitzoApiClient', () => {
     );
   });
 
+  it('createTodoOutcome sends the structured contract', async () => {
+    const input = {
+      summary: 'Ship searchable outcomes',
+      intent: 'People understand durable work in ten seconds.',
+      rationale: 'Progress logs currently obscure intent.',
+      acceptanceCriteria: ['Search matches outcome and context'],
+      milestones: ['Add the structured contract'],
+      profile: 'work',
+      idempotencyKey: 'session-1:message-7',
+    };
+    await client.createTodoOutcome(input);
+    expect(fetchFn).toHaveBeenCalledWith(
+      '/api/todos/outcomes',
+      expect.objectContaining({ body: JSON.stringify(input) }),
+    );
+  });
+
   it('todoAction sends action and optional days', async () => {
     await client.todoAction('td-1', 'snooze', 3);
     expect(fetchFn).toHaveBeenCalledWith(
