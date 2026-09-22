@@ -765,3 +765,79 @@ it('terminalizes a queued execution when provider-attempt startup fails', async 
     registry.dispose();
   }
 });
+
+it('releases interrupt waiters when durable terminalization throws', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-terminalization-fail',
+      effectivePrompt: 'wait-for-interrupt',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'wait-for-interrupt' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    const draining = (async () => {
+      for await (const event of chat) void event;
+    })();
+    const drainOutcome = draining.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(calls.releaseInterruptedRun).toBeTypeOf('function'));
+    vi.spyOn(eventStore, 'transitionProviderAttempt').mockImplementation(() => {
+      throw new Error('provider terminalization storage failed');
+    });
+
+    const interruptOutcome = Promise.race([
+      chat.interrupt().then(() => 'resolved'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+    await expect(interruptOutcome).resolves.toBe('resolved');
+    await expect(drainOutcome).resolves.toEqual(
+      expect.objectContaining({ message: 'provider terminalization storage failed' }),
+    );
+  } finally {
+    calls.releaseInterruptedRun = undefined;
+    eventStore.close();
+    registry.dispose();
+  }
+});
