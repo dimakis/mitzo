@@ -50,11 +50,17 @@ export function trackResponsesProviderAdmission(
 }
 
 function cancelPendingAdmissions(session: ManagedSession): void {
+  let firstError: unknown;
   for (const pending of pendingAdmissions.get(session)?.values() ?? []) {
     if (pending.cancelled) continue;
-    pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
     pending.cancelled = true;
+    try {
+      pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
+    } catch (error) {
+      firstError ??= error;
+    }
   }
+  if (firstError) throw firstError;
 }
 function store() {
   if (!privateStore) {

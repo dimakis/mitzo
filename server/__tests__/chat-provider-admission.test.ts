@@ -160,6 +160,33 @@ describe('active native provider admission', () => {
     expect(push).toHaveBeenCalledOnce();
   });
 
+  it('rejects a conflicting interrupt before stopping the active turn', async () => {
+    const push = vi.fn();
+    const interrupt = vi.fn().mockResolvedValue(undefined);
+    const sessionId = 'session-interrupt-conflict';
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() };
+    session.queryInstance = { interrupt, close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+
+    await chat.sendToChat(clientId, 'first prompt', undefined, undefined, 'interrupt-command');
+    await expect(
+      chat.interruptChat(clientId, 'changed prompt', undefined, undefined, 'interrupt-command'),
+    ).rejects.toThrow(/fingerprint/i);
+
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
+  });
+
   it('reuses admission when identical images are restaged under different paths', async () => {
     const push = vi.fn();
     const sessionId = 'session-images';
@@ -290,6 +317,56 @@ describe('active native provider admission', () => {
       reasoningEffort: 'high',
     });
     expect(chat.registry.get(clientId)?.model).toBe('old-model');
+  });
+
+  it('does not expose a prepared command when selection persistence fails', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-selection-storage-failure';
+    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      model: 'old-model',
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: binding,
+      selectedModel: 'old-model',
+      reasoningEffort: 'high',
+    });
+    const upsert = vi.spyOn(chat.eventStore, 'upsertSession').mockImplementationOnce(() => {
+      throw new Error('selection storage failed');
+    });
+
+    try {
+      await expect(
+        chat.sendToChat(
+          clientId,
+          'persist selection first',
+          undefined,
+          undefined,
+          'selection-storage-failure',
+          'new-model',
+        ),
+      ).rejects.toThrow('selection storage failed');
+    } finally {
+      upsert.mockRestore();
+    }
+
+    expect(push).not.toHaveBeenCalled();
+    expect(responses.interrupt).toHaveBeenCalledOnce();
+    expect(chat.registry.get(clientId)?.model).toBe('old-model');
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'startup_failed',
+      selectedModel: 'old-model',
+      reasoningEffort: 'high',
+    });
   });
 
   it('rejects a retry when resolved context-block content changes', async () => {

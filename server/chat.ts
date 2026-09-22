@@ -11,7 +11,11 @@ import {
   openResponsesChat,
   trackResponsesProviderAdmission,
 } from './responses-chat-session.js';
-import { admitProviderDispatch, type ProviderDispatchAdmission } from './provider-execution.js';
+import {
+  admitProviderDispatch,
+  preflightProviderDispatch,
+  type ProviderDispatchAdmission,
+} from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
@@ -1836,13 +1840,21 @@ export async function sendToChat(
         }
         return true;
       }
-      if (responses && providerAdmission) {
-        trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+      try {
+        commitSelection();
+        if (responses && providerAdmission) {
+          trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+        }
+        session.inputQueue.push(
+          makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
+        );
+      } catch (error) {
+        if (responses && providerAdmission) {
+          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+          responses.interrupt();
+        }
+        throw error;
       }
-      session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
-      );
-      commitSelection();
     }
     return true;
   });
@@ -1894,6 +1906,17 @@ export async function interruptChat(
       );
     }
     if (responses) {
+      if (clientMsgId && session.sessionId) {
+        const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+        preflightProviderDispatch(eventStore, {
+          sessionId: session.sessionId,
+          clientMsgId,
+          effectivePrompt: stablePrompt,
+          fingerprintSource: providerFingerprintSource(stablePrompt, images),
+          model,
+          reasoningEffort,
+        });
+      }
       await session.queryInstance.interrupt();
       return sendToChat(
         clientId,

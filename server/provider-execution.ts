@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ExecutionToken } from '@mitzo/protocol';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import type { EventStore } from './event-store.js';
 
 export interface ProviderDispatchRequest {
@@ -31,6 +32,21 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
       }),
     )
     .digest('base64url');
+}
+
+/** Reject a conflicting retry before any runtime side effects occur. */
+export function preflightProviderDispatch(
+  store: EventStore,
+  request: ProviderDispatchRequest,
+): void {
+  const existing = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
+  if (!existing) return;
+  if (existing.requestFingerprint !== fingerprintProviderDispatch(request)) {
+    throw new ExecutionAdmissionError(
+      'fingerprint_conflict',
+      'clientMsgId is already admitted for a different request fingerprint',
+    );
+  }
 }
 
 /**

@@ -1050,9 +1050,13 @@ it('interrupts the runtime even when queued cancellation persistence fails', asy
       throw new Error('cancellation storage failed');
     });
     const interruptCount = calls.interrupt.mock.calls.length;
+    const promptCount = calls.prompts.length;
 
     await expect(chat.interrupt()).rejects.toThrow('cancellation storage failed');
     expect(calls.interrupt).toHaveBeenCalledTimes(interruptCount + 1);
+    input.close();
+    for await (const event of chat) void event;
+    expect(calls.prompts).toHaveLength(promptCount);
   } finally {
     registry.dispose();
     eventStore.close();
