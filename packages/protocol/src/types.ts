@@ -281,6 +281,27 @@ export interface ExecutionStateChangedPayload extends ExecutionToken {
   timestamp: number;
 }
 
+/** Durable lifecycle of one provider dispatch owned by an execution token. */
+export type ProviderAttemptPhase = 'RUNNING' | 'TERMINAL';
+
+/** Closed outcomes for provider work, including side-effect uncertainty. */
+export type ProviderAttemptTerminalReason =
+  'completed' | 'failed' | 'ambiguous' | 'cancelled' | 'server_restart';
+
+/** Immutable identity for one provider dispatch within an execution. */
+export interface ProviderAttemptToken extends ExecutionToken {
+  providerAttemptId: string;
+  attempt: number;
+}
+
+/** Canonical durable event emitted for each applied provider-attempt transition. */
+export interface ProviderAttemptStateChangedPayload extends ProviderAttemptToken {
+  type: 'provider_attempt_state_changed';
+  phase: ProviderAttemptPhase;
+  terminalReason?: ProviderAttemptTerminalReason;
+  timestamp: number;
+}
+
 /** Server-authoritative state event emitted on every lifecycle transition. */
 export interface SessionStateEvent {
   type: 'session_state_changed';

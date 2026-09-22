@@ -13,6 +13,10 @@ import type {
   ExecutionStateChangedPayload,
   ExecutionTerminalReason,
   ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -40,6 +44,10 @@ export type {
   ExecutionStateChangedPayload,
   ExecutionTerminalReason,
   ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 };
 
 /**
@@ -168,6 +176,38 @@ export class ExecutionAdmissionError extends Error {
   }
 }
 
+export interface NewProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: false;
+  seq: number;
+  event: ProviderAttemptStateChangedPayload;
+}
+
+export interface DuplicateProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: true;
+}
+
+export type BeginProviderAttemptResult = NewProviderAttemptResult | DuplicateProviderAttemptResult;
+
+export type ProviderAttemptTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'invalid_transition';
+
+export interface ProviderAttemptTransitionResult {
+  applied: boolean;
+  status: ProviderAttemptTransitionStatus;
+  token: ProviderAttemptToken;
+  seq?: number;
+  event?: ProviderAttemptStateChangedPayload;
+}
+
+export interface ProviderAttemptRecord {
+  token: ProviderAttemptToken;
+  phase: ProviderAttemptPhase;
+  terminalReason: ProviderAttemptTerminalReason | null;
+  updatedAt: number;
+}
+
 type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
@@ -190,6 +230,23 @@ const SCHEMA = `
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
     PRIMARY KEY (session_id, client_msg_id)
   );
+
+  CREATE TABLE IF NOT EXISTS provider_attempts (
+    session_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    provider_attempt_id TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    terminal_reason TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, execution_id, generation, attempt_number),
+    UNIQUE (session_id, provider_attempt_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_provider_attempts_active
+    ON provider_attempts (session_id, execution_id, generation, phase);
 
   CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -243,6 +300,14 @@ const EXECUTION_TRANSITIONS: Record<ExecutionPhase, ExecutionPhase[]> = {
   STOPPING: ['TERMINAL'],
   TERMINAL: [],
 };
+
+const PROVIDER_ATTEMPT_TERMINAL_REASONS = new Set<ProviderAttemptTerminalReason>([
+  'completed',
+  'failed',
+  'ambiguous',
+  'cancelled',
+  'server_restart',
+]);
 
 function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
   if (phase === 'REQUIRES_ACTION') return 'requires_action';
@@ -890,6 +955,210 @@ export class EventStore {
     return requestFingerprint;
   }
 
+  /** Start one durable provider dispatch owned by the exact active execution token. */
+  beginProviderAttempt(
+    executionToken: ExecutionToken,
+    providerAttemptId = randomUUID(),
+  ): BeginProviderAttemptResult {
+    if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
+    return this.db!.transaction((): BeginProviderAttemptResult => {
+      const existing = this.db!.prepare(
+        `SELECT execution_id, generation, attempt_number FROM provider_attempts
+         WHERE session_id = ? AND provider_attempt_id = ?`,
+      ).get(executionToken.sessionId, providerAttemptId) as
+        { execution_id: string; generation: number; attempt_number: number } | undefined;
+      if (existing) {
+        if (
+          existing.execution_id !== executionToken.executionId ||
+          existing.generation !== executionToken.generation
+        ) {
+          throw new Error('providerAttemptId is already bound to a different execution token');
+        }
+        return {
+          token: {
+            ...executionToken,
+            providerAttemptId,
+            attempt: existing.attempt_number,
+          },
+          duplicate: true,
+        };
+      }
+
+      const current = this.stmts.getSession.get(executionToken.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== executionToken.executionId ||
+        current.execution_generation !== executionToken.generation ||
+        current.execution_phase !== 'RUNNING'
+      ) {
+        throw new Error('Cannot begin provider attempt for stale execution token');
+      }
+
+      const active = this.db!.prepare(
+        `SELECT 1 FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+         LIMIT 1`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation);
+      if (active) {
+        throw new Error(
+          `Cannot overwrite active provider attempt for execution: ${executionToken.executionId}`,
+        );
+      }
+
+      const previous = this.db!.prepare(
+        `SELECT MAX(attempt_number) AS attempt_number FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation) as {
+        attempt_number: number | null;
+      };
+      const attempt = (previous.attempt_number ?? 0) + 1;
+      const token: ProviderAttemptToken = {
+        ...executionToken,
+        providerAttemptId,
+        attempt,
+      };
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        timestamp,
+      };
+      this.db!.prepare(
+        `INSERT INTO provider_attempts (
+          session_id, execution_id, generation, attempt_number, provider_attempt_id,
+          phase, terminal_reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'RUNNING', NULL, ?, ?)`,
+      ).run(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+        timestamp,
+        timestamp,
+      );
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { token, duplicate: false, seq, event };
+    }).immediate();
+  }
+
+  /** Apply a token-guarded provider-attempt transition and event atomically. */
+  transitionProviderAttempt(
+    token: ProviderAttemptToken,
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): ProviderAttemptTransitionResult {
+    this.validateProviderAttemptTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ProviderAttemptTransitionResult => {
+      const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !currentExecution ||
+        currentExecution.execution_id !== token.executionId ||
+        currentExecution.execution_generation !== token.generation ||
+        currentExecution.execution_phase === 'TERMINAL'
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+
+      const current = this.db!.prepare(
+        `SELECT phase FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ?`,
+      ).get(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      ) as { phase: ProviderAttemptPhase } | undefined;
+      if (!current) return { applied: false, status: 'stale', token };
+      if (current.phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+      if (nextPhase !== 'TERMINAL') {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: nextPhase,
+        terminalReason,
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE provider_attempts SET phase = ?, terminal_reason = ?, updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ? AND phase = 'RUNNING'`,
+      ).run(
+        nextPhase,
+        terminalReason,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Read provider-attempt history for one immutable execution generation. */
+  getProviderAttempts(executionToken: ExecutionToken): ProviderAttemptRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT attempt_number, provider_attempt_id, phase, terminal_reason, updated_at
+       FROM provider_attempts
+       WHERE session_id = ? AND execution_id = ? AND generation = ?
+       ORDER BY attempt_number`,
+    ).all(
+      executionToken.sessionId,
+      executionToken.executionId,
+      executionToken.generation,
+    ) as Array<{
+      attempt_number: number;
+      provider_attempt_id: string;
+      phase: ProviderAttemptPhase;
+      terminal_reason: ProviderAttemptTerminalReason | null;
+      updated_at: number;
+    }>;
+    return rows.map((row) => ({
+      token: {
+        ...executionToken,
+        providerAttemptId: row.provider_attempt_id,
+        attempt: row.attempt_number,
+      },
+      phase: row.phase,
+      terminalReason: row.terminal_reason,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  private validateProviderAttemptTransition(
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !PROVIDER_ATTEMPT_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error(
+          'A valid terminal reason is required when transitioning provider attempt to TERMINAL',
+        );
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL provider attempts');
+    }
+  }
+
   /** Apply one token-guarded execution transition and persist its event atomically. */
   transitionExecution(
     token: ExecutionToken,
@@ -915,6 +1184,16 @@ export class EventStore {
       }
       if (!EXECUTION_TRANSITIONS[phase]?.includes(nextPhase)) {
         return { applied: false, status: 'invalid_transition', token };
+      }
+      if (nextPhase === 'TERMINAL') {
+        const activeProviderAttempt = this.db!.prepare(
+          `SELECT 1 FROM provider_attempts
+           WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+           LIMIT 1`,
+        ).get(token.sessionId, token.executionId, token.generation);
+        if (activeProviderAttempt) {
+          throw new Error('Cannot terminalize execution with an active provider attempt');
+        }
       }
 
       const timestamp = Date.now();
@@ -965,15 +1244,18 @@ export class EventStore {
     }>;
     let recovered = 0;
     for (const row of rows) {
-      const result = this.transitionExecution(
-        {
-          sessionId: row.session_id,
-          executionId: row.execution_id,
-          generation: row.execution_generation,
-        },
-        'TERMINAL',
-        'server_restart',
+      const token: ExecutionToken = {
+        sessionId: row.session_id,
+        executionId: row.execution_id,
+        generation: row.execution_generation,
+      };
+      const activeProviderAttempts = this.getProviderAttempts(token).filter(
+        (attempt) => attempt.phase === 'RUNNING',
       );
+      for (const attempt of activeProviderAttempts) {
+        this.transitionProviderAttempt(attempt.token, 'TERMINAL', 'server_restart');
+      }
+      const result = this.transitionExecution(token, 'TERMINAL', 'server_restart');
       if (result.applied) recovered++;
     }
     return recovered;

@@ -265,6 +265,111 @@ describe('EventStore', () => {
       });
       expect(store.getSessionEvents(sessionId)).toHaveLength(0);
     });
+
+    it('binds monotonic provider attempts to the active execution token', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const first = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      const beforeRetry = store.getSessionEvents(sessionId);
+      const retry = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+      const firstTerminal = store.transitionProviderAttempt(first.token, 'TERMINAL', 'failed');
+      const duplicateTerminal = store.transitionProviderAttempt(first.token, 'TERMINAL', 'failed');
+      const second = store.beginProviderAttempt(execution.token, 'provider-attempt-2');
+
+      expect(first.token).toEqual({
+        ...execution.token,
+        providerAttemptId: 'provider-attempt-1',
+        attempt: 1,
+      });
+      expect(first).toMatchObject({ duplicate: false });
+      expect(retry).toEqual({ token: first.token, duplicate: true });
+      expect(firstTerminal).toMatchObject({ applied: true, status: 'applied' });
+      expect(duplicateTerminal).toMatchObject({ applied: false, status: 'terminal' });
+      expect(second.token).toEqual({
+        ...execution.token,
+        providerAttemptId: 'provider-attempt-2',
+        attempt: 2,
+      });
+      expect(store.getProviderAttempts(execution.token)).toMatchObject([
+        { token: first.token, phase: 'TERMINAL', terminalReason: 'failed' },
+        { token: second.token, phase: 'RUNNING', terminalReason: null },
+      ]);
+    });
+
+    it('rejects stale provider attempt ownership without persisting state', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const staleToken = { ...execution.token, generation: execution.token.generation + 1 };
+
+      expect(() => store.beginProviderAttempt(staleToken, 'provider-attempt-stale')).toThrow(
+        'stale execution token',
+      );
+      expect(store.getProviderAttempts(execution.token)).toEqual([]);
+
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+      expect(() => store.beginProviderAttempt(execution.token, 'provider-attempt-2')).toThrow(
+        'Cannot overwrite active provider attempt',
+      );
+      expect(
+        store.transitionProviderAttempt(
+          { ...attempt.token, providerAttemptId: 'provider-attempt-other' },
+          'TERMINAL',
+          'completed',
+        ),
+      ).toMatchObject({ applied: false, status: 'stale' });
+      expect(store.getProviderAttempts(execution.token)).toHaveLength(1);
+    });
+
+    it('rolls back provider-attempt state when its durable event cannot be appended', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_provider_attempt_event
+        BEFORE INSERT ON events WHEN NEW.type = 'provider_attempt_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected provider attempt event failure'); END;
+      `);
+
+      expect(() => store.beginProviderAttempt(execution.token, 'provider-attempt-1')).toThrow(
+        'injected provider attempt event failure',
+      );
+      expect(store.getProviderAttempts(execution.token)).toEqual([]);
+    });
+
+    it('requires every provider attempt to terminate before its execution', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(() => store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toThrow(
+        'active provider attempt',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({ executionPhase: 'RUNNING' });
+
+      store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+      expect(store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toMatchObject({
+        applied: true,
+      });
+    });
+
+    it('terminalizes an orphaned provider attempt before its execution exactly once', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      expect(store.recoverOrphanedExecutions()).toBe(0);
+      expect(store.getProviderAttempts(execution.token)).toMatchObject([
+        { phase: 'TERMINAL', terminalReason: 'server_restart' },
+      ]);
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type.endsWith('_state_changed'))
+          .map((event) => [event.type, event.payload.phase, event.payload.terminalReason]),
+      ).toEqual([
+        ['execution_state_changed', 'RUNNING', undefined],
+        ['provider_attempt_state_changed', 'RUNNING', undefined],
+        ['provider_attempt_state_changed', 'TERMINAL', 'server_restart'],
+        ['execution_state_changed', 'TERMINAL', 'server_restart'],
+      ]);
+    });
   });
 
   describe('getEventsAfter', () => {
