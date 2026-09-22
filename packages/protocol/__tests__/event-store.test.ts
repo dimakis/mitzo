@@ -367,6 +367,19 @@ describe('EventStore', () => {
       expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
     });
 
+    it('reports a conflicting provider-attempt terminal retry', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'failed')).toMatchObject({
+        applied: false,
+        status: 'conflict',
+        persistedTerminalReason: 'completed',
+      });
+    });
+
     it('terminalizes an orphaned provider attempt before its execution exactly once', () => {
       const execution = store.beginExecution(sessionId, 'execution-1');
       store.beginProviderAttempt(execution.token, 'provider-attempt-1');
@@ -374,7 +387,7 @@ describe('EventStore', () => {
       expect(store.recoverOrphanedExecutions()).toBe(1);
       expect(store.recoverOrphanedExecutions()).toBe(0);
       expect(store.getProviderAttempts(execution.token)).toMatchObject([
-        { phase: 'TERMINAL', terminalReason: 'server_restart' },
+        { phase: 'TERMINAL', terminalReason: 'ambiguous' },
       ]);
       expect(
         store
@@ -384,7 +397,7 @@ describe('EventStore', () => {
       ).toEqual([
         ['execution_state_changed', 'RUNNING', undefined],
         ['provider_attempt_state_changed', 'RUNNING', undefined],
-        ['provider_attempt_state_changed', 'TERMINAL', 'server_restart'],
+        ['provider_attempt_state_changed', 'TERMINAL', 'ambiguous'],
         ['execution_state_changed', 'TERMINAL', 'server_restart'],
       ]);
     });

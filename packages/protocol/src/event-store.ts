@@ -191,12 +191,13 @@ export interface DuplicateProviderAttemptResult {
 export type BeginProviderAttemptResult = NewProviderAttemptResult | DuplicateProviderAttemptResult;
 
 export type ProviderAttemptTransitionStatus =
-  'applied' | 'stale' | 'terminal' | 'invalid_transition';
+  'applied' | 'stale' | 'terminal' | 'conflict' | 'invalid_transition';
 
 export interface ProviderAttemptTransitionResult {
   applied: boolean;
   status: ProviderAttemptTransitionStatus;
   token: ProviderAttemptToken;
+  persistedTerminalReason?: ProviderAttemptTerminalReason | null;
   seq?: number;
   event?: ProviderAttemptStateChangedPayload;
 }
@@ -1055,7 +1056,7 @@ export class EventStore {
     this.validateProviderAttemptTransition(nextPhase, terminalReason);
     return this.db!.transaction((): ProviderAttemptTransitionResult => {
       const current = this.db!.prepare(
-        `SELECT phase FROM provider_attempts
+        `SELECT phase, terminal_reason FROM provider_attempts
          WHERE session_id = ? AND execution_id = ? AND generation = ?
            AND attempt_number = ? AND provider_attempt_id = ?`,
       ).get(
@@ -1064,9 +1065,30 @@ export class EventStore {
         token.generation,
         token.attempt,
         token.providerAttemptId,
-      ) as { phase: ProviderAttemptPhase } | undefined;
+      ) as
+        | {
+            phase: ProviderAttemptPhase;
+            terminal_reason: ProviderAttemptTerminalReason | null;
+          }
+        | undefined;
       if (!current) return { applied: false, status: 'stale', token };
-      if (current.phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+      if (current.phase === 'TERMINAL') {
+        const persistedTerminalReason = current.terminal_reason;
+        if (nextPhase === 'TERMINAL' && persistedTerminalReason !== terminalReason) {
+          return {
+            applied: false,
+            status: 'conflict',
+            token,
+            persistedTerminalReason,
+          };
+        }
+        return {
+          applied: false,
+          status: 'terminal',
+          token,
+          persistedTerminalReason,
+        };
+      }
 
       const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
       if (
@@ -1253,7 +1275,7 @@ export class EventStore {
         (attempt) => attempt.phase === 'RUNNING',
       );
       for (const attempt of activeProviderAttempts) {
-        this.transitionProviderAttempt(attempt.token, 'TERMINAL', 'server_restart');
+        this.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
       }
       const result = this.transitionExecution(token, 'TERMINAL', 'server_restart');
       if (result.applied) recovered++;
