@@ -430,23 +430,24 @@ export class CodexConversation {
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
-      const result =
-        state.recoveryStrategy === 'fork'
-          ? await this.replaceFailedProviderThread(client, state, threadOptions)
-          : z
-              .object({
-                thread: z.object({ id: z.string().min(1) }),
-                model: z.string(),
-                modelProvider: z.string(),
-              })
-              .parse(
-                await client.request('thread/resume', {
-                  threadId: this.threadId,
-                  ...threadOptions,
-                  allowProviderModelFallback: false,
-                  ...this.dynamicToolsOption(),
-                }),
-              );
+      const replacingProviderThread = state.recoveryStrategy === 'fork';
+      if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
+      const result = replacingProviderThread
+        ? await this.replaceFailedProviderThread(client, state, threadOptions)
+        : z
+            .object({
+              thread: z.object({ id: z.string().min(1) }),
+              model: z.string(),
+              modelProvider: z.string(),
+            })
+            .parse(
+              await client.request('thread/resume', {
+                threadId: this.threadId,
+                ...threadOptions,
+                allowProviderModelFallback: false,
+                ...this.dynamicToolsOption(),
+              }),
+            );
       if (
         (state.recoveryStrategy !== 'fork' && result.thread.id !== this.threadId) ||
         result.model !== this.binding.model ||
@@ -454,7 +455,7 @@ export class CodexConversation {
       )
         throw new Error('Codex execution binding changed');
       this.threadId = result.thread.id;
-      this.resetMapper(this.threadId);
+      if (replacingProviderThread) this.resetMapper(this.threadId);
       this.ready = true;
     } catch (error) {
       client.close();

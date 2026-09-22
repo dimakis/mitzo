@@ -228,6 +228,28 @@ describe('runQueryLoop', () => {
     expect(sent.some((m: Record<string, unknown>) => m.type === 'text_delta')).toBe(false);
   });
 
+  it('updates the token-bar compaction count from an explicit provider lifecycle event', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'system',
+          subtype: 'status',
+          session_id: 'sess-compact',
+          status: 'Context compacted',
+          compact_result: 'success',
+        },
+        { type: 'result', session_id: 'sess-compact' },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'token_update', numCompactions: 1 }),
+    );
+  });
+
   it('emits block_end with toolName/toolId/input for tool_use blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-tool' } } },

@@ -326,6 +326,56 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   ]);
 });
 
+it('retains the event mapper across same-thread reconnect so replayed reasoning is not duplicated', async () => {
+  const { c, callbacks, rpc, events } = await setup();
+  await c.send({ id: 'a', prompt: 'hello' });
+  const started = {
+    threadId: 'provider-thread',
+    item: { type: 'reasoning', id: 'reasoning-1' },
+  };
+  callbacks.onNotification('item/started', started);
+  callbacks.onNotification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider-thread',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Checked ',
+  });
+
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume') {
+      callbacks.onNotification('item/started', started);
+      callbacks.onNotification('item/reasoning/summaryTextDelta', {
+        threadId: 'provider-thread',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Checked ',
+      });
+      callbacks.onNotification('item/completed', {
+        threadId: 'provider-thread',
+        item: { type: 'reasoning', id: 'reasoning-1', summary: ['Checked the file'] },
+      });
+    }
+    return request(method, params);
+  });
+
+  callbacks.onClose(new Error('process lost'));
+  await c.send({ id: 'b', prompt: 'continue' });
+
+  expect(events.filter((event) => event.type === 'assistant')).toEqual([
+    expect.objectContaining({
+      message: { content: [{ type: 'thinking', thinking: 'Checked the file' }] },
+    }),
+  ]);
+  expect(
+    events
+      .filter((event) => event.type === 'stream_event')
+      .map((event) => event.event as { type: string; delta?: { thinking?: string } })
+      .filter((event) => event.type === 'content_block_delta')
+      .map((event) => event.delta?.thinking),
+  ).toEqual(['Checked ', 'the file']);
+});
+
 it('recovers an idle dead transport before persisting the explicit send', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks, rpc, requests } = await setup(
