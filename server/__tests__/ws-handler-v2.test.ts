@@ -2397,6 +2397,39 @@ describe('handleSendV2 connection ownership', () => {
     expect(sendToChat).not.toHaveBeenCalled();
   });
 
+  it('reattaches a reconnecting exact send retry without redispatching it', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'send-duplicate' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('sess-1');
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('takes over session from another connection on send', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
@@ -3370,6 +3403,39 @@ describe('handleInterruptV2 connection ownership', () => {
     expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
     expect(denyPendingBySession).not.toHaveBeenCalled();
     expect(reattachChat).not.toHaveBeenCalled();
+    expect(interruptChat).not.toHaveBeenCalled();
+  });
+
+  it('reattaches a reconnecting exact interrupt retry without redispatching it', async () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+
+    await handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'int-duplicate' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('sess-1');
     expect(interruptChat).not.toHaveBeenCalled();
   });
 

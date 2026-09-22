@@ -629,20 +629,15 @@ export function handleSendV2(
             storeState !== null
           ) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
-            if (
-              preflightChatCommand(
-                found.clientId,
-                prompt,
-                msg.images,
-                msg.contextBlocks,
-                msg.clientMsgId,
-                msg.accountId ? msg.model : undefined,
-                msg.accountId ? msg.reasoningEffort : undefined,
-              )
-            ) {
-              log.info('duplicate send', { connectionId, sessionId });
-              return;
-            }
+            const duplicate = preflightChatCommand(
+              found.clientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -675,9 +670,13 @@ export function handleSendV2(
                 storeState,
               });
             }
-            applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
+            if (duplicate) {
+              log.info('duplicate send', { connectionId, sessionId });
+              return;
+            }
+            applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
                 ? await sendToChat(
@@ -861,20 +860,15 @@ export function handleInterruptV2(
             return;
           }
         }
-        if (
-          preflightChatCommand(
-            activeClientId,
-            msg.prompt,
-            msg.images,
-            msg.contextBlocks,
-            msg.clientMsgId,
-            msg.accountId ? msg.model : undefined,
-            msg.accountId ? msg.reasoningEffort : undefined,
-          )
-        ) {
-          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
-          return;
-        }
+        const duplicate = preflightChatCommand(
+          activeClientId,
+          msg.prompt,
+          msg.images,
+          msg.contextBlocks,
+          msg.clientMsgId,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
+        );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
@@ -904,6 +898,10 @@ export function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        if (duplicate) {
+          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
+          return;
+        }
         await interruptChat(
           activeClientId,
           msg.prompt,
