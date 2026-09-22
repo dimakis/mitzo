@@ -49,7 +49,11 @@ interface Options {
   gemini?: GeminiOptions;
   session: ManagedSession;
   registry: SessionRegistry;
-  input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
+  input: AsyncIterable<{
+    message: { content: unknown };
+    mitzoMessageId?: string;
+    providerAdmission?: ProviderDispatchAdmission;
+  }> & {
     close(): void;
   };
   eventStore?: EventStore;
@@ -167,9 +171,7 @@ export async function openResponsesChat(options: Options) {
           signal.throwIfAborted();
           if (typeof message.message.content !== 'string')
             throw new Error('API chat currently supports text input');
-          const providerAdmission = (
-            message as typeof message & { providerAdmission?: ProviderDispatchAdmission }
-          ).providerAdmission;
+          const providerAdmission = message.providerAdmission;
           if (providerAdmission && !options.eventStore) {
             throw new Error('Durable provider admission requires an EventStore');
           }

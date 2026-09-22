@@ -72,19 +72,17 @@ describe('provider execution admission', () => {
 
     try {
       expect(() =>
-        admitProviderDispatch(
-          {
-            store,
-            request: {
-              sessionId: 'session-1',
-              clientMsgId: 'command-1',
-              effectivePrompt: 'answer this',
-            },
-            prepare: () => {
-              throw new Error('prepare failed');
-            },
+        admitProviderDispatch({
+          store,
+          request: {
+            sessionId: 'session-1',
+            clientMsgId: 'command-1',
+            effectivePrompt: 'answer this',
           },
-        ),
+          prepare: () => {
+            throw new Error('prepare failed');
+          },
+        }),
       ).toThrow('prepare failed');
       expect(store.getSession('session-1')).toMatchObject({
         executionPhase: 'TERMINAL',

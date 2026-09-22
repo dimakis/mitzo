@@ -219,8 +219,16 @@ it('dispatches an exact admitted command once and terminalizes provider state fi
     mitzoMessageId: string;
     providerAdmission: typeof admission;
   }>();
-  input.push({ message: { content: 'once' }, mitzoMessageId: 'message-once', providerAdmission: admission });
-  input.push({ message: { content: 'once' }, mitzoMessageId: 'message-once', providerAdmission: admission });
+  input.push({
+    message: { content: 'once' },
+    mitzoMessageId: 'message-once',
+    providerAdmission: admission,
+  });
+  input.push({
+    message: { content: 'once' },
+    mitzoMessageId: 'message-once',
+    providerAdmission: admission,
+  });
   input.close();
 
   try {
@@ -243,8 +251,9 @@ it('dispatches an exact admitted command once and terminalizes provider state fi
       mcpServers: {},
       store: {} as never,
     });
-    for await (const _event of chat) {
+    for await (const event of chat) {
       // Drain the provider stream.
+      void event;
     }
 
     expect(calls.prompts.slice(promptCount)).toEqual(['once']);
@@ -300,7 +309,11 @@ it('records an ambiguous provider failure before failing its execution', async (
     mitzoMessageId: string;
     providerAdmission: typeof admission;
   }>();
-  input.push({ message: { content: 'fail' }, mitzoMessageId: 'message-fail', providerAdmission: admission });
+  input.push({
+    message: { content: 'fail' },
+    mitzoMessageId: 'message-fail',
+    providerAdmission: admission,
+  });
   input.close();
 
   try {
@@ -323,8 +336,9 @@ it('records an ambiguous provider failure before failing its execution', async (
       mcpServers: {},
       store: {} as never,
     });
-    for await (const _event of chat) {
+    for await (const event of chat) {
       // Drain the sanitized failure result.
+      void event;
     }
 
     expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([

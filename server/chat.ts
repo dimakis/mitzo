@@ -7,6 +7,7 @@ import {
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
 import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import { admitProviderDispatch, type ProviderDispatchAdmission } from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
@@ -131,6 +132,7 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 
 const log = createLogger('chat');
 
@@ -807,13 +809,18 @@ function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
   messageId?: string,
-): SDKUserMessage & { mitzoMessageId?: string } {
+  providerAdmission?: ProviderDispatchAdmission,
+): SDKUserMessage & {
+  mitzoMessageId?: string;
+  providerAdmission?: ProviderDispatchAdmission;
+} {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
     ...(messageId ? { mitzoMessageId: messageId } : {}),
+    ...(providerAdmission ? { providerAdmission } : {}),
   };
 }
 
@@ -1381,6 +1388,7 @@ async function _startChatInner(
         session,
         registry,
         input: inputQueue,
+        eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
@@ -1667,20 +1675,37 @@ export async function sendToChat(
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
-    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
-      return true;
+    let providerAdmission: ProviderDispatchAdmission | undefined;
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
-        responses.prepare(messageId, fullPrompt, {
-          ...(model ? { model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort }
-            : {}),
-        });
+        const prepare = () =>
+          responses.prepare(messageId, fullPrompt, {
+            ...(model ? { model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort }
+              : {}),
+          });
+        if (clientMsgId) {
+          providerAdmission = admitProviderDispatch({
+            store: eventStore,
+            request: {
+              sessionId: session.sessionId,
+              clientMsgId,
+              effectivePrompt: fullPrompt,
+              model,
+              reasoningEffort: selectionReasoningEffort,
+            },
+            prepare,
+          });
+          if (providerAdmission.duplicate) return true;
+        } else {
+          prepare();
+        }
         if (model) session.model = model;
-      } catch {
+      } catch (error) {
+        if (error instanceof ExecutionAdmissionError) throw error;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
@@ -1768,7 +1793,7 @@ export async function sendToChat(
     } else {
       if (acknowledge()) return true;
       session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
+        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
       );
     }
     return true;
