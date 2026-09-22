@@ -108,6 +108,88 @@ describe('EventStore', () => {
       });
     });
 
+    it('returns the original token for an exact durable admission retry', () => {
+      const first = store.beginExecution(
+        sessionId,
+        'execution-1',
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+      const beforeRetry = store.getSessionEvents(sessionId);
+      const retry = store.beginExecution(
+        sessionId,
+        undefined,
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+
+      expect(first).toMatchObject({ duplicate: false });
+      expect(retry).toEqual({ token: first.token, duplicate: true });
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+      expect(store.getSession(sessionId)?.executionGeneration).toBe(1);
+      expect(store.getExecutionAdmission(sessionId, 'client-command-1')).toEqual({
+        token: first.token,
+        requestFingerprint: 'request-fingerprint-1',
+      });
+    });
+
+    it('fails closed when a command identity is reused for different input', () => {
+      const first = store.beginExecution(
+        sessionId,
+        'execution-1',
+        'client-command-1',
+        'request-fingerprint-1',
+      );
+      const beforeConflict = store.getSessionEvents(sessionId);
+
+      expect(() =>
+        store.beginExecution(sessionId, undefined, 'client-command-1', 'request-fingerprint-2'),
+      ).toThrow('different request fingerprint');
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-2', 'client-command-1', 'request-fingerprint-1'),
+      ).toThrow('different executionId');
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeConflict);
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 1,
+        executionId: first.token.executionId,
+      });
+    });
+
+    it('requires a bounded request fingerprint with a client command identity', () => {
+      expect(() => store.beginExecution(sessionId, 'execution-1', 'client-command-1')).toThrow(
+        'requestFingerprint',
+      );
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', undefined, 'request-fingerprint-1'),
+      ).toThrow('clientMsgId');
+      expect(() => store.beginExecution(sessionId, 'execution-1', ' ', 'fingerprint')).toThrow(
+        'clientMsgId',
+      );
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', 'client-command-1', ' '.repeat(513)),
+      ).toThrow('requestFingerprint');
+      expect(store.getSessionEvents(sessionId)).toHaveLength(0);
+    });
+
+    it('rolls back the durable admission receipt when its event cannot be appended', () => {
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_admitted_execution_event
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected admission event failure'); END;
+      `);
+
+      expect(() =>
+        store.beginExecution(sessionId, 'execution-1', 'client-command-1', 'request-fingerprint-1'),
+      ).toThrow('injected admission event failure');
+      expect(store.getExecutionAdmission(sessionId, 'client-command-1')).toBeUndefined();
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 0,
+        executionId: null,
+        executionPhase: null,
+      });
+    });
+
     it('makes terminal transitions exactly once and rejects stale tokens', () => {
       const started = store.beginExecution(sessionId, 'execution-1');
       const stale = store.transitionExecution(

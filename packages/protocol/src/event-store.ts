@@ -139,10 +139,33 @@ export interface ExecutionTransitionResult {
   event?: ExecutionStateChangedPayload;
 }
 
-export interface BeginExecutionResult {
+export interface NewExecutionResult {
   token: ExecutionToken;
+  duplicate: false;
   seq: number;
   event: ExecutionStateChangedPayload;
+}
+
+export interface DuplicateExecutionResult {
+  token: ExecutionToken;
+  duplicate: true;
+}
+
+export type BeginExecutionResult = NewExecutionResult | DuplicateExecutionResult;
+
+export interface ExecutionAdmission {
+  token: ExecutionToken;
+  requestFingerprint: string;
+}
+
+export class ExecutionAdmissionError extends Error {
+  constructor(
+    readonly code: 'fingerprint_required' | 'fingerprint_conflict' | 'execution_id_conflict',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ExecutionAdmissionError';
+  }
 }
 
 type SessionUpsert = Partial<
@@ -156,6 +179,16 @@ const SCHEMA = `
     payload TEXT NOT NULL,
     error TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
+  );
+
+  CREATE TABLE IF NOT EXISTS execution_admissions (
+    session_id TEXT NOT NULL,
+    client_msg_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
+    PRIMARY KEY (session_id, client_msg_id)
   );
 
   CREATE TABLE IF NOT EXISTS events (
@@ -732,18 +765,51 @@ export class EventStore {
     return Number(result.lastInsertRowid);
   }
 
-  /** Atomically allocate the next durable execution generation for a session. */
-  beginExecution(sessionId: string, executionId = randomUUID()): BeginExecutionResult {
-    if (!executionId.trim()) throw new Error('executionId must not be empty');
+  /**
+   * Atomically allocate the next durable execution generation for a session.
+   * When a client command identity is supplied, exact retries return the
+   * original token without appending another event or advancing generation.
+   */
+  beginExecution(
+    sessionId: string,
+    executionId?: string,
+    clientMsgId?: string,
+    requestFingerprint?: string,
+  ): BeginExecutionResult {
+    if (executionId !== undefined && !executionId.trim()) {
+      throw new Error('executionId must not be empty');
+    }
+    const fingerprint = this.validateExecutionAdmission(clientMsgId, requestFingerprint);
     return this.db!.transaction((): BeginExecutionResult => {
       const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+
+      if (clientMsgId) {
+        const existing = this.getExecutionAdmission(sessionId, clientMsgId);
+        if (existing) {
+          if (existing.requestFingerprint !== fingerprint) {
+            throw new ExecutionAdmissionError(
+              'fingerprint_conflict',
+              'clientMsgId is already admitted for a different request fingerprint',
+            );
+          }
+          if (executionId && existing.token.executionId !== executionId) {
+            throw new ExecutionAdmissionError(
+              'execution_id_conflict',
+              'clientMsgId is already admitted for a different executionId',
+            );
+          }
+          return { token: existing.token, duplicate: true };
+        }
+      }
+
       if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
         throw new Error(`Cannot overwrite active execution for session: ${sessionId}`);
       }
 
+      const acceptedExecutionId = executionId ?? randomUUID();
       const generation = (current.execution_generation ?? 0) + 1;
-      const token: ExecutionToken = { sessionId, executionId, generation };
+      const token: ExecutionToken = { sessionId, executionId: acceptedExecutionId, generation };
       const timestamp = Date.now();
       const event: ExecutionStateChangedPayload = {
         type: 'execution_state_changed',
@@ -758,7 +824,7 @@ export class EventStore {
           execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
          WHERE session_id = ?
            AND (execution_phase IS NULL OR execution_phase = 'TERMINAL')`,
-      ).run(generation, executionId, timestamp, timestamp, sessionId);
+      ).run(generation, acceptedExecutionId, timestamp, timestamp, sessionId);
       if (updated.changes !== 1) {
         throw new Error(`Execution admission changed for session: ${sessionId}`);
       }
@@ -766,8 +832,62 @@ export class EventStore {
         this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
           .lastInsertRowid,
       );
-      return { token, seq, event };
+      if (clientMsgId) {
+        this.db!.prepare(
+          `INSERT INTO execution_admissions
+            (session_id, client_msg_id, request_fingerprint, execution_id, generation)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(sessionId, clientMsgId, fingerprint, acceptedExecutionId, generation);
+      }
+      return { token, duplicate: false, seq, event };
     }).immediate();
+  }
+
+  /** Read a durable execution admission receipt without consulting transport state. */
+  getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation, request_fingerprint
+       FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as
+      { execution_id: string; generation: number; request_fingerprint: string } | undefined;
+    return (
+      row && {
+        token: { sessionId, executionId: row.execution_id, generation: row.generation },
+        requestFingerprint: row.request_fingerprint,
+      }
+    );
+  }
+
+  private validateExecutionAdmission(
+    clientMsgId: string | undefined,
+    requestFingerprint: string | undefined,
+  ): string | undefined {
+    if (clientMsgId === undefined) {
+      if (requestFingerprint !== undefined) {
+        throw new ExecutionAdmissionError(
+          'fingerprint_required',
+          'requestFingerprint requires a clientMsgId',
+        );
+      }
+      return undefined;
+    }
+    if (!clientMsgId.trim() || clientMsgId.length > 512) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'clientMsgId must be a non-empty string of at most 512 characters',
+      );
+    }
+    if (
+      typeof requestFingerprint !== 'string' ||
+      !requestFingerprint.trim() ||
+      requestFingerprint.length > 512
+    ) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'requestFingerprint must be a non-empty string of at most 512 characters',
+      );
+    }
+    return requestFingerprint;
   }
 
   /** Apply one token-guarded execution transition and persist its event atomically. */
