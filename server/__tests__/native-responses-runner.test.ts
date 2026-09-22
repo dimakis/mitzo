@@ -220,6 +220,19 @@ describe('durable native Responses turns', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(store.load('app-id', binding)?.status).toBe('idle');
   });
+  it('abandons a prepared follow-up without leaking it into later history', async () => {
+    const instance = runner();
+    instance.prepare('message-rejected', 'rejected follow-up');
+
+    instance.abandon('message-rejected');
+    expect(store.load('app-id', binding)).toMatchObject({ status: 'idle', history: [] });
+
+    await collect(instance.run('later accepted turn'));
+    const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(request.input).not.toContainEqual(
+      expect.objectContaining({ role: 'user', content: 'rejected follow-up' }),
+    );
+  });
   it('applies a changed model and thinking effort without losing the conversation', async () => {
     const instance = runner();
     await collect(instance.run('first'));

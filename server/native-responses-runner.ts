@@ -62,6 +62,7 @@ export class NativeResponsesRunner {
     {
       prompt: string;
       state: NativeResponsesState;
+      previousState: NativeResponsesState;
       selection?: { model?: string; reasoningEffort?: string | null };
     }
   >();
@@ -90,17 +91,25 @@ export class NativeResponsesRunner {
   }
   interrupt() {
     this.active?.abort();
-    for (const { state } of this.prepared.values()) {
-      state.status = 'interrupted';
+    for (const messageId of [...this.prepared.keys()]) {
       try {
-        this.options.store.save(this.options.conversationId, this.options.binding, state);
+        this.abandon(messageId);
       } catch {
-        log.warn('could not persist prepared interruption; startup recovery required', {
+        log.warn('could not roll back prepared command; startup recovery required', {
           conversationId: this.options.conversationId,
         });
       }
     }
-    this.prepared.clear();
+  }
+  abandon(messageId: string) {
+    const prepared = this.prepared.get(messageId);
+    if (!prepared) return;
+    this.options.store.save(
+      this.options.conversationId,
+      this.options.binding,
+      prepared.previousState,
+    );
+    this.prepared.delete(messageId);
   }
   isRunning() {
     return !!this.active || this.prepared.size > 0;
@@ -117,11 +126,17 @@ export class NativeResponsesRunner {
   ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
+    const previousState: NativeResponsesState = structuredClone(
+      this.options.store.load(this.options.conversationId, this.options.binding) ?? {
+        status: 'idle' as const,
+        history: [],
+      },
+    );
     const state = this.options.store.begin(this.options.conversationId, this.options.binding);
     recoverToolResults(state);
     state.history.push({ role: 'user', content: prompt });
     this.options.store.save(this.options.conversationId, this.options.binding, state);
-    this.prepared.set(messageId, { prompt, state, selection });
+    this.prepared.set(messageId, { prompt, state, previousState, selection });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.

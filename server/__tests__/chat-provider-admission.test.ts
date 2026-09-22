@@ -18,6 +18,7 @@ const openAiProfile = {
 const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
   track: vi.fn(),
+  abandon: vi.fn(),
   interrupt: vi.fn(),
   isRunning: vi.fn(() => false),
 }));
@@ -46,6 +47,7 @@ describe('active native provider admission', () => {
   beforeEach(() => {
     responses.prepare.mockReset();
     responses.track.mockReset();
+    responses.abandon.mockReset();
     responses.interrupt.mockReset();
     responses.isRunning.mockReset();
     responses.isRunning.mockReturnValue(false);
@@ -336,7 +338,8 @@ describe('active native provider admission', () => {
       ),
     ).rejects.toThrow('socket closed');
 
-    expect(responses.interrupt).toHaveBeenCalledOnce();
+    expect(responses.abandon).toHaveBeenCalledWith('ack-failure');
+    expect(responses.interrupt).not.toHaveBeenCalled();
     expect(chat.eventStore.getSession(sessionId)).toMatchObject({
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'startup_failed',
@@ -386,7 +389,8 @@ describe('active native provider admission', () => {
     }
 
     expect(push).not.toHaveBeenCalled();
-    expect(responses.interrupt).toHaveBeenCalledOnce();
+    expect(responses.abandon).toHaveBeenCalledWith('selection-storage-failure');
+    expect(responses.interrupt).not.toHaveBeenCalled();
     expect(chat.registry.get(clientId)?.model).toBe('old-model');
     expect(chat.eventStore.getSession(sessionId)).toMatchObject({
       executionPhase: 'TERMINAL',
@@ -394,6 +398,47 @@ describe('active native provider admission', () => {
       selectedModel: 'old-model',
       reasoningEffort: 'high',
     });
+  });
+
+  it('abandons preparation even when startup-failure persistence also fails', async () => {
+    const sessionId = 'session-double-storage-failure';
+    chat.registry.register(clientId, {
+      transport: {
+        send: vi.fn(() => {
+          throw new Error('socket closed');
+        }),
+        isOpen: () => true,
+      },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    const transition = vi
+      .spyOn(chat.eventStore, 'transitionExecution')
+      .mockImplementationOnce(() => {
+        throw new Error('execution storage failed');
+      });
+
+    try {
+      await expect(
+        chat.sendToChat(
+          clientId,
+          'cannot acknowledge or terminalize',
+          undefined,
+          undefined,
+          'double-storage-failure',
+        ),
+      ).rejects.toThrow('socket closed');
+    } finally {
+      transition.mockRestore();
+      chat.eventStore.recoverOrphanedExecutions();
+    }
+
+    expect(responses.abandon).toHaveBeenCalledWith('double-storage-failure');
   });
 
   it('rejects a retry when resolved context-block content changes', async () => {

@@ -1755,6 +1755,26 @@ export async function sendToChat(
       }
       if (model) session.model = model;
     };
+    const failPreparedProviderCommand = (error: unknown): never => {
+      if (!responses || !providerAdmission) throw error;
+      const cleanupErrors: unknown[] = [];
+      try {
+        eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      } finally {
+        try {
+          responses.abandon(messageId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (cleanupErrors.length) {
+        const message = error instanceof Error ? error.message : 'Provider command startup failed';
+        throw new AggregateError([error, ...cleanupErrors], message);
+      }
+      throw error;
+    };
     const acknowledge = (): boolean => {
       if (session.sessionId) {
         const isDup = storeAndEchoIfNew(
@@ -1822,21 +1842,17 @@ export async function sendToChat(
         return false;
       }
     } else {
-      let duplicate: boolean;
+      let duplicate = false;
       try {
         duplicate = acknowledge();
       } catch (error) {
-        if (responses && providerAdmission) {
-          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
-          responses.interrupt();
-        }
-        throw error;
+        failPreparedProviderCommand(error);
       }
       if (duplicate) {
         if (responses && providerAdmission) {
-          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
-          responses.interrupt();
-          throw new Error('Provider command was already acknowledged without a dispatch');
+          failPreparedProviderCommand(
+            new Error('Provider command was already acknowledged without a dispatch'),
+          );
         }
         return true;
       }
@@ -1849,11 +1865,7 @@ export async function sendToChat(
           makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
         );
       } catch (error) {
-        if (responses && providerAdmission) {
-          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
-          responses.interrupt();
-        }
-        throw error;
+        failPreparedProviderCommand(error);
       }
     }
     return true;
@@ -1861,7 +1873,7 @@ export async function sendToChat(
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
-export function preflightInterruptChat(
+export function preflightChatCommand(
   clientId: string,
   prompt: string,
   images?: Array<{ data: string; mediaType: string }>,
@@ -1929,7 +1941,7 @@ export async function interruptChat(
     }
     if (responses) {
       if (
-        preflightInterruptChat(
+        preflightChatCommand(
           clientId,
           prompt,
           images,

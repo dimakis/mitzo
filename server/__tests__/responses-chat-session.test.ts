@@ -1067,3 +1067,66 @@ it('interrupts the runtime even when queued cancellation persistence fails', asy
     eventStore.close();
   }
 });
+
+it('keeps close no-throw when queued cancellation persistence fails', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const session = registry.get('client')!;
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-close-storage-fail',
+      effectivePrompt: 'queued',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'queued' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    vi.spyOn(eventStore, 'transitionExecution').mockImplementationOnce(() => {
+      throw new Error('cancellation storage failed');
+    });
+    const interruptCount = calls.interrupt.mock.calls.length;
+
+    expect(() => chat.close()).not.toThrow();
+    expect(calls.interrupt).toHaveBeenCalledTimes(interruptCount + 1);
+  } finally {
+    registry.dispose();
+    eventStore.close();
+  }
+});

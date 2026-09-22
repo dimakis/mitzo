@@ -52,7 +52,7 @@ import {
   startChat,
   sendToChat,
   interruptChat,
-  preflightInterruptChat,
+  preflightChatCommand,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -629,6 +629,20 @@ export function handleSendV2(
             storeState !== null
           ) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
+            if (
+              preflightChatCommand(
+                found.clientId,
+                prompt,
+                msg.images,
+                msg.contextBlocks,
+                msg.clientMsgId,
+                msg.accountId ? msg.model : undefined,
+                msg.accountId ? msg.reasoningEffort : undefined,
+              )
+            ) {
+              log.info('duplicate send', { connectionId, sessionId });
+              return;
+            }
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -848,7 +862,7 @@ export function handleInterruptV2(
           }
         }
         if (
-          preflightInterruptChat(
+          preflightChatCommand(
             activeClientId,
             msg.prompt,
             msg.images,

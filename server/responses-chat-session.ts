@@ -24,6 +24,9 @@ import type { McpServerConfig } from './mcp-config.js';
 import { classifyProviderFailure } from './provider-failure.js';
 import type { EventStore } from './event-store.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
+import { createLogger } from './logger.js';
+
+const log = createLogger('responses-chat-session');
 
 let privateStore: NativeResponsesStore | undefined;
 const runtimes = new WeakMap<ManagedSession, NativeResponsesRunner>();
@@ -59,15 +62,19 @@ function cancelPendingAdmissions(session: ManagedSession): void {
   let firstError: unknown;
   for (const pending of pendingAdmissions.get(session)?.values() ?? []) {
     if (pending.cancellationPersisted) continue;
-    pending.cancelled = true;
     try {
-      pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
-      pending.cancellationPersisted = true;
+      persistPendingCancellation(pending);
     } catch (error) {
       firstError ??= error;
     }
   }
   if (firstError) throw firstError;
+}
+
+function persistPendingCancellation(pending: PendingProviderAdmission): void {
+  pending.cancelled = true;
+  pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
+  pending.cancellationPersisted = true;
 }
 function store() {
   if (!privateStore) {
@@ -196,6 +203,10 @@ export async function openResponsesChat(options: Options) {
     closed = true;
     try {
       cancelPendingAdmissions(options.session);
+    } catch {
+      log.warn('could not persist queued cancellation; startup recovery required', {
+        conversationId: options.conversationId,
+      });
     } finally {
       runtimes.delete(options.session);
       void hooks
@@ -221,7 +232,18 @@ export async function openResponsesChat(options: Options) {
             ? pendingAdmissions.get(options.session)?.get(providerAdmission.providerAttemptId)
             : undefined;
           if (trackedAdmission?.cancelled) {
-            pendingAdmissions.get(options.session)?.delete(providerAdmission!.providerAttemptId);
+            try {
+              if (!trackedAdmission.cancellationPersisted) {
+                persistPendingCancellation(trackedAdmission);
+              }
+            } catch {
+              log.warn('could not persist skipped queued cancellation; startup recovery required', {
+                conversationId: options.conversationId,
+              });
+            }
+            if (trackedAdmission.cancellationPersisted) {
+              pendingAdmissions.get(options.session)?.delete(providerAdmission!.providerAttemptId);
+            }
             continue;
           }
           if (signal.aborted) {
