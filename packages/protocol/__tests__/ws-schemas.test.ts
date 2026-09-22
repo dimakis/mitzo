@@ -19,6 +19,15 @@ describe('WS message schemas', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects send with a clientMsgId beyond the durable admission limit', () => {
+    const result = IncomingWsMessage.safeParse({
+      type: 'send',
+      prompt: 'hello',
+      clientMsgId: 'x'.repeat(513),
+    });
+    expect(result.success).toBe(false);
+  });
+
   it('rejects send with empty prompt', () => {
     const result = IncomingWsMessage.safeParse({ type: 'send', prompt: '' });
     expect(result.success).toBe(false);

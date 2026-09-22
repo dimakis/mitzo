@@ -264,6 +264,11 @@ export async function openResponsesChat(options: Options) {
               message.mitzoMessageId,
             )) {
               if (event.type === 'result') {
+                if (interrupted || signal.aborted) {
+                  terminalize('cancelled', 'interrupted');
+                  yield { ...event };
+                  continue;
+                }
                 const result = event as typeof event & {
                   is_error?: boolean;
                   provider_failure?: { ambiguous?: boolean };

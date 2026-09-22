@@ -1703,6 +1703,10 @@ export async function sendToChat(
         ) {
           return true;
         }
+        const existingAdmission = eventStore.getExecutionAdmission(session.sessionId, messageId);
+        if (!existingAdmission && responses.isRunning()) {
+          throw new Error('Native Responses conversation already running');
+        }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
         const prepare = () =>
           responses.prepare(messageId, fullPrompt, {

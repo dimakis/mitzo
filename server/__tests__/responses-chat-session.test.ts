@@ -21,6 +21,11 @@ vi.mock('../native-responses-runner.js', () => ({
           calls.releaseInterruptedRun = () => reject(new Error('interrupted'));
         });
       }
+      if (prompt === 'result-after-interrupt') {
+        await new Promise<void>((resolve) => {
+          calls.releaseInterruptedRun = resolve;
+        });
+      }
       if (prompt === 'fail')
         throw Object.assign(new Error('OpenAI API request failed (429)'), {
           status: 429,
@@ -916,5 +921,76 @@ it('keeps provider completion but fails execution when the Stop hook fails', asy
     eventStore.close();
     registry.dispose();
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('records cancellation when the runner emits a result after interrupt', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-result-after-interrupt',
+      effectivePrompt: 'result-after-interrupt',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'result-after-interrupt' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    const draining = (async () => {
+      for await (const event of chat) void event;
+    })();
+    await vi.waitFor(() => expect(calls.releaseInterruptedRun).toBeTypeOf('function'));
+    await chat.interrupt();
+    input.close();
+    await draining;
+
+    expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+      { phase: 'TERMINAL', terminalReason: 'cancelled' },
+    ]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
+  } finally {
+    calls.releaseInterruptedRun = undefined;
+    eventStore.close();
+    registry.dispose();
   }
 });

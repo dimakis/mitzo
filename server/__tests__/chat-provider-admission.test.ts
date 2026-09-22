@@ -7,6 +7,7 @@ const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
   track: vi.fn(),
   interrupt: vi.fn(),
+  isRunning: vi.fn(() => false),
 }));
 
 vi.mock('../responses-chat-session.js', () => ({
@@ -31,6 +32,8 @@ describe('active native provider admission', () => {
     responses.prepare.mockReset();
     responses.track.mockReset();
     responses.interrupt.mockReset();
+    responses.isRunning.mockReset();
+    responses.isRunning.mockReturnValue(false);
     chat.registry.abort(clientId);
   });
 
@@ -244,5 +247,27 @@ describe('active native provider admission', () => {
 
     expect(responses.prepare).toHaveBeenCalledOnce();
     expect(push).toHaveBeenCalledOnce();
+  });
+
+  it('does not poison durable admission when the native runtime is busy', async () => {
+    const sessionId = 'session-busy';
+    responses.isRunning.mockReturnValue(true);
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+
+    await expect(
+      chat.sendToChat(clientId, 'busy command', undefined, undefined, 'busy-command'),
+    ).resolves.toBe(false);
+
+    expect(responses.prepare).not.toHaveBeenCalled();
+    expect(chat.eventStore.getExecutionAdmission(sessionId, 'busy-command')).toBeUndefined();
   });
 });
