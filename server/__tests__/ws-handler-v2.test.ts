@@ -9,6 +9,7 @@ vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
   sendToChat: vi.fn().mockResolvedValue(true),
   interruptChat: vi.fn(),
+  preflightInterruptChat: vi.fn().mockReturnValue(false),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
@@ -41,6 +42,7 @@ vi.mock('../permissions.js', () => ({
 import {
   startChat,
   interruptChat,
+  preflightInterruptChat,
   sendToChat,
   stopChat,
   isActive,
@@ -3284,6 +3286,49 @@ describe('getOwnerConnection', () => {
 // ─── handleInterruptV2 — connection ownership ───────────────────────────────
 
 describe('handleInterruptV2 connection ownership', () => {
+  it('rejects a conflicting command before takeover side effects', async () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightInterruptChat as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('fingerprint conflict');
+    });
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-1');
+
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'i-conflict' },
+        ctx,
+      ),
+    ).rejects.toThrow('fingerprint conflict');
+
+    expect(oldTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(interruptChat).not.toHaveBeenCalled();
+  });
+
   it('takes over session from another connection on interrupt', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();

@@ -52,6 +52,7 @@ import {
   startChat,
   sendToChat,
   interruptChat,
+  preflightInterruptChat,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -845,6 +846,20 @@ export function handleInterruptV2(
             });
             return;
           }
+        }
+        if (
+          preflightInterruptChat(
+            activeClientId,
+            msg.prompt,
+            msg.images,
+            msg.contextBlocks,
+            msg.clientMsgId,
+            msg.accountId ? msg.model : undefined,
+            msg.accountId ? msg.reasoningEffort : undefined,
+          )
+        ) {
+          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
+          return;
         }
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);

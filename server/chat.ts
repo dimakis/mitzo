@@ -1861,6 +1861,28 @@ export async function sendToChat(
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
+export function preflightInterruptChat(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): boolean {
+  const session = registry.get(clientId);
+  if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
+  const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  return preflightProviderDispatch(eventStore, {
+    sessionId: session.sessionId,
+    clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, images),
+    model,
+    reasoningEffort,
+  });
+}
+
 export async function interruptChat(
   clientId: string,
   prompt: string,
@@ -1906,17 +1928,18 @@ export async function interruptChat(
       );
     }
     if (responses) {
-      if (clientMsgId && session.sessionId) {
-        const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
-        preflightProviderDispatch(eventStore, {
-          sessionId: session.sessionId,
+      if (
+        preflightInterruptChat(
+          clientId,
+          prompt,
+          images,
+          contextBlocks,
           clientMsgId,
-          effectivePrompt: stablePrompt,
-          fingerprintSource: providerFingerprintSource(stablePrompt, images),
           model,
           reasoningEffort,
-        });
-      }
+        )
+      )
+        return true;
       await session.queryInstance.interrupt();
       return sendToChat(
         clientId,

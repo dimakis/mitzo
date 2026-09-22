@@ -187,6 +187,33 @@ describe('active native provider admission', () => {
     expect(push).toHaveBeenCalledOnce();
   });
 
+  it('treats an exact interrupt retry as a no-op', async () => {
+    const push = vi.fn();
+    const interrupt = vi.fn().mockResolvedValue(undefined);
+    const sessionId = 'session-interrupt-duplicate';
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    const session = chat.registry.get(clientId)!;
+    session.inputQueue = { push, close: vi.fn() };
+    session.queryInstance = { interrupt, close: vi.fn(), stopTask: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+
+    await chat.sendToChat(clientId, 'same prompt', undefined, undefined, 'duplicate-interrupt');
+    await expect(
+      chat.interruptChat(clientId, 'same prompt', undefined, undefined, 'duplicate-interrupt'),
+    ).resolves.toBe(true);
+
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
+  });
+
   it('reuses admission when identical images are restaged under different paths', async () => {
     const push = vi.fn();
     const sessionId = 'session-images';

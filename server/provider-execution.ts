@@ -38,15 +38,16 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
 export function preflightProviderDispatch(
   store: EventStore,
   request: ProviderDispatchRequest,
-): void {
+): boolean {
   const existing = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
-  if (!existing) return;
+  if (!existing) return false;
   if (existing.requestFingerprint !== fingerprintProviderDispatch(request)) {
     throw new ExecutionAdmissionError(
       'fingerprint_conflict',
       'clientMsgId is already admitted for a different request fingerprint',
     );
   }
+  return true;
 }
 
 /**

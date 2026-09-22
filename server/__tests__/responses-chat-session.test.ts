@@ -1054,6 +1054,11 @@ it('interrupts the runtime even when queued cancellation persistence fails', asy
 
     await expect(chat.interrupt()).rejects.toThrow('cancellation storage failed');
     expect(calls.interrupt).toHaveBeenCalledTimes(interruptCount + 1);
+    await expect(chat.interrupt()).resolves.toBeUndefined();
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
     input.close();
     for await (const event of chat) void event;
     expect(calls.prompts).toHaveLength(promptCount);

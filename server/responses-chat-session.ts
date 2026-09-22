@@ -31,6 +31,7 @@ interface PendingProviderAdmission {
   admission: ProviderDispatchAdmission;
   eventStore: EventStore;
   cancelled: boolean;
+  cancellationPersisted: boolean;
 }
 const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 export function getResponsesRuntime(session: ManagedSession) {
@@ -46,16 +47,22 @@ export function trackResponsesProviderAdmission(
     pending = new Map();
     pendingAdmissions.set(session, pending);
   }
-  pending.set(admission.providerAttemptId, { admission, eventStore, cancelled: false });
+  pending.set(admission.providerAttemptId, {
+    admission,
+    eventStore,
+    cancelled: false,
+    cancellationPersisted: false,
+  });
 }
 
 function cancelPendingAdmissions(session: ManagedSession): void {
   let firstError: unknown;
   for (const pending of pendingAdmissions.get(session)?.values() ?? []) {
-    if (pending.cancelled) continue;
+    if (pending.cancellationPersisted) continue;
     pending.cancelled = true;
     try {
       pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
+      pending.cancellationPersisted = true;
     } catch (error) {
       firstError ??= error;
     }
