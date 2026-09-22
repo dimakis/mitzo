@@ -238,23 +238,24 @@ export async function openResponsesChat(options: Options) {
             });
           }
           interrupted = false;
-          let terminalized = false;
+          let providerTerminalized = false;
+          let executionTerminalized = false;
+          const terminalizeProvider = (reason: ProviderAttemptTerminalReason) => {
+            if (!providerAttempt || providerTerminalized) return;
+            options.eventStore!.transitionProviderAttempt(providerAttempt, 'TERMINAL', reason);
+            providerTerminalized = true;
+          };
+          const terminalizeExecution = (reason: ExecutionTerminalReason) => {
+            if (!providerAttempt || executionTerminalized) return;
+            options.eventStore!.transitionExecution(providerAdmission!.token, 'TERMINAL', reason);
+            executionTerminalized = true;
+          };
           const terminalize = (
             providerReason: ProviderAttemptTerminalReason,
             executionReason: ExecutionTerminalReason,
           ) => {
-            if (!providerAttempt || terminalized) return;
-            options.eventStore!.transitionProviderAttempt(
-              providerAttempt,
-              'TERMINAL',
-              providerReason,
-            );
-            options.eventStore!.transitionExecution(
-              providerAdmission!.token,
-              'TERMINAL',
-              executionReason,
-            );
-            terminalized = true;
+            terminalizeProvider(providerReason);
+            terminalizeExecution(executionReason);
           };
           try {
             for await (const event of runner.run(
@@ -269,15 +270,17 @@ export async function openResponsesChat(options: Options) {
                 };
                 const isError = result.is_error === true;
                 const failure = result.provider_failure;
-                terminalize(
+                terminalizeProvider(
                   isError ? (failure?.ambiguous ? 'ambiguous' : 'failed') : 'completed',
-                  isError ? 'failed' : 'completed',
                 );
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
+                terminalizeExecution(isError ? 'failed' : 'completed');
               }
               yield { ...event };
             }
-            if (providerAttempt && !terminalized) terminalize('failed', 'failed');
+            if (providerAttempt && (!providerTerminalized || !executionTerminalized)) {
+              terminalize('failed', 'failed');
+            }
           } catch (error) {
             if (!interrupted && !signal.aborted && options.binding.provider === 'openai') {
               const providerFailure = classifyProviderFailure(error, {
@@ -305,7 +308,7 @@ export async function openResponsesChat(options: Options) {
             yield { type: 'result', session_id: options.conversationId, is_error: true };
           } finally {
             try {
-              if (providerAttempt && !terminalized) {
+              if (providerAttempt && (!providerTerminalized || !executionTerminalized)) {
                 const wasInterrupted = interrupted || signal.aborted;
                 terminalize(
                   wasInterrupted ? 'cancelled' : 'ambiguous',

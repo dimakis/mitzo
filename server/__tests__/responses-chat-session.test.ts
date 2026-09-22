@@ -841,3 +841,80 @@ it('releases interrupt waiters when durable terminalization throws', async () =>
     registry.dispose();
   }
 });
+
+it('keeps provider completion but fails execution when the Stop hook fails', async () => {
+  vi.stubEnv('MITZO_TRUST_PROJECT_HOOKS', '1');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-stop-hook-'));
+  mkdirSync(join(root, '.claude'));
+  writeFileSync(
+    join(root, '.claude/settings.json'),
+    JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'exit 2' }] }] } }),
+  );
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: root,
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-stop-hook-fail',
+      effectivePrompt: 'stop-hook-fail',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'stop-hook-fail' }, providerAdmission: admission });
+  input.close();
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    for await (const event of chat) void event;
+
+    expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+      { phase: 'TERMINAL', terminalReason: 'completed' },
+    ]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
+  } finally {
+    vi.unstubAllEnvs();
+    eventStore.close();
+    registry.dispose();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
