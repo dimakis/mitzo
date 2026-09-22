@@ -7,76 +7,158 @@ import { dirname, resolve } from 'node:path';
 export const OPENAI_ROUTE_CANARY_CASES = [
   {
     id: 'retry-after-persists',
-    files: [
-      'server/__tests__/codex-conversation-store.test.ts',
-      'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+    checks: [
+      {
+        file: 'server/__tests__/codex-conversation-store.test.ts',
+        testName: 'persists provider retry window across store reopen',
+      },
+      {
+        file: 'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+        testName: 'honors the provider retry window before enabling the saved turn',
+      },
     ],
-    testName:
-      '(?:persists provider retry window across store reopen|honors the provider retry window before enabling the saved turn)',
   },
   {
     id: 'provider-reattachment-does-not-admit',
-    files: [
-      'server/__tests__/codex-chat-session.test.ts',
-      'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+    checks: [
+      {
+        file: 'server/__tests__/codex-chat-session.test.ts',
+        testName: 'reattaches the provider runtime without admitting or replaying user intent',
+      },
+      {
+        file: 'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+        testName:
+          'reattaches a disconnected provider in the background while preserving the failed turn',
+      },
     ],
-    testName:
-      '(?:reattaches the provider runtime without admitting or replaying user intent|reattaches a disconnected provider in the background while preserving the failed turn)',
   },
   {
     id: 'ambiguous-retry-requires-confirmation',
-    files: [
-      'server/__tests__/codex-conversation-store.test.ts',
-      'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+    checks: [
+      {
+        file: 'server/__tests__/codex-conversation-store.test.ts',
+        testName:
+          'requires explicit confirmation for an ambiguous failed turn even without a host tool claim',
+      },
+      {
+        file: 'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+        testName: 'warns before retrying an ambiguous turn that already invoked tools',
+      },
     ],
-    testName:
-      '(?:requires explicit confirmation for an ambiguous failed turn|warns before retrying an ambiguous turn that already invoked tools)',
   },
   {
     id: 'permanent-failures-stay-non-retryable',
-    files: [
-      'server/__tests__/provider-failure.test.ts',
-      'server/__tests__/codex-conversation-store.test.ts',
-      'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+    checks: [
+      {
+        file: 'server/__tests__/provider-failure.test.ts',
+        ancestor: 'classifyProviderFailure',
+        testName: 'distinguishes retryable rate limiting from non-retryable quota exhaustion',
+      },
+      {
+        file: 'server/__tests__/provider-failure.test.ts',
+        ancestor: 'classifyProviderFailure',
+        testName: 'classifies policy failures',
+      },
+      {
+        file: 'server/__tests__/provider-failure.test.ts',
+        ancestor: 'classifyProviderFailure',
+        testName: 'classifies authentication failures',
+      },
+      {
+        file: 'server/__tests__/codex-conversation-store.test.ts',
+        testName: 'refuses explicit retry for a persisted non-retryable provider failure',
+      },
+      {
+        file: 'frontend/src/components/__tests__/CodexQueueStatus.test.tsx',
+        testName: 'does not offer retry for a saved non-retryable failure',
+      },
     ],
-    testName:
-      '(?:distinguishes retryable rate limiting from non-retryable quota exhaustion|classifies policy failures|classifies authentication failures|refuses explicit retry for a persisted non-retryable provider failure|does not offer retry for a saved non-retryable failure)',
   },
   {
     id: 'telemetry-stays-sanitized',
-    files: ['server/__tests__/provider-failure.test.ts'],
-    testName:
-      '(?:produces only stable, sanitized telemetry fields|drops unsafe provider codes and clamps invalid retry delays)',
+    checks: [
+      {
+        file: 'server/__tests__/provider-failure.test.ts',
+        ancestor: 'classifyProviderFailure',
+        testName: 'produces only stable, sanitized telemetry fields',
+      },
+      {
+        file: 'server/__tests__/provider-failure.test.ts',
+        ancestor: 'classifyProviderFailure',
+        testName: 'drops unsafe provider codes and clamps invalid retry delays',
+      },
+    ],
   },
-];
+].map((canaryCase) => ({
+  ...canaryCase,
+  checks: canaryCase.checks.map(({ ancestor, ...check }) => ({
+    ...check,
+    fullName: ancestor ? `${ancestor} ${check.testName}` : check.testName,
+  })),
+}));
 
-export function buildOpenAiRouteCanaryArgs() {
-  const files = [...new Set(OPENAI_ROUTE_CANARY_CASES.flatMap(({ files }) => files))];
-  const testNamePattern = OPENAI_ROUTE_CANARY_CASES.map(({ testName }) => `(?:${testName})`).join(
-    '|',
-  );
+export function buildOpenAiRouteCanaryArgs(check) {
   return [
     'run',
-    ...files,
+    check.file,
     '--config',
     'scripts/openai-route-canary.vitest.config.mjs',
     '--configLoader',
     'runner',
     '--testNamePattern',
-    testNamePattern,
+    `^${check.fullName}$`,
+    '--reporter=json',
   ];
 }
 
-export function runOpenAiRouteCanary() {
+export function vitestCheckPassed(check, output) {
+  try {
+    const report = JSON.parse(output);
+    const assertions = (report.testResults ?? []).flatMap(
+      ({ assertionResults = [] }) => assertionResults,
+    );
+    return (
+      report.success === true &&
+      report.numPassedTests === 1 &&
+      assertions.some(({ fullName, status }) => fullName === check.fullName && status === 'passed')
+    );
+  } catch {
+    return false;
+  }
+}
+
+function runVitestCheck(check) {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const vitest = resolve(repoRoot, 'node_modules/vitest/vitest.mjs');
-  const result = spawnSync(process.execPath, [vitest, ...buildOpenAiRouteCanaryArgs()], {
+  const result = spawnSync(process.execPath, [vitest, ...buildOpenAiRouteCanaryArgs(check)], {
     cwd: repoRoot,
-    stdio: 'inherit',
+    encoding: 'utf8',
     env: { ...process.env, NODE_ENV: 'test' },
   });
   if (result.error) throw result.error;
-  return result.status ?? 1;
+  if (result.status !== 0) {
+    process.stdout.write(result.stdout ?? '');
+    process.stderr.write(result.stderr ?? '');
+    return result.status ?? 1;
+  }
+  if (!vitestCheckPassed(check, result.stdout ?? '')) {
+    process.stderr.write(
+      `[openai-route-canary] expected exactly one passing test for: ${check.fullName}\n`,
+    );
+    return 1;
+  }
+  return 0;
+}
+
+export function runOpenAiRouteCanary(execute = runVitestCheck) {
+  for (const { id, checks } of OPENAI_ROUTE_CANARY_CASES) {
+    for (const check of checks) {
+      process.stdout.write(`[openai-route-canary] ${id}: ${check.testName}\n`);
+      const status = execute(check, buildOpenAiRouteCanaryArgs(check));
+      if (status !== 0) return status;
+    }
+  }
+  return 0;
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
