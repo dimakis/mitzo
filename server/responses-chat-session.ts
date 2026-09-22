@@ -181,15 +181,18 @@ export async function openResponsesChat(options: Options) {
   function close() {
     if (closed) return;
     closed = true;
-    cancelPendingAdmissions(options.session);
-    runtimes.delete(options.session);
-    void hooks
-      .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-      .catch(() => {})
-      .finally(dispose);
-    runner.interrupt();
-    options.input.close();
-    void mcp.close();
+    try {
+      cancelPendingAdmissions(options.session);
+    } finally {
+      runtimes.delete(options.session);
+      void hooks
+        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
+        .catch(() => {})
+        .finally(dispose);
+      runner.interrupt();
+      options.input.close();
+      void mcp.close();
+    }
   }
   signal.addEventListener('abort', close, { once: true });
   return {
@@ -334,10 +337,17 @@ export async function openResponsesChat(options: Options) {
     },
     interrupt: async () => {
       interrupted = true;
-      cancelPendingAdmissions(options.session);
-      runner.interrupt();
-      await runner.waitUntilIdle();
-      await activeTurnFinalized;
+      let cancellationError: unknown;
+      try {
+        cancelPendingAdmissions(options.session);
+      } catch (error) {
+        cancellationError = error;
+      } finally {
+        runner.interrupt();
+        await runner.waitUntilIdle();
+        await activeTurnFinalized;
+      }
+      if (cancellationError) throw cancellationError;
     },
     close,
     stopTask: async () => {

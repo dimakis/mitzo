@@ -285,6 +285,22 @@ describe('chat-rest-handler', () => {
     expect(handleInterruptV2).toHaveBeenCalledOnce();
   });
 
+  it('POST /interrupt reports asynchronous handler failures', async () => {
+    vi.mocked(handleInterruptV2).mockRejectedValueOnce(new Error('fingerprint conflict'));
+    const res = await request(testApp)
+      .post('/api/chat/interrupt')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-int-conflict',
+      });
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ ok: false, error: 'Internal server error' });
+  });
+
   // ─── POST /api/chat/permission ──────────────────────────────────────────
 
   it('POST /permission calls handlePermissionResponseV2', async () => {

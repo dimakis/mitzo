@@ -800,11 +800,11 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+): Promise<void> {
+  return withSpanAsync(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
-    () => {
+    async () => {
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
@@ -875,7 +875,7 @@ export function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        interruptChat(
+        await interruptChat(
           activeClientId,
           msg.prompt,
           msg.images,
@@ -1370,7 +1370,7 @@ export async function dispatchV2Message(
       handleStopV2(connectionId, msg, ctx);
       break;
     case 'interrupt':
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);
