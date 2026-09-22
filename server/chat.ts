@@ -1618,6 +1618,19 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function providerFingerprintSource(
+  fullPrompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): string {
+  let stablePrompt = fullPrompt;
+  if (images?.length) {
+    const stagedImageMarker = `\n\nI've attached ${images.length} image(s). Read them using the Read tool:\n`;
+    const markerIndex = fullPrompt.lastIndexOf(stagedImageMarker);
+    if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
+  }
+  return JSON.stringify({ effectivePrompt: stablePrompt, images });
+}
+
 function validateNativeModelSelection(
   sessionId: string,
   model?: string,
@@ -1704,7 +1717,7 @@ export async function sendToChat(
             sessionId: session.sessionId,
             clientMsgId: messageId,
             effectivePrompt: fullPrompt,
-            fingerprintSource: JSON.stringify({ prompt, images, contextBlocks }),
+            fingerprintSource: providerFingerprintSource(fullPrompt, images),
             model,
             reasoningEffort: selectionReasoningEffort,
           },

@@ -24,7 +24,10 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
       JSON.stringify({
         effectivePrompt: request.fingerprintSource ?? request.effectivePrompt,
         model: request.model ?? null,
-        reasoningEffort: request.reasoningEffort ?? null,
+        reasoningEffort: {
+          specified: request.reasoningEffort !== undefined,
+          value: request.reasoningEffort ?? null,
+        },
       }),
     )
     .digest('base64url');

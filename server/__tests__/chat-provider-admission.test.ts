@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -208,5 +208,41 @@ describe('active native provider admission', () => {
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'startup_failed',
     });
+  });
+
+  it('rejects a retry when resolved context-block content changes', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-context-change';
+    const contextPath = join(root, 'context.md');
+    writeFileSync(contextPath, 'first context');
+    writeFileSync(
+      join(root, '.mitzo.json'),
+      JSON.stringify({ contextBlocks: { attached: 'context.md' } }),
+    );
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    const now = vi.spyOn(Date, 'now').mockReturnValue(9_000_000_000_000_000);
+
+    try {
+      await chat.sendToChat(clientId, 'use context', undefined, ['attached'], 'context-command');
+      writeFileSync(contextPath, 'changed context');
+      now.mockReturnValue(9_000_000_000_006_000);
+      await expect(
+        chat.sendToChat(clientId, 'use context', undefined, ['attached'], 'context-command'),
+      ).rejects.toThrow(/fingerprint/i);
+    } finally {
+      now.mockRestore();
+    }
+
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
   });
 });

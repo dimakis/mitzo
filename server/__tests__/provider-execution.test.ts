@@ -66,6 +66,30 @@ describe('provider execution admission', () => {
     }
   });
 
+  it('distinguishes omitted reasoning effort from an explicit reset', () => {
+    const store = new EventStore(':memory:');
+    store.upsertSession({ sessionId: 'session-1' });
+    const base = {
+      sessionId: 'session-1',
+      clientMsgId: 'command-reasoning',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+    };
+
+    try {
+      admitProviderDispatch({ store, request: base, prepare: () => {} });
+      expect(() =>
+        admitProviderDispatch({
+          store,
+          request: { ...base, reasoningEffort: null },
+          prepare: () => {},
+        }),
+      ).toThrow(/fingerprint/i);
+    } finally {
+      store.close();
+    }
+  });
+
   it('terminalizes a failed preparation without creating a provider attempt', () => {
     const store = new EventStore(':memory:');
     store.upsertSession({ sessionId: 'session-1' });
