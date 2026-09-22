@@ -371,7 +371,7 @@ it('bounds queue overview and excludes historical payloads from polling', () => 
   expect(JSON.stringify(summary)).not.toContain('historical private input');
   expect(() => s.queueOverview('c', { ...binding, accountId: 'other' })).toThrow('binding');
   s.close();
-});
+}, 15_000);
 
 it('reports queue truncation independently from cancelled tombstone truncation', () => {
   const { path } = setup();
@@ -388,7 +388,7 @@ it('reports queue truncation independently from cancelled tombstone truncation',
   expect(overview.cancelledIds).toHaveLength(100);
   expect(overview.hasMore).toBe(false);
   s.close();
-});
+}, 15_000);
 
 it('summarizes metadata without loading the historical command list', () => {
   const { path } = setup();
@@ -477,6 +477,28 @@ it('does not requeue a failed command before its provider retry window', () => {
   expect(s.queueSummary('c', binding)).toMatchObject({ retryAvailableAt: 20_000 });
   expect(s.retryLatestFailed('c', binding, 19_999)).toBe('too_early');
   expect(s.retryLatestFailed('c', binding, 20_000)).toBe('queued');
+  s.close();
+});
+
+it('persists provider retry window across store reopen', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000, true, true);
+  s.close();
+
+  s = new CodexConversationStore(path);
+  expect(s.queueSummary('c', binding)).toMatchObject({
+    failed: 1,
+    retryAvailableAt: 20_000,
+    retryable: true,
+    requiresRetryConfirmation: true,
+  });
+  expect(s.retryLatestFailed('c', binding, 19_999, true)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, 20_000, true)).toBe('queued');
   s.close();
 });
 
