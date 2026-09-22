@@ -2,6 +2,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { AccountProfiles } from '../account-profiles.js';
+
+const openAiProfile = {
+  id: 'work-api',
+  label: 'Work API',
+  provider: 'openai',
+  credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+  models: [
+    { id: 'old-model', label: 'Old model', reasoningEfforts: ['high'] },
+    { id: 'new-model', label: 'New model', reasoningEfforts: ['high'] },
+  ],
+};
 
 const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
@@ -23,8 +35,11 @@ describe('active native provider admission', () => {
 
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'mitzo-provider-admission-'));
+    const profilesPath = join(root, 'account-profiles.json');
+    writeFileSync(profilesPath, JSON.stringify([openAiProfile]));
     vi.stubEnv('REPO_PATH', root);
     vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', profilesPath);
     chat = await import('../chat.js');
   });
 
@@ -73,6 +88,53 @@ describe('active native provider admission', () => {
       requestFingerprint: expect.any(String),
       token: { sessionId },
     });
+  });
+
+  it('reuses an exact model-switch retry after session selection changes', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-model-retry';
+    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      model: 'old-model',
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: binding,
+      selectedModel: 'old-model',
+      reasoningEffort: 'high',
+    });
+
+    await expect(
+      chat.sendToChat(
+        clientId,
+        'switch models',
+        undefined,
+        undefined,
+        'command-model-switch',
+        'new-model',
+      ),
+    ).resolves.toBe(true);
+    await expect(
+      chat.sendToChat(
+        clientId,
+        'switch models',
+        undefined,
+        undefined,
+        'command-model-switch',
+        'new-model',
+      ),
+    ).resolves.toBe(true);
+
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
+    expect(chat.registry.get(clientId)?.model).toBe('new-model');
   });
 
   it('rejects a changed request before a second provider preparation', async () => {
@@ -186,6 +248,7 @@ describe('active native provider admission', () => {
 
   it('terminalizes and clears preparation when acknowledgement throws', async () => {
     const sessionId = 'session-ack-failure';
+    const binding = new AccountProfiles([openAiProfile]).resolve('work-api', 'old-model');
     chat.registry.register(clientId, {
       transport: {
         send: vi.fn(() => {
@@ -197,20 +260,36 @@ describe('active native provider admission', () => {
       mode: 'agent',
       sessionId,
       cwd: root,
+      model: 'old-model',
       sessionAllowList: new Set(),
     });
     chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
-    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.upsertSession({
+      sessionId,
+      accountBinding: binding,
+      selectedModel: 'old-model',
+      reasoningEffort: 'high',
+    });
 
     await expect(
-      chat.sendToChat(clientId, 'cannot acknowledge', undefined, undefined, 'ack-failure'),
+      chat.sendToChat(
+        clientId,
+        'cannot acknowledge',
+        undefined,
+        undefined,
+        'ack-failure',
+        'new-model',
+      ),
     ).rejects.toThrow('socket closed');
 
     expect(responses.interrupt).toHaveBeenCalledOnce();
     expect(chat.eventStore.getSession(sessionId)).toMatchObject({
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'startup_failed',
+      selectedModel: 'old-model',
+      reasoningEffort: 'high',
     });
+    expect(chat.registry.get(clientId)?.model).toBe('old-model');
   });
 
   it('rejects a retry when resolved context-block content changes', async () => {

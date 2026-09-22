@@ -1723,12 +1723,11 @@ export async function sendToChat(
             effectivePrompt: fullPrompt,
             fingerprintSource: providerFingerprintSource(fullPrompt, images),
             model,
-            reasoningEffort: selectionReasoningEffort,
+            reasoningEffort,
           },
           prepare,
         });
         if (providerAdmission.duplicate) return true;
-        if (model) session.model = model;
       } catch (error) {
         if (error instanceof ExecutionAdmissionError) throw error;
         send(session.transport, {
@@ -1739,18 +1738,21 @@ export async function sendToChat(
         return false;
       }
     }
-    const acknowledge = (): boolean => {
-      if (model) session.model = model;
+    const commitSelection = (): void => {
+      if (!model && selectionReasoningEffort === undefined) return;
       if (session.sessionId) {
-        if (model || selectionReasoningEffort !== undefined) {
-          eventStore.upsertSession({
-            sessionId: session.sessionId,
-            ...(model ? { selectedModel: model } : {}),
-            ...(selectionReasoningEffort !== undefined
-              ? { reasoningEffort: selectionReasoningEffort || null }
-              : {}),
-          });
-        }
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
+        });
+      }
+      if (model) session.model = model;
+    };
+    const acknowledge = (): boolean => {
+      if (session.sessionId) {
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
@@ -1796,8 +1798,8 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        if (model) session.model = selection.model;
         acknowledge();
+        commitSelection();
         void codex.resumeAfterExplicitSend().catch(() =>
           send(session.transport, {
             type: 'error',
@@ -1840,6 +1842,7 @@ export async function sendToChat(
       session.inputQueue.push(
         makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
       );
+      commitSelection();
     }
     return true;
   });
