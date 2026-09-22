@@ -29,6 +29,9 @@ vi.mock('../native-responses-runner.js', () => ({
           privateDiagnostic: 'Bearer sk-secret https://private.invalid',
         });
       if (prompt === 'fail-generic') throw new Error('Vertex transport failed');
+      if (prompt === 'stream-then-close') {
+        yield { type: 'assistant', session_id: 'app', message: { content: [] } };
+      }
       yield { type: 'result', session_id: 'app' };
     }
     interrupt = () => {
@@ -620,6 +623,71 @@ it('records ordinary non-OpenAI failures as failed executions', async () => {
     await expect(async () => {
       for await (const event of chat) void event;
     }).rejects.toThrow();
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('terminalizes an active provider attempt when its consumer closes the stream', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-consumer-close',
+      effectivePrompt: 'stream-then-close',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'stream-then-close' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    for await (const event of chat) {
+      if (event.type === 'assistant') break;
+    }
+    expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+      { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+    ]);
     expect(eventStore.getSession('app')).toMatchObject({
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'failed',

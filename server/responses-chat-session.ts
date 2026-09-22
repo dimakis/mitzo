@@ -302,6 +302,13 @@ export async function openResponsesChat(options: Options) {
               );
             yield { type: 'result', session_id: options.conversationId, is_error: true };
           } finally {
+            if (providerAttempt && !terminalized) {
+              const wasInterrupted = interrupted || signal.aborted;
+              terminalize(
+                wasInterrupted ? 'cancelled' : 'ambiguous',
+                wasInterrupted ? 'interrupted' : 'failed',
+              );
+            }
             completeActiveTurn?.();
             completeActiveTurn = undefined;
             activeTurnFinalized = undefined;
