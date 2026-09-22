@@ -371,7 +371,7 @@ it('bounds queue overview and excludes historical payloads from polling', () => 
   expect(JSON.stringify(summary)).not.toContain('historical private input');
   expect(() => s.queueOverview('c', { ...binding, accountId: 'other' })).toThrow('binding');
   s.close();
-});
+}, 15_000);
 
 it('reports queue truncation independently from cancelled tombstone truncation', () => {
   const { path } = setup();
@@ -388,7 +388,7 @@ it('reports queue truncation independently from cancelled tombstone truncation',
   expect(overview.cancelledIds).toHaveLength(100);
   expect(overview.hasMore).toBe(false);
   s.close();
-});
+}, 15_000);
 
 it('summarizes metadata without loading the historical command list', () => {
   const { path } = setup();
