@@ -314,6 +314,13 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(202);
     expect(res.body.ok).toBe(true);
     expect(handleInterruptV2).toHaveBeenCalledOnce();
+    expect(handleInterruptV2).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
+      expect.objectContaining({ sessionId: 'sess-1', clientMsgId: 'msg-int-1' }),
+      expect.any(Object),
+      { awaitStartupAdmission: true },
+    );
   });
 
   it('POST /interrupt reports asynchronous handler failures', async () => {

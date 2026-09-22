@@ -215,7 +215,9 @@ export function createChatRestRouter(
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
     try {
-      await handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx, {
+        awaitStartupAdmission: true,
+      });
       res.status(202).json({ ok: true });
     } catch (err) {
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });

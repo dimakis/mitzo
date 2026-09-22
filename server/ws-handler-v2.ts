@@ -827,6 +827,9 @@ export function handleSendV2(
               connectionId,
               sessionId: startupSessionId,
             });
+            ctx.connRegistry.watch(connectionId, startupSessionId);
+            ctx.connRegistry.setActive(connectionId, startupSessionId);
+            transport.send({ type: 'session_id', sessionId: startupSessionId });
             return;
           }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
@@ -892,6 +895,7 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
+  delivery?: { awaitStartupAdmission?: boolean },
 ): Promise<void> {
   return withSpanAsync(
     'ws.interrupt',
@@ -901,7 +905,8 @@ export function handleInterruptV2(
       if (!found) return;
 
       const activeClientId = found.clientId;
-      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
+      const storedMeta = ctx.eventStore.getSession(msg.sessionId);
+      const storedAccountId = storedMeta?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -993,6 +998,28 @@ export function handleInterruptV2(
         return;
       }
 
+      const effectiveSelection = resolveEffectiveAccountSelection(
+        msg,
+        storedMeta,
+        storedMeta?.accountBinding ?? undefined,
+      );
+      const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+        sessionId: msg.sessionId,
+        clientMsgId: msg.clientMsgId,
+        prompt: msg.prompt,
+        cwd: storedMeta?.cwd ?? BASE_REPO,
+        images: msg.images,
+        contextBlocks: msg.contextBlocks,
+        model: effectiveSelection.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
+      });
+      if (duplicate) {
+        ctx.connRegistry.watch(connectionId, msg.sessionId);
+        ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        log.info('duplicate cold interrupt', { connectionId, sessionId: msg.sessionId });
+        return;
+      }
+
       // Zombie — abort before resume.
       if (found && isActive(found.clientId)) {
         log.info('aborting zombie session before resume (interrupt)', {
@@ -1007,6 +1034,14 @@ export function handleInterruptV2(
       const sessionClientId = `${connectionId}:${msg.sessionId}`;
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      let resolveStartupAdmission: (() => void) | undefined;
+      let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+      const startupAdmission = delivery?.awaitStartupAdmission
+        ? new Promise<void>((resolve, reject) => {
+            resolveStartupAdmission = resolve;
+            rejectStartupAdmission = reject;
+          })
+        : undefined;
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
         accountId: msg.accountId ?? storedAccountId,
@@ -1016,19 +1051,24 @@ export function handleInterruptV2(
               revision: permissionRevision(ctx.eventStore, msg.sessionId),
             }
           : undefined,
-        model: msg.model ?? found.session?.model,
-        reasoningEffort: msg.reasoningEffort,
+        model: effectiveSelection.model ?? found.session?.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
+        onStartupAdmission: (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else resolveStartupAdmission?.();
+        },
       }).catch((err: unknown) =>
         transport.send({
           type: 'error',
           error: err instanceof Error ? err.message : 'Session startup failed',
         }),
       );
+      await startupAdmission;
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );

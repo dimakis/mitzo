@@ -1,8 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { admitProviderDispatch, preflightProviderDispatch } from '../provider-execution.js';
 
 describe('provider execution admission', () => {
+  const accountBinding = {
+    accountId: 'work',
+    accountLabel: 'Work',
+    provider: 'openai',
+    model: 'gpt-test',
+    profileRevision: 'revision-1',
+  };
+
   it('reuses an exact durable admission without preparing a second dispatch', () => {
     const store = new EventStore(':memory:');
     const prepare = vi.fn();
@@ -119,6 +128,119 @@ describe('provider execution admission', () => {
           accountBinding: { ...base.accountBinding, profileRevision: 'revision-2' },
         }),
       ).toThrow(/fingerprint/i);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('accepts a pre-versioning fingerprint only for the durable account binding', () => {
+    const store = new EventStore(':memory:');
+    const request = {
+      sessionId: 'session-legacy',
+      clientMsgId: 'command-legacy',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      reasoningEffort: 'medium',
+      accountBinding,
+    };
+    const legacyFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          effectivePrompt: request.effectivePrompt,
+          model: request.model,
+          reasoningEffort: { specified: true, value: request.reasoningEffort },
+        }),
+      )
+      .digest('base64url');
+    store.upsertSession({ sessionId: request.sessionId, accountBinding });
+    store.beginExecution(request.sessionId, undefined, request.clientMsgId, legacyFingerprint);
+
+    try {
+      expect(preflightProviderDispatch(store, request)).toBe(true);
+      const prepare = vi.fn();
+      expect(admitProviderDispatch({ store, request, prepare })).toMatchObject({
+        duplicate: true,
+        requestFingerprint: legacyFingerprint,
+      });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(() =>
+        preflightProviderDispatch(store, {
+          ...request,
+          accountBinding: { ...accountBinding, accountId: 'personal' },
+        }),
+      ).toThrow(/fingerprint/i);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('accepts the unversioned account-bound fingerprint used during the rollout', () => {
+    const store = new EventStore(':memory:');
+    const request = {
+      sessionId: 'session-account-bound',
+      clientMsgId: 'command-account-bound',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      reasoningEffort: 'medium',
+      accountBinding,
+    };
+    const unversionedFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          effectivePrompt: request.effectivePrompt,
+          model: request.model,
+          reasoningEffort: { specified: true, value: request.reasoningEffort },
+          accountBinding: {
+            accountId: accountBinding.accountId,
+            provider: accountBinding.provider,
+            profileRevision: accountBinding.profileRevision,
+          },
+        }),
+      )
+      .digest('base64url');
+    store.upsertSession({ sessionId: request.sessionId, accountBinding });
+    store.beginExecution(request.sessionId, undefined, request.clientMsgId, unversionedFingerprint);
+
+    try {
+      expect(preflightProviderDispatch(store, request)).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('rechecks a compatible legacy admission created during a rolling-upgrade race', () => {
+    const store = new EventStore(':memory:');
+    const prepare = vi.fn();
+    const request = {
+      sessionId: 'session-race',
+      clientMsgId: 'command-race',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      reasoningEffort: 'medium',
+      accountBinding,
+    };
+    const legacyFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          effectivePrompt: request.effectivePrompt,
+          model: request.model,
+          reasoningEffort: { specified: true, value: request.reasoningEffort },
+        }),
+      )
+      .digest('base64url');
+    store.upsertSession({ sessionId: request.sessionId, accountBinding });
+    const beginExecution = store.beginExecution.bind(store);
+    vi.spyOn(store, 'beginExecution').mockImplementationOnce((...args) => {
+      beginExecution(request.sessionId, undefined, request.clientMsgId, legacyFingerprint);
+      return beginExecution(...args);
+    });
+
+    try {
+      expect(admitProviderDispatch({ store, request, prepare })).toMatchObject({
+        duplicate: true,
+        requestFingerprint: legacyFingerprint,
+      });
+      expect(prepare).not.toHaveBeenCalled();
     } finally {
       store.close();
     }
