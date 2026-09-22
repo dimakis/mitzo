@@ -537,7 +537,12 @@ it('records ordinary non-OpenAI failures as failed executions', async () => {
         model: 'test',
         profileRevision: 'revision',
       },
-      gemini: { accountId: 'work', projectId: 'project', accessToken: 'token' },
+      gemini: {
+        accountId: 'work',
+        projectId: 'project',
+        region: 'global',
+        getAccessToken: async () => 'token',
+      },
       session: registry.get('client')!,
       registry,
       input,
