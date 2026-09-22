@@ -52,6 +52,7 @@ import {
   startChat,
   sendToChat,
   interruptChat,
+  preflightChatCommand,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -628,6 +629,15 @@ export function handleSendV2(
             storeState !== null
           ) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
+            const duplicate = preflightChatCommand(
+              found.clientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -660,9 +670,13 @@ export function handleSendV2(
                 storeState,
               });
             }
-            applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
+            if (duplicate) {
+              log.info('duplicate send', { connectionId, sessionId });
+              return;
+            }
+            applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
                 ? await sendToChat(
@@ -800,11 +814,11 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+): Promise<void> {
+  return withSpanAsync(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
-    () => {
+    async () => {
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
@@ -846,6 +860,15 @@ export function handleInterruptV2(
             return;
           }
         }
+        const duplicate = preflightChatCommand(
+          activeClientId,
+          msg.prompt,
+          msg.images,
+          msg.contextBlocks,
+          msg.clientMsgId,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
+        );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
@@ -875,7 +898,11 @@ export function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        interruptChat(
+        if (duplicate) {
+          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
+          return;
+        }
+        await interruptChat(
           activeClientId,
           msg.prompt,
           msg.images,
@@ -1370,7 +1397,7 @@ export async function dispatchV2Message(
       handleStopV2(connectionId, msg, ctx);
       break;
     case 'interrupt':
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);

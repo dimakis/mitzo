@@ -959,7 +959,7 @@ export class EventStore {
   /** Start one durable provider dispatch owned by the exact active execution token. */
   beginProviderAttempt(
     executionToken: ExecutionToken,
-    providerAttemptId = randomUUID(),
+    providerAttemptId: string = randomUUID(),
   ): BeginProviderAttemptResult {
     if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
     return this.db!.transaction((): BeginProviderAttemptResult => {

@@ -1311,6 +1311,7 @@ checkPort(PORT).then((inUse) => {
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
+    eventStore.recoverOrphanedExecutions();
     eventStore.recoverPendingSendCommands();
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();

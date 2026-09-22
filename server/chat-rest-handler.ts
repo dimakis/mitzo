@@ -33,6 +33,7 @@ import {
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
 import { createLogger } from './logger.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 
 const log = createLogger('chat-rest');
 
@@ -196,7 +197,7 @@ export function createChatRestRouter(
     res.status(202).json({ ok: true });
   });
 
-  router.post('/interrupt', (req, res) => {
+  router.post('/interrupt', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
@@ -204,10 +205,14 @@ export function createChatRestRouter(
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
     try {
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       res.status(202).json({ ok: true });
     } catch (err) {
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
+      if (err instanceof ExecutionAdmissionError) {
+        res.status(409).json({ ok: false, code: err.code, error: err.message });
+        return;
+      }
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });

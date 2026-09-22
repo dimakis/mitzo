@@ -6,7 +6,16 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
-import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import {
+  getResponsesRuntime,
+  openResponsesChat,
+  trackResponsesProviderAdmission,
+} from './responses-chat-session.js';
+import {
+  admitProviderDispatch,
+  preflightProviderDispatch,
+  type ProviderDispatchAdmission,
+} from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
@@ -131,6 +140,7 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 
 const log = createLogger('chat');
 
@@ -807,13 +817,18 @@ function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
   messageId?: string,
-): SDKUserMessage & { mitzoMessageId?: string } {
+  providerAdmission?: ProviderDispatchAdmission,
+): SDKUserMessage & {
+  mitzoMessageId?: string;
+  providerAdmission?: ProviderDispatchAdmission;
+} {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
     ...(messageId ? { mitzoMessageId: messageId } : {}),
+    ...(providerAdmission ? { providerAdmission } : {}),
   };
 }
 
@@ -1381,6 +1396,7 @@ async function _startChatInner(
         session,
         registry,
         input: inputQueue,
+        eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
@@ -1606,6 +1622,19 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function providerFingerprintSource(
+  fullPrompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): string {
+  let stablePrompt = fullPrompt;
+  if (images?.length) {
+    const stagedImageMarker = `\n\nI've attached ${images.length} image(s). Read them using the Read tool:\n`;
+    const markerIndex = fullPrompt.lastIndexOf(stagedImageMarker);
+    if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
+  }
+  return JSON.stringify({ effectivePrompt: stablePrompt, images });
+}
+
 function validateNativeModelSelection(
   sessionId: string,
   model?: string,
@@ -1667,20 +1696,44 @@ export async function sendToChat(
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
-    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
-      return true;
+    let providerAdmission: ProviderDispatchAdmission | undefined;
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        if (
+          clientMsgId &&
+          eventStore.hasUserMessage(session.sessionId, clientMsgId) &&
+          !eventStore.getExecutionAdmission(session.sessionId, clientMsgId)
+        ) {
+          return true;
+        }
+        const existingAdmission = eventStore.getExecutionAdmission(session.sessionId, messageId);
+        if (!existingAdmission && responses.isRunning()) {
+          throw new Error('Native Responses conversation already running');
+        }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
-        responses.prepare(messageId, fullPrompt, {
-          ...(model ? { model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort }
-            : {}),
+        const prepare = () =>
+          responses.prepare(messageId, fullPrompt, {
+            ...(model ? { model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort }
+              : {}),
+          });
+        providerAdmission = admitProviderDispatch({
+          store: eventStore,
+          request: {
+            sessionId: session.sessionId,
+            clientMsgId: messageId,
+            effectivePrompt: fullPrompt,
+            fingerprintSource: providerFingerprintSource(fullPrompt, images),
+            model,
+            reasoningEffort,
+          },
+          prepare,
         });
-        if (model) session.model = model;
-      } catch {
+        if (providerAdmission.duplicate) return true;
+      } catch (error) {
+        if (error instanceof ExecutionAdmissionError) throw error;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
@@ -1689,18 +1742,41 @@ export async function sendToChat(
         return false;
       }
     }
-    const acknowledge = (): boolean => {
-      if (model) session.model = model;
+    const commitSelection = (): void => {
+      if (!model && selectionReasoningEffort === undefined) return;
       if (session.sessionId) {
-        if (model || selectionReasoningEffort !== undefined) {
-          eventStore.upsertSession({
-            sessionId: session.sessionId,
-            ...(model ? { selectedModel: model } : {}),
-            ...(selectionReasoningEffort !== undefined
-              ? { reasoningEffort: selectionReasoningEffort || null }
-              : {}),
-          });
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
+        });
+      }
+      if (model) session.model = model;
+    };
+    const failPreparedProviderCommand = (error: unknown): never => {
+      if (!responses || !providerAdmission) throw error;
+      const cleanupErrors: unknown[] = [];
+      try {
+        eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      } finally {
+        try {
+          responses.abandon(messageId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
         }
+      }
+      if (cleanupErrors.length) {
+        const message = error instanceof Error ? error.message : 'Provider command startup failed';
+        throw new AggregateError([error, ...cleanupErrors], message);
+      }
+      throw error;
+    };
+    const acknowledge = (): boolean => {
+      if (session.sessionId) {
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
@@ -1746,8 +1822,8 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        if (model) session.model = selection.model;
         acknowledge();
+        commitSelection();
         void codex.resumeAfterExplicitSend().catch(() =>
           send(session.transport, {
             type: 'error',
@@ -1766,16 +1842,59 @@ export async function sendToChat(
         return false;
       }
     } else {
-      if (acknowledge()) return true;
-      session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
-      );
+      let duplicate = false;
+      try {
+        duplicate = acknowledge();
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
+      if (duplicate) {
+        if (responses && providerAdmission) {
+          failPreparedProviderCommand(
+            new Error('Provider command was already acknowledged without a dispatch'),
+          );
+        }
+        return true;
+      }
+      try {
+        commitSelection();
+        if (responses && providerAdmission) {
+          trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+        }
+        session.inputQueue.push(
+          makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
+        );
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
     }
     return true;
   });
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
+export function preflightChatCommand(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): boolean {
+  const session = registry.get(clientId);
+  if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
+  const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  return preflightProviderDispatch(eventStore, {
+    sessionId: session.sessionId,
+    clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, images),
+    model,
+    reasoningEffort,
+  });
+}
+
 export async function interruptChat(
   clientId: string,
   prompt: string,
@@ -1821,6 +1940,18 @@ export async function interruptChat(
       );
     }
     if (responses) {
+      if (
+        preflightChatCommand(
+          clientId,
+          prompt,
+          images,
+          contextBlocks,
+          clientMsgId,
+          model,
+          reasoningEffort,
+        )
+      )
+        return true;
       await session.queryInstance.interrupt();
       return sendToChat(
         clientId,

@@ -90,17 +90,10 @@ export class NativeResponsesRunner {
   }
   interrupt() {
     this.active?.abort();
-    for (const { state } of this.prepared.values()) {
-      state.status = 'interrupted';
-      try {
-        this.options.store.save(this.options.conversationId, this.options.binding, state);
-      } catch {
-        log.warn('could not persist prepared interruption; startup recovery required', {
-          conversationId: this.options.conversationId,
-        });
-      }
-    }
-    this.prepared.clear();
+    for (const messageId of [...this.prepared.keys()]) this.abandon(messageId);
+  }
+  abandon(messageId: string) {
+    this.prepared.delete(messageId);
   }
   isRunning() {
     return !!this.active || this.prepared.size > 0;
@@ -109,7 +102,9 @@ export class NativeResponsesRunner {
     if (!this.active) return Promise.resolve();
     return new Promise<void>((resolve) => this.idleWaiters.push(resolve));
   }
-  /** Durably claim a follow-up before the public transcript acknowledges it. */
+  /** Stage a follow-up after its EventStore admission, without exposing it to durable history
+   * until the consumer has durably started the matching provider attempt.
+   */
   prepare(
     messageId: string,
     prompt: string,
@@ -117,10 +112,17 @@ export class NativeResponsesRunner {
   ) {
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
-    const state = this.options.store.begin(this.options.conversationId, this.options.binding);
+    const state: NativeResponsesState = structuredClone(
+      this.options.store.load(this.options.conversationId, this.options.binding) ?? {
+        status: 'idle' as const,
+        history: [],
+      },
+    );
+    if (state.status === 'running')
+      throw new Error('Native Responses conversation already running');
+    state.status = 'running';
     recoverToolResults(state);
     state.history.push({ role: 'user', content: prompt });
-    this.options.store.save(this.options.conversationId, this.options.binding, state);
     this.prepared.set(messageId, { prompt, state, selection });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
@@ -141,7 +143,11 @@ export class NativeResponsesRunner {
     const save = () => opts.store.save(opts.conversationId, opts.binding, state);
     let completed = false;
     try {
-      if (!prepared) {
+      if (prepared) {
+        // The queue consumer starts the provider attempt before entering this generator.
+        // Persist the staged prompt only after that durable boundary exists.
+        save();
+      } else {
         recoverToolResults(state);
         state.history.push({ role: 'user', content: prompt });
         save();
