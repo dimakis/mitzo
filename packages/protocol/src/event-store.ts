@@ -1054,16 +1054,6 @@ export class EventStore {
   ): ProviderAttemptTransitionResult {
     this.validateProviderAttemptTransition(nextPhase, terminalReason);
     return this.db!.transaction((): ProviderAttemptTransitionResult => {
-      const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
-      if (
-        !currentExecution ||
-        currentExecution.execution_id !== token.executionId ||
-        currentExecution.execution_generation !== token.generation ||
-        currentExecution.execution_phase === 'TERMINAL'
-      ) {
-        return { applied: false, status: 'stale', token };
-      }
-
       const current = this.db!.prepare(
         `SELECT phase FROM provider_attempts
          WHERE session_id = ? AND execution_id = ? AND generation = ?
@@ -1077,6 +1067,16 @@ export class EventStore {
       ) as { phase: ProviderAttemptPhase } | undefined;
       if (!current) return { applied: false, status: 'stale', token };
       if (current.phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+
+      const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !currentExecution ||
+        currentExecution.execution_id !== token.executionId ||
+        currentExecution.execution_generation !== token.generation ||
+        currentExecution.execution_phase === 'TERMINAL'
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
       if (nextPhase !== 'TERMINAL') {
         return { applied: false, status: 'invalid_transition', token };
       }

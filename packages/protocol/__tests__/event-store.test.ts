@@ -349,6 +349,24 @@ describe('EventStore', () => {
       });
     });
 
+    it('keeps a terminal provider-attempt retry idempotent after its execution closes', () => {
+      const execution = store.beginExecution(sessionId, 'execution-1');
+      const attempt = store.beginProviderAttempt(execution.token, 'provider-attempt-1');
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed')).toMatchObject(
+        { applied: true, status: 'applied' },
+      );
+      expect(store.transitionExecution(execution.token, 'TERMINAL', 'completed')).toMatchObject({
+        applied: true,
+      });
+      const beforeRetry = store.getSessionEvents(sessionId);
+
+      expect(store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed')).toMatchObject(
+        { applied: false, status: 'terminal' },
+      );
+      expect(store.getSessionEvents(sessionId)).toEqual(beforeRetry);
+    });
+
     it('terminalizes an orphaned provider attempt before its execution exactly once', () => {
       const execution = store.beginExecution(sessionId, 'execution-1');
       store.beginProviderAttempt(execution.token, 'provider-attempt-1');
