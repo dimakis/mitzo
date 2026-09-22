@@ -208,24 +208,29 @@ describe('durable native Responses turns', () => {
     await rejection;
     expect(store.load('app-id', binding)?.status).toBe('interrupted');
   });
-  it('persists a prepared follow-up before its generator is consumed', async () => {
+  it('keeps a prepared follow-up out of durable history until its generator is consumed', async () => {
     const instance = runner();
     instance.prepare('message-1', 'durable follow-up');
-    expect(store.load('app-id', binding)).toMatchObject({
-      status: 'running',
-      history: [{ role: 'user', content: 'durable follow-up' }],
-    });
+    expect(store.load('app-id', binding)).toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
     await collect(instance.run('durable follow-up', undefined, 'message-1'));
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(store.load('app-id', binding)?.status).toBe('idle');
+  });
+  it('does not expose a prepared follow-up to startup recovery before provider dispatch', () => {
+    const instance = runner();
+    instance.prepare('message-crash', 'never dispatched');
+
+    store.recoverAtStartup();
+
+    expect(store.load('app-id', binding)).toBeUndefined();
   });
   it('abandons a prepared follow-up without leaking it into later history', async () => {
     const instance = runner();
     instance.prepare('message-rejected', 'rejected follow-up');
 
     instance.abandon('message-rejected');
-    expect(store.load('app-id', binding)).toMatchObject({ status: 'idle', history: [] });
+    expect(store.load('app-id', binding)).toBeUndefined();
 
     await collect(instance.run('later accepted turn'));
     const request = JSON.parse(fetchMock.mock.calls[0][1].body);
