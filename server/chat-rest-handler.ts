@@ -167,6 +167,7 @@ export function createChatRestRouter(
           };
           const outcome = await handleSendV2(connectionId, transport, command, ctx, {
             initialSessionId: command.sessionId ? undefined : sessionId,
+            awaitStartupAdmission: true,
           });
           if (outcome === 'native') return false;
         },
@@ -174,6 +175,15 @@ export function createChatRestRouter(
       res.status(202).json(receipt);
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
+      if (err instanceof ExecutionAdmissionError) {
+        res.status(409).json({
+          ok: false,
+          code: err.code,
+          error: err.message,
+          clientMsgId: msg.clientMsgId,
+        });
+        return;
+      }
       res.status(422).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Send failed',

@@ -10,6 +10,7 @@ vi.mock('../chat.js', () => ({
   sendToChat: vi.fn().mockResolvedValue(true),
   interruptChat: vi.fn(),
   preflightChatCommand: vi.fn().mockReturnValue(false),
+  preflightStartupProviderCommand: vi.fn().mockReturnValue(false),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
@@ -43,6 +44,7 @@ import {
   startChat,
   interruptChat,
   preflightChatCommand,
+  preflightStartupProviderCommand,
   sendToChat,
   stopChat,
   isActive,
@@ -2586,6 +2588,68 @@ describe('handleSendV2 connection ownership', () => {
 // ─── state-based routing (Phase 3) ──────────────────────────────────────────
 
 describe('handleSendV2 state-based routing', () => {
+  it('waits for startup admission before completing a durable delivery', async () => {
+    let admitStartup: (() => void) | undefined;
+    vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
+      admitStartup = () => options.onStartupAdmission?.();
+      await new Promise(() => {});
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    let completed = false;
+    const delivery = handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'admit-1' },
+      ctx,
+      { initialSessionId: 'initial-1', awaitStartupAdmission: true },
+    ).then(() => {
+      completed = true;
+    });
+
+    await vi.waitFor(() => expect(admitStartup).toBeTypeOf('function'));
+    expect(completed).toBe(false);
+    admitStartup!();
+    await delivery;
+    expect(completed).toBe(true);
+  });
+
+  it('rejects a cold-resume conflict before zombie cleanup or routing side effects', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (preflightStartupProviderCommand as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('clientMsgId fingerprint conflict');
+    });
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'conflict' },
+      ctx,
+    );
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(false);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/fingerprint/i) }),
+    );
+  });
+
   it('aborts zombie and resumes when state is ENDED but registry still has session', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();

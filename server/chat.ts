@@ -853,6 +853,7 @@ export async function startChat(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -867,7 +868,10 @@ export async function startChat(
       'chat.mode': options.mode ?? 'agent',
     },
     async () => _startChatInner(transport, clientId, prompt, options),
-  );
+  ).catch((error: unknown) => {
+    options.onStartupAdmission?.(error);
+    throw error;
+  });
 }
 
 async function _startChatInner(
@@ -891,6 +895,7 @@ async function _startChatInner(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
@@ -988,7 +993,6 @@ async function _startChatInner(
             return token;
           },
         };
-        await gemini.getAccessToken();
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
@@ -1011,6 +1015,7 @@ async function _startChatInner(
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     send(transport, {
       type: 'error',
       error: err instanceof Error ? err.message : 'Account selection failed',
@@ -1024,6 +1029,7 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
+  const initialMessageId = options.clientMsgId ?? randomUUID();
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
     : undefined;
@@ -1040,6 +1046,80 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+
+  // Native initial and cold-resume commands need durable identity before any
+  // worktree, registry, transcript, or provider queue side effect. New bound
+  // sessions receive their canonical ID here so an exact retry can consult the
+  // same admission instead of selecting a fresh initial route.
+  let initialProviderAdmission: ProviderDispatchAdmission | undefined;
+  if ((apiKey || gemini) && !options.reattachOnly) {
+    const conversationId = options.resume ?? options.initialSessionId ?? randomUUID();
+    if (!options.resume && !options.initialSessionId) {
+      options = { ...options, initialSessionId: conversationId };
+    }
+    if (!eventStore.getSession(conversationId)) {
+      eventStore.upsertSession({
+        sessionId: conversationId,
+        cwd: baseCwd,
+        mode,
+        ...(accountBinding ? { accountBinding } : {}),
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
+      });
+    }
+    try {
+      const stablePrompt = assemblePrompt(prompt, baseCwd, undefined, options.contextBlocks);
+      initialProviderAdmission = admitProviderDispatch({
+        store: eventStore,
+        request: {
+          sessionId: conversationId,
+          clientMsgId: initialMessageId,
+          effectivePrompt: stablePrompt,
+          fingerprintSource: providerFingerprintSource(stablePrompt, options.images),
+          model: options.model,
+          reasoningEffort: options.reasoningEffort,
+        },
+        prepare: () => {},
+      });
+      if (initialProviderAdmission.duplicate) {
+        options.onStartupAdmission?.();
+        return;
+      }
+    } catch (err: unknown) {
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Provider command admission failed',
+      });
+      return;
+    }
+  }
+  if (gemini && !options.reattachOnly) {
+    try {
+      await gemini.getAccessToken();
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Google Vertex credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1113,8 +1193,7 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  const initialMessageId = options.clientMsgId ?? randomUUID();
-  if (!options.reattachOnly)
+  if (!options.reattachOnly && !initialProviderAdmission)
     inputQueue.push(
       makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
     );
@@ -1375,16 +1454,6 @@ async function _startChatInner(
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      storeAndEchoIfNew(
-        conversationId,
-        initialMessageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
       q = await openResponsesChat({
         resume: !!options.resume,
         conversationId,
@@ -1402,6 +1471,24 @@ async function _startChatInner(
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId),
       });
+      if (!initialProviderAdmission) {
+        throw new Error('Native provider startup is missing durable command admission');
+      }
+      storeAndEchoIfNew(
+        conversationId,
+        initialMessageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
+      );
+      trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
+      inputQueue.push(
+        makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
+      );
+      options.onStartupAdmission?.();
     } else
       q = adaptSdkQuery(
         query({
@@ -1497,7 +1584,30 @@ async function _startChatInner(
       },
     );
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
+    if (initialProviderAdmission) {
+      const current = eventStore.getSession(initialProviderAdmission.token.sessionId);
+      if (
+        current?.executionId === initialProviderAdmission.token.executionId &&
+        current.executionGeneration === initialProviderAdmission.token.generation &&
+        current.executionPhase === 'RUNNING' &&
+        eventStore.getProviderAttempts(initialProviderAdmission.token).length === 0
+      ) {
+        try {
+          eventStore.transitionExecution(
+            initialProviderAdmission.token,
+            'TERMINAL',
+            'startup_failed',
+          );
+        } catch (cleanupError) {
+          log.warn('could not persist native startup failure; restart recovery required', {
+            sessionId: initialProviderAdmission.token.sessionId,
+            error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+          });
+        }
+      }
+    }
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
@@ -1633,6 +1743,51 @@ function providerFingerprintSource(
     if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
   }
   return JSON.stringify({ effectivePrompt: stablePrompt, images });
+}
+
+/**
+ * Consult durable native-provider admission before a registry-missing resume
+ * route performs takeover, watch, transcript, or runtime side effects.
+ */
+export function preflightStartupProviderCommand(
+  store: EventStore,
+  request: {
+    sessionId: string;
+    clientMsgId: string;
+    prompt: string;
+    cwd: string;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    model?: string;
+    reasoningEffort?: string | null;
+  },
+): boolean {
+  const meta = store.getSession(request.sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) return false;
+  const openShellAvailable =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const isNative =
+    binding.provider === 'google-vertex' ||
+    (binding.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
+  if (!isNative) return false;
+
+  const stablePrompt = assemblePrompt(
+    request.prompt,
+    request.cwd,
+    undefined,
+    request.contextBlocks,
+  );
+  return preflightProviderDispatch(store, {
+    sessionId: request.sessionId,
+    clientMsgId: request.clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, request.images),
+    model: request.model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort:
+      request.reasoningEffort !== undefined ? request.reasoningEffort : meta.reasoningEffort,
+  });
 }
 
 function validateNativeModelSelection(

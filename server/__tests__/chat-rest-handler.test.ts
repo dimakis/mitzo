@@ -233,7 +233,10 @@ describe('chat-rest-handler', () => {
       expect.objectContaining({ send: expect.any(Function), isOpen: expect.any(Function) }),
       expect.objectContaining({ prompt: 'hello world' }),
       expect.any(Object),
-      expect.objectContaining({ initialSessionId: res.body.sessionId }),
+      expect.objectContaining({
+        initialSessionId: res.body.sessionId,
+        awaitStartupAdmission: true,
+      }),
     );
   });
 
@@ -253,6 +256,33 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(422);
     expect(res.body.error).toBe('queue unavailable');
     expect(eventStore.getSendCommand('msg-rejected')?.error).toBe('queue unavailable');
+  });
+
+  it('reports send admission conflicts as stable client errors', async () => {
+    vi.mocked(handleSendV2).mockRejectedValueOnce(
+      new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different request fingerprint',
+      ),
+    );
+
+    const res = await request(testApp)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-send-conflict',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      ok: false,
+      code: 'fingerprint_conflict',
+      error: 'clientMsgId is already admitted for a different request fingerprint',
+      clientMsgId: 'msg-send-conflict',
+    });
   });
 
   // ─── POST /api/chat/stop ────────────────────────────────────────────────

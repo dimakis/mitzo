@@ -12,6 +12,7 @@ import { resolveAccountSelection, loadAccountProfiles } from './account-profiles
 
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -53,6 +54,7 @@ import {
   sendToChat,
   interruptChat,
   preflightChatCommand,
+  preflightStartupProviderCommand,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -529,13 +531,25 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string },
+  delivery?: { initialSessionId?: string; awaitStartupAdmission?: boolean },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        let resolveStartupAdmission: (() => void) | undefined;
+        let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+        const startupAdmission = delivery?.awaitStartupAdmission
+          ? new Promise<void>((resolve, reject) => {
+              resolveStartupAdmission = resolve;
+              rejectStartupAdmission = reject;
+            })
+          : undefined;
+        const onStartupAdmission = (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else resolveStartupAdmission?.();
+        };
         const storedBinding = msg.sessionId
           ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
           : null;
@@ -605,6 +619,32 @@ export function handleSendV2(
           const found = ctx.sessionRegistry.findBySessionId(sessionId);
           const storeState = ctx.eventStore.getSessionState(sessionId);
 
+          const routesToActiveRuntime =
+            !!found &&
+            isActive(found.clientId) &&
+            storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
+            storeState !== null;
+          if (!routesToActiveRuntime) {
+            const meta = ctx.eventStore.getSession(sessionId);
+            const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+              sessionId,
+              clientMsgId: msg.clientMsgId,
+              prompt,
+              cwd,
+              images: msg.images,
+              contextBlocks: msg.contextBlocks,
+              model: msg.accountId ? msg.model : (meta?.selectedModel ?? undefined),
+              reasoningEffort: msg.accountId
+                ? msg.reasoningEffort
+                : (meta?.reasoningEffort ?? undefined),
+            });
+            if (duplicate) {
+              log.info('duplicate cold provider send', { connectionId, sessionId });
+              return;
+            }
+          }
+
           // Phase 2: detect state mismatches (observability only)
           const mismatch = detectStateMismatch(sessionId, ctx.sessionRegistry, ctx.eventStore);
           if (mismatch.mismatch) {
@@ -621,13 +661,7 @@ export function handleSendV2(
           // State-based routing (Phase 3): durable state is the single source of truth.
           // ACTIVE/DETACHED/SUSPENDED → running path (send to existing query loop)
           // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
-          if (
-            found &&
-            isActive(found.clientId) &&
-            storeState !== 'ENDED' &&
-            storeState !== 'CLOSING' &&
-            storeState !== null
-          ) {
+          if (routesToActiveRuntime && found) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
             const duplicate = preflightChatCommand(
               found.clientId,
@@ -743,6 +777,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -775,6 +810,7 @@ export function handleSendV2(
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -786,6 +822,7 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         }
+        await startupAdmission;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
@@ -794,6 +831,7 @@ export function handleSendV2(
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',
         });
+        if (delivery?.awaitStartupAdmission && err instanceof ExecutionAdmissionError) throw err;
       }
     },
   );
