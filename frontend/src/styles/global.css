@@ -5209,6 +5209,12 @@ textarea:focus {
   font-size: var(--text-s);
 }
 
+.todo-create-error {
+  color: var(--danger, #ff6b6b);
+  font-size: var(--text-s);
+  line-height: 1.4;
+}
+
 .todo-create-actions {
   display: flex;
   gap: var(--space-2);

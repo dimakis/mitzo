@@ -38,6 +38,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
@@ -646,18 +647,11 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
   const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
-      command: 'node',
-      args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'task-mcp-server.ts'),
-        '--base-url',
-        `http://localhost:${port}`,
-        '--client-id',
-        clientId,
-      ],
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -665,18 +659,11 @@ function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> |
 
 function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
   const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
   return {
     [TELOS_MCP_SERVER_NAME]: {
-      command: 'node',
-      args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'telos-mcp-server.ts'),
-        '--base-url',
-        `http://localhost:${port}`,
-        '--client-id',
-        clientId,
-      ],
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };

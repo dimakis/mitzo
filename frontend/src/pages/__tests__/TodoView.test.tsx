@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoView } from '../TodoView';
 
@@ -287,5 +287,48 @@ describe('TodoView', () => {
 
     expect(screen.getByText('Authentication')).toBeTruthy();
     expect(screen.queryByText('Billing')).toBeNull();
+  });
+
+  it('keeps an outcome draft open when creation fails', async () => {
+    const createOutcome = vi.fn().mockResolvedValue(undefined);
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      createOutcome,
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTitle('Add todo'));
+    fireEvent.change(screen.getByPlaceholderText('Short outcome title'), {
+      target: { value: 'Ship durable outcomes' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('What will be true when this is achieved?'), {
+      target: { value: 'Outcome creation is reliable' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Why does this matter?'), {
+      target: { value: 'People should not lose work' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Done when — one verifiable criterion per line'), {
+      target: { value: 'Failed requests preserve the draft' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('Milestones — first line is the next action'), {
+      target: { value: 'Add regression coverage' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create outcome' }));
+
+    await waitFor(() => expect(createOutcome).toHaveBeenCalledOnce());
+    expect(screen.getByRole('alert').textContent).toContain('Unable to create outcome');
+    expect(screen.getByDisplayValue('Ship durable outcomes')).toBeTruthy();
   });
 });

@@ -89,6 +89,8 @@ function TodoCreateForm({
   const [rationale, setRationale] = useState('');
   const [criteria, setCriteria] = useState('');
   const [milestones, setMilestones] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState(profile || profiles[0] || '');
   const idempotencyKey = useRef(
     globalThis.crypto?.randomUUID?.() ?? `telos-${Date.now()}-${Math.random()}`,
@@ -103,36 +105,48 @@ function TodoCreateForm({
     e.preventDefault();
     const text = summary.trim();
     if (!text || !selectedProfile) return;
-    if (parentId) {
-      await onCreate(text, selectedProfile, parentId);
-    } else {
-      const acceptanceCriteria = criteria
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
-      const milestoneItems = milestones
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean);
-      if (
-        !intent.trim() ||
-        !rationale.trim() ||
-        !acceptanceCriteria.length ||
-        !milestoneItems.length
-      )
-        return;
-      await onCreateOutcome({
-        summary: text,
-        intent: intent.trim(),
-        rationale: rationale.trim(),
-        acceptanceCriteria,
-        milestones: milestoneItems,
-        profile: selectedProfile,
-        idempotencyKey: idempotencyKey.current,
-      });
+    setCreateError(null);
+    setSubmitting(true);
+    try {
+      if (parentId) {
+        await onCreate(text, selectedProfile, parentId);
+      } else {
+        const acceptanceCriteria = criteria
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        const milestoneItems = milestones
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (
+          !intent.trim() ||
+          !rationale.trim() ||
+          !acceptanceCriteria.length ||
+          !milestoneItems.length
+        )
+          return;
+        const created = await onCreateOutcome({
+          summary: text,
+          intent: intent.trim(),
+          rationale: rationale.trim(),
+          acceptanceCriteria,
+          milestones: milestoneItems,
+          profile: selectedProfile,
+          idempotencyKey: idempotencyKey.current,
+        });
+        if (!created) {
+          setCreateError('Unable to create outcome. Your draft has been kept.');
+          return;
+        }
+      }
+      setSummary('');
+      onCancel();
+    } catch {
+      setCreateError('Unable to create outcome. Your draft has been kept.');
+    } finally {
+      setSubmitting(false);
     }
-    setSummary('');
-    onCancel();
   }
 
   return (
@@ -188,17 +202,23 @@ function TodoCreateForm({
           ))}
         </select>
       )}
+      {createError && (
+        <div className="todo-create-error" role="alert">
+          {createError}
+        </div>
+      )}
       <div className="todo-create-actions">
         <button
           type="submit"
           className="todo-create-submit"
           disabled={
             !summary.trim() ||
+            submitting ||
             (!parentId &&
               (!intent.trim() || !rationale.trim() || !criteria.trim() || !milestones.trim()))
           }
         >
-          {parentId ? 'Add milestone' : 'Create outcome'}
+          {submitting ? 'Creating…' : parentId ? 'Add milestone' : 'Create outcome'}
         </button>
         <button type="button" className="todo-create-cancel" onClick={onCancel}>
           Cancel
