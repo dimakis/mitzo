@@ -2732,6 +2732,36 @@ describe('handleSendV2 state-based routing', () => {
     );
   });
 
+  it('reattaches an exact cold-provider retry without redispatching it', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(stopChat).mockClear();
+    vi.mocked(preflightStartupProviderCommand).mockReturnValueOnce(true);
+    vi.mocked(isActive).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('replacement', transport);
+
+    await handleSendV2(
+      'replacement',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'cold-duplicate' },
+      ctx,
+    );
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('replacement')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('replacement')?.activeSession).toBe('sess-1');
+  });
+
   it('aborts zombie and resumes when state is ENDED but registry still has session', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();

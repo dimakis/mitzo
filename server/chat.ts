@@ -1858,8 +1858,7 @@ export function preflightStartupProviderCommand(
     effectivePrompt: stablePrompt,
     fingerprintSource: providerFingerprintSource(stablePrompt, request.images),
     model: request.model ?? meta.selectedModel ?? binding.model,
-    reasoningEffort:
-      request.reasoningEffort !== undefined ? request.reasoningEffort : meta.reasoningEffort,
+    reasoningEffort: request.reasoningEffort,
     accountBinding: binding,
   });
 }

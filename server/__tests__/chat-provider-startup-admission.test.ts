@@ -278,6 +278,16 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
     chat.stopChat('first-client');
     await initial;
 
+    expect(
+      chat.preflightStartupProviderCommand(chat.eventStore, {
+        sessionId,
+        clientMsgId: 'initial-command',
+        prompt: 'first turn',
+        cwd: root,
+        model: 'gpt-test',
+      }),
+    ).toBe(true);
+
     native.credentialResolve.mockClear();
     native.credentialResolve.mockRejectedValueOnce(new Error('Keychain unavailable'));
     await chat.startChat(transport, 'initial-retry', 'first turn', {

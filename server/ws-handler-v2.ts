@@ -660,6 +660,8 @@ export function handleSendV2(
               reasoningEffort: effectiveSelection.reasoningEffort,
             });
             if (duplicate) {
+              ctx.connRegistry.watch(connectionId, sessionId);
+              ctx.connRegistry.setActive(connectionId, sessionId);
               log.info('duplicate cold provider send', { connectionId, sessionId });
               return;
             }
