@@ -6,6 +6,7 @@ export interface ProviderDispatchRequest {
   sessionId: string;
   clientMsgId: string;
   effectivePrompt: string;
+  fingerprintSource?: string;
   model?: string;
   reasoningEffort?: string | null;
 }
@@ -21,7 +22,7 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
   return createHash('sha256')
     .update(
       JSON.stringify({
-        effectivePrompt: request.effectivePrompt,
+        effectivePrompt: request.fingerprintSource ?? request.effectivePrompt,
         model: request.model ?? null,
         reasoningEffort: request.reasoningEffort ?? null,
       }),

@@ -7,6 +7,7 @@ const calls = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
   prompts: [] as string[],
   interrupt: vi.fn(),
+  releaseInterruptedRun: undefined as (() => void) | undefined,
 }));
 vi.mock('../native-responses-runner.js', () => ({
   NativeResponsesRunner: class {
@@ -15,6 +16,11 @@ vi.mock('../native-responses-runner.js', () => ({
     }
     async *run(prompt: string) {
       calls.prompts.push(prompt);
+      if (prompt === 'wait-for-interrupt') {
+        await new Promise<void>((_, reject) => {
+          calls.releaseInterruptedRun = () => reject(new Error('interrupted'));
+        });
+      }
       if (prompt === 'fail')
         throw Object.assign(new Error('OpenAI API request failed (429)'), {
           status: 429,
@@ -22,9 +28,15 @@ vi.mock('../native-responses-runner.js', () => ({
           retryAfter: '7',
           privateDiagnostic: 'Bearer sk-secret https://private.invalid',
         });
+      if (prompt === 'fail-generic') throw new Error('Vertex transport failed');
       yield { type: 'result', session_id: 'app' };
     }
-    interrupt = calls.interrupt;
+    interrupt = () => {
+      calls.interrupt();
+      const release = calls.releaseInterruptedRun;
+      setTimeout(() => release?.(), 10);
+    };
+    waitUntilIdle = async () => {};
   },
 }));
 vi.mock('../codex-mcp-tools.js', () => ({
@@ -344,6 +356,200 @@ it('records an ambiguous provider failure before failing its execution', async (
     expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
       { phase: 'TERMINAL', terminalReason: 'ambiguous' },
     ]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('terminalizes an admitted command that is aborted before provider dispatch', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-abort',
+      effectivePrompt: 'queued',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'queued' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    abort.abort();
+    await expect(async () => {
+      for await (const event of chat) void event;
+    }).rejects.toThrow();
+    expect(eventStore.getProviderAttempts(admission.token)).toEqual([]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('waits for durable cancellation before interrupt resolves', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-interrupt',
+      effectivePrompt: 'wait-for-interrupt',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'wait-for-interrupt' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    const draining = (async () => {
+      for await (const event of chat) void event;
+    })();
+    await vi.waitFor(() => expect(calls.releaseInterruptedRun).toBeTypeOf('function'));
+    await chat.interrupt();
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
+    input.close();
+    await draining;
+  } finally {
+    calls.releaseInterruptedRun = undefined;
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('records ordinary non-OpenAI failures as failed executions', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-vertex-fail',
+      effectivePrompt: 'fail-generic',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'fail-generic' }, providerAdmission: admission });
+  input.close();
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'google-vertex',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      gemini: { accountId: 'work', projectId: 'project', accessToken: 'token' },
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    await expect(async () => {
+      for await (const event of chat) void event;
+    }).rejects.toThrow();
     expect(eventStore.getSession('app')).toMatchObject({
       executionPhase: 'TERMINAL',
       executionTerminalReason: 'failed',

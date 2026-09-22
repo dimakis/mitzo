@@ -89,4 +89,36 @@ describe('active native provider admission', () => {
     expect(responses.prepare).toHaveBeenCalledOnce();
     expect(push).toHaveBeenCalledOnce();
   });
+
+  it('reuses admission when identical images are restaged under different paths', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-images';
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    const images = [{ data: Buffer.from('same-image').toString('base64'), mediaType: 'image/png' }];
+    const now = vi.spyOn(Date, 'now');
+    now.mockReturnValueOnce(1_000).mockReturnValueOnce(2_000);
+
+    try {
+      await expect(
+        chat.sendToChat(clientId, 'inspect this', images, undefined, 'command-images'),
+      ).resolves.toBe(true);
+      await expect(
+        chat.sendToChat(clientId, 'inspect this', images, undefined, 'command-images'),
+      ).resolves.toBe(true);
+    } finally {
+      now.mockRestore();
+    }
+
+    expect(responses.prepare).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledOnce();
+  });
 });

@@ -1694,6 +1694,7 @@ export async function sendToChat(
               sessionId: session.sessionId,
               clientMsgId,
               effectivePrompt: fullPrompt,
+              fingerprintSource: JSON.stringify({ prompt, images, contextBlocks }),
               model,
               reasoningEffort: selectionReasoningEffort,
             },

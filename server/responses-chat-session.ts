@@ -94,6 +94,8 @@ export async function openResponsesChat(options: Options) {
     throw error;
   });
   let interrupted = false;
+  let activeTurnFinalized: Promise<void> | undefined;
+  let completeActiveTurn: (() => void) | undefined;
   const runner = new NativeResponsesRunner({
     conversationId: options.conversationId,
     binding: options.binding,
@@ -168,13 +170,22 @@ export async function openResponsesChat(options: Options) {
       try {
         yield { type: 'system', subtype: 'init', session_id: options.conversationId };
         for await (const message of options.input) {
-          signal.throwIfAborted();
-          if (typeof message.message.content !== 'string')
-            throw new Error('API chat currently supports text input');
           const providerAdmission = message.providerAdmission;
           if (providerAdmission && !options.eventStore) {
             throw new Error('Durable provider admission requires an EventStore');
           }
+          if (signal.aborted) {
+            if (providerAdmission) {
+              options.eventStore!.transitionExecution(
+                providerAdmission.token,
+                'TERMINAL',
+                'interrupted',
+              );
+            }
+            signal.throwIfAborted();
+          }
+          if (typeof message.message.content !== 'string')
+            throw new Error('API chat currently supports text input');
           let providerAttempt: ProviderAttemptToken | undefined;
           if (providerAdmission) {
             const attempt = options.eventStore!.beginProviderAttempt(
@@ -183,6 +194,9 @@ export async function openResponsesChat(options: Options) {
             );
             if (attempt.duplicate) continue;
             providerAttempt = attempt.token;
+            activeTurnFinalized = new Promise<void>((resolve) => {
+              completeActiveTurn = resolve;
+            });
           }
           interrupted = false;
           let terminalized = false;
@@ -209,8 +223,6 @@ export async function openResponsesChat(options: Options) {
               signal,
               message.mitzoMessageId,
             )) {
-              if (event.type === 'result')
-                await hooks.run('Stop', { stop_hook_active: false }, signal);
               if (event.type === 'result') {
                 const result = event as typeof event & {
                   is_error?: boolean;
@@ -222,6 +234,7 @@ export async function openResponsesChat(options: Options) {
                   isError ? (failure?.ambiguous ? 'ambiguous' : 'failed') : 'completed',
                   isError ? 'failed' : 'completed',
                 );
+                await hooks.run('Stop', { stop_hook_active: false }, signal);
               }
               yield { ...event };
             }
@@ -240,13 +253,21 @@ export async function openResponsesChat(options: Options) {
               };
               return;
             }
-            terminalize(interrupted || signal.aborted ? 'cancelled' : 'failed', 'interrupted');
+            const wasInterrupted = interrupted || signal.aborted;
+            terminalize(
+              wasInterrupted ? 'cancelled' : 'failed',
+              wasInterrupted ? 'interrupted' : 'failed',
+            );
             if (!interrupted || signal.aborted)
               throw new Error(
                 'API turn failed or was interrupted. Inspect the task before retrying.',
                 { cause: error },
               );
             yield { type: 'result', session_id: options.conversationId, is_error: true };
+          } finally {
+            completeActiveTurn?.();
+            completeActiveTurn = undefined;
+            activeTurnFinalized = undefined;
           }
         }
       } finally {
@@ -258,6 +279,7 @@ export async function openResponsesChat(options: Options) {
       interrupted = true;
       runner.interrupt();
       await runner.waitUntilIdle();
+      await activeTurnFinalized;
     },
     close,
     stopTask: async () => {
