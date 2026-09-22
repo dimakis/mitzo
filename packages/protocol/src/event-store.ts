@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import type {
   MitzoMode,
   StoredEvent,
@@ -8,6 +9,10 @@ import type {
   ClientSessionState,
   EventStoreLogger,
   AccountBinding,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -31,6 +36,10 @@ export type {
   SessionState,
   ClientSessionState,
   EventStoreLogger,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
 };
 
 /**
@@ -98,6 +107,11 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  execution_generation: number;
+  execution_id: string | null;
+  execution_phase: string | null;
+  execution_terminal_reason: string | null;
+  execution_updated_at: number | null;
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
@@ -112,6 +126,23 @@ export interface SendCommandReceipt {
   sessionId: string | null;
   payload: Record<string, unknown>;
   error: string | null;
+}
+
+export type ExecutionTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'already_stopping' | 'invalid_transition';
+
+export interface ExecutionTransitionResult {
+  applied: boolean;
+  status: ExecutionTransitionStatus;
+  token: ExecutionToken;
+  seq?: number;
+  event?: ExecutionStateChangedPayload;
+}
+
+export interface BeginExecutionResult {
+  token: ExecutionToken;
+  seq: number;
+  event: ExecutionStateChangedPayload;
 }
 
 type SessionUpsert = Partial<
@@ -161,6 +192,30 @@ const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
   CLOSING: ['ENDED'],
   ENDED: ['CREATED'],
 };
+
+const EXECUTION_TERMINAL_REASONS = new Set<ExecutionTerminalReason>([
+  'completed',
+  'failed',
+  'stopped',
+  'interrupted',
+  'closed',
+  'abandoned',
+  'server_restart',
+  'startup_failed',
+]);
+
+const EXECUTION_TRANSITIONS: Record<ExecutionPhase, ExecutionPhase[]> = {
+  RUNNING: ['REQUIRES_ACTION', 'STOPPING', 'TERMINAL'],
+  REQUIRES_ACTION: ['RUNNING', 'STOPPING', 'TERMINAL'],
+  STOPPING: ['TERMINAL'],
+  TERMINAL: [],
+};
+
+function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
+  if (phase === 'REQUIRES_ACTION') return 'requires_action';
+  if (phase === 'RUNNING' || phase === 'STOPPING') return 'running';
+  return 'idle';
+}
 
 export class EventStore {
   private db: Database.Database | null;
@@ -274,6 +329,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSymposium(db);
@@ -443,6 +499,30 @@ export class EventStore {
     if (!columnNames.has('last_state_change')) {
       db.exec('ALTER TABLE sessions ADD COLUMN last_state_change INTEGER');
       this.log.info('migrated sessions table: added last_state_change');
+    }
+  }
+
+  private migrateExecutionState(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((column) => column.name));
+    const migrations: Array<[string, string]> = [
+      [
+        'execution_generation',
+        'ALTER TABLE sessions ADD COLUMN execution_generation INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['execution_id', 'ALTER TABLE sessions ADD COLUMN execution_id TEXT'],
+      ['execution_phase', 'ALTER TABLE sessions ADD COLUMN execution_phase TEXT'],
+      [
+        'execution_terminal_reason',
+        'ALTER TABLE sessions ADD COLUMN execution_terminal_reason TEXT',
+      ],
+      ['execution_updated_at', 'ALTER TABLE sessions ADD COLUMN execution_updated_at INTEGER'],
+    ];
+    for (const [column, sql] of migrations) {
+      if (!columnNames.has(column)) {
+        db.exec(sql);
+        this.log.info(`migrated sessions table: added ${column}`);
+      }
     }
   }
 
@@ -650,6 +730,148 @@ export class EventStore {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number {
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** Atomically allocate the next durable execution generation for a session. */
+  beginExecution(sessionId: string, executionId = randomUUID()): BeginExecutionResult {
+    if (!executionId.trim()) throw new Error('executionId must not be empty');
+    return this.db!.transaction((): BeginExecutionResult => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+      if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
+        throw new Error(`Cannot overwrite active execution for session: ${sessionId}`);
+      }
+
+      const generation = (current.execution_generation ?? 0) + 1;
+      const token: ExecutionToken = { sessionId, executionId, generation };
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        clientState: 'running',
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
+          execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
+         WHERE session_id = ?
+           AND (execution_phase IS NULL OR execution_phase = 'TERMINAL')`,
+      ).run(generation, executionId, timestamp, timestamp, sessionId);
+      if (updated.changes !== 1) {
+        throw new Error(`Execution admission changed for session: ${sessionId}`);
+      }
+      const seq = Number(
+        this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { token, seq, event };
+    }).immediate();
+  }
+
+  /** Apply one token-guarded execution transition and persist its event atomically. */
+  transitionExecution(
+    token: ExecutionToken,
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): ExecutionTransitionResult {
+    this.validateExecutionTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ExecutionTransitionResult => {
+      const current = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== token.executionId ||
+        current.execution_generation !== token.generation ||
+        !current.execution_phase
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+
+      const phase = current.execution_phase as ExecutionPhase;
+      if (phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+      if (phase === 'STOPPING' && nextPhase === 'STOPPING') {
+        return { applied: false, status: 'already_stopping', token };
+      }
+      if (!EXECUTION_TRANSITIONS[phase]?.includes(nextPhase)) {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: nextPhase,
+        clientState: clientStateForExecution(nextPhase),
+        ...(terminalReason ? { terminalReason } : {}),
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_phase = ?, execution_terminal_reason = ?, execution_updated_at = ?,
+          updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND execution_generation = ?
+           AND execution_phase = ?`,
+      ).run(
+        nextPhase,
+        nextPhase === 'TERMINAL' ? terminalReason : null,
+        timestamp,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        phase,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Terminalize only non-terminal executions orphaned by a process restart. */
+  recoverOrphanedExecutions(): number {
+    const rows = this.db!.prepare(
+      `SELECT session_id, execution_id, execution_generation
+       FROM sessions
+       WHERE execution_phase IN ('RUNNING', 'REQUIRES_ACTION', 'STOPPING')
+         AND execution_id IS NOT NULL`,
+    ).all() as Array<{
+      session_id: string;
+      execution_id: string;
+      execution_generation: number;
+    }>;
+    let recovered = 0;
+    for (const row of rows) {
+      const result = this.transitionExecution(
+        {
+          sessionId: row.session_id,
+          executionId: row.execution_id,
+          generation: row.execution_generation,
+        },
+        'TERMINAL',
+        'server_restart',
+      );
+      if (result.applied) recovered++;
+    }
+    return recovered;
+  }
+
+  private validateExecutionTransition(
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !EXECUTION_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error('A valid terminal reason is required when transitioning to TERMINAL');
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL transitions');
+    }
   }
 
   /** Persist a seat-attributed event only when its provenance matches the active config. */
@@ -2202,6 +2424,12 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    executionGeneration: row.execution_generation ?? 0,
+    executionId: row.execution_id ?? null,
+    executionPhase: (row.execution_phase as SessionMeta['executionPhase']) ?? null,
+    executionTerminalReason:
+      (row.execution_terminal_reason as SessionMeta['executionTerminalReason']) ?? null,
+    executionUpdatedAt: row.execution_updated_at ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
