@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { admitProviderDispatch, preflightProviderDispatch } from '../provider-execution.js';
 
@@ -243,6 +246,87 @@ describe('provider execution admission', () => {
       expect(prepare).not.toHaveBeenCalled();
     } finally {
       store.close();
+    }
+  });
+
+  it('fails closed after restart when a durable admission never reached provider dispatch', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-undispatched-restart-'));
+    const database = join(root, 'events.db');
+    const request = {
+      sessionId: 'session-undispatched-restart',
+      clientMsgId: 'command-undispatched-restart',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      reasoningEffort: 'medium',
+      accountBinding,
+    };
+    const firstStore = new EventStore(database);
+    firstStore.upsertSession({ sessionId: request.sessionId, accountBinding });
+    admitProviderDispatch({ store: firstStore, request, prepare: () => {} });
+    firstStore.close();
+
+    const restartedStore = new EventStore(database);
+    try {
+      expect(restartedStore.recoverOrphanedExecutions()).toBe(1);
+      expect(restartedStore.getSession(request.sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(() => preflightProviderDispatch(restartedStore, request)).toThrow(
+        /failed before provider dispatch/i,
+      );
+      expect(() =>
+        admitProviderDispatch({ store: restartedStore, request, prepare: vi.fn() }),
+      ).toThrow(/failed before provider dispatch/i);
+
+      const replacementPrepare = vi.fn();
+      expect(
+        admitProviderDispatch({
+          store: restartedStore,
+          request: { ...request, clientMsgId: 'command-after-restart' },
+          prepare: replacementPrepare,
+        }),
+      ).toMatchObject({ duplicate: false });
+      expect(replacementPrepare).toHaveBeenCalledOnce();
+    } finally {
+      restartedStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not redispatch an ambiguous provider attempt after a disk-backed restart', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-ambiguous-restart-'));
+    const database = join(root, 'events.db');
+    const request = {
+      sessionId: 'session-ambiguous-restart',
+      clientMsgId: 'command-ambiguous-restart',
+      effectivePrompt: 'answer this',
+      model: 'gpt-test',
+      reasoningEffort: 'medium',
+      accountBinding,
+    };
+    const firstStore = new EventStore(database);
+    firstStore.upsertSession({ sessionId: request.sessionId, accountBinding });
+    const admission = admitProviderDispatch({ store: firstStore, request, prepare: () => {} });
+    firstStore.beginProviderAttempt(admission.token, admission.providerAttemptId);
+    firstStore.close();
+
+    const restartedStore = new EventStore(database);
+    try {
+      expect(restartedStore.recoverOrphanedExecutions()).toBe(1);
+      expect(restartedStore.getProviderAttempts(admission.token)).toMatchObject([
+        { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+      ]);
+      const prepare = vi.fn();
+      expect(admitProviderDispatch({ store: restartedStore, request, prepare })).toMatchObject({
+        token: admission.token,
+        providerAttemptId: admission.providerAttemptId,
+        duplicate: true,
+      });
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      restartedStore.close();
+      await rm(root, { recursive: true, force: true });
     }
   });
 
