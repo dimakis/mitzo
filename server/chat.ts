@@ -56,6 +56,12 @@ import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import {
+  buildConfiguredMcpAllowedTools,
+  rejectReservedMcpServerCollisions,
+  TASK_MCP_SERVER_NAME,
+  TELOS_MCP_SERVER_NAME,
+} from './host-mcp-servers.js';
 import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
@@ -313,7 +319,13 @@ export async function fetchBootContext(
 
 let mcpServers: Record<string, McpServerConfig> = {};
 try {
-  mcpServers = loadMcpServers();
+  const configured = rejectReservedMcpServerCollisions(loadMcpServers());
+  mcpServers = configured.servers;
+  if (configured.rejected.length > 0) {
+    log.error('ignored configured MCP servers using reserved host names', {
+      names: configured.rejected,
+    });
+  }
 } catch (err: unknown) {
   log.error('failed to load MCP servers', { error: err instanceof Error ? err.message : err });
 }
@@ -544,7 +556,7 @@ function getBranch(cwd: string): string {
 }
 
 function buildMcpAllowedTools(clientId?: string): string[] {
-  const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  const patterns = buildConfiguredMcpAllowedTools(mcpServers);
   if (clientId) {
     const session = registry.get(clientId);
     if (session?.taskContext) {
@@ -640,9 +652,6 @@ export function createSessionWorktrees(
     repoWorktrees,
   };
 }
-
-const TASK_MCP_SERVER_NAME = 'task-board';
-const TELOS_MCP_SERVER_NAME = 'telos';
 
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);

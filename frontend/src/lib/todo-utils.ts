@@ -33,6 +33,13 @@ export function buildPrompt(item: TodoItem): string {
   if (item.sources[0]?.snippet) {
     lines.push('', item.sources[0].snippet);
   }
+  if (item.links?.length) {
+    lines.push(
+      '',
+      'Links:',
+      ...item.links.map((link) => `- [${link.type}] ${link.title}: ${link.url}`),
+    );
+  }
 
   const context: string[] = [];
   if (hints.repos.length) context.push(`Repos: ${hints.repos.join(', ')}`);
@@ -40,6 +47,9 @@ export function buildPrompt(item: TodoItem): string {
   if (hints.paths.length) context.push(`Files: ${hints.paths.join(', ')}`);
   if (hints.jiraKeys.length) context.push(`Jira: ${hints.jiraKeys.join(', ')}`);
   if (hints.keywords.length) context.push(`Keywords: ${hints.keywords.join(', ')}`);
+  if (hints.docIds.length) context.push(`Documents: ${hints.docIds.join(', ')}`);
+  if (hints.people.length) context.push(`People: ${hints.people.join(', ')}`);
+  if (hints.sessionIds?.length) context.push(`Sessions: ${hints.sessionIds.join(', ')}`);
 
   if (context.length) {
     lines.push('', 'Context:', ...context.map((c) => `- ${c}`));
@@ -79,12 +89,22 @@ export function buildTodoContext(item: TodoItem): string {
     if (source.snippet) lines.push(`  ${source.snippet}`);
   }
 
+  for (const link of item.links ?? []) {
+    lines.push('');
+    lines.push(`Link: ${link.title} (${link.type})`);
+    lines.push(`  URL: ${link.url}`);
+    if (link.description) lines.push(`  ${link.description}`);
+  }
+
   const context: string[] = [];
   if (hints.repos.length) context.push(`Repos: ${hints.repos.join(', ')}`);
   if (hints.issues.length) context.push(`Issues: ${hints.issues.join(', ')}`);
   if (hints.paths.length) context.push(`Files: ${hints.paths.join(', ')}`);
   if (hints.jiraKeys.length) context.push(`Jira: ${hints.jiraKeys.join(', ')}`);
   if (hints.keywords.length) context.push(`Keywords: ${hints.keywords.join(', ')}`);
+  if (hints.docIds.length) context.push(`Documents: ${hints.docIds.join(', ')}`);
+  if (hints.people.length) context.push(`People: ${hints.people.join(', ')}`);
+  if (hints.sessionIds?.length) context.push(`Sessions: ${hints.sessionIds.join(', ')}`);
 
   if (context.length) {
     lines.push('', ...context.map((c) => `- ${c}`));

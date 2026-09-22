@@ -289,6 +289,69 @@ describe('TodoView', () => {
     expect(screen.queryByText('Billing')).toBeNull();
   });
 
+  it('searches every context and link field', () => {
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: null,
+      items: [
+        {
+          id: 'contextual',
+          summary: 'Contextual outcome',
+          profile: 'work',
+          urgency: 0.5,
+          starred: false,
+          status: 'active',
+          ageDays: 1,
+          parentId: null,
+          children: [],
+          childCount: 0,
+          completedChildCount: 0,
+          sources: [],
+          links: [
+            {
+              type: 'design_doc',
+              url: 'docs/durable-outcome.md',
+              title: 'Durability runbook',
+              description: 'Recovery details',
+            },
+          ],
+          contextHints: {
+            repos: [],
+            paths: [],
+            issues: [],
+            docIds: ['doc-cold-start'],
+            people: ['Avery Reviewer'],
+            jiraKeys: [],
+            keywords: [],
+            taskHint: 'Begin with the recovery test',
+          },
+        },
+      ],
+      profiles: ['work'],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    const search = screen.getByRole('searchbox', { name: 'Search Telos items' });
+    for (const value of [
+      'doc-cold-start',
+      'Avery Reviewer',
+      'recovery test',
+      'Durability runbook',
+    ]) {
+      fireEvent.change(search, { target: { value } });
+      expect(screen.getByText('Contextual outcome')).toBeTruthy();
+    }
+  });
+
   it('keeps an outcome draft open when creation fails', async () => {
     const createOutcome = vi.fn().mockResolvedValue(undefined);
     mockUseTodoData.mockReturnValue({

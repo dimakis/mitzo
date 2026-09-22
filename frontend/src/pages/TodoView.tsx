@@ -283,8 +283,25 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
         ...item.contextHints.repos,
         ...item.contextHints.paths,
         ...item.contextHints.issues,
+        ...item.contextHints.docIds,
+        ...item.contextHints.people,
         ...item.contextHints.jiraKeys,
         ...item.contextHints.keywords,
+        item.contextHints.taskHint,
+        ...(item.contextHints.sessionIds ?? []),
+        ...(item.links ?? []).flatMap((link) => [
+          link.type,
+          link.url,
+          link.title,
+          link.description,
+        ]),
+        ...item.sources.flatMap((source) => [
+          source.type,
+          source.url,
+          source.title,
+          source.author,
+          source.snippet,
+        ]),
       ];
       return (
         searchable.some((value) => value.toLocaleLowerCase().includes(needle)) ||

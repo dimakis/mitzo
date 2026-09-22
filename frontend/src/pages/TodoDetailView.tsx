@@ -78,8 +78,11 @@ export function TodoDetailView() {
     hints.repos.length > 0 ||
     hints.paths.length > 0 ||
     hints.issues.length > 0 ||
+    hints.docIds.length > 0 ||
+    hints.people.length > 0 ||
     hints.jiraKeys.length > 0 ||
-    hints.keywords.length > 0;
+    hints.keywords.length > 0 ||
+    (hints.sessionIds?.length ?? 0) > 0;
 
   function handleOpenChat() {
     const prompt = buildPrompt(currentItem);
@@ -104,6 +107,14 @@ export function TodoDetailView() {
     const params = new URLSearchParams();
     params.set('path', path);
     navigate(`/files?${params.toString()}`);
+  }
+
+  function handleLinkClick(url: string) {
+    if (/^https?:\/\//i.test(url)) {
+      handleSourceClick(url);
+    } else {
+      handlePathClick(url);
+    }
   }
 
   async function handlePromote() {
@@ -263,6 +274,28 @@ export function TodoDetailView() {
           </section>
         )}
 
+        {(item.links?.length ?? 0) > 0 && (
+          <section className="todo-detail-links">
+            <h2>Links</h2>
+            {item.links?.map((link) => (
+              <button
+                key={`${link.type}:${link.url}`}
+                type="button"
+                className="todo-detail-source-row todo-detail-link-row"
+                onClick={() => handleLinkClick(link.url)}
+              >
+                <span className="todo-detail-source-badge">{sourceIcon(link.type)}</span>
+                <div className="todo-detail-source-content">
+                  <div className="todo-detail-source-title">{link.title}</div>
+                  {link.description && (
+                    <div className="todo-detail-source-snippet">{link.description}</div>
+                  )}
+                </div>
+              </button>
+            ))}
+          </section>
+        )}
+
         {hints.taskHint && (
           <section className="todo-detail-task-hint">
             <h2>Task Hint</h2>
@@ -311,6 +344,32 @@ export function TodoDetailView() {
                   {hints.issues.map((issue) => (
                     <span key={issue} className="todo-detail-chip">
                       {issue}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.docIds.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>Documents</h3>
+                <div className="todo-detail-chips">
+                  {hints.docIds.map((docId) => (
+                    <span key={docId} className="todo-detail-chip">
+                      {docId}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hints.people.length > 0 && (
+              <div className="todo-detail-context-group">
+                <h3>People</h3>
+                <div className="todo-detail-chips">
+                  {hints.people.map((person) => (
+                    <span key={person} className="todo-detail-chip">
+                      {person}
                     </span>
                   ))}
                 </div>

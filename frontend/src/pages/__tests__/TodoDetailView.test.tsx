@@ -47,6 +47,14 @@ const fullItem: TodoItem = {
       snippet: 'Related Jira ticket for auth fix',
     },
   ],
+  links: [
+    {
+      type: 'design_doc',
+      url: 'docs/auth-design.md',
+      title: 'Authentication design',
+      description: 'The durable design reference',
+    },
+  ],
   contextHints: {
     repos: ['dimakis/mitzo', 'dimakis/contexgin'],
     paths: ['server/auth.ts', 'server/permission-handler.ts'],
@@ -140,6 +148,18 @@ describe('TodoDetailView', () => {
     const snippets = container.querySelectorAll('.todo-detail-source-snippet');
     expect(snippets[0]?.textContent).toContain('auth middleware fails to validate');
     expect(snippets[1]?.textContent).toContain('Related Jira ticket');
+  });
+
+  it('renders durable links and opens repo-relative links in the file viewer', () => {
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Links')).toBeTruthy();
+    fireEvent.click(screen.getByText('Authentication design'));
+    expect(mockNavigate).toHaveBeenCalledWith('/files?path=docs%2Fauth-design.md');
   });
 
   it('renders context hints — repos, paths, issues, jira keys, keywords', () => {

@@ -5528,11 +5528,13 @@ textarea:focus {
 
 /* --- Sources --- */
 
-.todo-detail-sources {
+.todo-detail-sources,
+.todo-detail-links {
   padding: var(--space-2) 0;
 }
 
 .todo-detail-sources h2,
+.todo-detail-links h2,
 .todo-detail-children h2,
 .todo-detail-task-hint h2,
 .todo-detail-context h2,
@@ -5566,6 +5568,14 @@ textarea:focus {
 
 .todo-detail-source-row--no-link:active {
   background: var(--surface);
+}
+
+.todo-detail-link-row {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .todo-detail-source-badge {
