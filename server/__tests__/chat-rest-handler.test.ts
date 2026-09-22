@@ -7,6 +7,7 @@ import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
 
@@ -299,6 +300,31 @@ describe('chat-rest-handler', () => {
 
     expect(res.status).toBe(500);
     expect(res.body).toEqual({ ok: false, error: 'Internal server error' });
+  });
+
+  it('POST /interrupt reports admission conflicts as stable client errors', async () => {
+    vi.mocked(handleInterruptV2).mockRejectedValueOnce(
+      new ExecutionAdmissionError(
+        'fingerprint_conflict',
+        'clientMsgId is already admitted for a different request fingerprint',
+      ),
+    );
+    const res = await request(testApp)
+      .post('/api/chat/interrupt')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        type: 'interrupt',
+        sessionId: 'sess-1',
+        prompt: 'changed',
+        clientMsgId: 'msg-int-conflict',
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body).toEqual({
+      ok: false,
+      code: 'fingerprint_conflict',
+      error: 'clientMsgId is already admitted for a different request fingerprint',
+    });
   });
 
   // ─── POST /api/chat/permission ──────────────────────────────────────────

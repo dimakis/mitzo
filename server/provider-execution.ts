@@ -34,6 +34,22 @@ function fingerprintProviderDispatch(request: ProviderDispatchRequest): string {
     .digest('base64url');
 }
 
+function assertDispatchableAdmission(
+  store: EventStore,
+  admission: { token: ExecutionToken },
+): void {
+  const current = store.getSession(admission.token.sessionId);
+  const isStillDispatchable =
+    current?.executionId === admission.token.executionId &&
+    current.executionGeneration === admission.token.generation &&
+    current.executionPhase === 'RUNNING';
+  if (!isStillDispatchable && store.getProviderAttempts(admission.token).length === 0) {
+    throw new Error(
+      'Admitted command failed before provider dispatch; retry with a new command ID',
+    );
+  }
+}
+
 /** Reject a conflicting retry before any runtime side effects occur. */
 export function preflightProviderDispatch(
   store: EventStore,
@@ -47,6 +63,7 @@ export function preflightProviderDispatch(
       'clientMsgId is already admitted for a different request fingerprint',
     );
   }
+  assertDispatchableAdmission(store, existing);
   return true;
 }
 
@@ -73,16 +90,7 @@ export function admitProviderDispatch(options: {
     duplicate: admission.duplicate,
   };
   if (admission.duplicate) {
-    const current = options.store.getSession(admission.token.sessionId);
-    const isStillDispatchable =
-      current?.executionId === admission.token.executionId &&
-      current.executionGeneration === admission.token.generation &&
-      current.executionPhase === 'RUNNING';
-    if (!isStillDispatchable && options.store.getProviderAttempts(admission.token).length === 0) {
-      throw new Error(
-        'Admitted command failed before provider dispatch; retry with a new command ID',
-      );
-    }
+    assertDispatchableAdmission(options.store, admission);
     return result;
   }
 

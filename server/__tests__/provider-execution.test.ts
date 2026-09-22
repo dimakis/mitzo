@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
-import { admitProviderDispatch } from '../provider-execution.js';
+import { admitProviderDispatch, preflightProviderDispatch } from '../provider-execution.js';
 
 describe('provider execution admission', () => {
   it('reuses an exact durable admission without preparing a second dispatch', () => {
@@ -117,6 +117,9 @@ describe('provider execution admission', () => {
       expect(admission).toBeDefined();
       expect(store.getProviderAttempts(admission!.token)).toEqual([]);
       expect(() => admitProviderDispatch({ store, request, prepare: vi.fn() })).toThrow(
+        /failed before provider dispatch/i,
+      );
+      expect(() => preflightProviderDispatch(store, request)).toThrow(
         /failed before provider dispatch/i,
       );
     } finally {
