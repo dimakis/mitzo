@@ -5,6 +5,7 @@ import { eventBus } from '../lib/event-bus-singleton';
 
 export interface UseTodoDataResult {
   loading: boolean;
+  error: string | null;
   items: TodoItem[];
   profiles: string[];
   ack: (id: string) => Promise<void>;
@@ -51,6 +52,7 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
 export function useTodoData(profile?: string): UseTodoDataResult {
   const [data, setData] = useState<TodoData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
   dataRef.current = data;
@@ -58,6 +60,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);
 
     const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
 
@@ -69,12 +72,14 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       .then((result: TodoData) => {
         if (!cancelled) {
           setData(result);
+          setError(null);
           setLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setData({ profiles: [], items: [] });
+          setError('Unable to load Telos items');
           setLoading(false);
         }
       });
@@ -164,6 +169,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
 
   return {
     loading,
+    error,
     items: data?.items ?? [],
     profiles: data?.profiles ?? [],
     ack,

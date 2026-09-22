@@ -84,7 +84,8 @@ function TelosCard({
 export function TelosSection() {
   const navigate = useNavigate();
   const [activeProfile, setActiveProfile] = useState<string | undefined>(undefined);
-  const { loading, items, profiles, ack, done, create, refresh } = useTodoData(activeProfile);
+  const { loading, error, items, profiles, ack, done, create, refresh } =
+    useTodoData(activeProfile);
   const [creating, setCreating] = useState(false);
   const [newSummary, setNewSummary] = useState('');
 
@@ -174,7 +175,9 @@ export function TelosSection() {
 
       {loading && <p className="cc-empty">Loading...</p>}
 
-      {!loading && items.length === 0 && <p className="cc-empty">No active items</p>}
+      {!loading && error && <p className="cc-empty">{error}. Tap refresh to try again.</p>}
+
+      {!loading && !error && items.length === 0 && <p className="cc-empty">No active items</p>}
 
       {focus.length > 0 && (
         <div className="cc-tier">

@@ -2142,6 +2142,9 @@ app.get('/api/calendar', async (req, res) => {
 
 const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
 const TODO_TIMEOUT_MS = 30_000;
+// The todo list includes source context and can exceed Node's 1 MiB execFile default.
+// Keep the subprocess bounded while leaving headroom above the current production payload.
+const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 app.get('/api/todos', async (req, res) => {
   const profile = req.query.profile as string | undefined;
@@ -2149,7 +2152,7 @@ app.get('/api/todos', async (req, res) => {
 
   if (!existsSync(TODO_SCRIPT)) {
     log.warn('todo script not found', { path: TODO_SCRIPT });
-    res.json({ profiles: [], items: [] });
+    res.status(503).json({ error: 'Todo service unavailable' });
     return;
   }
 
@@ -2164,18 +2167,19 @@ app.get('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {
       log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-      res.json({ profiles: [], items: [] });
+      res.status(502).json({ error: 'Todo service unavailable' });
       return;
     }
     res.json(parsed.data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo API failed', { error: message });
-    res.json({ profiles: [], items: [] });
+    res.status(502).json({ error: 'Todo service unavailable' });
   }
 });
 
@@ -2200,6 +2204,7 @@ app.post('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = JSON.parse(stdout);
     if (!parsed.ok) {
@@ -2236,6 +2241,7 @@ app.post('/api/todos/:id/action', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {
