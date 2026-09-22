@@ -6,6 +6,11 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import type { AccountBinding } from '@mitzo/protocol';
+import type {
+  ExecutionTerminalReason,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
+} from '@mitzo/protocol';
 import { NativeResponsesRunner } from './native-responses-runner.js';
 import { NativeResponsesStore } from './native-responses-store.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
@@ -17,6 +22,8 @@ import {
 } from './native-tool-executor.js';
 import type { McpServerConfig } from './mcp-config.js';
 import { classifyProviderFailure } from './provider-failure.js';
+import type { EventStore } from './event-store.js';
+import type { ProviderDispatchAdmission } from './provider-execution.js';
 
 let privateStore: NativeResponsesStore | undefined;
 const runtimes = new WeakMap<ManagedSession, NativeResponsesRunner>();
@@ -45,6 +52,7 @@ interface Options {
   input: AsyncIterable<{ message: { content: unknown }; mitzoMessageId?: string }> & {
     close(): void;
   };
+  eventStore?: EventStore;
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
@@ -159,7 +167,40 @@ export async function openResponsesChat(options: Options) {
           signal.throwIfAborted();
           if (typeof message.message.content !== 'string')
             throw new Error('API chat currently supports text input');
+          const providerAdmission = (
+            message as typeof message & { providerAdmission?: ProviderDispatchAdmission }
+          ).providerAdmission;
+          if (providerAdmission && !options.eventStore) {
+            throw new Error('Durable provider admission requires an EventStore');
+          }
+          let providerAttempt: ProviderAttemptToken | undefined;
+          if (providerAdmission) {
+            const attempt = options.eventStore!.beginProviderAttempt(
+              providerAdmission.token,
+              providerAdmission.providerAttemptId,
+            );
+            if (attempt.duplicate) continue;
+            providerAttempt = attempt.token;
+          }
           interrupted = false;
+          let terminalized = false;
+          const terminalize = (
+            providerReason: ProviderAttemptTerminalReason,
+            executionReason: ExecutionTerminalReason,
+          ) => {
+            if (!providerAttempt || terminalized) return;
+            options.eventStore!.transitionProviderAttempt(
+              providerAttempt,
+              'TERMINAL',
+              providerReason,
+            );
+            options.eventStore!.transitionExecution(
+              providerAdmission!.token,
+              'TERMINAL',
+              executionReason,
+            );
+            terminalized = true;
+          };
           try {
             for await (const event of runner.run(
               message.message.content,
@@ -168,13 +209,27 @@ export async function openResponsesChat(options: Options) {
             )) {
               if (event.type === 'result')
                 await hooks.run('Stop', { stop_hook_active: false }, signal);
+              if (event.type === 'result') {
+                const result = event as typeof event & {
+                  is_error?: boolean;
+                  provider_failure?: { ambiguous?: boolean };
+                };
+                const isError = result.is_error === true;
+                const failure = result.provider_failure;
+                terminalize(
+                  isError ? (failure?.ambiguous ? 'ambiguous' : 'failed') : 'completed',
+                  isError ? 'failed' : 'completed',
+                );
+              }
               yield { ...event };
             }
+            if (providerAttempt && !terminalized) terminalize('failed', 'failed');
           } catch (error) {
             if (!interrupted && !signal.aborted && options.binding.provider === 'openai') {
               const providerFailure = classifyProviderFailure(error, {
                 correlationId: message.mitzoMessageId ?? randomUUID(),
               });
+              terminalize(providerFailure.ambiguous ? 'ambiguous' : 'failed', 'failed');
               yield {
                 type: 'result',
                 session_id: options.conversationId,
@@ -183,6 +238,7 @@ export async function openResponsesChat(options: Options) {
               };
               return;
             }
+            terminalize(interrupted || signal.aborted ? 'cancelled' : 'failed', 'interrupted');
             if (!interrupted || signal.aborted)
               throw new Error(
                 'API turn failed or was interrupted. Inspect the task before retrying.',

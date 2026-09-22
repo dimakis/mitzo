@@ -1,6 +1,8 @@
 import { expect, it, vi } from 'vitest';
 import { SessionRegistry } from '@mitzo/harness';
 import { AsyncQueue } from '../async-queue.js';
+import { EventStore } from '../event-store.js';
+import { admitProviderDispatch } from '../provider-execution.js';
 const calls = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
   prompts: [] as string[],
@@ -186,4 +188,154 @@ it('maps native OpenAI failures to the shared sanitized provider envelope', asyn
   expect(JSON.stringify(events)).not.toContain('sk-secret');
   expect(JSON.stringify(events)).not.toContain('private.invalid');
   registry.dispose();
+});
+
+it('dispatches an exact admitted command once and terminalizes provider state first', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  const promptCount = calls.prompts.length;
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-once',
+      effectivePrompt: 'once',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    mitzoMessageId: string;
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'once' }, mitzoMessageId: 'message-once', providerAdmission: admission });
+  input.push({ message: { content: 'once' }, mitzoMessageId: 'message-once', providerAdmission: admission });
+  input.close();
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    for await (const _event of chat) {
+      // Drain the provider stream.
+    }
+
+    expect(calls.prompts.slice(promptCount)).toEqual(['once']);
+    expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+      { phase: 'TERMINAL', terminalReason: 'completed' },
+    ]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'completed',
+    });
+    expect(
+      eventStore
+        .getSessionEvents('app')
+        .filter((event) => event.type.endsWith('_state_changed'))
+        .map((event) => [event.type, event.payload.phase]),
+    ).toEqual([
+      ['execution_state_changed', 'RUNNING'],
+      ['provider_attempt_state_changed', 'RUNNING'],
+      ['provider_attempt_state_changed', 'TERMINAL'],
+      ['execution_state_changed', 'TERMINAL'],
+    ]);
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('records an ambiguous provider failure before failing its execution', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-fail',
+      effectivePrompt: 'fail',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    mitzoMessageId: string;
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'fail' }, mitzoMessageId: 'message-fail', providerAdmission: admission });
+  input.close();
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session: registry.get('client')!,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    for await (const _event of chat) {
+      // Drain the sanitized failure result.
+    }
+
+    expect(eventStore.getProviderAttempts(admission.token)).toMatchObject([
+      { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+    ]);
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'failed',
+    });
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
 });
