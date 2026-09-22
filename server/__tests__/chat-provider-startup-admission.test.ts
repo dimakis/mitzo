@@ -287,6 +287,17 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
         model: 'gpt-test',
       }),
     ).toBe(true);
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    expect(
+      chat.preflightStartupProviderCommand(chat.eventStore, {
+        sessionId,
+        clientMsgId: 'initial-command',
+        prompt: 'first turn',
+        cwd: root,
+        model: 'gpt-test',
+      }),
+    ).toBe(true);
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '');
 
     native.credentialResolve.mockClear();
     native.credentialResolve.mockRejectedValueOnce(new Error('Keychain unavailable'));
@@ -325,6 +336,51 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
     expect(chat.registry.get('resume-retry')).toBeUndefined();
     expect(native.prompts).toEqual(['first turn', 'continue']);
     expect(chat.eventStore.getExecutionAdmission(sessionId, 'resume-command')).toBeDefined();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('fails closed for a historical OpenShell command after routing changes to native', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-route-change-'));
+  await writeFile(join(root, '.mitzo.json'), '{}');
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '');
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const sessionId = '99999999-9999-4999-8999-999999999999';
+  const accountBinding = profiles().resolve('work-api', 'gpt-test');
+
+  try {
+    chat.eventStore.upsertSession({
+      sessionId,
+      cwd: root,
+      accountBinding,
+      selectedModel: 'gpt-test',
+    });
+    chat.eventStore.append(sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      ts: Date.now(),
+      messageId: 'openshell-command',
+      text: 'already dispatched',
+    });
+
+    expect(chat.eventStore.getExecutionAdmission(sessionId, 'openshell-command')).toBeUndefined();
+    expect(() =>
+      chat.preflightStartupProviderCommand(chat.eventStore, {
+        sessionId,
+        clientMsgId: 'openshell-command',
+        prompt: 'already dispatched',
+        cwd: root,
+        model: 'gpt-test',
+      }),
+    ).toThrow('ambiguous legacy OpenShell dispatch state; retry with a new command ID');
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

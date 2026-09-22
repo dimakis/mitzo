@@ -1838,21 +1838,14 @@ export function preflightStartupProviderCommand(
   const meta = store.getSession(request.sessionId);
   const binding = meta?.accountBinding;
   if (!binding) return false;
-  const openShellAvailable =
-    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
-  const isNative =
-    binding.provider === 'google-vertex' ||
-    (binding.provider === 'openai' &&
-      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
-  if (!isNative) return false;
-
+  const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
   const stablePrompt = assemblePrompt(
     request.prompt,
     request.cwd,
     undefined,
     request.contextBlocks,
   );
-  return preflightProviderDispatch(store, {
+  const providerRequest = {
     sessionId: request.sessionId,
     clientMsgId: request.clientMsgId,
     effectivePrompt: stablePrompt,
@@ -1860,7 +1853,26 @@ export function preflightStartupProviderCommand(
     model: request.model ?? meta.selectedModel ?? binding.model,
     reasoningEffort: request.reasoningEffort,
     accountBinding: binding,
-  });
+  };
+  // Durable evidence wins over the current environment. This keeps a routing
+  // toggle across restart from replaying a command through the other provider
+  // implementation. A native admission can be checked exactly; a legacy
+  // OpenShell user message is only evidence that startup began, so its dispatch
+  // outcome is ambiguous and requires a fresh command ID.
+  if (existingAdmission) return preflightProviderDispatch(store, providerRequest);
+  if (store.hasUserMessage(request.sessionId, request.clientMsgId)) {
+    throw new Error(
+      'Existing command has ambiguous legacy OpenShell dispatch state; retry with a new command ID',
+    );
+  }
+  const openShellAvailable =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const isNative =
+    binding.provider === 'google-vertex' ||
+    (binding.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
+  if (!isNative) return false;
+  return preflightProviderDispatch(store, providerRequest);
 }
 
 function validateNativeModelSelection(
