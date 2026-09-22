@@ -6,6 +6,7 @@ import { join } from 'node:path';
 const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
   track: vi.fn(),
+  interrupt: vi.fn(),
 }));
 
 vi.mock('../responses-chat-session.js', () => ({
@@ -29,6 +30,7 @@ describe('active native provider admission', () => {
   beforeEach(() => {
     responses.prepare.mockReset();
     responses.track.mockReset();
+    responses.interrupt.mockReset();
     chat.registry.abort(clientId);
   });
 
@@ -177,5 +179,34 @@ describe('active native provider admission', () => {
     };
     expect(queued.providerAdmission?.token.sessionId).toBe(sessionId);
     expect(chat.eventStore.getExecutionAdmission(sessionId, queued.mitzoMessageId)).toBeDefined();
+  });
+
+  it('terminalizes and clears preparation when acknowledgement throws', async () => {
+    const sessionId = 'session-ack-failure';
+    chat.registry.register(clientId, {
+      transport: {
+        send: vi.fn(() => {
+          throw new Error('socket closed');
+        }),
+        isOpen: () => true,
+      },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push: vi.fn(), close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+
+    await expect(
+      chat.sendToChat(clientId, 'cannot acknowledge', undefined, undefined, 'ack-failure'),
+    ).rejects.toThrow('socket closed');
+
+    expect(responses.interrupt).toHaveBeenCalledOnce();
+    expect(chat.eventStore.getSession(sessionId)).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'startup_failed',
+    });
   });
 });

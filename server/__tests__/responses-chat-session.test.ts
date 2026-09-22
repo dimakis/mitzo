@@ -697,3 +697,71 @@ it('terminalizes an active provider attempt when its consumer closes the stream'
     registry.dispose();
   }
 });
+
+it('terminalizes a queued execution when provider-attempt startup fails', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const session = registry.get('client')!;
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-attempt-startup-fail',
+      effectivePrompt: 'attempt-startup-fail',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'attempt-startup-fail' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    vi.spyOn(eventStore, 'beginProviderAttempt').mockImplementationOnce(() => {
+      throw new Error('provider attempt storage failed');
+    });
+
+    await expect(async () => {
+      for await (const event of chat) void event;
+    }).rejects.toThrow('provider attempt storage failed');
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
+  } finally {
+    eventStore.close();
+    registry.dispose();
+  }
+});

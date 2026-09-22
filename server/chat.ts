@@ -1799,7 +1799,24 @@ export async function sendToChat(
         return false;
       }
     } else {
-      if (acknowledge()) return true;
+      let duplicate: boolean;
+      try {
+        duplicate = acknowledge();
+      } catch (error) {
+        if (responses && providerAdmission) {
+          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+          responses.interrupt();
+        }
+        throw error;
+      }
+      if (duplicate) {
+        if (responses && providerAdmission) {
+          eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+          responses.interrupt();
+          throw new Error('Provider command was already acknowledged without a dispatch');
+        }
+        return true;
+      }
       if (responses && providerAdmission) {
         trackResponsesProviderAdmission(session, providerAdmission, eventStore);
       }

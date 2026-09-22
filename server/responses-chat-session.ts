@@ -208,9 +208,6 @@ export async function openResponsesChat(options: Options) {
             pendingAdmissions.get(options.session)?.delete(providerAdmission!.providerAttemptId);
             continue;
           }
-          if (providerAdmission) {
-            pendingAdmissions.get(options.session)?.delete(providerAdmission.providerAttemptId);
-          }
           if (signal.aborted) {
             if (providerAdmission) {
               options.eventStore!.transitionExecution(
@@ -218,6 +215,7 @@ export async function openResponsesChat(options: Options) {
                 'TERMINAL',
                 'interrupted',
               );
+              pendingAdmissions.get(options.session)?.delete(providerAdmission.providerAttemptId);
             }
             signal.throwIfAborted();
           }
@@ -229,8 +227,12 @@ export async function openResponsesChat(options: Options) {
               providerAdmission.token,
               providerAdmission.providerAttemptId,
             );
-            if (attempt.duplicate) continue;
+            if (attempt.duplicate) {
+              pendingAdmissions.get(options.session)?.delete(providerAdmission.providerAttemptId);
+              continue;
+            }
             providerAttempt = attempt.token;
+            pendingAdmissions.get(options.session)?.delete(providerAdmission.providerAttemptId);
             activeTurnFinalized = new Promise<void>((resolve) => {
               completeActiveTurn = resolve;
             });
