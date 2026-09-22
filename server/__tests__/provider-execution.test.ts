@@ -71,14 +71,15 @@ describe('provider execution admission', () => {
     store.upsertSession({ sessionId: 'session-1' });
 
     try {
+      const request = {
+        sessionId: 'session-1',
+        clientMsgId: 'command-1',
+        effectivePrompt: 'answer this',
+      };
       expect(() =>
         admitProviderDispatch({
           store,
-          request: {
-            sessionId: 'session-1',
-            clientMsgId: 'command-1',
-            effectivePrompt: 'answer this',
-          },
+          request,
           prepare: () => {
             throw new Error('prepare failed');
           },
@@ -91,6 +92,9 @@ describe('provider execution admission', () => {
       const admission = store.getExecutionAdmission('session-1', 'command-1');
       expect(admission).toBeDefined();
       expect(store.getProviderAttempts(admission!.token)).toEqual([]);
+      expect(() => admitProviderDispatch({ store, request, prepare: vi.fn() })).toThrow(
+        /failed before provider dispatch/i,
+      );
     } finally {
       store.close();
     }

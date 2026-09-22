@@ -6,7 +6,11 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
-import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import {
+  getResponsesRuntime,
+  openResponsesChat,
+  trackResponsesProviderAdmission,
+} from './responses-chat-session.js';
 import { admitProviderDispatch, type ProviderDispatchAdmission } from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
@@ -1679,6 +1683,13 @@ export async function sendToChat(
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        if (
+          clientMsgId &&
+          eventStore.hasUserMessage(session.sessionId, clientMsgId) &&
+          !eventStore.getExecutionAdmission(session.sessionId, clientMsgId)
+        ) {
+          return true;
+        }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
         const prepare = () =>
           responses.prepare(messageId, fullPrompt, {
@@ -1687,23 +1698,19 @@ export async function sendToChat(
               ? { reasoningEffort: selectionReasoningEffort }
               : {}),
           });
-        if (clientMsgId) {
-          providerAdmission = admitProviderDispatch({
-            store: eventStore,
-            request: {
-              sessionId: session.sessionId,
-              clientMsgId,
-              effectivePrompt: fullPrompt,
-              fingerprintSource: JSON.stringify({ prompt, images, contextBlocks }),
-              model,
-              reasoningEffort: selectionReasoningEffort,
-            },
-            prepare,
-          });
-          if (providerAdmission.duplicate) return true;
-        } else {
-          prepare();
-        }
+        providerAdmission = admitProviderDispatch({
+          store: eventStore,
+          request: {
+            sessionId: session.sessionId,
+            clientMsgId: messageId,
+            effectivePrompt: fullPrompt,
+            fingerprintSource: JSON.stringify({ prompt, images, contextBlocks }),
+            model,
+            reasoningEffort: selectionReasoningEffort,
+          },
+          prepare,
+        });
+        if (providerAdmission.duplicate) return true;
         if (model) session.model = model;
       } catch (error) {
         if (error instanceof ExecutionAdmissionError) throw error;
@@ -1793,6 +1800,9 @@ export async function sendToChat(
       }
     } else {
       if (acknowledge()) return true;
+      if (responses && providerAdmission) {
+        trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+      }
       session.inputQueue.push(
         makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
       );

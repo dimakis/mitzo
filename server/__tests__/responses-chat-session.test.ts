@@ -46,7 +46,7 @@ vi.mock('../codex-mcp-tools.js', () => ({
     displayName: (name: string) => name,
   }),
 }));
-import { openResponsesChat } from '../responses-chat-session.js';
+import { openResponsesChat, trackResponsesProviderAdmission } from '../responses-chat-session.js';
 
 it('runs successive user turns with a private credential and closes its input queue', async () => {
   const registry = new SessionRegistry();
@@ -492,6 +492,71 @@ it('waits for durable cancellation before interrupt resolves', async () => {
     await draining;
   } finally {
     calls.releaseInterruptedRun = undefined;
+    eventStore.close();
+    registry.dispose();
+  }
+});
+
+it('cancels an admitted command when interrupted before dequeue', async () => {
+  const registry = new SessionRegistry();
+  const eventStore = new EventStore(':memory:');
+  const abort = new AbortController();
+  registry.register('client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: abort,
+    mode: 'agent',
+    sessionId: 'app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const session = registry.get('client')!;
+  eventStore.upsertSession({ sessionId: 'app' });
+  const admission = admitProviderDispatch({
+    store: eventStore,
+    request: {
+      sessionId: 'app',
+      clientMsgId: 'message-queued-interrupt',
+      effectivePrompt: 'queued-interrupt',
+      model: 'test',
+    },
+    prepare: () => {},
+  });
+  const input = new AsyncQueue<{
+    message: { content: string };
+    providerAdmission: typeof admission;
+  }>();
+  input.push({ message: { content: 'queued-interrupt' }, providerAdmission: admission });
+
+  try {
+    const chat = await openResponsesChat({
+      conversationId: 'app',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test',
+        profileRevision: 'revision',
+      },
+      apiKey: 'private-test-key',
+      session,
+      registry,
+      input,
+      eventStore,
+      systemPrompt: 'context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+    });
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    await chat.interrupt();
+    expect(eventStore.getSession('app')).toMatchObject({
+      executionPhase: 'TERMINAL',
+      executionTerminalReason: 'interrupted',
+    });
+    input.close();
+    for await (const event of chat) void event;
+    expect(calls.prompts).not.toContain('queued-interrupt');
+  } finally {
     eventStore.close();
     registry.dispose();
   }

@@ -52,7 +52,19 @@ export function admitProviderDispatch(options: {
     requestFingerprint,
     duplicate: admission.duplicate,
   };
-  if (admission.duplicate) return result;
+  if (admission.duplicate) {
+    const current = options.store.getSession(admission.token.sessionId);
+    const isStillDispatchable =
+      current?.executionId === admission.token.executionId &&
+      current.executionGeneration === admission.token.generation &&
+      current.executionPhase === 'RUNNING';
+    if (!isStillDispatchable && options.store.getProviderAttempts(admission.token).length === 0) {
+      throw new Error(
+        'Admitted command failed before provider dispatch; retry with a new command ID',
+      );
+    }
+    return result;
+  }
 
   try {
     options.prepare();

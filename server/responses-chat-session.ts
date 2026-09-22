@@ -27,8 +27,34 @@ import type { ProviderDispatchAdmission } from './provider-execution.js';
 
 let privateStore: NativeResponsesStore | undefined;
 const runtimes = new WeakMap<ManagedSession, NativeResponsesRunner>();
+interface PendingProviderAdmission {
+  admission: ProviderDispatchAdmission;
+  eventStore: EventStore;
+  cancelled: boolean;
+}
+const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 export function getResponsesRuntime(session: ManagedSession) {
   return runtimes.get(session);
+}
+export function trackResponsesProviderAdmission(
+  session: ManagedSession,
+  admission: ProviderDispatchAdmission,
+  eventStore: EventStore,
+): void {
+  let pending = pendingAdmissions.get(session);
+  if (!pending) {
+    pending = new Map();
+    pendingAdmissions.set(session, pending);
+  }
+  pending.set(admission.providerAttemptId, { admission, eventStore, cancelled: false });
+}
+
+function cancelPendingAdmissions(session: ManagedSession): void {
+  for (const pending of pendingAdmissions.get(session)?.values() ?? []) {
+    if (pending.cancelled) continue;
+    pending.eventStore.transitionExecution(pending.admission.token, 'TERMINAL', 'interrupted');
+    pending.cancelled = true;
+  }
 }
 function store() {
   if (!privateStore) {
@@ -155,6 +181,7 @@ export async function openResponsesChat(options: Options) {
   function close() {
     if (closed) return;
     closed = true;
+    cancelPendingAdmissions(options.session);
     runtimes.delete(options.session);
     void hooks
       .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
@@ -173,6 +200,16 @@ export async function openResponsesChat(options: Options) {
           const providerAdmission = message.providerAdmission;
           if (providerAdmission && !options.eventStore) {
             throw new Error('Durable provider admission requires an EventStore');
+          }
+          const trackedAdmission = providerAdmission
+            ? pendingAdmissions.get(options.session)?.get(providerAdmission.providerAttemptId)
+            : undefined;
+          if (trackedAdmission?.cancelled) {
+            pendingAdmissions.get(options.session)?.delete(providerAdmission!.providerAttemptId);
+            continue;
+          }
+          if (providerAdmission) {
+            pendingAdmissions.get(options.session)?.delete(providerAdmission.providerAttemptId);
           }
           if (signal.aborted) {
             if (providerAdmission) {
@@ -277,6 +314,7 @@ export async function openResponsesChat(options: Options) {
     },
     interrupt: async () => {
       interrupted = true;
+      cancelPendingAdmissions(options.session);
       runner.interrupt();
       await runner.waitUntilIdle();
       await activeTurnFinalized;

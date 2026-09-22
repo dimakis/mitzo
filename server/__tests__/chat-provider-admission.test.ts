@@ -5,11 +5,13 @@ import { join } from 'node:path';
 
 const responses = vi.hoisted(() => ({
   prepare: vi.fn(),
+  track: vi.fn(),
 }));
 
 vi.mock('../responses-chat-session.js', () => ({
   getResponsesRuntime: () => responses,
   openResponsesChat: vi.fn(),
+  trackResponsesProviderAdmission: responses.track,
 }));
 
 describe('active native provider admission', () => {
@@ -26,6 +28,7 @@ describe('active native provider admission', () => {
 
   beforeEach(() => {
     responses.prepare.mockReset();
+    responses.track.mockReset();
     chat.registry.abort(clientId);
   });
 
@@ -120,5 +123,59 @@ describe('active native provider admission', () => {
 
     expect(responses.prepare).toHaveBeenCalledOnce();
     expect(push).toHaveBeenCalledOnce();
+  });
+
+  it('does not create an execution when a legacy transcript message already exists', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-legacy';
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+    chat.eventStore.append(sessionId, 'user_message', {
+      v: 2,
+      type: 'user_message',
+      ts: Date.now(),
+      messageId: 'legacy-command',
+      text: 'already stored',
+    });
+
+    await expect(
+      chat.sendToChat(clientId, 'already stored', undefined, undefined, 'legacy-command'),
+    ).resolves.toBe(true);
+
+    expect(responses.prepare).not.toHaveBeenCalled();
+    expect(push).not.toHaveBeenCalled();
+    expect(chat.eventStore.getExecutionAdmission(sessionId, 'legacy-command')).toBeUndefined();
+  });
+
+  it('admits active provider sends that use a server-generated message ID', async () => {
+    const push = vi.fn();
+    const sessionId = 'session-generated-id';
+    chat.registry.register(clientId, {
+      transport: { send: vi.fn(), isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId,
+      cwd: root,
+      sessionAllowList: new Set(),
+    });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
+    chat.eventStore.upsertSession({ sessionId });
+
+    await expect(chat.sendToChat(clientId, 'generated identity')).resolves.toBe(true);
+
+    const queued = push.mock.calls[0][0] as {
+      mitzoMessageId: string;
+      providerAdmission?: { token: { sessionId: string } };
+    };
+    expect(queued.providerAdmission?.token.sessionId).toBe(sessionId);
+    expect(chat.eventStore.getExecutionAdmission(sessionId, queued.mitzoMessageId)).toBeDefined();
   });
 });
