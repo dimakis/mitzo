@@ -22,6 +22,7 @@ import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
+  resolveEffectiveAccountSelection,
   LEGACY_MODELS,
   type AccountProfiles,
 } from './account-profiles.js';
@@ -39,7 +40,7 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -839,6 +840,13 @@ function makeUserMessage(
   };
 }
 
+/** Stable server-side conversation identity for retrying an initial native WS frame. */
+export function nativeStartupSessionId(clientMsgId: string): string {
+  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
+  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -860,12 +868,14 @@ export async function startChat(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
 ) {
+  const startupGuard: { admission?: ProviderDispatchAdmission } = {};
   return withSpanAsync(
     'chat.start',
     {
@@ -873,8 +883,15 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => _startChatInner(transport, clientId, prompt, options),
-  );
+    async () => _startChatInner(transport, clientId, prompt, options, startupGuard),
+  )
+    .catch((error: unknown) => {
+      options.onStartupAdmission?.(error);
+      throw error;
+    })
+    .finally(() => {
+      cleanupUndispatchedStartup(startupGuard.admission, clientId);
+    });
 }
 
 async function _startChatInner(
@@ -898,18 +915,22 @@ async function _startChatInner(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
+  startupGuard: { admission?: ProviderDispatchAdmission },
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
@@ -929,16 +950,7 @@ async function _startChatInner(
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
-        model: options.accountId
-          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
-          : (storedMeta?.selectedModel ?? accountBinding.model),
-        reasoningEffort: options.accountId
-          ? options.reasoningEffort !== undefined
-            ? options.reasoningEffort
-            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
-              ? null
-              : storedMeta?.reasoningEffort
-          : storedMeta?.reasoningEffort,
+        ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
       };
       if (
         accountBinding.provider === 'openai' ||
@@ -995,7 +1007,6 @@ async function _startChatInner(
             return token;
           },
         };
-        await gemini.getAccessToken();
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
@@ -1013,11 +1024,12 @@ async function _startChatInner(
             sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profile.credentialRef);
+        } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     send(transport, {
       type: 'error',
       error: err instanceof Error ? err.message : 'Account selection failed',
@@ -1047,6 +1059,114 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  const nativeProviderSelected = !!apiCredentialRef || !!gemini;
+
+  if (
+    nativeProviderSelected &&
+    !options.reattachOnly &&
+    !options.resume &&
+    !options.initialSessionId
+  ) {
+    options = { ...options, initialSessionId: nativeStartupSessionId(initialMessageId) };
+  }
+
+  // Native initial and cold-resume commands need durable identity before any
+  // worktree, registry, transcript, or provider queue side effect. New bound
+  // sessions receive their canonical ID here so an exact retry can consult the
+  // same admission instead of selecting a fresh initial route.
+  let initialProviderAdmission: ProviderDispatchAdmission | undefined;
+  if (nativeProviderSelected && !options.reattachOnly) {
+    const conversationId = options.resume ?? options.initialSessionId ?? randomUUID();
+    if (!options.resume && !options.initialSessionId) {
+      options = { ...options, initialSessionId: conversationId };
+    }
+    if (!eventStore.getSession(conversationId)) {
+      eventStore.upsertSession({
+        sessionId: conversationId,
+        cwd: baseCwd,
+        mode,
+        ...(accountBinding ? { accountBinding } : {}),
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
+      });
+    }
+    try {
+      const stablePrompt = assemblePrompt(prompt, baseCwd, undefined, options.contextBlocks);
+      initialProviderAdmission = admitProviderDispatch({
+        store: eventStore,
+        request: {
+          sessionId: conversationId,
+          clientMsgId: initialMessageId,
+          effectivePrompt: stablePrompt,
+          fingerprintSource: providerFingerprintSource(stablePrompt, options.images),
+          model: options.model,
+          reasoningEffort: options.reasoningEffort,
+          accountBinding,
+        },
+        prepare: () => {},
+      });
+      if (initialProviderAdmission.duplicate) {
+        options.onStartupAdmission?.();
+        return;
+      }
+      startupGuard.admission = initialProviderAdmission;
+    } catch (err: unknown) {
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Provider command admission failed',
+      });
+      return;
+    }
+  }
+  if (apiCredentialRef) {
+    try {
+      apiKey = await credentials.resolve(apiCredentialRef);
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'OpenAI credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (gemini && !options.reattachOnly) {
+    try {
+      await gemini.getAccessToken();
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Google Vertex credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1120,8 +1240,7 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  const initialMessageId = options.clientMsgId ?? randomUUID();
-  if (!options.reattachOnly)
+  if (!options.reattachOnly && !initialProviderAdmission)
     inputQueue.push(
       makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
     );
@@ -1383,16 +1502,6 @@ async function _startChatInner(
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      storeAndEchoIfNew(
-        conversationId,
-        initialMessageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
       q = await openResponsesChat({
         resume: !!options.resume,
         conversationId,
@@ -1410,6 +1519,24 @@ async function _startChatInner(
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId),
       });
+      if (!initialProviderAdmission) {
+        throw new Error('Native provider startup is missing durable command admission');
+      }
+      storeAndEchoIfNew(
+        conversationId,
+        initialMessageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
+      );
+      trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
+      inputQueue.push(
+        makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
+      );
+      options.onStartupAdmission?.();
     } else
       q = adaptSdkQuery(
         query({
@@ -1505,7 +1632,9 @@ async function _startChatInner(
       },
     );
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
+    terminalizeUndispatchedStartup(initialProviderAdmission);
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
@@ -1518,7 +1647,10 @@ async function _startChatInner(
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
+        clientId,
+        reason: 'startup_failed',
+      });
     }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
@@ -1643,6 +1775,114 @@ function providerFingerprintSource(
   return JSON.stringify({ effectivePrompt: stablePrompt, images });
 }
 
+function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | undefined): boolean {
+  if (!admission) return false;
+  const current = eventStore.getSession(admission.token.sessionId);
+  if (
+    current?.executionId !== admission.token.executionId ||
+    current.executionGeneration !== admission.token.generation ||
+    current.executionPhase !== 'RUNNING' ||
+    eventStore.getProviderAttempts(admission.token).length > 0
+  ) {
+    return false;
+  }
+  try {
+    eventStore.transitionExecution(admission.token, 'TERMINAL', 'startup_failed');
+  } catch (cleanupError) {
+    log.warn('could not persist native startup failure; restart recovery required', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  return true;
+}
+
+function cleanupUndispatchedStartup(
+  admission: ProviderDispatchAdmission | undefined,
+  clientId: string,
+): void {
+  if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
+  terminalizeUndispatchedStartup(admission);
+  const current = eventStore.getSession(admission.token.sessionId);
+  const failedBeforeDispatch =
+    current?.executionId === admission.token.executionId &&
+    current.executionGeneration === admission.token.generation &&
+    current.executionPhase === 'TERMINAL' &&
+    current.executionTerminalReason === 'startup_failed';
+  if (!failedBeforeDispatch) return;
+  try {
+    eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
+      clientId,
+      reason: 'startup_failed',
+    });
+  } catch (cleanupError) {
+    log.warn('could not persist failed native startup state', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  const failedSession = registry.get(clientId);
+  if (failedSession) cleanupSessionWorktrees(failedSession);
+  registry.abort(clientId);
+}
+
+/**
+ * Consult durable native-provider admission before a registry-missing resume
+ * route performs takeover, watch, transcript, or runtime side effects.
+ */
+export function preflightStartupProviderCommand(
+  store: EventStore,
+  request: {
+    sessionId: string;
+    clientMsgId: string;
+    prompt: string;
+    cwd: string;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    model?: string;
+    reasoningEffort?: string | null;
+  },
+): boolean {
+  const meta = store.getSession(request.sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) return false;
+  const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
+  const stablePrompt = assemblePrompt(
+    request.prompt,
+    request.cwd,
+    undefined,
+    request.contextBlocks,
+  );
+  const providerRequest = {
+    sessionId: request.sessionId,
+    clientMsgId: request.clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, request.images),
+    model: request.model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort: request.reasoningEffort,
+    accountBinding: binding,
+  };
+  // Durable evidence wins over the current environment. This keeps a routing
+  // toggle across restart from replaying a command through the other provider
+  // implementation. A native admission can be checked exactly; a legacy
+  // OpenShell user message is only evidence that startup began, so its dispatch
+  // outcome is ambiguous and requires a fresh command ID.
+  if (existingAdmission) return preflightProviderDispatch(store, providerRequest);
+  if (store.hasUserMessage(request.sessionId, request.clientMsgId)) {
+    throw new Error(
+      'Existing command has ambiguous legacy OpenShell dispatch state; retry with a new command ID',
+    );
+  }
+  const openShellAvailable =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const isNative =
+    binding.provider === 'google-vertex' ||
+    (binding.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
+  if (!isNative) return false;
+  return preflightProviderDispatch(store, providerRequest);
+}
+
 function validateNativeModelSelection(
   sessionId: string,
   model?: string,
@@ -1720,6 +1960,7 @@ export async function sendToChat(
           throw new Error('Native Responses conversation already running');
         }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
+        const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
         const prepare = () =>
           responses.prepare(messageId, fullPrompt, {
             ...(model ? { model } : {}),
@@ -1736,6 +1977,7 @@ export async function sendToChat(
             fingerprintSource: providerFingerprintSource(fullPrompt, images),
             model,
             reasoningEffort,
+            accountBinding: binding,
           },
           prepare,
         });
@@ -1893,6 +2135,7 @@ export function preflightChatCommand(
   const session = registry.get(clientId);
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
   const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
   return preflightProviderDispatch(eventStore, {
     sessionId: session.sessionId,
     clientMsgId,
@@ -1900,6 +2143,7 @@ export function preflightChatCommand(
     fingerprintSource: providerFingerprintSource(stablePrompt, images),
     model,
     reasoningEffort,
+    accountBinding: binding,
   });
 }
 

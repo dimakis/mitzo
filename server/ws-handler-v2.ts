@@ -1,5 +1,9 @@
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
-import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
+import {
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+  loadAccountProfiles,
+} from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -12,6 +16,7 @@ import { resolveAccountSelection, loadAccountProfiles } from './account-profiles
 
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -53,6 +58,8 @@ import {
   sendToChat,
   interruptChat,
   preflightChatCommand,
+  preflightStartupProviderCommand,
+  nativeStartupSessionId,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -529,19 +536,48 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string },
+  delivery?: { initialSessionId?: string; awaitStartupAdmission?: boolean },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
-        const storedBinding = msg.sessionId
-          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
-          : null;
+        let resolveStartupAdmission: (() => void) | undefined;
+        let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+        const startupAdmission = delivery?.awaitStartupAdmission
+          ? new Promise<void>((resolve, reject) => {
+              resolveStartupAdmission = resolve;
+              rejectStartupAdmission = reject;
+            })
+          : undefined;
+        let emitSkillInvoked = () => {};
+        let skillInvoked = false;
+        const onStartupAdmission = (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else {
+            if (!skillInvoked) {
+              emitSkillInvoked();
+              skillInvoked = true;
+            }
+            resolveStartupAdmission?.();
+          }
+        };
+        const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
+        const storedBinding = storedMeta?.accountBinding;
         const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
         // Validation-only gate before dispatch; startup revalidates against this same snapshot.
-        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
+        const accountBinding = resolveAccountSelection(
+          msg,
+          storedBinding,
+          !!msg.sessionId,
+          accountProfiles,
+        );
+        const effectiveSelection = resolveEffectiveAccountSelection(
+          msg,
+          storedMeta,
+          accountBinding,
+        );
         const rawCwd = msg.cwd || BASE_REPO;
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
@@ -580,7 +616,8 @@ export function handleSendV2(
         const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
-        if (resolution.type === 'skill') {
+        emitSkillInvoked = () => {
+          if (resolution.type !== 'skill') return;
           transport.send({
             type: 'skill_invoked',
             v: 2,
@@ -589,7 +626,7 @@ export function handleSendV2(
             arguments: resolution.arguments,
             ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
           });
-        }
+        };
 
         const applySkillPolicy = (targetClientId: string) => {
           if (skillAllowedTools) {
@@ -604,6 +641,31 @@ export function handleSendV2(
         if (sessionId) {
           const found = ctx.sessionRegistry.findBySessionId(sessionId);
           const storeState = ctx.eventStore.getSessionState(sessionId);
+
+          const routesToActiveRuntime =
+            !!found &&
+            isActive(found.clientId) &&
+            storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
+            storeState !== null;
+          if (!routesToActiveRuntime) {
+            const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+              sessionId,
+              clientMsgId: msg.clientMsgId,
+              prompt,
+              cwd,
+              images: msg.images,
+              contextBlocks: msg.contextBlocks,
+              model: effectiveSelection.model,
+              reasoningEffort: effectiveSelection.reasoningEffort,
+            });
+            if (duplicate) {
+              ctx.connRegistry.watch(connectionId, sessionId);
+              ctx.connRegistry.setActive(connectionId, sessionId);
+              log.info('duplicate cold provider send', { connectionId, sessionId });
+              return;
+            }
+          }
 
           // Phase 2: detect state mismatches (observability only)
           const mismatch = detectStateMismatch(sessionId, ctx.sessionRegistry, ctx.eventStore);
@@ -621,13 +683,7 @@ export function handleSendV2(
           // State-based routing (Phase 3): durable state is the single source of truth.
           // ACTIVE/DETACHED/SUSPENDED → running path (send to existing query loop)
           // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
-          if (
-            found &&
-            isActive(found.clientId) &&
-            storeState !== 'ENDED' &&
-            storeState !== 'CLOSING' &&
-            storeState !== null
-          ) {
+          if (routesToActiveRuntime && found) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
             const duplicate = preflightChatCommand(
               found.clientId,
@@ -676,6 +732,7 @@ export function handleSendV2(
               log.info('duplicate send', { connectionId, sessionId });
               return;
             }
+            emitSkillInvoked();
             applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
@@ -732,8 +789,8 @@ export function handleSendV2(
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
             cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -743,6 +800,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -754,6 +812,28 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         } else {
+          const startupSessionId =
+            delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId);
+          const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+            sessionId: startupSessionId,
+            clientMsgId: msg.clientMsgId,
+            prompt,
+            cwd,
+            images: msg.images,
+            contextBlocks: msg.contextBlocks,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
+          });
+          if (duplicate) {
+            log.info('duplicate initial provider send', {
+              connectionId,
+              sessionId: startupSessionId,
+            });
+            ctx.connRegistry.watch(connectionId, startupSessionId);
+            ctx.connRegistry.setActive(connectionId, startupSessionId);
+            transport.send({ type: 'session_id', sessionId: startupSessionId });
+            return;
+          }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
@@ -763,8 +843,8 @@ export function handleSendV2(
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
             cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -775,6 +855,7 @@ export function handleSendV2(
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -786,6 +867,7 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         }
+        await startupAdmission;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
@@ -794,6 +876,7 @@ export function handleSendV2(
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',
         });
+        if (delivery?.awaitStartupAdmission && err instanceof ExecutionAdmissionError) throw err;
       }
     },
   );
@@ -814,6 +897,7 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
+  delivery?: { awaitStartupAdmission?: boolean },
 ): Promise<void> {
   return withSpanAsync(
     'ws.interrupt',
@@ -823,7 +907,8 @@ export function handleInterruptV2(
       if (!found) return;
 
       const activeClientId = found.clientId;
-      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
+      const storedMeta = ctx.eventStore.getSession(msg.sessionId);
+      const storedAccountId = storedMeta?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -915,6 +1000,28 @@ export function handleInterruptV2(
         return;
       }
 
+      const effectiveSelection = resolveEffectiveAccountSelection(
+        msg,
+        storedMeta,
+        storedMeta?.accountBinding ?? undefined,
+      );
+      const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+        sessionId: msg.sessionId,
+        clientMsgId: msg.clientMsgId,
+        prompt: msg.prompt,
+        cwd: storedMeta?.cwd ?? BASE_REPO,
+        images: msg.images,
+        contextBlocks: msg.contextBlocks,
+        model: effectiveSelection.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
+      });
+      if (duplicate) {
+        ctx.connRegistry.watch(connectionId, msg.sessionId);
+        ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        log.info('duplicate cold interrupt', { connectionId, sessionId: msg.sessionId });
+        return;
+      }
+
       // Zombie — abort before resume.
       if (found && isActive(found.clientId)) {
         log.info('aborting zombie session before resume (interrupt)', {
@@ -929,6 +1036,14 @@ export function handleInterruptV2(
       const sessionClientId = `${connectionId}:${msg.sessionId}`;
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      let resolveStartupAdmission: (() => void) | undefined;
+      let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+      const startupAdmission = delivery?.awaitStartupAdmission
+        ? new Promise<void>((resolve, reject) => {
+            resolveStartupAdmission = resolve;
+            rejectStartupAdmission = reject;
+          })
+        : undefined;
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
         accountId: msg.accountId ?? storedAccountId,
@@ -938,19 +1053,24 @@ export function handleInterruptV2(
               revision: permissionRevision(ctx.eventStore, msg.sessionId),
             }
           : undefined,
-        model: msg.model ?? found.session?.model,
-        reasoningEffort: msg.reasoningEffort,
+        model: effectiveSelection.model ?? found.session?.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
+        onStartupAdmission: (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else resolveStartupAdmission?.();
+        },
       }).catch((err: unknown) =>
         transport.send({
           type: 'error',
           error: err instanceof Error ? err.message : 'Session startup failed',
         }),
       );
+      await startupAdmission;
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );
