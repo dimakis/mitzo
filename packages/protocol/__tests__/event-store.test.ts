@@ -57,6 +57,134 @@ describe('EventStore', () => {
     });
   });
 
+  describe('durable execution state', () => {
+    const sessionId = 'durable-execution-session';
+
+    beforeEach(() => {
+      store.upsertSession({ sessionId });
+    });
+
+    it('allocates monotonic execution generations with matching durable events', () => {
+      const first = store.beginExecution(sessionId, 'execution-1');
+      const finished = store.transitionExecution(first.token, 'TERMINAL', 'completed');
+      const second = store.beginExecution(sessionId, 'execution-2');
+
+      expect(first.token).toEqual({ sessionId, executionId: 'execution-1', generation: 1 });
+      expect(finished).toMatchObject({ applied: true, status: 'applied' });
+      expect(second.token).toEqual({ sessionId, executionId: 'execution-2', generation: 2 });
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 2,
+        executionId: 'execution-2',
+        executionPhase: 'RUNNING',
+        executionTerminalReason: null,
+      });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter((event) => event.type === 'execution_state_changed')
+          .map((event) => event.payload),
+      ).toMatchObject([
+        { executionId: 'execution-1', generation: 1, phase: 'RUNNING' },
+        {
+          executionId: 'execution-1',
+          generation: 1,
+          phase: 'TERMINAL',
+          terminalReason: 'completed',
+        },
+        { executionId: 'execution-2', generation: 2, phase: 'RUNNING' },
+      ]);
+    });
+
+    it('rejects a second active execution without overwriting the first', () => {
+      const first = store.beginExecution(sessionId, 'execution-1');
+
+      expect(() => store.beginExecution(sessionId, 'execution-2')).toThrow(
+        'Cannot overwrite active execution',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: first.token.generation,
+        executionId: first.token.executionId,
+        executionPhase: 'RUNNING',
+      });
+    });
+
+    it('makes terminal transitions exactly once and rejects stale tokens', () => {
+      const started = store.beginExecution(sessionId, 'execution-1');
+      const stale = store.transitionExecution(
+        { ...started.token, generation: started.token.generation + 1 },
+        'TERMINAL',
+        'failed',
+      );
+      const terminal = store.transitionExecution(started.token, 'TERMINAL', 'failed');
+      const duplicate = store.transitionExecution(started.token, 'TERMINAL', 'failed');
+
+      expect(stale).toMatchObject({ applied: false, status: 'stale' });
+      expect(terminal).toMatchObject({ applied: true, status: 'applied' });
+      expect(duplicate).toMatchObject({ applied: false, status: 'terminal' });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' && event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(1);
+    });
+
+    it('requires a closed terminal reason and preserves it in the aggregate', () => {
+      const started = store.beginExecution(sessionId, 'execution-1');
+
+      expect(() => store.transitionExecution(started.token, 'TERMINAL')).toThrow('terminal reason');
+      expect(() => store.transitionExecution(started.token, 'RUNNING', 'completed')).toThrow(
+        'only valid for TERMINAL',
+      );
+      store.transitionExecution(started.token, 'TERMINAL', 'server_restart');
+
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+    });
+
+    it('terminalizes orphaned executions once during restart recovery', () => {
+      store.beginExecution(sessionId, 'execution-1');
+
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      expect(store.recoverOrphanedExecutions()).toBe(0);
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'server_restart',
+      });
+      expect(
+        store
+          .getSessionEvents(sessionId)
+          .filter(
+            (event) =>
+              event.type === 'execution_state_changed' && event.payload.phase === 'TERMINAL',
+          ),
+      ).toHaveLength(1);
+    });
+
+    it('rolls back aggregate state when its durable event cannot be appended', () => {
+      const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+      db.exec(`
+        CREATE TRIGGER reject_execution_events
+        BEFORE INSERT ON events WHEN NEW.type = 'execution_state_changed'
+        BEGIN SELECT RAISE(ABORT, 'injected execution event failure'); END;
+      `);
+
+      expect(() => store.beginExecution(sessionId, 'execution-1')).toThrow(
+        'injected execution event failure',
+      );
+      expect(store.getSession(sessionId)).toMatchObject({
+        executionGeneration: 0,
+        executionId: null,
+        executionPhase: null,
+      });
+      expect(store.getSessionEvents(sessionId)).toHaveLength(0);
+    });
+  });
+
   describe('getEventsAfter', () => {
     it('returns all events for a session when afterSeq is 0', () => {
       store.append('sess-1', 'message_start', { messageId: 'm1' });

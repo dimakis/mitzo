@@ -251,6 +251,36 @@ export type SessionState =
  */
 export type ClientSessionState = 'idle' | 'running' | 'requires_action';
 
+/** Durable phase of one accepted execution, independent of transport connectivity. */
+export type ExecutionPhase = 'RUNNING' | 'REQUIRES_ACTION' | 'STOPPING' | 'TERMINAL';
+
+/** Closed set of replay-safe terminal outcomes. */
+export type ExecutionTerminalReason =
+  | 'completed'
+  | 'failed'
+  | 'stopped'
+  | 'interrupted'
+  | 'closed'
+  | 'abandoned'
+  | 'server_restart'
+  | 'startup_failed';
+
+/** Immutable identity for one execution generation within a session. */
+export interface ExecutionToken {
+  sessionId: string;
+  executionId: string;
+  generation: number;
+}
+
+/** Canonical durable event emitted for each applied execution transition. */
+export interface ExecutionStateChangedPayload extends ExecutionToken {
+  type: 'execution_state_changed';
+  phase: ExecutionPhase;
+  clientState: ClientSessionState;
+  terminalReason?: ExecutionTerminalReason;
+  timestamp: number;
+}
+
 /** Server-authoritative state event emitted on every lifecycle transition. */
 export interface SessionStateEvent {
   type: 'session_state_changed';
@@ -376,6 +406,11 @@ export interface SessionMeta {
   lastSpeakerAt: number | null;
   state: SessionState | null;
   lastStateChange: number | null;
+  executionGeneration: number;
+  executionId: string | null;
+  executionPhase: ExecutionPhase | null;
+  executionTerminalReason: ExecutionTerminalReason | null;
+  executionUpdatedAt: number | null;
   agentName: string | null;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
