@@ -99,6 +99,17 @@ describe('useTodoData', () => {
 
     expect(result.current.items).toEqual([]);
     expect(result.current.profiles).toEqual([]);
+    expect(result.current.error).toBe('Unable to load Telos items');
+  });
+
+  it('reports non-success responses as errors', async () => {
+    vi.mocked(apiFetch).mockResolvedValue({ ok: false, status: 502 } as Response);
+
+    const { result } = renderHook(() => useTodoData());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBe('Unable to load Telos items');
   });
 
   it('performs action and removes item from list', async () => {

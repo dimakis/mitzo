@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoView } from '../TodoView';
 
@@ -21,6 +21,7 @@ vi.mock('@mitzo/client/hooks', () => ({
 }));
 
 beforeEach(() => {
+  cleanup();
   vi.clearAllMocks();
 });
 
@@ -63,6 +64,29 @@ describe('TodoView', () => {
     );
 
     expect(screen.getByText('No active items')).toBeTruthy();
+  });
+
+  it('shows a load error instead of the empty state', () => {
+    mockUseTodoData.mockReturnValue({
+      loading: false,
+      error: 'Unable to load Telos items',
+      items: [],
+      profiles: [],
+      ack: vi.fn(),
+      done: vi.fn(),
+      star: vi.fn(),
+      create: vi.fn(),
+      refresh: vi.fn(),
+    });
+
+    render(
+      <MemoryRouter>
+        <TodoView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Unable to load Telos items')).toBeTruthy();
+    expect(screen.queryByText('No active items')).toBeNull();
   });
 
   it('renders items and profile filters', () => {
