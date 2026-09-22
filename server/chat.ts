@@ -38,7 +38,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -832,6 +832,13 @@ function makeUserMessage(
   };
 }
 
+/** Stable server-side conversation identity for retrying an initial native WS frame. */
+export function nativeStartupSessionId(clientMsgId: string): string {
+  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
+  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -904,10 +911,12 @@ async function _startChatInner(
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
@@ -1010,7 +1019,7 @@ async function _startChatInner(
             sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profile.credentialRef);
+        } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
@@ -1029,7 +1038,6 @@ async function _startChatInner(
       : process.env.MITZO_OPENSHELL_WORKDIR || '/sandbox/workspaces/mgmt'
     : undefined;
   const abortController = new AbortController();
-  const initialMessageId = options.clientMsgId ?? randomUUID();
   const resumedSession = options.resume
     ? registry.findBySessionId(options.resume)?.session
     : undefined;
@@ -1046,13 +1054,23 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  const nativeProviderSelected = !!apiCredentialRef || !!gemini;
+
+  if (
+    nativeProviderSelected &&
+    !options.reattachOnly &&
+    !options.resume &&
+    !options.initialSessionId
+  ) {
+    options = { ...options, initialSessionId: nativeStartupSessionId(initialMessageId) };
+  }
 
   // Native initial and cold-resume commands need durable identity before any
   // worktree, registry, transcript, or provider queue side effect. New bound
   // sessions receive their canonical ID here so an exact retry can consult the
   // same admission instead of selecting a fresh initial route.
   let initialProviderAdmission: ProviderDispatchAdmission | undefined;
-  if ((apiKey || gemini) && !options.reattachOnly) {
+  if (nativeProviderSelected && !options.reattachOnly) {
     const conversationId = options.resume ?? options.initialSessionId ?? randomUUID();
     if (!options.resume && !options.initialSessionId) {
       options = { ...options, initialSessionId: conversationId };
@@ -1093,6 +1111,28 @@ async function _startChatInner(
           ? { sessionId: options.resume ?? options.initialSessionId }
           : {}),
         error: err instanceof Error ? err.message : 'Provider command admission failed',
+      });
+      return;
+    }
+  }
+  if (apiCredentialRef) {
+    try {
+      apiKey = await credentials.resolve(apiCredentialRef);
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'OpenAI credentials unavailable',
       });
       return;
     }

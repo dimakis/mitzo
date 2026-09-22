@@ -55,6 +55,7 @@ import {
   interruptChat,
   preflightChatCommand,
   preflightStartupProviderCommand,
+  nativeStartupSessionId,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -594,7 +595,8 @@ export function handleSendV2(
         const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
-        if (resolution.type === 'skill') {
+        const emitSkillInvoked = () => {
+          if (resolution.type !== 'skill') return;
           transport.send({
             type: 'skill_invoked',
             v: 2,
@@ -603,7 +605,7 @@ export function handleSendV2(
             arguments: resolution.arguments,
             ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
           });
-        }
+        };
 
         const applySkillPolicy = (targetClientId: string) => {
           if (skillAllowedTools) {
@@ -643,6 +645,7 @@ export function handleSendV2(
               log.info('duplicate cold provider send', { connectionId, sessionId });
               return;
             }
+            emitSkillInvoked();
           }
 
           // Phase 2: detect state mismatches (observability only)
@@ -710,6 +713,7 @@ export function handleSendV2(
               log.info('duplicate send', { connectionId, sessionId });
               return;
             }
+            emitSkillInvoked();
             applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
@@ -789,6 +793,26 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         } else {
+          const startupSessionId =
+            delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId);
+          const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+            sessionId: startupSessionId,
+            clientMsgId: msg.clientMsgId,
+            prompt,
+            cwd,
+            images: msg.images,
+            contextBlocks: msg.contextBlocks,
+            model: msg.model,
+            reasoningEffort: msg.reasoningEffort,
+          });
+          if (duplicate) {
+            log.info('duplicate initial provider send', {
+              connectionId,
+              sessionId: startupSessionId,
+            });
+            return;
+          }
+          emitSkillInvoked();
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {

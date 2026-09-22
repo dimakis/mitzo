@@ -13,6 +13,7 @@ const native = vi.hoisted(() => ({
     displayName: (name: string) => name,
   })),
   googleToken: vi.fn(async () => 'private-google-token'),
+  credentialResolve: vi.fn(async () => 'private-test-key'),
 }));
 
 vi.mock('../native-responses-runner.js', () => ({
@@ -33,7 +34,7 @@ vi.mock('../native-responses-runner.js', () => ({
 vi.mock('../codex-mcp-tools.js', () => ({ connectCodexMcpTools: native.connect }));
 vi.mock('../credentials.js', async (original) => ({
   ...(await original<object>()),
-  credentials: { resolve: vi.fn(async () => 'private-test-key') },
+  credentials: { resolve: native.credentialResolve },
 }));
 vi.mock('google-auth-library', () => ({
   GoogleAuth: class {
@@ -78,6 +79,7 @@ afterEach(() => {
   native.construct.mockReset();
   native.connect.mockClear();
   native.googleToken.mockClear();
+  native.credentialResolve.mockClear();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -276,6 +278,8 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
     chat.stopChat('first-client');
     await initial;
 
+    native.credentialResolve.mockClear();
+    native.credentialResolve.mockRejectedValueOnce(new Error('Keychain unavailable'));
     await chat.startChat(transport, 'initial-retry', 'first turn', {
       cwd: root,
       isolation: false,
@@ -287,6 +291,8 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
     });
     expect(chat.registry.get('initial-retry')).toBeUndefined();
     expect(native.prompts).toEqual(['first turn']);
+    expect(native.credentialResolve).not.toHaveBeenCalled();
+    native.credentialResolve.mockReset().mockResolvedValue('private-test-key');
 
     const resumed = chat.startChat(transport, 'resume-client', 'continue', {
       resume: sessionId,
@@ -309,6 +315,46 @@ it('reuses initial and registry-missing resume admissions without redispatch', a
     expect(chat.registry.get('resume-retry')).toBeUndefined();
     expect(native.prompts).toEqual(['first turn', 'continue']);
     expect(chat.eventStore.getExecutionAdmission(sessionId, 'resume-command')).toBeDefined();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('derives one stable native session identity for repeated WebSocket initial frames', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-native-ws-initial-admission-'));
+  await writeFile(join(root, '.mitzo.json'), '{}');
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const options = {
+    cwd: root,
+    isolation: false,
+    accountId: 'work-api',
+    model: 'gpt-test',
+    accountProfiles: profiles(),
+    clientMsgId: 'ws-initial-command',
+  } as const;
+
+  try {
+    const first = chat.startChat(transport, 'ws-initial-first', 'one frame', options);
+    await vi.waitFor(() => expect(native.prompts).toEqual(['one frame']));
+    chat.stopChat('ws-initial-first');
+    await first;
+
+    native.credentialResolve.mockClear();
+    await chat.startChat(transport, 'ws-initial-retry', 'one frame', options);
+
+    const sessionId = chat.nativeStartupSessionId('ws-initial-command');
+    expect(chat.eventStore.getExecutionAdmission(sessionId, 'ws-initial-command')).toBeDefined();
+    expect(native.prompts).toEqual(['one frame']);
+    expect(native.credentialResolve).not.toHaveBeenCalled();
+    expect(chat.registry.get('ws-initial-retry')).toBeUndefined();
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

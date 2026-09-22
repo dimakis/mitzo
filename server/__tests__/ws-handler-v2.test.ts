@@ -11,6 +11,7 @@ vi.mock('../chat.js', () => ({
   interruptChat: vi.fn(),
   preflightChatCommand: vi.fn().mockReturnValue(false),
   preflightStartupProviderCommand: vi.fn().mockReturnValue(false),
+  nativeStartupSessionId: vi.fn((clientMsgId: string) => `native-${clientMsgId}`),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
@@ -2588,6 +2589,36 @@ describe('handleSendV2 connection ownership', () => {
 // ─── state-based routing (Phase 3) ──────────────────────────────────────────
 
 describe('handleSendV2 state-based routing', () => {
+  it('does not emit skill_invoked before cold-start admission preflight succeeds', async () => {
+    vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+      type: 'skill',
+      name: 'commit',
+      renderedPrompt: 'Create a commit...',
+      allowedTools: ['Bash'],
+      arguments: '-m "test"',
+    });
+    vi.mocked(preflightStartupProviderCommand).mockImplementationOnce(() => {
+      throw new Error('clientMsgId fingerprint conflict');
+    });
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: '/commit -m "test"', clientMsgId: 'skill-1' },
+      ctx,
+    );
+
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'skill_invoked' }));
+  });
+
   it('waits for startup admission before completing a durable delivery', async () => {
     let admitStartup: (() => void) | undefined;
     vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
