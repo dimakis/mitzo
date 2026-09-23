@@ -1,5 +1,6 @@
 import {
   deliberateSessionId,
+  isDeliberationSessionId,
   cancelDeliberation,
   parseDeliberationInput,
 } from './deliberate-admission.js';
@@ -640,13 +641,21 @@ export function handleSendV2(
                         },
                       },
                       onAdmitted: () => {
-                        if (!msg.sessionId)
+                        if (!msg.sessionId) {
                           commandTransport.send({
                             type: 'session_id',
                             sessionId: commandSessionId,
                           });
+                          if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
+                            ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
+                              force: true,
+                              reason: 'sessionless_deliberation',
+                            });
+                          else ctx.eventStore.markSessionInactive(commandSessionId);
+                        }
                         ctx.connRegistry.watch(connectionId, commandSessionId);
-                        ctx.connRegistry.setActive(connectionId, commandSessionId);
+                        if (msg.sessionId)
+                          ctx.connRegistry.setActive(connectionId, commandSessionId);
                         admitted();
                       },
                     },
@@ -707,7 +716,20 @@ export function handleSendV2(
           }
         };
 
-        const sessionId = msg.sessionId;
+        let sessionId = msg.sessionId;
+
+        // A sessionless deliberation stream is deliberately closed and has no
+        // SDK conversation behind it. Treat a later ordinary send that still
+        // carries its displayed ID as a new chat rather than cold-resuming the
+        // synthetic execution stream.
+        if (
+          sessionId &&
+          isDeliberationSessionId(sessionId) &&
+          ctx.eventStore.getSessionState(sessionId) === 'ENDED'
+        ) {
+          msg = { ...msg, sessionId: null };
+          sessionId = null;
+        }
 
         if (sessionId) {
           const found = ctx.sessionRegistry.findBySessionId(sessionId);

@@ -3,6 +3,7 @@ import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
+import { isDeepStrictEqual } from 'node:util';
 import { acceptSendCommandAsync } from './send-command.js';
 import type { Request, Response } from 'express';
 import {
@@ -135,7 +136,11 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      const dispatch = async (command: typeof msg, sessionId: string) => {
+      const dispatch = async (
+        command: typeof msg,
+        sessionId: string,
+        options: { preserveReceiptErrors?: boolean } = {},
+      ) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
         const transport = {
           // This transport accepts events into durable storage even offline.
@@ -145,7 +150,7 @@ export function createChatRestRouter(
               data.type === 'native_command_result' && !command.sessionId
                 ? data
                 : { ...data, sessionId: data.sessionId ?? sessionId };
-            if (data.type === 'error') {
+            if (data.type === 'error' && !options.preserveReceiptErrors) {
               ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
             }
             // Query-loop events already carry their durable sequence. Early
@@ -172,11 +177,32 @@ export function createChatRestRouter(
       };
       const parsed = parseSlashCommand(msg.prompt);
       if (parsed?.name === 'deliberate' && parseDeliberationInput(parsed.arguments).task) {
-        // The execution admission itself is the receipt. Re-enter its read-only
-        // duplicate gate on every retry, including after config/route changes.
+        // Keep the global receipt as the command identity, while replaying an
+        // exact receipt through deliberation's route/fingerprint gate. A
+        // sessionless receipt uses the same deterministic ID as the native
+        // admission, but the command remains sessionless to its transport.
         const sessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
-        await dispatch(msg, sessionId);
-        res.status(202).json({ ok: true, accepted: true, clientMsgId: msg.clientMsgId, sessionId });
+        const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId };
+        const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+        if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+          throw new ExecutionAdmissionError(
+            'fingerprint_conflict',
+            'Command ID already admitted for a different request',
+          );
+        }
+        const receipt = await acceptSendCommandAsync(
+          ctx.eventStore,
+          receiptMessage,
+          async (command, admittedSessionId) => {
+            await dispatch(
+              msg.sessionId ? command : { ...command, sessionId: null },
+              admittedSessionId,
+              { preserveReceiptErrors: Boolean(existingReceipt) },
+            );
+          },
+          { replayExisting: true },
+        );
+        res.status(202).json(receipt);
       } else {
         const receipt = await acceptSendCommandAsync(ctx.eventStore, msg, dispatch);
         res.status(202).json(receipt);

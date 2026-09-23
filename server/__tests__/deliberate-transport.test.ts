@@ -16,7 +16,17 @@ vi.mock('../../packages/harness/src/providers/index.js', async (importOriginal) 
   createProvider: fake.factory,
 }));
 vi.mock('../deliberate-route.js', () => ({ deliberateRouteRevision: () => fake.route }));
-vi.mock('../chat.js', () => ({ BASE_REPO: '/tmp', isActive: () => false }));
+const chat = vi.hoisted(() => ({
+  startChat: vi.fn(),
+  isActive: vi.fn(() => false),
+}));
+vi.mock('../chat.js', () => ({
+  BASE_REPO: '/tmp',
+  isActive: chat.isActive,
+  startChat: chat.startChat,
+  nativeStartupSessionId: (clientMsgId: string) => `startup-${clientMsgId}`,
+  preflightStartupProviderCommand: () => false,
+}));
 vi.mock('../app.js', () => ({
   buildSkillRegistry: () => new SkillRegistry({}),
   isAllowedPath: () => true,
@@ -49,6 +59,7 @@ describe('deliberation transport admission', () => {
     fake.route = 'one';
     fake.call.mockReset().mockResolvedValue(reply);
     fake.factory.mockReset().mockImplementation(() => ({ name: 'fake', call: fake.call }));
+    chat.startChat.mockReset();
     sent = [];
     ctx = {
       eventStore: new EventStore(':memory:'),
@@ -93,8 +104,37 @@ describe('deliberation transport admission', () => {
   it('revalidates actual provider route on HTTP receipt retries', async () => {
     await request(app).post('/api/chat/send').send(msg).expect(202);
     await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    expect(ctx.eventStore.getSendCommand('c')?.payload).toMatchObject({ prompt: msg.prompt });
     fake.route = 'two';
     await request(app).post('/api/chat/send').send(msg).expect(409);
+    expect(fake.call).toHaveBeenCalledTimes(6);
+    fake.route = 'one';
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    expect(fake.call).toHaveBeenCalledTimes(6);
+  });
+  it('shares the global command receipt when normal and paid commands reuse an ID', async () => {
+    const normal = { ...msg, sessionId: null, prompt: '/skills' };
+    await request(app).post('/api/chat/send').send(normal).expect(202);
+    expect(ctx.eventStore.getSendCommand('c')?.payload).toMatchObject({ prompt: '/skills' });
+
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(409);
+    expect(fake.call).not.toHaveBeenCalled();
+  });
+  it('rejects normal-command reuse after a sessionless deliberation', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(202);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(deliberateSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null, prompt: '/skills' })
+      .expect(422);
     expect(fake.call).toHaveBeenCalledTimes(6);
   });
   it.each(['ws', 'sse'])('%s usage-only commands create no execution or provider', async (kind) => {
@@ -155,6 +195,27 @@ describe('deliberation transport admission', () => {
     expect(retrySent[0]).toMatchObject({ type: 'session_id', sessionId: deliberateSessionId('c') });
     expect(ctx.connRegistry.get('retry')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
     expect(fake.call).toHaveBeenCalledTimes(6);
+  });
+  it('keeps sessionless deliberation closed and does not cold-resume it', async () => {
+    ctx.connRegistry.register('conn', transport);
+    const initial = { ...msg, sessionId: null };
+    await handleSendV2('conn', transport, initial, ctx);
+    const sessionId = deliberateSessionId('c');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
+    );
+
+    expect(ctx.eventStore.getSession(sessionId)).toMatchObject({ isActive: false, state: 'ENDED' });
+    expect(ctx.connRegistry.get('conn')?.activeSession).not.toBe(sessionId);
+
+    await handleSendV2(
+      'conn',
+      transport,
+      { ...initial, sessionId, prompt: 'ordinary follow-up', clientMsgId: 'ordinary' },
+      ctx,
+    );
+    expect(chat.startChat).toHaveBeenCalled();
+    expect(chat.startChat.mock.calls.at(-1)?.[3]?.resume).toBeUndefined();
   });
   it('requires explicit command confirmation after an uncertain provider failure', async () => {
     fake.call.mockRejectedValueOnce(new Error('provider secret'));

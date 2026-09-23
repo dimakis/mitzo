@@ -60,6 +60,11 @@ export function deliberateSessionId(clientMsgId: string): string {
   return `deliberate-${hash(clientMsgId)}`;
 }
 
+/** Sessionless deliberation IDs are durable execution streams, not SDK chats. */
+export function isDeliberationSessionId(sessionId: string): boolean {
+  return sessionId.startsWith('deliberate-');
+}
+
 function outcome(store: EventStore, token: ExecutionToken): DeliberationOutcome {
   const attempts = store.getProviderAttempts(token);
   if (

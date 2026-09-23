@@ -148,4 +148,30 @@ describe('durable send acceptance', () => {
       store.close();
     }
   });
+
+  it('can replay an exact receipt without poisoning it when its gate rejects', async () => {
+    const store = new EventStore(':memory:');
+    const dispatch = vi
+      .fn<(command: typeof message, sessionId: string) => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('route changed'))
+      .mockResolvedValueOnce(undefined);
+    try {
+      await acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch);
+      await expect(
+        acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch, {
+          replayExisting: true,
+        }),
+      ).rejects.toThrow('route changed');
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch, {
+          replayExisting: true,
+        }),
+      ).resolves.toMatchObject({ sessionId: 'stable-session' });
+      expect(dispatch).toHaveBeenCalledTimes(3);
+    } finally {
+      store.close();
+    }
+  });
 });
