@@ -329,4 +329,40 @@ describe('fusion transport admission', () => {
     expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
     expect(fake.call).not.toHaveBeenCalled();
   });
+  it.each(['ws', 'sse'])('%s rejects cross-command reuse and changed self mode', async (kind) => {
+    const send = async (prompt: string) =>
+      kind === 'ws'
+        ? handleSendV2('conn', transport, { ...msg, sessionId: null, prompt }, ctx)
+        : request(app)
+            .post('/api/chat/send')
+            .send({ ...msg, sessionId: null, prompt });
+    await send('/fuse --self Design this');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    expect(fake.call).toHaveBeenCalledTimes(4);
+    await send('/deliberate Design this');
+    await send('/fuse Design this');
+    expect(fake.call).toHaveBeenCalledTimes(4);
+    expect(ctx.eventStore.getSendCommand('c')?.payload.prompt).toBe('/fuse --self Design this');
+  });
+  it('preserves completed fusion receipts through generic restart recovery', async () => {
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    ctx.eventStore.recoverPendingSendCommands();
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+    expect(ctx.eventStore.getSendCommand('c')?.error).toBeFalsy();
+  });
+  it.each(['--self --confirm-ambiguous', '--confirm-ambiguous --self'])(
+    'treats flags without a task as usage: %s',
+    async (flags) => {
+      await request(app)
+        .post('/api/chat/send')
+        .send({ ...msg, prompt: `/fuse ${flags}` })
+        .expect(202);
+      expect(fake.factory).not.toHaveBeenCalled();
+      expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    },
+  );
 });

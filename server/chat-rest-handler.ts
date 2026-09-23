@@ -198,7 +198,7 @@ export function createChatRestRouter(
           : msg;
       if (paidReasoning) {
         // Keep the global receipt as the command identity, while replaying an
-        // exact receipt through deliberation's route/fingerprint gate. A
+        // exact receipt through the command's route/fingerprint gate. A
         // sessionless receipt uses the same deterministic ID as the native
         // admission, but the command remains sessionless to its transport.
         const sessionId = msg.sessionId ?? reasoningSessionId(parsed!.name, msg.clientMsgId);

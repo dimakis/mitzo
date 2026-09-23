@@ -599,7 +599,7 @@ export function handleSendV2(
           resolution.type === 'native' &&
           paidReasoningCommand(resolution.name, resolution.arguments);
 
-        // Native deliberation admission creates the global receipt below. All
+        // Native reasoning admission creates the global receipt below. All
         // other WS sends must consult that same receipt before routing, so an
         // ordinary retry cannot bypass a paid command admitted on another
         // transport (or vice versa).
@@ -706,7 +706,10 @@ export function handleSendV2(
                           if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
                             ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
                               force: true,
-                              reason: `sessionless_${resolution.name}`,
+                              reason:
+                                resolution.name === 'fuse'
+                                  ? 'sessionless_fusion'
+                                  : 'sessionless_deliberation',
                             });
                           else ctx.eventStore.markSessionInactive(commandSessionId);
                         }
@@ -775,7 +778,7 @@ export function handleSendV2(
 
         let sessionId = msg.sessionId;
 
-        // A sessionless deliberation stream is deliberately closed and has no
+        // A sessionless reasoning stream is deliberately closed and has no
         // SDK conversation behind it. Treat a later ordinary send that still
         // carries its displayed ID as a new chat rather than cold-resuming the
         // synthetic execution stream.
