@@ -15,6 +15,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Voice** — push-to-talk input (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, switch between worktree roots
+- **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
