@@ -1,4 +1,8 @@
-import { deliberateSessionId, parseDeliberationInput } from './deliberate-admission.js';
+import {
+  deliberateSessionId,
+  isDeliberationSessionId,
+  parseDeliberationInput,
+} from './deliberate-admission.js';
 import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
@@ -139,7 +143,11 @@ export function createChatRestRouter(
       const dispatch = async (
         command: typeof msg,
         sessionId: string,
-        options: { preserveReceiptErrors?: boolean } = {},
+        options: {
+          preserveReceiptErrors?: boolean;
+          preserveReceiptSession?: boolean;
+          receiptAdmitted?: boolean;
+        } = {},
       ) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
         const transport = {
@@ -172,11 +180,21 @@ export function createChatRestRouter(
         const outcome = await handleSendV2(connectionId, transport, command, ctx, {
           initialSessionId: command.sessionId ? undefined : sessionId,
           awaitStartupAdmission: true,
+          receiptAdmitted: options.receiptAdmitted,
         });
-        if (outcome === 'native') return false;
+        if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
       };
       const parsed = parseSlashCommand(msg.prompt);
-      if (parsed?.name === 'deliberate' && parseDeliberationInput(parsed.arguments).task) {
+      const paidDeliberation =
+        parsed?.name === 'deliberate' && !!parseDeliberationInput(parsed.arguments).task;
+      const admittedMessage =
+        !paidDeliberation &&
+        msg.sessionId &&
+        isDeliberationSessionId(msg.sessionId) &&
+        ctx.eventStore.getSessionState(msg.sessionId) === 'ENDED'
+          ? { ...msg, sessionId: null }
+          : msg;
+      if (paidDeliberation) {
         // Keep the global receipt as the command identity, while replaying an
         // exact receipt through deliberation's route/fingerprint gate. A
         // sessionless receipt uses the same deterministic ID as the native
@@ -197,14 +215,18 @@ export function createChatRestRouter(
             await dispatch(
               msg.sessionId ? command : { ...command, sessionId: null },
               admittedSessionId,
-              { preserveReceiptErrors: Boolean(existingReceipt) },
+              {
+                preserveReceiptErrors: Boolean(existingReceipt),
+                preserveReceiptSession: true,
+                receiptAdmitted: true,
+              },
             );
           },
           { replayExisting: true },
         );
         res.status(202).json(receipt);
       } else {
-        const receipt = await acceptSendCommandAsync(ctx.eventStore, msg, dispatch);
+        const receipt = await acceptSendCommandAsync(ctx.eventStore, admittedMessage, dispatch);
         res.status(202).json(receipt);
       }
     } catch (err) {

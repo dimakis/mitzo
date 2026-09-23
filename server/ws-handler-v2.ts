@@ -23,6 +23,7 @@ import {
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { isDeepStrictEqual } from 'node:util';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -78,6 +79,7 @@ import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
+import { acceptSendCommandAsync } from './send-command.js';
 
 const log = createLogger('ws-v2');
 
@@ -542,7 +544,11 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string; awaitStartupAdmission?: boolean },
+  delivery?: {
+    initialSessionId?: string;
+    awaitStartupAdmission?: boolean;
+    receiptAdmitted?: boolean;
+  },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
@@ -593,6 +599,36 @@ export function handleSendV2(
           const paidDeliberation =
             resolution.name === 'deliberate' && !!parseDeliberationInput(resolution.arguments).task;
           const commandSessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
+          if (paidDeliberation && !delivery?.receiptAdmitted) {
+            const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId: commandSessionId };
+            const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+            if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            await acceptSendCommandAsync(
+              ctx.eventStore,
+              receiptMessage,
+              async (command, admittedSessionId) => {
+                await handleSendV2(
+                  connectionId,
+                  transport,
+                  msg.sessionId ? command : { ...command, sessionId: null },
+                  ctx,
+                  {
+                    ...delivery,
+                    initialSessionId: delivery?.initialSessionId ?? admittedSessionId,
+                    awaitStartupAdmission: true,
+                    receiptAdmitted: true,
+                  },
+                );
+              },
+              { replayExisting: true },
+            );
+            return 'native';
+          }
           let admitted!: () => void;
           let admissionFailed!: (error: unknown) => void;
           const admission = paidDeliberation

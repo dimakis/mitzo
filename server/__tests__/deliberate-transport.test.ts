@@ -59,7 +59,7 @@ describe('deliberation transport admission', () => {
     fake.route = 'one';
     fake.call.mockReset().mockResolvedValue(reply);
     fake.factory.mockReset().mockImplementation(() => ({ name: 'fake', call: fake.call }));
-    chat.startChat.mockReset();
+    chat.startChat.mockReset().mockResolvedValue(undefined);
     sent = [];
     ctx = {
       eventStore: new EventStore(':memory:'),
@@ -122,6 +122,24 @@ describe('deliberation transport admission', () => {
       .send({ ...msg, sessionId: null })
       .expect(409);
     expect(fake.call).not.toHaveBeenCalled();
+  });
+  it('shares the global command receipt across SSE and WS native dispatch', async () => {
+    const normal = { ...msg, sessionId: null, prompt: '/skills' };
+    await request(app).post('/api/chat/send').send(normal).expect(202);
+
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    expect(sent.at(-1)).toMatchObject({ type: 'error' });
+    expect(fake.call).not.toHaveBeenCalled();
+  });
+  it('rejects an SSE normal command after a WS paid command reuses its ID', async () => {
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(6));
+
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null, prompt: '/skills' })
+      .expect(422);
+    expect(fake.call).toHaveBeenCalledTimes(6);
   });
   it('rejects normal-command reuse after a sessionless deliberation', async () => {
     await request(app)
@@ -216,6 +234,41 @@ describe('deliberation transport admission', () => {
     );
     expect(chat.startChat).toHaveBeenCalled();
     expect(chat.startChat.mock.calls.at(-1)?.[3]?.resume).toBeUndefined();
+  });
+  it('normalizes a REST follow-up before persisting its send receipt', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(202);
+    const syntheticSessionId = deliberateSessionId('c');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(syntheticSessionId)?.executionPhase).toBe('TERMINAL'),
+    );
+
+    chat.startChat.mockImplementationOnce(
+      (
+        _transport: unknown,
+        _clientId: unknown,
+        _prompt: unknown,
+        options: { onStartupAdmission?: () => void },
+      ) => {
+        options.onStartupAdmission?.();
+        return Promise.resolve();
+      },
+    );
+    await request(app)
+      .post('/api/chat/send')
+      .send({
+        ...msg,
+        sessionId: syntheticSessionId,
+        clientMsgId: 'ordinary',
+        prompt: 'ordinary follow-up',
+      })
+      .expect(202);
+    const receipt = ctx.eventStore.getSendCommand('ordinary');
+    expect(receipt?.payload.sessionId).toBeNull();
+    expect(receipt?.sessionId).not.toBe(syntheticSessionId);
+    expect(chat.startChat.mock.calls.at(-1)?.[3]?.initialSessionId).toBe(receipt?.sessionId);
   });
   it('requires explicit command confirmation after an uncertain provider failure', async () => {
     fake.call.mockRejectedValueOnce(new Error('provider secret'));

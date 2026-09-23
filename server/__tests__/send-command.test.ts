@@ -152,7 +152,9 @@ describe('durable send acceptance', () => {
   it('can replay an exact receipt without poisoning it when its gate rejects', async () => {
     const store = new EventStore(':memory:');
     const dispatch = vi
-      .fn<(command: typeof message, sessionId: string) => Promise<void>>()
+      .fn<
+        (command: Parameters<typeof acceptSendCommandAsync>[1], sessionId: string) => Promise<void>
+      >()
       .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('route changed'))
       .mockResolvedValueOnce(undefined);
