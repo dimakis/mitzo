@@ -28,7 +28,8 @@ RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
   exit 1
 }
 
-git -C "$SOURCE_ROOT" worktree add --detach "$RELEASE_DIR" "$SOURCE_COMMIT"
+git clone --no-local --no-checkout "$SOURCE_ROOT" "$RELEASE_DIR"
+git -C "$RELEASE_DIR" checkout --detach "$SOURCE_COMMIT"
 if [ -f "$RUNTIME_ROOT/.env" ]; then
   cp "$RUNTIME_ROOT/.env" "$RELEASE_DIR/.env"
   chmod 600 "$RELEASE_DIR/.env"

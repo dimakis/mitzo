@@ -270,7 +270,7 @@ npm run format:check # prettier
 
 Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
 current `origin/main`, requires the selected commit to contain it and to be
-published on a remote branch, creates a detached release worktree, records full
+published on a remote branch, creates a self-contained detached release clone, records full
 commit/tree/base provenance in `release.txt`, and only then builds and updates
 launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
 For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
