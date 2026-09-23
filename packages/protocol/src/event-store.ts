@@ -389,6 +389,11 @@ export class EventStore {
       )`,
     ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
     for (const row of rows) {
+      // Durable execution admissions own their retry and recovery semantics.
+      // Deliberation receipts intentionally have no user_message event, so
+      // generic send recovery must not turn a completed or ambiguous execution
+      // into a poisoned receipt before the execution gate can re-evaluate it.
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);
@@ -907,6 +912,20 @@ export class EventStore {
       }
       return { token, duplicate: false, seq, event };
     }).immediate();
+  }
+
+  /** Read the terminal outcome of any generation, including superseded commands. */
+  getExecutionTerminalReason(token: ExecutionToken): ExecutionTerminalReason | undefined {
+    const row = this.db!.prepare(
+      `SELECT json_extract(payload, '$.terminalReason') AS reason FROM events
+       WHERE session_id = ? AND type = 'execution_state_changed'
+         AND json_extract(payload, '$.executionId') = ?
+         AND json_extract(payload, '$.generation') = ?
+         AND json_extract(payload, '$.phase') = 'TERMINAL'
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(token.sessionId, token.executionId, token.generation) as
+      { reason: ExecutionTerminalReason } | undefined;
+    return row?.reason;
   }
 
   /** Read a durable execution admission receipt without consulting transport state. */

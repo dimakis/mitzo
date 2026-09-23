@@ -10,6 +10,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
+- **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
 - **Voice** — push-to-talk input (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
 - **File browser** — view and edit repo files, switch between worktree roots
@@ -76,12 +77,12 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 **Skills** — Slash-command system
 
-| File                 | Purpose                                                   |
-| -------------------- | --------------------------------------------------------- |
-| `skills.ts`          | Skill registry — scoped discovery, precedence, collisions |
-| `slash-commands.ts`  | Slash-command parsing and prompt expansion                |
-| `skill-policy.ts`    | Per-turn tool restriction from skill frontmatter          |
-| `native-commands.ts` | Built-in native commands (`/skills`)                      |
+| File                 | Purpose                                                                           |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `skills.ts`          | Skill registry — scoped discovery, precedence, collisions                         |
+| `slash-commands.ts`  | Slash-command parsing and prompt expansion                                        |
+| `skill-policy.ts`    | Per-turn tool restriction from skill frontmatter                                  |
+| `native-commands.ts` | Built-in native commands (`/skills`, `/models`, `/close`, `/deliberate`, `/fuse`) |
 
 **Task Board** — Multi-session orchestration
 

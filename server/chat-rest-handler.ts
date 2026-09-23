@@ -1,6 +1,13 @@
+import {
+  deliberateSessionId,
+  isDeliberationSessionId,
+  parseDeliberationInput,
+} from './deliberate-admission.js';
+import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
+import { isDeepStrictEqual } from 'node:util';
 import { acceptSendCommandAsync } from './send-command.js';
 import type { Request, Response } from 'express';
 import {
@@ -133,46 +140,97 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      const receipt = await acceptSendCommandAsync(
-        ctx.eventStore,
-        msg,
-        async (command, sessionId) => {
-          const delegate = new SseTransport(connectionId, sseRegistry);
-          const transport = {
-            // This transport accepts events into durable storage even offline.
-            isOpen: () => true,
-            send(data: Record<string, unknown>) {
-              let event =
-                data.type === 'native_command_result' && !command.sessionId
-                  ? data
-                  : { ...data, sessionId: data.sessionId ?? sessionId };
-              if (data.type === 'error') {
-                ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
-              }
-              // Query-loop events already carry their durable sequence. Early
-              // startup metadata uses this boundary as its persistence point.
-              if (event.sessionId && typeof event.seq !== 'number') {
-                const durable = { ...event, v: 2 };
-                const seq = ctx.eventStore.append(
-                  String(event.sessionId),
-                  String(event.type),
-                  durable,
-                );
-                event = { ...durable, seq };
-              }
-              if (ctx.connRegistry.hasOpenWatchers(sessionId))
-                ctx.connRegistry.broadcast(sessionId, event);
-              else delegate.send(event);
-            },
-          };
-          const outcome = await handleSendV2(connectionId, transport, command, ctx, {
-            initialSessionId: command.sessionId ? undefined : sessionId,
-            awaitStartupAdmission: true,
-          });
-          if (outcome === 'native') return false;
-        },
-      );
-      res.status(202).json(receipt);
+      const dispatch = async (
+        command: typeof msg,
+        sessionId: string,
+        options: {
+          preserveReceiptErrors?: boolean;
+          preserveReceiptSession?: boolean;
+          receiptAdmitted?: boolean;
+        } = {},
+      ) => {
+        const delegate = new SseTransport(connectionId, sseRegistry);
+        const transport = {
+          // This transport accepts events into durable storage even offline.
+          isOpen: () => true,
+          send(data: Record<string, unknown>) {
+            let event =
+              data.type === 'native_command_result' && !command.sessionId
+                ? data
+                : { ...data, sessionId: data.sessionId ?? sessionId };
+            if (data.type === 'error' && !options.preserveReceiptErrors) {
+              ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
+            }
+            // Query-loop events already carry their durable sequence. Early
+            // startup metadata uses this boundary as its persistence point.
+            if (event.sessionId && typeof event.seq !== 'number') {
+              const durable = { ...event, v: 2 };
+              const seq = ctx.eventStore.append(
+                String(event.sessionId),
+                String(event.type),
+                durable,
+              );
+              event = { ...durable, seq };
+            }
+            if (ctx.connRegistry.hasOpenWatchers(sessionId))
+              ctx.connRegistry.broadcast(sessionId, event);
+            else delegate.send(event);
+          },
+        };
+        const outcome = await handleSendV2(connectionId, transport, command, ctx, {
+          initialSessionId: command.sessionId ? undefined : sessionId,
+          awaitStartupAdmission: true,
+          // REST inserts the global receipt before dispatch; WS inserts it in
+          // handleSendV2 so the same check can fence cross-transport retries.
+          receiptAdmitted: options.receiptAdmitted ?? true,
+        });
+        if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
+      };
+      const parsed = parseSlashCommand(msg.prompt);
+      const paidDeliberation =
+        parsed?.name === 'deliberate' && !!parseDeliberationInput(parsed.arguments).task;
+      const admittedMessage =
+        !paidDeliberation &&
+        msg.sessionId &&
+        isDeliberationSessionId(msg.sessionId) &&
+        ctx.eventStore.getSessionState(msg.sessionId) === 'ENDED'
+          ? { ...msg, sessionId: null }
+          : msg;
+      if (paidDeliberation) {
+        // Keep the global receipt as the command identity, while replaying an
+        // exact receipt through deliberation's route/fingerprint gate. A
+        // sessionless receipt uses the same deterministic ID as the native
+        // admission, but the command remains sessionless to its transport.
+        const sessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
+        const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId };
+        const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+        if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+          throw new ExecutionAdmissionError(
+            'fingerprint_conflict',
+            'Command ID already admitted for a different request',
+          );
+        }
+        const receipt = await acceptSendCommandAsync(
+          ctx.eventStore,
+          receiptMessage,
+          async (command, admittedSessionId) => {
+            await dispatch(
+              msg.sessionId ? command : { ...command, sessionId: null },
+              admittedSessionId,
+              {
+                preserveReceiptErrors: Boolean(existingReceipt),
+                preserveReceiptSession: true,
+                receiptAdmitted: true,
+              },
+            );
+          },
+          { replayExisting: true },
+        );
+        res.status(202).json(receipt);
+      } else {
+        const receipt = await acceptSendCommandAsync(ctx.eventStore, admittedMessage, dispatch);
+        res.status(202).json(receipt);
+      }
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
       if (err instanceof ExecutionAdmissionError) {

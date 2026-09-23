@@ -36,6 +36,8 @@ export interface CallOptions {
   responseFormat?: 'text' | 'json';
   /** Abort signal for cancellation. */
   signal?: AbortSignal;
+  /** Durable orchestration disables implicit SDK retries. */
+  maxRetries?: number;
 }
 
 /** A model provider adapter. */
