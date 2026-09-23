@@ -604,7 +604,7 @@ export function handleSendV2(
         // ordinary retry cannot bypass a paid command admitted on another
         // transport (or vice versa).
         if (!paidDeliberation && !delivery?.receiptAdmitted) {
-          const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+          const existingReceipt = ctx.eventStore.getSendCommand?.(msg.clientMsgId);
           if (existingReceipt) {
             if (existingReceipt.error) throw new Error(existingReceipt.error);
             if (!isDeepStrictEqual(existingReceipt.payload, msg)) {
