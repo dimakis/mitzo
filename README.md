@@ -268,6 +268,12 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
+Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
+current `origin/main`, requires the selected commit to contain it and to be
+published on a remote branch, creates a detached release worktree, records full
+commit/tree/base provenance in `release.txt`, and only then builds and updates
+launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
 ## Tech
