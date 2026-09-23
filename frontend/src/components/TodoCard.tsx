@@ -195,6 +195,8 @@ export function TodoCard({
             </button>
           </div>
 
+          {item.intent && <div className="todo-card-intent">{item.intent}</div>}
+
           {/* Line 2: source + meta */}
           <div className="todo-card-line2">
             {source ? (
@@ -211,6 +213,17 @@ export function TodoCard({
             <span className="todo-card-age">{ageLabel}</span>
             {' \u00B7 '}
             <span className="todo-card-profile">{item.profile}</span>
+            {(item.links?.length ?? 0) > 0 && (
+              <>
+                {' \u00B7 '}
+                <span
+                  className="todo-card-links"
+                  aria-label={`${item.links!.length} durable ${item.links!.length === 1 ? 'link' : 'links'}`}
+                >
+                  ↗ {item.links!.length}
+                </span>
+              </>
+            )}
             {hasChildren && (
               <>
                 {' \u00B7 '}

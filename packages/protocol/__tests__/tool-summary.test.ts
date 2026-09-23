@@ -153,6 +153,14 @@ describe('summarizeToolInput', () => {
       'Need clarification',
     );
   });
+
+  it('summarizes Telos outcome creation', () => {
+    expect(
+      summarizeToolInput('mcp__telos__TelosCreateOutcome', {
+        summary: 'Ship searchable outcomes',
+      }),
+    ).toBe('Create outcome: Ship searchable outcomes');
+  });
 });
 
 describe('getRawInput', () => {

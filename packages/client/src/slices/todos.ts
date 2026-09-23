@@ -15,11 +15,15 @@ export interface TodoContextHints {
   jiraKeys: string[];
   keywords: string[];
   taskHint: string;
+  sessionIds?: string[];
 }
 
 export interface TodoItem {
   id: string;
   summary: string;
+  intent?: string;
+  rationale?: string;
+  acceptanceCriteria?: string[];
   profile: string;
   urgency: number;
   starred: boolean;

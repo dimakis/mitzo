@@ -4805,6 +4805,54 @@ textarea:focus {
   overflow-x: auto;
 }
 
+.todo-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 var(--space-1);
+}
+
+.todo-search {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  color: var(--text-dim);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.todo-search:focus-within {
+  border-color: var(--accent);
+}
+
+.todo-search input {
+  min-width: 0;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.todo-search input::placeholder {
+  color: var(--text-dim);
+}
+
+.todo-sort {
+  min-height: 44px;
+  padding: 0 30px 0 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font: inherit;
+}
+
 .todo-filter-pill {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -4854,13 +4902,14 @@ textarea:focus {
 .todo-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 0;
 }
 
 .todo-card-wrapper {
   position: relative;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
 }
 
 .todo-card-actions-bg {
@@ -4888,13 +4937,18 @@ textarea:focus {
 
 .todo-card {
   position: relative;
-  background: var(--surface);
-  padding: 12px 14px;
+  background: transparent;
+  padding: 16px 4px;
   cursor: pointer;
   touch-action: pan-y;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.todo-card:hover,
+.todo-card:focus-within {
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
 }
 
 /* ─── 3-line card layout ──────────────────────────────────────────── */
@@ -4916,9 +4970,23 @@ textarea:focus {
   font-size: var(--text-sm);
   line-height: 1.35;
   min-width: 0;
-  white-space: nowrap;
+  text-align: left;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.todo-card-intent {
+  margin: 4px 40px 2px calc(var(--text-base) + var(--space-2));
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .todo-card-line2 {
@@ -4955,7 +5023,7 @@ textarea:focus {
   display: flex;
   gap: var(--space-2);
   padding-left: calc(var(--text-base) + var(--space-2));
-  margin-top: 2px;
+  margin-top: 8px;
 }
 
 /* ─── Section headers ─────────────────────────────────────────────── */
@@ -5055,7 +5123,7 @@ textarea:focus {
   padding: 2px 8px;
   border-radius: 10px;
   cursor: pointer;
-  opacity: 0.4;
+  opacity: 0.72;
   transition: opacity 0.15s;
 }
 
@@ -5073,7 +5141,7 @@ textarea:focus {
   padding: 2px 8px;
   border-radius: 10px;
   cursor: pointer;
-  opacity: 0.4;
+  opacity: 0.8;
   transition: opacity 0.15s;
 }
 
@@ -5125,6 +5193,13 @@ textarea:focus {
   width: 100%;
 }
 
+.todo-create-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
 .todo-create-profile {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
@@ -5132,6 +5207,12 @@ textarea:focus {
   padding: 6px 10px;
   color: var(--text);
   font-size: var(--text-s);
+}
+
+.todo-create-error {
+  color: var(--danger, #ff6b6b);
+  font-size: var(--text-s);
+  line-height: 1.4;
 }
 
 .todo-create-actions {
@@ -5293,10 +5374,67 @@ textarea:focus {
 }
 
 .todo-detail-summary {
-  font-size: 1.1rem;
+  font-size: 1.35rem;
   font-weight: 600;
   line-height: 1.4;
   padding: var(--space-2) 0 var(--space-3);
+}
+
+.todo-detail-contract {
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+}
+
+.todo-detail-contract h2 {
+  margin: 0 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.todo-detail-contract p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+}
+
+.todo-detail-outcome p {
+  color: var(--text);
+  font-size: var(--text-base);
+}
+
+.todo-detail-criteria {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-detail-criteria li {
+  position: relative;
+  padding-left: 26px;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.todo-detail-criteria li::before {
+  content: '○';
+  position: absolute;
+  left: 2px;
+  color: var(--accent);
+}
+
+@media (max-width: 420px) {
+  .todo-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-sort {
+    width: 100%;
+  }
 }
 
 .todo-detail-meta {
@@ -5390,14 +5528,17 @@ textarea:focus {
 
 /* --- Sources --- */
 
-.todo-detail-sources {
+.todo-detail-sources,
+.todo-detail-links {
   padding: var(--space-2) 0;
 }
 
 .todo-detail-sources h2,
+.todo-detail-links h2,
 .todo-detail-children h2,
 .todo-detail-task-hint h2,
-.todo-detail-context h2 {
+.todo-detail-context h2,
+.todo-detail-contract h2 {
   font-size: var(--text-s);
   font-weight: 600;
   color: var(--text-dim);
@@ -5427,6 +5568,14 @@ textarea:focus {
 
 .todo-detail-source-row--no-link:active {
   background: var(--surface);
+}
+
+.todo-detail-link-row {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 
 .todo-detail-source-badge {

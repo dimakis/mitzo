@@ -39,6 +39,7 @@ import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
 import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
@@ -55,6 +56,12 @@ import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import {
+  buildConfiguredMcpAllowedTools,
+  rejectReservedMcpServerCollisions,
+  TASK_MCP_SERVER_NAME,
+  TELOS_MCP_SERVER_NAME,
+} from './host-mcp-servers.js';
 import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
@@ -312,7 +319,13 @@ export async function fetchBootContext(
 
 let mcpServers: Record<string, McpServerConfig> = {};
 try {
-  mcpServers = loadMcpServers();
+  const configured = rejectReservedMcpServerCollisions(loadMcpServers());
+  mcpServers = configured.servers;
+  if (configured.rejected.length > 0) {
+    log.error('ignored configured MCP servers using reserved host names', {
+      names: configured.rejected,
+    });
+  }
 } catch (err: unknown) {
   log.error('failed to load MCP servers', { error: err instanceof Error ? err.message : err });
 }
@@ -543,7 +556,7 @@ function getBranch(cwd: string): string {
 }
 
 function buildMcpAllowedTools(clientId?: string): string[] {
-  const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  const patterns = buildConfiguredMcpAllowedTools(mcpServers);
   if (clientId) {
     const session = registry.get(clientId);
     if (session?.taskContext) {
@@ -640,24 +653,27 @@ export function createSessionWorktrees(
   };
 }
 
-const TASK_MCP_SERVER_NAME = 'task-board';
-
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
   const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
-      command: 'node',
-      args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'task-mcp-server.ts'),
-        '--base-url',
-        `http://localhost:${port}`,
-        '--client-id',
-        clientId,
-      ],
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
+    },
+  };
+}
+
+function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
+  const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
+  return {
+    [TELOS_MCP_SERVER_NAME]: {
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -1330,7 +1346,8 @@ async function _startChatInner(
 
   // Merge dynamic MCP servers (task board if active)
   const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp };
+  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
+  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);

@@ -4,6 +4,7 @@ import request from 'supertest';
 import { mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { INTERNAL_TOKEN } from '../internal-token.js';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
@@ -174,6 +175,33 @@ describe('todo routes', () => {
     expect(res.body.ok).toBe(false);
   });
 
+  it('POST /api/todos/outcomes — rejects an incomplete outcome contract', async () => {
+    const res = await request(app)
+      .post('/api/todos/outcomes')
+      .send({ summary: 'Vague aspiration', profile: 'work' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos/outcomes — accepts a complete outcome contract', async () => {
+    const res = await request(app)
+      .post('/api/todos/outcomes')
+      .send({
+        summary: 'Ship searchable Telos outcomes',
+        intent: 'People can find and understand durable work in ten seconds.',
+        rationale: 'The current list hides intent inside activity logs.',
+        acceptanceCriteria: ['Search matches title, intent, and context'],
+        milestones: ['Add the structured creation contract'],
+        profile: 'work',
+        idempotencyKey: 'session-1:message-7',
+      })
+      .set('Cookie', authCookie);
+    // The script is absent here, proving validation accepted the complete contract.
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
+
   it('POST /api/todos/:id/action — star action returns 500 when script not found', async () => {
     const res = await request(app)
       .post('/api/todos/abc123/action')
@@ -298,5 +326,65 @@ print(json.dumps({"ok": False, "error": "Item not found"}))
     expect(res.status).toBe(404);
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toBe('Item not found');
+  });
+});
+
+describe('structured outcome creation', () => {
+  afterEach(() => {
+    try {
+      unlinkSync(TODO_SCRIPT);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('passes the validated contract to the Telos backend', async () => {
+    const successScript = `
+import json, sys
+payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
+print(json.dumps({"ok": True, "created": True, "item": payload}))
+`;
+    writeFileSync(TODO_SCRIPT, successScript);
+    const body = {
+      summary: 'Ship searchable Telos outcomes',
+      intent: 'People can find and understand durable work in ten seconds.',
+      rationale: 'The current list hides intent inside activity logs.',
+      acceptanceCriteria: ['Search matches title, intent, and context'],
+      milestones: ['Add the structured creation contract'],
+      profile: 'work',
+      idempotencyKey: 'session-1:message-7',
+      contextHints: { paths: ['frontend/src/pages/TodoView.tsx'] },
+    };
+
+    const res = await request(app).post('/api/todos/outcomes').send(body).set('Cookie', authCookie);
+
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(true);
+    expect(res.body.item).toMatchObject(body);
+  });
+
+  it('gives the agent tool a server-derived idempotency key and session provenance', async () => {
+    const successScript = `
+import json, sys
+payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
+print(json.dumps({"ok": True, "created": True, "item": payload}))
+`;
+    writeFileSync(TODO_SCRIPT, successScript);
+    const res = await request(app)
+      .post('/api/internal/telos/outcomes')
+      .set('x-internal-token', INTERNAL_TOKEN)
+      .set('x-client-id', 'client-7')
+      .send({
+        summary: 'Ship searchable Telos outcomes',
+        intent: 'People understand durable work in ten seconds.',
+        rationale: 'Progress logs currently obscure intent.',
+        acceptanceCriteria: ['Search matches outcome and context'],
+        milestones: ['Add the structured contract'],
+        profile: 'work',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.item.idempotencyKey).toMatch(/^client-7:[a-f0-9]{64}$/);
+    expect(res.body.item.contextHints.sessionIds).toEqual(['client-7']);
   });
 });

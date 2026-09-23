@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { TodoItem, TodoData } from '../types/todo';
+import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 
@@ -13,6 +13,7 @@ export interface UseTodoDataResult {
   done: (id: string) => Promise<void>;
   star: (id: string) => Promise<void>;
   create: (summary: string, profile: string, parentId?: string) => Promise<void>;
+  createOutcome: (draft: TodoOutcomeDraft) => Promise<TodoItem | undefined>;
   refresh: () => void;
 }
 
@@ -167,6 +168,25 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     [refresh],
   );
 
+  const createOutcome = useCallback(
+    async (draft: TodoOutcomeDraft) => {
+      try {
+        const res = await apiFetch('/api/todos/outcomes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft),
+        });
+        if (!res.ok) return undefined;
+        const result = (await res.json()) as { item?: TodoItem };
+        refresh();
+        return result.item;
+      } catch {
+        return undefined;
+      }
+    },
+    [refresh],
+  );
+
   return {
     loading,
     error,
@@ -177,6 +197,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     done,
     star,
     create,
+    createOutcome,
     refresh,
   };
 }
