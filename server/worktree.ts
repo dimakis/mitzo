@@ -359,7 +359,7 @@ export function createSessionWorktrees(
  * Remove a worktree directory. Branches are preserved — they persist for PRs
  * and are cleaned up separately by pruning logic.
  */
-export function removeWorktree(sessionId: string, baseRepo: string): void {
+export function removeWorktree(sessionId: string, baseRepo: string): boolean {
   const worktreePath = join(worktreesDir(baseRepo), sessionId);
 
   try {
@@ -389,7 +389,13 @@ export function removeWorktree(sessionId: string, baseRepo: string): void {
     // Non-fatal — prune is best-effort cleanup
   }
 
-  log.info(`removed: ${worktreePath}`);
+  const removed = !existsSync(worktreePath);
+  if (removed) {
+    log.info(`removed: ${worktreePath}`);
+  } else {
+    log.warn('worktree removal incomplete; preserving path', { path: worktreePath });
+  }
+  return removed;
 }
 
 export function getWorktreePath(sessionId: string, baseRepo: string): string | null {
@@ -405,12 +411,16 @@ export function getWorktreePath(sessionId: string, baseRepo: string): string | n
  * Returns the porcelain output if dirty, empty string if clean, or a sentinel
  * error message if git status itself fails (so we don't delete potentially dirty worktrees).
  */
-export function hasUncommittedWork(worktreePath: string): string | null {
+export function hasUncommittedWork(
+  worktreePath: string,
+  options?: { readOnly?: boolean },
+): string | null {
   try {
     const output = execFileSync('git', ['-C', worktreePath, 'status', '--porcelain'], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: WORKTREE_GIT_TIMEOUT_MS,
+      env: options?.readOnly ? { ...process.env, GIT_OPTIONAL_LOCKS: '0' } : process.env,
     }).trim();
     return output || null;
   } catch (err: unknown) {
@@ -724,7 +734,7 @@ export function cleanupStaleWorktrees(
       }
 
       summary.eligible++;
-      const dirty = hasUncommittedWork(fullPath);
+      const dirty = hasUncommittedWork(fullPath, { readOnly: policy === 'report' });
       if (dirty?.startsWith('[git status failed:')) {
         summary.unknown++;
         continue;
@@ -760,8 +770,7 @@ export function cleanupStaleWorktrees(
                 rescue.prUrl,
               );
               // Rescue succeeded — safe to clean up the worktree directory
-              removeWorktree(entry, baseRepo);
-              summary.removed++;
+              if (removeWorktree(entry, baseRepo)) summary.removed++;
               continue;
             }
 
@@ -779,8 +788,7 @@ export function cleanupStaleWorktrees(
           });
           continue;
         }
-        removeWorktree(entry, baseRepo);
-        summary.removed++;
+        if (removeWorktree(entry, baseRepo)) summary.removed++;
       }
     } catch (err: unknown) {
       summary.unknown++;

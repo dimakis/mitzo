@@ -10,6 +10,8 @@ import {
   lstatSync,
   readlinkSync,
   symlinkSync,
+  readFileSync,
+  chmodSync,
 } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -944,6 +946,57 @@ describe('cleanupStaleWorktrees', () => {
         encoding: 'utf8',
       }).trim(),
     ).toBe('');
+  });
+
+  it('does not refresh Git index metadata while reporting status', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'report-index-metadata';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    writeFileSync(join(wtPath, 'tracked.txt'), 'unchanged');
+    execFileSync('git', ['-C', wtPath, 'add', 'tracked.txt'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', wtPath, 'commit', '-m', 'track fixture'], { stdio: 'pipe' });
+
+    // Force Git to inspect a changed stat entry without changing file contents.
+    const future = new Date(Date.now() + 5_000);
+    utimesSync(join(wtPath, 'tracked.txt'), future, future);
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+    const indexPath = execFileSync(
+      'git',
+      ['-C', wtPath, 'rev-parse', '--path-format=absolute', '--git-path', 'index'],
+      { encoding: 'utf8' },
+    ).trim();
+    const indexBefore = readFileSync(indexPath);
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    expect(readFileSync(indexPath)).toEqual(indexBefore);
+  });
+
+  it('does not count a worktree as removed when removal leaves its path behind', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'removal-failure';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    chmodSync(wtDir, 0o555);
+    try {
+      const summary = cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
+
+      expect(summary).toMatchObject({ eligible: 1, wouldRemove: 1, removed: 0 });
+      expect(existsSync(wtPath)).toBe(true);
+    } finally {
+      chmodSync(wtDir, 0o755);
+    }
   });
 
   it('keeps Git-status failures non-destructive in execute mode', () => {
