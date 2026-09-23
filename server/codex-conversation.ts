@@ -171,8 +171,13 @@ export class CodexConversation {
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
     this.ready = false;
-    const commandId = this.active?.command.id;
-    if (commandId) this.opts.onProviderComplete?.(commandId, 'interrupted');
+    const active = this.active;
+    const commandId = active?.command.id;
+    // A close after an explicit interrupt is a confirmed cancellation. Every
+    // other transport loss occurs after dispatch and therefore has an unknown
+    // provider outcome until the user explicitly acknowledges recovery.
+    const status = active?.interruptRequested ? 'interrupted' : 'failed';
+    if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
     try {
@@ -181,7 +186,11 @@ export class CodexConversation {
           this.opts.conversationId,
           this.binding,
           commandId,
-          'interrupted',
+          status,
+          'resume',
+          undefined,
+          true,
+          status === 'failed',
         );
     } catch (persistenceError) {
       this.opts.onError?.(

@@ -888,4 +888,26 @@ describe('closeout prompts echo to frontend', () => {
     );
     expect(fnBody).toContain('user close overlaps active automatic closeout');
   });
+
+  it('only completes fallback closeout after its own echoed input and final SDK result', () => {
+    const fallbackStart = chatSource.indexOf('const fallbackCloseoutAttempts');
+    const mainStart = chatSource.indexOf('export async function startChat(');
+    const fallback = chatSource.slice(fallbackStart, mainStart);
+    const queryStart = chatSource.indexOf('await runQueryLoop(');
+    const queryEnd = chatSource.indexOf('\n    );', queryStart);
+    const queryOptions = chatSource.slice(queryStart, queryEnd);
+
+    expect(fallback).toContain('inputUuid: string');
+    expect(fallback).toContain('inputObserved');
+    expect(fallback).toContain('markFallbackCloseoutInputObserved');
+    expect(queryOptions).toContain('onUserInput: (cId, inputUuid)');
+    expect(queryOptions).toContain('onResult: (cId, result, inputUuid)');
+    expect(queryOptions).toContain("result.is_error === true ? 'failed' : 'completed',");
+    expect(fallback).toContain('inputUuid !== tracked.inputUuid');
+    const onTurnEnd = queryOptions.slice(
+      queryOptions.indexOf('onTurnEnd:'),
+      queryOptions.indexOf('onResult:'),
+    );
+    expect(onTurnEnd).not.toContain('finishFallbackCloseout');
+  });
 });

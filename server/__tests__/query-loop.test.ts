@@ -175,6 +175,40 @@ describe('runQueryLoop', () => {
     );
   });
 
+  it('correlates a parent input UUID with the final result that follows it', async () => {
+    const received: string[] = [];
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'user',
+          uuid: 'closeout-input-uuid',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'finish closeout' },
+        },
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'closeout-turn' } },
+        },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      {
+        onUserInput: (_clientId, uuid) => received.push(`input:${uuid}`),
+        onResult: (_clientId, result, inputUuid) =>
+          received.push(
+            `result:${result.is_error === true ? 'failed' : 'completed'}:${inputUuid ?? 'none'}`,
+          ),
+      },
+    );
+
+    expect(received).toEqual(['input:closeout-input-uuid', 'result:completed:closeout-input-uuid']);
+  });
+
   it('emits block_start+block_delta+block_end for thinking blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-th' } } },

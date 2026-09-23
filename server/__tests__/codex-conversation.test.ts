@@ -187,6 +187,61 @@ it('reports the durable command boundary around provider dispatch', async () => 
   });
   expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'completed');
 });
+
+it('marks a dispatched command ambiguous when its transport is lost', async () => {
+  const onProviderDispatch = vi.fn();
+  const onProviderComplete = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderDispatch,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  callbacks.onClose(new Error('transport lost'));
+
+  expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+});
+
+it('preserves cancellation when transport loss follows an explicit interrupt', async () => {
+  const onProviderComplete = vi.fn();
+  const { c, callbacks, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderComplete,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      callbacks.onClose(new Error('transport lost after explicit interrupt'));
+      return {};
+    }
+    return request(method, params);
+  });
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  await c.interrupt();
+
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'interrupted');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'interrupted' }]);
+});
 it('does not persist queued work when lifecycle admission is fenced', async () => {
   const onActivity = vi.fn(() => false);
   const { c } = await setup(
@@ -343,7 +398,7 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
     { type: 'text', text: 'already sent' },
   ]);
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'running', 'queued']);
+  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'running', 'queued']);
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
@@ -489,7 +544,7 @@ it('reconnects an interrupted turn without replaying it when no later command is
   await c.send({ id: 'a', prompt: 'hello' });
   callbacks.onClose(new Error('process lost'));
 
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted']);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed']);
   await c.acknowledgeRecovery();
 
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
@@ -547,7 +602,7 @@ it('treats transport loss during turn startup as paused recovery instead of a fa
   await expect(send).resolves.toBeUndefined();
   expect(c.isPaused()).toBe(true);
   expect(onClosed).not.toHaveBeenCalled();
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'queued']);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
 
   await c.acknowledgeRecovery();
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
@@ -713,7 +768,7 @@ it('does not reconnect or replay interrupted work until a new send explicitly re
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
   });
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
 });
 
 it('restarts a disconnected provider and runs an already queued follow-up exactly once', async () => {

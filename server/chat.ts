@@ -185,21 +185,45 @@ export const eventStore = initEventStore();
 
 const fallbackCloseoutAttempts = new WeakMap<
   ManagedSession,
-  { admission: CloseoutAdmission; attempt: ProviderAttemptToken }
+  {
+    admission: CloseoutAdmission;
+    attempt: ProviderAttemptToken;
+    /** The SDK-generated input UUID echoed before the command's final result. */
+    inputUuid: string;
+    inputObserved: boolean;
+  }
 >();
 
-function finishFallbackCloseout(session: ManagedSession, interrupted = false): void {
+function markFallbackCloseoutInputObserved(session: ManagedSession, inputUuid: string): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (tracked?.inputUuid === inputUuid) tracked.inputObserved = true;
+}
+
+function finishFallbackCloseout(
+  session: ManagedSession,
+  status: 'completed' | 'interrupted' | 'failed',
+  inputUuid?: string,
+): void {
   const tracked = fallbackCloseoutAttempts.get(session);
   if (!tracked) return;
+  // Generic assistant message ends happen between provider tool calls and can
+  // also belong to a turn that pre-dates the closeout input. Only the echoed
+  // closeout input followed by its terminal SDK result may complete admission.
+  // If the echo is absent, leave the dispatched work recoverably ambiguous.
+  if (
+    status !== 'interrupted' &&
+    (!tracked.inputObserved || inputUuid === undefined || inputUuid !== tracked.inputUuid)
+  )
+    return;
   eventStore.transitionProviderAttempt(
     tracked.attempt,
     'TERMINAL',
-    interrupted ? 'cancelled' : 'completed',
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'cancelled' : 'ambiguous',
   );
   eventStore.transitionExecution(
     tracked.admission.token,
     'TERMINAL',
-    interrupted ? 'interrupted' : 'completed',
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'interrupted' : 'failed',
   );
   fallbackCloseoutAttempts.delete(session);
 }
@@ -867,6 +891,7 @@ function makeUserMessage(
   priority: 'now' | 'next' | 'later' = 'next',
   messageId?: string,
   providerAdmission?: ProviderDispatchAdmission,
+  inputUuid?: SDKUserMessage['uuid'],
 ): SDKUserMessage & {
   mitzoMessageId?: string;
   providerAdmission?: ProviderDispatchAdmission;
@@ -878,6 +903,7 @@ function makeUserMessage(
     priority,
     ...(messageId ? { mitzoMessageId: messageId } : {}),
     ...(providerAdmission ? { providerAdmission } : {}),
+    ...(inputUuid ? { uuid: inputUuid } : {}),
   };
 }
 
@@ -1668,9 +1694,20 @@ async function _startChatInner(
           });
         },
         onTurnEnd: (cId: string) => {
-          const active = registry.get(cId);
-          if (active) finishFallbackCloseout(active);
           _onSessionChange?.(cId, 'turn_end');
+        },
+        onUserInput: (cId, inputUuid) => {
+          const active = registry.get(cId);
+          if (active) markFallbackCloseoutInputObserved(active, inputUuid);
+        },
+        onResult: (cId, result, inputUuid) => {
+          const active = registry.get(cId);
+          if (active)
+            finishFallbackCloseout(
+              active,
+              result.is_error === true ? 'failed' : 'completed',
+              inputUuid,
+            );
         },
       },
     );
@@ -2454,13 +2491,21 @@ function queueCloseoutPrompt(
   } else {
     const attempt = eventStore.beginProviderAttempt(admission.token, admission.providerAttemptId);
     if (attempt.duplicate) return;
-    fallbackCloseoutAttempts.set(session, { admission, attempt: attempt.token });
+    const inputUuid = randomUUID();
+    fallbackCloseoutAttempts.set(session, {
+      admission,
+      attempt: attempt.token,
+      inputUuid,
+      inputObserved: false,
+    });
     session.abortController.signal.addEventListener(
       'abort',
-      () => finishFallbackCloseout(session, true),
+      () => finishFallbackCloseout(session, 'interrupted'),
       { once: true },
     );
-    session.inputQueue?.push(makeUserMessage(prompt, 'now', admission.messageId));
+    session.inputQueue?.push(
+      makeUserMessage(prompt, 'now', admission.messageId, undefined, inputUuid),
+    );
   }
 }
 

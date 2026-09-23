@@ -189,6 +189,10 @@ export interface QueryLoopOptions {
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
   onTurnEnd?: (clientId: string) => void;
+  /** Called when the SDK echoes a parent user input with its transport UUID. */
+  onUserInput?: (clientId: string, inputUuid: string) => void;
+  /** Called after the SDK emits a terminal result, paired with its echoed parent input UUID. */
+  onResult?: (clientId: string, result: { is_error?: boolean }, inputUuid?: string) => void;
 }
 
 export async function runQueryLoop(
@@ -289,6 +293,7 @@ async function _runQueryLoopInner(
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let initialPromptPending = !!initialPrompt;
+  let pendingParentInputUuid: string | undefined;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -706,6 +711,8 @@ async function _runQueryLoopInner(
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
+          options?.onResult?.(clientId, result, pendingParentInputUuid);
+          pendingParentInputUuid = undefined;
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;
           log.debug('stream event', { clientId, evtType: evt?.type });
@@ -1325,6 +1332,14 @@ async function _runQueryLoopInner(
           // replay them as user bubbles on session rejoin.
           const content = (msg.message as unknown as Record<string, unknown>)?.content;
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+          if (
+            (parentToolUseId === null || parentToolUseId === undefined) &&
+            typeof msg.uuid === 'string' &&
+            typeof content === 'string'
+          ) {
+            pendingParentInputUuid = msg.uuid;
+            options?.onUserInput?.(clientId, msg.uuid);
+          }
           const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
 
           if (Array.isArray(content)) {
