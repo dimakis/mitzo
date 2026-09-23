@@ -33,6 +33,8 @@ export function deliberateRouteRevision(): string {
       return content.toString();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        // Credential-read failures must not expose paths or credential material.
+        // eslint-disable-next-line preserve-caught-error
         throw new Error('Provider identity unavailable');
       digest.update('absent');
       return '';

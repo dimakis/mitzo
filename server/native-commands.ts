@@ -158,6 +158,8 @@ async function deliberateCommand(
     if (error instanceof ExecutionAdmissionError) throw error;
     if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
       throw error;
+    // Storage/provider errors can contain private paths or credential material.
+    // eslint-disable-next-line preserve-caught-error
     throw new Error('Deliberation admission unavailable; no new provider work was started');
   }
   ctx.deliberation.onAdmitted();
