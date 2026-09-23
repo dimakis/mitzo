@@ -308,7 +308,9 @@ export class AccountProfiles {
         ]),
       )
       .digest('hex');
-    const runtime = await manager.ensure(`model-discovery:${profile.id}:${routeIdentity}`, signal);
+    const runtime = await manager.ensure(`model-discovery:${profile.id}:${routeIdentity}`, signal, {
+      replaceErrored: true,
+    });
     return CodexAppServerClient.launchOpenShell(runtime);
   }
 

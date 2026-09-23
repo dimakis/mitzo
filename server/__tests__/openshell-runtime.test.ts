@@ -1070,6 +1070,31 @@ describe('OpenShell runtime lifecycle', () => {
     ).rejects.toThrow('is Error');
   });
 
+  it('replaces an errored sandbox only when a disposable caller opts in', async () => {
+    const sandboxName = sandboxNameForConversation('conversation');
+    const errored = JSON.stringify({
+      ...JSON.parse(ready('Error')),
+      id: 'errored-physical-id',
+      name: sandboxName,
+    });
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(errored)
+      .mockResolvedValueOnce('{}')
+      .mockRejectedValueOnce(new Error('sandbox not found'))
+      .mockResolvedValueOnce('{}')
+      .mockResolvedValueOnce(ready());
+
+    await expect(
+      new OpenShellRuntimeManager(config, run, {
+        pollIntervalMs: 0,
+        timeoutMs: 100,
+      }).ensure('conversation', new AbortController().signal, { replaceErrored: true }),
+    ).resolves.toMatchObject({ sandboxName, created: true });
+    expect(run.mock.calls[1][0]).toEqual(expect.arrayContaining(['delete', sandboxName]));
+    expect(run.mock.calls[3][0]).toEqual(expect.arrayContaining(['create', '--name', sandboxName]));
+  });
+
   it('does not adopt a same-named sandbox owned by another conversation', async () => {
     const run = vi.fn().mockResolvedValue(
       JSON.stringify({

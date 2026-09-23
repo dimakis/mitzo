@@ -733,7 +733,11 @@ export class OpenShellRuntimeManager {
     if (changed) await this.waitForReady(name, owner, signal);
   }
 
-  async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
+  async ensure(
+    conversationId: string,
+    signal: AbortSignal,
+    options: { replaceErrored?: boolean } = {},
+  ): Promise<OpenShellRuntime> {
     await this.verifyAccountProvider(signal);
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
@@ -763,11 +767,20 @@ export class OpenShellRuntimeManager {
         sandbox = legacy;
       }
     }
-    const retained = Boolean(sandbox);
     if (sandbox && sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (sandbox && sandbox.labels?.['mitzo.account_provider'] !== accountProvider)
       throw new Error(`OpenShell sandbox ${name} has another account provider binding`);
+    // Disposable control-plane workloads (currently model discovery) contain no
+    // conversation workspace. Let those callers explicitly replace a terminally
+    // errored retained sandbox, while normal chat runtimes continue to fail closed.
+    if (sandbox?.phase === 'Error' && options.replaceErrored) {
+      if (!sandbox.id) throw new Error(`OpenShell sandbox ${name} has no physical identity`);
+      await this.run(['sandbox', ...this.base(), 'delete', name], signal);
+      await this.waitForAbsent(conversationId, name, sandbox.id, signal);
+      sandbox = undefined;
+    }
+    const retained = Boolean(sandbox);
     if (sandbox) await this.verifyManagedConnections(name, signal);
     else await this.config.verifyConnections?.(name, signal);
     if (!sandbox) {

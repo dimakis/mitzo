@@ -531,6 +531,7 @@ describe('brokered ChatGPT subscription profile', () => {
     await new AccountProfiles([rebound], { codexEnabled: true }).refresh(true);
 
     expect(brokerDiscovery.ensure).toHaveBeenCalledTimes(2);
+    expect(brokerDiscovery.ensure.mock.calls[0][2]).toEqual({ replaceErrored: true });
     expect(brokerDiscovery.ensure.mock.calls[0][0]).not.toBe(
       brokerDiscovery.ensure.mock.calls[1][0],
     );
