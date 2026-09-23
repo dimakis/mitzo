@@ -909,6 +909,20 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Read the terminal outcome of any generation, including superseded commands. */
+  getExecutionTerminalReason(token: ExecutionToken): ExecutionTerminalReason | undefined {
+    const row = this.db!.prepare(
+      `SELECT json_extract(payload, '$.terminalReason') AS reason FROM events
+       WHERE session_id = ? AND type = 'execution_state_changed'
+         AND json_extract(payload, '$.executionId') = ?
+         AND json_extract(payload, '$.generation') = ?
+         AND json_extract(payload, '$.phase') = 'TERMINAL'
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(token.sessionId, token.executionId, token.generation) as
+      { reason: ExecutionTerminalReason } | undefined;
+    return row?.reason;
+  }
+
   /** Read a durable execution admission receipt without consulting transport state. */
   getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
     const row = this.db!.prepare(

@@ -167,4 +167,52 @@ describe('durable deliberation', () => {
     expect(call).toHaveBeenCalledTimes(1);
     expect(store.getSession('s')?.executionTerminalReason).toBe('stopped');
   });
+  it('preserves historical startup failure after a later command completes', async () => {
+    createProvider.mockImplementationOnce(() => {
+      throw new Error('startup');
+    });
+    await start().completion;
+    await start({ clientMsgId: 'later' }).completion;
+    expect(await start().completion).toMatchObject({ status: 'failed' });
+  });
+  it('preserves restart ambiguity between completed children after a later generation', async () => {
+    await start().completion;
+    const fingerprint = store.getExecutionAdmission('s', 'c')!.requestFingerprint;
+    const { token } = store.beginExecution('s', undefined, 'gap', fingerprint);
+    const attempt = store.beginProviderAttempt(token, 'gap-propose');
+    store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+    store.close();
+    store = new EventStore(join(dir, 'events.db'));
+    store.recoverOrphanedExecutions();
+    expect(await start({ clientMsgId: 'gap' }).completion).toMatchObject({ status: 'ambiguous' });
+    await start({ clientMsgId: 'later', confirmAmbiguous: true }).completion;
+    expect(await start({ clientMsgId: 'gap' }).completion).toMatchObject({ status: 'ambiguous' });
+  });
+  it('uses canonical selections independent of object key ordering', async () => {
+    await start({ selection: { model: 'm', accountId: 'a' } }).completion;
+    expect(start({ selection: { accountId: 'a', model: 'm' } }).duplicate).toBe(true);
+  });
+  it('does not dispatch a child after provider routing changes during the run', async () => {
+    let route = 'one';
+    call.mockImplementationOnce(async () => {
+      route = 'two';
+      return response;
+    });
+    expect(await start({}, { routeRevision: () => route }).completion).toMatchObject({
+      status: 'failed',
+    });
+    expect(call).toHaveBeenCalledOnce();
+  });
+  it('does not dispatch if persisting a reasoning event fails', async () => {
+    const event = vi.fn(() => {
+      throw new Error('disk');
+    });
+    expect(await start({}, { onEvent: event }).completion).toMatchObject({ status: 'failed' });
+    expect(call).not.toHaveBeenCalled();
+    expect(store.getSession('s')?.executionTerminalReason).toBe('startup_failed');
+  });
+  it('passes a cancellation signal and disables hidden provider retries', async () => {
+    await start().completion;
+    expect(call.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal), maxRetries: 0 });
+  });
 });

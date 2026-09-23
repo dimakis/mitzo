@@ -29,7 +29,19 @@ const active = new WeakMap<
 >();
 
 function hash(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const canonical = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(canonical);
+    if (item && typeof item === 'object')
+      return Object.fromEntries(
+        Object.entries(item)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, entry]) => [key, canonical(entry)]),
+      );
+    return item;
+  };
+  return createHash('sha256')
+    .update(JSON.stringify(canonical(value)))
+    .digest('hex');
 }
 
 /** Stable for sessionless requests across transports and reconnects. */
@@ -44,18 +56,12 @@ function outcome(store: EventStore, token: ExecutionToken): DeliberationOutcome 
   ) {
     return { status: 'ambiguous' };
   }
-  const session = store.getSession(token.sessionId);
-  if (session?.executionId === token.executionId) {
-    if (session.executionPhase !== 'TERMINAL') return { status: 'running' };
-    if (session.executionTerminalReason === 'completed') return { status: 'completed' };
-    if (session.executionTerminalReason === 'stopped') return { status: 'cancelled' };
-    // A restart between completed child calls is still an unfinished deliberation.
-    if (session.executionTerminalReason === 'server_restart' && attempts.length)
-      return { status: 'ambiguous' };
-    return { status: 'failed' };
-  }
-  // Old receipts remain deduplicated after later generations. No replay of work.
-  return { status: 'completed' };
+  const terminal = store.getExecutionTerminalReason(token);
+  if (terminal === 'completed') return { status: 'completed' };
+  if (terminal === 'stopped') return { status: 'cancelled' };
+  if (terminal === 'server_restart' && attempts.length) return { status: 'ambiguous' };
+  if (terminal) return { status: 'failed' };
+  return { status: 'running' };
 }
 
 export function cancelDeliberation(store: EventStore, sessionId: string): boolean {

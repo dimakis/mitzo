@@ -254,7 +254,11 @@ export class DeliberationOrchestrator {
           { role: 'system', content: role.systemPrompt },
           { role: 'user', content: userMessage },
         ],
-        { temperature: role.temperature ?? 0.7, signal: this.runtime.signal },
+        {
+          temperature: role.temperature ?? 0.7,
+          signal: this.runtime.signal,
+          ...(this.runtime.call ? { maxRetries: 0 } : {}),
+        },
       );
     };
     const response = this.runtime.call ? await this.runtime.call(phase, invoke) : await invoke();
