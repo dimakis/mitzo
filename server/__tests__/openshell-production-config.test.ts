@@ -8,7 +8,7 @@ import {
 
 const manifest = {
   runtime: { image: 'localhost/mitzo:release-1' },
-  defaults: { workspace: 'default', webSearch: 'disabled' },
+  defaults: { workspace: 'default', webSearch: 'live' },
   serviceProviders: [{ name: 'google-workspace' }, { name: 'github' }],
   providerPolicy: { automatic: ['github'], grantable: ['google-workspace'] },
 };
@@ -18,7 +18,7 @@ const config = {
   MITZO_OPENSHELL_IMAGE: 'localhost/mitzo:release-1',
   MITZO_OPENSHELL_SERVICE_PROVIDERS: 'github',
   MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS: 'google-workspace',
-  MITZO_OPENSHELL_WEB_SEARCH: 'disabled',
+  MITZO_OPENSHELL_WEB_SEARCH: 'live',
   OPENSHELL_WORKSPACE: 'default',
 };
 

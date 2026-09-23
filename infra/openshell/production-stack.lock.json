@@ -37,6 +37,6 @@
   },
   "defaults": {
     "workspace": "default",
-    "webSearch": "disabled"
+    "webSearch": "live"
   }
 }

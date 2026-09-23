@@ -16,7 +16,7 @@ it('disables inherited MCP servers and native execution paths while keeping host
   ])
     expect(c[`features.${feature}`]).toBe(false);
   expect(c['agents.enabled']).toBe(false);
-  expect(c.web_search).toBe('disabled');
+  expect(c.web_search).toBe('live');
   expect(JSON.stringify(c)).not.toContain('private-secret');
 });
 it('rejects custom OpenAI routing and unsupported configuration names rather than guessing', () => {
