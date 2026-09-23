@@ -1,8 +1,10 @@
 import {
-  deliberateSessionId,
-  isDeliberationSessionId,
-  parseDeliberationInput,
-} from './deliberate-admission.js';
+  claimChatCommand,
+  reasoningSessionId,
+  isReasoningSessionId,
+  paidReasoningCommand,
+} from './reasoning-command-admission.js';
+
 import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
@@ -140,6 +142,7 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
+      claimChatCommand(ctx.eventStore, msg);
       const dispatch = async (
         command: typeof msg,
         sessionId: string,
@@ -180,6 +183,7 @@ export function createChatRestRouter(
         const outcome = await handleSendV2(connectionId, transport, command, ctx, {
           initialSessionId: command.sessionId ? undefined : sessionId,
           awaitStartupAdmission: true,
+          identityClaimed: true,
           // REST inserts the global receipt before dispatch; WS inserts it in
           // handleSendV2 so the same check can fence cross-transport retries.
           receiptAdmitted: options.receiptAdmitted ?? true,
@@ -187,21 +191,20 @@ export function createChatRestRouter(
         if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
       };
       const parsed = parseSlashCommand(msg.prompt);
-      const paidDeliberation =
-        parsed?.name === 'deliberate' && !!parseDeliberationInput(parsed.arguments).task;
+      const paidReasoning = !!parsed && paidReasoningCommand(parsed.name, parsed.arguments);
       const admittedMessage =
-        !paidDeliberation &&
+        !paidReasoning &&
         msg.sessionId &&
-        isDeliberationSessionId(msg.sessionId) &&
+        isReasoningSessionId(msg.sessionId) &&
         ctx.eventStore.getSessionState(msg.sessionId) === 'ENDED'
           ? { ...msg, sessionId: null }
           : msg;
-      if (paidDeliberation) {
+      if (paidReasoning) {
         // Keep the global receipt as the command identity, while replaying an
-        // exact receipt through deliberation's route/fingerprint gate. A
+        // exact receipt through the command's route/fingerprint gate. A
         // sessionless receipt uses the same deterministic ID as the native
         // admission, but the command remains sessionless to its transport.
-        const sessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
+        const sessionId = msg.sessionId ?? reasoningSessionId(parsed!.name, msg.clientMsgId);
         const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId };
         const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
         if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {

@@ -1,8 +1,8 @@
+import { startFusion, parseFusionInput, type FusionRequest } from './fusion-admission.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import type { SkillRegistry } from './skills.js';
 import type { SessionTransport } from '@mitzo/harness';
 import {
-  FusionOrchestrator,
   DEFAULT_DELIBERATION_CONFIG,
   DEFAULT_FUSION_CONFIG,
   SELF_FUSION_CONFIG,
@@ -27,6 +27,7 @@ export interface NativeCommandResult {
 /** Context available to async native commands. */
 export interface NativeCommandContext {
   transport?: SessionTransport;
+  fusion?: { store: EventStore; request: FusionRequest; onAdmitted: () => void };
   deliberation?: { store: EventStore; request: DeliberationRequest; onAdmitted: () => void };
 }
 
@@ -235,27 +236,44 @@ async function fuseCommand(
   _skillRegistry: SkillRegistry,
   ctx: NativeCommandContext,
 ): Promise<NativeCommandResult> {
-  if (!args.trim()) return FUSE_USAGE;
-
-  // Parse --self flag
-  let task = args.trim();
-  let fusionConfig = DEFAULT_FUSION_CONFIG;
-  if (task === '--self' || task.startsWith('--self ')) {
-    task = task.slice('--self'.length).trim();
-    fusionConfig = SELF_FUSION_CONFIG;
-  }
-
+  const input = parseFusionInput(args);
+  const task = input.task;
   if (!task) return FUSE_USAGE;
-
-  const onEvent = buildEventEmitter(ctx.transport, 'fusion');
-
+  if (!ctx.fusion) throw new Error('Durable fusion context is required');
+  let admitted;
   try {
-    const orchestrator = new FusionOrchestrator({
-      ...fusionConfig,
-      onEvent,
+    admitted = startFusion({
+      store: ctx.fusion.store,
+      request: {
+        ...ctx.fusion.request,
+        task,
+        confirmAmbiguous: input.confirmAmbiguous || ctx.fusion.request.confirmAmbiguous,
+      },
+      config: input.self ? SELF_FUSION_CONFIG : DEFAULT_FUSION_CONFIG,
+      onEvent: buildEventEmitter(ctx.transport, 'fusion'),
+      onAdmitted: ctx.fusion.onAdmitted,
     });
-
-    const result = await orchestrator.run(task, '');
+  } catch (error) {
+    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
+      throw error;
+    // eslint-disable-next-line preserve-caught-error
+    throw new Error('Fusion admission unavailable; no new provider work was started');
+  }
+  try {
+    const outcome = await admitted.completion;
+    if (outcome.status !== 'completed' || !outcome.result) {
+      const messages = {
+        running: 'Fusion is already running. No provider work was repeated.',
+        completed: 'Fusion already completed. No provider work was repeated.',
+        failed: 'Fusion failed before completion. No provider work was repeated.',
+        cancelled: 'Fusion cancelled. No further phases will run.',
+        ambiguous:
+          'Fusion outcome is uncertain. No provider work was repeated. To explicitly start another attempt, use /fuse --confirm-ambiguous <task> (include --self for self-fusion). This may repeat provider work.',
+      };
+      return { command: 'fuse', content: messages[outcome.status] };
+    }
+    const result = outcome.result;
 
     const panelSummary = result.panelResponses
       .map((r, i) => `**Panel ${i + 1}** (${r.model}): ${r.response.slice(0, 200)}...`)
@@ -296,11 +314,11 @@ async function fuseCommand(
     ].join('\n');
 
     return { command: 'fuse', content };
-  } catch (err) {
-    log.error('Fusion failed', { error: err instanceof Error ? err.message : 'unknown' });
+  } catch {
+    log.error('Fusion failed', { category: 'durable_execution_failure' });
     return {
       command: 'fuse',
-      content: `Fusion failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      content: 'Fusion failed. Check the durable execution state before retrying.',
     };
   }
 }

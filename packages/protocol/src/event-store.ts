@@ -222,6 +222,11 @@ const SCHEMA = `
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
 
+  CREATE TABLE IF NOT EXISTS client_command_claims (
+    client_msg_id TEXT PRIMARY KEY,
+    request_fingerprint TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS execution_admissions (
     session_id TEXT NOT NULL,
     client_msg_id TEXT NOT NULL,
@@ -380,6 +385,25 @@ export class EventStore {
 
   /** A crash may happen between acceptance and dispatch. Never silently discard
    * that receipt or re-execute a possibly side-effecting command after restart. */
+  /** Global ingress identity, independent of transport receipts and session routing. */
+  claimClientCommand(clientMsgId: string, requestFingerprint: string): void {
+    this.validateExecutionAdmission(clientMsgId, requestFingerprint);
+    this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
+      ).get(clientMsgId) as { request_fingerprint: string } | undefined;
+      if (existing && existing.request_fingerprint !== requestFingerprint)
+        throw new ExecutionAdmissionError(
+          'fingerprint_conflict',
+          'Command ID already admitted for a different request',
+        );
+      if (!existing)
+        this.db!.prepare(
+          'INSERT INTO client_command_claims (client_msg_id, request_fingerprint) VALUES (?, ?)',
+        ).run(clientMsgId, requestFingerprint);
+    }).immediate();
+  }
+
   recoverPendingSendCommands(): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
@@ -979,6 +1003,7 @@ export class EventStore {
   beginProviderAttempt(
     executionToken: ExecutionToken,
     providerAttemptId: string = randomUUID(),
+    options: { allowParallel?: boolean } = {},
   ): BeginProviderAttemptResult {
     if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
     return this.db!.transaction((): BeginProviderAttemptResult => {
@@ -1019,7 +1044,7 @@ export class EventStore {
          WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
          LIMIT 1`,
       ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation);
-      if (active) {
+      if (active && !options.allowParallel) {
         throw new Error(
           `Cannot overwrite active provider attempt for execution: ${executionToken.executionId}`,
         );

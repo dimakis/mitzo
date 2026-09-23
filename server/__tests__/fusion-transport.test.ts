@@ -8,7 +8,7 @@ import { SkillRegistry } from '../skills.js';
 import { handleSendV2, handleStopV2, type V2HandlerContext } from '../ws-handler-v2.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { SessionSseRegistry } from '../session-sse-registry.js';
-import { deliberateSessionId } from '../deliberate-admission.js';
+import { fusionSessionId } from '../fusion-admission.js';
 
 const fake = vi.hoisted(() => ({ call: vi.fn(), factory: vi.fn(), route: 'one' }));
 vi.mock('../../packages/harness/src/providers/index.js', async (importOriginal) => ({
@@ -30,7 +30,7 @@ vi.mock('../chat.js', () => ({
 vi.mock('../app.js', () => ({
   buildSkillRegistry: () => new SkillRegistry({}),
   isAllowedPath: () => true,
-  NATIVE_COMMAND_NAMES: new Set(['deliberate', 'skills']),
+  NATIVE_COMMAND_NAMES: new Set(['deliberate', 'fuse', 'skills']),
 }));
 
 const reply = {
@@ -39,13 +39,13 @@ const reply = {
   usage: { inputTokens: 1, outputTokens: 1 },
   costUsd: 0.01,
 };
-describe('deliberation transport admission', () => {
+describe('fusion transport admission', () => {
   let ctx: V2HandlerContext;
   let app: express.Express;
   const msg = {
     type: 'send' as const,
     sessionId: 's',
-    prompt: '/deliberate Design this',
+    prompt: '/fuse Design this',
     clientMsgId: 'c',
   };
   let sent: Record<string, unknown>[];
@@ -87,15 +87,15 @@ describe('deliberation transport admission', () => {
         expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'),
       );
       expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeDefined();
-      expect(fake.call).toHaveBeenCalledTimes(6);
+      expect(fake.call).toHaveBeenCalledTimes(5);
       await send();
       const eventsBefore = ctx.eventStore
         .getEventsAfter('s', 0)
         .filter((e) => e.type === 'reasoning_event').length;
-      const result = await send({ ...msg, prompt: '/deliberate changed' });
+      const result = await send({ ...msg, prompt: '/fuse changed' });
       if (kind === 'sse') expect(result).toMatchObject({ status: 409 });
       else expect(sent.at(-1)).toMatchObject({ type: 'error' });
-      expect(fake.call).toHaveBeenCalledTimes(6);
+      expect(fake.call).toHaveBeenCalledTimes(5);
       expect(
         ctx.eventStore.getEventsAfter('s', 0).filter((e) => e.type === 'reasoning_event'),
       ).toHaveLength(eventsBefore);
@@ -107,10 +107,10 @@ describe('deliberation transport admission', () => {
     expect(ctx.eventStore.getSendCommand('c')?.payload).toMatchObject({ prompt: msg.prompt });
     fake.route = 'two';
     await request(app).post('/api/chat/send').send(msg).expect(409);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(fake.call).toHaveBeenCalledTimes(5);
     fake.route = 'one';
     await request(app).post('/api/chat/send').send(msg).expect(202);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it('shares the global command receipt when normal and paid commands reuse an ID', async () => {
     const normal = { ...msg, sessionId: null, prompt: '/skills' };
@@ -133,20 +133,20 @@ describe('deliberation transport admission', () => {
   });
   it('rejects an SSE normal command after a WS paid command reuses its ID', async () => {
     await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
-    await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(6));
+    await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(5));
 
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
       .expect(409);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it.each([null, 'closed-synthetic'])(
-    'rejects a WS ordinary reuse after a sessionless deliberation (%s session)',
+    'rejects a WS ordinary reuse after a sessionless fusion (%s session)',
     async (sessionId) => {
       await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
-      await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(6));
-      const syntheticSessionId = deliberateSessionId('c');
+      await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(5));
+      const syntheticSessionId = fusionSessionId('c');
       if (sessionId === 'closed-synthetic') {
         expect(ctx.eventStore.getSession(syntheticSessionId)?.state).toBe('ENDED');
       }
@@ -164,25 +164,25 @@ describe('deliberation transport admission', () => {
       );
       expect(sent.at(-1)).toMatchObject({ type: 'error' });
       expect(chat.startChat.mock.calls).toHaveLength(startChatCalls);
-      expect(fake.call).toHaveBeenCalledTimes(6);
+      expect(fake.call).toHaveBeenCalledTimes(5);
     },
   );
-  it('rejects normal-command reuse after a sessionless deliberation', async () => {
+  it('rejects normal-command reuse after a sessionless fusion', async () => {
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null })
       .expect(202);
     await vi.waitFor(() =>
-      expect(ctx.eventStore.getSession(deliberateSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
     );
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
       .expect(409);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it.each(['ws', 'sse'])('%s usage-only commands create no execution or provider', async (kind) => {
-    const usage = { ...msg, prompt: '/deliberate   ' };
+    const usage = { ...msg, prompt: '/fuse   ' };
     if (kind === 'ws') await handleSendV2('conn', transport, usage, ctx);
     else await request(app).post('/api/chat/send').send(usage).expect(202);
     expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
@@ -191,12 +191,12 @@ describe('deliberation transport admission', () => {
   it('shares stable sessionless identity across WS and SSE', async () => {
     const initial = { ...msg, sessionId: null };
     await handleSendV2('conn', transport, initial, ctx);
-    const sessionId = deliberateSessionId('c');
+    const sessionId = fusionSessionId('c');
     await vi.waitFor(() =>
       expect(ctx.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
     );
     await request(app).post('/api/chat/send').send(initial).expect(202);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it('acknowledges admission without waiting for provider completion and supports stop', async () => {
     let release!: (value: typeof reply) => void;
@@ -212,21 +212,21 @@ describe('deliberation transport admission', () => {
     expect(ctx.eventStore.getSession('s')?.executionTerminalReason).toBe('stopped');
     release(reply);
     await new Promise((resolve) => setImmediate(resolve));
-    expect(fake.call).toHaveBeenCalledOnce();
+    expect(fake.call).toHaveBeenCalledTimes(3);
   });
   it('assigns and watches a new session after admission but before any provider/reasoning work', async () => {
     ctx.connRegistry.register('conn', transport);
     fake.call.mockImplementation(async () => {
-      expect(sent[0]).toMatchObject({ type: 'session_id', sessionId: deliberateSessionId('c') });
-      expect(ctx.eventStore.getExecutionAdmission(deliberateSessionId('c'), 'c')).toBeDefined();
+      expect(sent[0]).toMatchObject({ type: 'session_id', sessionId: fusionSessionId('c') });
+      expect(ctx.eventStore.getExecutionAdmission(fusionSessionId('c'), 'c')).toBeDefined();
       return reply;
     });
     await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
     await vi.waitFor(() =>
-      expect(ctx.eventStore.getSession(deliberateSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
     );
     expect(sent[0]).toMatchObject({ type: 'session_id' });
-    expect(ctx.connRegistry.get('conn')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
+    expect(ctx.connRegistry.get('conn')?.watchedSessions.has(fusionSessionId('c'))).toBe(true);
     const retrySent: Record<string, unknown>[] = [];
     const retryTransport = {
       isOpen: () => true,
@@ -236,15 +236,15 @@ describe('deliberation transport admission', () => {
     };
     ctx.connRegistry.register('retry', retryTransport);
     await handleSendV2('retry', retryTransport, { ...msg, sessionId: null }, ctx);
-    expect(retrySent[0]).toMatchObject({ type: 'session_id', sessionId: deliberateSessionId('c') });
-    expect(ctx.connRegistry.get('retry')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
-    expect(fake.call).toHaveBeenCalledTimes(6);
+    expect(retrySent[0]).toMatchObject({ type: 'session_id', sessionId: fusionSessionId('c') });
+    expect(ctx.connRegistry.get('retry')?.watchedSessions.has(fusionSessionId('c'))).toBe(true);
+    expect(fake.call).toHaveBeenCalledTimes(5);
   });
-  it('keeps sessionless deliberation closed and does not cold-resume it', async () => {
+  it('keeps sessionless fusion closed and does not cold-resume it', async () => {
     ctx.connRegistry.register('conn', transport);
     const initial = { ...msg, sessionId: null };
     await handleSendV2('conn', transport, initial, ctx);
-    const sessionId = deliberateSessionId('c');
+    const sessionId = fusionSessionId('c');
     await vi.waitFor(() =>
       expect(ctx.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
     );
@@ -266,7 +266,7 @@ describe('deliberation transport admission', () => {
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null })
       .expect(202);
-    const syntheticSessionId = deliberateSessionId('c');
+    const syntheticSessionId = fusionSessionId('c');
     await vi.waitFor(() =>
       expect(ctx.eventStore.getSession(syntheticSessionId)?.executionPhase).toBe('TERMINAL'),
     );
@@ -304,29 +304,82 @@ describe('deliberation transport admission', () => {
       .post('/api/chat/send')
       .send({ ...msg, clientMsgId: 'retry' })
       .expect(422);
-    expect(fake.call).toHaveBeenCalledOnce();
+    expect(fake.call).toHaveBeenCalledTimes(3);
     await request(app)
       .post('/api/chat/send')
       .send({
         ...msg,
         clientMsgId: 'confirmed',
-        prompt: '/deliberate --confirm-ambiguous Design this',
+        prompt: '/fuse --confirm-ambiguous Design this',
       })
       .expect(202);
     await vi.waitFor(() =>
       expect(ctx.eventStore.getSession('s')?.executionTerminalReason).toBe('completed'),
     );
-    expect(fake.call).toHaveBeenCalledTimes(7);
+    expect(fake.call).toHaveBeenCalledTimes(8);
     const token = ctx.eventStore.getExecutionAdmission('s', 'confirmed')!.token;
-    expect(ctx.eventStore.getProviderAttempts(token)).toHaveLength(6);
+    expect(ctx.eventStore.getProviderAttempts(token)).toHaveLength(5);
     expect(sent.some((event) => JSON.stringify(event).includes('provider secret'))).toBe(false);
   });
   it('confirmation without a task remains usage-only', async () => {
     await request(app)
       .post('/api/chat/send')
-      .send({ ...msg, prompt: '/deliberate --confirm-ambiguous' })
+      .send({ ...msg, prompt: '/fuse --confirm-ambiguous' })
       .expect(202);
     expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
     expect(fake.call).not.toHaveBeenCalled();
   });
+  it.each(['ws', 'sse'])('%s rejects cross-command reuse and changed self mode', async (kind) => {
+    const send = async (prompt: string) =>
+      kind === 'ws'
+        ? handleSendV2('conn', transport, { ...msg, sessionId: null, prompt }, ctx)
+        : request(app)
+            .post('/api/chat/send')
+            .send({ ...msg, sessionId: null, prompt });
+    await send('/fuse --self Design this');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    expect(fake.call).toHaveBeenCalledTimes(4);
+    await send('/deliberate Design this');
+    await send('/fuse Design this');
+    expect(fake.call).toHaveBeenCalledTimes(4);
+    expect(ctx.eventStore.getSendCommand('c')?.payload.prompt).toBe('/fuse --self Design this');
+  });
+  it('preserves completed fusion receipts through generic restart recovery', async () => {
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    ctx.eventStore.recoverPendingSendCommands();
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+    expect(ctx.eventStore.getSendCommand('c')?.error).toBeFalsy();
+  });
+  it.each(['--self --confirm-ambiguous', '--confirm-ambiguous --self'])(
+    'treats flags without a task as usage: %s',
+    async (flags) => {
+      await request(app)
+        .post('/api/chat/send')
+        .send({ ...msg, prompt: `/fuse ${flags}` })
+        .expect(202);
+      expect(fake.factory).not.toHaveBeenCalled();
+      expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    },
+  );
+  it.each(['ordinary task', '/skills'])(
+    'reserves a WS command ID before later paid fusion: %s',
+    async (prompt) => {
+      await handleSendV2('conn', transport, { ...msg, sessionId: null, prompt }, ctx);
+      await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+      expect(fake.factory).not.toHaveBeenCalled();
+      expect(sent.at(-1)).toMatchObject({
+        type: 'error',
+        error: expect.stringMatching(/different/),
+      });
+      await request(app)
+        .post('/api/chat/send')
+        .send({ ...msg, sessionId: null })
+        .expect(409);
+      expect(fake.factory).not.toHaveBeenCalled();
+    },
+  );
 });
