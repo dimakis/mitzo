@@ -13,3 +13,5 @@ export function hasExactGlobalSetting(
   key: string,
   value: string | number | boolean,
 ): boolean;
+
+export function verifyOpenAiHeaderAuthentication(profile: Record<string, unknown>): void;

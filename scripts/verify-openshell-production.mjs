@@ -7,6 +7,7 @@ import { isAbsolute, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
+import { load } from 'js-yaml';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -134,6 +135,35 @@ export function hasExactGlobalSetting(settings, key, value) {
   return settingPattern.test(settings);
 }
 
+function verifyOpenAiEndpoints(endpoints) {
+  const matching = endpoints.filter((endpoint) => endpoint.host === 'api.openai.com');
+  invariant(matching.length > 0, 'OpenAI inspected endpoint is missing');
+  for (const endpoint of matching) {
+    invariant(
+      endpoint.protocol === 'rest' && endpoint.enforcement === 'enforce' && endpoint.port === 443,
+      'OpenAI endpoint must enforce inspected REST on port 443',
+    );
+    invariant(
+      !endpoint.request_body_credential_rewrite && !endpoint.allow_uninspected_credentials,
+      'OpenAI endpoint must use header authentication without body credential rewriting or inspection bypass',
+    );
+  }
+}
+
+export function verifyOpenAiHeaderAuthentication(profile) {
+  invariant(
+    profile.credentials?.some(
+      (credential) =>
+        credential.env_vars?.includes('OPENAI_API_KEY') &&
+        credential.auth_style === 'bearer' &&
+        credential.header_name?.toLowerCase() === 'authorization' &&
+        !credential.query_param,
+    ),
+    'OpenAI provider must authenticate with the Authorization bearer header',
+  );
+  verifyOpenAiEndpoints(profile.endpoints ?? []);
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
   const fileConfig = existsSync(envPath) ? parse(readFileSync(envPath)) : {};
@@ -198,7 +228,27 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
       );
     }
   }
-  verifyAccountBindings(JSON.parse(readFileSync(accountsPath, 'utf8')), providers);
+  const accounts = JSON.parse(readFileSync(accountsPath, 'utf8'));
+  verifyAccountBindings(accounts, providers);
+  const apiProfiles = new Set(
+    accounts
+      .filter((account) => account.provider === 'openai')
+      .map(
+        (account) => providers.find((provider) => provider.name === account.sandboxProvider).type,
+      ),
+  );
+  if (apiProfiles.size > 0) {
+    const policy = load(readFileSync(policyPath, 'utf8'));
+    verifyOpenAiEndpoints(
+      Object.values(policy.network_policies ?? {}).flatMap((rule) => rule.endpoints ?? []),
+    );
+    for (const profileType of apiProfiles) {
+      const profile = JSON.parse(
+        run(openshell, ['provider', 'profile', 'export', profileType, '-o', 'json']),
+      );
+      verifyOpenAiHeaderAuthentication(profile);
+    }
+  }
 
   const podman = inheritedEnv.PODMAN ?? '/opt/homebrew/bin/podman';
   const imageDigest = run(podman, [

@@ -19,6 +19,9 @@ endpoints:
     protocol: rest
     access: read-write
     enforcement: enforce
+    # Responses authenticates in Authorization; conversation text is data.
+    # Requires the supervisor's identity-aware streamed credential guard.
+    request_body_credential_rewrite: false
 binaries:
   - /usr/bin/curl
   - /usr/bin/codex

@@ -4,6 +4,7 @@ import {
   hasExactGlobalSetting,
   validateStaticConfig,
   verifyAccountBindings,
+  verifyOpenAiHeaderAuthentication,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const manifest = {
@@ -23,6 +24,43 @@ const config = {
 };
 
 describe('OpenShell production bundle validation', () => {
+  const headerProfile = {
+    credentials: [
+      { env_vars: ['OPENAI_API_KEY'], auth_style: 'bearer', header_name: 'authorization' },
+    ],
+    endpoints: [{ host: 'api.openai.com', port: 443, protocol: 'rest', enforcement: 'enforce' }],
+  };
+
+  it('accepts inspected OpenAI header authentication without body substitution', () => {
+    expect(() => verifyOpenAiHeaderAuthentication(headerProfile)).not.toThrow();
+  });
+
+  it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
+    'rejects live OpenAI profile drift enabling %s',
+    (flag) => {
+      const profile = {
+        ...headerProfile,
+        endpoints: [{ ...headerProfile.endpoints[0], [flag]: true }],
+      };
+      expect(() => verifyOpenAiHeaderAuthentication(profile)).toThrow(/OpenAI/);
+    },
+  );
+
+  it('rejects missing bearer-header metadata and non-inspected endpoints', () => {
+    expect(() => verifyOpenAiHeaderAuthentication({ ...headerProfile, credentials: [] })).toThrow(
+      /OpenAI/,
+    );
+    expect(() => verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [] })).toThrow(
+      /OpenAI/,
+    );
+    expect(() =>
+      verifyOpenAiHeaderAuthentication({
+        ...headerProfile,
+        endpoints: [{ ...headerProfile.endpoints[0], protocol: 'tcp' }],
+      }),
+    ).toThrow(/OpenAI/);
+  });
+
   it('matches only active global settings with exact values', () => {
     expect(hasExactGlobalSetting('providers_v2_enabled = true', 'providers_v2_enabled', true)).toBe(
       true,

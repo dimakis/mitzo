@@ -18,6 +18,7 @@ network_policies:
           protocol: rest,
           enforcement: enforce,
           access: read-write,
+          request_body_credential_rewrite: false,
         }
     binaries:
       - { path: /usr/bin/curl }
