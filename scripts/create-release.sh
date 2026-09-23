@@ -30,6 +30,10 @@ RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
 
 git clone --no-local --no-checkout "$SOURCE_ROOT" "$RELEASE_DIR"
 git -C "$RELEASE_DIR" checkout --detach "$SOURCE_COMMIT"
+# The source checkout may itself only have origin/main as a remote-tracking ref,
+# which a local clone does not copy. Pin the already-fetched main commit into the
+# release so the deploy-time ancestry guard remains self-contained.
+git -C "$RELEASE_DIR" update-ref refs/remotes/origin/main "$MAIN_COMMIT"
 if [ -f "$RUNTIME_ROOT/.env" ]; then
   cp "$RUNTIME_ROOT/.env" "$RELEASE_DIR/.env"
   chmod 600 "$RELEASE_DIR/.env"
