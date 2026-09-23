@@ -17,6 +17,7 @@ const validEnv = {
 
 describe('closeout live canary', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -58,13 +59,19 @@ describe('closeout live canary', () => {
       {
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId: 'attempt-1',
+        attempt: 1,
         phase: 'RUNNING',
       },
       {
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId: 'attempt-1',
+        attempt: 1,
         phase: 'TERMINAL',
         terminalReason: 'completed',
       },
@@ -76,13 +83,9 @@ describe('closeout live canary', () => {
         phase: 'TERMINAL',
         terminalReason: 'completed',
       },
-      {
-        type: 'session_state_changed',
-        sessionId: 'session-1',
-        internalState: 'ENDED',
-      },
     ])
       tracker.accept(message);
+    tracker.acceptDurableSession({ sessionId: 'session-1', state: 'ENDED', isActive: false });
 
     expect(tracker.complete()).toBe(true);
     expect(tracker.evidence()).toEqual({
@@ -102,13 +105,19 @@ describe('closeout live canary', () => {
       tracker.accept({
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId,
+        attempt: providerAttemptId === 'attempt-1' ? 1 : 2,
         phase: 'RUNNING',
       });
       tracker.accept({
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId,
+        attempt: providerAttemptId === 'attempt-1' ? 1 : 2,
         phase: 'TERMINAL',
         terminalReason: 'completed',
       });
@@ -127,13 +136,41 @@ describe('closeout live canary', () => {
       phase: 'TERMINAL',
       terminalReason: 'completed',
     });
-    tracker.accept({
-      type: 'session_state_changed',
-      sessionId: 'session-1',
-      internalState: 'ENDED',
-    });
+    tracker.acceptDurableSession({ sessionId: 'session-1', state: 'ENDED', isActive: false });
 
     expect(() => tracker.evidence()).toThrow('exactly one provider attempt');
+  });
+
+  it('rejects provider evidence from another execution generation', () => {
+    const tracker = createCloseoutTracker('session-1');
+    tracker.accept({ type: 'session_close_ack', sessionId: 'session-1', accepted: true });
+    tracker.accept({
+      type: 'user_message',
+      sessionId: 'session-1',
+      text: 'The user has closed this session.',
+    });
+    for (const phase of ['RUNNING', 'TERMINAL'])
+      tracker.accept({
+        type: 'provider_attempt_state_changed',
+        sessionId: 'session-1',
+        executionId: 'execution-old',
+        generation: 1,
+        providerAttemptId: 'attempt-1',
+        attempt: 1,
+        phase,
+        ...(phase === 'TERMINAL' ? { terminalReason: 'completed' } : {}),
+      });
+    tracker.accept({
+      type: 'execution_state_changed',
+      sessionId: 'session-1',
+      executionId: 'execution-new',
+      generation: 2,
+      phase: 'TERMINAL',
+      terminalReason: 'completed',
+    });
+    tracker.acceptDurableSession({ sessionId: 'session-1', state: 'ENDED', isActive: false });
+
+    expect(() => tracker.evidence()).toThrow('does not match the terminal execution');
   });
 
   it('runs the setup and closeout turns through one authenticated SSE connection', async () => {
@@ -157,13 +194,19 @@ describe('closeout live canary', () => {
       {
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId: 'attempt-1',
+        attempt: 1,
         phase: 'RUNNING',
       },
       {
         type: 'provider_attempt_state_changed',
         sessionId: 'session-1',
+        executionId: 'execution-1',
+        generation: 1,
         providerAttemptId: 'attempt-1',
+        attempt: 1,
         phase: 'TERMINAL',
         terminalReason: 'completed',
       },
@@ -174,11 +217,6 @@ describe('closeout live canary', () => {
         generation: 1,
         phase: 'TERMINAL',
         terminalReason: 'completed',
-      },
-      {
-        type: 'session_state_changed',
-        sessionId: 'session-1',
-        internalState: 'ENDED',
       },
     ];
     const stream = new ReadableStream({
@@ -197,6 +235,8 @@ describe('closeout live canary', () => {
       if (url.endsWith('/api/chat/reconnect')) return Response.json({ ok: true });
       if (url.endsWith('/api/chat/send')) return Response.json({ sessionId: 'session-1' });
       if (url.endsWith('/api/chat/close')) return Response.json({ ok: true });
+      if (url.endsWith('/api/sessions/session-1/meta'))
+        return Response.json({ sessionId: 'session-1', state: 'ENDED', isActive: false });
       throw new Error(`Unexpected URL ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -216,6 +256,30 @@ describe('closeout live canary', () => {
       providerAttemptCount: 1,
       finalState: 'ENDED',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    for (const [, init] of fetchMock.mock.calls) expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('clears the deadline when SSE setup fails', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const fetchMock = vi.fn(async (url) => {
+      if (url.endsWith('/api/auth/login')) return Response.json({ token: 'token' });
+      throw new Error('SSE unavailable');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      runCloseoutLiveCanary({
+        baseUrl: 'http://localhost:4311',
+        passphrase: 'secret',
+        accountId: 'work-openai',
+        model: 'gpt-5.6-luna',
+        reasoningEffort: 'medium',
+        timeoutMs: 130_000,
+      }),
+    ).rejects.toThrow('SSE unavailable');
+    expect(vi.getTimerCount()).toBe(0);
+    for (const [, init] of fetchMock.mock.calls) expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 });

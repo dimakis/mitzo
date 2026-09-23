@@ -53,12 +53,12 @@ export function parseSseChunk(buffer, chunk) {
 }
 
 export function createCloseoutTracker(sessionId) {
-  const runningAttempts = new Set();
-  const terminalAttempts = new Map();
+  const attempts = new Map();
   let closePromptSeen = false;
   let closeAcknowledged = false;
   let execution;
   let ended = false;
+  let attemptMismatch;
 
   return {
     accept(message) {
@@ -72,9 +72,25 @@ export function createCloseoutTracker(sessionId) {
       )
         closePromptSeen = true;
       if (message.type === 'provider_attempt_state_changed') {
-        if (message.phase === 'RUNNING') runningAttempts.add(message.providerAttemptId);
-        if (message.phase === 'TERMINAL')
-          terminalAttempts.set(message.providerAttemptId, message.terminalReason);
+        const token = {
+          executionId: message.executionId,
+          generation: message.generation,
+          attempt: message.attempt,
+        };
+        const previous = attempts.get(message.providerAttemptId);
+        if (
+          previous &&
+          (previous.executionId !== token.executionId ||
+            previous.generation !== token.generation ||
+            previous.attempt !== token.attempt)
+        )
+          attemptMismatch = message.providerAttemptId;
+        attempts.set(message.providerAttemptId, {
+          ...token,
+          running: previous?.running || message.phase === 'RUNNING',
+          terminalReason:
+            message.phase === 'TERMINAL' ? message.terminalReason : previous?.terminalReason,
+        });
       }
       if (message.type === 'execution_state_changed' && message.phase === 'TERMINAL')
         execution = {
@@ -82,41 +98,81 @@ export function createCloseoutTracker(sessionId) {
           generation: message.generation,
           terminalReason: message.terminalReason,
         };
-      if (message.type === 'session_state_changed' && message.internalState === 'ENDED')
-        ended = true;
+    },
+    acceptDurableSession(meta) {
+      if (meta.sessionId !== sessionId) throw new Error('Durable session identity changed');
+      ended = meta.state === 'ENDED' && meta.isActive === false;
+    },
+    providerComplete() {
+      return closeAcknowledged && closePromptSeen && execution;
     },
     complete() {
-      return closeAcknowledged && closePromptSeen && execution && ended;
+      return this.providerComplete() && ended;
     },
     evidence() {
       if (!this.complete()) throw new Error('Closeout did not reach its durable terminal state');
       if (execution.terminalReason !== 'completed')
         throw new Error(`Closeout execution ended as ${execution.terminalReason}`);
-      if (runningAttempts.size !== 1 || terminalAttempts.size !== 1)
-        throw new Error('Closeout did not use exactly one provider attempt');
-      const [providerAttemptId] = runningAttempts;
+      if (attemptMismatch) throw new Error(`Provider attempt token changed: ${attemptMismatch}`);
+      if (attempts.size !== 1) throw new Error('Closeout did not use exactly one provider attempt');
+      const [[providerAttemptId, attempt]] = attempts;
       if (
-        !terminalAttempts.has(providerAttemptId) ||
-        terminalAttempts.get(providerAttemptId) !== 'completed'
+        !attempt.running ||
+        attempt.terminalReason !== 'completed' ||
+        attempt.executionId !== execution.executionId ||
+        attempt.generation !== execution.generation
       )
-        throw new Error('Closeout provider attempt did not complete successfully');
+        throw new Error('Closeout provider attempt does not match the terminal execution');
       return {
         sessionId,
         executionId: execution.executionId,
         generation: execution.generation,
         providerAttemptId,
         terminalReason: execution.terminalReason,
-        providerAttemptCount: runningAttempts.size,
+        providerAttemptCount: attempts.size,
         finalState: 'ENDED',
       };
     },
   };
 }
 
-async function checkedJson(response, operation) {
+async function checkedJson(response, operation, signal) {
+  signal?.throwIfAborted();
   const body = await response.json().catch(() => ({}));
+  signal?.throwIfAborted();
   if (!response.ok) throw new Error(`${operation} failed (${response.status})`);
   return body;
+}
+
+function abortableDelay(ms, signal) {
+  return new Promise((resolveDelay, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error('live closeout canary aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolveDelay();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+async function waitForDurableEnd(config, auth, sessionId, signal) {
+  for (;;) {
+    const meta = await checkedJson(
+      await fetch(`${config.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
+        headers: auth,
+        signal,
+      }),
+      'durable session state',
+      signal,
+    );
+    if (meta.sessionId !== sessionId) throw new Error('Durable session identity changed');
+    if (meta.state === 'ENDED' && meta.isActive === false) return meta;
+    await abortableDelay(1_000, signal);
+  }
 }
 
 export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
@@ -125,35 +181,37 @@ export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
   process.stderr.write(
     `[closeout-live-canary] LIVE CHARGE account=${config.accountId} model=${config.model} reasoning=${config.reasoningEffort}\n`,
   );
-
-  const login = await fetch(`${config.baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ passphrase: config.passphrase }),
-  });
-  const { token } = await checkedJson(login, 'login');
-  const auth = { authorization: `Bearer ${token}` };
   const abort = new AbortController();
   const timer = setTimeout(
     () => abort.abort(new Error('live closeout canary timed out')),
     config.timeoutMs,
   );
-  const stream = await fetch(
-    `${config.baseUrl}/api/chat/events?token=${encodeURIComponent(token)}`,
-    { signal: abort.signal },
-  );
-  if (!stream.ok || !stream.body) throw new Error(`SSE connect failed (${stream.status})`);
-
-  const marker = `CLOSEOUT_CANARY_READY_${Date.now()}`;
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let connectionId;
-  let sessionId;
-  let initialText = '';
-  let closeRequested = false;
-  let tracker;
 
   try {
+    const signal = abort.signal;
+    const login = await fetch(`${config.baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ passphrase: config.passphrase }),
+      signal,
+    });
+    const { token } = await checkedJson(login, 'login', signal);
+    const auth = { authorization: `Bearer ${token}` };
+    const stream = await fetch(
+      `${config.baseUrl}/api/chat/events?token=${encodeURIComponent(token)}`,
+      { signal },
+    );
+    if (!stream.ok || !stream.body) throw new Error(`SSE connect failed (${stream.status})`);
+
+    const marker = `CLOSEOUT_CANARY_READY_${Date.now()}`;
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let connectionId;
+    let sessionId;
+    let initialText = '';
+    let closeRequested = false;
+    let tracker;
+
     for await (const chunk of stream.body) {
       const parsed = parseSseChunk(buffer, decoder.decode(chunk, { stream: true }));
       buffer = parsed.buffer;
@@ -170,8 +228,10 @@ export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
               method: 'POST',
               headers,
               body: JSON.stringify({ type: 'reconnect', sessions: [] }),
+              signal,
             }),
             'reconnect',
+            signal,
           );
           const receipt = await checkedJson(
             await fetch(`${config.baseUrl}/api/chat/send`, {
@@ -188,8 +248,10 @@ export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
                 agentName: 'mitzo-conversational',
                 prompt: `Reply with exactly ${marker} and do not use tools.`,
               }),
+              signal,
             }),
             'send',
+            signal,
           );
           sessionId = receipt.sessionId;
           tracker = createCloseoutTracker(sessionId);
@@ -212,13 +274,18 @@ export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
                 method: 'POST',
                 headers,
                 body: JSON.stringify({ type: 'session_close', sessionId }),
+                signal,
               }),
               'close',
+              signal,
             );
           }
         } else if (closeRequested) {
           tracker?.accept(message);
-          if (tracker?.complete()) return tracker.evidence();
+          if (tracker?.providerComplete()) {
+            tracker.acceptDurableSession(await waitForDurableEnd(config, auth, sessionId, signal));
+            return tracker.evidence();
+          }
         }
       }
     }
