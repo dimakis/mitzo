@@ -859,14 +859,15 @@ describe('closeout prompts echo to frontend', () => {
     chatSource = readFileSync(join(import.meta.dirname, '..', 'chat.ts'), 'utf-8');
   });
 
-  it('queueCloseoutPrompt persists Codex work before echoing it', () => {
+  it('queueCloseoutPrompt durably admits provider work before echoing it', () => {
     const fnStart = chatSource.indexOf('function queueCloseoutPrompt(');
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
-    expect(fnBody.indexOf('codex.enqueue(')).toBeLessThan(fnBody.indexOf('storeAndEchoIfNew('));
+    expect(fnBody.indexOf('admitCloseout({')).toBeLessThan(fnBody.indexOf('storeAndEchoIfNew('));
+    expect(fnBody).toContain('if (admission.duplicate) return');
     expect(fnBody).toContain('storeAndEchoIfNew(');
-    expect(fnBody).toContain("log.debug('skipping closeout echo");
+    expect(fnBody).toContain("log.warn('skipping closeout admission — session not yet resolved'");
   });
 
   it('auto-closeout uses the provider-aware closeout queue', () => {
@@ -874,7 +875,7 @@ describe('closeout prompts echo to frontend', () => {
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\n}', fnStart);
     const fnBody = chatSource.slice(fnStart, fnEnd);
-    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT)');
+    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode)');
   });
 
   it('user-closeout uses the provider-aware closeout queue', () => {
@@ -882,6 +883,43 @@ describe('closeout prompts echo to frontend', () => {
     expect(fnStart).toBeGreaterThan(-1);
     const fnEnd = chatSource.indexOf('\nexport function', fnStart + 1);
     const fnBody = chatSource.slice(fnStart, fnEnd > -1 ? fnEnd : undefined);
-    expect(fnBody).toContain('queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT)');
+    expect(fnBody).toContain(
+      'queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT, episode)',
+    );
+    expect(fnBody).toContain('user close overlaps active automatic closeout');
+  });
+
+  it('only completes fallback closeout after its own echoed input and final SDK result', () => {
+    const fallbackStart = chatSource.indexOf('const fallbackCloseoutAttempts');
+    const mainStart = chatSource.indexOf('export async function startChat(');
+    const fallback = chatSource.slice(fallbackStart, mainStart);
+    const queryStart = chatSource.indexOf('await runQueryLoop(');
+    const queryEnd = chatSource.indexOf('\n    );', queryStart);
+    const queryOptions = chatSource.slice(queryStart, queryEnd);
+
+    expect(fallback).toContain('inputUuid: string');
+    expect(fallback).toContain('inputObserved');
+    expect(fallback).toContain('markFallbackCloseoutInputObserved');
+    expect(queryOptions).toContain('onUserInput: (cId, inputUuid)');
+    expect(queryOptions).toContain('onResult: (cId, result, inputUuid)');
+    expect(queryOptions).toContain("result.is_error === true ? 'failed' : 'completed',");
+    expect(fallback).toContain('inputUuid !== tracked.inputUuid');
+    const onTurnEnd = queryOptions.slice(
+      queryOptions.indexOf('onTurnEnd:'),
+      queryOptions.indexOf('onResult:'),
+    );
+    expect(onTurnEnd).not.toContain('finishFallbackCloseout');
+  });
+
+  it('marks a hard-aborted fallback closeout ambiguous without claiming cancellation', () => {
+    const fallbackStart = chatSource.indexOf('const fallbackCloseoutAttempts');
+    const mainStart = chatSource.indexOf('export async function startChat(');
+    const fallback = chatSource.slice(fallbackStart, mainStart);
+
+    expect(fallback).toContain('function markFallbackCloseoutAmbiguous(');
+    expect(fallback).toContain("'TERMINAL', 'ambiguous'");
+    expect(fallback).toContain("'TERMINAL', 'failed'");
+    expect(chatSource).toContain('() => markFallbackCloseoutAmbiguous(session)');
+    expect(chatSource).not.toContain("() => finishFallbackCloseout(session, 'interrupted')");
   });
 });

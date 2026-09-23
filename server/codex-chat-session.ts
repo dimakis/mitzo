@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
@@ -42,8 +42,16 @@ import {
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
+import type { EventStore } from './event-store.js';
+import type { ProviderDispatchAdmission } from './provider-execution.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+interface PendingProviderAdmission {
+  admission: ProviderDispatchAdmission;
+  eventStore: EventStore;
+  attempt?: ProviderAttemptToken;
+}
+const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 const log = createLogger('codex-chat-session');
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
@@ -99,6 +107,52 @@ function store() {
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
+}
+export function trackCodexProviderAdmission(
+  session: ManagedSession,
+  messageId: string,
+  admission: ProviderDispatchAdmission,
+  eventStore: EventStore,
+): void {
+  let pending = pendingAdmissions.get(session);
+  if (!pending) {
+    pending = new Map();
+    pendingAdmissions.set(session, pending);
+  }
+  pending.set(messageId, { admission, eventStore });
+}
+
+function beginTrackedProviderAttempt(session: ManagedSession, messageId: string): void {
+  const pending = pendingAdmissions.get(session)?.get(messageId);
+  if (!pending || pending.attempt) return;
+  const attempt = pending.eventStore.beginProviderAttempt(
+    pending.admission.token,
+    pending.admission.providerAttemptId,
+  );
+  if (attempt.duplicate) throw new Error('Closeout provider attempt was already dispatched');
+  pending.attempt = attempt.token;
+}
+
+function finishTrackedProviderAttempt(
+  session: ManagedSession,
+  messageId: string,
+  status: 'completed' | 'interrupted' | 'failed',
+): void {
+  const tracked = pendingAdmissions.get(session)?.get(messageId);
+  if (!tracked) return;
+  const providerReason =
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'cancelled' : 'ambiguous';
+  const executionReason =
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'interrupted' : 'failed';
+  if (tracked.attempt)
+    tracked.eventStore.transitionProviderAttempt(tracked.attempt, 'TERMINAL', providerReason);
+  tracked.eventStore.transitionExecution(tracked.admission.token, 'TERMINAL', executionReason);
+  pendingAdmissions.get(session)?.delete(messageId);
+}
+
+function cancelTrackedProviderAdmissions(session: ManagedSession): void {
+  for (const messageId of pendingAdmissions.get(session)?.keys() ?? [])
+    finishTrackedProviderAttempt(session, messageId, 'interrupted');
 }
 /** Cold reconnect creates the session before its app-server runtime is ready.
  * Bound queue continuation waits briefly for that registration instead of
@@ -498,6 +552,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   function finish() {
     if (closed) return;
     closed = true;
+    cancelTrackedProviderAdmissions(options.session);
     if (hooks)
       void hooks
         .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
@@ -581,6 +636,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         }
       : {}),
     emit: (event) => events.push(event),
+    onProviderDispatch: (messageId) => beginTrackedProviderAttempt(options.session, messageId),
+    onProviderComplete: (messageId, status) =>
+      finishTrackedProviderAttempt(options.session, messageId, status),
     onClosed: () => {
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();

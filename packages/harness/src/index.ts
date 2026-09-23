@@ -3,7 +3,12 @@ export type { SessionTransport } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry, effectivePermissionMode } from './session-registry.js';
-export type { ManagedSession, ActiveSessionInfo, CloseoutHandler } from './session-registry.js';
+export type {
+  ManagedSession,
+  ActiveSessionInfo,
+  CloseoutEpisode,
+  CloseoutHandler,
+} from './session-registry.js';
 export type {
   MitzoMode,
   SnapshotBlock,

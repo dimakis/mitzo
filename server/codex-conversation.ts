@@ -54,6 +54,8 @@ interface Options {
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
+  onProviderDispatch?: (commandId: string) => void;
+  onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -169,7 +171,13 @@ export class CodexConversation {
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
     this.ready = false;
-    const commandId = this.active?.command.id;
+    const active = this.active;
+    const commandId = active?.command.id;
+    // Transport loss occurs after dispatch and has an unknown provider outcome.
+    // An interrupt is only a confirmed cancellation after its turn completion
+    // notification arrives; the provider may otherwise continue remotely.
+    const status = 'failed';
+    if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
     try {
@@ -178,7 +186,11 @@ export class CodexConversation {
           this.opts.conversationId,
           this.binding,
           commandId,
-          'interrupted',
+          status,
+          'resume',
+          undefined,
+          true,
+          status === 'failed',
         );
     } catch (persistenceError) {
       this.opts.onError?.(
@@ -634,6 +646,7 @@ export class CodexConversation {
           active.abort.signal,
         )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
+      this.opts.onProviderDispatch?.(command.id);
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -677,14 +690,18 @@ export class CodexConversation {
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
       const replaceProviderThread = requiresProviderThreadReplacement(error);
+      this.opts.onProviderComplete?.(command.id, 'failed');
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
         this.opts.conversationId,
         this.binding!,
         command.id,
-        active.interruptRequested ? 'interrupted' : 'failed',
+        'failed',
         replaceProviderThread ? 'fork' : 'resume',
+        undefined,
+        true,
+        true,
       );
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread) this.retireTransportForRecovery();
@@ -764,6 +781,7 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
@@ -879,8 +897,9 @@ export class CodexConversation {
     if (this.closed) return;
     this.paused = true;
     const active = this.active;
-    if (this.binding)
-      this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding, active?.command.id);
+    // The interrupt request is not a terminal result. Keep active work running
+    // durably until its matching turn/completed notification confirms it.
+    if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
     if (!active) return;
     active.interruptRequested = true;
     active.abort.abort();
@@ -899,6 +918,7 @@ export class CodexConversation {
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
+    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'failed');
     this.active?.abort.abort();
     try {
       if (this.binding)
@@ -906,6 +926,11 @@ export class CodexConversation {
           this.opts.conversationId,
           this.binding,
           this.active?.command.id,
+          'failed',
+          'resume',
+          undefined,
+          true,
+          true,
         );
     } catch (error) {
       this.opts.onError?.(
