@@ -149,6 +149,7 @@ import {
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -1398,6 +1399,7 @@ async function _startChatInner(
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;
