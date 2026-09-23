@@ -215,4 +215,19 @@ describe('durable deliberation', () => {
     await start().completion;
     expect(call.mock.calls[0][1]).toMatchObject({ signal: expect.any(AbortSignal), maxRetries: 0 });
   });
+  it('keeps the root fenced when child terminal writes fail', async () => {
+    const failure = vi.spyOn(store, 'transitionProviderAttempt').mockImplementation(() => {
+      throw new Error('disk');
+    });
+    await expect(start().completion).rejects.toThrow(/active provider attempt/);
+    expect(store.getSession('s')?.executionPhase).toBe('RUNNING');
+    expect(() => start({ clientMsgId: 'new' })).toThrow(/active execution/);
+    expect(call).toHaveBeenCalledOnce();
+    failure.mockRestore();
+    store.close();
+    store = new EventStore(join(dir, 'events.db'));
+    store.recoverOrphanedExecutions();
+    expect(await start().completion).toMatchObject({ status: 'ambiguous' });
+    expect(() => start({ clientMsgId: 'new' })).toThrow(/confirmation/);
+  });
 });

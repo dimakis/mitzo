@@ -16,12 +16,16 @@ export function deliberateRouteRevision(): string {
     'ANTHROPIC_API_KEY',
     'ANTHROPIC_AUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_VERTEX_BASE_URL',
+    'ANTHROPIC_CUSTOM_HEADERS',
     'GOOGLE_APPLICATION_CREDENTIALS',
     'CLOUDSDK_CONFIG',
     'CLOUDSDK_ACTIVE_CONFIG_NAME',
     'CLOUDSDK_CORE_ACCOUNT',
     'CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT',
     'CLOUDSDK_AUTH_ACCESS_TOKEN',
+    'CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE',
+    'CLOUDSDK_AUTH_ACCESS_TOKEN_FILE',
     'GOOGLE_CLOUD_QUOTA_PROJECT',
   ];
   for (const key of keys) digest.update(JSON.stringify([key, process.env[key] ?? null]));
@@ -50,5 +54,8 @@ export function deliberateRouteRevision(): string {
     process.env.GOOGLE_APPLICATION_CREDENTIALS ||
       join(root, 'application_default_credentials.json'),
   );
+  for (const key of ['CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE', 'CLOUDSDK_AUTH_ACCESS_TOKEN_FILE']) {
+    if (process.env[key]) read(process.env[key]!);
+  }
   return digest.digest('hex');
 }
