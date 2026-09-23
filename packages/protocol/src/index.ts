@@ -135,6 +135,14 @@ export type {
 } from './account-binding.js';
 
 export {
+  MITZO_CLIENT_CAPABILITIES,
+  buildClientCapabilitiesPrompt,
+  findArtifactCapabilityByExtension,
+  findArtifactCapabilityByPath,
+} from './client-capabilities.js';
+export type { ArtifactCapability, ClientCapability } from './client-capabilities.js';
+
+export {
   ProfileBindingSchema,
   ContextGrantSchema,
   AuthorityGrantSchema,

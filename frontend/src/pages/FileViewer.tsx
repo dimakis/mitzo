@@ -6,6 +6,7 @@ import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
 import { useDocumentReader } from '../hooks/useDocumentReader';
 import { HtmlPreview } from '../components/HtmlPreview';
+import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -21,8 +22,9 @@ export function FileViewer() {
   const reader = useDocumentReader();
 
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);
-  const isHtml = ['.html', '.htm'].includes(state.ext);
-  const isEditable = isMarkdown || isHtml;
+  const artifactCapability = findArtifactCapabilityByExtension(state.ext);
+  const isHtml = artifactCapability?.artifact?.renderer === 'html';
+  const isEditable = isMarkdown || artifactCapability?.artifact?.editable === true;
   const fileName = state.filePath.split('/').pop() || '';
   const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
