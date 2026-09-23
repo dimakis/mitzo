@@ -1,3 +1,5 @@
+import { deliberateSessionId } from './deliberate-admission.js';
+import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
@@ -133,46 +135,52 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      const receipt = await acceptSendCommandAsync(
-        ctx.eventStore,
-        msg,
-        async (command, sessionId) => {
-          const delegate = new SseTransport(connectionId, sseRegistry);
-          const transport = {
-            // This transport accepts events into durable storage even offline.
-            isOpen: () => true,
-            send(data: Record<string, unknown>) {
-              let event =
-                data.type === 'native_command_result' && !command.sessionId
-                  ? data
-                  : { ...data, sessionId: data.sessionId ?? sessionId };
-              if (data.type === 'error') {
-                ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
-              }
-              // Query-loop events already carry their durable sequence. Early
-              // startup metadata uses this boundary as its persistence point.
-              if (event.sessionId && typeof event.seq !== 'number') {
-                const durable = { ...event, v: 2 };
-                const seq = ctx.eventStore.append(
-                  String(event.sessionId),
-                  String(event.type),
-                  durable,
-                );
-                event = { ...durable, seq };
-              }
-              if (ctx.connRegistry.hasOpenWatchers(sessionId))
-                ctx.connRegistry.broadcast(sessionId, event);
-              else delegate.send(event);
-            },
-          };
-          const outcome = await handleSendV2(connectionId, transport, command, ctx, {
-            initialSessionId: command.sessionId ? undefined : sessionId,
-            awaitStartupAdmission: true,
-          });
-          if (outcome === 'native') return false;
-        },
-      );
-      res.status(202).json(receipt);
+      const dispatch = async (command: typeof msg, sessionId: string) => {
+        const delegate = new SseTransport(connectionId, sseRegistry);
+        const transport = {
+          // This transport accepts events into durable storage even offline.
+          isOpen: () => true,
+          send(data: Record<string, unknown>) {
+            let event =
+              data.type === 'native_command_result' && !command.sessionId
+                ? data
+                : { ...data, sessionId: data.sessionId ?? sessionId };
+            if (data.type === 'error') {
+              ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
+            }
+            // Query-loop events already carry their durable sequence. Early
+            // startup metadata uses this boundary as its persistence point.
+            if (event.sessionId && typeof event.seq !== 'number') {
+              const durable = { ...event, v: 2 };
+              const seq = ctx.eventStore.append(
+                String(event.sessionId),
+                String(event.type),
+                durable,
+              );
+              event = { ...durable, seq };
+            }
+            if (ctx.connRegistry.hasOpenWatchers(sessionId))
+              ctx.connRegistry.broadcast(sessionId, event);
+            else delegate.send(event);
+          },
+        };
+        const outcome = await handleSendV2(connectionId, transport, command, ctx, {
+          initialSessionId: command.sessionId ? undefined : sessionId,
+          awaitStartupAdmission: true,
+        });
+        if (outcome === 'native') return false;
+      };
+      const parsed = parseSlashCommand(msg.prompt);
+      if (parsed?.name === 'deliberate' && parsed.arguments) {
+        // The execution admission itself is the receipt. Re-enter its read-only
+        // duplicate gate on every retry, including after config/route changes.
+        const sessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
+        await dispatch(msg, sessionId);
+        res.status(202).json({ ok: true, accepted: true, clientMsgId: msg.clientMsgId, sessionId });
+      } else {
+        const receipt = await acceptSendCommandAsync(ctx.eventStore, msg, dispatch);
+        res.status(202).json(receipt);
+      }
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
       if (err instanceof ExecutionAdmissionError) {

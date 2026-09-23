@@ -2,13 +2,15 @@ import { loadAccountProfiles } from './account-profiles.js';
 import type { SkillRegistry } from './skills.js';
 import type { SessionTransport } from '@mitzo/harness';
 import {
-  DeliberationOrchestrator,
   FusionOrchestrator,
   DEFAULT_DELIBERATION_CONFIG,
   DEFAULT_FUSION_CONFIG,
   SELF_FUSION_CONFIG,
 } from '@mitzo/harness';
 import type { ReasoningEvent } from '@mitzo/harness';
+import { startDeliberation, type DeliberationRequest } from './deliberate-admission.js';
+import type { EventStore } from './event-store.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
 
 const log = createLogger('native-commands');
@@ -21,6 +23,7 @@ export interface NativeCommandResult {
 /** Context available to async native commands. */
 export interface NativeCommandContext {
   transport?: SessionTransport;
+  deliberation?: { store: EventStore; request: DeliberationRequest; onAdmitted: () => void };
 }
 
 type SyncHandler = (args: string, skillRegistry: SkillRegistry) => NativeCommandResult;
@@ -143,16 +146,35 @@ async function deliberateCommand(
     };
   }
 
-  const onEvent = buildEventEmitter(ctx.transport, 'deliberation');
-
+  if (!ctx.deliberation) throw new Error('Durable deliberation context is required');
+  let admitted;
   try {
-    const orchestrator = new DeliberationOrchestrator({
-      ...DEFAULT_DELIBERATION_CONFIG,
-      onEvent,
+    admitted = startDeliberation({
+      store: ctx.deliberation.store,
+      request: { ...ctx.deliberation.request, task: args.trim() },
+      onEvent: buildEventEmitter(ctx.transport, 'deliberation'),
     });
-
-    const result = await orchestrator.run(args.trim(), '');
-
+  } catch (error) {
+    if (error instanceof ExecutionAdmissionError) throw error;
+    if (error instanceof Error && error.message.startsWith('Explicit confirmation required'))
+      throw error;
+    throw new Error('Deliberation admission unavailable; no new provider work was started');
+  }
+  ctx.deliberation.onAdmitted();
+  try {
+    const outcome = await admitted.completion;
+    if (outcome.status !== 'completed' || !outcome.result) {
+      const messages = {
+        running: 'Deliberation is already running. No provider work was repeated.',
+        completed: 'Deliberation already completed. No provider work was repeated.',
+        failed: 'Deliberation failed before completion. No provider work was repeated.',
+        cancelled: 'Deliberation cancelled. No further phases will run.',
+        ambiguous:
+          'Deliberation outcome is uncertain. No provider work was repeated. An explicit retry requires a new command ID and confirmAmbiguous: true.',
+      };
+      return { command: 'deliberate', content: messages[outcome.status] };
+    }
+    const result = outcome.result;
     const roundsSummary = result.rounds
       .map(
         (r) =>
@@ -177,11 +199,11 @@ async function deliberateCommand(
     ].join('\n');
 
     return { command: 'deliberate', content };
-  } catch (err) {
-    log.error('Deliberation failed', { error: err instanceof Error ? err.message : 'unknown' });
+  } catch {
+    log.error('Deliberation failed', { category: 'durable_execution_failure' });
     return {
       command: 'deliberate',
-      content: `Deliberation failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      content: 'Deliberation failed. Check the durable execution state before retrying.',
     };
   }
 }

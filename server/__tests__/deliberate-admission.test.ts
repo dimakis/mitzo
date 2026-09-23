@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DEFAULT_DELIBERATION_CONFIG } from '@mitzo/harness';
+import { DEFAULT_DELIBERATION_CONFIG, type ModelProvider } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
 import { startDeliberation, cancelDeliberation } from '../deliberate-admission.js';
 
@@ -16,16 +16,16 @@ const response = {
 describe('durable deliberation', () => {
   let store: EventStore;
   let dir: string;
-  let call: ReturnType<typeof vi.fn>;
-  let createProvider: ReturnType<typeof vi.fn>;
+  let call: ReturnType<typeof vi.fn<ModelProvider['call']>>;
+  let createProvider: ReturnType<typeof vi.fn<(model: string) => ModelProvider>>;
   const config = { ...DEFAULT_DELIBERATION_CONFIG, maxRounds: 1 };
   const request = { sessionId: 's', clientMsgId: 'c', task: 'Design this' };
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'deliberate-'));
     store = new EventStore(join(dir, 'events.db'));
     store.upsertSession({ sessionId: 's' });
-    call = vi.fn().mockResolvedValue(response);
-    createProvider = vi.fn(() => ({ name: 'fake', call }));
+    call = vi.fn<ModelProvider['call']>().mockResolvedValue(response);
+    createProvider = vi.fn<(model: string) => ModelProvider>(() => ({ name: 'fake', call }));
   });
   afterEach(() => {
     store.close();

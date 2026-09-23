@@ -1,3 +1,4 @@
+import { deliberateSessionId, cancelDeliberation } from './deliberate-admission.js';
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
 import {
   resolveAccountSelection,
@@ -584,24 +585,81 @@ export function handleSendV2(
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
 
         if (resolution.type === 'native') {
+          const paidDeliberation =
+            resolution.name === 'deliberate' && !!resolution.arguments.trim();
+          const commandSessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
+          let admitted!: () => void;
+          let admissionFailed!: (error: unknown) => void;
+          const admission = paidDeliberation
+            ? new Promise<void>((resolve, reject) => {
+                admitted = resolve;
+                admissionFailed = reject;
+              })
+            : undefined;
+          const commandTransport: SessionTransport = paidDeliberation
+            ? {
+                isOpen: () => transport.isOpen(),
+                send(data) {
+                  const event = { ...data, v: 2, sessionId: commandSessionId };
+                  const seq = ctx.eventStore.append(commandSessionId, String(data.type), event);
+                  // Delivery failure cannot alter durable execution or cause redispatch.
+                  try {
+                    transport.send({ ...event, seq });
+                  } catch {
+                    /* replay remains available */
+                  }
+                },
+              }
+            : transport;
           void ctx.nativeCommands
-            .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+            .execute(resolution.name, resolution.arguments, skillRegistry, {
+              transport: commandTransport,
+              ...(paidDeliberation
+                ? {
+                    deliberation: {
+                      store: ctx.eventStore,
+                      request: {
+                        sessionId: commandSessionId,
+                        clientMsgId: msg.clientMsgId,
+                        task: resolution.arguments,
+                        confirmAmbiguous: msg.confirmAmbiguous,
+                        selection: {
+                          accountBinding: accountBinding ?? null,
+                          model: msg.model ?? null,
+                          reasoningEffort: msg.reasoningEffort,
+                          cwd,
+                          mode: msg.mode,
+                          isolation: msg.isolation,
+                          extraTools: msg.extraTools,
+                          images: msg.images,
+                          contextBlocks: msg.contextBlocks,
+                        },
+                      },
+                      onAdmitted: admitted,
+                    },
+                  }
+                : {}),
+            })
             .then((result) => {
-              if (result) {
-                transport.send({
+              if (result)
+                commandTransport.send({
                   type: 'native_command_result',
                   v: 2,
                   command: result.command,
                   content: result.content,
                 });
-              }
             })
             .catch((err: unknown) => {
-              transport.send({
-                type: 'error',
-                error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
-              });
+              if (paidDeliberation) {
+                admissionFailed(err);
+              } else {
+                transport.send({
+                  type: 'error',
+                  error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                });
+              }
             });
+          await admission;
           return 'native';
         }
 
@@ -876,7 +934,11 @@ export function handleSendV2(
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',
         });
-        if (delivery?.awaitStartupAdmission && err instanceof ExecutionAdmissionError) throw err;
+        if (
+          delivery?.awaitStartupAdmission &&
+          (err instanceof ExecutionAdmissionError || msg.prompt.trim().startsWith('/deliberate '))
+        )
+          throw err;
       }
     },
   );
@@ -884,6 +946,7 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
+    if (cancelDeliberation(ctx.eventStore, msg.sessionId)) return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     if (found) {
       stopChat(found.clientId);
@@ -903,6 +966,7 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
+      if (cancelDeliberation(ctx.eventStore, msg.sessionId)) return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 

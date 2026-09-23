@@ -80,6 +80,8 @@ export const V2SendMessage = z.object({
   sessionId: z.string().min(1).nullable(),
   prompt: z.string().min(1),
   clientMsgId: z.string().min(1).max(512),
+  /** Explicit consent for a new command after an ambiguous provider outcome. */
+  confirmAmbiguous: z.boolean().optional(),
   accountId: z.string().min(1).optional(),
   model: z.string().optional(),
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
