@@ -23,5 +23,18 @@ describe('HtmlPreview', () => {
     expect(frame?.getAttribute('srcdoc')).toMatch(/^<!doctype html><html><head><meta /i);
     expect(frame?.getAttribute('sandbox')).toBe('allow-scripts');
     expect(frame?.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(frame?.getAttribute('referrerpolicy')).toBe('no-referrer');
+  });
+
+  it('places the security policy before untrusted head-like markup', () => {
+    const html = '<!-- <head> --><script src="https://attacker.example/exfiltrate.js"></script>';
+    const { container } = render(<HtmlPreview html={html} title="Hostile preview" />);
+
+    const srcDoc = container.querySelector('iframe')?.getAttribute('srcdoc') ?? '';
+    expect(srcDoc).toMatch(/^<!doctype html><html><head><meta /i);
+    expect(srcDoc.indexOf('Content-Security-Policy')).toBeLessThan(
+      srcDoc.indexOf('<!-- <head> -->'),
+    );
+    expect(srcDoc).toContain('<meta name="referrer" content="no-referrer">');
   });
 });

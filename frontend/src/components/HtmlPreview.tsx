@@ -14,22 +14,19 @@ const PREVIEW_CSP = [
   "connect-src 'none'",
   "form-action 'none'",
   "base-uri 'none'",
+  "object-src 'none'",
+  "frame-src 'none'",
+  "worker-src 'none'",
 ].join('; ');
 
 function buildHtmlPreviewDocument(html: string): string {
   const securityMeta = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_CSP}">`;
-  const head = /<head(?:\s[^>]*)?>/i;
+  const referrerMeta = '<meta name="referrer" content="no-referrer">';
 
-  if (head.test(html)) return html.replace(head, (match) => `${match}${securityMeta}`);
-
-  const htmlTag = /<html(?:\s[^>]*)?>/i;
-  if (htmlTag.test(html)) {
-    return html.replace(htmlTag, (match) => `${match}<head>${securityMeta}</head>`);
-  }
-
-  const doctype = html.match(/^\s*<!doctype[^>]*>/i)?.[0] ?? '<!doctype html>';
-  const body = html.slice(html.startsWith(doctype) ? doctype.length : 0);
-  return `${doctype}<html><head>${securityMeta}</head><body>${body}</body></html>`;
+  // The trusted head must precede the artifact verbatim. Searching untrusted markup
+  // for a head tag can match text inside a comment or attribute and leave the CSP
+  // inactive.
+  return `<!doctype html><html><head>${securityMeta}${referrerMeta}</head><body>${html}</body></html>`;
 }
 
 export function HtmlPreview({ html, title, className = '' }: Props) {
@@ -38,6 +35,7 @@ export function HtmlPreview({ html, title, className = '' }: Props) {
       className={`html-preview${className ? ` ${className}` : ''}`}
       title={title}
       sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
       srcDoc={buildHtmlPreviewDocument(html)}
     />
   );

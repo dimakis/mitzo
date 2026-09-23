@@ -15,7 +15,7 @@ export const MITZO_CLIENT_CAPABILITIES: readonly ClientCapability[] = [
   {
     id: 'html-artifacts',
     summary:
-      'Mitzo can preview and edit self-contained HTML artifacts. Previews are sandboxed without network access.',
+      'Mitzo can preview and edit self-contained HTML artifacts. Previews are sandboxed and isolated from the Mitzo app; external subresources, connections, and form submissions are blocked.',
     agentGuidance:
       'For interactive visual output or UI prototypes, create a self-contained .html file in the workspace and link its file path in your response.',
     artifact: {

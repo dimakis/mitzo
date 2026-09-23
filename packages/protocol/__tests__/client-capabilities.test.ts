@@ -58,6 +58,8 @@ describe('client capabilities', () => {
     const prompt = buildClientCapabilitiesPrompt(MITZO_CLIENT_CAPABILITIES);
 
     expect(prompt).toContain('id="html-artifacts"');
+    expect(prompt).toContain('isolated from the Mitzo app');
+    expect(prompt).not.toContain('without network access');
     expect(prompt).toContain('self-contained .html');
     expect(prompt).toContain('link its file path');
     expect(prompt).not.toContain('Cursor');
