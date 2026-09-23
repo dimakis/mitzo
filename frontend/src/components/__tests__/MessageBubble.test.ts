@@ -277,6 +277,17 @@ describe('TextBubble markdown preview card promotion', () => {
     expect(result.props.filePath).toBe('/tmp/design.mdx');
   });
 
+  it('promotes a standalone .html file-path link to HtmlPreviewCard', () => {
+    renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
+    const p = capturedComponents!.p;
+    const fileHref = `${FILE_SCHEME}${encodeURIComponent('/tmp/prototype.html')}`;
+    const link = createElement('a', { href: fileHref }, '/tmp/prototype.html');
+
+    const result = p({ children: link });
+    expect(result.type).not.toBe('p');
+    expect(result.props.filePath).toBe('/tmp/prototype.html');
+  });
+
   it('does not promote regular URL links in a solo paragraph', () => {
     renderToStaticMarkup(createElement(TextBubble, { content: 'test' }));
     const p = capturedComponents!.p;

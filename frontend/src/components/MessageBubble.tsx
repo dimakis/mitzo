@@ -16,6 +16,7 @@ import { ShareButton } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { extractText } from '../lib/extractText';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
+import { HtmlPreviewCard } from './HtmlPreviewCard';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -144,6 +145,9 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                   const filePath = decodeFilePathUrl(href);
                   if (filePath && /\.mdx?$/i.test(filePath)) {
                     return <MarkdownPreviewCard filePath={filePath} />;
+                  }
+                  if (filePath && /\.html?$/i.test(filePath)) {
+                    return <HtmlPreviewCard filePath={filePath} />;
                   }
                 }
               }

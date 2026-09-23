@@ -3077,6 +3077,107 @@ textarea:focus {
   border-top: 1px solid var(--border);
   margin: 0.5em 0;
 }
+
+/* ===== HTML Preview ===== */
+
+.html-preview {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #fff;
+}
+
+.html-preview-card {
+  align-self: flex-start;
+  width: 100%;
+  overflow: hidden;
+  border-left: 3px solid #f97316;
+  border-radius: 6px;
+  margin: 0.4em 0;
+}
+
+.html-preview-card-header {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.html-preview-card-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.html-preview-card-icon {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  color: #fb923c;
+  background: rgba(249, 115, 22, 0.12);
+  border-radius: 3px;
+  font-family: var(--code-font);
+  font-size: var(--text-xxs);
+  font-weight: 700;
+}
+
+.html-preview-card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-xxs);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.html-preview-card-chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-size: 0.6rem;
+}
+
+.html-preview-card-open {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  margin-right: 0.4rem;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  font-size: var(--text-xxs);
+  cursor: pointer;
+}
+
+.html-preview-card-content {
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+
+.html-preview-card-status {
+  padding: 0.4rem 0.6rem;
+  margin: 0;
+  color: var(--text-dim);
+  background: var(--code-bg);
+  font-size: var(--text-xxs);
+}
+
+.html-preview-card-status--error {
+  color: #f8a0a0;
+}
+
+.html-preview-card-frame {
+  height: min(50vh, 32rem);
+}
 /* ===== Tool Group ===== */
 
 .tool-group {
@@ -4324,6 +4425,11 @@ textarea:focus {
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   min-height: 0;
+}
+
+.viewer-html-preview {
+  height: 100%;
+  min-height: 28rem;
 }
 
 .viewer-status {
