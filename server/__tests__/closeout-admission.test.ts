@@ -96,6 +96,53 @@ describe('closeout admission', () => {
     }
   });
 
+  it('does not replay an undispatched episode after restart recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-closeout-undispatched-'));
+    const path = join(root, 'events.db');
+    const firstStore = new EventStore(path);
+    firstStore.upsertSession({ sessionId: 'session-1', accountBinding: binding });
+    admitCloseout({ store: firstStore, request: request(), prepare: () => {} });
+    firstStore.close();
+
+    const reopened = new EventStore(path);
+    const prepare = vi.fn();
+    try {
+      expect(reopened.recoverOrphanedExecutions()).toBe(1);
+      expect(() => admitCloseout({ store: reopened, request: request(), prepare })).toThrow(
+        /failed before provider dispatch/i,
+      );
+      expect(prepare).not.toHaveBeenCalled();
+    } finally {
+      reopened.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not replay an ambiguous provider attempt after restart recovery', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-closeout-ambiguous-'));
+    const path = join(root, 'events.db');
+    const firstStore = new EventStore(path);
+    firstStore.upsertSession({ sessionId: 'session-1', accountBinding: binding });
+    const first = admitCloseout({ store: firstStore, request: request(), prepare: () => {} });
+    firstStore.beginProviderAttempt(first.token, first.providerAttemptId);
+    firstStore.close();
+
+    const reopened = new EventStore(path);
+    const prepare = vi.fn();
+    try {
+      expect(reopened.recoverOrphanedExecutions()).toBe(1);
+      const retry = admitCloseout({ store: reopened, request: request(), prepare });
+      expect(retry).toEqual({ ...first, duplicate: true });
+      expect(prepare).not.toHaveBeenCalled();
+      expect(reopened.getProviderAttempts(first.token)).toMatchObject([
+        { phase: 'TERMINAL', terminalReason: 'ambiguous' },
+      ]);
+    } finally {
+      reopened.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('fences closeout instead of overwriting an active user execution', () => {
     const store = new EventStore(':memory:');
     store.upsertSession({ sessionId: 'session-1', accountBinding: binding });
