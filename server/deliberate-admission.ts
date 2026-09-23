@@ -44,6 +44,17 @@ function hash(value: unknown): string {
     .digest('hex');
 }
 
+/** Confirmation is explicit user intent, never inferred from an exact retry. */
+export function parseDeliberationInput(args: string): { task: string; confirmAmbiguous: boolean } {
+  const trimmed = args.trim();
+  const flag = '--confirm-ambiguous';
+  const confirmed = trimmed === flag || trimmed.startsWith(`${flag} `);
+  return {
+    task: confirmed ? trimmed.slice(flag.length).trim() : trimmed,
+    confirmAmbiguous: confirmed,
+  };
+}
+
 /** Stable for sessionless requests across transports and reconnects. */
 export function deliberateSessionId(clientMsgId: string): string {
   return `deliberate-${hash(clientMsgId)}`;

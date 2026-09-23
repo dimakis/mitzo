@@ -156,4 +156,37 @@ describe('deliberation transport admission', () => {
     expect(ctx.connRegistry.get('retry')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
     expect(fake.call).toHaveBeenCalledTimes(6);
   });
+  it('requires explicit command confirmation after an uncertain provider failure', async () => {
+    fake.call.mockRejectedValueOnce(new Error('provider secret'));
+    await handleSendV2('conn', transport, msg, ctx);
+    await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, clientMsgId: 'retry' })
+      .expect(422);
+    expect(fake.call).toHaveBeenCalledOnce();
+    await request(app)
+      .post('/api/chat/send')
+      .send({
+        ...msg,
+        clientMsgId: 'confirmed',
+        prompt: '/deliberate --confirm-ambiguous Design this',
+      })
+      .expect(202);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession('s')?.executionTerminalReason).toBe('completed'),
+    );
+    expect(fake.call).toHaveBeenCalledTimes(7);
+    const token = ctx.eventStore.getExecutionAdmission('s', 'confirmed')!.token;
+    expect(ctx.eventStore.getProviderAttempts(token)).toHaveLength(6);
+    expect(sent.some((event) => JSON.stringify(event).includes('provider secret'))).toBe(false);
+  });
+  it('confirmation without a task remains usage-only', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, prompt: '/deliberate --confirm-ambiguous' })
+      .expect(202);
+    expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    expect(fake.call).not.toHaveBeenCalled();
+  });
 });

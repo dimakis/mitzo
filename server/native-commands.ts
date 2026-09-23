@@ -8,7 +8,11 @@ import {
   SELF_FUSION_CONFIG,
 } from '@mitzo/harness';
 import type { ReasoningEvent } from '@mitzo/harness';
-import { startDeliberation, type DeliberationRequest } from './deliberate-admission.js';
+import {
+  startDeliberation,
+  parseDeliberationInput,
+  type DeliberationRequest,
+} from './deliberate-admission.js';
 import type { EventStore } from './event-store.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
@@ -136,7 +140,8 @@ async function deliberateCommand(
   _skillRegistry: SkillRegistry,
   ctx: NativeCommandContext,
 ): Promise<NativeCommandResult> {
-  if (!args.trim()) {
+  const input = parseDeliberationInput(args);
+  if (!input.task) {
     return {
       command: 'deliberate',
       content:
@@ -151,7 +156,11 @@ async function deliberateCommand(
   try {
     admitted = startDeliberation({
       store: ctx.deliberation.store,
-      request: { ...ctx.deliberation.request, task: args.trim() },
+      request: {
+        ...ctx.deliberation.request,
+        task: input.task,
+        confirmAmbiguous: input.confirmAmbiguous || ctx.deliberation.request.confirmAmbiguous,
+      },
       onEvent: buildEventEmitter(ctx.transport, 'deliberation'),
       onAdmitted: ctx.deliberation.onAdmitted,
     });
@@ -172,7 +181,7 @@ async function deliberateCommand(
         failed: 'Deliberation failed before completion. No provider work was repeated.',
         cancelled: 'Deliberation cancelled. No further phases will run.',
         ambiguous:
-          'Deliberation outcome is uncertain. No provider work was repeated. An explicit retry requires a new command ID and confirmAmbiguous: true.',
+          'Deliberation outcome is uncertain. No provider work was repeated. To explicitly start another attempt, use /deliberate --confirm-ambiguous <task>. This may repeat provider work.',
       };
       return { command: 'deliberate', content: messages[outcome.status] };
     }
@@ -188,7 +197,7 @@ async function deliberateCommand(
     const content = [
       `## Deliberation Result`,
       '',
-      `**Task:** ${args.trim()}`,
+      `**Task:** ${input.task}`,
       `**Proposer:** ${DEFAULT_DELIBERATION_CONFIG.proposer.name} (${DEFAULT_DELIBERATION_CONFIG.proposer.model})`,
       `**Challenger:** ${DEFAULT_DELIBERATION_CONFIG.challenger.name} (${DEFAULT_DELIBERATION_CONFIG.challenger.model})`,
       `**Rounds:** ${result.rounds.length} | **Mind changes:** ${result.mindChanges} | **Cost:** $${result.totalCost.toFixed(4)}`,

@@ -1,4 +1,8 @@
-import { deliberateSessionId, cancelDeliberation } from './deliberate-admission.js';
+import {
+  deliberateSessionId,
+  cancelDeliberation,
+  parseDeliberationInput,
+} from './deliberate-admission.js';
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
 import {
   resolveAccountSelection,
@@ -586,7 +590,7 @@ export function handleSendV2(
 
         if (resolution.type === 'native') {
           const paidDeliberation =
-            resolution.name === 'deliberate' && !!resolution.arguments.trim();
+            resolution.name === 'deliberate' && !!parseDeliberationInput(resolution.arguments).task;
           const commandSessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
           let admitted!: () => void;
           let admissionFailed!: (error: unknown) => void;

@@ -1,4 +1,4 @@
-import { deliberateSessionId } from './deliberate-admission.js';
+import { deliberateSessionId, parseDeliberationInput } from './deliberate-admission.js';
 import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
@@ -171,7 +171,7 @@ export function createChatRestRouter(
         if (outcome === 'native') return false;
       };
       const parsed = parseSlashCommand(msg.prompt);
-      if (parsed?.name === 'deliberate' && parsed.arguments) {
+      if (parsed?.name === 'deliberate' && parseDeliberationInput(parsed.arguments).task) {
         // The execution admission itself is the receipt. Re-enter its read-only
         // duplicate gate on every retry, including after config/route changes.
         const sessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
