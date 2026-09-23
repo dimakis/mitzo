@@ -199,9 +199,19 @@ function markFallbackCloseoutInputObserved(session: ManagedSession, inputUuid: s
   if (tracked?.inputUuid === inputUuid) tracked.inputObserved = true;
 }
 
+function markFallbackCloseoutAmbiguous(session: ManagedSession): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  // An SDK abort only stops this local stream. Without a matching provider
+  // result, the remote closeout may still run and its outcome is unknown.
+  eventStore.transitionProviderAttempt(tracked.attempt, 'TERMINAL', 'ambiguous');
+  eventStore.transitionExecution(tracked.admission.token, 'TERMINAL', 'failed');
+  fallbackCloseoutAttempts.delete(session);
+}
+
 function finishFallbackCloseout(
   session: ManagedSession,
-  status: 'completed' | 'interrupted' | 'failed',
+  status: 'completed' | 'failed',
   inputUuid?: string,
 ): void {
   const tracked = fallbackCloseoutAttempts.get(session);
@@ -210,20 +220,16 @@ function finishFallbackCloseout(
   // also belong to a turn that pre-dates the closeout input. Only the echoed
   // closeout input followed by its terminal SDK result may complete admission.
   // If the echo is absent, leave the dispatched work recoverably ambiguous.
-  if (
-    status !== 'interrupted' &&
-    (!tracked.inputObserved || inputUuid === undefined || inputUuid !== tracked.inputUuid)
-  )
-    return;
+  if (!tracked.inputObserved || inputUuid === undefined || inputUuid !== tracked.inputUuid) return;
   eventStore.transitionProviderAttempt(
     tracked.attempt,
     'TERMINAL',
-    status === 'completed' ? 'completed' : status === 'interrupted' ? 'cancelled' : 'ambiguous',
+    status === 'completed' ? 'completed' : 'ambiguous',
   );
   eventStore.transitionExecution(
     tracked.admission.token,
     'TERMINAL',
-    status === 'completed' ? 'completed' : status === 'interrupted' ? 'interrupted' : 'failed',
+    status === 'completed' ? 'completed' : 'failed',
   );
   fallbackCloseoutAttempts.delete(session);
 }
@@ -2500,7 +2506,7 @@ function queueCloseoutPrompt(
     });
     session.abortController.signal.addEventListener(
       'abort',
-      () => finishFallbackCloseout(session, 'interrupted'),
+      () => markFallbackCloseoutAmbiguous(session),
       { once: true },
     );
     session.inputQueue?.push(

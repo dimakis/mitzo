@@ -910,4 +910,16 @@ describe('closeout prompts echo to frontend', () => {
     );
     expect(onTurnEnd).not.toContain('finishFallbackCloseout');
   });
+
+  it('marks a hard-aborted fallback closeout ambiguous without claiming cancellation', () => {
+    const fallbackStart = chatSource.indexOf('const fallbackCloseoutAttempts');
+    const mainStart = chatSource.indexOf('export async function startChat(');
+    const fallback = chatSource.slice(fallbackStart, mainStart);
+
+    expect(fallback).toContain('function markFallbackCloseoutAmbiguous(');
+    expect(fallback).toContain("'TERMINAL', 'ambiguous'");
+    expect(fallback).toContain("'TERMINAL', 'failed'");
+    expect(chatSource).toContain('() => markFallbackCloseoutAmbiguous(session)');
+    expect(chatSource).not.toContain("() => finishFallbackCloseout(session, 'interrupted')");
+  });
 });
