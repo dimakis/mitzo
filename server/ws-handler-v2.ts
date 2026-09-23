@@ -1,4 +1,5 @@
 import {
+  claimChatCommand,
   reasoningSessionId,
   isReasoningSessionId,
   paidReasoningCommand,
@@ -549,6 +550,7 @@ export function handleSendV2(
     initialSessionId?: string;
     awaitStartupAdmission?: boolean;
     receiptAdmitted?: boolean;
+    identityClaimed?: boolean;
   },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
@@ -556,6 +558,7 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
         let resolveStartupAdmission: (() => void) | undefined;
         let rejectStartupAdmission: ((error: unknown) => void) | undefined;
         const startupAdmission = delivery?.awaitStartupAdmission
@@ -643,6 +646,7 @@ export function handleSendV2(
                     initialSessionId: delivery?.initialSessionId ?? admittedSessionId,
                     awaitStartupAdmission: true,
                     receiptAdmitted: true,
+                    identityClaimed: true,
                   },
                 );
               },

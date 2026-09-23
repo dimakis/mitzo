@@ -6,7 +6,12 @@ requires a durable context; bare harness usage remains compatible.
 
 ## Identity and admission
 
-The global `send_commands` receipt rejects changed payloads across REST/SSE,
+An EventStore `client_command_claims` row reserves a canonical hash of the original
+wire intent before any transport normalization, including ordinary WebSocket
+commands that have no HTTP receipt. It records identity only, not execution state;
+receipt and execution gates retain their replay/route behavior. Claims survive
+restart, contain no raw prompt, and reject changed payloads with HTTP 409.
+The global `send_commands` receipt also rejects changed payloads across REST/SSE,
 WebSocket, ordinary messages, `/deliberate`, and `/fuse`. Exact fusion retries
 re-enter the execution fingerprint gate. `fusion-v1` hashes normalized task,
 complete panel/judge/synthesizer configuration and budget, caller selections,

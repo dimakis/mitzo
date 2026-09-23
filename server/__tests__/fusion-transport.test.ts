@@ -138,7 +138,7 @@ describe('fusion transport admission', () => {
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
-      .expect(422);
+      .expect(409);
     expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it.each([null, 'closed-synthetic'])(
@@ -178,7 +178,7 @@ describe('fusion transport admission', () => {
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
-      .expect(422);
+      .expect(409);
     expect(fake.call).toHaveBeenCalledTimes(5);
   });
   it.each(['ws', 'sse'])('%s usage-only commands create no execution or provider', async (kind) => {
@@ -363,6 +363,23 @@ describe('fusion transport admission', () => {
         .expect(202);
       expect(fake.factory).not.toHaveBeenCalled();
       expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    },
+  );
+  it.each(['ordinary task', '/skills'])(
+    'reserves a WS command ID before later paid fusion: %s',
+    async (prompt) => {
+      await handleSendV2('conn', transport, { ...msg, sessionId: null, prompt }, ctx);
+      await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+      expect(fake.factory).not.toHaveBeenCalled();
+      expect(sent.at(-1)).toMatchObject({
+        type: 'error',
+        error: expect.stringMatching(/different/),
+      });
+      await request(app)
+        .post('/api/chat/send')
+        .send({ ...msg, sessionId: null })
+        .expect(409);
+      expect(fake.factory).not.toHaveBeenCalled();
     },
   );
 });

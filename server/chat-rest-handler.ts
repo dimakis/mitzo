@@ -1,4 +1,5 @@
 import {
+  claimChatCommand,
   reasoningSessionId,
   isReasoningSessionId,
   paidReasoningCommand,
@@ -141,6 +142,7 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
+      claimChatCommand(ctx.eventStore, msg);
       const dispatch = async (
         command: typeof msg,
         sessionId: string,
@@ -181,6 +183,7 @@ export function createChatRestRouter(
         const outcome = await handleSendV2(connectionId, transport, command, ctx, {
           initialSessionId: command.sessionId ? undefined : sessionId,
           awaitStartupAdmission: true,
+          identityClaimed: true,
           // REST inserts the global receipt before dispatch; WS inserts it in
           // handleSendV2 so the same check can fence cross-transport retries.
           receiptAdmitted: options.receiptAdmitted ?? true,

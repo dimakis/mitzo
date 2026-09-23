@@ -138,7 +138,7 @@ describe('deliberation transport admission', () => {
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
-      .expect(422);
+      .expect(409);
     expect(fake.call).toHaveBeenCalledTimes(6);
   });
   it.each([null, 'closed-synthetic'])(
@@ -178,7 +178,7 @@ describe('deliberation transport admission', () => {
     await request(app)
       .post('/api/chat/send')
       .send({ ...msg, sessionId: null, prompt: '/skills' })
-      .expect(422);
+      .expect(409);
     expect(fake.call).toHaveBeenCalledTimes(6);
   });
   it.each(['ws', 'sse'])('%s usage-only commands create no execution or provider', async (kind) => {
