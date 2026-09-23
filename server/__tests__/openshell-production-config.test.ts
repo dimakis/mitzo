@@ -1,7 +1,10 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
+  loadProductionConfig,
   validateStaticConfig,
   verifyAccountBindings,
   verifyOpenAiHeaderAuthentication,
@@ -28,7 +31,16 @@ describe('OpenShell production bundle validation', () => {
     credentials: [
       { env_vars: ['OPENAI_API_KEY'], auth_style: 'bearer', header_name: 'authorization' },
     ],
-    endpoints: [{ host: 'api.openai.com', port: 443, protocol: 'rest', enforcement: 'enforce' }],
+    endpoints: [
+      {
+        host: 'api.openai.com',
+        port: 443,
+        protocol: 'rest',
+        enforcement: 'enforce',
+        request_body_credential_rewrite: false,
+        allow_uninspected_credentials: false,
+      },
+    ],
   };
 
   it('accepts inspected OpenAI header authentication without body substitution', () => {
@@ -43,6 +55,17 @@ describe('OpenShell production bundle validation', () => {
         endpoints: [{ ...headerProfile.endpoints[0], [flag]: true }],
       };
       expect(() => verifyOpenAiHeaderAuthentication(profile)).toThrow(/OpenAI/);
+    },
+  );
+
+  it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
+    'rejects live OpenAI profile drift omitting %s',
+    (flag) => {
+      const endpoint: Record<string, unknown> = { ...headerProfile.endpoints[0] };
+      delete endpoint[flag];
+      expect(() =>
+        verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [endpoint] }),
+      ).toThrow(/OpenAI/);
     },
   );
 
@@ -78,6 +101,17 @@ describe('OpenShell production bundle validation', () => {
         true,
       ),
     ).toBe(false);
+  });
+
+  it('makes the release env authoritative over inherited deploy variables', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-release-env-'));
+    const envPath = join(dir, '.env');
+    writeFileSync(envPath, 'MITZO_OPENSHELL_IMAGE=release-image\n');
+
+    expect(
+      loadProductionConfig(envPath, { MITZO_OPENSHELL_IMAGE: 'stale-shell-image' })
+        .MITZO_OPENSHELL_IMAGE,
+    ).toBe('release-image');
   });
 
   it('accepts a pinned image and exact provider ordering', () => {
@@ -203,5 +237,22 @@ describe('OpenShell production bundle validation', () => {
     const preflight = deploy.indexOf('node scripts/verify-openshell-production.mjs');
     expect(readiness).toBeGreaterThan(-1);
     expect(preflight).toBeGreaterThan(readiness);
+  });
+
+  it('keeps release creation serialized, remote-complete, and atomic', () => {
+    const release = readFileSync(
+      new URL('../../scripts/create-release.sh', import.meta.url),
+      'utf8',
+    );
+    expect(release).toContain('+refs/heads/*:refs/remotes/origin/*');
+    expect(release).toContain('canonical runtime .env is missing');
+    expect(release).toContain('mkdir "$LOCK_DIR"');
+    expect(release).toContain('mktemp -d "$RELEASE_ROOT/.build.XXXXXX"');
+    expect(release).toContain(
+      'MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"',
+    );
+    expect(release.indexOf('mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"')).toBeGreaterThan(
+      release.indexOf('node scripts/verify-openshell-production.mjs .env'),
+    );
   });
 });
