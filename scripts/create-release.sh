@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SOURCE_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RUNTIME_ROOT="${MITZO_RUNTIME_ROOT:-$SOURCE_ROOT}"
 SOURCE_REF="${1:-HEAD}"
 RELEASE_ROOT="${MITZO_RELEASE_ROOT:-$HOME/tools/mitzo-releases}"
 
@@ -28,12 +29,12 @@ RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
 }
 
 git -C "$SOURCE_ROOT" worktree add --detach "$RELEASE_DIR" "$SOURCE_COMMIT"
-if [ -f "$SOURCE_ROOT/.env" ]; then
-  cp "$SOURCE_ROOT/.env" "$RELEASE_DIR/.env"
+if [ -f "$RUNTIME_ROOT/.env" ]; then
+  cp "$RUNTIME_ROOT/.env" "$RELEASE_DIR/.env"
   chmod 600 "$RELEASE_DIR/.env"
 fi
-if [ -d "$SOURCE_ROOT/certs" ]; then
-  ln -s "$SOURCE_ROOT/certs" "$RELEASE_DIR/certs"
+if [ -d "$RUNTIME_ROOT/certs" ]; then
+  ln -s "$RUNTIME_ROOT/certs" "$RELEASE_DIR/certs"
 fi
 
 cat > "$RELEASE_DIR/release.txt" <<EOF
