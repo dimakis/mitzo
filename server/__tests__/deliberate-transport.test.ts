@@ -130,4 +130,30 @@ describe('deliberation transport admission', () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(fake.call).toHaveBeenCalledOnce();
   });
+  it('assigns and watches a new session after admission but before any provider/reasoning work', async () => {
+    ctx.connRegistry.register('conn', transport);
+    fake.call.mockImplementation(async () => {
+      expect(sent[0]).toMatchObject({ type: 'session_id', sessionId: deliberateSessionId('c') });
+      expect(ctx.eventStore.getExecutionAdmission(deliberateSessionId('c'), 'c')).toBeDefined();
+      return reply;
+    });
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(deliberateSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    expect(sent[0]).toMatchObject({ type: 'session_id' });
+    expect(ctx.connRegistry.get('conn')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
+    const retrySent: Record<string, unknown>[] = [];
+    const retryTransport = {
+      isOpen: () => true,
+      send: (event: Record<string, unknown>) => {
+        retrySent.push(event);
+      },
+    };
+    ctx.connRegistry.register('retry', retryTransport);
+    await handleSendV2('retry', retryTransport, { ...msg, sessionId: null }, ctx);
+    expect(retrySent[0]).toMatchObject({ type: 'session_id', sessionId: deliberateSessionId('c') });
+    expect(ctx.connRegistry.get('retry')?.watchedSessions.has(deliberateSessionId('c'))).toBe(true);
+    expect(fake.call).toHaveBeenCalledTimes(6);
+  });
 });

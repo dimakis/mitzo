@@ -86,6 +86,7 @@ export function startDeliberation(options: {
   routeRevision?: () => string;
   createProvider?: (model: string) => ModelProvider;
   onEvent?: ReasoningEventHandler;
+  onAdmitted?: () => void;
 }): { token: ExecutionToken; duplicate: boolean; completion: Promise<DeliberationOutcome> } {
   const { store, request } = options;
   if (!request.task.trim()) throw new Error('Deliberation requires a task');
@@ -109,6 +110,7 @@ export function startDeliberation(options: {
         'Command ID already admitted for a different request',
       );
     }
+    options.onAdmitted?.();
     return {
       token: prior.token,
       duplicate: true,
@@ -137,9 +139,17 @@ export function startDeliberation(options: {
     request.clientMsgId,
     fingerprint,
   );
-  if (admitted.duplicate)
+  if (admitted.duplicate) {
+    options.onAdmitted?.();
     return { ...admitted, completion: Promise.resolve(outcome(store, admitted.token)) };
+  }
   const token = admitted.token;
+  try {
+    options.onAdmitted?.();
+  } catch (error) {
+    store.transitionExecution(token, 'TERMINAL', 'startup_failed');
+    throw error;
+  }
   const abort = new AbortController();
   let runs = active.get(store);
   if (!runs) {

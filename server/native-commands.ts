@@ -153,6 +153,7 @@ async function deliberateCommand(
       store: ctx.deliberation.store,
       request: { ...ctx.deliberation.request, task: args.trim() },
       onEvent: buildEventEmitter(ctx.transport, 'deliberation'),
+      onAdmitted: ctx.deliberation.onAdmitted,
     });
   } catch (error) {
     if (error instanceof ExecutionAdmissionError) throw error;
@@ -162,7 +163,6 @@ async function deliberateCommand(
     // eslint-disable-next-line preserve-caught-error
     throw new Error('Deliberation admission unavailable; no new provider work was started');
   }
-  ctx.deliberation.onAdmitted();
   try {
     const outcome = await admitted.completion;
     if (outcome.status !== 'completed' || !outcome.result) {

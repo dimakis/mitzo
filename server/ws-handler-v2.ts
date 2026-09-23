@@ -635,7 +635,16 @@ export function handleSendV2(
                           contextBlocks: msg.contextBlocks,
                         },
                       },
-                      onAdmitted: admitted,
+                      onAdmitted: () => {
+                        if (!msg.sessionId)
+                          commandTransport.send({
+                            type: 'session_id',
+                            sessionId: commandSessionId,
+                          });
+                        ctx.connRegistry.watch(connectionId, commandSessionId);
+                        ctx.connRegistry.setActive(connectionId, commandSessionId);
+                        admitted();
+                      },
                     },
                   }
                 : {}),
