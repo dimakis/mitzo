@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { z } from 'zod';
+import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
 
 const CommandInput = z
   .object({
@@ -35,6 +36,7 @@ const CommandInput = z
     allowedTools: z.array(z.string()).optional(),
   })
   .strict();
+const WebSearchGrantSchema = z.enum(['unresolved', 'denied', 'allowed']);
 export type CodexCommandInput = z.infer<typeof CommandInput>;
 export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
@@ -68,6 +70,9 @@ interface Conversation {
   lastCompletedTurnId: string | null;
   recovery: number;
   recoveryStrategy: 'resume' | 'fork';
+  webSearchGrant: WebSearchGrant;
+  webSearchGrantRevision: number;
+  webSearchGrantUpdatedAt: number | null;
 }
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
@@ -82,7 +87,10 @@ export class CodexConversationStore {
       id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
       thread_generation INTEGER NOT NULL DEFAULT 0,
       recovery INTEGER NOT NULL DEFAULT 0,
-      recovery_strategy TEXT NOT NULL DEFAULT 'resume');
+      recovery_strategy TEXT NOT NULL DEFAULT 'resume',
+      web_search_grant TEXT NOT NULL DEFAULT 'unresolved',
+      web_search_grant_revision INTEGER NOT NULL DEFAULT 0,
+      web_search_grant_updated_at INTEGER);
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
@@ -108,6 +116,18 @@ export class CodexConversationStore {
       if (addsRecoveryStrategy)
         this.db.exec(
           "ALTER TABLE codex_conversations ADD COLUMN recovery_strategy TEXT NOT NULL DEFAULT 'resume'",
+        );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant'))
+        this.db.exec(
+          "ALTER TABLE codex_conversations ADD COLUMN web_search_grant TEXT NOT NULL DEFAULT 'unresolved'",
+        );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant_revision'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN web_search_grant_revision INTEGER NOT NULL DEFAULT 0',
+        );
+      if (!conversationColumns.some((column) => column.name === 'web_search_grant_updated_at'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN web_search_grant_updated_at INTEGER',
         );
       this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_generations (
         conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
@@ -169,6 +189,9 @@ export class CodexConversationStore {
         `SELECT c.id AS conversationId,c.binding,c.cwd,c.thread_id AS threadId,
           c.thread_generation AS threadGeneration,c.recovery,
           c.recovery_strategy AS recoveryStrategy,
+          c.web_search_grant AS webSearchGrant,
+          c.web_search_grant_revision AS webSearchGrantRevision,
+          c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
           g.last_completed_turn_id AS lastCompletedTurnId
         FROM codex_conversations c
         LEFT JOIN codex_thread_generations g
@@ -186,7 +209,37 @@ export class CodexConversationStore {
       lastCompletedTurnId: row.lastCompletedTurnId,
       recovery: row.recovery,
       recoveryStrategy: row.recoveryStrategy,
+      webSearchGrant: WebSearchGrantSchema.parse(row.webSearchGrant),
+      webSearchGrantRevision: row.webSearchGrantRevision,
+      webSearchGrantUpdatedAt: row.webSearchGrantUpdatedAt,
     };
+  }
+  readWebSearchGrant(id: string, b: AccountBinding): PersistedWebSearchGrant {
+    const row = this.read(id, b);
+    return {
+      grant: row.webSearchGrant,
+      revision: row.webSearchGrantRevision,
+      updatedAt: row.webSearchGrantUpdatedAt,
+    };
+  }
+  setWebSearchGrant(
+    id: string,
+    b: AccountBinding,
+    expectedRevision: number,
+    grant: Exclude<WebSearchGrant, 'unresolved'>,
+    updatedAt = Date.now(),
+  ): PersistedWebSearchGrant {
+    this.read(id, b);
+    const result = this.db
+      .prepare(
+        `UPDATE codex_conversations
+        SET web_search_grant=?,web_search_grant_revision=web_search_grant_revision+1,
+          web_search_grant_updated_at=?
+        WHERE id=? AND web_search_grant_revision=?`,
+      )
+      .run(grant, updatedAt, id, expectedRevision);
+    if (result.changes !== 1) throw new Error('Web search grant changed concurrently');
+    return this.readWebSearchGrant(id, b);
   }
   create(id: string, b: AccountBinding, cwd: string) {
     this.db

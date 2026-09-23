@@ -342,6 +342,7 @@ it('does not send an empty environments override that disables built-in Codex to
   const turn = requests.find((request) => request.method === 'turn/start');
   expect(thread?.params).not.toHaveProperty('environments');
   expect(turn?.params).not.toHaveProperty('environments');
+  expect(thread?.params).toMatchObject({ config: { web_search: 'live' } });
 });
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
@@ -876,6 +877,7 @@ it('moves an old conversation to a new thread generation before accepting the ne
   expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
     threadId: 'provider-thread',
     lastTurnId: 'turn-1',
+    config: { web_search: 'live' },
   });
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread-fork-1',
@@ -1126,6 +1128,9 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   old.c.close();
   const resumed = await setup(old.store);
   expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).toMatchObject({
+    config: { web_search: 'live' },
+  });
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
   expect(resumed.c.isPaused()).toBe(true);
   await resumed.c.acknowledgeRecovery();
