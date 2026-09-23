@@ -294,6 +294,11 @@ async function _runQueryLoopInner(
   let resolvedSessionId: string | undefined;
   let initialPromptPending = !!initialPrompt;
   let pendingParentInputUuid: string | undefined;
+  // A user input echo arriving while a parent turn is active can belong to a
+  // later queued turn. The SDK result does not identify its input, so never
+  // use that echo to complete durable work for the active turn.
+  let parentInputCorrelationAmbiguous = false;
+  let parentTurnActive = false;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -711,8 +716,14 @@ async function _runQueryLoopInner(
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
-          options?.onResult?.(clientId, result, pendingParentInputUuid);
+          options?.onResult?.(
+            clientId,
+            result,
+            parentInputCorrelationAmbiguous ? undefined : pendingParentInputUuid,
+          );
           pendingParentInputUuid = undefined;
+          parentInputCorrelationAmbiguous = false;
+          parentTurnActive = false;
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;
           log.debug('stream event', { clientId, evtType: evt?.type });
@@ -817,6 +828,8 @@ async function _runQueryLoopInner(
               // Don't process parent turn logic for subagent message_start
               continue;
             }
+
+            parentTurnActive = true;
 
             // End previous turn span if still open (e.g. deferred message_end)
             if (currentTurnSpan) {
@@ -1337,8 +1350,12 @@ async function _runQueryLoopInner(
             typeof msg.uuid === 'string' &&
             typeof content === 'string'
           ) {
-            pendingParentInputUuid = msg.uuid;
-            options?.onUserInput?.(clientId, msg.uuid);
+            if (parentTurnActive || pendingParentInputUuid !== undefined) {
+              parentInputCorrelationAmbiguous = true;
+            } else {
+              pendingParentInputUuid = msg.uuid;
+              options?.onUserInput?.(clientId, msg.uuid);
+            }
           }
           const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
 

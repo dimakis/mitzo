@@ -173,10 +173,10 @@ export class CodexConversation {
     this.ready = false;
     const active = this.active;
     const commandId = active?.command.id;
-    // A close after an explicit interrupt is a confirmed cancellation. Every
-    // other transport loss occurs after dispatch and therefore has an unknown
-    // provider outcome until the user explicitly acknowledges recovery.
-    const status = active?.interruptRequested ? 'interrupted' : 'failed';
+    // Transport loss occurs after dispatch and has an unknown provider outcome.
+    // An interrupt is only a confirmed cancellation after its turn completion
+    // notification arrives; the provider may otherwise continue remotely.
+    const status = 'failed';
     if (commandId) this.opts.onProviderComplete?.(commandId, status);
     this.active?.abort.abort();
     this.active = undefined;
@@ -690,18 +690,18 @@ export class CodexConversation {
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
       const replaceProviderThread = requiresProviderThreadReplacement(error);
-      this.opts.onProviderComplete?.(
-        command.id,
-        active.interruptRequested ? 'interrupted' : 'failed',
-      );
+      this.opts.onProviderComplete?.(command.id, 'failed');
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
         this.opts.conversationId,
         this.binding!,
         command.id,
-        active.interruptRequested ? 'interrupted' : 'failed',
+        'failed',
         replaceProviderThread ? 'fork' : 'resume',
+        undefined,
+        true,
+        true,
       );
       if (this.active === active) this.active = undefined;
       if (replaceProviderThread) this.retireTransportForRecovery();
@@ -897,8 +897,9 @@ export class CodexConversation {
     if (this.closed) return;
     this.paused = true;
     const active = this.active;
-    if (this.binding)
-      this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding, active?.command.id);
+    // The interrupt request is not a terminal result. Keep active work running
+    // durably until its matching turn/completed notification confirms it.
+    if (this.binding) this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
     if (!active) return;
     active.interruptRequested = true;
     active.abort.abort();
@@ -917,7 +918,7 @@ export class CodexConversation {
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
-    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'interrupted');
+    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'failed');
     this.active?.abort.abort();
     try {
       if (this.binding)
@@ -925,6 +926,11 @@ export class CodexConversation {
           this.opts.conversationId,
           this.binding,
           this.active?.command.id,
+          'failed',
+          'resume',
+          undefined,
+          true,
+          true,
         );
     } catch (error) {
       this.opts.onError?.(

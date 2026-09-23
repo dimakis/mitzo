@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
 const cleanup: (() => void)[] = [];
 const binding = {
@@ -158,6 +159,7 @@ async function setup(
     onClosed,
     onError,
     requestUserInput,
+    getBinding: () => (c as unknown as { binding: AccountBinding }).binding,
     getProviderThread: () => providerThread,
   };
 }
@@ -213,7 +215,7 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
   await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
 });
 
-it('preserves cancellation when transport loss follows an explicit interrupt', async () => {
+it('keeps an explicit interrupt ambiguous when transport loss occurs before completion', async () => {
   const onProviderComplete = vi.fn();
   const { c, callbacks, rpc } = await setup(
     undefined,
@@ -239,8 +241,32 @@ it('preserves cancellation when transport loss follows an explicit interrupt', a
   await c.send({ id: 'closeout-command', prompt: 'close safely' });
   await c.interrupt();
 
-  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'interrupted');
-  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'interrupted' }]);
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+});
+
+it('marks active work ambiguous when forced shutdown closes the runtime', async () => {
+  const onProviderComplete = vi.fn();
+  const { c, store, getBinding } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  c.close();
+
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  expect(store.retryLatestFailed('app', getBinding())).toBe('confirmation_required');
 });
 it('does not persist queued work when lifecycle admission is fenced', async () => {
   const onActivity = vi.fn(() => false);
@@ -1108,18 +1134,26 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
     threadId: 'provider-thread',
     turn: { id: 'turn-1', status: 'completed' },
   });
-  expect(resumed.c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  expect(resumed.c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
   resumed.c.close();
 });
 
 it('interrupts a turn that is created while turn/start is still in flight', async () => {
-  const { c, rpc, requests } = await setup();
+  const { c, callbacks, rpc, requests } = await setup();
   const request = rpc.request.getMockImplementation()!;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      requests.push({ method, params });
+      callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'late-turn', status: 'interrupted' },
+      });
+      return {};
+    }
     if (method !== 'turn/start') return request(method, params);
     requests.push({ method, params });
     await gate;
@@ -1166,7 +1200,7 @@ it('drains an early completion when interrupt races with the turn/start response
   await send;
   await c.acknowledgeRecovery();
   expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'running']);
+  expect(c.queue().map((command) => command.status)).toEqual(['completed', 'running']);
 });
 
 it('does not throw from a transport close callback when recovery persistence fails', async () => {
@@ -1380,7 +1414,7 @@ it('closes and reports a completion hook that exceeds its deadline', async () =>
   await vi.waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
   expect(hookSignal.aborted).toBe(true);
   expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
-  expect(c.queue()[0].status).toBe('interrupted');
+  expect(c.queue()[0].status).toBe('failed');
 });
 
 it('does not report a late turn-start failure after close owns recovery', async () => {
@@ -1405,7 +1439,7 @@ it('does not report a late turn-start failure after close owns recovery', async 
   await expect(send).resolves.toBeUndefined();
   expect(onClosed).toHaveBeenCalledTimes(1);
   expect(onError).not.toHaveBeenCalled();
-  expect(c.queue()[0].status).toBe('interrupted');
+  expect(c.queue()[0].status).toBe('failed');
 });
 
 it('persists the selected reasoning effort and sends it to Codex', async () => {

@@ -209,6 +209,34 @@ describe('runQueryLoop', () => {
     expect(received).toEqual(['input:closeout-input-uuid', 'result:completed:closeout-input-uuid']);
   });
 
+  it('leaves a queued input uncorrelated when it echoes during an earlier active turn', async () => {
+    const resultInputs: Array<string | undefined> = [];
+    await runQueryLoop(
+      eventStream([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'earlier-turn' } } },
+        {
+          type: 'user',
+          uuid: 'closeout-input-uuid',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'finish closeout' },
+        },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'later-turn' } } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onResult: (_clientId, _result, inputUuid) => resultInputs.push(inputUuid) },
+    );
+
+    expect(resultInputs).toEqual([undefined, undefined]);
+  });
+
   it('emits block_start+block_delta+block_end for thinking blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-th' } } },
