@@ -52,6 +52,26 @@ describe('closeout admission', () => {
     }
   });
 
+  it('admits a later episode after the previous closeout is terminal', () => {
+    const store = new EventStore(':memory:');
+    store.upsertSession({ sessionId: 'session-1', accountBinding: binding });
+    const prepare = vi.fn();
+    try {
+      const first = admitCloseout({ store, request: request('episode-1'), prepare });
+      const attempt = store.beginProviderAttempt(first.token, first.providerAttemptId);
+      store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+      store.transitionExecution(first.token, 'TERMINAL', 'completed');
+
+      const later = admitCloseout({ store, request: request('episode-2'), prepare });
+
+      expect(later.duplicate).toBe(false);
+      expect(later.messageId).not.toBe(first.messageId);
+      expect(prepare).toHaveBeenCalledTimes(2);
+    } finally {
+      store.close();
+    }
+  });
+
   it('rejects changed source, template, task, model, or route before preparation', () => {
     const variants = [
       { episode: { id: 'episode-1', source: 'user' as const } },

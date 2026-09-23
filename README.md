@@ -18,6 +18,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
+- **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
