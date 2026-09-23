@@ -1,0 +1,332 @@
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
+import { EventStore } from '../event-store.js';
+import { NativeCommandRegistry } from '../native-commands.js';
+import { SkillRegistry } from '../skills.js';
+import { handleSendV2, handleStopV2, type V2HandlerContext } from '../ws-handler-v2.js';
+import { createChatRestRouter } from '../chat-rest-handler.js';
+import { SessionSseRegistry } from '../session-sse-registry.js';
+import { fusionSessionId } from '../fusion-admission.js';
+
+const fake = vi.hoisted(() => ({ call: vi.fn(), factory: vi.fn(), route: 'one' }));
+vi.mock('../../packages/harness/src/providers/index.js', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  createProvider: fake.factory,
+}));
+vi.mock('../deliberate-route.js', () => ({ deliberateRouteRevision: () => fake.route }));
+const chat = vi.hoisted(() => ({
+  startChat: vi.fn(),
+  isActive: vi.fn(() => false),
+}));
+vi.mock('../chat.js', () => ({
+  BASE_REPO: '/tmp',
+  isActive: chat.isActive,
+  startChat: chat.startChat,
+  nativeStartupSessionId: (clientMsgId: string) => `startup-${clientMsgId}`,
+  preflightStartupProviderCommand: () => false,
+}));
+vi.mock('../app.js', () => ({
+  buildSkillRegistry: () => new SkillRegistry({}),
+  isAllowedPath: () => true,
+  NATIVE_COMMAND_NAMES: new Set(['deliberate', 'fuse', 'skills']),
+}));
+
+const reply = {
+  content: 'answer',
+  model: 'fake',
+  usage: { inputTokens: 1, outputTokens: 1 },
+  costUsd: 0.01,
+};
+describe('fusion transport admission', () => {
+  let ctx: V2HandlerContext;
+  let app: express.Express;
+  const msg = {
+    type: 'send' as const,
+    sessionId: 's',
+    prompt: '/fuse Design this',
+    clientMsgId: 'c',
+  };
+  let sent: Record<string, unknown>[];
+  const transport = {
+    isOpen: () => true,
+    send: (event: Record<string, unknown>) => {
+      sent.push(event);
+    },
+  };
+  beforeEach(() => {
+    fake.route = 'one';
+    fake.call.mockReset().mockResolvedValue(reply);
+    fake.factory.mockReset().mockImplementation(() => ({ name: 'fake', call: fake.call }));
+    chat.startChat.mockReset().mockResolvedValue(undefined);
+    sent = [];
+    ctx = {
+      eventStore: new EventStore(':memory:'),
+      nativeCommands: new NativeCommandRegistry(),
+      connRegistry: new ConnectionRegistry(),
+      sessionRegistry: new SessionRegistry(),
+    };
+    ctx.eventStore.upsertSession({ sessionId: 's' });
+    app = express();
+    app.use(express.json());
+    app.use('/api/chat', createChatRestRouter(new SessionSseRegistry(), ctx));
+  });
+  afterEach(() => {
+    ctx.eventStore.close();
+  });
+  it.each(['ws', 'sse'])(
+    '%s preserves command identity and rejects conflicts before provider/event side effects',
+    async (kind) => {
+      const send = async (body = msg) =>
+        kind === 'ws'
+          ? handleSendV2('conn', transport, body, ctx)
+          : request(app).post('/api/chat/send').send(body);
+      await send();
+      await vi.waitFor(() =>
+        expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'),
+      );
+      expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeDefined();
+      expect(fake.call).toHaveBeenCalledTimes(5);
+      await send();
+      const eventsBefore = ctx.eventStore
+        .getEventsAfter('s', 0)
+        .filter((e) => e.type === 'reasoning_event').length;
+      const result = await send({ ...msg, prompt: '/fuse changed' });
+      if (kind === 'sse') expect(result).toMatchObject({ status: 409 });
+      else expect(sent.at(-1)).toMatchObject({ type: 'error' });
+      expect(fake.call).toHaveBeenCalledTimes(5);
+      expect(
+        ctx.eventStore.getEventsAfter('s', 0).filter((e) => e.type === 'reasoning_event'),
+      ).toHaveLength(eventsBefore);
+    },
+  );
+  it('revalidates actual provider route on HTTP receipt retries', async () => {
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    expect(ctx.eventStore.getSendCommand('c')?.payload).toMatchObject({ prompt: msg.prompt });
+    fake.route = 'two';
+    await request(app).post('/api/chat/send').send(msg).expect(409);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+    fake.route = 'one';
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+  });
+  it('shares the global command receipt when normal and paid commands reuse an ID', async () => {
+    const normal = { ...msg, sessionId: null, prompt: '/skills' };
+    await request(app).post('/api/chat/send').send(normal).expect(202);
+    expect(ctx.eventStore.getSendCommand('c')?.payload).toMatchObject({ prompt: '/skills' });
+
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(409);
+    expect(fake.call).not.toHaveBeenCalled();
+  });
+  it('shares the global command receipt across SSE and WS native dispatch', async () => {
+    const normal = { ...msg, sessionId: null, prompt: '/skills' };
+    await request(app).post('/api/chat/send').send(normal).expect(202);
+
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    expect(sent.at(-1)).toMatchObject({ type: 'error' });
+    expect(fake.call).not.toHaveBeenCalled();
+  });
+  it('rejects an SSE normal command after a WS paid command reuses its ID', async () => {
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(5));
+
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null, prompt: '/skills' })
+      .expect(422);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+  });
+  it.each([null, 'closed-synthetic'])(
+    'rejects a WS ordinary reuse after a sessionless fusion (%s session)',
+    async (sessionId) => {
+      await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+      await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(5));
+      const syntheticSessionId = fusionSessionId('c');
+      if (sessionId === 'closed-synthetic') {
+        expect(ctx.eventStore.getSession(syntheticSessionId)?.state).toBe('ENDED');
+      }
+
+      const startChatCalls = chat.startChat.mock.calls.length;
+      await handleSendV2(
+        'conn',
+        transport,
+        {
+          ...msg,
+          sessionId: sessionId === 'closed-synthetic' ? syntheticSessionId : null,
+          prompt: 'ordinary follow-up',
+        },
+        ctx,
+      );
+      expect(sent.at(-1)).toMatchObject({ type: 'error' });
+      expect(chat.startChat.mock.calls).toHaveLength(startChatCalls);
+      expect(fake.call).toHaveBeenCalledTimes(5);
+    },
+  );
+  it('rejects normal-command reuse after a sessionless fusion', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(202);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null, prompt: '/skills' })
+      .expect(422);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+  });
+  it.each(['ws', 'sse'])('%s usage-only commands create no execution or provider', async (kind) => {
+    const usage = { ...msg, prompt: '/fuse   ' };
+    if (kind === 'ws') await handleSendV2('conn', transport, usage, ctx);
+    else await request(app).post('/api/chat/send').send(usage).expect(202);
+    expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    expect(fake.factory).not.toHaveBeenCalled();
+  });
+  it('shares stable sessionless identity across WS and SSE', async () => {
+    const initial = { ...msg, sessionId: null };
+    await handleSendV2('conn', transport, initial, ctx);
+    const sessionId = fusionSessionId('c');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
+    );
+    await request(app).post('/api/chat/send').send(initial).expect(202);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+  });
+  it('acknowledges admission without waiting for provider completion and supports stop', async () => {
+    let release!: (value: typeof reply) => void;
+    fake.call.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    await request(app).post('/api/chat/send').send(msg).expect(202);
+    expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeDefined();
+    handleStopV2('conn', { type: 'stop', sessionId: 's' }, ctx);
+    expect(ctx.eventStore.getSession('s')?.executionTerminalReason).toBe('stopped');
+    release(reply);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(fake.call).toHaveBeenCalledTimes(3);
+  });
+  it('assigns and watches a new session after admission but before any provider/reasoning work', async () => {
+    ctx.connRegistry.register('conn', transport);
+    fake.call.mockImplementation(async () => {
+      expect(sent[0]).toMatchObject({ type: 'session_id', sessionId: fusionSessionId('c') });
+      expect(ctx.eventStore.getExecutionAdmission(fusionSessionId('c'), 'c')).toBeDefined();
+      return reply;
+    });
+    await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(fusionSessionId('c'))?.executionPhase).toBe('TERMINAL'),
+    );
+    expect(sent[0]).toMatchObject({ type: 'session_id' });
+    expect(ctx.connRegistry.get('conn')?.watchedSessions.has(fusionSessionId('c'))).toBe(true);
+    const retrySent: Record<string, unknown>[] = [];
+    const retryTransport = {
+      isOpen: () => true,
+      send: (event: Record<string, unknown>) => {
+        retrySent.push(event);
+      },
+    };
+    ctx.connRegistry.register('retry', retryTransport);
+    await handleSendV2('retry', retryTransport, { ...msg, sessionId: null }, ctx);
+    expect(retrySent[0]).toMatchObject({ type: 'session_id', sessionId: fusionSessionId('c') });
+    expect(ctx.connRegistry.get('retry')?.watchedSessions.has(fusionSessionId('c'))).toBe(true);
+    expect(fake.call).toHaveBeenCalledTimes(5);
+  });
+  it('keeps sessionless fusion closed and does not cold-resume it', async () => {
+    ctx.connRegistry.register('conn', transport);
+    const initial = { ...msg, sessionId: null };
+    await handleSendV2('conn', transport, initial, ctx);
+    const sessionId = fusionSessionId('c');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
+    );
+
+    expect(ctx.eventStore.getSession(sessionId)).toMatchObject({ isActive: false, state: 'ENDED' });
+    expect(ctx.connRegistry.get('conn')?.activeSession).not.toBe(sessionId);
+
+    await handleSendV2(
+      'conn',
+      transport,
+      { ...initial, sessionId, prompt: 'ordinary follow-up', clientMsgId: 'ordinary' },
+      ctx,
+    );
+    expect(chat.startChat).toHaveBeenCalled();
+    expect(chat.startChat.mock.calls.at(-1)?.[3]?.resume).toBeUndefined();
+  });
+  it('normalizes a REST follow-up before persisting its send receipt', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, sessionId: null })
+      .expect(202);
+    const syntheticSessionId = fusionSessionId('c');
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession(syntheticSessionId)?.executionPhase).toBe('TERMINAL'),
+    );
+
+    chat.startChat.mockImplementationOnce(
+      (
+        _transport: unknown,
+        _clientId: unknown,
+        _prompt: unknown,
+        options: { onStartupAdmission?: () => void },
+      ) => {
+        options.onStartupAdmission?.();
+        return Promise.resolve();
+      },
+    );
+    await request(app)
+      .post('/api/chat/send')
+      .send({
+        ...msg,
+        sessionId: syntheticSessionId,
+        clientMsgId: 'ordinary',
+        prompt: 'ordinary follow-up',
+      })
+      .expect(202);
+    const receipt = ctx.eventStore.getSendCommand('ordinary');
+    expect(receipt?.payload.sessionId).toBeNull();
+    expect(receipt?.sessionId).not.toBe(syntheticSessionId);
+    expect(chat.startChat.mock.calls.at(-1)?.[3]?.initialSessionId).toBe(receipt?.sessionId);
+  });
+  it('requires explicit command confirmation after an uncertain provider failure', async () => {
+    fake.call.mockRejectedValueOnce(new Error('provider secret'));
+    await handleSendV2('conn', transport, msg, ctx);
+    await vi.waitFor(() => expect(ctx.eventStore.getSession('s')?.executionPhase).toBe('TERMINAL'));
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, clientMsgId: 'retry' })
+      .expect(422);
+    expect(fake.call).toHaveBeenCalledTimes(3);
+    await request(app)
+      .post('/api/chat/send')
+      .send({
+        ...msg,
+        clientMsgId: 'confirmed',
+        prompt: '/fuse --confirm-ambiguous Design this',
+      })
+      .expect(202);
+    await vi.waitFor(() =>
+      expect(ctx.eventStore.getSession('s')?.executionTerminalReason).toBe('completed'),
+    );
+    expect(fake.call).toHaveBeenCalledTimes(8);
+    const token = ctx.eventStore.getExecutionAdmission('s', 'confirmed')!.token;
+    expect(ctx.eventStore.getProviderAttempts(token)).toHaveLength(5);
+    expect(sent.some((event) => JSON.stringify(event).includes('provider secret'))).toBe(false);
+  });
+  it('confirmation without a task remains usage-only', async () => {
+    await request(app)
+      .post('/api/chat/send')
+      .send({ ...msg, prompt: '/fuse --confirm-ambiguous' })
+      .expect(202);
+    expect(ctx.eventStore.getExecutionAdmission('s', 'c')).toBeUndefined();
+    expect(fake.call).not.toHaveBeenCalled();
+  });
+});

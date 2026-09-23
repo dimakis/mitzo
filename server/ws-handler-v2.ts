@@ -1,9 +1,10 @@
 import {
-  deliberateSessionId,
-  isDeliberationSessionId,
-  cancelDeliberation,
-  parseDeliberationInput,
-} from './deliberate-admission.js';
+  reasoningSessionId,
+  isReasoningSessionId,
+  paidReasoningCommand,
+} from './reasoning-command-admission.js';
+import { cancelDeliberation } from './deliberate-admission.js';
+import { cancelFusion } from './fusion-admission.js';
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
 import {
   resolveAccountSelection,
@@ -594,16 +595,15 @@ export function handleSendV2(
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
-        const paidDeliberation =
+        const paidReasoning =
           resolution.type === 'native' &&
-          resolution.name === 'deliberate' &&
-          !!parseDeliberationInput(resolution.arguments).task;
+          paidReasoningCommand(resolution.name, resolution.arguments);
 
         // Native deliberation admission creates the global receipt below. All
         // other WS sends must consult that same receipt before routing, so an
         // ordinary retry cannot bypass a paid command admitted on another
         // transport (or vice versa).
-        if (!paidDeliberation && !delivery?.receiptAdmitted) {
+        if (!paidReasoning && !delivery?.receiptAdmitted) {
           const existingReceipt = ctx.eventStore.getSendCommand?.(msg.clientMsgId);
           if (existingReceipt) {
             if (existingReceipt.error) throw new Error(existingReceipt.error);
@@ -618,8 +618,9 @@ export function handleSendV2(
         }
 
         if (resolution.type === 'native') {
-          const commandSessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
-          if (paidDeliberation && !delivery?.receiptAdmitted) {
+          const commandSessionId =
+            msg.sessionId ?? reasoningSessionId(resolution.name, msg.clientMsgId);
+          if (paidReasoning && !delivery?.receiptAdmitted) {
             const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId: commandSessionId };
             const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
             if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
@@ -651,13 +652,13 @@ export function handleSendV2(
           }
           let admitted!: () => void;
           let admissionFailed!: (error: unknown) => void;
-          const admission = paidDeliberation
+          const admission = paidReasoning
             ? new Promise<void>((resolve, reject) => {
                 admitted = resolve;
                 admissionFailed = reject;
               })
             : undefined;
-          const commandTransport: SessionTransport = paidDeliberation
+          const commandTransport: SessionTransport = paidReasoning
             ? {
                 isOpen: () => transport.isOpen(),
                 send(data) {
@@ -675,9 +676,9 @@ export function handleSendV2(
           void ctx.nativeCommands
             .execute(resolution.name, resolution.arguments, skillRegistry, {
               transport: commandTransport,
-              ...(paidDeliberation
+              ...(paidReasoning
                 ? {
-                    deliberation: {
+                    [resolution.name === 'fuse' ? 'fusion' : 'deliberation']: {
                       store: ctx.eventStore,
                       request: {
                         sessionId: commandSessionId,
@@ -705,7 +706,7 @@ export function handleSendV2(
                           if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
                             ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
                               force: true,
-                              reason: 'sessionless_deliberation',
+                              reason: `sessionless_${resolution.name}`,
                             });
                           else ctx.eventStore.markSessionInactive(commandSessionId);
                         }
@@ -728,7 +729,7 @@ export function handleSendV2(
                 });
             })
             .catch((err: unknown) => {
-              if (paidDeliberation) {
+              if (paidReasoning) {
                 admissionFailed(err);
               } else {
                 transport.send({
@@ -780,7 +781,7 @@ export function handleSendV2(
         // synthetic execution stream.
         if (
           sessionId &&
-          isDeliberationSessionId(sessionId) &&
+          isReasoningSessionId(sessionId) &&
           ctx.eventStore.getSessionState(sessionId) === 'ENDED'
         ) {
           msg = { ...msg, sessionId: null };
@@ -1027,7 +1028,8 @@ export function handleSendV2(
         });
         if (
           delivery?.awaitStartupAdmission &&
-          (err instanceof ExecutionAdmissionError || msg.prompt.trim().startsWith('/deliberate '))
+          (err instanceof ExecutionAdmissionError ||
+            /^\/(deliberate|fuse)(?:\s|$)/.test(msg.prompt.trim()))
         )
           throw err;
       }
@@ -1037,7 +1039,11 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
-    if (cancelDeliberation(ctx.eventStore, msg.sessionId)) return;
+    if (
+      cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+      cancelFusion(ctx.eventStore, msg.sessionId)
+    )
+      return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     if (found) {
       stopChat(found.clientId);
@@ -1057,7 +1063,11 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
-      if (cancelDeliberation(ctx.eventStore, msg.sessionId)) return;
+      if (
+        cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+        cancelFusion(ctx.eventStore, msg.sessionId)
+      )
+        return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
