@@ -389,6 +389,11 @@ export class EventStore {
       )`,
     ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
     for (const row of rows) {
+      // Durable execution admissions own their retry and recovery semantics.
+      // Deliberation receipts intentionally have no user_message event, so
+      // generic send recovery must not turn a completed or ambiguous execution
+      // into a poisoned receipt before the execution gate can re-evaluate it.
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);

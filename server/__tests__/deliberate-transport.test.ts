@@ -141,6 +141,32 @@ describe('deliberation transport admission', () => {
       .expect(422);
     expect(fake.call).toHaveBeenCalledTimes(6);
   });
+  it.each([null, 'closed-synthetic'])(
+    'rejects a WS ordinary reuse after a sessionless deliberation (%s session)',
+    async (sessionId) => {
+      await handleSendV2('conn', transport, { ...msg, sessionId: null }, ctx);
+      await vi.waitFor(() => expect(fake.call).toHaveBeenCalledTimes(6));
+      const syntheticSessionId = deliberateSessionId('c');
+      if (sessionId === 'closed-synthetic') {
+        expect(ctx.eventStore.getSession(syntheticSessionId)?.state).toBe('ENDED');
+      }
+
+      const startChatCalls = chat.startChat.mock.calls.length;
+      await handleSendV2(
+        'conn',
+        transport,
+        {
+          ...msg,
+          sessionId: sessionId === 'closed-synthetic' ? syntheticSessionId : null,
+          prompt: 'ordinary follow-up',
+        },
+        ctx,
+      );
+      expect(sent.at(-1)).toMatchObject({ type: 'error' });
+      expect(chat.startChat.mock.calls).toHaveLength(startChatCalls);
+      expect(fake.call).toHaveBeenCalledTimes(6);
+    },
+  );
   it('rejects normal-command reuse after a sessionless deliberation', async () => {
     await request(app)
       .post('/api/chat/send')

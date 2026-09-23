@@ -594,10 +594,30 @@ export function handleSendV2(
         const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const paidDeliberation =
+          resolution.type === 'native' &&
+          resolution.name === 'deliberate' &&
+          !!parseDeliberationInput(resolution.arguments).task;
+
+        // Native deliberation admission creates the global receipt below. All
+        // other WS sends must consult that same receipt before routing, so an
+        // ordinary retry cannot bypass a paid command admitted on another
+        // transport (or vice versa).
+        if (!paidDeliberation && !delivery?.receiptAdmitted) {
+          const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+          if (existingReceipt) {
+            if (existingReceipt.error) throw new Error(existingReceipt.error);
+            if (!isDeepStrictEqual(existingReceipt.payload, msg)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            return;
+          }
+        }
 
         if (resolution.type === 'native') {
-          const paidDeliberation =
-            resolution.name === 'deliberate' && !!parseDeliberationInput(resolution.arguments).task;
           const commandSessionId = msg.sessionId ?? deliberateSessionId(msg.clientMsgId);
           if (paidDeliberation && !delivery?.receiptAdmitted) {
             const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId: commandSessionId };

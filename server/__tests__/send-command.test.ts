@@ -176,4 +176,45 @@ describe('durable send acceptance', () => {
       store.close();
     }
   });
+
+  it('does not corrupt a completed deliberation receipt during restart recovery', async () => {
+    const store = new EventStore(':memory:');
+    const sessionId = 'deliberate-recovery';
+    const payload = { ...message, sessionId, prompt: '/deliberate durable task' };
+    try {
+      store.upsertSession({ sessionId });
+      const admission = store.beginExecution(sessionId, 'execution-1', message.clientMsgId, 'fp');
+      store.transitionExecution(admission.token, 'TERMINAL', 'completed');
+      store.insertSendCommand(message.clientMsgId, sessionId, payload);
+
+      store.recoverPendingSendCommands();
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, payload, async () => undefined, { replayExisting: true }),
+      ).resolves.toMatchObject({ sessionId });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('keeps an ambiguous deliberation receipt retryable after crash recovery', async () => {
+    const store = new EventStore(':memory:');
+    const sessionId = 'deliberate-crash-recovery';
+    const payload = { ...message, sessionId, prompt: '/deliberate uncertain task' };
+    try {
+      store.upsertSession({ sessionId });
+      const admission = store.beginExecution(sessionId, 'execution-1', message.clientMsgId, 'fp');
+      store.insertSendCommand(message.clientMsgId, sessionId, payload);
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      store.recoverPendingSendCommands();
+
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, payload, async () => undefined, { replayExisting: true }),
+      ).resolves.toMatchObject({ sessionId });
+      expect(store.getExecutionTerminalReason(admission.token)).toBe('server_restart');
+    } finally {
+      store.close();
+    }
+  });
 });

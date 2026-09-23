@@ -180,7 +180,9 @@ export function createChatRestRouter(
         const outcome = await handleSendV2(connectionId, transport, command, ctx, {
           initialSessionId: command.sessionId ? undefined : sessionId,
           awaitStartupAdmission: true,
-          receiptAdmitted: options.receiptAdmitted,
+          // REST inserts the global receipt before dispatch; WS inserts it in
+          // handleSendV2 so the same check can fence cross-transport retries.
+          receiptAdmitted: options.receiptAdmitted ?? true,
         });
         if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
       };
