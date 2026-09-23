@@ -249,6 +249,14 @@ See [docs/onboarding.md](docs/onboarding.md) for a full configuration walkthroug
 
 ## Development
 
+### Documentation policy
+
+Every pull request reviews this README. Pull requests that change production code
+must update it when they affect installation, configuration, commands,
+architecture, supported integrations, or user-visible behavior. A PR that does
+not need a README change must record the reason in its PR description; CI checks
+both the review acknowledgement and that exception.
+
 ```bash
 npm run dev          # backend + frontend concurrently
 npm test             # vitest — full suite
