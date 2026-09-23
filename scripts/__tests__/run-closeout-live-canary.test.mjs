@@ -173,7 +173,7 @@ describe('closeout live canary', () => {
     expect(() => tracker.evidence()).toThrow('does not match the terminal execution');
   });
 
-  it('runs the setup and closeout turns through one authenticated SSE connection', async () => {
+  it('uses SSE for setup and durable events for closeout evidence', async () => {
     vi.spyOn(Date, 'now').mockReturnValue(123);
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     const messages = [
@@ -185,11 +185,13 @@ describe('closeout live canary', () => {
         delta: 'CLOSEOUT_CANARY_READY_123',
       },
       { type: 'session_end', sessionId: 'session-1' },
-      { type: 'session_close_ack', sessionId: 'session-1', accepted: true },
+    ];
+    const durableEvents = [
       {
         type: 'user_message',
         sessionId: 'session-1',
         text: 'The user has closed this session.',
+        seq: 10,
       },
       {
         type: 'provider_attempt_state_changed',
@@ -199,6 +201,7 @@ describe('closeout live canary', () => {
         providerAttemptId: 'attempt-1',
         attempt: 1,
         phase: 'RUNNING',
+        seq: 11,
       },
       {
         type: 'provider_attempt_state_changed',
@@ -209,6 +212,7 @@ describe('closeout live canary', () => {
         attempt: 1,
         phase: 'TERMINAL',
         terminalReason: 'completed',
+        seq: 12,
       },
       {
         type: 'execution_state_changed',
@@ -217,6 +221,7 @@ describe('closeout live canary', () => {
         generation: 1,
         phase: 'TERMINAL',
         terminalReason: 'completed',
+        seq: 13,
       },
     ];
     const stream = new ReadableStream({
@@ -235,6 +240,8 @@ describe('closeout live canary', () => {
       if (url.endsWith('/api/chat/reconnect')) return Response.json({ ok: true });
       if (url.endsWith('/api/chat/send')) return Response.json({ sessionId: 'session-1' });
       if (url.endsWith('/api/chat/close')) return Response.json({ ok: true });
+      if (url.endsWith('/api/sessions/session-1/events?after=0'))
+        return Response.json(durableEvents);
       if (url.endsWith('/api/sessions/session-1/meta'))
         return Response.json({ sessionId: 'session-1', state: 'ENDED', isActive: false });
       throw new Error(`Unexpected URL ${url}`);
@@ -256,7 +263,7 @@ describe('closeout live canary', () => {
       providerAttemptCount: 1,
       finalState: 'ENDED',
     });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     for (const [, init] of fetchMock.mock.calls) expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 

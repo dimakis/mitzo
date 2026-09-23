@@ -159,8 +159,23 @@ function abortableDelay(ms, signal) {
   });
 }
 
-async function waitForDurableEnd(config, auth, sessionId, signal) {
+async function waitForDurableCloseout(config, auth, tracker, sessionId, signal) {
+  let afterSeq = 0;
   for (;;) {
+    const events = await checkedJson(
+      await fetch(
+        `${config.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/events?after=${afterSeq}`,
+        { headers: auth, signal },
+      ),
+      'durable session events',
+      signal,
+    );
+    if (!Array.isArray(events)) throw new Error('Durable session events response was not an array');
+    for (const event of events) {
+      tracker.accept(event);
+      if (Number.isInteger(event.seq) && event.seq > afterSeq) afterSeq = event.seq;
+    }
+
     const meta = await checkedJson(
       await fetch(`${config.baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
         headers: auth,
@@ -169,8 +184,8 @@ async function waitForDurableEnd(config, auth, sessionId, signal) {
       'durable session state',
       signal,
     );
-    if (meta.sessionId !== sessionId) throw new Error('Durable session identity changed');
-    if (meta.state === 'ENDED' && meta.isActive === false) return meta;
+    tracker.acceptDurableSession(meta);
+    if (tracker.complete()) return tracker.evidence();
     await abortableDelay(1_000, signal);
   }
 }
@@ -279,12 +294,12 @@ export async function runCloseoutLiveCanary(config = liveCanaryConfig()) {
               'close',
               signal,
             );
-          }
-        } else if (closeRequested) {
-          tracker?.accept(message);
-          if (tracker?.providerComplete()) {
-            tracker.acceptDurableSession(await waitForDurableEnd(config, auth, sessionId, signal));
-            return tracker.evidence();
+            tracker.accept({
+              type: 'session_close_ack',
+              sessionId,
+              accepted: true,
+            });
+            return await waitForDurableCloseout(config, auth, tracker, sessionId, signal);
           }
         }
       }
