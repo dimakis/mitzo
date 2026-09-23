@@ -979,6 +979,7 @@ export class EventStore {
   beginProviderAttempt(
     executionToken: ExecutionToken,
     providerAttemptId: string = randomUUID(),
+    options: { allowParallel?: boolean } = {},
   ): BeginProviderAttemptResult {
     if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
     return this.db!.transaction((): BeginProviderAttemptResult => {
@@ -1019,7 +1020,7 @@ export class EventStore {
          WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
          LIMIT 1`,
       ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation);
-      if (active) {
+      if (active && !options.allowParallel) {
         throw new Error(
           `Cannot overwrite active provider attempt for execution: ${executionToken.executionId}`,
         );
