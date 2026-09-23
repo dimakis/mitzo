@@ -37,6 +37,22 @@ git -C "$RELEASE_DIR" update-ref refs/remotes/origin/main "$MAIN_COMMIT"
 if [ -f "$RUNTIME_ROOT/.env" ]; then
   cp "$RUNTIME_ROOT/.env" "$RELEASE_DIR/.env"
   chmod 600 "$RELEASE_DIR/.env"
+
+  rewrite_release_path() {
+    local key="$1"
+    local relative_path="$2"
+    local next_env="$RELEASE_DIR/.env.next"
+    awk -v key="$key" -v value="$RELEASE_DIR/$relative_path" \
+      'index($0, key "=") == 1 { $0 = key "=" value } { print }' \
+      "$RELEASE_DIR/.env" > "$next_env"
+    mv "$next_env" "$RELEASE_DIR/.env"
+    chmod 600 "$RELEASE_DIR/.env"
+  }
+
+  rewrite_release_path MITZO_OPENSHELL_STACK_MANIFEST infra/openshell/production-stack.lock.json
+  rewrite_release_path MITZO_OPENSHELL_POLICY docs/spikes/openshell-codex/openshell-openai-api-policy.yaml
+  rewrite_release_path MITZO_CONNECTIONS_JIRA_PROFILE_PATH infra/openshell/providers/mitzo-jira-readonly.yaml
+  rewrite_release_path MITZO_CONNECTIONS_PROBE_POLICY infra/openshell/providers/mitzo-jira-probe-policy.yaml
 fi
 if [ -d "$RUNTIME_ROOT/certs" ]; then
   ln -s "$RUNTIME_ROOT/certs" "$RELEASE_DIR/certs"
