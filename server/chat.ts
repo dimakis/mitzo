@@ -160,6 +160,7 @@ import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
 import type { ProviderAttemptToken } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -1462,6 +1463,7 @@ async function _startChatInner(
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;

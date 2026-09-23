@@ -5,6 +5,8 @@ import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
 import { useDocumentReader } from '../hooks/useDocumentReader';
+import { HtmlPreview } from '../components/HtmlPreview';
+import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -20,6 +22,9 @@ export function FileViewer() {
   const reader = useDocumentReader();
 
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);
+  const artifactCapability = findArtifactCapabilityByExtension(state.ext);
+  const isHtml = artifactCapability?.artifact?.renderer === 'html';
+  const isEditable = isMarkdown || artifactCapability?.artifact?.editable === true;
   const fileName = state.filePath.split('/').pop() || '';
   const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
@@ -70,7 +75,7 @@ export function FileViewer() {
                 : 'Read'}
           </button>
         )}
-        {state.isViewing && isMarkdown && !editor.editing && (
+        {state.isViewing && isEditable && !editor.editing && (
           <button className="viewer-header-action" onClick={editor.startEditing}>
             Edit
           </button>
@@ -163,9 +168,20 @@ export function FileViewer() {
           </div>
         )}
 
-        {!state.loading && !state.error && state.isViewing && !editor.editing && !isMarkdown && (
-          <pre className="viewer-code">{state.content}</pre>
+        {!state.loading && !state.error && state.isViewing && !editor.editing && isHtml && (
+          <HtmlPreview
+            html={state.content}
+            title={`${fileName} preview`}
+            className="viewer-html-preview"
+          />
         )}
+
+        {!state.loading &&
+          !state.error &&
+          state.isViewing &&
+          !editor.editing &&
+          !isMarkdown &&
+          !isHtml && <pre className="viewer-code">{state.content}</pre>}
 
         {!state.loading && !state.error && !state.isViewing && (
           <div className="viewer-dir">
