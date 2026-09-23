@@ -35,6 +35,8 @@ async function setup(
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>,
+  onProviderDispatch?: (commandId: string) => void,
+  onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -111,6 +113,8 @@ async function setup(
     completionHookTimeoutMs,
     beforeReconnect,
     prepareTurn,
+    onProviderDispatch,
+    onProviderComplete,
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -157,6 +161,32 @@ async function setup(
     getProviderThread: () => providerThread,
   };
 }
+it('reports the durable command boundary around provider dispatch', async () => {
+  const onProviderDispatch = vi.fn();
+  const onProviderComplete = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderDispatch,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
+  expect(onProviderComplete).not.toHaveBeenCalled();
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'completed');
+});
 it('does not persist queued work when lifecycle admission is fenced', async () => {
   const onActivity = vi.fn(() => false);
   const { c } = await setup(

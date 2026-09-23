@@ -54,6 +54,8 @@ interface Options {
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
+  onProviderDispatch?: (commandId: string) => void;
+  onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -170,6 +172,7 @@ export class CodexConversation {
     this.transportGeneration += 1;
     this.ready = false;
     const commandId = this.active?.command.id;
+    if (commandId) this.opts.onProviderComplete?.(commandId, 'interrupted');
     this.active?.abort.abort();
     this.active = undefined;
     try {
@@ -634,6 +637,7 @@ export class CodexConversation {
           active.abort.signal,
         )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
+      this.opts.onProviderDispatch?.(command.id);
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
         await this.client.request('turn/start', {
           threadId: this.threadId,
@@ -677,6 +681,10 @@ export class CodexConversation {
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
       const replaceProviderThread = requiresProviderThreadReplacement(error);
+      this.opts.onProviderComplete?.(
+        command.id,
+        active.interruptRequested ? 'interrupted' : 'failed',
+      );
       this.paused = true;
       active.abort.abort();
       this.opts.store.pauseForRecovery(
@@ -764,6 +772,7 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
       const recoverQueuedFollowUp =
@@ -899,6 +908,7 @@ export class CodexConversation {
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
+    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'interrupted');
     this.active?.abort.abort();
     try {
       if (this.binding)

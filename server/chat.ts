@@ -18,7 +18,11 @@ import {
 } from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
-import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
+import {
+  openCodexChat,
+  getCodexRuntime,
+  trackCodexProviderAdmission,
+} from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
@@ -34,7 +38,12 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport, ConnectionRegistry, ManagedSession } from '@mitzo/harness';
+import type {
+  SessionTransport,
+  ConnectionRegistry,
+  ManagedSession,
+  CloseoutEpisode,
+} from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
@@ -149,6 +158,8 @@ import {
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
+import type { ProviderAttemptToken } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -171,6 +182,27 @@ function initEventStore(): EventStore {
 }
 
 export const eventStore = initEventStore();
+
+const fallbackCloseoutAttempts = new WeakMap<
+  ManagedSession,
+  { admission: CloseoutAdmission; attempt: ProviderAttemptToken }
+>();
+
+function finishFallbackCloseout(session: ManagedSession, interrupted = false): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  eventStore.transitionProviderAttempt(
+    tracked.attempt,
+    'TERMINAL',
+    interrupted ? 'cancelled' : 'completed',
+  );
+  eventStore.transitionExecution(
+    tracked.admission.token,
+    'TERMINAL',
+    interrupted ? 'interrupted' : 'completed',
+  );
+  fallbackCloseoutAttempts.delete(session);
+}
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -1636,6 +1668,8 @@ async function _startChatInner(
           });
         },
         onTurnEnd: (cId: string) => {
+          const active = registry.get(cId);
+          if (active) finishFallbackCloseout(active);
           _onSessionChange?.(cId, 'turn_end');
         },
       },
@@ -2365,42 +2399,69 @@ function queueCloseoutPrompt(
   session: import('./session-registry.js').ManagedSession,
   clientId: string,
   prompt: string,
+  episode: CloseoutEpisode,
 ): void {
-  const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  if (!session.sessionId) {
+    log.warn('skipping closeout admission — session not yet resolved', { clientId });
+    return;
+  }
   const codex = getCodexRuntime(session);
   const responses = getResponsesRuntime(session);
+  const metadata = eventStore.getSession(session.sessionId);
+  let admission: CloseoutAdmission;
+  try {
+    admission = admitCloseout({
+      store: eventStore,
+      request: {
+        sessionId: session.sessionId,
+        episode,
+        prompt,
+        promptRevision: episode.source === 'automatic' ? 'automatic-v1' : 'user-v1',
+        task:
+          episode.source === 'automatic'
+            ? 'commit-push-memory-summarize'
+            : 'commit-memory-summarize',
+        model: metadata?.selectedModel ?? session.model ?? metadata?.accountBinding?.model,
+        reasoningEffort: metadata?.reasoningEffort,
+        accountBinding: metadata?.accountBinding ?? session.accountBinding,
+      },
+      prepare: (messageId) => {
+        if (codex) codex.enqueue({ id: messageId, prompt, intent: prompt });
+        else if (responses) responses.prepare(messageId, prompt);
+      },
+    });
+  } catch (error) {
+    log.warn('failed to admit closeout prompt', { clientId, error });
+    return;
+  }
+  if (admission.duplicate) return;
+  storeAndEchoIfNew(
+    session.sessionId,
+    admission.messageId,
+    prompt,
+    clientId,
+    session.transport,
+    session.observers,
+  );
   if (codex) {
-    try {
-      codex.enqueue({ id: messageId, prompt });
-    } catch (error) {
-      log.warn('failed to persist Codex closeout prompt', { clientId, error });
-      return;
-    }
-  } else if (responses) {
-    try {
-      responses.prepare(messageId, prompt);
-    } catch (error) {
-      log.warn('failed to persist OpenAI API closeout prompt', { clientId, error });
-      return;
-    }
-  }
-  if (session.sessionId) {
-    storeAndEchoIfNew(
-      session.sessionId,
-      messageId,
-      prompt,
-      clientId,
-      session.transport,
-      session.observers,
-    );
-  } else {
-    log.debug('skipping closeout echo — session not yet resolved', { clientId });
-  }
-  if (codex)
+    trackCodexProviderAdmission(session, admission.messageId, admission, eventStore);
     void codex
       .startQueued()
       .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
-  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
+  } else if (responses) {
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    session.inputQueue?.push(makeUserMessage(prompt, 'now', admission.messageId, admission));
+  } else {
+    const attempt = eventStore.beginProviderAttempt(admission.token, admission.providerAttemptId);
+    if (attempt.duplicate) return;
+    fallbackCloseoutAttempts.set(session, { admission, attempt: attempt.token });
+    session.abortController.signal.addEventListener(
+      'abort',
+      () => finishFallbackCloseout(session, true),
+      { once: true },
+    );
+    session.inputQueue?.push(makeUserMessage(prompt, 'now', admission.messageId));
+  }
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
@@ -2423,13 +2484,13 @@ Please perform session closeout:
  * the agent's input queue so it can commit work and write memory while it
  * still has full conversation context.
  */
-export function closeoutSession(clientId: string): void {
+export function closeoutSession(clientId: string, episode: CloseoutEpisode): void {
   withSpan('session.closeout', { 'session.clientId': clientId }, () =>
-    _closeoutSessionInner(clientId),
+    _closeoutSessionInner(clientId, episode),
   );
 }
 
-function _closeoutSessionInner(clientId: string): void {
+function _closeoutSessionInner(clientId: string, episode: CloseoutEpisode): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
@@ -2458,7 +2519,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
+  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode);
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
   // 10 minutes regardless. When the session is finally aborted (by the
@@ -2512,7 +2573,7 @@ export function closeSessionByUser(clientId: string): void {
     if (!session) return;
 
     // Mark as user-initiated close in the registry
-    registry.markUserClose(clientId);
+    const episode = registry.markUserClose(clientId);
 
     if (!session.inputQueue) {
       // No active agent — finalize immediately
@@ -2542,7 +2603,13 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
+    if (episode.source === 'user')
+      queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT, episode);
+    else
+      log.info('user close overlaps active automatic closeout; preserving admitted prompt', {
+        clientId,
+        episodeId: episode.id,
+      });
 
     // Register abort listener to finalize with closed_by: 'user'
     if (session.wtId) {
