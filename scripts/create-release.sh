@@ -38,21 +38,32 @@ if [ -f "$RUNTIME_ROOT/.env" ]; then
   cp "$RUNTIME_ROOT/.env" "$RELEASE_DIR/.env"
   chmod 600 "$RELEASE_DIR/.env"
 
-  rewrite_release_path() {
+  rewrite_env_value() {
     local key="$1"
-    local relative_path="$2"
+    local value="$2"
     local next_env="$RELEASE_DIR/.env.next"
-    awk -v key="$key" -v value="$RELEASE_DIR/$relative_path" \
-      'index($0, key "=") == 1 { $0 = key "=" value } { print }' \
+    awk -v key="$key" -v value="$value" \
+      'index($0, key "=") == 1 { $0 = key "=" value; found = 1 } { print } END { if (!found) print key "=" value }' \
       "$RELEASE_DIR/.env" > "$next_env"
     mv "$next_env" "$RELEASE_DIR/.env"
     chmod 600 "$RELEASE_DIR/.env"
   }
 
-  rewrite_release_path MITZO_OPENSHELL_STACK_MANIFEST infra/openshell/production-stack.lock.json
-  rewrite_release_path MITZO_OPENSHELL_POLICY docs/spikes/openshell-codex/openshell-openai-api-policy.yaml
-  rewrite_release_path MITZO_CONNECTIONS_JIRA_PROFILE_PATH infra/openshell/providers/mitzo-jira-readonly.yaml
-  rewrite_release_path MITZO_CONNECTIONS_PROBE_POLICY infra/openshell/providers/mitzo-jira-probe-policy.yaml
+  STACK_MANIFEST="$RELEASE_DIR/infra/openshell/production-stack.lock.json"
+  manifest_value() {
+    node -e 'const value = process.argv[2].split(".").reduce((item, key) => item[key], require(process.argv[1])); process.stdout.write(Array.isArray(value) ? value.join(",") : String(value))' \
+      "$STACK_MANIFEST" "$1"
+  }
+
+  rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$STACK_MANIFEST"
+  rewrite_env_value MITZO_OPENSHELL_POLICY "$RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
+  rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
+  rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"
+  rewrite_env_value MITZO_OPENSHELL_IMAGE "$(manifest_value runtime.image)"
+  rewrite_env_value OPENSHELL_WORKSPACE "$(manifest_value defaults.workspace)"
+  rewrite_env_value MITZO_OPENSHELL_WEB_SEARCH "$(manifest_value defaults.webSearch)"
+  rewrite_env_value MITZO_OPENSHELL_SERVICE_PROVIDERS "$(manifest_value providerPolicy.automatic)"
+  rewrite_env_value MITZO_OPENSHELL_GRANTABLE_SERVICE_PROVIDERS "$(manifest_value providerPolicy.grantable)"
 fi
 if [ -d "$RUNTIME_ROOT/certs" ]; then
   ln -s "$RUNTIME_ROOT/certs" "$RELEASE_DIR/certs"
