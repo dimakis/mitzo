@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseWorktreeEvidenceArgs } from '../../scripts/worktree-evidence.js';
+import { parseWorktreeEvidenceArgs } from '../worktree-evidence-args.js';
 
 describe('parseWorktreeEvidenceArgs', () => {
   it('parses repeated repositories, inboxes, active sessions, and PR evidence for a manifest', () => {
