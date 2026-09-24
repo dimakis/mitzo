@@ -110,7 +110,11 @@ import {
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
-import { startupRepositoryMaintenanceEnabled } from './development-isolation.js';
+import {
+  resolveWorktreeCleanupPolicy,
+  startupRepositoryMaintenanceEnabled,
+} from './development-isolation.js';
+import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
@@ -1337,17 +1341,23 @@ checkPort(PORT).then((inUse) => {
       return ids;
     }
 
+    const cleanupPolicy = resolveWorktreeCleanupPolicy();
+    log.info('worktree cleanup policy', { policy: cleanupPolicy });
+    const runWorktreeCleanup = runWorktreeCleanupForRepos({
+      repoEntries,
+      inboxDir,
+      cleanupPolicy,
+      collectActiveWtIds,
+      cleanup: cleanupStaleWorktrees,
+      onError: (label, phase, err) => {
+        log.warn(`${phase} worktree cleanup failed for ${label}`, {
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      },
+    });
+
     if (repositoryMaintenance) {
-      const startupActiveWtIds = collectActiveWtIds();
-      for (const [label, repoPath] of repoEntries) {
-        try {
-          cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
-        } catch (err: unknown) {
-          log.warn(`stale worktree cleanup failed for ${label}`, {
-            error: err instanceof Error ? err.message : 'unknown',
-          });
-        }
-      }
+      runWorktreeCleanup('startup');
     } else {
       log.warn('repository reconciliation and worktree cleanup disabled for development isolation');
     }
@@ -1374,18 +1384,7 @@ checkPort(PORT).then((inUse) => {
     }, GUARD_STATS_INTERVAL_MS);
 
     if (repositoryMaintenance)
-      setInterval(() => {
-        const activeWtIds = collectActiveWtIds();
-        for (const [label, repoPath] of repoEntries) {
-          try {
-            cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
-          } catch (err: unknown) {
-            log.warn(`periodic worktree cleanup failed for ${label}`, {
-              error: err instanceof Error ? err.message : 'unknown',
-            });
-          }
-        }
-      }, WORKTREE_CLEANUP_INTERVAL_MS);
+      setInterval(() => runWorktreeCleanup('periodic'), WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });
 

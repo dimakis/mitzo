@@ -126,7 +126,7 @@ run an older gateway against a database that a newer gateway may have migrated.
 ## Current deployment
 
 The production gateway uses the matched OpenShell downstream release
-`v0.0.116-mitzo.2` for the CLI, gateway, and Podman driver. It has the canonical,
+`v0.0.116-mitzo.3` for the CLI, gateway, and Podman driver. It has the canonical,
 encrypted `google-workspace` and `github` service providers plus the bound
 `mitzo-personal-subscription` OAuth provider. Preserve this downstream release
 and its protobuf compatibility invariant during upgrades; follow

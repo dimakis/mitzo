@@ -20,6 +20,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
+- **Closeout live canary** — an opt-in Luna-only harness validates one durable closeout attempt against an isolated controller and explicit billing account. See [closeout live canary](docs/operations/closeout-live-canary.md).
 - **iOS app** — native wrapper via Capacitor with push notifications and home-screen install
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
@@ -185,39 +186,40 @@ React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView
 
 ## Environment
 
-| Variable                      | Description                                                    | Required |
-| ----------------------------- | -------------------------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`             | Login passphrase                                               | Yes      |
-| `AUTH_SECRET`                 | JWT signing key (min 32 chars)                                 | Yes      |
-| `REPO_PATH`                   | Default repo for sessions                                      | Yes      |
-| `PORT`                        | Server port (default: `3100`)                                  | No       |
-| `COOKIE_MAX_AGE_HOURS`        | JWT cookie lifetime in hours (default: `24`)                   | No       |
-| `WORKTREE_ENABLED`            | Allow worktrees (default: `true`)                              | No       |
-| `MCP_CONFIG_PATH`             | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
-| `LOG_LEVEL`                   | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
-| `LOG_FILE_PATH`               | Log file path (default: `logs/server.log`)                     | No       |
-| `LOGGER_SYNC`                 | Set to `1` for synchronous logging                             | No       |
-| `BASE_URL`                    | Public URL for notification deep links                         | No       |
-| `YAPPER_PROXY_TARGET`         | Yapper backend URL (default: `http://localhost:8700`)          | No       |
-| `CLAUDE_CODE_USE_VERTEX`      | Set to `1` to use Vertex AI for auto-rename                    | No       |
-| `ANTHROPIC_VERTEX_PROJECT_ID` | GCP project ID (required when using Vertex)                    | No       |
-| `CLOUD_ML_REGION`             | GCP region for Vertex (default: `us-east5`)                    | No       |
-| `NTFY_URL`                    | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
-| `NTFY_TOPIC`                  | ntfy topic for notifications                                   | No       |
-| `NTFY_AUTH_TOKEN`             | ntfy auth token                                                | No       |
-| `PUSHOVER_API_TOKEN`          | Pushover API token (for Apple Watch notifications)             | No       |
-| `PUSHOVER_USER_KEY`           | Pushover user key                                              | No       |
-| `APNS_KEY_PATH`               | Path to Apple Push Notification Service .p8 key                | No       |
-| `APNS_KEY_ID`                 | APNS key ID                                                    | No       |
-| `APNS_TEAM_ID`                | Apple Team ID                                                  | No       |
-| `APNS_BUNDLE_ID`              | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
-| `APNS_PRODUCTION`             | Use production APNS (default: `true`)                          | No       |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
-| `LOKI_HOST`                   | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
-| `TRACE_CONTENT_MAX_CHARS`     | Max chars for trace content (default: `16384`)                 | No       |
-| `CORS_ALLOWED_ORIGINS`        | Comma-separated CORS origins                                   | No       |
-| `CONTEXGIN_URL`               | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
-| `MITZO_INTERNAL_TOKEN`        | Auto-generated token for inter-process auth                    | No       |
+| Variable                        | Description                                                    | Required |
+| ------------------------------- | -------------------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`               | Login passphrase                                               | Yes      |
+| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                 | Yes      |
+| `REPO_PATH`                     | Default repo for sessions                                      | Yes      |
+| `PORT`                          | Server port (default: `3100`)                                  | No       |
+| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                   | No       |
+| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                              | No       |
+| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`          | No       |
+| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
+| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
+| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                     | No       |
+| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                             | No       |
+| `BASE_URL`                      | Public URL for notification deep links                         | No       |
+| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)          | No       |
+| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                    | No       |
+| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                    | No       |
+| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                    | No       |
+| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
+| `NTFY_TOPIC`                    | ntfy topic for notifications                                   | No       |
+| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                | No       |
+| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)             | No       |
+| `PUSHOVER_USER_KEY`             | Pushover user key                                              | No       |
+| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                | No       |
+| `APNS_KEY_ID`                   | APNS key ID                                                    | No       |
+| `APNS_TEAM_ID`                  | Apple Team ID                                                  | No       |
+| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
+| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                          | No       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
+| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
+| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                 | No       |
+| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                   | No       |
+| `CONTEXGIN_URL`                 | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
+| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                    | No       |
 
 See `.env.example` for a starter template.
 
@@ -268,6 +270,17 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
+Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
+current `origin/main`, requires the selected commit to contain it and to be
+published on a remote branch, creates a self-contained detached release clone, records full
+commit/tree/base provenance in `release.txt`, and only then builds and updates
+launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
+to the canonical installation that owns `.env` and `certs`; runtime material
+is never taken from the feature checkout. Paths for checked-in stack locks,
+policies, and provider profiles are rewritten to the immutable release so a
+copied environment cannot mix code from two deployment generations.
+
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
 ## Tech
@@ -281,3 +294,9 @@ Evolved from [claude-command-center](https://github.com/Afstkla/claude-command-c
 ## License
 
 MIT
+
+### macOS runtime startup
+
+The Podman launch agent preserves the VM process group after `podman machine start` exits. Without `AbandonProcessGroup`, launchd terminates those child processes and OpenShell sandbox startup fails even though the start command reports success. After installation, verify `podman info` still succeeds once the launch agent has exited. Use the production `com.mitzo.server` launch agent as the sole supervisor for Mitzo; stop and remove legacy PM2 startup entries before handing over the listening port.
+
+The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.

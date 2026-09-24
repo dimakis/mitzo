@@ -1,9 +1,15 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
+  loadProductionConfig,
   validateStaticConfig,
   verifyAccountBindings,
+  verifyOpenAiHeaderAuthentication,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const manifest = {
@@ -23,6 +29,92 @@ const config = {
 };
 
 describe('OpenShell production bundle validation', () => {
+  const headerProfile = {
+    credentials: [
+      { env_vars: ['OPENAI_API_KEY'], auth_style: 'bearer', header_name: 'authorization' },
+    ],
+    endpoints: [
+      {
+        host: 'api.openai.com',
+        port: 443,
+        protocol: 'rest',
+        enforcement: 'enforce',
+        request_body_credential_rewrite: false,
+        allow_uninspected_credentials: false,
+      },
+    ],
+  };
+
+  it('accepts inspected OpenAI header authentication without body substitution', () => {
+    expect(() => verifyOpenAiHeaderAuthentication(headerProfile)).not.toThrow();
+  });
+
+  it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
+    'rejects live OpenAI profile drift enabling %s',
+    (flag) => {
+      const profile = {
+        ...headerProfile,
+        endpoints: [{ ...headerProfile.endpoints[0], [flag]: true }],
+      };
+      expect(() => verifyOpenAiHeaderAuthentication(profile)).toThrow(/OpenAI/);
+    },
+  );
+
+  it('keeps the checked-in policy and provider profile explicitly inspected', () => {
+    const policy = load(
+      readFileSync(
+        new URL(
+          '../../docs/spikes/openshell-codex/openshell-openai-api-policy.yaml',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as {
+      network_policies: { openai_api: { endpoints: Array<Record<string, unknown>> } };
+    };
+    const profile = load(
+      readFileSync(
+        new URL(
+          '../../docs/spikes/openshell-codex/openai-keychain-spike-profile.yaml',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as Record<string, unknown>;
+
+    expect(policy.network_policies.openai_api.endpoints[0]).toMatchObject({
+      request_body_credential_rewrite: false,
+      allow_uninspected_credentials: false,
+    });
+    expect(() => verifyOpenAiHeaderAuthentication(profile)).not.toThrow();
+  });
+
+  it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
+    'rejects live OpenAI profile drift omitting %s',
+    (flag) => {
+      const endpoint: Record<string, unknown> = { ...headerProfile.endpoints[0] };
+      delete endpoint[flag];
+      expect(() =>
+        verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [endpoint] }),
+      ).toThrow(/OpenAI/);
+    },
+  );
+
+  it('rejects missing bearer-header metadata and non-inspected endpoints', () => {
+    expect(() => verifyOpenAiHeaderAuthentication({ ...headerProfile, credentials: [] })).toThrow(
+      /OpenAI/,
+    );
+    expect(() => verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [] })).toThrow(
+      /OpenAI/,
+    );
+    expect(() =>
+      verifyOpenAiHeaderAuthentication({
+        ...headerProfile,
+        endpoints: [{ ...headerProfile.endpoints[0], protocol: 'tcp' }],
+      }),
+    ).toThrow(/OpenAI/);
+  });
+
   it('matches only active global settings with exact values', () => {
     expect(hasExactGlobalSetting('providers_v2_enabled = true', 'providers_v2_enabled', true)).toBe(
       true,
@@ -40,6 +132,17 @@ describe('OpenShell production bundle validation', () => {
         true,
       ),
     ).toBe(false);
+  });
+
+  it('makes the release env authoritative over inherited deploy variables', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-release-env-'));
+    const envPath = join(dir, '.env');
+    writeFileSync(envPath, 'MITZO_OPENSHELL_IMAGE=release-image\n');
+
+    expect(
+      loadProductionConfig(envPath, { MITZO_OPENSHELL_IMAGE: 'stale-shell-image' })
+        .MITZO_OPENSHELL_IMAGE,
+    ).toBe('release-image');
   });
 
   it('accepts a pinned image and exact provider ordering', () => {
@@ -165,5 +268,117 @@ describe('OpenShell production bundle validation', () => {
     const preflight = deploy.indexOf('node scripts/verify-openshell-production.mjs');
     expect(readiness).toBeGreaterThan(-1);
     expect(preflight).toBeGreaterThan(readiness);
+  });
+
+  it('keeps release creation serialized, remote-complete, and atomic', () => {
+    const release = readFileSync(
+      new URL('../../scripts/create-release.sh', import.meta.url),
+      'utf8',
+    );
+    expect(release).toContain('+refs/heads/*:refs/remotes/origin/*');
+    expect(release).toContain("awk 'NF == 1 { print $1; exit }'");
+    expect(release).toContain('canonical runtime .env is missing');
+    expect(release).toContain('shlock -f "$LOCK_FILE" -p "$$"');
+    expect(release).toContain('LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"');
+    expect(release).not.toContain('LOCK_FILE="$RELEASE_ROOT');
+    expect(release).toContain('mktemp -d "$RELEASE_ROOT/.build.XXXXXX"');
+    expect(release).toContain(
+      'MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"',
+    );
+    expect(release.indexOf('node scripts/verify-openshell-production.mjs .env')).toBeLessThan(
+      release.indexOf(
+        'MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"',
+      ),
+    );
+    expect(release.indexOf('mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"')).toBeGreaterThan(
+      release.indexOf('node scripts/verify-openshell-production.mjs .env'),
+    );
+  });
+
+  it('retains the published feature ref when releasing from a detached checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-detached-release-'));
+    const remote = join(root, 'origin.git');
+    const source = join(root, 'source');
+    const releases = join(root, 'releases');
+    const bin = join(root, 'bin');
+    const marker = join(root, 'publication-verified');
+    const repoRoot = new URL('../..', import.meta.url).pathname;
+
+    execFileSync('git', ['init', '--bare', remote]);
+    execFileSync('git', ['clone', '--no-local', repoRoot, source]);
+    execFileSync('git', ['-C', source, 'remote', 'set-url', 'origin', remote]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/main']);
+    execFileSync('git', ['--git-dir', remote, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
+    execFileSync('git', ['-C', source, 'remote', 'set-head', 'origin', '-a']);
+    const mainRevision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'fixture feature',
+    ]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/review-fixture']);
+    const revision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', source, 'checkout', '--detach', revision]);
+    writeFileSync(join(source, '.env'), 'MITZO_OPENSHELL_ENABLED=0\n');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'shlock'),
+      '#!/bin/sh\nlock=""\nwhile [ "$#" -gt 0 ]; do case "$1" in -f) lock="$2"; shift 2;; *) shift;; esac; done\n( set -C; : > "$lock" ) 2>/dev/null || exit 1\n',
+    );
+    writeFileSync(
+      join(bin, 'npm'),
+      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nprintf ok > "$MARKER"\nexit 73\n',
+    );
+    chmodSync(join(bin, 'shlock'), 0o755);
+    chmodSync(join(bin, 'npm'), 0o755);
+
+    const result = spawnSync('bash', [join(repoRoot, 'scripts/create-release.sh'), revision], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        MITZO_SOURCE_ROOT: source,
+        MITZO_RUNTIME_ROOT: source,
+        MITZO_RELEASE_ROOT: releases,
+        EXPECTED_REVISION: revision,
+        EXPECTED_BRANCH: 'review-fixture',
+        MARKER: marker,
+      },
+      encoding: 'utf8',
+    });
+
+    expect(result.status, result.stderr).toBe(73);
+    expect(readFileSync(marker, 'utf8')).toBe('ok');
+
+    const mainMarker = join(root, 'main-publication-verified');
+    const mainResult = spawnSync(
+      'bash',
+      [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          MITZO_SOURCE_ROOT: source,
+          MITZO_RUNTIME_ROOT: source,
+          MITZO_RELEASE_ROOT: releases,
+          EXPECTED_REVISION: mainRevision,
+          EXPECTED_BRANCH: 'main',
+          MARKER: mainMarker,
+        },
+        encoding: 'utf8',
+      },
+    );
+    expect(mainResult.status, mainResult.stderr).toBe(73);
+    expect(readFileSync(mainMarker, 'utf8')).toBe('ok');
   });
 });

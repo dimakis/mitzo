@@ -10,6 +10,8 @@ import {
   lstatSync,
   readlinkSync,
   symlinkSync,
+  readFileSync,
+  chmodSync,
 } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -698,7 +700,7 @@ describe('cleanupStaleWorktrees', () => {
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     // Worktree dir should be removed
     const remaining = readdirSync(wtDir);
@@ -724,7 +726,7 @@ describe('cleanupStaleWorktrees', () => {
     const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     // Worktree should still exist
     const remaining = readdirSync(wtDir);
@@ -750,15 +752,15 @@ describe('cleanupStaleWorktrees', () => {
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
     // First run — should create one inbox item
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
     expect(readdirSync(inboxDir).length).toBe(1);
 
     // Second run — should NOT create a duplicate
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
     expect(readdirSync(inboxDir).length).toBe(1);
 
     // Third run — still just one
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
     expect(readdirSync(inboxDir).length).toBe(1);
   });
 
@@ -772,7 +774,7 @@ describe('cleanupStaleWorktrees', () => {
     });
 
     // Don't age it — it's fresh
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
@@ -791,7 +793,7 @@ describe('cleanupStaleWorktrees', () => {
     });
     // Don't touch mtime — it stays at "now", so mtime safety net keeps it alive
 
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
@@ -810,7 +812,7 @@ describe('cleanupStaleWorktrees', () => {
     // Age the mtime as well so both name and mtime are past cutoff
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).not.toContain(sessionId);
@@ -830,7 +832,7 @@ describe('cleanupStaleWorktrees', () => {
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
     // Pass the session as active — should be protected from cleanup
-    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]));
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]), 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
@@ -852,7 +854,7 @@ describe('cleanupStaleWorktrees', () => {
       utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
     }
 
-    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([activeId]));
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([activeId]), 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(activeId);
@@ -872,7 +874,7 @@ describe('cleanupStaleWorktrees', () => {
     // Both name-age and mtime are stale — would normally be cleaned up
     utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
 
-    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]));
+    cleanupStaleWorktrees(baseRepo, inboxDir, new Set([sessionId]), 'execute');
 
     const remaining = readdirSync(wtDir);
     expect(remaining).toContain(sessionId);
@@ -894,12 +896,125 @@ describe('cleanupStaleWorktrees', () => {
       utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
     }
 
-    cleanupStaleWorktrees(baseRepo, inboxDir);
+    cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
 
     const inboxFiles = readdirSync(inboxDir);
     expect(inboxFiles.length).toBe(2);
     // Each file should contain its session ID
     expect(inboxFiles.some((f: string) => f.includes('session-a'))).toBe(true);
     expect(inboxFiles.some((f: string) => f.includes('session-b'))).toBe(true);
+  });
+
+  it('defaults to report-only and truthfully summarizes clean, dirty, recent, and active worktrees', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+
+    for (const id of ['stale-clean', 'stale-dirty', 'recent', 'active']) {
+      const wtPath = join(wtDir, id);
+      execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${id}`, wtPath], {
+        stdio: 'pipe',
+      });
+      if (id !== 'recent') utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+    }
+    const dirtyPath = join(wtDir, 'stale-dirty');
+    writeFileSync(join(dirtyPath, 'tracked.txt'), 'base');
+    execFileSync('git', ['-C', dirtyPath, 'add', 'tracked.txt'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', dirtyPath, 'commit', '-m', 'track fixture'], { stdio: 'pipe' });
+    writeFileSync(join(dirtyPath, 'tracked.txt'), 'changed');
+    utimesSync(dirtyPath, fiveDaysAgo, fiveDaysAgo);
+
+    const summary = cleanupStaleWorktrees(baseRepo, inboxDir, new Set(['active']));
+
+    expect(summary).toMatchObject({
+      policy: 'report',
+      eligible: 2,
+      protected: 2,
+      protectedActive: 1,
+      protectedRecent: 1,
+      dirty: 1,
+      unknown: 0,
+      wouldRemove: 1,
+      removed: 0,
+    });
+    expect(readdirSync(wtDir)).toEqual(
+      expect.arrayContaining(['stale-clean', 'stale-dirty', 'recent', 'active']),
+    );
+    expect(existsSync(inboxDir)).toBe(false);
+    expect(
+      execFileSync('git', ['-C', dirtyPath, 'diff', '--cached', '--name-only'], {
+        encoding: 'utf8',
+      }).trim(),
+    ).toBe('');
+  });
+
+  it('does not refresh Git index metadata while reporting status', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'report-index-metadata';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    writeFileSync(join(wtPath, 'tracked.txt'), 'unchanged');
+    execFileSync('git', ['-C', wtPath, 'add', 'tracked.txt'], { stdio: 'pipe' });
+    execFileSync('git', ['-C', wtPath, 'commit', '-m', 'track fixture'], { stdio: 'pipe' });
+
+    // Force Git to inspect a changed stat entry without changing file contents.
+    const future = new Date(Date.now() + 5_000);
+    utimesSync(join(wtPath, 'tracked.txt'), future, future);
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+    const indexPath = execFileSync(
+      'git',
+      ['-C', wtPath, 'rev-parse', '--path-format=absolute', '--git-path', 'index'],
+      { encoding: 'utf8' },
+    ).trim();
+    const indexBefore = readFileSync(indexPath);
+
+    cleanupStaleWorktrees(baseRepo, inboxDir);
+
+    expect(readFileSync(indexPath)).toEqual(indexBefore);
+  });
+
+  it('does not count a worktree as removed when removal leaves its path behind', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'removal-failure';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+
+    chmodSync(wtDir, 0o555);
+    try {
+      const summary = cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
+
+      expect(summary).toMatchObject({ eligible: 1, wouldRemove: 1, removed: 0 });
+      expect(existsSync(wtPath)).toBe(true);
+    } finally {
+      chmodSync(wtDir, 0o755);
+    }
+  });
+
+  it('keeps Git-status failures non-destructive in execute mode', () => {
+    const wtDir = join(baseRepo, '.claude', 'worktrees');
+    mkdirSync(wtDir, { recursive: true });
+    const sessionId = 'status-unknown';
+    const wtPath = join(wtDir, sessionId);
+    execFileSync('git', ['-C', baseRepo, 'worktree', 'add', '-b', `session/${sessionId}`, wtPath], {
+      stdio: 'pipe',
+    });
+    const fiveDaysAgo = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+    utimesSync(wtPath, fiveDaysAgo, fiveDaysAgo);
+    writeFileSync(join(wtPath, '.git'), 'gitdir: /definitely/missing');
+
+    const summary = cleanupStaleWorktrees(baseRepo, inboxDir, undefined, 'execute');
+
+    expect(summary).toMatchObject({ unknown: 1, removed: 0 });
+    expect(existsSync(wtPath)).toBe(true);
+    expect(existsSync(inboxDir)).toBe(false);
   });
 });
