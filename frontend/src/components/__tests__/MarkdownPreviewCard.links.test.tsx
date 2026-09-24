@@ -14,10 +14,16 @@ function Location() {
 }
 
 describe('MarkdownPreviewCard links', () => {
-  it('opens a sibling artifact in the originating session', async () => {
+  it.each([
+    ['[details](details.html)', 'outputs/details.html'],
+    [
+      '[details](file-path://%2Fsession-workspace%2Fdetails.html)',
+      '/session-workspace/details.html',
+    ],
+  ])('opens %s in the originating session', async (content, expectedPath) => {
     vi.mocked(apiFetch).mockResolvedValue({
       ok: true,
-      json: async () => ({ content: '[details](details.html)' }),
+      json: async () => ({ content }),
     } as never);
     render(
       <MemoryRouter initialEntries={['/chat/session-1']}>
@@ -33,7 +39,7 @@ describe('MarkdownPreviewCard links', () => {
     await waitFor(() => {
       const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
       expect(url.pathname).toBe('/files');
-      expect(url.searchParams.get('path')).toBe('outputs/details.html');
+      expect(url.searchParams.get('path')).toBe(expectedPath);
       expect(url.searchParams.get('sessionId')).toBe('session-1');
     });
   });

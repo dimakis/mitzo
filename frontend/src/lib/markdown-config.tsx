@@ -1,4 +1,5 @@
 import React from 'react';
+import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize';
@@ -17,7 +18,15 @@ const sanitizeSchema = {
     ...defaultSchema.attributes,
     img: [...(defaultSchema.attributes?.img ?? []), 'width', 'height'],
   },
+  protocols: {
+    ...defaultSchema.protocols,
+    href: [...(defaultSchema.protocols?.href ?? []), 'file-path'],
+  },
 };
+
+/** Preserve internal artifact links while retaining ReactMarkdown's URL filtering. */
+export const artifactUrlTransform = (url: string) =>
+  url.startsWith(FILE_SCHEME) ? url : defaultUrlTransform(url);
 
 export const remarkPlugins: PluggableList = [remarkGfm];
 export const rehypePlugins: PluggableList = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
@@ -45,6 +54,7 @@ export function artifactMarkdownComponents(
         : href
           ? linkedArtifactPath(href, containingFile)
           : null;
+      if (href?.startsWith(FILE_SCHEME) && !filePath) return <span>{children}</span>;
       if (!filePath)
         return (
           <a href={href} title={title}>

@@ -1,6 +1,11 @@
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, artifactMarkdownComponents } from '../lib/markdown-config';
+import {
+  remarkPlugins,
+  rehypePlugins,
+  artifactMarkdownComponents,
+  artifactUrlTransform,
+} from '../lib/markdown-config';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
@@ -42,7 +47,7 @@ export function FileViewer() {
     <div className="viewer-page">
       <header className="viewer-header">
         <MitzoLogo />
-        {(state.isViewing || state.currentDir || fromRoute) && (
+        {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
             className="viewer-header-back"
             onClick={() => {
@@ -167,6 +172,7 @@ export function FileViewer() {
             <ReactMarkdown
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
+              urlTransform={artifactUrlTransform}
               components={artifactMarkdownComponents(
                 state.filePath,
                 state.sessionId || undefined,
@@ -196,7 +202,7 @@ export function FileViewer() {
 
         {!state.loading && !state.error && !state.isViewing && (
           <div className="viewer-dir">
-            {state.currentDir && (
+            {state.canGoUp && (
               <button
                 className="viewer-entry viewer-entry--up"
                 onClick={() => nav.goUp(editor.dirty)}

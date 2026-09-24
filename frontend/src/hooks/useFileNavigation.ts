@@ -31,6 +31,7 @@ export interface FileNavState {
   ext: string;
   entries: DirEntry[];
   currentDir: string;
+  canGoUp: boolean;
   loading: boolean;
   error: string;
   gitInfo: GitInfo | null;
@@ -56,6 +57,7 @@ export function useFileNavigation(
   const [ext, setExt] = useState('');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [currentDir, setCurrentDir] = useState('');
+  const [browserRoot, setBrowserRoot] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
@@ -63,6 +65,12 @@ export function useFileNavigation(
   // With session authority the server defaults to that session's workspace.
   // Only an explicitly selected root should override it.
   const activeRoot = rootParam || (sessionId ? '' : gitInfo?.repoPath || '');
+  const canGoUp = Boolean(
+    currentDir &&
+    browserRoot &&
+    currentDir !== browserRoot &&
+    currentDir.startsWith(`${browserRoot.replace(/\/$/, '')}/`),
+  );
 
   useEffect(() => {
     apiFetch('/api/git/info')
@@ -121,6 +129,7 @@ export function useFileNavigation(
         .then((data) => {
           setEntries(data.entries);
           setCurrentDir(data.dir);
+          setBrowserRoot(data.root);
         })
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
@@ -148,7 +157,7 @@ export function useFileNavigation(
 
   function goUp(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
-    if (!currentDir) return;
+    if (!canGoUp) return;
     const parent = currentDir.replace(/\/[^/]+$/, '');
     const params = navigationParams();
     if (parent === currentDir) {
@@ -169,7 +178,7 @@ export function useFileNavigation(
       setSearchParams(params);
       setContent('');
       setExt('');
-    } else if (currentDir) {
+    } else if (canGoUp) {
       goUp(false);
     }
   }
@@ -187,6 +196,7 @@ export function useFileNavigation(
     ext,
     entries,
     currentDir,
+    canGoUp,
     loading,
     error,
     gitInfo,

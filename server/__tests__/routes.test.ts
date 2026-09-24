@@ -784,6 +784,7 @@ describe('file routes', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.dir).toBe(SESSION_ARTIFACT_ROOT);
+    expect(res.body.root).toBe(SESSION_ARTIFACT_ROOT);
     expect(res.body.entries).toContainEqual({ name: 'session-report.md', isDir: false });
   });
 

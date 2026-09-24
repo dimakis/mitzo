@@ -1907,7 +1907,7 @@ app.get('/api/files', (req, res) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-    res.json({ dir, entries });
+    res.json({ dir, root, entries });
   } catch (err: unknown) {
     log.error('failed to read directory', {
       dir,

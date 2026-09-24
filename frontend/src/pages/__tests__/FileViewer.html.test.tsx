@@ -19,6 +19,7 @@ vi.mock('../../hooks/useFileNavigation', () => ({
       ext,
       entries: [],
       currentDir: '',
+      canGoUp: false,
       loading: false,
       error: '',
       gitInfo: null,
@@ -79,5 +80,14 @@ describe('FileViewer HTML rendering', () => {
     expect(markup).toContain('path=outputs%2Fdetails.html');
     expect(markup).toContain('sessionId=session-1');
     expect(markup).not.toContain('href="details.html"');
+  });
+
+  it('preserves internal artifact links in Markdown', () => {
+    content = '[details](file-path://%2Fsession-workspace%2Fdetails.html)';
+    ext = '.md';
+    filePath = 'outputs/report.md';
+    const markup = renderToStaticMarkup(createElement(FileViewer));
+    expect(markup).toContain('path=%2Fsession-workspace%2Fdetails.html');
+    expect(markup).toContain('sessionId=session-1');
   });
 });
