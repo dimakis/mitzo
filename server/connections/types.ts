@@ -112,7 +112,7 @@ export interface ProviderPolicy {
   /** Each endpoint is inspected and constrained independently. */
   endpoints: readonly {
     host: string;
-    port: 443;
+    port: 443 | 8443;
     protocol: 'rest' | 'graphql' | 'git';
     tls: 'terminate';
     redirects: 'deny';
@@ -135,6 +135,13 @@ export interface PublicOnlyPinnedDnsRequirement {
   hostname: string;
   verifyAt: 'provision-and-every-use';
   rejectRebinding: true;
+}
+
+/** The custom builder exposes only this closed credential-mapping catalog. */
+export interface CustomCredentialMapping {
+  style: 'bearer-token' | 'api-token';
+  location: 'header' | 'query';
+  name: 'authorization' | 'x-api-key' | 'api_key' | 'access_token';
 }
 
 export interface PinnedPublicDnsAnswers extends PublicOnlyPinnedDnsRequirement {
