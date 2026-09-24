@@ -82,6 +82,7 @@ import {
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
+import { isAllowedPath } from '../app.js';
 
 function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -1855,8 +1856,9 @@ describe('handleSendV2 routing', () => {
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'passthrough' });
   });
 
-  it('validates cwd via isAllowedPath', () => {
+  it('does not pass a disallowed client cwd to startChat', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
+    vi.mocked(isAllowedPath).mockReturnValueOnce(false);
 
     const ctx = createContext();
     const transport = mockTransport();
@@ -1876,6 +1878,12 @@ describe('handleSendV2 routing', () => {
     );
 
     expect(startChat).toHaveBeenCalledTimes(1);
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      expect.any(String),
+      'hi',
+      expect.objectContaining({ cwd: '/tmp/test-repo' }),
+    );
   });
 });
 

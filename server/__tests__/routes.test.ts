@@ -6,7 +6,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
-const SESSION_ARTIFACT_ROOT = join(tmpdir(), `mitzo-session-artifacts-${process.pid}`);
+const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -86,8 +86,11 @@ vi.mock('../chat.js', () => {
         if (id === 'artifact-session') {
           return {
             sessionId: id,
-            cwd: pjoin(ptmpdir(), `mitzo-session-artifacts-${process.pid}`),
+            cwd: pjoin(`${repo}-sessions`, 'artifact-session'),
           };
+        }
+        if (id === 'untrusted-artifact-session') {
+          return { sessionId: id, cwd: '/etc' };
         }
         if (id === 's1') {
           return {
@@ -175,6 +178,7 @@ Some body text here.
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
+  writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
   mkdirSync(SESSION_ARTIFACT_ROOT, { recursive: true });
@@ -749,6 +753,15 @@ describe('file routes', () => {
     expect(res.body.ext).toBe('.txt');
   });
 
+  it('GET /api/files/read — rejects content beyond the bounded preview read', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: join(TEST_REPO, 'oversized.txt') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(413);
+    expect(res.body.error).toContain('5 MB maximum');
+  });
+
   it('GET /api/files/read — disallowed path returns 403', async () => {
     const res = await request(app)
       .get('/api/files/read')
@@ -788,10 +801,10 @@ describe('file routes', () => {
     expect(res.body.entries).toContainEqual({ name: 'session-report.md', isDir: false });
   });
 
-  it('GET /api/files/read — does not grant a session artifact without its session id', async () => {
+  it('GET /api/files/read — does not trust an unconfigured cwd from session metadata', async () => {
     const res = await request(app)
       .get('/api/files/read')
-      .query({ path: join(SESSION_ARTIFACT_ROOT, 'session-report.md') })
+      .query({ path: '/etc/passwd', sessionId: 'untrusted-artifact-session' })
       .set('Cookie', authCookie);
 
     expect(res.status).toBe(403);

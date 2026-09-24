@@ -1044,8 +1044,13 @@ function handleChatWs(
             'ws.has_resume': !!msg.resume,
           },
           (span) => {
-            const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
-            const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+            const requestedCwd = msg.cwd;
+            const validatedCwd = requestedCwd
+              ? isAllowedPath(requestedCwd)
+                ? requestedCwd
+                : BASE_REPO
+              : undefined;
+            const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
             const skillRegistry = buildSkillRegistry(cwd);
             const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
             span.setAttribute('ws.send.resolution', resolution.type);
@@ -1099,7 +1104,7 @@ function handleChatWs(
                   clientMsgId: msg.clientMsgId,
                   startOptions: {
                     resume: msg.resume,
-                    cwd: msg.cwd,
+                    cwd: validatedCwd,
                     model: msg.model,
                     extraTools: msg.extraTools,
                     isolation: msg.isolation,
@@ -1136,7 +1141,7 @@ function handleChatWs(
               ) {
                 startChat(transport, clientId, msg.prompt, {
                   resume: msg.resume,
-                  cwd: msg.cwd,
+                  cwd: validatedCwd,
                   model: msg.model,
                   extraTools: msg.extraTools,
                   isolation: msg.isolation,

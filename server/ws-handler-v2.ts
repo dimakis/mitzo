@@ -594,8 +594,13 @@ export function handleSendV2(
           storedMeta,
           accountBinding,
         );
-        const rawCwd = msg.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+        const requestedCwd = msg.cwd;
+        const validatedCwd = requestedCwd
+          ? isAllowedPath(requestedCwd)
+            ? requestedCwd
+            : BASE_REPO
+          : undefined;
+        const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
         const paidReasoning =
@@ -945,7 +950,7 @@ export function handleSendV2(
           span.setAttribute('routing.decision', 'resume');
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
-            cwd: msg.cwd,
+            cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
@@ -999,7 +1004,7 @@ export function handleSendV2(
           };
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
-            cwd: msg.cwd,
+            cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,

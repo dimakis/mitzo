@@ -13,7 +13,18 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, realpathSync } from 'fs';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
 import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
@@ -1715,6 +1726,37 @@ const privatePathSnapshot = createCodexPathProtection(() =>
 );
 const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
+function readPreviewFile(filePath: string): {
+  content?: string;
+  isFile: boolean;
+  tooLarge: boolean;
+} {
+  const fd = openSync(filePath, 'r');
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return { isFile: false, tooLarge: false };
+    if (stat.size > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+
+    // Read at most one byte beyond the limit. Checking the descriptor while
+    // reading closes the stat/read race when an artifact is still being written.
+    const buffer = Buffer.allocUnsafe(MAX_PREVIEW_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const chunk = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (chunk === 0) break;
+      bytesRead += chunk;
+    }
+    if (bytesRead > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    return {
+      content: buffer.toString('utf-8', 0, bytesRead),
+      isFile: true,
+      tooLarge: false,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
 function canonicalPath(filePath: string): string {
   const full = resolve(filePath);
   try {
@@ -1732,15 +1774,15 @@ function containsPath(root: string, target: string): boolean {
 }
 
 /**
- * A session id grants access only to that session's recorded workspace. This lets
- * authenticated clients open generated artifacts without adding broad host paths
- * to `.mitzo.json`, while keeping links from one session out of every other cwd.
+ * A session id selects that session's recorded workspace for relative links and
+ * browsing. It never widens the configured path allow-list: cwd originates in a
+ * client message, so a persisted session record is not itself authorization.
  */
 function sessionArtifactRoot(sessionId: string | undefined): string | null {
   if (!sessionId) return null;
   const cwd = eventStore.getSession(sessionId)?.cwd;
   if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
-  return cwd;
+  return isConfiguredAllowedPath(cwd) ? cwd : null;
 }
 
 function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
@@ -1930,18 +1972,17 @@ app.get('/api/files/read', (req, res) => {
     return;
   }
   try {
-    const stat = statSync(filePath);
-    if (!stat.isFile()) {
+    const preview = readPreviewFile(filePath);
+    if (!preview.isFile) {
       res.status(400).json({ error: 'Path is not a file' });
       return;
     }
-    if (stat.size > MAX_PREVIEW_BYTES) {
+    if (preview.tooLarge) {
       res.status(413).json({ error: 'File is too large to preview (5 MB maximum)' });
       return;
     }
-    const content = readFileSync(filePath, 'utf-8');
     const ext = extname(filePath).toLowerCase();
-    res.json({ path: filePath, content, ext });
+    res.json({ path: filePath, content: preview.content, ext });
   } catch (err: unknown) {
     log.error('failed to read file', {
       path: filePath,
