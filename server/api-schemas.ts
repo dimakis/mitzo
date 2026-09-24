@@ -28,6 +28,7 @@ export const ConnectionRotateBody = ConnectionRevisionBody.extend({
 export const FileWriteBody = z.object({
   path: z.string().min(1),
   content: z.string(),
+  sessionId: z.string().min(1).optional(),
 });
 
 export const PermissionDecision = z.enum(['once', 'always', 'deny']);

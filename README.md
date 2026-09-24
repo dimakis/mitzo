@@ -14,8 +14,8 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Native fusion** — `/fuse <task>` runs a parallel panel, judge, and synthesis with durable admission; `/fuse --self <task>` uses two independent slots of the same model. Exact retries do not repeat provider work. Uncertain panel outcomes stop later phases; explicitly start another attempt with `/fuse --confirm-ambiguous <task>` (retain `--self` when applicable). Usage-only commands make no provider calls. See [fusion admission](docs/design/fusion-admission.md).
 - **Voice** — push-to-talk input (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, switch between worktree roots
-- **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed renderer
+- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; artifact links stay scoped to the session workspace that created them
+- **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.

@@ -22,6 +22,7 @@ export type ChatAreaVoice = Pick<
 >;
 
 export interface ChatAreaProps {
+  sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   running: boolean;
@@ -41,6 +42,7 @@ export interface ChatAreaProps {
 }
 
 export function ChatArea({
+  sessionId,
   messages,
   current,
   running,
@@ -196,6 +198,7 @@ export function ChatArea({
                     key={bid}
                     content={block.content ?? ''}
                     timestamp={msg.timestamp}
+                    artifactSessionId={sessionId}
                     readAloud={
                       voice?.ttsAvailable
                         ? {
@@ -236,7 +239,14 @@ export function ChatArea({
                 }
                 return <ToolPill key={block.blockId} block={block} />;
               }
-              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
+              return (
+                <TextBubble
+                  key={block.blockId}
+                  content={block.content ?? ''}
+                  streaming
+                  artifactSessionId={sessionId}
+                />
+              );
             })}
           </div>
         )}

@@ -18,7 +18,12 @@ export function FileViewer() {
   const fromRoute =
     rawFrom && rawFrom.startsWith('/') && !rawFrom.startsWith('//') ? rawFrom : null;
 
-  const editor = useFileEditor(state.content, state.filePath, nav.setError);
+  const editor = useFileEditor(
+    state.content,
+    state.filePath,
+    nav.setError,
+    state.sessionId || undefined,
+  );
   const reader = useDocumentReader();
 
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);

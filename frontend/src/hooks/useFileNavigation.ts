@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
+import { artifactApiUrl } from '../lib/file-paths';
 
 interface DirEntry {
   name: string;
@@ -38,6 +39,7 @@ export interface FileNavState {
   isViewing: boolean;
   filePath: string;
   dirPath: string;
+  sessionId: string;
 }
 
 export function useFileNavigation(
@@ -47,6 +49,7 @@ export function useFileNavigation(
   const filePath = searchParams.get('path') || '';
   const dirPath = searchParams.get('dir') || '';
   const rootParam = searchParams.get('root') || '';
+  const sessionId = searchParams.get('sessionId') || '';
   const isViewing = !!filePath;
 
   const [content, setContent] = useState('');
@@ -86,12 +89,17 @@ export function useFileNavigation(
     setLoading(true);
     setError('');
 
-    const rootQ = activeRoot ? `&root=${encodeURIComponent(activeRoot)}` : '';
+    const directoryParams = new URLSearchParams({ dir: dirPath });
+    if (activeRoot) directoryParams.set('root', activeRoot);
+    if (sessionId) directoryParams.set('sessionId', sessionId);
 
     if (isViewing) {
-      apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load file');
+      apiFetch(artifactApiUrl('read', filePath, sessionId || undefined))
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => null);
+            throw new Error(body?.error || 'Failed to load file');
+          }
           return r.json();
         })
         .then((data) => {
@@ -101,9 +109,12 @@ export function useFileNavigation(
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     } else {
-      apiFetch(`/api/files?dir=${encodeURIComponent(dirPath)}${rootQ}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load directory');
+      apiFetch(`/api/files?${directoryParams.toString()}`)
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => null);
+            throw new Error(body?.error || 'Failed to load directory');
+          }
           return r.json();
         })
         .then((data) => {
@@ -113,13 +124,19 @@ export function useFileNavigation(
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     }
-  }, [filePath, dirPath, isViewing, activeRoot]);
+  }, [filePath, dirPath, isViewing, activeRoot, sessionId]);
+
+  function navigationParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (activeRoot) params.root = activeRoot;
+    if (sessionId) params.sessionId = sessionId;
+    return params;
+  }
 
   function openEntry(entry: DirEntry, dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     const full = currentDir ? `${currentDir}/${entry.name}` : entry.name;
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
+    const params = navigationParams();
     if (entry.isDir) {
       params.dir = full;
     } else {
@@ -132,8 +149,7 @@ export function useFileNavigation(
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (!currentDir) return;
     const parent = currentDir.replace(/\/[^/]+$/, '');
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
+    const params = navigationParams();
     if (parent === currentDir) {
       setSearchParams(params);
     } else {
@@ -146,8 +162,7 @@ export function useFileNavigation(
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
       const parentDir = filePath.replace(/\/[^/]+$/, '');
-      const params: Record<string, string> = {};
-      if (activeRoot) params.root = activeRoot;
+      const params = navigationParams();
       if (parentDir) params.dir = parentDir;
       setSearchParams(params);
       setContent('');
@@ -162,6 +177,7 @@ export function useFileNavigation(
     setActiveRoot(newRoot);
     const params: Record<string, string> = {};
     if (newRoot) params.root = newRoot;
+    if (sessionId) params.sessionId = sessionId;
     setSearchParams(params);
   }
 
@@ -178,6 +194,7 @@ export function useFileNavigation(
     isViewing,
     filePath,
     dirPath,
+    sessionId,
   };
 
   return {

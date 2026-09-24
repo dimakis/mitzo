@@ -3,12 +3,14 @@ import ReactMarkdown from 'react-markdown';
 import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
+import { artifactApiUrl, artifactViewerUrl } from '../lib/file-paths';
 
 interface Props {
   filePath: string;
+  sessionId?: string;
 }
 
-export function MarkdownPreviewCard({ filePath }: Props) {
+export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,7 +27,7 @@ export function MarkdownPreviewCard({ filePath }: Props) {
       setError(null);
       setLoading(true);
       try {
-        const res = await apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`);
+        const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         setContent(data.content);
@@ -47,11 +49,7 @@ export function MarkdownPreviewCard({ filePath }: Props) {
         </button>
         <button
           className="md-preview-card-open"
-          onClick={() =>
-            navigate(
-              `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-            )
-          }
+          onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}
         >
           Open
         </button>

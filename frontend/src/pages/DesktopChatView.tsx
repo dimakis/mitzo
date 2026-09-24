@@ -277,6 +277,7 @@ export function DesktopChatView() {
             </div>
           )}
           <ChatArea
+            sessionId={sessionId || activeSessionId || undefined}
             messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
             current={sessionId && sessionId !== activeSessionId ? null : messages.current}
             running={messages.running}

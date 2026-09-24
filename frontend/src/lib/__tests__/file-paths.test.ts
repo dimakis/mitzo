@@ -5,8 +5,21 @@ import {
   isFilePath,
   linkifyFilePaths,
   remarkNeutralizeMalformedFileLinks,
+  artifactApiUrl,
+  artifactViewerUrl,
   FILE_SCHEME,
 } from '../file-paths';
+
+describe('artifact URLs', () => {
+  it('carries session scope through API and viewer URLs', () => {
+    expect(artifactApiUrl('read', 'outputs/report.html', 'session-1')).toBe(
+      '/api/files/read?path=outputs%2Freport.html&sessionId=session-1',
+    );
+    expect(artifactViewerUrl('outputs/report.html', '/chat/session-1', 'session-1')).toBe(
+      '/files?path=outputs%2Freport.html&from=%2Fchat%2Fsession-1&sessionId=session-1',
+    );
+  });
+});
 
 describe('decodeFilePathUrl', () => {
   it('decodes a valid internal file URL', () => {

@@ -3,10 +3,11 @@ import { shareFile } from '../lib/share-file';
 
 interface ShareButtonProps {
   filePath: string;
+  sessionId?: string;
   className?: string;
 }
 
-export function ShareButton({ filePath, className }: ShareButtonProps) {
+export function ShareButton({ filePath, sessionId, className }: ShareButtonProps) {
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const busyRef = useRef(false);
 
@@ -19,7 +20,7 @@ export function ShareButton({ filePath, className }: ShareButtonProps) {
       busyRef.current = true;
       setState('busy');
       try {
-        await shareFile(filePath);
+        await (sessionId ? shareFile(filePath, sessionId) : shareFile(filePath));
         setState('done');
         setTimeout(() => setState('idle'), 1500);
       } catch {
@@ -29,7 +30,7 @@ export function ShareButton({ filePath, className }: ShareButtonProps) {
         busyRef.current = false;
       }
     },
-    [filePath],
+    [filePath, sessionId],
   );
 
   const label =

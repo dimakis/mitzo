@@ -1,6 +1,24 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/** Build an authenticated API URL scoped to the session that created an artifact. */
+export function artifactApiUrl(
+  endpoint: 'read' | 'download',
+  filePath: string,
+  sessionId?: string,
+): string {
+  const params = new URLSearchParams({ path: filePath });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/api/files/${endpoint}?${params.toString()}`;
+}
+
+/** Build the in-app file viewer URL without granting authority in the path itself. */
+export function artifactViewerUrl(filePath: string, from: string, sessionId?: string): string {
+  const params = new URLSearchParams({ path: filePath, from });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/files?${params.toString()}`;
+}
+
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
  * into the React render path.

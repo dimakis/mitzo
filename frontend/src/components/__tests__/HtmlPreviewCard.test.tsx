@@ -27,11 +27,13 @@ describe('HtmlPreviewCard', () => {
       }),
     );
 
-    render(<HtmlPreviewCard filePath="/tmp/prototype.html" />);
+    render(<HtmlPreviewCard filePath="/tmp/prototype.html" sessionId="session-1" />);
     fireEvent.click(screen.getByRole('button', { name: /prototype\.html/i }));
 
     await waitFor(() =>
-      expect(apiFetch).toHaveBeenCalledWith('/api/files/read?path=%2Ftmp%2Fprototype.html'),
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/files/read?path=%2Ftmp%2Fprototype.html&sessionId=session-1',
+      ),
     );
     expect((await screen.findByTitle('prototype.html preview')).getAttribute('sandbox')).toBe(
       'allow-scripts',
@@ -39,11 +41,11 @@ describe('HtmlPreviewCard', () => {
   });
 
   it('opens the artifact in the file viewer', () => {
-    render(<HtmlPreviewCard filePath="/tmp/prototype.html" />);
+    render(<HtmlPreviewCard filePath="/tmp/prototype.html" sessionId="session-1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Open' }));
 
     expect(navigate).toHaveBeenCalledWith(
-      `/files?path=${encodeURIComponent('/tmp/prototype.html')}&from=${encodeURIComponent('/chat/session-1')}`,
+      `/files?path=${encodeURIComponent('/tmp/prototype.html')}&from=${encodeURIComponent('/chat/session-1')}&sessionId=session-1`,
     );
   });
 });
