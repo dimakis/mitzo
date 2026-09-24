@@ -12,6 +12,11 @@ import { CapabilityExecutorRegistry } from './connections/capabilities/registry.
 import { CapabilityService } from './connections/capabilities/service.js';
 import type { CapabilityExecutor } from './connections/capabilities/types.js';
 import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
+import { createGithubPublishPrExecutor } from './connections/capabilities/github-publish-pr.js';
+import {
+  GitHubCliHostPublisher,
+  OpenShellGithubSandboxTransport,
+} from './connections/capabilities/github-publish-pr-transport.js';
 
 const exec = promisify(execFile);
 export interface ConnectionsRuntime {
@@ -45,9 +50,17 @@ export function createConnectionsRuntime(options: {
   profilePath?: string;
   probeImage?: string;
   probePolicy?: string;
+  githubProbePolicy?: string;
+  githubProfileFingerprint?: string;
+  /** Test-only explicit override; production derives this from controller env. */
+  githubPublishEnabled?: boolean;
+  /** Explicit operator deployment switch; defaults closed. */
+  customRestEnabled?: boolean;
+  publicDnsResolver?: import('./connections-gateway.js').PublicDnsResolver;
+  customProbePolicy?: string;
   /** Authoritative conversation metadata, injected by server startup. */
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
-  /** Production intentionally supplies none until a reviewed executor exists. */
+  /** Tests may replace a reviewed built-in executor with a deterministic fake. */
   capabilityExecutors?: Readonly<Record<string, CapabilityExecutor>>;
 }): ConnectionsRuntime {
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
@@ -99,6 +112,35 @@ export function createConnectionsRuntime(options: {
       ...(options.profilePath ? { profilePath: options.profilePath } : {}),
       probeImage: options.probeImage,
       probePolicy: options.probePolicy,
+      githubProbePolicy: options.githubProbePolicy,
+      githubProfileFingerprint: options.githubProfileFingerprint,
+      customRestEnabled:
+        options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true',
+      publicDnsResolver:
+        (options.customRestEnabled ?? process.env.MITZO_CUSTOM_REST_PROVIDER_ENABLED === 'true')
+          ? (options.publicDnsResolver ??
+            (async (hostname, signal) => {
+              signal.throwIfAborted();
+              const { resolve4, resolve6 } = await import('node:dns/promises');
+              const resolve = async (lookup: () => Promise<string[]>) => {
+                try {
+                  return await lookup();
+                } catch (error) {
+                  const code =
+                    error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+                  if (code === 'ENODATA' || code === 'ENOTFOUND') return [];
+                  throw new Error('Custom endpoint DNS resolution failed', { cause: error });
+                }
+              };
+              const [v4, v6] = await Promise.all([
+                resolve(() => resolve4(hostname)),
+                resolve(() => resolve6(hostname)),
+              ]);
+              signal.throwIfAborted();
+              return [...v4, ...v6];
+            }))
+          : undefined,
+      customProbePolicy: options.customProbePolicy,
     },
   );
   const service = new ConnectionsService(store, gateway, {
@@ -107,7 +149,67 @@ export function createConnectionsRuntime(options: {
     eligibleAccountIds: options.eligibleAccountIds,
   });
   const capabilityStore = new CapabilityOperationStore(join(options.directory, 'capabilities.db'));
-  const executorRegistry = new CapabilityExecutorRegistry(options.capabilityExecutors ?? {});
+  // This transport executes only code-owned OpenShell/git argument shapes. It
+  // is separate from provider provisioning because bundle export needs a
+  // larger (but still bounded) binary-safe response than control metadata.
+  const runControl = async (
+    args: readonly string[],
+    run: { signal: AbortSignal; maxOutputBytes: number },
+  ) => {
+    const [command, ...rest] = args;
+    if (!command) throw new Error('Gateway command is required');
+    try {
+      const pending = exec(options.cli, [command, ...gatewayArgs, ...rest], {
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: process.env.HOME ?? '',
+          TMPDIR: process.env.TMPDIR ?? '',
+          LANG: process.env.LANG ?? '',
+          LC_ALL: process.env.LC_ALL ?? '',
+        },
+        signal: run.signal,
+        maxBuffer: run.maxOutputBytes,
+      });
+      pending.child.stdin?.end();
+      return (await pending).stdout;
+    } catch {
+      throw new Error('OpenShell control transport failed');
+    }
+  };
+  const githubSandbox = new OpenShellGithubSandboxTransport(runControl, options.workspace);
+  const githubHost = new GitHubCliHostPublisher();
+  const githubExecutor = createGithubPublishPrExecutor({
+    sandbox: githubSandbox,
+    host: githubHost,
+    resolveConversation: (operation) => {
+      const live = getLiveCapabilityConversationBinding(operation.conversationId);
+      if (
+        !live ||
+        live.connectionId !== operation.connectionId ||
+        live.connectionRevision !== operation.connectionRevision ||
+        !live.sandboxName ||
+        !live.workspace
+      )
+        return undefined;
+      return { sandboxName: live.sandboxName, workspace: live.workspace };
+    },
+    resolvePublicConfig: (operation) => {
+      const connection = store.get(operation.connectionId);
+      return connection &&
+        connection.revision === operation.connectionRevision &&
+        connection.templateId === 'github-readonly' &&
+        connection.templateVersion === 1 &&
+        connection.status === 'active'
+        ? connection.publicConfig
+        : undefined;
+    },
+  });
+  const githubPublishEnabled =
+    options.githubPublishEnabled ?? Boolean(process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN);
+  const executorRegistry = new CapabilityExecutorRegistry({
+    ...(githubPublishEnabled ? { 'github-publish-pr-v1': githubExecutor } : {}),
+    ...(options.capabilityExecutors ?? {}),
+  });
   const capabilities = new CapabilityService({
     store: capabilityStore,
     executorRegistry,

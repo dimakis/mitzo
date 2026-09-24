@@ -294,14 +294,29 @@ export function managedJiraConnectionEnv(connection: Connection) {
 export async function openCodexChat(options: Options) {
   const service = getConnectionsRuntime()?.service;
   if (service && openShellRuntimeConfig(process.env))
-    return service.withAccountRuntime(
+    // On-demand connections are supplied only as grant candidates. They are
+    // intentionally excluded from withAccountRuntime's automatic selection.
+    return service.withAccountRuntimes(
       options.binding.accountId,
-      (connection) => openCodexChatBound(options, connection),
+      (connections) =>
+        openCodexChatBound(
+          options,
+          connections,
+          service.onDemandForAccount(options.binding.accountId),
+        ),
       options.session.abortController.signal,
     );
-  return openCodexChatBound(options, null);
+  return openCodexChatBound(options);
 }
-async function openCodexChatBound(options: Options, managedConnection: Connection | null) {
+async function openCodexChatBound(
+  options: Options,
+  managedConnections: readonly Connection[] = [],
+  onDemandConnections: readonly Connection[] = [],
+) {
+  const managedConnection =
+    managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
+    managedConnections[0] ??
+    null;
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -327,15 +342,27 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
   const runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
-        serviceProviders: managedConnection
-          ? [...configuredRuntime.serviceProviders, managedConnection.gatewayProviderName]
-          : configuredRuntime.serviceProviders,
+        serviceProviders: [
+          ...configuredRuntime.serviceProviders,
+          ...managedConnections.map((connection) => connection.gatewayProviderName),
+        ],
+        grantableServiceProviders: [
+          ...configuredRuntime.grantableServiceProviders,
+          ...onDemandConnections.map((connection) => connection.gatewayProviderName),
+        ],
         account: selectedOpenShellAccountRoute(options),
         connectionAccountId: options.binding.accountId,
         enforceConnectionAttachments: !connectionService,
         verifyConnections: connectionService
-          ? (name, signal) =>
-              connectionService.verifyRuntimeSandbox(name, managedConnection, signal)
+          ? (name, signal, approvedGrantableProviders = []) =>
+              connectionService.verifyRuntimeSandbox(
+                name,
+                managedConnections,
+                options.binding.accountId,
+                signal,
+                onDemandConnections,
+                approvedGrantableProviders,
+              )
           : undefined,
       })
     : undefined;
@@ -388,7 +415,12 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     openShell && managedConnection?.templateId === 'jira-readonly'
       ? { ...openShell, connectionEnv: managedJiraConnectionEnv(managedConnection) }
       : openShell;
-  const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
+  const grantableProviders = runtimeManager
+    ? [
+        ...configuredRuntime!.grantableServiceProviders,
+        ...onDemandConnections.map((connection) => connection.gatewayProviderName),
+      ]
+    : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
   let integrationTurn:
     | {
@@ -447,9 +479,39 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         isError: false,
       };
     if (access.state === 'indeterminate') throw access.error;
-    const providerLabel = INTEGRATION_PROVIDER_LABELS[provider] ?? provider;
+    const providerLabel =
+      INTEGRATION_PROVIDER_LABELS[provider] ??
+      onDemandConnections.find((connection) => connection.gatewayProviderName === provider)
+        ?.label ??
+      provider;
     const attachApprovedProvider = async () => {
       try {
+        const onDemand = onDemandConnections.find(
+          (connection) => connection.gatewayProviderName === provider,
+        );
+        if (onDemand) {
+          await connectionService?.grantOnDemand(
+            onDemand.id,
+            onDemand.revision,
+            options.binding.accountId,
+            signal,
+            () =>
+              runtimeManager.grantServiceProvider(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              ),
+            () =>
+              runtimeManager.revokeServiceProvider(
+                options.conversationId,
+                managedOpenShell,
+                provider,
+                signal,
+              ),
+          );
+          return true;
+        }
         await runtimeManager.grantServiceProvider(
           options.conversationId,
           managedOpenShell,
@@ -552,8 +614,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         startupReservation?.();
         throw error;
       });
-  const managedCapabilityConnection =
-    options.binding?.accountId && managedConnection ? managedConnection : null;
+  const managedCapabilityConnection = options.binding?.accountId
+    ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
+    : null;
   const capabilityTools = capabilityToolsForConversation(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
@@ -601,12 +664,19 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       ? {
           reconnectGuard: connectionService
             ? (work: () => Promise<void>) =>
-                connectionService.withAccountRuntime(
+                connectionService.withAccountRuntimes(
                   options.binding.accountId,
                   async (current) => {
                     if (
-                      current?.id !== managedConnection?.id ||
-                      current?.gatewayProviderId !== managedConnection?.gatewayProviderId
+                      current.length !== managedConnections.length ||
+                      current.some(
+                        (connection) =>
+                          !managedConnections.some(
+                            (original) =>
+                              original.id === connection.id &&
+                              original.gatewayProviderId === connection.gatewayProviderId,
+                          ),
+                      )
                     )
                       throw new Error('Connection permissions changed. Start a new conversation.');
                     await work();
@@ -797,7 +867,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         connectionId: managedCapabilityConnection.id,
         connectionRevision: managedCapabilityConnection.revision,
         gatewayProviderId: managedCapabilityConnection.gatewayProviderId,
-        ...(managedOpenShell ? { sandboxName: managedOpenShell.sandboxName } : {}),
+        ...(managedOpenShell
+          ? { sandboxName: managedOpenShell.sandboxName, workspace: managedOpenShell.workdir }
+          : {}),
       });
       await capabilityTools.service?.recoverPendingForConversation(
         options.binding.accountId,

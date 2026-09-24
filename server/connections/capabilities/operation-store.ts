@@ -29,6 +29,9 @@ function operation(row: Record<string, unknown>): CapabilityOperation {
     turnId: row.turn_id as string,
     idempotencyKey: row.idempotency_key as string,
     inputHash: row.input_hash as string,
+    approvalInput: parseJsonValue((row.approval_input_json as string | null) ?? null),
+    approvalHash: (row.approval_hash as string | null) ?? null,
+    recoveryIntent: parseJsonValue((row.recovery_intent_json as string | null) ?? null),
     status: row.status as CapabilityOperationStatus,
     externalResultId,
     result: parseJsonValue(row.result_json as string | null),
@@ -70,7 +73,7 @@ export class CapabilityOperationStore {
       capability_version INTEGER NOT NULL, grant_id TEXT NOT NULL REFERENCES capability_grants(id), account_id TEXT NOT NULL,
       conversation_id TEXT NOT NULL, turn_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, input_hash TEXT NOT NULL,
       status TEXT NOT NULL CHECK(status IN ('pending_approval','running','verification_pending','succeeded','denied','cancelled','failed')),
-      external_result_id TEXT, result_json TEXT, failure_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      external_result_id TEXT, result_json TEXT, failure_code TEXT, approval_input_json TEXT, approval_hash TEXT, recovery_intent_json TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
       UNIQUE(connection_id, capability_id, capability_version, idempotency_key)
     );
     CREATE TABLE IF NOT EXISTS capability_operation_audit (
@@ -78,6 +81,17 @@ export class CapabilityOperationStore {
       failure_code TEXT, created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_capability_operations_subject ON capability_operations(account_id, conversation_id, created_at);`);
+    for (const statement of [
+      'ALTER TABLE capability_operations ADD COLUMN approval_input_json TEXT',
+      'ALTER TABLE capability_operations ADD COLUMN approval_hash TEXT',
+      'ALTER TABLE capability_operations ADD COLUMN recovery_intent_json TEXT',
+    ]) {
+      try {
+        this.db.exec(statement);
+      } catch {
+        /* already migrated */
+      }
+    }
   }
   close() {
     this.db.close();
@@ -196,8 +210,8 @@ export class CapabilityOperationStore {
           `INSERT INTO capability_operations (
         id, connection_id, connection_revision, capability_id, capability_version, grant_id,
         account_id, conversation_id, turn_id, idempotency_key, input_hash, status,
-        external_result_id, result_json, failure_code, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?)`,
+        external_result_id, result_json, failure_code, approval_input_json, approval_hash, recovery_intent_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?)`,
         )
         .run(
           id,
@@ -226,6 +240,30 @@ export class CapabilityOperationStore {
         created: true,
       };
     })();
+  }
+  recordPreflight(
+    id: string,
+    input: { approvalInput: JsonValue; approvalHash: string; recoveryIntent?: JsonValue },
+  ): CapabilityOperation {
+    if (
+      Buffer.byteLength(JSON.stringify(input.approvalInput), 'utf8') > 32 * 1024 ||
+      (input.recoveryIntent &&
+        Buffer.byteLength(JSON.stringify(input.recoveryIntent), 'utf8') > 8 * 1024)
+    )
+      throw new Error('Capability preflight is invalid');
+    const changed = this.db
+      .prepare(
+        "UPDATE capability_operations SET approval_input_json=?, approval_hash=?, recovery_intent_json=?, updated_at=? WHERE id=? AND status='pending_approval'",
+      )
+      .run(
+        JSON.stringify(input.approvalInput),
+        input.approvalHash,
+        input.recoveryIntent === undefined ? null : JSON.stringify(input.recoveryIntent),
+        Date.now(),
+        id,
+      );
+    if (changed.changes !== 1) throw new Error('Capability operation changed during preflight');
+    return this.get(id)!;
   }
   get(id: string): CapabilityOperation | undefined {
     const row = this.db.prepare('SELECT * FROM capability_operations WHERE id=?').get(id) as

@@ -81,31 +81,67 @@ const scopeFieldValid = (field: ConnectionTemplate['connectionFields'][number], 
   if (field.kind === 'url') {
     try {
       const url = new URL(trimmed);
-      return url.protocol === 'https:' || url.protocol === 'http:';
+      return url.protocol === 'https:';
     } catch {
       return false;
     }
   }
   return true;
 };
+const customScopeValid = (values: Record<string, string>) => {
+  const methods = (values.methods ?? '').split('\n').filter(Boolean);
+  const paths = (values.paths ?? '').split('\n').filter(Boolean);
+  const protocol = values.protocol;
+  const credentialStyle = values.credentialStyle;
+  const credentialLocation = values.credentialLocation;
+  const credentialName = values.credentialName;
+  const credentialsValid =
+    (credentialStyle === 'bearer-token' &&
+      credentialLocation === 'header' &&
+      credentialName === 'authorization') ||
+    (credentialStyle === 'api-token' &&
+      ((credentialLocation === 'header' && credentialName === 'x-api-key') ||
+        (credentialLocation === 'query' && ['api_key', 'access_token'].includes(credentialName))));
+  return (
+    credentialsValid &&
+    (protocol === 'rest'
+      ? methods.length > 0 && methods.every((method) => ['GET', 'HEAD', 'OPTIONS'].includes(method))
+      : protocol === 'graphql' &&
+        methods.length === 1 &&
+        methods[0] === 'GRAPHQL_QUERY' &&
+        paths.length === 1 &&
+        paths[0] === '/graphql')
+  );
+};
 const scopeValid = (template: ConnectionTemplate, values: Record<string, string>) =>
-  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? ''));
+  template.connectionFields.every((field) => scopeFieldValid(field, values[field.key] ?? '')) &&
+  (template.id !== 'custom-rest-readonly' || customScopeValid(values));
 const scopeValues = (template: ConnectionTemplate, values: Record<string, string>) =>
   Object.fromEntries(
     template.connectionFields
       .map((field) => [
         field.key,
         field.kind === 'string-list' || field.kind === 'enum-list'
-          ? (values[field.key] ?? '')
-              .split('\n')
-              .map((v) => v.trim())
-              .filter(Boolean)
+          ? field.kind === 'enum-list' && singleChoiceCustomFields.has(field.key)
+            ? (values[field.key] ?? '').trim()
+            : (values[field.key] ?? '')
+                .split('\n')
+                .map((v) => v.trim())
+                .filter(Boolean)
           : (values[field.key] ?? '').trim(),
       ])
       .filter(([, value]) => (Array.isArray(value) ? value.length : value)),
   );
 const templateKey = (template: Pick<ConnectionTemplate, 'id' | 'version'>) =>
   `${template.id}@${template.version}`;
+const singleChoiceCustomFields = new Set([
+  'port',
+  'protocol',
+  'credentialStyle',
+  'credentialLocation',
+  'credentialName',
+  'attachmentMode',
+]);
 
 export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
@@ -231,7 +267,20 @@ export function ConnectionsView() {
     if (!next.available) return;
     setSelectedTemplateKey(templateKey(next));
     setLabel(next.label);
-    setScope({});
+    setScope(
+      next.id === 'custom-rest-readonly'
+        ? {
+            port: '443',
+            protocol: 'rest',
+            methods: 'GET\nHEAD\nOPTIONS',
+            credentialStyle: 'bearer-token',
+            credentialLocation: 'header',
+            credentialName: 'authorization',
+            binaries: 'curl',
+            attachmentMode: 'automatic',
+          }
+        : {},
+    );
     setCredentials({});
     setAccounts([]);
     setStep('authenticate');
@@ -662,6 +711,27 @@ function Scope({
   values: Record<string, string>;
   onValues: (next: Record<string, string>) => void;
 }) {
+  const updateCustomChoice = (key: string, choice: string) => {
+    const next = { ...values, [key]: choice };
+    if (template.id !== 'custom-rest-readonly') return onValues(next);
+    if (key === 'protocol') {
+      if (choice === 'graphql')
+        Object.assign(next, { methods: 'GRAPHQL_QUERY', paths: '/graphql' });
+      else Object.assign(next, { methods: 'GET', paths: '' });
+    }
+    if (key === 'credentialStyle')
+      Object.assign(
+        next,
+        choice === 'bearer-token'
+          ? { credentialLocation: 'header', credentialName: 'authorization' }
+          : { credentialLocation: 'header', credentialName: 'x-api-key' },
+      );
+    if (key === 'credentialLocation' && next.credentialStyle === 'bearer-token')
+      Object.assign(next, { credentialLocation: 'header', credentialName: 'authorization' });
+    if (key === 'credentialLocation' && next.credentialStyle === 'api-token')
+      Object.assign(next, { credentialName: choice === 'header' ? 'x-api-key' : 'api_key' });
+    onValues(next);
+  };
   if (!template.connectionFields.length)
     return (
       <div>
@@ -686,9 +756,22 @@ function Scope({
               {field.choices?.map((choice) => (
                 <label className="connections-profile-option" key={choice}>
                   <input
-                    type="checkbox"
-                    checked={(values[field.key] ?? '').split('\n').includes(choice)}
+                    type={singleChoiceCustomFields.has(field.key) ? 'radio' : 'checkbox'}
+                    name={
+                      singleChoiceCustomFields.has(field.key)
+                        ? `connection-${field.key}`
+                        : undefined
+                    }
+                    checked={
+                      singleChoiceCustomFields.has(field.key)
+                        ? values[field.key] === choice
+                        : (values[field.key] ?? '').split('\n').includes(choice)
+                    }
                     onChange={() => {
+                      if (singleChoiceCustomFields.has(field.key)) {
+                        updateCustomChoice(field.key, choice);
+                        return;
+                      }
                       const next = new Set((values[field.key] ?? '').split('\n').filter(Boolean));
                       if (next.has(choice)) next.delete(choice);
                       else next.add(choice);
@@ -823,7 +906,31 @@ function Review({
         A candidate provider is verified before activation. Secret values are intentionally not
         shown.
       </p>
+      {template.id === 'custom-rest-readonly' && <CustomPolicyPreview scope={scope} />}
     </div>
+  );
+}
+
+function CustomPolicyPreview({ scope }: { scope: Record<string, string | string[]> }) {
+  const endpoint = typeof scope.endpoint === 'string' ? scope.endpoint : '';
+  const port = typeof scope.port === 'string' ? scope.port : '443';
+  const protocol = typeof scope.protocol === 'string' ? scope.protocol : 'rest';
+  const methods = Array.isArray(scope.methods) ? scope.methods : [];
+  const paths = Array.isArray(scope.paths) ? scope.paths : [];
+  const rules = methods.flatMap((method) => paths.map((path) => `${method} ${path}`));
+  return (
+    <details className="connections-policy-preview">
+      <summary>Technical policy preview</summary>
+      <p>
+        HTTPS {endpoint || 'endpoint'}:{port} · {protocol} inspection · redirects denied · all
+        A/AAAA answers are pinned before provisioning and checked before every use.
+      </p>
+      <p>Effective rules: {rules.join(', ') || 'none'}.</p>
+      <p>
+        Warnings: wildcard hosts/paths are denied; credentials are one-shot and never forwarded on
+        redirects.
+      </p>
+    </details>
   );
 }
 

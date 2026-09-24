@@ -132,6 +132,9 @@ function configureConnectionsRuntime(): void {
     const openShell = openShellRuntimeConfig(process.env);
     const probeImage = process.env.MITZO_CONNECTIONS_PROBE_IMAGE;
     const probePolicy = process.env.MITZO_CONNECTIONS_PROBE_POLICY;
+    const githubProbePolicy = process.env.MITZO_CONNECTIONS_GITHUB_PROBE_POLICY;
+    const githubProfileFingerprint = process.env.MITZO_CONNECTIONS_GITHUB_PROFILE_FINGERPRINT;
+    const customProbePolicy = process.env.MITZO_CONNECTIONS_CUSTOM_REST_PROBE_POLICY;
     const profilePath = process.env.MITZO_CONNECTIONS_JIRA_PROFILE_PATH;
     if (!openShell || !probeImage || !probePolicy || !profilePath) {
       log.error(
@@ -151,6 +154,9 @@ function configureConnectionsRuntime(): void {
       profilePath,
       probeImage,
       probePolicy,
+      ...(githubProbePolicy ? { githubProbePolicy } : {}),
+      ...(githubProfileFingerprint ? { githubProfileFingerprint } : {}),
+      ...(customProbePolicy ? { customProbePolicy } : {}),
       resolveConversationBinding: (conversationId) => {
         const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
         return accountId ? { accountId } : undefined;

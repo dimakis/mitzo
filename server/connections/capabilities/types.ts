@@ -39,6 +39,11 @@ export interface CapabilityOperation {
   turnId: string;
   idempotencyKey: string;
   inputHash: string;
+  /** Bounded trusted semantic card shown before approval, never raw credentials. */
+  approvalInput?: JsonValue | null;
+  approvalHash?: string | null;
+  /** Minimal redacted intent required for read-only post-write recovery. */
+  recoveryIntent?: JsonValue | null;
   status: CapabilityOperationStatus;
   externalResultId: string | null;
   /** Already redacted and capped; never holds a request input or a credential. */
@@ -62,6 +67,8 @@ export interface CapabilityExecutionContext {
   /** `operation.id` is the mandatory external idempotency and recovery key. */
   operation: CapabilityOperation;
   input: Readonly<Record<string, string | boolean>>;
+  /** Exact semantic projection that was approved, when executor uses preflight. */
+  approvalInput?: Readonly<Record<string, string | boolean>>;
   signal: AbortSignal;
 }
 
@@ -69,6 +76,14 @@ export interface CapabilityExecutorResult {
   output: JsonValue;
   externalResultId?: string;
 }
+export interface CapabilityPreflightResult {
+  /** Complete, bounded semantic action card; this, not raw UI input, is approved. */
+  approvalInput: Readonly<Record<string, string | boolean>>;
+  /** Minimal non-secret lookup key persisted before the first remote write. */
+  recoveryIntent?: JsonValue;
+}
+/** A recovery query could not authoritatively settle a possibly-written operation. */
+export class CapabilityRecoveryPendingError extends Error {}
 
 /** A recovery may only declare a write absent when its provider read proves it. */
 export type CapabilityRecoveryResult =
@@ -77,6 +92,7 @@ export type CapabilityRecoveryResult =
 /** `verify` is mandatory: a mutation is not reported as successful until read-after-write confirms it. */
 export interface CapabilityExecutor {
   readonly inputSchema?: JsonSchema;
+  preflight?(context: CapabilityExecutionContext): Promise<CapabilityPreflightResult>;
   execute(context: CapabilityExecutionContext): Promise<CapabilityExecutorResult>;
   verify(context: CapabilityExecutionContext, result: CapabilityExecutorResult): Promise<void>;
   /**
