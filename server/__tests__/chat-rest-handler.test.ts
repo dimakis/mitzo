@@ -28,6 +28,7 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleSessionSuspend: vi.fn(),
     handleSessionClose: vi.fn(),
     handleReconnect: vi.fn(),
+    claimWebSearchConsentOwner: vi.fn().mockReturnValue(true),
   };
 });
 
@@ -43,6 +44,7 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
+  claimWebSearchConsentOwner,
 } from '../ws-handler-v2.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -453,6 +455,7 @@ describe('chat-rest-handler', () => {
         grant: 'unresolved',
         revision: 0,
         updatedAt: null,
+        owner: true,
       });
 
       const updated = await request(testApp)
@@ -487,6 +490,72 @@ describe('chat-rest-handler', () => {
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
       expect(currentOwner.status).toBe(200);
       expect(setWebSearchGrant).toHaveBeenCalledTimes(2);
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('lets a watching connection read consent and explicitly claim ownership on update', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: {
+        getWebSearchGrant: () => ({ grant: 'unresolved', revision: 0, updatedAt: null }),
+        canSetWebSearchGrant: () => true,
+        setWebSearchGrant,
+      },
+    } as never);
+    const watcher = 'conn-watcher';
+    sseRegistry.add(watcher, mockResponse());
+    connRegistry.register(watcher, new SseTransport(watcher, sseRegistry));
+    connRegistry.watch(watcher, 'sess-1');
+    try {
+      const read = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', watcher);
+      expect(read.status).toBe(200);
+      expect(read.body.owner).toBe(false);
+
+      const update = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', watcher)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(update.status).toBe(200);
+      expect(claimWebSearchConsentOwner).toHaveBeenCalledWith(watcher, 'sess-1', handlerContext);
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rejects Allow in Ask mode before changing the grant', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'ask',
+      abortController: new AbortController(),
+      queryInstance: {
+        getWebSearchGrant: () => ({ grant: 'unresolved', revision: 0, updatedAt: null }),
+        setWebSearchGrant,
+      },
+    } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
     } finally {
       sessions.dispose();
     }

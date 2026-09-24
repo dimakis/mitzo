@@ -39,6 +39,7 @@ import {
   handleSessionClose,
   handleReconnect,
   getOwnerConnection,
+  claimWebSearchConsentOwner,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
@@ -351,15 +352,22 @@ export function createChatRestRouter(
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
     const found = ctx.sessionRegistry.findBySessionId(String(req.params.sessionId));
+    const ownerConnection =
+      found?.session.ownerConnectionId ?? (found ? getOwnerConnection(found.clientId) : null);
     if (
       !found ||
-      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      (ownerConnection !== connectionId &&
+        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(String(req.params.sessionId))) ||
       !found.session.queryInstance?.getWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
       return;
     }
-    res.json({ ok: true, ...found.session.queryInstance.getWebSearchGrant() });
+    res.json({
+      ok: true,
+      ...found.session.queryInstance.getWebSearchGrant(),
+      owner: ownerConnection === connectionId,
+    });
   });
 
   router.post('/web-search-consent', async (req, res) => {
@@ -369,20 +377,43 @@ export function createChatRestRouter(
     const msg = validateBody(WebSearchConsent, req.body, res);
     if (!msg) return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+    const ownerConnection =
+      found?.session.ownerConnectionId ?? (found ? getOwnerConnection(found.clientId) : null);
     if (
       !found ||
-      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      (ownerConnection !== connectionId &&
+        !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)) ||
       !found.session.queryInstance?.setWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
       return;
+    }
+    if (msg.grant === 'allowed' && found.session.mode === 'ask') {
+      res
+        .status(409)
+        .json({ ok: false, error: 'Switch to Agent or Auto before allowing web search' });
+      return;
+    }
+    if (ownerConnection !== connectionId) {
+      const current = found.session.queryInstance.getWebSearchGrant?.();
+      if (
+        !current ||
+        current.revision !== msg.expectedRevision ||
+        !found.session.queryInstance.canSetWebSearchGrant?.() ||
+        !claimWebSearchConsentOwner(connectionId, msg.sessionId, ctx)
+      ) {
+        res
+          .status(409)
+          .json({ ok: false, error: 'Cannot take control for web-search consent right now' });
+        return;
+      }
     }
     try {
       const updated = await found.session.queryInstance.setWebSearchGrant(
         msg.expectedRevision,
         msg.grant,
       );
-      res.json({ ok: true, ...updated });
+      res.json({ ok: true, ...updated, owner: true });
     } catch (error) {
       log.warn('web-search consent update rejected', {
         connectionId,

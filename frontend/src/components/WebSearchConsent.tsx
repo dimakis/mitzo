@@ -9,6 +9,7 @@ const Consent = z.object({
   grant: z.enum(['unresolved', 'denied', 'allowed']),
   revision: z.number().int().nonnegative(),
   updatedAt: z.number().nullable(),
+  owner: z.boolean(),
 });
 type ConsentState = z.infer<typeof Consent>;
 
@@ -128,15 +129,23 @@ export function WebSearchConsent({
             Allow sends model-generated searches to the model provider's hosted web search for this
             conversation. Searches are not approved one by one.
           </p>
-          {mode === 'ask' && <p>Web search stays off in Ask mode, even if access is allowed.</p>}
+          {mode === 'ask' && (
+            <p>
+              Deny access here, switch to Agent or Auto, then Allow. Web search stays off in Ask
+              mode.
+            </p>
+          )}
+          {!consent.owner && (
+            <p>Changing this setting will take control of this conversation in this tab.</p>
+          )}
           <div className="web-search-consent-actions">
             <button
               type="button"
-              disabled={saving || running || !connected}
+              disabled={saving || running || !connected || mode === 'ask'}
               aria-pressed={consent.grant === 'allowed'}
               onClick={() => void update('allowed')}
             >
-              Allow for this conversation
+              {consent.owner ? 'Allow for this conversation' : 'Allow and take control'}
             </button>
             <button
               type="button"
@@ -144,7 +153,7 @@ export function WebSearchConsent({
               aria-pressed={consent.grant === 'denied'}
               onClick={() => void update('denied')}
             >
-              Deny
+              {consent.owner ? 'Deny' : 'Deny and take control'}
             </button>
           </div>
           {(saving || running) && <span role="status">Changes are available between turns.</span>}

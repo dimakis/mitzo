@@ -12,7 +12,10 @@ afterEach(() => {
 });
 
 const response = (grant: string, revision: number) =>
-  ({ ok: true, json: async () => ({ ok: true, grant, revision, updatedAt: null }) }) as Response;
+  ({
+    ok: true,
+    json: async () => ({ ok: true, grant, revision, updatedAt: null, owner: true }),
+  }) as Response;
 
 it('shows the explicit provider-hosted choice and updates the revision-bound grant', async () => {
   vi.mocked(apiFetch)
@@ -62,11 +65,43 @@ it('keeps choices unavailable during a turn and explains Ask mode', async () => 
     await screen.findByRole('button', { name: 'Web search permission: Allowed (off in Ask)' }),
   );
   expect(screen.getByText(/stays off in Ask mode/)).toBeTruthy();
+  expect(
+    screen.getByRole('button', { name: 'Allow for this conversation' }).hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.getByText(/Deny.*switch to Agent or Auto.*Allow/)).toBeTruthy();
 
   rerender(<WebSearchConsent {...props} running />);
   await waitFor(() => {
     expect(screen.getByRole('button', { name: 'Deny' }).hasAttribute('disabled')).toBe(true);
   });
+});
+
+it('keeps consent visible for a watcher and explains that an update takes control', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        grant: 'unresolved',
+        revision: 0,
+        updatedAt: null,
+        owner: false,
+      }),
+    } as Response)
+    .mockResolvedValueOnce(response('allowed', 1));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="watcher"
+      running={false}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Web search permission: Choose' }));
+  expect(screen.getByText(/take control of this conversation/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Allow and take control' }));
+  await screen.findByRole('button', { name: 'Web search permission: Allowed' });
 });
 
 it('does not show the control for a session without a Codex grant', async () => {

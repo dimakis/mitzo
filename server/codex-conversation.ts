@@ -337,6 +337,17 @@ export class CodexConversation {
     if (!this.binding) throw new Error('Codex account binding unavailable');
     return this.opts.store.readWebSearchGrant(this.opts.conversationId, this.binding);
   }
+  canSetWebSearchGrant(): boolean {
+    return Boolean(
+      !this.closed &&
+      this.ready &&
+      this.binding &&
+      this.threadId &&
+      !this.active &&
+      !this.pumping &&
+      !this.paused,
+    );
+  }
   queue() {
     if (!this.binding) return [];
     return this.opts.store.commands(this.opts.conversationId, this.binding);

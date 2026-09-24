@@ -66,6 +66,8 @@ export interface ManagedSession {
       revision: number;
       updatedAt: number | null;
     };
+    /** Whether an ownership transfer for consent can safely happen between turns. */
+    canSetWebSearchGrant?: () => boolean;
     interrupt: () => Promise<void>;
     close: () => void;
     stopTask: (taskId: string) => Promise<void>;

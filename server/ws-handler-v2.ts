@@ -132,6 +132,38 @@ export function getOwnerConnection(clientId: string): string {
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
 }
 
+/** Explicit consent edits may take ownership from another tab before changing the grant. */
+export function claimWebSearchConsentOwner(
+  connectionId: string,
+  sessionId: string,
+  ctx: V2HandlerContext,
+): boolean {
+  const connection = ctx.connRegistry.get(connectionId);
+  const found = ctx.sessionRegistry.findBySessionId(sessionId);
+  if (!connection?.watchedSessions.has(sessionId) || !found) return false;
+  const session = found.session;
+  const ownerConnection = session.ownerConnectionId ?? getOwnerConnection(found.clientId);
+  if (ownerConnection === connectionId) return true;
+  if (!session.queryInstance?.canSetWebSearchGrant?.()) return false;
+  const previousTransport = session.transport;
+  if (!reattachChat(found.clientId, connection.transport)) return false;
+  session.ownerConnectionId = connectionId;
+  ctx.connRegistry.unwatch(ownerConnection, sessionId);
+  ctx.connRegistry.setActive(connectionId, sessionId);
+  denyPendingBySession(sessionId);
+  try {
+    if (previousTransport.isOpen()) previousTransport.send({ type: 'session_takeover', sessionId });
+  } catch (error) {
+    log.warn('web-search consent takeover notification failed', { sessionId, error });
+  }
+  log.info('web-search consent ownership transferred', {
+    sessionId,
+    ownerConnection,
+    connectionId,
+  });
+  return true;
+}
+
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
 
 export interface StateMismatchResult {
