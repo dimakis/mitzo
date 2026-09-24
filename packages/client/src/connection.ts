@@ -31,6 +31,9 @@ export class MitzoConnection {
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
+  private replayingSessions = new Set<string>();
+  private replaySeenSeq = new Map<string, number>();
+  private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
   private pendingSends: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -130,8 +133,18 @@ export class MitzoConnection {
     return this.seqBySession.get(sessionId) ?? 0;
   }
 
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void {
+    const pending = this.pendingSnapshots.get(sessionId);
+    if (!pending || pending.cursor !== cursor) return;
+    this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
+    this.pendingSnapshots.delete(sessionId);
+  }
+
   clearSession(sessionId: string): void {
     this.seqBySession.delete(sessionId);
+    this.replayingSessions.delete(sessionId);
+    this.replaySeenSeq.delete(sessionId);
+    this.pendingSnapshots.delete(sessionId);
   }
 
   /** Drain the pending-send queue (e.g. on session switch to avoid cross-session message leaks). */
@@ -283,6 +296,11 @@ export class MitzoConnection {
             sessionId,
             lastSeq,
           }));
+          for (const { sessionId } of sessions) {
+            this.replayingSessions.add(sessionId);
+            this.replaySeenSeq.delete(sessionId);
+            this.pendingSnapshots.delete(sessionId);
+          }
           ws.send(JSON.stringify({ type: 'reconnect', sessions }));
         }
         this._isReconnect = true;
@@ -292,8 +310,6 @@ export class MitzoConnection {
         return;
       }
 
-      // The durable snapshot acknowledges the server's replay boundary. It
-      // also replaces an invalid local cursor that points past durable data.
       if (
         msg.type === 'session_reconnect_snapshot' &&
         typeof msg.sessionId === 'string' &&
@@ -301,16 +317,29 @@ export class MitzoConnection {
         Number.isSafeInteger(msg.cursor) &&
         msg.cursor >= 0
       ) {
-        this.seqBySession.set(msg.sessionId, msg.cursor);
+        this.replayingSessions.delete(msg.sessionId);
+        const seen = this.replaySeenSeq.get(msg.sessionId) ?? 0;
+        this.replaySeenSeq.delete(msg.sessionId);
+        this.pendingSnapshots.set(msg.sessionId, {
+          cursor: msg.cursor,
+          afterSeq: seen > msg.cursor ? seen : 0,
+        });
       } else if (
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
         typeof msg.sessionId === 'string'
       ) {
-        this.seqBySession.set(
-          msg.sessionId,
-          Math.max(this.seqBySession.get(msg.sessionId) ?? 0, msg.seq),
-        );
+        if (this.replayingSessions.has(msg.sessionId)) {
+          this.replaySeenSeq.set(
+            msg.sessionId,
+            Math.max(this.replaySeenSeq.get(msg.sessionId) ?? 0, msg.seq),
+          );
+        } else {
+          const pending = this.pendingSnapshots.get(msg.sessionId);
+          if (pending) pending.afterSeq = Math.max(pending.afterSeq, msg.seq);
+          else
+            this.seqBySession.set(msg.sessionId, Math.max(this.getLastSeq(msg.sessionId), msg.seq));
+        }
       }
 
       this.listener?.(msg);

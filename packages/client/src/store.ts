@@ -227,7 +227,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
-  function fetchAndRestoreMessages(sessionId: string, throughSeq?: number, replace = false) {
+  function fetchAndRestoreMessages(
+    sessionId: string,
+    throughSeq?: number,
+    replace = false,
+    onApplied?: () => void,
+  ) {
     if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
     const request = ++historyRequest;
@@ -265,6 +270,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 ? mergeHistory(s.messages, msgs, initialCurrent)
                 : s.messages,
           }));
+          onApplied?.();
         }
       })
       .catch((err) => {
@@ -770,12 +776,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean) {
       if (parserState.currentSessionId === sessionId) {
-        if (!cursorValid) {
-          store.setState((s) => ({
-            messages: { ...s.messages, messages: [], current: null },
-          }));
-        }
-        fetchAndRestoreMessages(sessionId, cursor, !cursorValid);
+        fetchAndRestoreMessages(sessionId, cursor, !cursorValid, () =>
+          connection.acknowledgeReconnectSnapshot(sessionId, cursor),
+        );
       }
     },
 
@@ -867,14 +870,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // - Otherwise → drop (foreign session event)
     if (eventSessionId) {
       if (parserState.currentSessionId) {
-        if (eventSessionId !== parserState.currentSessionId) return;
+        if (eventSessionId !== parserState.currentSessionId) {
+          if (
+            msg.type === 'session_reconnect_snapshot' &&
+            typeof msg.cursor === 'number' &&
+            Number.isSafeInteger(msg.cursor) &&
+            msg.cursor >= 0
+          )
+            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return;
+        }
       } else {
         // Allow session_id (new session assignment) and permission_request
         // (can arrive before session_id on the first turn) through when no
         // active session. Drop everything else (session_end, etc.) to prevent
         // foreign session bleed.
         const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
-        if (!isFirstTurnEvent) return;
+        if (!isFirstTurnEvent) {
+          if (
+            msg.type === 'session_reconnect_snapshot' &&
+            typeof msg.cursor === 'number' &&
+            Number.isSafeInteger(msg.cursor) &&
+            msg.cursor >= 0
+          )
+            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return;
+        }
       }
     }
 

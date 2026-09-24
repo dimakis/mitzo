@@ -29,6 +29,8 @@ export interface ChatConnection {
   trackSeq(sessionId: string, seq: number): void;
   /** Get the last received seq for a session (0 if untracked). */
   getLastSeq(sessionId: string): number;
+  /** Commit a reconnect boundary after its state and transcript have been applied. */
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void;
   /** Stop tracking a session (e.g. after close). */
   clearSession(sessionId: string): void;
   /** Drain the pending-send queue. */

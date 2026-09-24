@@ -179,7 +179,7 @@ describe('MitzoConnection', () => {
       expect(conn.getLastSeq('unknown')).toBe(0);
     });
 
-    it('acknowledges the snapshot cursor and ignores older duplicate events', () => {
+    it('holds the snapshot cursor until the restore is applied', () => {
       const conn = createConnection();
       conn.onMessage(() => {});
       const ws = openWithHandshake(conn);
@@ -192,8 +192,9 @@ describe('MitzoConnection', () => {
         cursorValid: false,
       });
       ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 11 });
-      expect(conn.getLastSeq('s1')).toBe(12);
+      expect(conn.getLastSeq('s1')).toBe(99);
       ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 13 });
+      conn.acknowledgeReconnectSnapshot('s1', 12);
       expect(conn.getLastSeq('s1')).toBe(13);
     });
 
@@ -249,6 +250,18 @@ describe('MitzoConnection', () => {
           { sessionId: 's2', lastSeq: 3 },
         ]),
       );
+
+      ws2.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9 });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      ws2.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 9,
+        cursorValid: true,
+      });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      conn.acknowledgeReconnectSnapshot('s1', 9);
+      expect(conn.getLastSeq('s1')).toBe(9);
 
       vi.useRealTimers();
     });

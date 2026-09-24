@@ -49,6 +49,9 @@ export class SseConnection implements ChatConnection {
   private probeCounter = 0;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
+  private replayingSessions = new Set<string>();
+  private replaySeenSeq = new Map<string, number>();
+  private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
@@ -185,8 +188,18 @@ export class SseConnection implements ChatConnection {
     return this.seqBySession.get(sessionId) ?? 0;
   }
 
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void {
+    const pending = this.pendingSnapshots.get(sessionId);
+    if (!pending || pending.cursor !== cursor) return;
+    this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
+    this.pendingSnapshots.delete(sessionId);
+  }
+
   clearSession(sessionId: string): void {
     this.seqBySession.delete(sessionId);
+    this.replayingSessions.delete(sessionId);
+    this.replaySeenSeq.delete(sessionId);
+    this.pendingSnapshots.delete(sessionId);
   }
 
   // Navigation discards stale controls, not submitted prompts. Scope prevents
@@ -334,16 +347,29 @@ export class SseConnection implements ChatConnection {
         Number.isSafeInteger(msg.cursor) &&
         msg.cursor >= 0
       ) {
-        this.seqBySession.set(msg.sessionId, msg.cursor);
+        this.replayingSessions.delete(msg.sessionId);
+        const seen = this.replaySeenSeq.get(msg.sessionId) ?? 0;
+        this.replaySeenSeq.delete(msg.sessionId);
+        this.pendingSnapshots.set(msg.sessionId, {
+          cursor: msg.cursor,
+          afterSeq: seen > msg.cursor ? seen : 0,
+        });
       } else if (
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
         typeof msg.sessionId === 'string'
       ) {
-        this.seqBySession.set(
-          msg.sessionId,
-          Math.max(this.seqBySession.get(msg.sessionId) ?? 0, msg.seq),
-        );
+        if (this.replayingSessions.has(msg.sessionId)) {
+          this.replaySeenSeq.set(
+            msg.sessionId,
+            Math.max(this.replaySeenSeq.get(msg.sessionId) ?? 0, msg.seq),
+          );
+        } else {
+          const pending = this.pendingSnapshots.get(msg.sessionId);
+          if (pending) pending.afterSeq = Math.max(pending.afterSeq, msg.seq);
+          else
+            this.seqBySession.set(msg.sessionId, Math.max(this.getLastSeq(msg.sessionId), msg.seq));
+        }
       }
 
       this.listener?.(msg);
@@ -414,6 +440,11 @@ export class SseConnection implements ChatConnection {
     }
     const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
     this.replayRequest = request;
+    for (const sessionId of this.seqBySession.keys()) {
+      this.replayingSessions.add(sessionId);
+      this.replaySeenSeq.delete(sessionId);
+      this.pendingSnapshots.delete(sessionId);
+    }
     const abort = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {

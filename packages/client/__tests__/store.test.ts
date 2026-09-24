@@ -446,6 +446,38 @@ describe('reconnect recovery', () => {
     expect(store.getState().messages.permission).toBeNull();
   });
 
+  it('keeps visible history and the old cursor when bounded restore fails', async () => {
+    const transport = mockTransport();
+    let rejectRestore!: (error: Error) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((_resolve, reject) => {
+          rejectRestore = reject;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [{ messageId: 'stale', role: 'assistant', blocks: [] }],
+      },
+    }));
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'idle',
+    });
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['stale']);
+    rejectRestore(new Error('offline'));
+    await vi.waitFor(() => expect(store.getState().historyError).toMatch(/restore/i));
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['stale']);
+  });
+
   it('keeps messages delivered after an invalid snapshot while bounded restore is in flight', async () => {
     const transport = mockTransport();
     let releaseRestore!: (value: unknown) => void;

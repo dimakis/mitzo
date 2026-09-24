@@ -430,7 +430,7 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(42);
   });
 
-  it('replaces an invalid cursor from the reconnect snapshot', () => {
+  it('holds an invalid cursor until the snapshot is applied', () => {
     const conn = new SseConnection(createConfig());
     conn.connect();
     lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
@@ -443,6 +443,8 @@ describe('SseConnection', () => {
       cursorValid: false,
     });
     lastES()._emit('message', { type: 'block_delta', sessionId: 'sess-1', seq: 11 });
+    expect(conn.getLastSeq('sess-1')).toBe(99);
+    conn.acknowledgeReconnectSnapshot('sess-1', 12);
     expect(conn.getLastSeq('sess-1')).toBe(12);
   });
 
