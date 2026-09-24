@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -291,5 +292,65 @@ describe('OpenShell production bundle validation', () => {
     expect(release.indexOf('mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"')).toBeGreaterThan(
       release.indexOf('node scripts/verify-openshell-production.mjs .env'),
     );
+  });
+
+  it('retains the published feature ref when releasing from a detached checkout', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-detached-release-'));
+    const remote = join(root, 'origin.git');
+    const source = join(root, 'source');
+    const releases = join(root, 'releases');
+    const bin = join(root, 'bin');
+    const marker = join(root, 'publication-verified');
+    const repoRoot = new URL('../..', import.meta.url).pathname;
+
+    execFileSync('git', ['init', '--bare', remote]);
+    execFileSync('git', ['clone', '--no-local', repoRoot, source]);
+    execFileSync('git', ['-C', source, 'remote', 'set-url', 'origin', remote]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/main']);
+    execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'fixture feature',
+    ]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/review-fixture']);
+    const revision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', source, 'checkout', '--detach', revision]);
+    writeFileSync(join(source, '.env'), 'MITZO_OPENSHELL_ENABLED=0\n');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'shlock'),
+      '#!/bin/sh\nlock=""\nwhile [ "$#" -gt 0 ]; do case "$1" in -f) lock="$2"; shift 2;; *) shift;; esac; done\n( set -C; : > "$lock" ) 2>/dev/null || exit 1\n',
+    );
+    writeFileSync(
+      join(bin, 'npm'),
+      '#!/bin/sh\ngit show-ref --verify refs/remotes/origin/review-fixture >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" refs/remotes/origin/review-fixture || exit 72\nprintf ok > "$MARKER"\nexit 73\n',
+    );
+    chmodSync(join(bin, 'shlock'), 0o755);
+    chmodSync(join(bin, 'npm'), 0o755);
+
+    const result = spawnSync('bash', [join(repoRoot, 'scripts/create-release.sh'), revision], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        MITZO_SOURCE_ROOT: source,
+        MITZO_RUNTIME_ROOT: source,
+        MITZO_RELEASE_ROOT: releases,
+        EXPECTED_REVISION: revision,
+        MARKER: marker,
+      },
+      encoding: 'utf8',
+    });
+
+    expect(result.status, result.stderr).toBe(73);
+    expect(readFileSync(marker, 'utf8')).toBe('ok');
   });
 });

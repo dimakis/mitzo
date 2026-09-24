@@ -51,6 +51,11 @@ RELEASE_TEMP="$(mktemp -d "$RELEASE_ROOT/.build.XXXXXX")"
 BUILD_DIR="$RELEASE_TEMP/release"
 FINAL_RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
 git clone --no-local --no-checkout "$SOURCE_ROOT" "$BUILD_DIR"
+ORIGIN_URL="$(git -C "$SOURCE_ROOT" remote get-url origin)"
+REMOTE_BRANCH="${REMOTE_REF#origin/}"
+git -C "$BUILD_DIR" remote set-url origin "$ORIGIN_URL"
+git -C "$BUILD_DIR" fetch --no-tags origin \
+  "+refs/heads/$REMOTE_BRANCH:refs/remotes/origin/$REMOTE_BRANCH"
 git -C "$BUILD_DIR" checkout --detach "$SOURCE_COMMIT"
 # The source checkout may itself only have origin/main as a remote-tracking ref,
 # which a local clone does not copy. Pin the already-fetched main commit into the
