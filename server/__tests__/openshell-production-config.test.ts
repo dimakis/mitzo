@@ -430,7 +430,11 @@ describe('OpenShell production bundle validation', () => {
     const marker = join(root, 'publication-verified');
     const preparedSeed = join(root, 'prepared-seed');
     const seed = join(preparedSeed, 'mgmt');
+    const accounts = join(root, 'accounts.json');
     const repoRoot = new URL('../..', import.meta.url).pathname;
+    const stack = JSON.parse(
+      readFileSync(join(repoRoot, 'infra/openshell/production-stack.lock.json'), 'utf8'),
+    );
 
     execFileSync('git', ['init', '--bare', remote]);
     execFileSync('git', ['clone', '--no-local', repoRoot, source]);
@@ -443,6 +447,9 @@ describe('OpenShell production bundle validation', () => {
     }).trim();
     execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
     execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    writeFileSync(join(source, 'scripts/deploy.sh'), '#!/bin/sh\nexit 73\n');
+    chmodSync(join(source, 'scripts/deploy.sh'), 0o755);
+    execFileSync('git', ['-C', source, 'add', 'scripts/deploy.sh']);
     execFileSync('git', [
       '-C',
       source,
@@ -458,23 +465,61 @@ describe('OpenShell production bundle validation', () => {
       encoding: 'utf8',
     }).trim();
     execFileSync('git', ['-C', source, 'checkout', '--detach', revision]);
+    mkdirSync(seed, { recursive: true });
+    writeFileSync(
+      join(preparedSeed, 'baseline.json'),
+      `${JSON.stringify({ startingCommit: stack.runtime.mgmtSourceCommit })}\n`,
+    );
+    writeFileSync(accounts, '[]\n');
+    mkdirSync(bin);
+    const openshell = join(bin, 'openshell');
+    const podman = join(bin, 'podman');
     writeFileSync(
       join(source, '.env'),
-      'MITZO_OPENSHELL_ENABLED=0\nMITZO_OPENSHELL_SEED=/unchanged/canonical/seed\n',
+      [
+        'MITZO_OPENSHELL_ENABLED=1',
+        'MITZO_OPENSHELL_SEED=/unchanged/canonical/seed',
+        `MITZO_ACCOUNT_PROFILES_FILE=${accounts}`,
+        `MITZO_OPENSHELL_CLI=${openshell}`,
+        '',
+      ].join('\n'),
     );
-    mkdirSync(seed, { recursive: true });
-    writeFileSync(join(preparedSeed, 'baseline.json'), '{}\n');
-    mkdirSync(bin);
     writeFileSync(
       join(bin, 'shlock'),
       '#!/bin/sh\nlock=""\nwhile [ "$#" -gt 0 ]; do case "$1" in -f) lock="$2"; shift 2;; *) shift;; esac; done\n( set -C; : > "$lock" ) 2>/dev/null || exit 1\n',
     );
     writeFileSync(
       join(bin, 'npm'),
-      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nif [ -n "${EXPECTED_SEED-}" ]; then grep -Fx "MITZO_OPENSHELL_SEED=$EXPECTED_SEED" .env >/dev/null || exit 74; fi\nprintf ok > "$MARKER"\nexit 73\n',
+      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nif [ -n "${EXPECTED_SEED-}" ]; then grep -Fx "MITZO_OPENSHELL_SEED=$EXPECTED_SEED" .env >/dev/null || exit 74; fi\nprintf ok > "$MARKER"\nif [ "${VERIFY_RELEASE-}" = 1 ]; then ln -s "$TEST_NODE_MODULES" node_modules; exit 0; fi\nexit 73\n',
+    );
+    writeFileSync(
+      openshell,
+      '#!/bin/sh\ncase "$*" in\n  "gateway info -o json") printf \'{"version":"%s","compute_drivers":[{"name":"podman","capabilities":{"driver_version":"%s"}}]}\\n\' "$EXPECTED_GATEWAY" "$EXPECTED_DRIVER" ;;\n  "settings get --global") printf \'providers_v2_enabled = true\\n\' ;;\n  "provider list -o json") printf \'[{"name":"google-workspace","type":"mitzo-google-workspace-spike","credential_keys":["GOOGLE_WORKSPACE_CLI_TOKEN"]},{"name":"github","type":"github","credential_keys":["GITHUB_TOKEN"]}]\\n\' ;;\n  *) exit 75 ;;\nesac\n',
+    );
+    writeFileSync(
+      podman,
+      '#!/bin/sh\nif [ "$1" = run ]; then exit 0; fi\n[ "$1 $2" = "image inspect" ] || exit 76\ncase "$3|$5" in\n  "$EXPECTED_IMAGE|{{.Digest}}") printf \'%s\\n\' "$EXPECTED_IMAGE_DIGEST" ;;\n  "$EXPECTED_IMAGE|{{json .Labels}}") printf \'{"io.mitzo.source-commit":"%s","io.mitzo.mgmt-source-commit":"%s","io.mitzo.openshell.base-image":"%s"}\\n\' "$EXPECTED_MITZO_COMMIT" "$EXPECTED_MGMT_COMMIT" "$EXPECTED_BASE_IMAGE" ;;\n  "$EXPECTED_SUPERVISOR|{{.Digest}}"|"localhost/openshell/supervisor:dev|{{.Digest}}") printf \'%s\\n\' "$EXPECTED_SUPERVISOR_DIGEST" ;;\n  "$EXPECTED_SUPERVISOR|{{ index .Labels \\"org.opencontainers.image.revision\\" }}") printf \'%s\\n\' "$EXPECTED_SUPERVISOR_COMMIT" ;;\n  *) exit 77 ;;\nesac\n',
     );
     chmodSync(join(bin, 'shlock'), 0o755);
     chmodSync(join(bin, 'npm'), 0o755);
+    chmodSync(openshell, 0o755);
+    chmodSync(podman, 0o755);
+
+    const verificationEnv = {
+      VERIFY_RELEASE: '1',
+      TEST_NODE_MODULES: join(repoRoot, 'node_modules'),
+      PODMAN: podman,
+      EXPECTED_GATEWAY: stack.gateway.version,
+      EXPECTED_DRIVER: stack.gateway.driverVersion,
+      EXPECTED_IMAGE: stack.runtime.image,
+      EXPECTED_IMAGE_DIGEST: stack.runtime.digest,
+      EXPECTED_MITZO_COMMIT: stack.runtime.mitzoSourceCommit,
+      EXPECTED_MGMT_COMMIT: stack.runtime.mgmtSourceCommit,
+      EXPECTED_BASE_IMAGE: stack.runtime.baseImage,
+      EXPECTED_SUPERVISOR: stack.supervisor.image,
+      EXPECTED_SUPERVISOR_DIGEST: stack.supervisor.digest,
+      EXPECTED_SUPERVISOR_COMMIT: stack.supervisor.sourceCommit,
+    };
 
     const result = spawnSync('bash', [join(repoRoot, 'scripts/create-release.sh'), revision], {
       env: {
@@ -488,6 +533,7 @@ describe('OpenShell production bundle validation', () => {
         EXPECTED_SEED: realpathSync(seed),
         MARKER: marker,
         MITZO_RELEASE_SEED: seed,
+        ...verificationEnv,
       },
       encoding: 'utf8',
     });
@@ -497,6 +543,30 @@ describe('OpenShell production bundle validation', () => {
     expect(readFileSync(join(source, '.env'), 'utf8')).toContain(
       'MITZO_OPENSHELL_SEED=/unchanged/canonical/seed',
     );
+
+    writeFileSync(join(preparedSeed, 'baseline.json'), '{"startingCommit":"drifted"}\n');
+    const mismatchResult = spawnSync(
+      'bash',
+      [join(repoRoot, 'scripts/create-release.sh'), revision],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          MITZO_SOURCE_ROOT: source,
+          MITZO_RUNTIME_ROOT: source,
+          MITZO_RELEASE_ROOT: join(root, 'mismatch-releases'),
+          EXPECTED_REVISION: revision,
+          EXPECTED_BRANCH: 'review-fixture',
+          EXPECTED_SEED: realpathSync(seed),
+          MARKER: join(root, 'mismatch-publication-verified'),
+          MITZO_RELEASE_SEED: seed,
+          ...verificationEnv,
+        },
+        encoding: 'utf8',
+      },
+    );
+    expect(mismatchResult.status).not.toBe(0);
+    expect(mismatchResult.stderr).toContain('prepared seed commit does not match the stack lock');
 
     const mainMarker = join(root, 'main-publication-verified');
     const mainResult = spawnSync(
