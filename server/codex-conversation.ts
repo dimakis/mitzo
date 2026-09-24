@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
@@ -212,7 +213,13 @@ export class CodexConversation {
     if (this.ready) throw new Error('Codex conversation already initialized');
     await this.client.initialize();
     this.binding = await this.verifyCurrentBinding(this.opts.storedBinding);
-    this.opts.store.create(this.opts.conversationId, this.binding, this.opts.cwd);
+    const toolSurfaceRevision = this.toolSurfaceRevision();
+    this.opts.store.create(
+      this.opts.conversationId,
+      this.binding,
+      this.opts.cwd,
+      toolSurfaceRevision,
+    );
     const state = this.opts.store.read(this.opts.conversationId, this.binding);
     this.paused = !!state.recovery;
     const configResponse = z.object({ config: z.unknown() }).parse(
@@ -226,32 +233,42 @@ export class CodexConversation {
       codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
     const modelProvider = this.opts.modelProvider ?? 'openai';
     const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
+    const replacingStaleToolSurface =
+      !!state.threadId && state.toolSurfaceRevision !== toolSurfaceRevision;
     const replacingFailedThread = !!state.threadId && state.recoveryStrategy === 'fork';
-    const result = replacingFailedThread
-      ? await this.replaceFailedProviderThread(this.client, state, threadOptions)
-      : z
-          .object({
-            thread: z.object({ id: z.string().min(1) }),
-            model: z.string(),
-            modelProvider: z.string(),
-          })
-          .parse(
-            await this.client.request(state.threadId ? 'thread/resume' : 'thread/start', {
-              ...(state.threadId ? { threadId: state.threadId } : {}),
-              ...threadOptions,
-              allowProviderModelFallback: false,
-              ...this.dynamicToolsOption(),
-            }),
-          );
+    const replacingProviderThread = replacingStaleToolSurface || replacingFailedThread;
+    const result = replacingStaleToolSurface
+      ? await this.replaceStaleToolSurface(this.client, state, threadOptions, toolSurfaceRevision)
+      : replacingFailedThread
+        ? await this.replaceFailedProviderThread(this.client, state, threadOptions)
+        : z
+            .object({
+              thread: z.object({ id: z.string().min(1) }),
+              model: z.string(),
+              modelProvider: z.string(),
+            })
+            .parse(
+              await this.client.request(state.threadId ? 'thread/resume' : 'thread/start', {
+                ...(state.threadId ? { threadId: state.threadId } : {}),
+                ...threadOptions,
+                allowProviderModelFallback: false,
+                ...(state.threadId ? {} : this.dynamicToolsOption()),
+              }),
+            );
     if (
       result.model !== this.binding.model ||
       result.modelProvider !== modelProvider ||
-      (!replacingFailedThread && state.threadId && result.thread.id !== state.threadId)
+      (!replacingProviderThread && state.threadId && result.thread.id !== state.threadId)
     )
       throw new Error('Codex execution binding changed');
     this.threadId = result.thread.id;
-    if (!replacingFailedThread)
-      this.opts.store.bindThread(this.opts.conversationId, this.binding, this.threadId);
+    if (!replacingProviderThread)
+      this.opts.store.bindThread(
+        this.opts.conversationId,
+        this.binding,
+        this.threadId,
+        toolSurfaceRevision,
+      );
     this.resetMapper(this.threadId);
     this.ready = true;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
@@ -442,26 +459,30 @@ export class CodexConversation {
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
       const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
-      const replacingProviderThread = state.recoveryStrategy === 'fork';
+      const toolSurfaceRevision = this.toolSurfaceRevision();
+      const replacingStaleToolSurface = state.toolSurfaceRevision !== toolSurfaceRevision;
+      const replacingProviderThread =
+        replacingStaleToolSurface || state.recoveryStrategy === 'fork';
       if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
-      const result = replacingProviderThread
-        ? await this.replaceFailedProviderThread(client, state, threadOptions)
-        : z
-            .object({
-              thread: z.object({ id: z.string().min(1) }),
-              model: z.string(),
-              modelProvider: z.string(),
-            })
-            .parse(
-              await client.request('thread/resume', {
-                threadId: this.threadId,
-                ...threadOptions,
-                allowProviderModelFallback: false,
-                ...this.dynamicToolsOption(),
-              }),
-            );
+      const result = replacingStaleToolSurface
+        ? await this.replaceStaleToolSurface(client, state, threadOptions, toolSurfaceRevision)
+        : replacingProviderThread
+          ? await this.replaceFailedProviderThread(client, state, threadOptions)
+          : z
+              .object({
+                thread: z.object({ id: z.string().min(1) }),
+                model: z.string(),
+                modelProvider: z.string(),
+              })
+              .parse(
+                await client.request('thread/resume', {
+                  threadId: this.threadId,
+                  ...threadOptions,
+                  allowProviderModelFallback: false,
+                }),
+              );
       if (
-        (state.recoveryStrategy !== 'fork' && result.thread.id !== this.threadId) ||
+        (!replacingProviderThread && result.thread.id !== this.threadId) ||
         result.model !== this.binding.model ||
         result.modelProvider !== modelProvider
       )
@@ -498,6 +519,52 @@ export class CodexConversation {
           })),
         }
       : {};
+  }
+
+  private toolSurfaceRevision() {
+    return createHash('sha256').update(JSON.stringify(this.dynamicToolsOption())).digest('hex');
+  }
+
+  /** Dynamic tools are immutable provider-thread configuration. When a deploy
+   * changes that surface, start a fresh provider generation while retaining the
+   * application conversation and its durable command history. Resuming (or
+   * forking) the old thread would silently keep its stale tool registry. */
+  private async replaceStaleToolSurface(
+    client: Rpc,
+    state: ReturnType<CodexConversationStore['read']>,
+    threadOptions: ReturnType<CodexConversation['threadOptions']>,
+    toolSurfaceRevision: string,
+  ) {
+    if (!state.threadId) throw new Error('Codex provider thread is unavailable');
+    const result = z
+      .object({
+        thread: z.object({ id: z.string().min(1) }),
+        model: z.string(),
+        modelProvider: z.string(),
+      })
+      .parse(
+        await client.request('thread/start', {
+          ...threadOptions,
+          allowProviderModelFallback: false,
+          ...this.dynamicToolsOption(),
+        }),
+      );
+    if (
+      result.model !== this.binding!.model ||
+      result.modelProvider !== (this.opts.modelProvider ?? 'openai')
+    )
+      throw new Error('Codex execution binding changed');
+    this.opts.store.replaceThread(
+      this.opts.conversationId,
+      this.binding!,
+      state.threadId,
+      result.thread.id,
+      'tool_surface_change',
+      undefined,
+      toolSurfaceRevision,
+    );
+    await this.opts.onThreadChanged?.(result.thread.id);
+    return result;
   }
 
   /**

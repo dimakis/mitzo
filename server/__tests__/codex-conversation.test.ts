@@ -163,6 +163,31 @@ async function setup(
     getProviderThread: () => providerThread,
   };
 }
+
+it('starts a new provider generation when an existing thread has a stale tool surface', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+
+  const { requests } = await setup(store, undefined, undefined, undefined, async () => binding);
+
+  expect(requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+  expect(requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+  expect(requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
+    dynamicTools: [expect.objectContaining({ name: 'Read' })],
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 1,
+    toolSurfaceRevision: expect.any(String),
+  });
+});
+
 it('reports the durable command boundary around provider dispatch', async () => {
   const onProviderDispatch = vi.fn();
   const onProviderComplete = vi.fn();
@@ -1126,6 +1151,9 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   old.c.close();
   const resumed = await setup(old.store);
   expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).not.toHaveProperty(
+    'dynamicTools',
+  );
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
   expect(resumed.c.isPaused()).toBe(true);
   await resumed.c.acknowledgeRecovery();
