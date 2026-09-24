@@ -71,16 +71,14 @@ file remains the optional observability stack.
    its sandbox provider. Every personal subscription account must use a complete
    `openai-codex-oauth` provider/grant binding and must not retain a host
    `credentialRef`.
-5. Update the stack lock with the actual image digest and policy hash, then run:
-
-   ```bash
-   node scripts/verify-openshell-production.mjs .env
-   ```
-
+5. Update the stack lock with the actual image digest and policy hash.
 6. Create the immutable release with `MITZO_RELEASE_SEED` set to the new
    prepared seed's `mgmt` directory. The release command validates the sibling
-   `baseline.json` and rewrites only the release copy of `.env`; it does not
-   modify the canonical runtime environment.
+   `baseline.json`, rewrites only the release copy of `.env`, and runs
+   `verify-openshell-production.mjs` against that coherent release before it
+   becomes active. It does not modify or preflight against the canonical
+   runtime environment, whose old seed intentionally remains paired with the
+   old stack lock until the release is ready.
 7. Run a production-shaped controller on a non-production port and create a
    fresh conversation. After the normal chat, cancellation, retained recovery,
    and bounded provider checks pass, deploy through the existing launchd flow.

@@ -18,6 +18,7 @@ import {
   validateStaticConfig,
   verifyAccountBindings,
   verifyOpenAiHeaderAuthentication,
+  verifyPreparedSeed,
 } from '../../scripts/verify-openshell-production.mjs';
 
 const manifest = {
@@ -159,6 +160,19 @@ describe('OpenShell production bundle validation', () => {
       loadProductionConfig(envPath, { MITZO_OPENSHELL_IMAGE: 'stale-shell-image' })
         .MITZO_OPENSHELL_IMAGE,
     ).toBe('release-image');
+  });
+
+  it('accepts only a prepared seed matching the enabled stack lock', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-enabled-seed-'));
+    const seed = join(root, 'mgmt');
+    mkdirSync(seed);
+    writeFileSync(join(root, 'baseline.json'), '{"startingCommit":"mgmt-commit"}\n');
+
+    expect(config.MITZO_OPENSHELL_ENABLED).toBe('1');
+    expect(() => verifyPreparedSeed(seed, 'mgmt-commit')).not.toThrow();
+    expect(() => verifyPreparedSeed(seed, 'different-commit')).toThrow(
+      'prepared seed commit does not match the stack lock',
+    );
   });
 
   it('accepts a pinned image and exact provider ordering', () => {
