@@ -123,7 +123,10 @@ describe('generateWorktreeManifest', () => {
     mkdirSync(orphan, { recursive: true });
     writeFileSync(join(orphan, 'evidence.txt'), 'orphan evidence\n');
 
-    const manifest = generateWorktreeManifest({ repositories: [repository] });
+    const manifest = generateWorktreeManifest({
+      repositories: [repository],
+      pullRequestLookupByRepository: new Map([[repository, 'unavailable']]),
+    });
 
     expect(manifest.entries).toEqual([
       expect.objectContaining({
@@ -132,6 +135,7 @@ describe('generateWorktreeManifest', () => {
         gitState: 'unknown',
         proposedAction: 'preserve',
         protectionReasons: expect.arrayContaining(['unregistered-directory']),
+        reachability: expect.objectContaining({ pullRequestLookup: 'unavailable' }),
       }),
     ]);
   });

@@ -118,6 +118,18 @@ export function parseWorktreeEvidenceArgs(args: string[]): WorktreeEvidenceArgs 
   throw new Error('expected manifest, package, or rehearse command');
 }
 
+function githubRemote(repository: string): boolean {
+  try {
+    const remote = execFileSync('git', ['-C', repository, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return /github\.com[/:]/.test(remote);
+  } catch {
+    return false;
+  }
+}
+
 function pullRequests(repository: string): WorktreePullRequestEvidence[] {
   const output = execFileSync(
     'gh',
@@ -142,8 +154,18 @@ function writePrivateJson(path: string, value: unknown): void {
 
 export function runWorktreeEvidence(command: WorktreeEvidenceArgs): unknown {
   if (command.command === 'manifest') {
+    const pullRequestLookupByRepository = new Map<string, 'complete' | 'unavailable'>();
     const prEvidence = command.includePullRequests
-      ? command.repositories.flatMap((repository) => pullRequests(repository))
+      ? command.repositories.flatMap((repository) => {
+          const absolute = resolve(repository);
+          if (!githubRemote(repository)) {
+            pullRequestLookupByRepository.set(absolute, 'unavailable');
+            return [];
+          }
+          const evidence = pullRequests(repository);
+          pullRequestLookupByRepository.set(absolute, 'complete');
+          return evidence;
+        })
       : undefined;
     const indexedActiveSessionIds = command.repositories.flatMap((repository) =>
       readIndex(repository)
@@ -155,6 +177,9 @@ export function runWorktreeEvidence(command: WorktreeEvidenceArgs): unknown {
       inboxDirectories: command.inboxDirectories,
       activeSessionIds: new Set([...indexedActiveSessionIds, ...command.activeSessionIds]),
       pullRequests: prEvidence,
+      pullRequestLookupByRepository: command.includePullRequests
+        ? pullRequestLookupByRepository
+        : undefined,
     });
     writeWorktreeManifest(manifest, command.output);
     return { output: resolve(command.output), entries: manifest.entries.length };

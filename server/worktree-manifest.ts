@@ -59,7 +59,7 @@ export interface WorktreeManifestEntry {
     mergedToBase: boolean | null;
     remoteBranchesContainingHead: string[];
     pullRequests: Array<{ number: number; url: string; state: string }>;
-    pullRequestLookup: 'complete' | 'not-requested';
+    pullRequestLookup: 'complete' | 'unavailable' | 'not-requested';
   };
   proposedAction: WorktreeProposedAction;
   protectionReasons: string[];
@@ -82,6 +82,7 @@ export interface GenerateWorktreeManifestOptions {
   recentHours?: number;
   baseRef?: string;
   pullRequests?: readonly WorktreePullRequestEvidence[];
+  pullRequestLookupByRepository?: ReadonlyMap<string, 'complete' | 'unavailable'>;
 }
 
 function git(repository: string, args: string[]): string {
@@ -247,6 +248,7 @@ function reachability(
   head: string | null,
   baseRef: string,
   pullRequests?: readonly WorktreePullRequestEvidence[],
+  pullRequestLookup: 'complete' | 'unavailable' | 'not-requested' = 'not-requested',
 ): WorktreeManifestEntry['reachability'] {
   let mergedToBase: boolean | null = null;
   let remoteBranchesContainingHead: string[] = [];
@@ -290,7 +292,7 @@ function reachability(
           )
           .map(({ number, url, state }) => ({ number, url, state }))
       : [],
-    pullRequestLookup: pullRequests ? 'complete' : 'not-requested',
+    pullRequestLookup,
   };
 }
 
@@ -398,6 +400,8 @@ export function generateWorktreeManifest(
           identity.head,
           baseRef,
           options.pullRequests,
+          options.pullRequestLookupByRepository?.get(repository) ??
+            (options.pullRequests ? 'complete' : 'not-requested'),
         ),
         proposedAction,
         protectionReasons,
