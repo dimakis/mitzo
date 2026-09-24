@@ -15,9 +15,24 @@ function setup() {
     label: 'Jira',
     endpoint: 'https://redhat.atlassian.net',
     gatewayProviderName: 'mitzo-conn-12345678',
+    submittedEmail: 'person@example.test',
     desiredAccountIds: ['work'],
   });
   const gateway = {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
+    validateBinding: vi.fn(
+      ({ provider }: { provider: { type: string; credentialKeys: string[] } }) => {
+        if (
+          provider.type !== 'jira-readonly' ||
+          provider.credentialKeys.length !== 1 ||
+          provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+        )
+          throw new Error('Managed provider credential binding changed');
+      },
+    ),
     verifyCompatibility: vi.fn(),
     provision: vi.fn().mockResolvedValue({
       id: 'provider-1',

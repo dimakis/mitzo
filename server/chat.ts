@@ -2005,12 +2005,7 @@ const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity
 Please perform session closeout:
 
 1. If there is uncommitted work in any worktree, commit it now with a descriptive message
-2. Push the branch and create a pull request:
-   - Use \`gh pr create --title "<descriptive title>" --body "<summary of changes>"\`
-   - If the work is incomplete or experimental, create a draft: \`gh pr create --draft ...\`
-   - If the work is solid and complete, create a regular PR
-   - Target the main branch of each repo
-   - If push or PR creation fails, continue with the remaining steps
+2. If a reviewed GitHub publish capability is available, invoke it after committing to publish the branch and create or update a pull request. Do not run direct \`git push\` or \`gh pr create\`: the capability displays the required approval and enforces repository and branch scope. If it is unavailable, leave the local commit in place and report that publishing requires the reviewed capability.
 3. If there are memory-worthy observations, decisions, or patterns — write them to memory/Observations/ or memory/Decisions/
 4. Write a 2-3 sentence summary of what was accomplished and what remains unfinished — output it as your final chat message so it appears in the conversation history
 5. Do not ask for confirmation — just do it`;
