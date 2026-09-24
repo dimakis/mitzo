@@ -3,14 +3,10 @@ import { promisify } from 'util';
 import type { TaskStore, GateConfig } from './task-store.js';
 import { createLogger } from './logger.js';
 import { createSignalCallbackToken, revokeSignalCallbackToken } from './internal-token.js';
+export { localHttpBaseUrl as localSignalCallbackBaseUrl } from './local-server-url.js';
 
 const log = createLogger('signal-processor');
 const execFileAsync = promisify(execFile);
-
-/** Local Centaur uses Mitzo's plain HTTP listener, which moves to PORT + 1 under TLS. */
-export function localSignalCallbackBaseUrl(port: number, useTls: boolean): string {
-  return `http://localhost:${useTls ? port + 1 : port}`;
-}
 
 function centaurReviewPrUrl(config: GateConfig): string | undefined {
   const fields = config as GateConfig & {

@@ -45,6 +45,7 @@ import { providerFailureTelemetry, ProviderFailureError } from './provider-failu
 import type { EventStore } from './event-store.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import {
   executeTelosCreateOutcome,
   telosCreateOutcomeDefinition,
@@ -707,9 +708,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
           return { content: 'Telos input changed during approval; retry the tool', isError: true };
         if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
           return { content: 'Session permissions changed; retry the tool', isError: true };
-        const port = process.env.PORT || '3100';
+        const port = Number.parseInt(process.env.PORT || '3100', 10);
         return executeTelosCreateOutcome(
-          `http://localhost:${port}`,
+          localHttpBaseUrl(port, localServerUsesTls()),
           owner.clientId,
           INTERNAL_TOKEN,
           parsed.data,

@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   store: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
+  useTls: false,
+}));
+vi.mock('../local-server-url.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../local-server-url.js')>()),
+  localServerUsesTls: () => mocks.useTls,
 }));
 vi.mock('../codex-conversation-store.js', () => ({
   CodexConversationStore: class {
@@ -202,6 +207,7 @@ it('cleans each resource once across explicit close, runtime close and abort', a
 
 it('does not advertise unavailable host tools to an OpenShell runtime', async () => {
   vi.clearAllMocks();
+  vi.stubEnv('PORT', '3100');
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   const session = options(new AbortController()).session;
@@ -277,6 +283,16 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
       headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
     }),
   );
+  mocks.useTls = true;
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  await executeTool('TelosCreateOutcome', input, new AbortController().signal);
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/outcomes',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
+    }),
+  );
+  mocks.useTls = false;
   chat.close();
   vi.unstubAllGlobals();
 });
