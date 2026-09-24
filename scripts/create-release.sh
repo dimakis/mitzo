@@ -30,7 +30,7 @@ git -C "$SOURCE_ROOT" merge-base --is-ancestor "$MAIN_COMMIT" "$SOURCE_COMMIT" |
   echo "Refusing release: $SOURCE_COMMIT does not contain origin/main $MAIN_COMMIT" >&2
   exit 1
 }
-REMOTE_REF="$(git -C "$SOURCE_ROOT" branch -r --contains "$SOURCE_COMMIT" | sed -n '1{s/^[[:space:]]*//;p;}')"
+REMOTE_REF="$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname:short) %(symref)' --contains "$SOURCE_COMMIT" refs/remotes/origin | awk 'NF == 1 { print $1; exit }')"
 [ -n "$REMOTE_REF" ] || {
   echo "Refusing release: $SOURCE_COMMIT is not published on a remote branch" >&2
   exit 1

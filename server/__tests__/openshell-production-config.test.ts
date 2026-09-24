@@ -276,6 +276,7 @@ describe('OpenShell production bundle validation', () => {
       'utf8',
     );
     expect(release).toContain('+refs/heads/*:refs/remotes/origin/*');
+    expect(release).toContain("awk 'NF == 1 { print $1; exit }'");
     expect(release).toContain('canonical runtime .env is missing');
     expect(release).toContain('shlock -f "$LOCK_FILE" -p "$$"');
     expect(release).toContain('LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"');
@@ -307,6 +308,11 @@ describe('OpenShell production bundle validation', () => {
     execFileSync('git', ['clone', '--no-local', repoRoot, source]);
     execFileSync('git', ['-C', source, 'remote', 'set-url', 'origin', remote]);
     execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/main']);
+    execFileSync('git', ['--git-dir', remote, 'symbolic-ref', 'HEAD', 'refs/heads/main']);
+    execFileSync('git', ['-C', source, 'remote', 'set-head', 'origin', '-a']);
+    const mainRevision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
     execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
     execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
     execFileSync('git', [
@@ -332,7 +338,7 @@ describe('OpenShell production bundle validation', () => {
     );
     writeFileSync(
       join(bin, 'npm'),
-      '#!/bin/sh\ngit show-ref --verify refs/remotes/origin/review-fixture >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" refs/remotes/origin/review-fixture || exit 72\nprintf ok > "$MARKER"\nexit 73\n',
+      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nprintf ok > "$MARKER"\nexit 73\n',
     );
     chmodSync(join(bin, 'shlock'), 0o755);
     chmodSync(join(bin, 'npm'), 0o755);
@@ -345,6 +351,7 @@ describe('OpenShell production bundle validation', () => {
         MITZO_RUNTIME_ROOT: source,
         MITZO_RELEASE_ROOT: releases,
         EXPECTED_REVISION: revision,
+        EXPECTED_BRANCH: 'review-fixture',
         MARKER: marker,
       },
       encoding: 'utf8',
@@ -352,5 +359,26 @@ describe('OpenShell production bundle validation', () => {
 
     expect(result.status, result.stderr).toBe(73);
     expect(readFileSync(marker, 'utf8')).toBe('ok');
+
+    const mainMarker = join(root, 'main-publication-verified');
+    const mainResult = spawnSync(
+      'bash',
+      [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
+      {
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          MITZO_SOURCE_ROOT: source,
+          MITZO_RUNTIME_ROOT: source,
+          MITZO_RELEASE_ROOT: releases,
+          EXPECTED_REVISION: mainRevision,
+          EXPECTED_BRANCH: 'main',
+          MARKER: mainMarker,
+        },
+        encoding: 'utf8',
+      },
+    );
+    expect(mainResult.status, mainResult.stderr).toBe(73);
+    expect(readFileSync(mainMarker, 'utf8')).toBe('ok');
   });
 });
