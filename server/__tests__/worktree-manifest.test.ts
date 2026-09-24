@@ -139,6 +139,38 @@ describe('generateWorktreeManifest', () => {
       }),
     ]);
   });
+
+  it('includes and protects primary and external registered worktrees when requested', () => {
+    const repository = initializeRepository();
+    const externalRoot = temporaryDirectory('mitzo-worktree-manifest-external-');
+    const external = join(externalRoot, 'feature-checkout');
+    execFileSync('git', ['-C', repository, 'worktree', 'add', '-b', 'feature/external', external], {
+      stdio: 'pipe',
+    });
+
+    const manifest = generateWorktreeManifest({
+      repositories: [repository],
+      includeRegisteredOutsideManagedRoots: true,
+    });
+
+    expect(manifest.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: repository,
+          location: 'primary',
+          proposedAction: 'preserve',
+          protectionReasons: expect.arrayContaining(['primary-checkout']),
+        }),
+        expect.objectContaining({
+          path: external,
+          location: 'registered-external',
+          branch: 'feature/external',
+          proposedAction: 'preserve',
+          protectionReasons: expect.arrayContaining(['outside-managed-root']),
+        }),
+      ]),
+    );
+  });
 });
 
 describe('writeWorktreeManifest', () => {

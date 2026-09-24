@@ -180,6 +180,7 @@ export function runWorktreeEvidence(command: WorktreeEvidenceArgs): unknown {
       pullRequestLookupByRepository: command.includePullRequests
         ? pullRequestLookupByRepository
         : undefined,
+      includeRegisteredOutsideManagedRoots: true,
     });
     writeWorktreeManifest(manifest, command.output);
     return { output: resolve(command.output), entries: manifest.entries.length };

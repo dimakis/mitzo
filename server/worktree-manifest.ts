@@ -42,6 +42,7 @@ export interface WorktreeManifestEntry {
   sessionId: string;
   repository: string;
   path: string;
+  location: 'managed' | 'registered-external' | 'primary';
   registered: boolean;
   branch: string | null;
   head: string | null;
@@ -83,6 +84,7 @@ export interface GenerateWorktreeManifestOptions {
   baseRef?: string;
   pullRequests?: readonly WorktreePullRequestEvidence[];
   pullRequestLookupByRepository?: ReadonlyMap<string, 'complete' | 'unavailable'>;
+  includeRegisteredOutsideManagedRoots?: boolean;
 }
 
 function git(repository: string, args: string[]): string {
@@ -349,16 +351,32 @@ export function generateWorktreeManifest(
 
   for (const repository of repositories) {
     const registered = registeredWorktrees(repository);
-    for (const path of listPhysicalWorktrees(repository)) {
+    const managedPaths = new Set(listPhysicalWorktrees(repository));
+    const paths = new Set(managedPaths);
+    if (options.includeRegisteredOutsideManagedRoots) {
+      for (const path of registered) {
+        try {
+          if (lstatSync(path).isDirectory()) paths.add(path);
+        } catch {
+          // Missing registered paths are metadata-only and not physical worktrees.
+        }
+      }
+    }
+    for (const path of [...paths].sort()) {
       const sessionId = basename(path);
       const isRegistered = registered.has(path);
+      const location: WorktreeManifestEntry['location'] = managedPaths.has(path)
+        ? 'managed'
+        : path === repository
+          ? 'primary'
+          : 'registered-external';
       const marker = existsSync(join(path, '.mitzo-session'));
       const active = options.activeSessionIds?.has(sessionId) ?? false;
       let ageHours: number | null = null;
       let diskBytes: number | null = null;
       try {
         ageHours = Math.max(0, now.getTime() - statSync(path).mtimeMs) / 3_600_000;
-        diskBytes = directorySize(path);
+        diskBytes = location === 'primary' ? null : directorySize(path);
       } catch {
         // Preserve null evidence if the entry disappears during inspection.
       }
@@ -367,6 +385,8 @@ export function generateWorktreeManifest(
       const status = isRegistered ? statusEvidence(path) : { state: 'unknown' as const, files: [] };
       const protectionReasons: string[] = [];
       if (!isRegistered) protectionReasons.push('unregistered-directory');
+      if (location === 'primary') protectionReasons.push('primary-checkout');
+      if (location === 'registered-external') protectionReasons.push('outside-managed-root');
       if (active) protectionReasons.push('active-session');
       if (marker) protectionReasons.push('session-marker');
       if (ageHours === null || ageHours <= recentHours) protectionReasons.push('recent');
@@ -384,6 +404,7 @@ export function generateWorktreeManifest(
         sessionId,
         repository,
         path,
+        location,
         registered: isRegistered,
         ...identity,
         ageHours,
