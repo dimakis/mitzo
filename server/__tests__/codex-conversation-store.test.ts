@@ -199,6 +199,51 @@ it('tracks provider thread generations and their last known-good turn atomically
   expect(s.read('c', binding).recoveryStrategy).toBe('resume');
   s.close();
 });
+it('records tool-surface revisions across provider thread generations', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  expect(s.read('c', binding).toolSurfaceRevision).toBe('tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+  );
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-1',
+    threadGeneration: 1,
+    toolSurfaceRevision: 'tools-v2',
+  });
+  s.close();
+});
+it('carries an unconsumed rollover context through provider recovery', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+    'prior conversation',
+  );
+  s.replaceThread('c', binding, 'thread-1', 'thread-2', 'provider_transport_failure');
+
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-2',
+    rolloverContext: 'prior conversation',
+  });
+  s.close();
+});
 it('exposes raw queued, running, and recovery state for lifecycle protection', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);

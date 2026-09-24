@@ -1560,6 +1560,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        eventStore,
         onDemandCreate: buildOnDemandCreate(wtId),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };

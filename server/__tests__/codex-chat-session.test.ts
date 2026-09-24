@@ -81,7 +81,11 @@ function options(abortController: AbortController) {
     session: { cwd: '/tmp', abortController },
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
-  } as Parameters<typeof openCodexChat>[0];
+    eventStore: {
+      getRecentConversationText: () => [],
+      getSession: () => undefined,
+    },
+  } as unknown as Parameters<typeof openCodexChat>[0];
 }
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
