@@ -185,39 +185,40 @@ React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView
 
 ## Environment
 
-| Variable                      | Description                                                    | Required |
-| ----------------------------- | -------------------------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`             | Login passphrase                                               | Yes      |
-| `AUTH_SECRET`                 | JWT signing key (min 32 chars)                                 | Yes      |
-| `REPO_PATH`                   | Default repo for sessions                                      | Yes      |
-| `PORT`                        | Server port (default: `3100`)                                  | No       |
-| `COOKIE_MAX_AGE_HOURS`        | JWT cookie lifetime in hours (default: `24`)                   | No       |
-| `WORKTREE_ENABLED`            | Allow worktrees (default: `true`)                              | No       |
-| `MCP_CONFIG_PATH`             | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
-| `LOG_LEVEL`                   | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
-| `LOG_FILE_PATH`               | Log file path (default: `logs/server.log`)                     | No       |
-| `LOGGER_SYNC`                 | Set to `1` for synchronous logging                             | No       |
-| `BASE_URL`                    | Public URL for notification deep links                         | No       |
-| `YAPPER_PROXY_TARGET`         | Yapper backend URL (default: `http://localhost:8700`)          | No       |
-| `CLAUDE_CODE_USE_VERTEX`      | Set to `1` to use Vertex AI for auto-rename                    | No       |
-| `ANTHROPIC_VERTEX_PROJECT_ID` | GCP project ID (required when using Vertex)                    | No       |
-| `CLOUD_ML_REGION`             | GCP region for Vertex (default: `us-east5`)                    | No       |
-| `NTFY_URL`                    | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
-| `NTFY_TOPIC`                  | ntfy topic for notifications                                   | No       |
-| `NTFY_AUTH_TOKEN`             | ntfy auth token                                                | No       |
-| `PUSHOVER_API_TOKEN`          | Pushover API token (for Apple Watch notifications)             | No       |
-| `PUSHOVER_USER_KEY`           | Pushover user key                                              | No       |
-| `APNS_KEY_PATH`               | Path to Apple Push Notification Service .p8 key                | No       |
-| `APNS_KEY_ID`                 | APNS key ID                                                    | No       |
-| `APNS_TEAM_ID`                | Apple Team ID                                                  | No       |
-| `APNS_BUNDLE_ID`              | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
-| `APNS_PRODUCTION`             | Use production APNS (default: `true`)                          | No       |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
-| `LOKI_HOST`                   | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
-| `TRACE_CONTENT_MAX_CHARS`     | Max chars for trace content (default: `16384`)                 | No       |
-| `CORS_ALLOWED_ORIGINS`        | Comma-separated CORS origins                                   | No       |
-| `CONTEXGIN_URL`               | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
-| `MITZO_INTERNAL_TOKEN`        | Auto-generated token for inter-process auth                    | No       |
+| Variable                        | Description                                                    | Required |
+| ------------------------------- | -------------------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`               | Login passphrase                                               | Yes      |
+| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                 | Yes      |
+| `REPO_PATH`                     | Default repo for sessions                                      | Yes      |
+| `PORT`                          | Server port (default: `3100`)                                  | No       |
+| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                   | No       |
+| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                              | No       |
+| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`          | No       |
+| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
+| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
+| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                     | No       |
+| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                             | No       |
+| `BASE_URL`                      | Public URL for notification deep links                         | No       |
+| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)          | No       |
+| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                    | No       |
+| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                    | No       |
+| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                    | No       |
+| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
+| `NTFY_TOPIC`                    | ntfy topic for notifications                                   | No       |
+| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                | No       |
+| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)             | No       |
+| `PUSHOVER_USER_KEY`             | Pushover user key                                              | No       |
+| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                | No       |
+| `APNS_KEY_ID`                   | APNS key ID                                                    | No       |
+| `APNS_TEAM_ID`                  | Apple Team ID                                                  | No       |
+| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
+| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                          | No       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
+| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
+| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                 | No       |
+| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                   | No       |
+| `CONTEXGIN_URL`                 | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
+| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                    | No       |
 
 See `.env.example` for a starter template.
 
