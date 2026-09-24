@@ -13,6 +13,7 @@ import { createServer as createHttpsServer } from 'https';
 import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
 import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
@@ -90,7 +91,7 @@ import {
 } from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
-import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
+import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -274,7 +275,7 @@ const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(__filename, '..', '..');
 const CERT_PATH = join(PROJECT_ROOT, 'certs', 'cert.pem');
 const KEY_PATH = join(PROJECT_ROOT, 'certs', 'key.pem');
-const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+const USE_TLS = localServerUsesTls();
 
 // WebSocket for chat — use HTTPS when certs are available
 const server = USE_TLS
@@ -343,7 +344,7 @@ const signalProc = new SignalProcessor(
     orchestratorRef?.tick();
   },
   process.env.CENTAUR_URL || 'http://localhost:8642',
-  process.env.MITZO_URL || localSignalCallbackBaseUrl(PORT, USE_TLS),
+  process.env.MITZO_URL || localHttpBaseUrl(PORT, USE_TLS),
 );
 setSignalProcessor(signalProc);
 
