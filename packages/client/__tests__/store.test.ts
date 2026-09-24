@@ -517,6 +517,63 @@ describe('reconnect recovery', () => {
       ]),
     );
   });
+
+  it('keeps a newer live version when bounded history has the same message ID', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [
+          {
+            messageId: 'assistant-1',
+            role: 'assistant',
+            blocks: [{ blockId: 'tool-1', blockType: 'tool_use', content: '', toolId: 'call-1' }],
+          },
+        ],
+      },
+    }));
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'tool_result',
+      sessionId: 'sess-1',
+      toolId: 'call-1',
+      result: 'new result',
+      isError: false,
+      seq: 8,
+    });
+    releaseRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          {
+            messageId: 'assistant-1',
+            role: 'assistant',
+            blocks: [{ blockId: 'tool-1', blockType: 'tool_use', content: '', toolId: 'call-1' }],
+          },
+        ]),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.messages[0].blocks[0].toolResult).toBe('new result');
+    expect(store.getState().messages.messages).toHaveLength(1);
+  });
 });
 
 describe('sendMessage', () => {

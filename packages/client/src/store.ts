@@ -242,7 +242,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState({ historyLoading: true, historyError: null });
     }
     const initialCurrent = store.getState().messages.current;
-    const initialIds = new Set(store.getState().messages.messages.map((m) => m.messageId));
+    const initialMessages = new Map(
+      store.getState().messages.messages.map((m) => [m.messageId, m]),
+    );
     api
       .getSessionMessages(sessionId, undefined, throughSeq)
       .then((msgs) => {
@@ -252,18 +254,23 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             messages: replace
               ? {
                   ...s.messages,
-                  messages: [
-                    ...msgs.filter(
-                      (m) =>
-                        s.messages.current === initialCurrent ||
-                        m.messageId !== s.messages.current?.messageId,
-                    ),
-                    ...s.messages.messages.filter(
-                      (m) =>
-                        !initialIds.has(m.messageId) &&
-                        !msgs.some((saved) => saved.messageId === m.messageId),
-                    ),
-                  ],
+                  messages: (() => {
+                    const live = s.messages.messages.filter(
+                      (m) => initialMessages.get(m.messageId) !== m,
+                    );
+                    const liveById = new Map(live.map((m) => [m.messageId, m]));
+                    const savedIds = new Set(msgs.map((m) => m.messageId));
+                    return [
+                      ...msgs
+                        .filter(
+                          (m) =>
+                            s.messages.current === initialCurrent ||
+                            m.messageId !== s.messages.current?.messageId,
+                        )
+                        .map((m) => liveById.get(m.messageId) ?? m),
+                      ...live.filter((m) => !savedIds.has(m.messageId)),
+                    ];
+                  })(),
                   current: s.messages.current !== initialCurrent ? s.messages.current : null,
                 }
               : msgs.length > 0
