@@ -101,6 +101,11 @@ export function hasPending(permId: string): boolean {
   return pending.has(permId);
 }
 
+/** Session owning a live approval, used to authenticate reconnect responses. */
+export function getPendingSessionId(permId: string): string | undefined {
+  return pending.get(permId)?.sessionId;
+}
+
 /**
  * Count pending permission requests for a specific session.
  */

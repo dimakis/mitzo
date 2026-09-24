@@ -60,6 +60,7 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
 } from './permissions.js';
 import {
@@ -1286,11 +1287,30 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      const pendingSessionId = getPendingSessionId(msg.permId);
+      if (pendingSessionId) {
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId);
+        const ownerConnection =
+          found?.session?.ownerConnectionId ??
+          (found ? getOwnerConnection(found.clientId) : undefined);
+        if (
+          ownerConnection !== connectionId ||
+          (msg.sessionId && msg.sessionId !== pendingSessionId)
+        ) {
+          sendPermissionResponseRejected(
+            ctx.connRegistry.get(connectionId)?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+      }
       const resolved = resolvePending(
         msg.permId,
         msg.decision ?? 'deny',
         msg.answers,
-        msg.sessionId,
+        msg.sessionId ?? pendingSessionId,
       );
       if (!resolved) {
         sendPermissionResponseRejected(

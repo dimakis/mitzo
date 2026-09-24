@@ -644,7 +644,7 @@ describe('misc', () => {
 // ─── session_takeover ────────────────────────────────────────────────────────
 
 describe('session_takeover', () => {
-  it('clears running and produces ERROR (server unwatches after takeover)', () => {
+  it('clears running and pending approvals and produces ERROR', () => {
     const cb = makeCallbacks();
     const r = parseServerMessage(
       { type: 'session_takeover', sessionId: 'sess-1' },
@@ -653,6 +653,7 @@ describe('session_takeover', () => {
       POOL_KEY,
     );
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
     expect(r.messagesActions).toContainEqual(
       expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
     );

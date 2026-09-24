@@ -37,6 +37,7 @@ vi.mock('../skill-policy.js', () => ({
 
 vi.mock('../permissions.js', () => ({
   resolvePending: vi.fn(),
+  getPendingSessionId: vi.fn(),
   getPendingRequestsBySession: vi.fn().mockReturnValue([]),
   denyPendingBySession: vi.fn().mockReturnValue(0),
 }));
@@ -57,6 +58,7 @@ import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
 import {
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
   resolvePending,
 } from '../permissions.js';
@@ -1516,6 +1518,45 @@ describe('handleStopV2', () => {
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
 
 describe('handlePermissionResponseV2', () => {
+  it('rejects the former owner after reconnect and lets the new owner approve', () => {
+    vi.mocked(getPendingSessionId).mockReturnValue('sess-1');
+    vi.mocked(resolvePending).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'new-conn' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const oldTransport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', mockTransport());
+    const response = {
+      type: 'permission_response' as const,
+      permId: 'p1',
+      decision: 'once' as const,
+    };
+
+    expect(handlePermissionResponseV2('old-conn', response, ctx)).toBe(false);
+    expect(oldTransport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_response_rejected', permId: 'p1' }),
+    );
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(
+      handlePermissionResponseV2('new-conn', { ...response, sessionId: 'other-session' }, ctx),
+    ).toBe(false);
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(handlePermissionResponseV2('new-conn', { ...response, sessionId: 'sess-1' }, ctx)).toBe(
+      true,
+    );
+    expect(resolvePending).toHaveBeenCalledWith('p1', 'once', undefined, 'sess-1');
+    vi.mocked(getPendingSessionId).mockReset();
+    vi.mocked(resolvePending).mockReset();
+  });
+
   it('calls resolvePending with correct args', () => {
     const ctx = createContext();
     expect(() =>
