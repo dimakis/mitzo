@@ -22,6 +22,14 @@ export type {
   SessionClosedBy,
   SessionState,
   ClientSessionState,
+  ExecutionPhase,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  ExecutionStateChangedPayload,
+  ProviderAttemptPhase,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
+  ProviderAttemptStateChangedPayload,
   SessionStateEvent,
   StoredEvent,
   SessionMeta,
@@ -51,6 +59,8 @@ export type {
   AgentMemoryConfig,
   AgentOutput,
   AgentOutputConventions,
+  ProviderFailure,
+  ProviderFailureCategory,
 } from './types.js';
 
 // Constants
@@ -123,6 +133,14 @@ export type {
   ValidAccountBinding,
   UnavailableAccountBinding,
 } from './account-binding.js';
+
+export {
+  MITZO_CLIENT_CAPABILITIES,
+  buildClientCapabilitiesPrompt,
+  findArtifactCapabilityByExtension,
+  findArtifactCapabilityByPath,
+} from './client-capabilities.js';
+export type { ArtifactCapability, ClientCapability } from './client-capabilities.js';
 
 export {
   ProfileBindingSchema,

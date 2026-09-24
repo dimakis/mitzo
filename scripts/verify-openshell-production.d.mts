@@ -13,3 +13,12 @@ export function hasExactGlobalSetting(
   key: string,
   value: string | number | boolean,
 ): boolean;
+
+export function loadProductionConfig(
+  envPath: string,
+  inheritedEnv?: NodeJS.ProcessEnv,
+): Record<string, string | undefined>;
+
+export function verifyOpenAiHeaderAuthentication(profile: Record<string, unknown>): void;
+
+export function verifyPreparedSeed(seedPath: string, expectedCommit: string): void;

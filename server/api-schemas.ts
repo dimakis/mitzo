@@ -74,6 +74,7 @@ export const ConnectionRotateBody = z.union([
 export const FileWriteBody = z.object({
   path: z.string().min(1),
   content: z.string(),
+  sessionId: z.string().min(1).optional(),
 });
 
 export const PermissionDecision = z.enum(['once', 'always', 'deny']);
@@ -132,12 +133,23 @@ const TodoContextHintsSchema = z.object({
   jiraKeys: z.array(z.string()).optional().default([]),
   keywords: z.array(z.string()).optional().default([]),
   taskHint: z.string().optional().default(''),
+  sessionIds: z.array(z.string()).optional().default([]),
+});
+
+const TodoLinkSchema = z.object({
+  type: z.string(),
+  url: z.string(),
+  title: z.string(),
+  description: z.string().optional().default(''),
 });
 
 const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
   z.object({
     id: z.string(),
     summary: z.string(),
+    intent: z.string().optional().default(''),
+    rationale: z.string().optional().default(''),
+    acceptanceCriteria: z.array(z.string()).optional().default([]),
     profile: z.string(),
     urgency: z.number(),
     // optional+default(false) so the API accepts items without `starred`.
@@ -151,6 +163,7 @@ const TodoItemSchema: z.ZodType<unknown> = z.lazy(() =>
     childCount: z.number().optional().default(0),
     completedChildCount: z.number().optional().default(0),
     sources: z.array(TodoSourceSchema),
+    links: z.array(TodoLinkSchema).optional().default([]),
     contextHints: TodoContextHintsSchema,
     goalId: z.string().nullable().optional().default(null),
   }),
@@ -165,6 +178,18 @@ export const TodoCreateBody = z.object({
   summary: z.string().min(1).max(500),
   profile: z.string().min(1).max(100),
   parentId: z.string().optional(),
+});
+
+export const TodoOutcomeCreateBody = z.object({
+  summary: z.string().trim().min(1).max(160),
+  intent: z.string().trim().min(1).max(2000),
+  rationale: z.string().trim().min(1).max(2000),
+  acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1).max(12),
+  milestones: z.array(z.string().trim().min(1).max(500)).min(1).max(24),
+  profile: z.string().trim().min(1).max(100),
+  idempotencyKey: z.string().trim().min(1).max(300),
+  contextHints: TodoContextHintsSchema.partial().optional(),
+  links: z.array(TodoLinkSchema).max(24).optional(),
 });
 
 export const TodoActionBody = z.object({

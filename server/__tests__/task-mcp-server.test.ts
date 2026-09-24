@@ -16,6 +16,10 @@ describe('task-board MCP integration', () => {
     expect(getToolTier('mcp__other__SomeTool')).toBe('unknown');
   });
 
+  it('requires approval for Telos outcome creation', () => {
+    expect(getToolTier('mcp__telos__TelosCreateOutcome')).toBe('unknown');
+  });
+
   // --- Tool summaries ---
 
   it('summarizes TaskSet input', () => {
@@ -42,5 +46,13 @@ describe('task-board MCP integration', () => {
       reason: 'Missing API key',
     });
     expect(summary).toBe('Missing API key');
+  });
+
+  it('summarizes Telos outcome creation for the approval card', () => {
+    expect(
+      summarizeToolInput('mcp__telos__TelosCreateOutcome', {
+        summary: 'Ship searchable outcomes',
+      }),
+    ).toBe('Create outcome: Ship searchable outcomes');
   });
 });

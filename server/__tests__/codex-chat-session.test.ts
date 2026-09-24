@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,9 +9,17 @@ const mocks = vi.hoisted(() => ({
   mcpClose: vi.fn(),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
+  assertPermissionModeChange: vi.fn(),
+  setWebSearchGrant: vi.fn(),
+  getWebSearchGrant: vi.fn(),
   store: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
+  useTls: false,
+}));
+vi.mock('../local-server-url.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../local-server-url.js')>()),
+  localServerUsesTls: () => mocks.useTls,
 }));
 vi.mock('../codex-conversation-store.js', () => ({
   CodexConversationStore: class {
@@ -29,6 +37,9 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    assertPermissionModeChange = mocks.assertPermissionModeChange;
+    setWebSearchGrant = mocks.setWebSearchGrant;
+    getWebSearchGrant = mocks.getWebSearchGrant;
     close = mocks.close;
     send = mocks.send;
   },
@@ -55,6 +66,11 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
@@ -112,7 +128,11 @@ function options(abortController: AbortController) {
     session: { cwd: '/tmp', abortController },
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
-  } as Parameters<typeof openCodexChat>[0];
+    eventStore: {
+      getRecentConversationText: () => [],
+      getSession: () => undefined,
+    },
+  } as unknown as Parameters<typeof openCodexChat>[0];
 }
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
@@ -160,6 +180,23 @@ it('closes an initialization aborted before the first turn starts', async () => 
   expect(mocks.close).toHaveBeenCalled();
   expect(mocks.mcpClose).toHaveBeenCalled();
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('reattaches the provider runtime without admitting or replaying user intent', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const abort = new AbortController();
+  const chat = await openCodexChat({
+    ...options(abort),
+    resume: true,
+    reattachOnly: true,
+    prompt: '',
+    intent: undefined,
+  });
+
+  expect(mocks.initialize).toHaveBeenCalledOnce();
+  expect(mocks.send).not.toHaveBeenCalled();
+  chat.close();
 });
 
 it('waits for cold-reconnect runtime registration', async () => {
@@ -221,10 +258,17 @@ it('cleans each resource once across explicit close, runtime close and abort', a
 
 it('does not advertise unavailable host tools to an OpenShell runtime', async () => {
   vi.clearAllMocks();
+  vi.stubEnv('PORT', '3100');
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const session = options(new AbortController()).session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
   const chat = await openCodexChat({
-    ...options(new AbortController()),
+    ...options(session.abortController),
+    conversationId: 'conversation',
+    registry,
     systemPrompt: 'base prompt',
   });
   expect(mocks.conversationOptions?.systemPrompt).toContain(
@@ -232,10 +276,76 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
+  expect(mocks.conversationOptions?.tools).toEqual([
+    expect.objectContaining({ name: 'TelosCreateOutcome' }),
+  ]);
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'never use a sandbox-local todo script',
+  );
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
-  vi.unstubAllEnvs();
+
+  const input = {
+    summary: 'Persist sandbox outcomes in live Telos',
+    intent: 'Sandboxed agents create durable outcomes through the Mitzo host.',
+    rationale: 'Local sandbox writes disappear and currently look successful.',
+    acceptanceCriteria: ['The outcome is visible in the live Telos UI'],
+    milestones: ['Expose the trusted host tool'],
+    profile: 'manual',
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        created: true,
+        item: { id: 'telos-live', summary: input.summary },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const executeTool = mocks.conversationOptions?.executeTool as (
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<{ content: string; isError: boolean }>;
+
+  await expect(
+    executeTool('TelosCreateOutcome', input, new AbortController().signal),
+  ).resolves.toEqual({
+    content: JSON.stringify({
+      created: true,
+      id: 'telos-live',
+      title: input.summary,
+      path: '/todos/telos-live',
+    }),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenCalledWith(
+    'TelosCreateOutcome',
+    input,
+    expect.objectContaining({ forcePrompt: true }),
+  );
+  expect(fetch).toHaveBeenCalledWith(
+    'http://localhost:3100/api/internal/telos/outcomes',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
+    }),
+  );
+  mocks.useTls = true;
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  await executeTool('TelosCreateOutcome', input, new AbortController().signal);
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/outcomes',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
+    }),
+  );
+  mocks.useTls = false;
+  chat.close();
+  vi.unstubAllGlobals();
 });
 
 it('advertises reviewed per-chat provider grants to a managed OpenShell runtime', async () => {
@@ -304,6 +414,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       env: {},
     });
     expect(mocks.conversationOptions?.tools).toEqual([
+      expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
@@ -1133,11 +1244,32 @@ it('preserves first launch and valid restore while failing closed for a replacem
       'thread',
       'client',
     );
+    const checkpointed = lifecycle.store.get('valid-lifecycle-state')!;
+    lifecycle.store.upsert({
+      ...checkpointed,
+      generation: checkpointed.generation + 1,
+      checkpoint: {
+        path: '/private/checkpoint',
+        digest: 'digest',
+        version: 1,
+        sandboxId: 'restored-id',
+        sourceResourceVersion: 'ready-v1',
+      },
+    });
     const chat = await openCodexChat(chatOptions('valid-lifecycle-state', true));
     expect(mocks.initialize).toHaveBeenCalled();
     expect(lifecycle.store.get('valid-lifecycle-state')).toMatchObject({
       physicalSandboxId: 'restored-id',
+      checkpoint: expect.objectContaining({ digest: 'digest' }),
       identity: expect.objectContaining({ threadId: 'thread' }),
+    });
+    const onThreadChanged = mocks.conversationOptions?.onThreadChanged as
+      ((threadId: string) => void) | undefined;
+    expect(onThreadChanged).toBeTypeOf('function');
+    onThreadChanged!('thread-generation-2');
+    expect(lifecycle.store.get('valid-lifecycle-state')).toMatchObject({
+      checkpoint: null,
+      identity: expect.objectContaining({ threadId: 'thread-generation-2' }),
     });
     chat.close();
   } finally {

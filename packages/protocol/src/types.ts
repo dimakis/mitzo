@@ -12,6 +12,29 @@ export type BlockType = 'text' | 'thinking' | 'redacted_thinking' | 'tool_use';
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 export type AgentDefinitionSource = 'contexgin' | 'local' | 'fallback';
 
+export type ProviderFailureCategory =
+  | 'overloaded'
+  | 'rate_limited'
+  | 'timeout'
+  | 'transport'
+  | 'policy'
+  | 'context'
+  | 'authentication'
+  | 'unknown';
+
+/** Sanitized provider failure data that is safe to persist and replay. */
+export interface ProviderFailure {
+  category: ProviderFailureCategory;
+  code?: string;
+  retryable: boolean;
+  /** A retry may repeat work whose provider-side outcome is not known. */
+  ambiguous: boolean;
+  attempt: number;
+  correlationId: string;
+  retryAfterMs?: number;
+  message: string;
+}
+
 // --- Agent definition (shared between agent-loader and session-registry) ---
 
 export interface AgentIdentity {
@@ -228,6 +251,57 @@ export type SessionState =
  */
 export type ClientSessionState = 'idle' | 'running' | 'requires_action';
 
+/** Durable phase of one accepted execution, independent of transport connectivity. */
+export type ExecutionPhase = 'RUNNING' | 'REQUIRES_ACTION' | 'STOPPING' | 'TERMINAL';
+
+/** Closed set of replay-safe terminal outcomes. */
+export type ExecutionTerminalReason =
+  | 'completed'
+  | 'failed'
+  | 'stopped'
+  | 'interrupted'
+  | 'closed'
+  | 'abandoned'
+  | 'server_restart'
+  | 'startup_failed';
+
+/** Immutable identity for one execution generation within a session. */
+export interface ExecutionToken {
+  sessionId: string;
+  executionId: string;
+  generation: number;
+}
+
+/** Canonical durable event emitted for each applied execution transition. */
+export interface ExecutionStateChangedPayload extends ExecutionToken {
+  type: 'execution_state_changed';
+  phase: ExecutionPhase;
+  clientState: ClientSessionState;
+  terminalReason?: ExecutionTerminalReason;
+  timestamp: number;
+}
+
+/** Durable lifecycle of one provider dispatch owned by an execution token. */
+export type ProviderAttemptPhase = 'RUNNING' | 'TERMINAL';
+
+/** Closed outcomes for provider work, including side-effect uncertainty. */
+export type ProviderAttemptTerminalReason =
+  'completed' | 'failed' | 'ambiguous' | 'cancelled' | 'server_restart';
+
+/** Immutable identity for one provider dispatch within an execution. */
+export interface ProviderAttemptToken extends ExecutionToken {
+  providerAttemptId: string;
+  attempt: number;
+}
+
+/** Canonical durable event emitted for each applied provider-attempt transition. */
+export interface ProviderAttemptStateChangedPayload extends ProviderAttemptToken {
+  type: 'provider_attempt_state_changed';
+  phase: ProviderAttemptPhase;
+  terminalReason?: ProviderAttemptTerminalReason;
+  timestamp: number;
+}
+
 /** Server-authoritative state event emitted on every lifecycle transition. */
 export interface SessionStateEvent {
   type: 'session_state_changed';
@@ -353,6 +427,11 @@ export interface SessionMeta {
   lastSpeakerAt: number | null;
   state: SessionState | null;
   lastStateChange: number | null;
+  executionGeneration: number;
+  executionId: string | null;
+  executionPhase: ExecutionPhase | null;
+  executionTerminalReason: ExecutionTerminalReason | null;
+  executionUpdatedAt: number | null;
   agentName: string | null;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;

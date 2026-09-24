@@ -13,7 +13,7 @@
 
 import { createLogger } from '../logger.js';
 import { createProvider } from '../providers/index.js';
-import type { ModelProvider } from '../providers/types.js';
+import type { ModelProvider, ProviderResponse } from '../providers/types.js';
 import type {
   DeliberationConfig,
   DeliberationResult,
@@ -23,6 +23,13 @@ import type {
 
 const log = createLogger('deliberation');
 
+/** Server-owned admission boundary; the harness has no durable lifecycle of its own. */
+export interface DeliberationRuntime {
+  createProvider?: (model: string) => ModelProvider;
+  call?: (phase: string, invoke: () => Promise<ProviderResponse>) => Promise<ProviderResponse>;
+  signal?: AbortSignal;
+}
+
 export class DeliberationOrchestrator {
   private proposerProvider: ModelProvider;
   private challengerProvider: ModelProvider;
@@ -30,10 +37,13 @@ export class DeliberationOrchestrator {
   private transcript: TranscriptEntry[] = [];
   private totalCost = 0;
 
-  constructor(config: DeliberationConfig) {
+  constructor(
+    config: DeliberationConfig,
+    private readonly runtime: DeliberationRuntime = {},
+  ) {
     this.config = config;
-    this.proposerProvider = createProvider(config.proposer.model);
-    this.challengerProvider = createProvider(config.challenger.model);
+    this.proposerProvider = (runtime.createProvider ?? createProvider)(config.proposer.model);
+    this.challengerProvider = (runtime.createProvider ?? createProvider)(config.challenger.model);
   }
 
   async run(task: string, context: string): Promise<DeliberationResult> {
@@ -235,20 +245,24 @@ export class DeliberationOrchestrator {
   ): Promise<string> {
     const { onEvent } = this.config;
 
-    onEvent?.({
-      type: 'phase_start',
-      phase,
-      speaker,
-      model: provider.name,
-    });
-
-    const response = await provider.call(
-      [
-        { role: 'system', content: role.systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      { temperature: role.temperature ?? 0.7 },
-    );
+    const invoke = async () => {
+      this.runtime.signal?.throwIfAborted();
+      onEvent?.({ type: 'phase_start', phase, speaker, model: provider.name });
+      this.runtime.signal?.throwIfAborted();
+      return provider.call(
+        [
+          { role: 'system', content: role.systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        {
+          temperature: role.temperature ?? 0.7,
+          signal: this.runtime.signal,
+          ...(this.runtime.call ? { maxRetries: 0 } : {}),
+        },
+      );
+    };
+    const response = this.runtime.call ? await this.runtime.call(phase, invoke) : await invoke();
+    this.runtime.signal?.throwIfAborted();
 
     this.totalCost += response.costUsd;
 

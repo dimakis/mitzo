@@ -4,8 +4,42 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
+  documentation:
+    name: Documentation gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require README review for production changes
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+              per_page: 100,
+            });
+
+            const { evaluateDocumentationGate } = await import(
+              '${{ github.workspace }}/scripts/documentation-gate.mjs'
+            );
+            const result = evaluateDocumentationGate({
+              files,
+              body: context.payload.pull_request.body || '',
+            });
+
+            if (!result.ok) {
+              core.setFailed(result.errors.join('\n'));
+            }
+
   native:
     name: Native Swift tests and builds
     runs-on: macos-26

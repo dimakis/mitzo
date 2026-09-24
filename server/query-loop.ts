@@ -21,6 +21,8 @@ import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
 import { tracer } from './tracing.js';
 import { context, trace, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { ProgressTracker } from './progress-tracker.js';
+import type { ProviderFailure } from '@mitzo/protocol';
+import { providerFailureTelemetry } from './provider-failure.js';
 const log = createLogger('query-loop');
 
 /** Truncate text for trace/log payloads, returning a truncated flag when clipped. */
@@ -82,6 +84,8 @@ function send(transport: SessionTransport, data: Record<string, unknown>) {
 
 /** Shape of the SDK result event — fields we extract for usage tracking. */
 interface SdkResultEvent {
+  is_error?: boolean;
+  provider_failure?: ProviderFailure;
   usage?: {
     input_tokens?: number;
     output_tokens?: number;
@@ -185,6 +189,10 @@ export interface QueryLoopOptions {
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
   onTurnEnd?: (clientId: string) => void;
+  /** Called when the SDK echoes a parent user input with its transport UUID. */
+  onUserInput?: (clientId: string, inputUuid: string) => void;
+  /** Called after the SDK emits a terminal result, paired with its echoed parent input UUID. */
+  onResult?: (clientId: string, result: { is_error?: boolean }, inputUuid?: string) => void;
 }
 
 export async function runQueryLoop(
@@ -285,6 +293,12 @@ async function _runQueryLoopInner(
   let pendingMessageEnd: Record<string, unknown> | null = null;
   let resolvedSessionId: string | undefined;
   let initialPromptPending = !!initialPrompt;
+  let pendingParentInputUuid: string | undefined;
+  // A user input echo arriving while a parent turn is active can belong to a
+  // later queued turn. The SDK result does not identify its input, so never
+  // use that echo to complete durable work for the active turn.
+  let parentInputCorrelationAmbiguous = false;
+  let parentTurnActive = false;
   let resolvedGoalId: string | undefined;
   let goalCreationPromise: Promise<string | null> | undefined;
   let goalTitle: string | undefined;
@@ -300,6 +314,10 @@ async function _runQueryLoopInner(
   let numCompactions = 0; // counts successful compaction events from SDK
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
+  let activeTurnOutputTokens = 0; // latest output total reported for the active parent turn
+  let latestInputTokens = 0;
+  let latestCacheReadTokens = 0;
+  let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
@@ -559,6 +577,11 @@ async function _runQueryLoopInner(
               });
             }
           }
+        } else if (msg.type === 'provider_turn_start') {
+          // Codex renderer messages are blocks within a provider turn. Count the
+          // explicit turn start once, including when no renderable block arrives.
+          doneSent = false;
+          turnIndex++;
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
@@ -568,13 +591,39 @@ async function _runQueryLoopInner(
 
           // Extract usage data from SDK result event
           const result = msg as SdkResultEvent;
+          const isError = result.is_error === true;
+          const providerFailure = isError ? result.provider_failure : undefined;
+          caughtError ||= isError;
+          if (providerFailure) {
+            const telemetry = providerFailureTelemetry(providerFailure);
+            log.warn('provider turn failed', {
+              clientId,
+              sessionId: msg.session_id,
+              ...telemetry,
+            });
+            span.setAttribute('provider.failure.category', providerFailure.category);
+            span.setAttribute('provider.failure.retryable', providerFailure.retryable);
+            span.setAttribute('provider.failure.ambiguous', providerFailure.ambiguous);
+            span.setAttribute('provider.failure.attempt', providerFailure.attempt);
+            span.setAttribute('provider.failure.correlation_id', providerFailure.correlationId);
+            if (providerFailure.code)
+              span.setAttribute('provider.failure.code', providerFailure.code);
+            if (providerFailure.retryAfterMs)
+              span.setAttribute('provider.failure.retry_after_ms', providerFailure.retryAfterMs);
+            emit(
+              v2('error', {
+                error: providerFailure.message,
+                providerFailure,
+              }),
+            );
+          }
           const usageData = {
             inputTokens: result.usage?.input_tokens ?? 0,
             outputTokens: result.usage?.output_tokens ?? 0,
             cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
             cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
             totalCostUsd: result.total_cost_usd ?? 0,
-            numTurns: result.num_turns ?? 0,
+            numTurns: result.num_turns ?? turnIndex,
             durationMs: result.duration_ms ?? 0,
             durationApiMs: result.duration_api_ms ?? 0,
           };
@@ -648,7 +697,14 @@ async function _runQueryLoopInner(
           span.setAttribute('session.total_tokens', currentSession.cumulativeSessionTokens);
           span.setAttribute('session.duration_ms', usageData.durationMs);
           span.setAttribute('session.cost_usd', usageData.totalCostUsd);
-          emit(v2('session_end', { sessionId: msg.session_id, usage: usageData }));
+          emit(
+            v2('session_end', {
+              sessionId: msg.session_id,
+              usage: usageData,
+              ...(isError ? { terminalReason: 'failed' } : {}),
+              ...(providerFailure ? { providerFailure } : {}),
+            }),
+          );
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
           if (resultSid && connRegistry?.hasOpenWatchers(resultSid)) {
             for (const { connectionId: cid } of connRegistry.getConnectionsWatching(
@@ -669,6 +725,14 @@ async function _runQueryLoopInner(
             pushoverTurnComplete(sid, snippet, sessionTitle).catch(() => {});
             apnsTurnComplete(sid, snippet, sessionTitle).catch(() => {});
           }
+          options?.onResult?.(
+            clientId,
+            result,
+            parentInputCorrelationAmbiguous ? undefined : pendingParentInputUuid,
+          );
+          pendingParentInputUuid = undefined;
+          parentInputCorrelationAmbiguous = false;
+          parentTurnActive = false;
         } else if (msg.type === 'stream_event') {
           const evt = msg.event as Record<string, unknown> | undefined;
           log.debug('stream event', { clientId, evtType: evt?.type });
@@ -774,6 +838,8 @@ async function _runQueryLoopInner(
               continue;
             }
 
+            parentTurnActive = true;
+
             // End previous turn span if still open (e.g. deferred message_end)
             if (currentTurnSpan) {
               currentTurnSpan.setAttribute('turn.block_count', turnBlockCount);
@@ -816,16 +882,61 @@ async function _runQueryLoopInner(
             // conversation), so take the latest value instead of summing.
             // Output tokens are fresh per call, so accumulate them.
             const msgContext = msgInput + msgCacheRead + msgCacheCreation;
+            activeTurnOutputTokens = msgOutput;
             if (msgOutput > 0) cumulativeOutputTokens += msgOutput;
             if (msgContext > 0 || msgOutput > 0) {
               liveSessionTokens = msgContext + cumulativeOutputTokens;
             }
 
-            if (isParent && msgUsage) {
+            if (isParent) {
+              if (msgContext > 0) {
+                latestInputTokens = msgInput;
+                latestCacheReadTokens = msgCacheRead;
+                latestCacheCreationTokens = msgCacheCreation;
+              }
+              // A provider turn exists even when usage is reported only at completion.
+              // OpenAI Responses starts the stream with zero usage and supplies the
+              // authoritative counters in message_delta.
+              if (msg.renderer_only !== true) turnIndex++;
               const totalContext = msgInput + msgCacheRead + msgCacheCreation;
               if (totalContext > 0) {
                 agentContextTokens = totalContext;
-                turnIndex++;
+                emit({
+                  type: 'token_update',
+                  agentContext: agentContextTokens,
+                  contextCeiling: CONTEXT_CEILING_TOKENS,
+                  turnIndex,
+                  ...compactionFields(),
+                });
+              }
+            }
+          } else if (evt?.type === 'message_delta') {
+            const isParent =
+              msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
+            if (isParent) {
+              const usage = evt.usage as Record<string, number> | undefined;
+              const input = usage?.input_tokens ?? 0;
+              const cacheRead = usage?.cache_read_input_tokens ?? 0;
+              const cacheCreation = usage?.cache_creation_input_tokens ?? 0;
+              const output = usage?.output_tokens ?? 0;
+              const contextTokens = input + cacheRead + cacheCreation;
+
+              if (contextTokens > 0) {
+                latestInputTokens = input;
+                latestCacheReadTokens = cacheRead;
+                latestCacheCreationTokens = cacheCreation;
+              }
+
+              // Completion usage may repeat the output count seen at start, so only
+              // add the increase for this turn. This also preserves partial-session
+              // accounting if the terminal result never arrives.
+              if (output > activeTurnOutputTokens) {
+                cumulativeOutputTokens += output - activeTurnOutputTokens;
+                activeTurnOutputTokens = output;
+              }
+              if (contextTokens > 0) agentContextTokens = contextTokens;
+              if (contextTokens > 0 || output > 0) {
+                liveSessionTokens = agentContextTokens + cumulativeOutputTokens;
                 emit({
                   type: 'token_update',
                   agentContext: agentContextTokens,
@@ -1236,6 +1347,13 @@ async function _runQueryLoopInner(
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
             log.info('compaction completed', { clientId, numCompactions });
+            emit({
+              type: 'token_update',
+              agentContext: agentContextTokens,
+              contextCeiling: CONTEXT_CEILING_TOKENS,
+              turnIndex,
+              numCompactions,
+            });
           }
 
           // Track subagent task lifecycle for interrupt cancellation
@@ -1281,6 +1399,18 @@ async function _runQueryLoopInner(
           // replay them as user bubbles on session rejoin.
           const content = (msg.message as unknown as Record<string, unknown>)?.content;
           const parentToolUseId = msg.parent_tool_use_id as string | undefined;
+          if (
+            (parentToolUseId === null || parentToolUseId === undefined) &&
+            typeof msg.uuid === 'string' &&
+            typeof content === 'string'
+          ) {
+            if (parentTurnActive || pendingParentInputUuid !== undefined) {
+              parentInputCorrelationAmbiguous = true;
+            } else {
+              pendingParentInputUuid = msg.uuid;
+              options?.onUserInput?.(clientId, msg.uuid);
+            }
+          }
           const subagent = parentToolUseId ? activeSubagents.get(parentToolUseId) : undefined;
 
           if (Array.isArray(content)) {
@@ -1418,10 +1548,10 @@ async function _runQueryLoopInner(
       if (!doneSent && store && resolvedSessionId) {
         const fallbackDurationMs = Date.now() - sessionStartedAt;
         store.recordUsage(resolvedSessionId, {
-          inputTokens: 0, // per-type breakdown unavailable without SDK result
+          inputTokens: latestInputTokens,
           outputTokens: cumulativeOutputTokens,
-          cacheReadTokens: 0,
-          cacheCreationTokens: 0,
+          cacheReadTokens: latestCacheReadTokens,
+          cacheCreationTokens: latestCacheCreationTokens,
           totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
           numTurns: turnIndex,
           durationMs: fallbackDurationMs,

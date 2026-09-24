@@ -3,6 +3,9 @@ import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
+  CodexRequestError,
+  SUPPORTED_CODEX_CLI_VERSION,
+  assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
   codexEnvironment,
   openShellCodexProcessSpec,
@@ -27,6 +30,17 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('accepts only the reviewed Codex CLI contract version', () => {
+    expect(() =>
+      assertSupportedCodexCliVersion(`codex-cli ${SUPPORTED_CODEX_CLI_VERSION}\n`),
+    ).not.toThrow();
+    expect(() => assertSupportedCodexCliVersion('codex-cli 0.153.5\n')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+    expect(() => assertSupportedCodexCliVersion('unexpected output')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+  });
   it('rejects shell metacharacters in the legacy remote command API', () => {
     const options = { sandboxName: 'mitzo-x', workdir: '/sandbox/workspaces/mgmt' };
     expect(() => openShellSshProcessSpec(options, '/sandbox/tool;$(touch /tmp/pwned)')).toThrow(
@@ -76,6 +90,50 @@ describe('Codex app-server transport', () => {
     client.close();
   });
 
+  it('allows lifecycle recovery to page turns and fork a metadata-only provider thread', async () => {
+    const { child, sent, reply } = processStub();
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(async () => ({})),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+
+    const turns = client.request('thread/turns/list', {
+      threadId: 'old-thread',
+      limit: 64,
+      sortDirection: 'desc',
+      itemsView: 'notLoaded',
+    });
+    expect(sent.at(-1)).toMatchObject({
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'old-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      },
+    });
+    reply({ id: sent.at(-1)!.id, result: { data: [], nextCursor: null } });
+    await expect(turns).resolves.toEqual({ data: [], nextCursor: null });
+
+    const fork = client.request('thread/fork', {
+      threadId: 'old-thread',
+      lastTurnId: 'last-good-turn',
+      excludeTurns: true,
+    });
+    expect(sent.at(-1)).toMatchObject({
+      method: 'thread/fork',
+      params: { threadId: 'old-thread', lastTurnId: 'last-good-turn', excludeTurns: true },
+    });
+    reply({ id: sent.at(-1)!.id, result: { thread: { id: 'new-thread' } } });
+    await expect(fork).resolves.toEqual({ thread: { id: 'new-thread' } });
+    client.close();
+  });
+
   it('rejects pending work on exit and never exposes provider error details', async () => {
     const { child, sent, reply } = processStub();
     const client = new CodexAppServerClient(child);
@@ -86,10 +144,42 @@ describe('Codex app-server transport', () => {
     reply({ id: sent[2].id, error: { message: 'private-secret' } });
     await expect(request).rejects.toThrow('Codex request failed');
     await expect(request).rejects.not.toThrow('private-secret');
+    await expect(request).rejects.toMatchObject({
+      name: 'CodexRequestError',
+      method: 'account/read',
+      category: 'unknown',
+    });
     const pending = client.request('model/list', {});
     child.emit('exit', 1);
     await expect(pending).rejects.toThrow('Codex connection closed');
     await expect(client.request('model/list', {})).rejects.toThrow('closed');
+  });
+
+  it('classifies thread-state rejection without retaining provider text', async () => {
+    const { child, sent, reply } = processStub();
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(async () => ({})),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    const ready = client.initialize();
+    reply({ id: sent[0].id, result: {} });
+    await ready;
+    const request = client.request('turn/start', {});
+    reply({
+      id: sent.at(-1)!.id,
+      error: { code: -32000, message: 'thread has an active turn SECRET_SENTINEL' },
+    });
+    const error = await request.catch((value: unknown) => value);
+    expect(error).toBeInstanceOf(CodexRequestError);
+    expect(error).toMatchObject({
+      method: 'turn/start',
+      category: 'thread_state',
+      code: -32000,
+    });
+    expect((error as Error).message).not.toContain('SECRET_SENTINEL');
+    client.close();
   });
 
   it('closes on timeout so an uncertain request cannot be retried on the same connection', async () => {

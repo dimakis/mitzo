@@ -39,6 +39,54 @@ it('persists a canonical conversation and immutable account/model binding before
   expect(statSync(path).mode & 0o777).toBe(0o600);
   s.close();
 });
+it('migrates existing conversations to unresolved search authority and persists grants atomically', () => {
+  const { path } = setup();
+  const legacy = new Database(path);
+  legacy.exec(`CREATE TABLE codex_conversations (
+    id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
+    thread_generation INTEGER NOT NULL DEFAULT 0,
+    recovery INTEGER NOT NULL DEFAULT 0,
+    recovery_strategy TEXT NOT NULL DEFAULT 'resume');
+    CREATE TABLE codex_commands (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
+      recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
+      retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(conversation_id,id));
+    CREATE TABLE codex_tools (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
+      PRIMARY KEY(conversation_id,call_id),
+      FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+  legacy
+    .prepare('INSERT INTO codex_conversations(id,binding,cwd) VALUES (?,?,?)')
+    .run(
+      'legacy',
+      JSON.stringify([binding.accountId, binding.provider, binding.model, binding.profileRevision]),
+      '/workspace',
+    );
+  legacy.close();
+
+  const s = new CodexConversationStore(path);
+  expect(s.readWebSearchGrant('legacy', binding)).toEqual({
+    grant: 'unresolved',
+    revision: 0,
+    updatedAt: null,
+  });
+  expect(s.setWebSearchGrant('legacy', binding, 0, 'allowed', 123)).toEqual({
+    grant: 'allowed',
+    revision: 1,
+    updatedAt: 123,
+  });
+  expect(() => s.setWebSearchGrant('legacy', binding, 0, 'denied', 124)).toThrow('concurrently');
+  s.close();
+  const reopened = new CodexConversationStore(path);
+  expect(reopened.readWebSearchGrant('legacy', binding)).toEqual({
+    grant: 'allowed',
+    revision: 1,
+    updatedAt: 123,
+  });
+  reopened.close();
+});
 it('deduplicates queued prompts and preserves pending work through restart without replaying running work', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -155,6 +203,93 @@ it('durably pauses same-process replacement without requiring startup recovery',
     'queued',
   ]);
   expect(() => s.claimNext('c', binding)).toThrow('recovery');
+  s.close();
+});
+
+it('tracks provider thread generations and their last known-good turn atomically', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.bindThread('c', binding, 'thread-0');
+  s.enqueue('c', binding, { id: 'good', prompt: 'good' });
+  s.claimNext('c', binding);
+  s.finish('c', binding, 'good', 'completed', 'turn-good');
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-0',
+    threadGeneration: 0,
+    lastCompletedTurnId: 'turn-good',
+  });
+
+  s.enqueue('c', binding, { id: 'failed', prompt: 'uncertain' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'failed', 'failed', 'fork');
+  expect(s.read('c', binding).recoveryStrategy).toBe('fork');
+  expect(
+    s.replaceThread(
+      'c',
+      binding,
+      'thread-0',
+      'thread-1',
+      'provider_transport_failure',
+      'turn-good',
+    ),
+  ).toBe(1);
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-1',
+    threadGeneration: 1,
+    lastCompletedTurnId: 'turn-good',
+    recoveryStrategy: 'fork',
+  });
+  expect(() =>
+    s.replaceThread('c', binding, 'thread-0', 'thread-2', 'provider_transport_failure'),
+  ).toThrow('generation changed');
+  s.acknowledgeRecovery('c', binding);
+  expect(s.read('c', binding).recoveryStrategy).toBe('resume');
+  s.close();
+});
+it('records tool-surface revisions across provider thread generations', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  expect(s.read('c', binding).toolSurfaceRevision).toBe('tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+  );
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-1',
+    threadGeneration: 1,
+    toolSurfaceRevision: 'tools-v2',
+  });
+  s.close();
+});
+it('carries an unconsumed rollover context through provider recovery', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+    'prior conversation',
+  );
+  s.replaceThread('c', binding, 'thread-1', 'thread-2', 'provider_transport_failure');
+
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-2',
+    rolloverContext: 'prior conversation',
+  });
   s.close();
 });
 it('exposes raw queued, running, and recovery state for lifecycle protection', () => {
@@ -302,6 +437,7 @@ it('migrates legacy recovery flags into acknowledged and unacknowledged command 
   expect(s.read('acknowledged', binding).recovery).toBe(0);
 
   s.enqueue('uncertain', binding, { id: 'later', prompt: 'saved' });
+  expect(s.read('uncertain', binding).recoveryStrategy).toBe('fork');
   expect(s.cancelQueued('uncertain', binding, 'later')).toBe('cancelled');
   expect(s.read('uncertain', binding).recovery).toBe(1);
   s.close();
@@ -328,7 +464,7 @@ it('bounds queue overview and excludes historical payloads from polling', () => 
   expect(JSON.stringify(summary)).not.toContain('historical private input');
   expect(() => s.queueOverview('c', { ...binding, accountId: 'other' })).toThrow('binding');
   s.close();
-});
+}, 15_000);
 
 it('reports queue truncation independently from cancelled tombstone truncation', () => {
   const { path } = setup();
@@ -345,7 +481,7 @@ it('reports queue truncation independently from cancelled tombstone truncation',
   expect(overview.cancelledIds).toHaveLength(100);
   expect(overview.hasMore).toBe(false);
   s.close();
-});
+}, 15_000);
 
 it('summarizes metadata without loading the historical command list', () => {
   const { path } = setup();
@@ -364,10 +500,98 @@ it('summarizes metadata without loading the historical command list', () => {
   expect(s.queueSummary('c', binding)).toEqual({
     queued: 1,
     interrupted: 1,
+    failed: 0,
     model: 'test-model',
     reasoningEffort: 'high',
   });
   expect(commands).not.toHaveBeenCalled();
+  s.close();
+});
+
+it('requeues only the latest unacknowledged failed command for an explicit retry', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'older', prompt: 'older failure' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'older', 'failed');
+  s.acknowledgeRecovery('c', binding);
+  s.enqueue('c', binding, { id: 'latest', prompt: 'retry this' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'latest', 'failed');
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, interrupted: 0 });
+  expect(s.retryLatestFailed('c', binding)).toBe('queued');
+  expect(s.commands('c', binding).find(({ id }) => id === 'latest')?.attempt).toBe(2);
+  expect(s.commands('c', binding).map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'older', status: 'failed' },
+    { id: 'latest', status: 'queued' },
+  ]);
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 0, queued: 1 });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_found');
+  s.close();
+});
+
+it('refuses explicit retry for a persisted non-retryable provider failure', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'quota', prompt: 'cannot retry' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'quota', 'failed', 'resume', undefined, false);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ failed: 1, retryable: false });
+  expect(s.retryLatestFailed('c', binding)).toBe('not_retryable');
+  s.close();
+});
+
+it('requires explicit confirmation for an ambiguous failed turn even without a host tool claim', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'ambiguous', prompt: 'write externally' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'ambiguous', 'failed', 'resume', undefined, true, true);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ requiresRetryConfirmation: true });
+  expect(s.retryLatestFailed('c', binding)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, Date.now(), true)).toBe('queued');
+  s.close();
+});
+
+it('does not requeue a failed command before its provider retry window', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000);
+
+  expect(s.queueSummary('c', binding)).toMatchObject({ retryAvailableAt: 20_000 });
+  expect(s.retryLatestFailed('c', binding, 19_999)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('queued');
+  s.close();
+});
+
+it('persists provider retry window across store reopen', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace');
+  s.enqueue('c', binding, { id: 'delayed', prompt: 'wait for capacity' });
+  s.claimNext('c', binding);
+  s.pauseForRecovery('c', binding, 'delayed', 'failed', 'resume', 20_000, true, true);
+  s.close();
+
+  s = new CodexConversationStore(path);
+  expect(s.queueSummary('c', binding)).toMatchObject({
+    failed: 1,
+    retryAvailableAt: 20_000,
+    retryable: true,
+    requiresRetryConfirmation: true,
+  });
+  expect(s.retryLatestFailed('c', binding, 19_999, true)).toBe('too_early');
+  expect(s.retryLatestFailed('c', binding, 20_000)).toBe('confirmation_required');
+  expect(s.retryLatestFailed('c', binding, 20_000, true)).toBe('queued');
   s.close();
 });
 

@@ -5,7 +5,16 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
+import type { AccountBinding } from '@mitzo/protocol';
+import { CodexRequestError } from '../codex-app-server-client.js';
 const cleanup: (() => void)[] = [];
+const binding = {
+  accountId: 'personal',
+  accountLabel: 'ChatGPT',
+  provider: 'openai' as const,
+  model: 'test-model',
+  profileRevision: 'chatgpt:test@example.com:test',
+};
 afterEach(() => {
   cleanup.splice(0).forEach((f) => f());
 });
@@ -27,11 +36,17 @@ async function setup(
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>,
+  onProviderDispatch?: (commandId: string) => void,
+  onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
   let callbacks!: CodexLifecycleTransport;
   let turn = 0;
+  let threadStarts = 0;
+  let threadGeneration = 0;
+  let providerThread = 'provider-thread';
+  const providerTurns = new Map<string, string>();
   const requests: { method: string; params: Record<string, unknown> }[] = [];
   const events: Record<string, unknown>[] = [];
   const onClosed = vi.fn();
@@ -44,23 +59,36 @@ async function setup(
     }),
   );
   const rpc = {
-    initialize: async () => {},
+    initialize: vi.fn(async () => {}),
     close: vi.fn(),
-    request: vi.fn(async (method: string, params: Record<string, unknown>) => {
+    request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
       requests.push({ method, params });
       if (method === 'config/read') return { config: {} };
       if (method === 'account/read')
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
-      if (method === 'thread/start' || method === 'thread/resume')
-        return { thread: { id: 'provider-thread' }, model: 'test-model', modelProvider: 'openai' };
+      if (method === 'thread/turns/list')
+        return {
+          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status, items: [] })),
+          nextCursor: null,
+        };
+      if (method === 'thread/fork') {
+        providerThread = `provider-thread-fork-${++threadGeneration}`;
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
+      }
+      if (method === 'thread/start') {
+        if (threadStarts++) providerThread = `provider-thread-reset-${++threadGeneration}`;
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
+      }
+      if (method === 'thread/resume')
+        return { thread: { id: providerThread }, model: 'test-model', modelProvider: 'openai' };
       if (method === 'turn/start') {
         const id = `turn-${++turn}`;
-        callbacks.onNotification('turn/started', { threadId: 'provider-thread', turn: { id } });
+        callbacks.onNotification('turn/started', { threadId: providerThread, turn: { id } });
         return { turn: { id } };
       }
       if (method === 'turn/interrupt') {
         callbacks.onNotification('turn/completed', {
-          threadId: 'provider-thread',
+          threadId: providerThread,
           turn: { id: `turn-${turn}`, status: 'interrupted' },
         });
         return {};
@@ -80,17 +108,35 @@ async function setup(
       model: 'test-model',
     },
     store,
+    getMode: () => 'agent',
+    webSearchDeploymentRevision: 'test-deployment-1',
     systemPrompt: 'context',
     displayToolName,
     beforeComplete,
     completionHookTimeoutMs,
     beforeReconnect,
     prepareTurn,
+    onProviderDispatch,
+    onProviderComplete,
+    loadConversationHistory: () => [
+      { role: 'user', text: 'Keep the existing workstream.' },
+      { role: 'assistant', text: 'The workstream is active.' },
+    ],
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
     createClient: (cb) => {
-      callbacks = cb;
+      callbacks = {
+        ...cb,
+        onNotification: (method, params) => {
+          if (method === 'turn/completed') {
+            const completed = params.turn as { id?: unknown; status?: unknown } | undefined;
+            if (typeof completed?.id === 'string' && typeof completed.status === 'string')
+              providerTurns.set(completed.id, completed.status);
+          }
+          cb.onNotification(method, params);
+        },
+      };
       return rpc;
     },
     emit: (e) => events.push(e),
@@ -119,8 +165,170 @@ async function setup(
     onClosed,
     onError,
     requestUserInput,
+    getBinding: () => (c as unknown as { binding: AccountBinding }).binding,
+    getProviderThread: () => providerThread,
   };
 }
+
+it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
+
+  const first = await setup(store, undefined, undefined, undefined, async () => binding);
+
+  expect(first.requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+  expect(first.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+  expect(first.requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
+    dynamicTools: [expect.objectContaining({ name: 'Read' })],
+    config: { web_search: 'disabled' },
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 1,
+    toolSurfaceRevision: expect.any(String),
+    rolloverContext: expect.stringContaining('Keep the existing workstream.'),
+  });
+
+  // The handoff is durable across a server restart before the next user turn.
+  first.c.close();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => binding);
+  await resumed.c.send({ id: 'after-rollover', prompt: 'Continue.' });
+  const firstTurn = resumed.requests.find(({ method }) => method === 'turn/start');
+  expect(firstTurn?.params.additionalContext).toEqual({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('The workstream is active.'),
+    },
+  });
+  expect(
+    first.requests.some(
+      ({ method, params }) => method === 'thread/turns/list' && params.itemsView === 'full',
+    ),
+  ).toBe(false);
+  expect(store.read('app', binding).rolloverContext).toBeNull();
+
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: resumed.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await resumed.c.send({ id: 'second-after-rollover', prompt: 'Again.' });
+  const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
+  expect(turns).toHaveLength(2);
+  expect(turns[1].params).not.toHaveProperty('additionalContext');
+});
+
+it('reports the durable command boundary around provider dispatch', async () => {
+  const onProviderDispatch = vi.fn();
+  const onProviderComplete = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderDispatch,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
+  expect(onProviderComplete).not.toHaveBeenCalled();
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'completed');
+});
+
+it('marks a dispatched command ambiguous when its transport is lost', async () => {
+  const onProviderDispatch = vi.fn();
+  const onProviderComplete = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderDispatch,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  callbacks.onClose(new Error('transport lost'));
+
+  expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+});
+
+it('keeps an explicit interrupt ambiguous when transport loss occurs before completion', async () => {
+  const onProviderComplete = vi.fn();
+  const { c, callbacks, rpc } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderComplete,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      callbacks.onClose(new Error('transport lost after explicit interrupt'));
+      return {};
+    }
+    return request(method, params);
+  });
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  await c.interrupt();
+
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
+});
+
+it('marks active work ambiguous when forced shutdown closes the runtime', async () => {
+  const onProviderComplete = vi.fn();
+  const { c, store, getBinding } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderComplete,
+  );
+
+  await c.send({ id: 'closeout-command', prompt: 'close safely' });
+  c.close();
+
+  expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
+  expect(store.retryLatestFailed('app', getBinding())).toBe('confirmation_required');
+});
 it('does not persist queued work when lifecycle admission is fenced', async () => {
   const onActivity = vi.fn(() => false);
   const { c } = await setup(
@@ -195,7 +403,85 @@ it('does not send an empty environments override that disables built-in Codex to
   const turn = requests.find((request) => request.method === 'turn/start');
   expect(thread?.params).not.toHaveProperty('environments');
   expect(turn?.params).not.toHaveProperty('environments');
+  expect(thread?.params).toMatchObject({ config: { web_search: 'disabled' } });
 });
+it('applies explicit web-search consent by reopening the idle thread', async () => {
+  const { c, requests, rpc } = await setup();
+  await expect(c.setWebSearchGrant(0, 'allowed')).resolves.toMatchObject({
+    grant: 'allowed',
+    revision: 1,
+  });
+  expect(rpc.close).toHaveBeenCalledTimes(1);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    threadId: 'provider-thread',
+    config: { web_search: 'live' },
+  });
+  expect(() => c.assertPermissionModeChange('agent')).not.toThrow();
+  expect(() => c.assertPermissionModeChange('ask')).toThrow('start a new conversation');
+  await expect(c.setWebSearchGrant(1, 'denied')).resolves.toMatchObject({
+    grant: 'denied',
+    revision: 2,
+  });
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+});
+it('rejects stale or mid-turn web-search consent without reopening the thread', async () => {
+  const { c, rpc } = await setup();
+  await expect(c.setWebSearchGrant(1, 'allowed')).rejects.toThrow('concurrently');
+  expect(rpc.close).not.toHaveBeenCalled();
+  await c.send({ id: 'active', prompt: 'keep working' });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
+  expect(rpc.close).not.toHaveBeenCalled();
+});
+it('recovers after consent persistence fails following transport retirement', async () => {
+  const { c, store, rpc, requests, getBinding } = await setup();
+  vi.spyOn(store, 'setWebSearchGrant').mockImplementationOnce(() => {
+    throw new Error('persistence failed');
+  });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('persistence failed');
+  expect(c.isPaused()).toBe(true);
+  expect(store.readWebSearchGrant('app', getBinding()).grant).toBe('unresolved');
+  await c.send({ id: 'after-failure', prompt: 'continue' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+  expect(rpc.initialize).toHaveBeenCalledTimes(2);
+});
+it.each(['initialize', 'resume'] as const)(
+  'recovers after consent %s fails with a persisted denial',
+  async (failure) => {
+    const { c, rpc, requests, store, getBinding } = await setup();
+    await c.setWebSearchGrant(0, 'allowed');
+    if (failure === 'initialize') {
+      rpc.initialize.mockRejectedValueOnce(new Error('reopen failed'));
+    } else {
+      const originalRequest = rpc.request.getMockImplementation()!;
+      let failed = false;
+      rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/resume' && !failed) {
+          failed = true;
+          throw new Error('reopen failed');
+        }
+        return originalRequest(method, params);
+      });
+    }
+    await expect(c.setWebSearchGrant(1, 'denied')).rejects.toThrow('reopen failed');
+    expect(c.isPaused()).toBe(true);
+    expect(store.readWebSearchGrant('app', getBinding())).toMatchObject({
+      grant: 'denied',
+      revision: 2,
+    });
+    await c.send({ id: `after-${failure}`, prompt: 'continue' });
+    expect(c.isPaused()).toBe(false);
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params,
+    ).toMatchObject({
+      config: { web_search: 'disabled' },
+    });
+  },
+);
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
   await expect(
@@ -277,7 +563,7 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   expect(requests.filter((request) => request.method === 'turn/start')[1].params.input).toEqual([
     { type: 'text', text: 'already sent' },
   ]);
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'running', 'queued']);
+  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'running', 'queued']);
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
@@ -290,6 +576,56 @@ it('treats a new send as recovery acknowledgement, reconnects, resumes queued FI
   ]);
 });
 
+it('retains the event mapper across same-thread reconnect so replayed reasoning is not duplicated', async () => {
+  const { c, callbacks, rpc, events } = await setup();
+  await c.send({ id: 'a', prompt: 'hello' });
+  const started = {
+    threadId: 'provider-thread',
+    item: { type: 'reasoning', id: 'reasoning-1' },
+  };
+  callbacks.onNotification('item/started', started);
+  callbacks.onNotification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider-thread',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Checked ',
+  });
+
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume') {
+      callbacks.onNotification('item/started', started);
+      callbacks.onNotification('item/reasoning/summaryTextDelta', {
+        threadId: 'provider-thread',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Checked ',
+      });
+      callbacks.onNotification('item/completed', {
+        threadId: 'provider-thread',
+        item: { type: 'reasoning', id: 'reasoning-1', summary: ['Checked the file'] },
+      });
+    }
+    return request(method, params);
+  });
+
+  callbacks.onClose(new Error('process lost'));
+  await c.send({ id: 'b', prompt: 'continue' });
+
+  expect(events.filter((event) => event.type === 'assistant')).toEqual([
+    expect.objectContaining({
+      message: { content: [{ type: 'thinking', thinking: 'Checked the file' }] },
+    }),
+  ]);
+  expect(
+    events
+      .filter((event) => event.type === 'stream_event')
+      .map((event) => event.event as { type: string; delta?: { thinking?: string } })
+      .filter((event) => event.type === 'content_block_delta')
+      .map((event) => event.delta?.thinking),
+  ).toEqual(['Checked ', 'the file']);
+});
+
 it('recovers an idle dead transport before persisting the explicit send', async () => {
   const beforeReconnect = vi.fn(async () => {});
   const { c, callbacks, rpc, requests } = await setup(
@@ -297,7 +633,7 @@ it('recovers an idle dead transport before persisting the explicit send', async 
     undefined,
     undefined,
     undefined,
-    undefined,
+    async () => binding,
     beforeReconnect,
   );
   const request = rpc.request.getMockImplementation()!;
@@ -373,7 +709,7 @@ it('reconnects an interrupted turn without replaying it when no later command is
   await c.send({ id: 'a', prompt: 'hello' });
   callbacks.onClose(new Error('process lost'));
 
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted']);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed']);
   await c.acknowledgeRecovery();
 
   expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
@@ -431,7 +767,7 @@ it('treats transport loss during turn startup as paused recovery instead of a fa
   await expect(send).resolves.toBeUndefined();
   expect(c.isPaused()).toBe(true);
   expect(onClosed).not.toHaveBeenCalled();
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'queued']);
+  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
 
   await c.acknowledgeRecovery();
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
@@ -597,7 +933,7 @@ it('does not reconnect or replay interrupted work until a new send explicitly re
     threadId: 'provider-thread',
     turn: { id: 'turn-2', status: 'completed' },
   });
-  expect(c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  expect(c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
 });
 
 it('restarts a disconnected provider and runs an already queued follow-up exactly once', async () => {
@@ -640,9 +976,203 @@ it('restarts a disconnected provider and runs an already queued follow-up exactl
   ]);
 });
 
+it('moves an old conversation to a new thread generation before accepting the next turn', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, callbacks, requests, rpc, store, getProviderThread } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
+  await c.send({ id: 'good', prompt: 'establish context' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await c.send({ id: 'poisoned', prompt: 'partly execute tools' });
+  callbacks.onNotification('turn/completed', {
+    threadId: getProviderThread(),
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 0,
+    lastCompletedTurnId: 'turn-1',
+    recoveryStrategy: 'fork',
+  });
+
+  await c.send({ id: 'after-rollover', prompt: 'continue safely' });
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(rpc.close).toHaveBeenCalledOnce();
+  expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'turn-1',
+    config: { web_search: 'disabled' },
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-fork-1',
+    threadGeneration: 1,
+    lastCompletedTurnId: 'turn-1',
+    recoveryStrategy: 'resume',
+  });
+  expect(
+    requests.filter((request) => request.method === 'turn/start').map((request) => request.params),
+  ).toEqual([
+    expect.objectContaining({ input: [{ type: 'text', text: 'establish context' }] }),
+    expect.objectContaining({ input: [{ type: 'text', text: 'partly execute tools' }] }),
+    expect.objectContaining({
+      threadId: 'provider-thread-fork-1',
+      input: [{ type: 'text', text: 'continue safely' }],
+    }),
+  ]);
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'good', status: 'completed' },
+    { id: 'poisoned', status: 'failed' },
+    { id: 'after-rollover', status: 'running' },
+  ]);
+});
+
+it('forks from the provider latest completion when the durable ledger missed its notification', async () => {
+  const { c, callbacks, rpc, requests, store } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    async () => {},
+  );
+  await c.send({ id: 'persisted', prompt: 'persist this completion' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await c.send({ id: 'failed', prompt: 'trigger recovery' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  const request = rpc.request.getMockImplementation()!;
+  rpc.request.mockImplementation(async (method, params) => {
+    const result = await request(method, params);
+    if (method !== 'thread/turns/list') return result;
+    if (!params.cursor)
+      return {
+        data: [
+          { id: 'turn-2', status: 'failed' },
+          { id: 'newer-incomplete-turn', status: 'interrupted' },
+        ],
+        nextCursor: 'older-page',
+      };
+    return {
+      data: [
+        { id: 'provider-only-completion', status: 'completed' },
+        { id: 'turn-1', status: 'completed' },
+      ],
+      nextCursor: null,
+    };
+  });
+
+  await c.send({ id: 'after-rollover', prompt: 'continue from provider truth' });
+
+  expect(requests.find(({ method }) => method === 'thread/fork')?.params).toMatchObject({
+    threadId: 'provider-thread',
+    lastTurnId: 'provider-only-completion',
+    excludeTurns: true,
+  });
+  expect(requests.filter(({ method }) => method === 'thread/turns/list')).toEqual([
+    {
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'provider-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+      },
+    },
+    {
+      method: 'thread/turns/list',
+      params: {
+        threadId: 'provider-thread',
+        limit: 64,
+        sortDirection: 'desc',
+        itemsView: 'notLoaded',
+        cursor: 'older-page',
+      },
+    },
+  ]);
+  expect(requests.some(({ method }) => method === 'thread/read')).toBe(false);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-fork-1',
+    lastCompletedTurnId: 'provider-only-completion',
+  });
+});
+
+it('replaces provider thread state after a rejected turn admission', async () => {
+  const beforeReconnect = vi.fn(async () => {});
+  const { c, rpc, requests, store } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    async () => binding,
+    beforeReconnect,
+  );
+  const request = rpc.request.getMockImplementation()!;
+  let rejectTurn = true;
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start' && rejectTurn) {
+      rejectTurn = false;
+      throw new CodexRequestError('turn/start', 'thread_state', -32000);
+    }
+    return request(method, params);
+  });
+
+  await expect(c.send({ id: 'rejected', prompt: 'first' })).rejects.toBeInstanceOf(
+    CodexRequestError,
+  );
+  expect(store.read('app', binding).recoveryStrategy).toBe('fork');
+
+  await c.send({ id: 'after-rejection', prompt: 'continue' });
+
+  expect(beforeReconnect).toHaveBeenCalledOnce();
+  expect(requests.filter(({ method }) => method === 'thread/turns/list')).toHaveLength(1);
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread-reset-1',
+    threadGeneration: 1,
+    recoveryStrategy: 'resume',
+  });
+  expect(requests.filter(({ method }) => method === 'thread/start')[1]?.params).toMatchObject({
+    dynamicTools: [
+      {
+        type: 'function',
+        name: 'Read',
+        description: 'Read',
+        inputSchema: { type: 'object' },
+      },
+    ],
+  });
+  expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'rejected', status: 'failed' },
+    { id: 'after-rejection', status: 'running' },
+  ]);
+});
+
 it('automatically probes only one saved follow-up during a persistent provider outage', async () => {
   const beforeReconnect = vi.fn(async () => {});
-  const { c, callbacks, requests, rpc } = await setup(
+  const { c, callbacks, requests, rpc, getProviderThread } = await setup(
     undefined,
     undefined,
     undefined,
@@ -655,7 +1185,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   await c.send({ id: 'preserved', prompt: 'third' });
 
   callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
+    threadId: getProviderThread(),
     turn: {
       id: 'turn-1',
       status: 'failed',
@@ -667,7 +1197,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   );
 
   callbacks.onNotification('turn/completed', {
-    threadId: 'provider-thread',
+    threadId: getProviderThread(),
     turn: {
       id: 'turn-2',
       status: 'failed',
@@ -679,7 +1209,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
   expect(beforeReconnect).toHaveBeenCalledOnce();
   expect(rpc.close).toHaveBeenCalledTimes(2);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(1);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
   expect(c.isPaused()).toBe(true);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
     { id: 'first', status: 'failed' },
@@ -689,7 +1219,7 @@ it('automatically probes only one saved follow-up during a persistent provider o
 
   await c.acknowledgeRecovery();
   expect(beforeReconnect).toHaveBeenCalledTimes(2);
-  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(2);
+  expect(requests.filter((request) => request.method === 'thread/resume')).toHaveLength(0);
   expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(3);
   expect(c.isPaused()).toBe(false);
   expect(c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
@@ -732,11 +1262,18 @@ it('tolerates the transport closing while interrupt is in flight', async () => {
 
 it('resumes durable queued work after replacing the runtime and acknowledging recovery', async () => {
   const old = await setup();
+  old.store.setWebSearchGrant('app', old.getBinding(), 0, 'allowed', 123);
   await old.c.send({ id: 'first', prompt: 'first' });
   await old.c.send({ id: 'next', prompt: 'next' });
   old.c.close();
   const resumed = await setup(old.store);
   expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).toMatchObject({
+    config: { web_search: 'live' },
+  });
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).not.toHaveProperty(
+    'dynamicTools',
+  );
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
   expect(resumed.c.isPaused()).toBe(true);
   await resumed.c.acknowledgeRecovery();
@@ -745,18 +1282,26 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
     threadId: 'provider-thread',
     turn: { id: 'turn-1', status: 'completed' },
   });
-  expect(resumed.c.queue().map((q) => q.status)).toEqual(['interrupted', 'completed']);
+  expect(resumed.c.queue().map((q) => q.status)).toEqual(['failed', 'completed']);
   resumed.c.close();
 });
 
 it('interrupts a turn that is created while turn/start is still in flight', async () => {
-  const { c, rpc, requests } = await setup();
+  const { c, callbacks, rpc, requests } = await setup();
   const request = rpc.request.getMockImplementation()!;
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      requests.push({ method, params });
+      callbacks.onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'late-turn', status: 'interrupted' },
+      });
+      return {};
+    }
     if (method !== 'turn/start') return request(method, params);
     requests.push({ method, params });
     await gate;
@@ -803,7 +1348,7 @@ it('drains an early completion when interrupt races with the turn/start response
   await send;
   await c.acknowledgeRecovery();
   expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
-  expect(c.queue().map((command) => command.status)).toEqual(['interrupted', 'running']);
+  expect(c.queue().map((command) => command.status)).toEqual(['completed', 'running']);
 });
 
 it('does not throw from a transport close callback when recovery persistence fails', async () => {
@@ -835,6 +1380,77 @@ it('marks failed provider turns as errors without exposing provider diagnostics'
     expect.objectContaining({ message: 'The provider did not complete the turn.' }),
   );
   expect(c.isPaused()).toBe(true);
+});
+
+it('attaches a sanitized typed failure to a failed provider result', async () => {
+  const { c, callbacks, events, onError } = await setup();
+  await c.send({ id: 'overloaded', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: {
+        message: 'We are experiencing high demand. Bearer sk-secret https://private.example',
+        type: 'service_unavailable_error',
+        code: 'server_is_overloaded',
+        retry_after: 9,
+      },
+    },
+  });
+
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      type: 'result',
+      session_id: 'app',
+      is_error: true,
+      provider_failure: {
+        category: 'overloaded',
+        code: 'server_is_overloaded',
+        retryable: true,
+        ambiguous: true,
+        attempt: 1,
+        correlationId: 'turn-1',
+        retryAfterMs: 9_000,
+        message:
+          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+      },
+    }),
+  );
+  expect(onError.mock.calls[0]?.[0]).toMatchObject({
+    failure: expect.objectContaining({ category: 'overloaded', correlationId: 'turn-1' }),
+  });
+  expect(await c.retryLatestFailed()).toBe('too_early');
+  expect(JSON.stringify(events)).not.toContain('sk-secret');
+  expect(JSON.stringify(events)).not.toContain('private.example');
+});
+
+it('retries the saved failed command only after an explicit request', async () => {
+  const { c, callbacks, requests, events } = await setup();
+  await c.send({ id: 'retry-me', prompt: 'hello' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'high demand', code: 'server_is_overloaded' },
+    },
+  });
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+
+  expect(await c.retryLatestFailed(true)).toBe('queued');
+
+  expect(requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(c.queue().find(({ id }) => id === 'retry-me')?.status).toBe('running');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: {
+      id: 'turn-2',
+      status: 'failed',
+      error: { message: 'high demand', code: 'server_is_overloaded' },
+    },
+  });
+  expect(events.at(-1)).toMatchObject({ provider_failure: { attempt: 2 } });
 });
 
 it('maps known failed-turn provider diagnostics without exposing provider payloads', () => {
@@ -951,7 +1567,7 @@ it('closes and reports a completion hook that exceeds its deadline', async () =>
   await vi.waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
   expect(hookSignal.aborted).toBe(true);
   expect(onError).toHaveBeenCalledWith(expect.objectContaining({ message: expect.any(String) }));
-  expect(c.queue()[0].status).toBe('interrupted');
+  expect(c.queue()[0].status).toBe('failed');
 });
 
 it('does not report a late turn-start failure after close owns recovery', async () => {
@@ -976,7 +1592,7 @@ it('does not report a late turn-start failure after close owns recovery', async 
   await expect(send).resolves.toBeUndefined();
   expect(onClosed).toHaveBeenCalledTimes(1);
   expect(onError).not.toHaveBeenCalled();
-  expect(c.queue()[0].status).toBe('interrupted');
+  expect(c.queue()[0].status).toBe('failed');
 });
 
 it('persists the selected reasoning effort and sends it to Codex', async () => {

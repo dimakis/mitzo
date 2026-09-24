@@ -45,6 +45,33 @@ export interface ResponsesSessionOptions {
   checkpoint?: ResponsesCheckpoint;
 }
 
+/** Private structured failure used by the server's sanitizer. It never retains a response body. */
+export class OpenAIResponsesRequestError extends Error {
+  constructor(
+    readonly status: number | undefined,
+    readonly code?: string,
+    readonly retryAfter?: string,
+  ) {
+    super(
+      status === undefined
+        ? 'OpenAI response did not complete successfully'
+        : `OpenAI API request failed (${status})`,
+    );
+    this.name = 'OpenAIResponsesRequestError';
+  }
+}
+
+function providerCode(value: unknown): string | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const object = value as Record<string, unknown>;
+  const error =
+    object.error && typeof object.error === 'object' && !Array.isArray(object.error)
+      ? (object.error as Record<string, unknown>)
+      : undefined;
+  const code = error?.code ?? object.code ?? error?.type ?? object.type;
+  return typeof code === 'string' ? code.slice(0, 200) : undefined;
+}
+
 async function* readEvents(body: ReadableStream<Uint8Array>) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -252,7 +279,19 @@ export class ResponsesSession implements ModelSession {
             : undefined,
         }),
       });
-      if (!response.ok) throw new Error(`OpenAI API request failed (${response.status})`);
+      if (!response.ok) {
+        let code: string | undefined;
+        try {
+          code = providerCode(await response.json());
+        } catch {
+          // The body is provider-controlled diagnostic material. Never retain or relay it.
+        }
+        throw new OpenAIResponsesRequestError(
+          response.status,
+          code,
+          response.headers.get('retry-after') ?? undefined,
+        );
+      }
       if (!response.body) throw new Error('OpenAI response has no stream body');
       const content = new ResponseBlocks();
       const { blocks, closed } = content;
@@ -330,7 +369,7 @@ export class ResponsesSession implements ModelSession {
           };
           return;
         } else if (['response.failed', 'response.incomplete', 'error'].includes(event.type)) {
-          throw new Error('OpenAI response did not complete successfully');
+          throw new OpenAIResponsesRequestError(undefined, providerCode(event.response ?? event));
         }
       }
       throw new Error('OpenAI stream ended without completion');

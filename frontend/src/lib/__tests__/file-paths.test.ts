@@ -4,9 +4,44 @@ import {
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
+  relativeArtifactPath,
+  linkedArtifactPath,
   remarkNeutralizeMalformedFileLinks,
+  artifactApiUrl,
+  artifactViewerUrl,
   FILE_SCHEME,
 } from '../file-paths';
+
+describe('artifact URLs', () => {
+  it('carries session scope through API and viewer URLs', () => {
+    expect(artifactApiUrl('read', 'outputs/report.html', 'session-1')).toBe(
+      '/api/files/read?path=outputs%2Freport.html&sessionId=session-1',
+    );
+    expect(artifactViewerUrl('outputs/report.html', '/chat/session-1', 'session-1')).toBe(
+      '/files?path=outputs%2Freport.html&from=%2Fchat%2Fsession-1&sessionId=session-1',
+    );
+  });
+
+  it('recognizes bare file destinations without treating browser links as artifacts', () => {
+    expect(relativeArtifactPath('report.html')).toBe('report.html');
+    expect(relativeArtifactPath('notes.md?raw=1')).toBe('notes.md');
+    expect(relativeArtifactPath('README')).toBeNull();
+    expect(relativeArtifactPath('#section')).toBeNull();
+    expect(relativeArtifactPath('https://example.com/report.html')).toBeNull();
+  });
+
+  it('resolves Markdown links from the containing artifact directory', () => {
+    expect(linkedArtifactPath('details.html', 'outputs/report.md')).toBe('outputs/details.html');
+    expect(linkedArtifactPath('../index.html', 'outputs/reports/report.md')).toBe(
+      'outputs/index.html',
+    );
+    expect(linkedArtifactPath('./details.html', '/workspace/outputs/report.md')).toBe(
+      '/workspace/outputs/details.html',
+    );
+    expect(linkedArtifactPath('#details', 'outputs/report.md')).toBeNull();
+    expect(linkedArtifactPath('https://example.com', 'outputs/report.md')).toBeNull();
+  });
+});
 
 describe('decodeFilePathUrl', () => {
   it('decodes a valid internal file URL', () => {

@@ -163,6 +163,7 @@ export type MessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_REJECTED'; permId: string; error: string }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
+  | { type: 'CLEAR_PERMISSIONS' }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
   | {
       type: 'USER_MESSAGE_RECEIVED';
@@ -422,6 +423,9 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       if (state.permission?.permId !== action.permId) return { ...state, permissionQueue: queue };
       return { ...state, permission: queue[0] ?? null, permissionQueue: queue.slice(1) };
     }
+
+    case 'CLEAR_PERMISSIONS':
+      return { ...state, permission: null, permissionQueue: [] };
 
     case 'ERROR':
       return {

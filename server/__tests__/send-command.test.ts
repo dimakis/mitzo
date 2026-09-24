@@ -148,4 +148,73 @@ describe('durable send acceptance', () => {
       store.close();
     }
   });
+
+  it('can replay an exact receipt without poisoning it when its gate rejects', async () => {
+    const store = new EventStore(':memory:');
+    const dispatch = vi
+      .fn<
+        (command: Parameters<typeof acceptSendCommandAsync>[1], sessionId: string) => Promise<void>
+      >()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('route changed'))
+      .mockResolvedValueOnce(undefined);
+    try {
+      await acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch);
+      await expect(
+        acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch, {
+          replayExisting: true,
+        }),
+      ).rejects.toThrow('route changed');
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, { ...message, sessionId: 'stable-session' }, dispatch, {
+          replayExisting: true,
+        }),
+      ).resolves.toMatchObject({ sessionId: 'stable-session' });
+      expect(dispatch).toHaveBeenCalledTimes(3);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('does not corrupt a completed deliberation receipt during restart recovery', async () => {
+    const store = new EventStore(':memory:');
+    const sessionId = 'deliberate-recovery';
+    const payload = { ...message, sessionId, prompt: '/deliberate durable task' };
+    try {
+      store.upsertSession({ sessionId });
+      const admission = store.beginExecution(sessionId, 'execution-1', message.clientMsgId, 'fp');
+      store.transitionExecution(admission.token, 'TERMINAL', 'completed');
+      store.insertSendCommand(message.clientMsgId, sessionId, payload);
+
+      store.recoverPendingSendCommands();
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, payload, async () => undefined, { replayExisting: true }),
+      ).resolves.toMatchObject({ sessionId });
+    } finally {
+      store.close();
+    }
+  });
+
+  it('keeps an ambiguous deliberation receipt retryable after crash recovery', async () => {
+    const store = new EventStore(':memory:');
+    const sessionId = 'deliberate-crash-recovery';
+    const payload = { ...message, sessionId, prompt: '/deliberate uncertain task' };
+    try {
+      store.upsertSession({ sessionId });
+      const admission = store.beginExecution(sessionId, 'execution-1', message.clientMsgId, 'fp');
+      store.insertSendCommand(message.clientMsgId, sessionId, payload);
+      expect(store.recoverOrphanedExecutions()).toBe(1);
+      store.recoverPendingSendCommands();
+
+      expect(store.getSendCommand(message.clientMsgId)?.error).toBeNull();
+      await expect(
+        acceptSendCommandAsync(store, payload, async () => undefined, { replayExisting: true }),
+      ).resolves.toMatchObject({ sessionId });
+      expect(store.getExecutionTerminalReason(admission.token)).toBe('server_restart');
+    } finally {
+      store.close();
+    }
+  });
 });

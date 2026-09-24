@@ -47,6 +47,14 @@ const fullItem: TodoItem = {
       snippet: 'Related Jira ticket for auth fix',
     },
   ],
+  links: [
+    {
+      type: 'design_doc',
+      url: 'docs/auth-design.md',
+      title: 'Authentication design',
+      description: 'The durable design reference',
+    },
+  ],
   contextHints: {
     repos: ['dimakis/mitzo', 'dimakis/contexgin'],
     paths: ['server/auth.ts', 'server/permission-handler.ts'],
@@ -74,6 +82,30 @@ describe('TodoDetailView', () => {
       </MemoryRouter>,
     );
     expect(screen.getByText('Fix authentication middleware')).toBeTruthy();
+  });
+
+  it('renders the outcome contract separately from activity', () => {
+    mockLocation.mockReturnValue({
+      state: {
+        item: {
+          ...fullItem,
+          intent: 'Signed-in people stay authenticated after a refresh.',
+          rationale: 'Unexpected sign-outs interrupt every workflow.',
+          acceptanceCriteria: ['Refresh preserves the active session', 'Regression test passes'],
+        },
+      },
+    });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Outcome')).toBeTruthy();
+    expect(screen.getByText('Signed-in people stay authenticated after a refresh.')).toBeTruthy();
+    expect(screen.getByText('Why this matters')).toBeTruthy();
+    expect(screen.getByText('Done when')).toBeTruthy();
+    expect(screen.getByText('Regression test passes')).toBeTruthy();
   });
 
   it('renders status, urgency, age, and profile', () => {
@@ -116,6 +148,18 @@ describe('TodoDetailView', () => {
     const snippets = container.querySelectorAll('.todo-detail-source-snippet');
     expect(snippets[0]?.textContent).toContain('auth middleware fails to validate');
     expect(snippets[1]?.textContent).toContain('Related Jira ticket');
+  });
+
+  it('renders durable links and opens repo-relative links in the file viewer', () => {
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Links')).toBeTruthy();
+    fireEvent.click(screen.getByText('Authentication design'));
+    expect(mockNavigate).toHaveBeenCalledWith('/files?path=docs%2Fauth-design.md');
   });
 
   it('renders context hints — repos, paths, issues, jira keys, keywords', () => {
@@ -244,7 +288,7 @@ describe('TodoDetailView', () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText('Sub-tasks')).toBeTruthy();
+    expect(screen.getByText('Milestones')).toBeTruthy();
     expect(container.querySelector('.todo-detail-children-count')?.textContent).toBe('1/2');
     expect(screen.getByText('Sub-task one')).toBeTruthy();
     expect(screen.getByText('Sub-task two (done)')).toBeTruthy();

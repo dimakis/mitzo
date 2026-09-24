@@ -3,7 +3,12 @@ export type { SessionTransport } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry, effectivePermissionMode } from './session-registry.js';
-export type { ManagedSession, ActiveSessionInfo, CloseoutHandler } from './session-registry.js';
+export type {
+  ManagedSession,
+  ActiveSessionInfo,
+  CloseoutEpisode,
+  CloseoutHandler,
+} from './session-registry.js';
 export type {
   MitzoMode,
   SnapshotBlock,
@@ -25,6 +30,7 @@ export {
   resolvePending,
   removePending,
   hasPending,
+  getPendingSessionId,
   denyPendingBySession,
   getPendingCountBySession,
   getPendingRequestsBySession,
@@ -155,5 +161,5 @@ export type {
   ReasoningEventHandler,
 } from './reasoning/index.js';
 
-export { ResponsesSession } from './providers/index.js';
+export { OpenAIResponsesRequestError, ResponsesSession } from './providers/index.js';
 export type { ResponsesSessionOptions, ResponsesCheckpoint } from './providers/index.js';

@@ -8,11 +8,15 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import { CodexAppServerClient } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  CodexRequestError,
+  SUPPORTED_CODEX_CLI_VERSION,
+} from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
@@ -48,8 +52,26 @@ import {
 import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
+import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
+import type { EventStore } from './event-store.js';
+import { codexRolloverHistory } from './codex-rollover-context.js';
+import type { ProviderDispatchAdmission } from './provider-execution.js';
+import { INTERNAL_TOKEN } from './internal-token.js';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
+import {
+  executeTelosCreateOutcome,
+  telosCreateOutcomeDefinition,
+  TelosOutcomeInput,
+  TELOS_CREATE_OUTCOME_TOOL,
+} from './telos-tool.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
+interface PendingProviderAdmission {
+  admission: ProviderDispatchAdmission;
+  eventStore: EventStore;
+  attempt?: ProviderAttemptToken;
+}
+const pendingAdmissions = new WeakMap<ManagedSession, Map<string, PendingProviderAdmission>>();
 const log = createLogger('codex-chat-session');
 const GRANT_INTEGRATION_TOOL = 'GrantIntegrationAccess';
 const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
@@ -139,6 +161,7 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof ProviderFailureError) return error.failure.message;
   const message = error.message;
   if (
     message ===
@@ -162,6 +185,52 @@ function store() {
 }
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
+}
+export function trackCodexProviderAdmission(
+  session: ManagedSession,
+  messageId: string,
+  admission: ProviderDispatchAdmission,
+  eventStore: EventStore,
+): void {
+  let pending = pendingAdmissions.get(session);
+  if (!pending) {
+    pending = new Map();
+    pendingAdmissions.set(session, pending);
+  }
+  pending.set(messageId, { admission, eventStore });
+}
+
+function beginTrackedProviderAttempt(session: ManagedSession, messageId: string): void {
+  const pending = pendingAdmissions.get(session)?.get(messageId);
+  if (!pending || pending.attempt) return;
+  const attempt = pending.eventStore.beginProviderAttempt(
+    pending.admission.token,
+    pending.admission.providerAttemptId,
+  );
+  if (attempt.duplicate) throw new Error('Closeout provider attempt was already dispatched');
+  pending.attempt = attempt.token;
+}
+
+function finishTrackedProviderAttempt(
+  session: ManagedSession,
+  messageId: string,
+  status: 'completed' | 'interrupted' | 'failed',
+): void {
+  const tracked = pendingAdmissions.get(session)?.get(messageId);
+  if (!tracked) return;
+  const providerReason =
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'cancelled' : 'ambiguous';
+  const executionReason =
+    status === 'completed' ? 'completed' : status === 'interrupted' ? 'interrupted' : 'failed';
+  if (tracked.attempt)
+    tracked.eventStore.transitionProviderAttempt(tracked.attempt, 'TERMINAL', providerReason);
+  tracked.eventStore.transitionExecution(tracked.admission.token, 'TERMINAL', executionReason);
+  pendingAdmissions.get(session)?.delete(messageId);
+}
+
+function cancelTrackedProviderAdmissions(session: ManagedSession): void {
+  for (const messageId of pendingAdmissions.get(session)?.keys() ?? [])
+    finishTrackedProviderAttempt(session, messageId, 'interrupted');
 }
 /** Cold reconnect creates the session before its app-server runtime is ready.
  * Bound queue continuation waits briefly for that registration instead of
@@ -231,9 +300,20 @@ export function readCodexQueue(
       recoveryPhase: live?.getRecoveryPhase(),
       queued: summary.queued,
       interrupted: summary.interrupted,
+      failed: summary.failed,
+      retryAvailableAt: summary.retryAvailableAt,
+      retryable: summary.retryable,
+      requiresRetryConfirmation: summary.requiresRetryConfirmation,
     };
   } catch {
-    return { paused: true, connected: false, recovering: false, queued: 0, interrupted: 0 };
+    return {
+      paused: true,
+      connected: false,
+      recovering: false,
+      queued: 0,
+      interrupted: 0,
+      failed: 0,
+    };
   }
 }
 /** Authoritative lifecycle snapshot. Errors deliberately escape to the caller,
@@ -257,8 +337,11 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
+  /** Recreate the provider runtime without admitting or replaying user intent. */
+  reattachOnly?: boolean;
 }
 
 export function selectedOpenShellAccountRoute(
@@ -422,6 +505,9 @@ async function openCodexChatBound(
       ]
     : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
+  const openShellHostTools = connectedOpenShell
+    ? [telosCreateOutcomeDefinition, ...integrationTools]
+    : [];
   let integrationTurn:
     | {
         id: string;
@@ -626,6 +712,7 @@ async function openCodexChatBound(
   function finish() {
     if (closed) return;
     closed = true;
+    cancelTrackedProviderAdmissions(options.session);
     if (hooks)
       void hooks
         .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
@@ -648,10 +735,15 @@ async function openCodexChatBound(
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
+    webSearchBackend: openShell ? 'openshell' : 'host',
+    webSearchDeploymentRevision: openShell
+      ? 'openshell-runtime-config-v1'
+      : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
+    getMode: () => options.session.mode,
     systemPrompt:
       options.systemPrompt +
       (connectedOpenShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (managedConnection?.templateId === 'jira-readonly'
         ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
@@ -710,7 +802,7 @@ async function openCodexChatBound(
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: connectedOpenShell
-      ? [...integrationTools, ...capabilityTools.definitions]
+      ? [...openShellHostTools, ...capabilityTools.definitions]
       : [...nativeToolDefinitions, ...mcp.definitions, ...capabilityTools.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
@@ -729,6 +821,10 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
+    onProviderDispatch: (messageId) => beginTrackedProviderAttempt(options.session, messageId),
+    onProviderComplete: (messageId, status) =>
+      finishTrackedProviderAttempt(options.session, messageId, status),
+    loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     onClosed: () => {
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();
@@ -796,6 +892,36 @@ async function openCodexChatBound(
           isError: operation.status !== 'succeeded',
         };
       }
+      if (connectedOpenShell && name === TELOS_CREATE_OUTCOME_TOOL) {
+        const parsed = TelosOutcomeInput.safeParse(input);
+        if (!parsed.success) return { content: 'Invalid Telos outcome input', isError: true };
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner) return { content: 'Codex session unavailable', isError: true };
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, {
+          signal,
+          toolUseID: randomUUID(),
+          forcePrompt: true,
+          title: 'Create this outcome in live Telos?',
+          description:
+            'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Telos input changed during approval; retry the tool', isError: true };
+        if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
+          return { content: 'Session permissions changed; retry the tool', isError: true };
+        const port = Number.parseInt(process.env.PORT || '3100', 10);
+        return executeTelosCreateOutcome(
+          localHttpBaseUrl(port, localServerUsesTls()),
+          owner.clientId,
+          INTERNAL_TOKEN,
+          parsed.data,
+          signal,
+        );
+      }
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
         return requestIntegrationAccess(provider, signal);
@@ -837,14 +963,36 @@ async function openCodexChatBound(
       if (options.session.transport?.isOpen()) options.session.transport.send(message);
     },
     ...(runtimeManager
-      ? { onActivity: () => touchOpenShellLifecycle(options.conversationId) }
+      ? {
+          onActivity: () => touchOpenShellLifecycle(options.conversationId),
+          onThreadChanged: (threadId: string) => {
+            registerOpenShellLifecycle(
+              options.conversationId,
+              managedOpenShell!,
+              options.binding,
+              selectedOpenShellAccountRoute(options),
+              threadId,
+              options.registry.findBySessionId(options.conversationId)?.clientId,
+            );
+          },
+        }
       : {}),
     onError: (error) => {
       log.warn('Codex runtime reported an error', {
         conversationId: options.conversationId,
+        ...(error instanceof CodexRequestError
+          ? {
+              requestMethod: error.method,
+              requestErrorCategory: error.category,
+              ...(error.code === undefined ? {} : { requestErrorCode: error.code }),
+            }
+          : {}),
+        ...(error instanceof ProviderFailureError ? providerFailureTelemetry(error.failure) : {}),
         error: publicCodexRuntimeError(error),
       });
-      if (options.session.transport?.isOpen())
+      // Failed provider turns are emitted by the query loop as durable v2 error
+      // events. Sending here would race replay and show the same failure twice.
+      if (!(error instanceof ProviderFailureError) && options.session.transport?.isOpen())
         options.session.transport.send({
           type: 'error',
           sessionId: options.conversationId,
@@ -891,14 +1039,15 @@ async function openCodexChatBound(
     }
     signal.throwIfAborted();
     runtimes.set(options.session, runtime);
-    await runtime.send({
-      id: options.messageId,
-      prompt: options.prompt,
-      intent: options.intent,
-      model: options.model,
-      reasoningEffort: options.reasoningEffort,
-      images: options.images,
-    });
+    if (!options.reattachOnly)
+      await runtime.send({
+        id: options.messageId,
+        prompt: options.prompt,
+        intent: options.intent,
+        model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        images: options.images,
+      });
   } catch (error) {
     close();
     throw error;
@@ -912,7 +1061,11 @@ async function openCodexChatBound(
         throw new Error(
           'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
         );
+      runtime.assertPermissionModeChange(mode);
     },
+    setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') =>
+      runtime.setWebSearchGrant(expectedRevision, grant),
+    getWebSearchGrant: () => runtime.getWebSearchGrant(),
     interrupt: () => runtime.interrupt(),
     close,
     stopTask: async () => {

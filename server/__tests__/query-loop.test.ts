@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
@@ -175,6 +176,68 @@ describe('runQueryLoop', () => {
     );
   });
 
+  it('correlates a parent input UUID with the final result that follows it', async () => {
+    const received: string[] = [];
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'user',
+          uuid: 'closeout-input-uuid',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'finish closeout' },
+        },
+        {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'closeout-turn' } },
+        },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      {
+        onUserInput: (_clientId, uuid) => received.push(`input:${uuid}`),
+        onResult: (_clientId, result, inputUuid) =>
+          received.push(
+            `result:${result.is_error === true ? 'failed' : 'completed'}:${inputUuid ?? 'none'}`,
+          ),
+      },
+    );
+
+    expect(received).toEqual(['input:closeout-input-uuid', 'result:completed:closeout-input-uuid']);
+  });
+
+  it('leaves a queued input uncorrelated when it echoes during an earlier active turn', async () => {
+    const resultInputs: Array<string | undefined> = [];
+    await runQueryLoop(
+      eventStream([
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'earlier-turn' } } },
+        {
+          type: 'user',
+          uuid: 'closeout-input-uuid',
+          parent_tool_use_id: null,
+          message: { role: 'user', content: 'finish closeout' },
+        },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+        { type: 'stream_event', event: { type: 'message_start', message: { id: 'later-turn' } } },
+        { type: 'assistant', message: { content: [] }, session_id: 'sess-closeout' },
+        { type: 'result', session_id: 'sess-closeout', is_error: false },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { onResult: (_clientId, _result, inputUuid) => resultInputs.push(inputUuid) },
+    );
+
+    expect(resultInputs).toEqual([undefined, undefined]);
+  });
+
   it('emits block_start+block_delta+block_end for thinking blocks', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-th' } } },
@@ -226,6 +289,28 @@ describe('runQueryLoop', () => {
     expect(sent.some((m: Record<string, unknown>) => m.type === 'thinking_start')).toBe(false);
     expect(sent.some((m: Record<string, unknown>) => m.type === 'thinking_delta')).toBe(false);
     expect(sent.some((m: Record<string, unknown>) => m.type === 'text_delta')).toBe(false);
+  });
+
+  it('updates the token-bar compaction count from an explicit provider lifecycle event', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'system',
+          subtype: 'status',
+          session_id: 'sess-compact',
+          status: 'Context compacted',
+          compact_result: 'success',
+        },
+        { type: 'result', session_id: 'sess-compact' },
+      ]),
+      clientId,
+      registry,
+      abortController,
+    );
+
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'token_update', numCompactions: 1 }),
+    );
   });
 
   it('emits block_end with toolName/toolId/input for tool_use blocks', async () => {
@@ -868,6 +953,53 @@ describe('runQueryLoop', () => {
       expect(stored.some((e) => e.type === 'block_delta')).toBe(true);
       expect(stored.some((e) => e.type === 'message_end')).toBe(true);
       expect(stored.some((e) => e.type === 'session_end')).toBe(true);
+    });
+
+    it('persists a provider failure before its failed terminal event', async () => {
+      const session = registry.get(clientId)!;
+      session.sessionId = 'sess-provider-failure';
+      const failure = {
+        category: 'overloaded',
+        code: 'server_is_overloaded',
+        retryable: true,
+        ambiguous: true,
+        attempt: 1,
+        correlationId: 'turn-overloaded',
+        retryAfterMs: 5_000,
+        message:
+          'OpenAI is temporarily overloaded. This turn is saved and can be retried when capacity is available.',
+      };
+
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'result',
+            session_id: 'sess-provider-failure',
+            is_error: true,
+            provider_failure: failure,
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+      );
+
+      const stored = store.getSessionEvents('sess-provider-failure');
+      const failureEvent = stored.find((event) => event.type === 'error');
+      const terminalEvent = stored.find((event) => event.type === 'session_end');
+      expect(failureEvent?.payload).toMatchObject({
+        error: failure.message,
+        providerFailure: failure,
+      });
+      expect(terminalEvent?.payload).toMatchObject({
+        terminalReason: 'failed',
+        providerFailure: failure,
+      });
+      expect(failureEvent!.seq).toBeLessThan(terminalEvent!.seq);
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({ type: 'error', providerFailure: failure }),
+      );
     });
 
     it('injects seq into sent transport messages when store is provided', async () => {
@@ -1641,6 +1773,83 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.outputTokens).toBe(0);
       expect(sessionMeta!.numTurns).toBe(0);
       expect(sessionMeta!.totalCostUsd).toBe(0);
+    });
+
+    it('persists completion usage when the stream ends before the SDK result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-completion-without-result';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_start',
+              message: { id: 'msg-completion', usage: { input_tokens: 0, output_tokens: 0 } },
+            },
+          },
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_delta',
+              usage: {
+                input_tokens: 1200,
+                output_tokens: 300,
+                cache_read_input_tokens: 400,
+                cache_creation_input_tokens: 100,
+              },
+            },
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+      );
+
+      expect(store.getSession(sessionId)).toMatchObject({
+        inputTokens: 1200,
+        outputTokens: 300,
+        cacheReadTokens: 400,
+        cacheCreationTokens: 100,
+        numTurns: 1,
+        state: 'ENDED',
+      });
+    });
+
+    it('persists one Codex turn when several renderer blocks end without a result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-codex-fallback';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+      const events: Record<string, unknown>[] = [];
+      const mapper = new CodexSessionEvents(sessionId, 'thread-codex', 'model', (event) =>
+        events.push(event),
+      );
+      mapper.notification('turn/started', {
+        threadId: 'thread-codex',
+        turn: { id: 'turn-1' },
+      });
+      mapper.notification('item/reasoning/summaryTextDelta', {
+        threadId: 'thread-codex',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Thinking',
+      });
+      mapper.notification('item/agentMessage/delta', {
+        threadId: 'thread-codex',
+        itemId: 'message-1',
+        delta: 'Answer',
+      });
+      mapper.toolStart('provider-tool-1', 'Read', { file_path: 'README.md' });
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+
+      expect(store.getSession(sessionId)).toMatchObject({ numTurns: 1, state: 'ENDED' });
     });
 
     it('records fallback usage on external abort', async () => {

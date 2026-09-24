@@ -1,14 +1,22 @@
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
+import {
+  remarkPlugins,
+  rehypePlugins,
+  artifactMarkdownComponents,
+  artifactUrlTransform,
+} from '../lib/markdown-config';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
 import { useDocumentReader } from '../hooks/useDocumentReader';
+import { HtmlPreview } from '../components/HtmlPreview';
+import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
+  const location = useLocation();
   const nav = useFileNavigation(searchParams, setSearchParams);
   const { state } = nav;
   const rawFrom = searchParams.get('from');
@@ -16,10 +24,18 @@ export function FileViewer() {
   const fromRoute =
     rawFrom && rawFrom.startsWith('/') && !rawFrom.startsWith('//') ? rawFrom : null;
 
-  const editor = useFileEditor(state.content, state.filePath, nav.setError);
+  const editor = useFileEditor(
+    state.content,
+    state.filePath,
+    nav.setError,
+    state.sessionId || undefined,
+  );
   const reader = useDocumentReader();
 
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);
+  const artifactCapability = findArtifactCapabilityByExtension(state.ext);
+  const isHtml = artifactCapability?.artifact?.renderer === 'html';
+  const isEditable = isMarkdown || artifactCapability?.artifact?.editable === true;
   const fileName = state.filePath.split('/').pop() || '';
   const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
@@ -31,7 +47,7 @@ export function FileViewer() {
     <div className="viewer-page">
       <header className="viewer-header">
         <MitzoLogo />
-        {(state.isViewing || state.currentDir || fromRoute) && (
+        {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
             className="viewer-header-back"
             onClick={() => {
@@ -70,7 +86,7 @@ export function FileViewer() {
                 : 'Read'}
           </button>
         )}
-        {state.isViewing && isMarkdown && !editor.editing && (
+        {state.isViewing && isEditable && !editor.editing && (
           <button className="viewer-header-action" onClick={editor.startEditing}>
             Edit
           </button>
@@ -156,20 +172,37 @@ export function FileViewer() {
             <ReactMarkdown
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
-              components={markdownComponents}
+              urlTransform={artifactUrlTransform}
+              components={artifactMarkdownComponents(
+                state.filePath,
+                state.sessionId || undefined,
+                location.pathname + location.search,
+                routerNavigate,
+              )}
             >
               {state.content}
             </ReactMarkdown>
           </div>
         )}
 
-        {!state.loading && !state.error && state.isViewing && !editor.editing && !isMarkdown && (
-          <pre className="viewer-code">{state.content}</pre>
+        {!state.loading && !state.error && state.isViewing && !editor.editing && isHtml && (
+          <HtmlPreview
+            html={state.content}
+            title={`${fileName} preview`}
+            className="viewer-html-preview"
+          />
         )}
+
+        {!state.loading &&
+          !state.error &&
+          state.isViewing &&
+          !editor.editing &&
+          !isMarkdown &&
+          !isHtml && <pre className="viewer-code">{state.content}</pre>}
 
         {!state.loading && !state.error && !state.isViewing && (
           <div className="viewer-dir">
-            {state.currentDir && (
+            {state.canGoUp && (
               <button
                 className="viewer-entry viewer-entry--up"
                 onClick={() => nav.goUp(editor.dirty)}

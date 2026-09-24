@@ -1,6 +1,7 @@
 import { AccountAliases } from './account-aliases.js';
 import {
   readCodexQueue,
+  getCodexRuntime,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
@@ -12,8 +13,19 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, basename } from 'path';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
@@ -84,6 +96,7 @@ import {
   CalendarResponse,
   TodoListResponse,
   TodoCreateBody,
+  TodoOutcomeCreateBody,
   TodoActionBody,
   TodoActionResponse,
   TaskCreateBody,
@@ -178,6 +191,8 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+
+const codexReattachments = new Map<string, Promise<void>>();
 
 app.use(
   helmet({
@@ -1005,6 +1020,49 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
   });
 });
 
+app.post('/api/internal/telos/outcomes', async (req, res) => {
+  if (!verifyInternalToken(req)) {
+    res.status(401).json({ ok: false, error: 'Internal token required' });
+    return;
+  }
+  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+  const clientId = req.headers['x-client-id'] as string | undefined;
+  const sessionId =
+    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
+  const canonical = JSON.stringify(body.data);
+  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
+  const contextHints = body.data.contextHints ?? {};
+  const payload = {
+    ...body.data,
+    idempotencyKey,
+    contextHints: {
+      ...contextHints,
+      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
+    },
+  };
+  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
+  if (!existsSync(script)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [script, '--create-outcome-json', JSON.stringify(payload)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const result = JSON.parse(stdout);
+    res.status(result.ok ? 200 : 400).json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
 // --- Loop orchestrator API ---
 
 app.get('/api/loop/status', (req, res) => {
@@ -1604,6 +1662,38 @@ app.use(
     overview: readCodexQueueOverview,
     cancel: (id, binding, commandId) =>
       cancelCodexQueuedCommand(id, binding, commandId, registry.findBySessionId(id)?.session),
+    retry: async (id, _binding, confirmAmbiguous) => {
+      const session = registry.findBySessionId(id)?.session;
+      const runtime = session ? getCodexRuntime(session) : undefined;
+      return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
+    },
+    reattach: async (id, binding) => {
+      const existing = registry.findBySessionId(id)?.session;
+      if (existing && getCodexRuntime(existing)) return 'ready';
+      const meta = eventStore.getSession(id);
+      if (!meta) return 'unavailable';
+      if (!existing && !codexReattachments.has(id)) {
+        const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
+          resume: id,
+          accountId: binding.accountId,
+          model: meta.selectedModel ?? binding.model,
+          reasoningEffort: meta.reasoningEffort,
+          agentName: meta.agentName ?? undefined,
+          reattachOnly: true,
+        })
+          .then(() => undefined)
+          .catch((error: unknown) => {
+            log.warn('provider reattachment failed', {
+              sessionId: id,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          })
+          .finally(() => codexReattachments.delete(id));
+        codexReattachments.set(id, operation);
+      }
+      const runtime = await waitForCodexRuntimeBySessionId(registry, id, 1000);
+      return runtime ? 'ready' : codexReattachments.has(id) ? 'reattaching' : 'unavailable';
+    },
   }),
 );
 
@@ -1691,39 +1781,110 @@ app.get('/api/worktrees', (_req, res) => {
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
-function createAllowedPathChecker() {
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+
+function readPreviewFile(filePath: string): {
+  content?: string;
+  isFile: boolean;
+  tooLarge: boolean;
+} {
+  const fd = openSync(filePath, 'r');
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return { isFile: false, tooLarge: false };
+    if (stat.size > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+
+    // Read at most one byte beyond the limit. Checking the descriptor while
+    // reading closes the stat/read race when an artifact is still being written.
+    const buffer = Buffer.allocUnsafe(MAX_PREVIEW_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const chunk = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (chunk === 0) break;
+      bytesRead += chunk;
+    }
+    if (bytesRead > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    return {
+      content: buffer.toString('utf-8', 0, bytesRead),
+      isFile: true,
+      tooLarge: false,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function canonicalPath(filePath: string): string {
+  const full = resolve(filePath);
+  try {
+    return realpathSync(full);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = dirname(full);
+    return parent === full ? full : join(canonicalPath(parent), basename(full));
+  }
+}
+
+function containsPath(root: string, target: string): boolean {
+  const rel = relative(canonicalPath(root), canonicalPath(target));
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
+}
+
+/**
+ * A session id selects that session's recorded workspace for relative links and
+ * browsing. It never widens the configured path allow-list: cwd originates in a
+ * client message, so a persisted session record is not itself authorization.
+ */
+function sessionArtifactRoot(sessionId: string | undefined): string | null {
+  if (!sessionId) return null;
+  const cwd = eventStore.getSession(sessionId)?.cwd;
+  if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
+  return isConfiguredAllowedPath(cwd) ? cwd : null;
+}
+
+function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  if (isAbsolute(filePath)) return resolve(filePath);
+  return resolve(sessionArtifactRoot(sessionId) ?? BASE_REPO, filePath);
+}
+
+function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
+  const artifactRoot = sessionArtifactRoot(sessionId);
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
+      if (artifactRoot && containsPath(artifactRoot, filePath)) return true;
     } catch {
       return false;
     }
     return isConfiguredAllowedPath(filePath);
   };
 }
-export function isAllowedPath(filePath: string): boolean {
-  return createAllowedPathChecker()(filePath);
+export function isAllowedPath(filePath: string, sessionId?: string): boolean {
+  return createAllowedPathChecker(sessionId)(filePath);
 }
 function isConfiguredAllowedPath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
-  if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
-  const config = getRepoConfig();
-  for (const repoPath of Object.values(config.repos)) {
-    if (resolved.startsWith(resolve(repoPath))) return true;
-    if (resolved.startsWith(resolve(`${repoPath}-sessions`))) return true;
+  try {
+    const roots = BASE_REPO ? [BASE_REPO, `${BASE_REPO}-sessions`] : [];
+    const config = getRepoConfig();
+    for (const repoPath of Object.values(config.repos)) {
+      roots.push(repoPath, `${repoPath}-sessions`);
+    }
+    roots.push(...config.allowedPaths);
+    return roots.some((root) => containsPath(root, filePath));
+  } catch {
+    return false;
   }
-  for (const extra of config.allowedPaths) {
-    if (resolved.startsWith(resolve(extra))) return true;
-  }
-  return false;
 }
 
-function resolveRoot(queryRoot: string | undefined, allowed = isAllowedPath): string {
-  if (!queryRoot) return BASE_REPO;
+function resolveRoot(
+  queryRoot: string | undefined,
+  allowed = isAllowedPath,
+  defaultRoot = BASE_REPO,
+): string {
+  if (!queryRoot) return defaultRoot;
   const resolved = resolve(queryRoot);
-  if (!allowed(resolved)) return BASE_REPO;
+  if (!allowed(resolved)) return defaultRoot;
   return resolved;
 }
 
@@ -1768,9 +1929,15 @@ app.get('/api/files/roots', (_req, res) => {
 });
 
 app.get('/api/files/list', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1806,9 +1973,15 @@ app.get('/api/files/list', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1833,7 +2006,7 @@ app.get('/api/files', (req, res) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-    res.json({ dir, entries });
+    res.json({ dir, root, entries });
   } catch (err: unknown) {
     log.error('failed to read directory', {
       dir,
@@ -1844,8 +2017,10 @@ app.get('/api/files', (req, res) => {
 });
 
 app.get('/api/files/read', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1854,9 +2029,17 @@ app.get('/api/files/read', (req, res) => {
     return;
   }
   try {
-    const content = readFileSync(filePath, 'utf-8');
+    const preview = readPreviewFile(filePath);
+    if (!preview.isFile) {
+      res.status(400).json({ error: 'Path is not a file' });
+      return;
+    }
+    if (preview.tooLarge) {
+      res.status(413).json({ error: 'File is too large to preview (5 MB maximum)' });
+      return;
+    }
     const ext = extname(filePath).toLowerCase();
-    res.json({ path: filePath, content, ext });
+    res.json({ path: filePath, content: preview.content, ext });
   } catch (err: unknown) {
     log.error('failed to read file', {
       path: filePath,
@@ -1880,8 +2063,10 @@ app.get('/api/images/:imageId', (req, res) => {
 });
 
 app.get('/api/files/download', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1918,8 +2103,9 @@ app.put('/api/files/write', (req, res) => {
     res.status(400).json({ error: 'path and content are required' });
     return;
   }
-  const { path: filePath, content } = body.data;
-  if (!isAllowedPath(filePath)) {
+  const { path: requestedPath, content, sessionId } = body.data;
+  const filePath = resolveArtifactPath(requestedPath, sessionId);
+  if (!isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -2164,6 +2350,9 @@ app.get('/api/calendar', async (req, res) => {
 
 const TODO_SCRIPT = join(BASE_REPO, 'command_center', 'todo_api.py');
 const TODO_TIMEOUT_MS = 30_000;
+// The todo list includes source context and can exceed Node's 1 MiB execFile default.
+// Keep the subprocess bounded while leaving headroom above the current production payload.
+const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 app.get('/api/todos', async (req, res) => {
   const profile = req.query.profile as string | undefined;
@@ -2171,7 +2360,7 @@ app.get('/api/todos', async (req, res) => {
 
   if (!existsSync(TODO_SCRIPT)) {
     log.warn('todo script not found', { path: TODO_SCRIPT });
-    res.json({ profiles: [], items: [] });
+    res.status(503).json({ error: 'Todo service unavailable' });
     return;
   }
 
@@ -2186,18 +2375,19 @@ app.get('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {
       log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-      res.json({ profiles: [], items: [] });
+      res.status(502).json({ error: 'Todo service unavailable' });
       return;
     }
     res.json(parsed.data);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo API failed', { error: message });
-    res.json({ profiles: [], items: [] });
+    res.status(502).json({ error: 'Todo service unavailable' });
   }
 });
 
@@ -2222,6 +2412,7 @@ app.post('/api/todos', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = JSON.parse(stdout);
     if (!parsed.ok) {
@@ -2232,6 +2423,37 @@ app.post('/api/todos', async (req, res) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     log.warn('todo create failed', { error: message });
+    res.status(500).json({ ok: false, error: message });
+  }
+});
+
+app.post('/api/todos/outcomes', async (req, res) => {
+  const body = TodoOutcomeCreateBody.safeParse(req.body);
+  if (!body.success) {
+    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
+    return;
+  }
+
+  if (!existsSync(TODO_SCRIPT)) {
+    res.status(500).json({ ok: false, error: 'Todo script not found' });
+    return;
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      'python3',
+      [TODO_SCRIPT, '--create-outcome-json', JSON.stringify(body.data)],
+      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
+    );
+    const parsed = JSON.parse(stdout);
+    if (!parsed.ok) {
+      res.status(400).json(parsed);
+      return;
+    }
+    res.status(parsed.created ? 201 : 200).json(parsed);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    log.warn('todo outcome create failed', { error: message });
     res.status(500).json({ ok: false, error: message });
   }
 });
@@ -2258,6 +2480,7 @@ app.post('/api/todos/:id/action', async (req, res) => {
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
+      maxBuffer: TODO_MAX_BUFFER_BYTES,
     });
     const parsed = TodoActionResponse.safeParse(JSON.parse(stdout));
     if (!parsed.success) {

@@ -12,6 +12,9 @@
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <!-- podman machine start exits after spawning the VM; preserve its processes. -->
+    <key>AbandonProcessGroup</key>
+    <true/>
     <key>KeepAlive</key>
     <false/>
     <key>StandardOutPath</key>

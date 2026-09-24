@@ -153,6 +153,22 @@ describe('summarizeToolInput', () => {
       'Need clarification',
     );
   });
+
+  it('summarizes Telos outcome creation', () => {
+    expect(
+      summarizeToolInput('mcp__telos__TelosCreateOutcome', {
+        summary: 'Ship searchable outcomes',
+      }),
+    ).toBe('Create outcome: Ship searchable outcomes');
+  });
+
+  it('summarizes host-routed Telos outcome creation', () => {
+    expect(
+      summarizeToolInput('TelosCreateOutcome', {
+        summary: 'Make sandbox Telos writes durable',
+      }),
+    ).toBe('Create outcome: Make sandbox Telos writes durable');
+  });
 });
 
 describe('getRawInput', () => {

@@ -1,5 +1,17 @@
+import {
+  claimChatCommand,
+  reasoningSessionId,
+  isReasoningSessionId,
+  paidReasoningCommand,
+} from './reasoning-command-admission.js';
+import { cancelDeliberation } from './deliberate-admission.js';
+import { cancelFusion } from './fusion-admission.js';
 import { permissionRevision, recordPermissionChange } from './session-permission-revision.js';
-import { resolveAccountSelection, loadAccountProfiles } from './account-profiles.js';
+import {
+  resolveAccountSelection,
+  resolveEffectiveAccountSelection,
+  loadAccountProfiles,
+} from './account-profiles.js';
 /**
  * v2 WebSocket message handlers — Phase 1c of single-WS migration.
  *
@@ -12,6 +24,8 @@ import { resolveAccountSelection, loadAccountProfiles } from './account-profiles
 
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { effectivePermissionMode } from '@mitzo/harness';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { isDeepStrictEqual } from 'node:util';
 import type { SessionRegistry } from './session-registry.js';
 import type { EventStore } from './event-store.js';
 import { toClientState } from './event-store.js';
@@ -46,12 +60,16 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
 } from './permissions.js';
 import {
   startChat,
   sendToChat,
   interruptChat,
+  preflightChatCommand,
+  preflightStartupProviderCommand,
+  nativeStartupSessionId,
   stopChat,
   closeSessionByUser,
   isActive,
@@ -64,6 +82,7 @@ import { resolveSlashCommand } from './slash-commands.js';
 import { buildSkillRegistry, isAllowedPath, NATIVE_COMMAND_NAMES } from './app.js';
 import type { NativeCommandRegistry } from './native-commands.js';
 import { createLogger } from './logger.js';
+import { acceptSendCommandAsync } from './send-command.js';
 
 const log = createLogger('ws-v2');
 
@@ -303,7 +322,6 @@ export function handleReconnect(
             if (oldTransport?.isOpen())
               oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-            denyPendingBySession(entry.sessionId);
           }
 
           // The durable event replay below covers the same events buffered
@@ -528,43 +546,211 @@ export function handleSendV2(
   transport: SessionTransport,
   msg: SendMsg,
   ctx: V2HandlerContext,
-  delivery?: { initialSessionId?: string },
+  delivery?: {
+    initialSessionId?: string;
+    awaitStartupAdmission?: boolean;
+    receiptAdmitted?: boolean;
+    identityClaimed?: boolean;
+  },
 ): Promise<'native' | void> {
   return withSpanAsync<'native' | void>(
     'ws.send',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
-        const storedBinding = msg.sessionId
-          ? ctx.eventStore.getSession(msg.sessionId)?.accountBinding
-          : null;
+        if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
+        let resolveStartupAdmission: (() => void) | undefined;
+        let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+        const startupAdmission = delivery?.awaitStartupAdmission
+          ? new Promise<void>((resolve, reject) => {
+              resolveStartupAdmission = resolve;
+              rejectStartupAdmission = reject;
+            })
+          : undefined;
+        let emitSkillInvoked = () => {};
+        let skillInvoked = false;
+        const onStartupAdmission = (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else {
+            if (!skillInvoked) {
+              emitSkillInvoked();
+              skillInvoked = true;
+            }
+            resolveStartupAdmission?.();
+          }
+        };
+        const storedMeta = msg.sessionId ? ctx.eventStore.getSession(msg.sessionId) : undefined;
+        const storedBinding = storedMeta?.accountBinding;
         const accountProfiles = msg.accountId || storedBinding ? loadAccountProfiles() : undefined;
         // Validation-only gate before dispatch; startup revalidates against this same snapshot.
-        resolveAccountSelection(msg, storedBinding, !!msg.sessionId, accountProfiles);
-        const rawCwd = msg.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+        const accountBinding = resolveAccountSelection(
+          msg,
+          storedBinding,
+          !!msg.sessionId,
+          accountProfiles,
+        );
+        const effectiveSelection = resolveEffectiveAccountSelection(
+          msg,
+          storedMeta,
+          accountBinding,
+        );
+        const requestedCwd = msg.cwd;
+        const validatedCwd = requestedCwd
+          ? isAllowedPath(requestedCwd)
+            ? requestedCwd
+            : BASE_REPO
+          : undefined;
+        const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        const paidReasoning =
+          resolution.type === 'native' &&
+          paidReasoningCommand(resolution.name, resolution.arguments);
+
+        // Native reasoning admission creates the global receipt below. All
+        // other WS sends must consult that same receipt before routing, so an
+        // ordinary retry cannot bypass a paid command admitted on another
+        // transport (or vice versa).
+        if (!paidReasoning && !delivery?.receiptAdmitted) {
+          const existingReceipt = ctx.eventStore.getSendCommand?.(msg.clientMsgId);
+          if (existingReceipt) {
+            if (existingReceipt.error) throw new Error(existingReceipt.error);
+            if (!isDeepStrictEqual(existingReceipt.payload, msg)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            return;
+          }
+        }
 
         if (resolution.type === 'native') {
+          const commandSessionId =
+            msg.sessionId ?? reasoningSessionId(resolution.name, msg.clientMsgId);
+          if (paidReasoning && !delivery?.receiptAdmitted) {
+            const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId: commandSessionId };
+            const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+            if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+              throw new ExecutionAdmissionError(
+                'fingerprint_conflict',
+                'Command ID already admitted for a different request',
+              );
+            }
+            await acceptSendCommandAsync(
+              ctx.eventStore,
+              receiptMessage,
+              async (command, admittedSessionId) => {
+                await handleSendV2(
+                  connectionId,
+                  transport,
+                  msg.sessionId ? command : { ...command, sessionId: null },
+                  ctx,
+                  {
+                    ...delivery,
+                    initialSessionId: delivery?.initialSessionId ?? admittedSessionId,
+                    awaitStartupAdmission: true,
+                    receiptAdmitted: true,
+                    identityClaimed: true,
+                  },
+                );
+              },
+              { replayExisting: true },
+            );
+            return 'native';
+          }
+          let admitted!: () => void;
+          let admissionFailed!: (error: unknown) => void;
+          const admission = paidReasoning
+            ? new Promise<void>((resolve, reject) => {
+                admitted = resolve;
+                admissionFailed = reject;
+              })
+            : undefined;
+          const commandTransport: SessionTransport = paidReasoning
+            ? {
+                isOpen: () => transport.isOpen(),
+                send(data) {
+                  const event = { ...data, v: 2, sessionId: commandSessionId };
+                  const seq = ctx.eventStore.append(commandSessionId, String(data.type), event);
+                  // Delivery failure cannot alter durable execution or cause redispatch.
+                  try {
+                    transport.send({ ...event, seq });
+                  } catch {
+                    /* replay remains available */
+                  }
+                },
+              }
+            : transport;
           void ctx.nativeCommands
-            .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+            .execute(resolution.name, resolution.arguments, skillRegistry, {
+              transport: commandTransport,
+              ...(paidReasoning
+                ? {
+                    [resolution.name === 'fuse' ? 'fusion' : 'deliberation']: {
+                      store: ctx.eventStore,
+                      request: {
+                        sessionId: commandSessionId,
+                        clientMsgId: msg.clientMsgId,
+                        task: resolution.arguments,
+                        confirmAmbiguous: msg.confirmAmbiguous,
+                        selection: {
+                          accountBinding: accountBinding ?? null,
+                          model: msg.model ?? null,
+                          reasoningEffort: msg.reasoningEffort,
+                          cwd,
+                          mode: msg.mode,
+                          isolation: msg.isolation,
+                          extraTools: msg.extraTools,
+                          images: msg.images,
+                          contextBlocks: msg.contextBlocks,
+                        },
+                      },
+                      onAdmitted: () => {
+                        if (!msg.sessionId) {
+                          commandTransport.send({
+                            type: 'session_id',
+                            sessionId: commandSessionId,
+                          });
+                          if (ctx.eventStore.getSessionState(commandSessionId) !== 'ENDED')
+                            ctx.eventStore.setSessionState(commandSessionId, 'ENDED', {
+                              force: true,
+                              reason:
+                                resolution.name === 'fuse'
+                                  ? 'sessionless_fusion'
+                                  : 'sessionless_deliberation',
+                            });
+                          else ctx.eventStore.markSessionInactive(commandSessionId);
+                        }
+                        ctx.connRegistry.watch(connectionId, commandSessionId);
+                        if (msg.sessionId)
+                          ctx.connRegistry.setActive(connectionId, commandSessionId);
+                        admitted();
+                      },
+                    },
+                  }
+                : {}),
+            })
             .then((result) => {
-              if (result) {
-                transport.send({
+              if (result)
+                commandTransport.send({
                   type: 'native_command_result',
                   v: 2,
                   command: result.command,
                   content: result.content,
                 });
-              }
             })
             .catch((err: unknown) => {
-              transport.send({
-                type: 'error',
-                error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
-              });
+              if (paidReasoning) {
+                admissionFailed(err);
+              } else {
+                transport.send({
+                  type: 'error',
+                  error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                });
+              }
             });
+          await admission;
           return 'native';
         }
 
@@ -579,7 +765,8 @@ export function handleSendV2(
         const userIntent = msg.prompt;
         const skillAllowedTools = resolution.type === 'skill' ? resolution.allowedTools : undefined;
 
-        if (resolution.type === 'skill') {
+        emitSkillInvoked = () => {
+          if (resolution.type !== 'skill') return;
           transport.send({
             type: 'skill_invoked',
             v: 2,
@@ -588,7 +775,7 @@ export function handleSendV2(
             arguments: resolution.arguments,
             ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
           });
-        }
+        };
 
         const applySkillPolicy = (targetClientId: string) => {
           if (skillAllowedTools) {
@@ -598,11 +785,49 @@ export function handleSendV2(
           }
         };
 
-        const sessionId = msg.sessionId;
+        let sessionId = msg.sessionId;
+
+        // A sessionless reasoning stream is deliberately closed and has no
+        // SDK conversation behind it. Treat a later ordinary send that still
+        // carries its displayed ID as a new chat rather than cold-resuming the
+        // synthetic execution stream.
+        if (
+          sessionId &&
+          isReasoningSessionId(sessionId) &&
+          ctx.eventStore.getSessionState(sessionId) === 'ENDED'
+        ) {
+          msg = { ...msg, sessionId: null };
+          sessionId = null;
+        }
 
         if (sessionId) {
           const found = ctx.sessionRegistry.findBySessionId(sessionId);
           const storeState = ctx.eventStore.getSessionState(sessionId);
+
+          const routesToActiveRuntime =
+            !!found &&
+            isActive(found.clientId) &&
+            storeState !== 'ENDED' &&
+            storeState !== 'CLOSING' &&
+            storeState !== null;
+          if (!routesToActiveRuntime) {
+            const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+              sessionId,
+              clientMsgId: msg.clientMsgId,
+              prompt,
+              cwd,
+              images: msg.images,
+              contextBlocks: msg.contextBlocks,
+              model: effectiveSelection.model,
+              reasoningEffort: effectiveSelection.reasoningEffort,
+            });
+            if (duplicate) {
+              ctx.connRegistry.watch(connectionId, sessionId);
+              ctx.connRegistry.setActive(connectionId, sessionId);
+              log.info('duplicate cold provider send', { connectionId, sessionId });
+              return;
+            }
+          }
 
           // Phase 2: detect state mismatches (observability only)
           const mismatch = detectStateMismatch(sessionId, ctx.sessionRegistry, ctx.eventStore);
@@ -620,14 +845,17 @@ export function handleSendV2(
           // State-based routing (Phase 3): durable state is the single source of truth.
           // ACTIVE/DETACHED/SUSPENDED → running path (send to existing query loop)
           // CLOSING/ENDED/null → resume path (zombie cleanup first if needed)
-          if (
-            found &&
-            isActive(found.clientId) &&
-            storeState !== 'ENDED' &&
-            storeState !== 'CLOSING' &&
-            storeState !== null
-          ) {
+          if (routesToActiveRuntime && found) {
             if (msg.accountId) assertActiveAccountIdentity(ctx, sessionId, msg.accountId);
+            const duplicate = preflightChatCommand(
+              found.clientId,
+              prompt,
+              msg.images,
+              msg.contextBlocks,
+              msg.clientMsgId,
+              msg.accountId ? msg.model : undefined,
+              msg.accountId ? msg.reasoningEffort : undefined,
+            );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
             const isOwner = ownerConnection === connectionId;
@@ -660,9 +888,14 @@ export function handleSendV2(
                 storeState,
               });
             }
-            applySkillPolicy(activeClientId);
             ctx.connRegistry.watch(connectionId, sessionId);
             ctx.connRegistry.setActive(connectionId, sessionId);
+            if (duplicate) {
+              log.info('duplicate send', { connectionId, sessionId });
+              return;
+            }
+            emitSkillInvoked();
+            applySkillPolicy(activeClientId);
             const accepted =
               resolution.type === 'skill'
                 ? await sendToChat(
@@ -717,9 +950,9 @@ export function handleSendV2(
           span.setAttribute('routing.decision', 'resume');
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: validatedCwd,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -729,6 +962,7 @@ export function handleSendV2(
             images: msg.images,
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -740,6 +974,28 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         } else {
+          const startupSessionId =
+            delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId);
+          const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+            sessionId: startupSessionId,
+            clientMsgId: msg.clientMsgId,
+            prompt,
+            cwd,
+            images: msg.images,
+            contextBlocks: msg.contextBlocks,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
+          });
+          if (duplicate) {
+            log.info('duplicate initial provider send', {
+              connectionId,
+              sessionId: startupSessionId,
+            });
+            ctx.connRegistry.watch(connectionId, startupSessionId);
+            ctx.connRegistry.setActive(connectionId, startupSessionId);
+            transport.send({ type: 'session_id', sessionId: startupSessionId });
+            return;
+          }
           const sessionClientId = `${connectionId}:new-${randomUUID().slice(0, 8)}`;
           span.setAttribute('routing.decision', 'create');
           const onSessionResolved = (resolvedId: string) => {
@@ -748,9 +1004,9 @@ export function handleSendV2(
           };
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
-            cwd: msg.cwd,
-            model: msg.model,
-            reasoningEffort: msg.reasoningEffort,
+            cwd: validatedCwd,
+            model: effectiveSelection.model,
+            reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
             accountProfiles,
             extraTools: msg.extraTools,
@@ -761,6 +1017,7 @@ export function handleSendV2(
             contextBlocks: msg.contextBlocks,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
+            onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
             userIntent,
@@ -772,6 +1029,7 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         }
+        await startupAdmission;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
@@ -780,6 +1038,12 @@ export function handleSendV2(
           type: 'error',
           error: err instanceof Error ? err.message : 'Send failed',
         });
+        if (
+          delivery?.awaitStartupAdmission &&
+          (err instanceof ExecutionAdmissionError ||
+            /^\/(deliberate|fuse)(?:\s|$)/.test(msg.prompt.trim()))
+        )
+          throw err;
       }
     },
   );
@@ -787,6 +1051,11 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
+    if (
+      cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+      cancelFusion(ctx.eventStore, msg.sessionId)
+    )
+      return;
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     if (found) {
       stopChat(found.clientId);
@@ -800,16 +1069,23 @@ export function handleInterruptV2(
   transport: SessionTransport,
   msg: InterruptMsg,
   ctx: V2HandlerContext,
-): void {
-  withSpan(
+  delivery?: { awaitStartupAdmission?: boolean },
+): Promise<void> {
+  return withSpanAsync(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
-    () => {
+    async () => {
+      if (
+        cancelDeliberation(ctx.eventStore, msg.sessionId) ||
+        cancelFusion(ctx.eventStore, msg.sessionId)
+      )
+        return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       if (!found) return;
 
       const activeClientId = found.clientId;
-      const storedAccountId = ctx.eventStore.getSession(msg.sessionId)?.accountBinding?.accountId;
+      const storedMeta = ctx.eventStore.getSession(msg.sessionId);
+      const storedAccountId = storedMeta?.accountBinding?.accountId;
       const storeState = ctx.eventStore.getSessionState(msg.sessionId);
 
       // Phase 2: detect state mismatches (observability only)
@@ -846,6 +1122,15 @@ export function handleInterruptV2(
             return;
           }
         }
+        const duplicate = preflightChatCommand(
+          activeClientId,
+          msg.prompt,
+          msg.images,
+          msg.contextBlocks,
+          msg.clientMsgId,
+          msg.accountId ? msg.model : undefined,
+          msg.accountId ? msg.reasoningEffort : undefined,
+        );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
         const isOwner = ownerConnection === connectionId;
@@ -875,7 +1160,11 @@ export function handleInterruptV2(
 
         ctx.connRegistry.watch(connectionId, msg.sessionId);
         ctx.connRegistry.setActive(connectionId, msg.sessionId);
-        interruptChat(
+        if (duplicate) {
+          log.info('duplicate interrupt', { connectionId, sessionId: msg.sessionId });
+          return;
+        }
+        await interruptChat(
           activeClientId,
           msg.prompt,
           msg.images,
@@ -885,6 +1174,28 @@ export function handleInterruptV2(
           msg.accountId ? msg.reasoningEffort : undefined,
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
+        return;
+      }
+
+      const effectiveSelection = resolveEffectiveAccountSelection(
+        msg,
+        storedMeta,
+        storedMeta?.accountBinding ?? undefined,
+      );
+      const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
+        sessionId: msg.sessionId,
+        clientMsgId: msg.clientMsgId,
+        prompt: msg.prompt,
+        cwd: storedMeta?.cwd ?? BASE_REPO,
+        images: msg.images,
+        contextBlocks: msg.contextBlocks,
+        model: effectiveSelection.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
+      });
+      if (duplicate) {
+        ctx.connRegistry.watch(connectionId, msg.sessionId);
+        ctx.connRegistry.setActive(connectionId, msg.sessionId);
+        log.info('duplicate cold interrupt', { connectionId, sessionId: msg.sessionId });
         return;
       }
 
@@ -902,6 +1213,14 @@ export function handleInterruptV2(
       const sessionClientId = `${connectionId}:${msg.sessionId}`;
       ctx.connRegistry.watch(connectionId, msg.sessionId);
       ctx.connRegistry.setActive(connectionId, msg.sessionId);
+      let resolveStartupAdmission: (() => void) | undefined;
+      let rejectStartupAdmission: ((error: unknown) => void) | undefined;
+      const startupAdmission = delivery?.awaitStartupAdmission
+        ? new Promise<void>((resolve, reject) => {
+            resolveStartupAdmission = resolve;
+            rejectStartupAdmission = reject;
+          })
+        : undefined;
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
         accountId: msg.accountId ?? storedAccountId,
@@ -911,19 +1230,24 @@ export function handleInterruptV2(
               revision: permissionRevision(ctx.eventStore, msg.sessionId),
             }
           : undefined,
-        model: msg.model ?? found.session?.model,
-        reasoningEffort: msg.reasoningEffort,
+        model: effectiveSelection.model ?? found.session?.model,
+        reasoningEffort: effectiveSelection.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,
+        onStartupAdmission: (error?: unknown) => {
+          if (error) rejectStartupAdmission?.(error);
+          else resolveStartupAdmission?.();
+        },
       }).catch((err: unknown) =>
         transport.send({
           type: 'error',
           error: err instanceof Error ? err.message : 'Session startup failed',
         }),
       );
+      await startupAdmission;
       log.info('interrupt_resume', { connectionId, sessionId: msg.sessionId });
     },
   );
@@ -968,11 +1292,30 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      const pendingSessionId = getPendingSessionId(msg.permId);
+      if (pendingSessionId) {
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId);
+        const ownerConnection =
+          found?.session?.ownerConnectionId ??
+          (found ? getOwnerConnection(found.clientId) : undefined);
+        if (
+          ownerConnection !== connectionId ||
+          (msg.sessionId && msg.sessionId !== pendingSessionId)
+        ) {
+          sendPermissionResponseRejected(
+            ctx.connRegistry.get(connectionId)?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+      }
       const resolved = resolvePending(
         msg.permId,
         msg.decision ?? 'deny',
         msg.answers,
-        msg.sessionId,
+        msg.sessionId ?? pendingSessionId,
       );
       if (!resolved) {
         sendPermissionResponseRejected(
@@ -1370,7 +1713,7 @@ export async function dispatchV2Message(
       handleStopV2(connectionId, msg, ctx);
       break;
     case 'interrupt':
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx);
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);

@@ -1,6 +1,15 @@
+import {
+  claimChatCommand,
+  reasoningSessionId,
+  isReasoningSessionId,
+  paidReasoningCommand,
+} from './reasoning-command-admission.js';
+
+import { parseSlashCommand } from './slash-commands.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
+import { isDeepStrictEqual } from 'node:util';
 import { acceptSendCommandAsync } from './send-command.js';
 import type { Request, Response } from 'express';
 import {
@@ -29,12 +38,22 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
+  getOwnerConnection,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
 import { createLogger } from './logger.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { z } from 'zod';
 
 const log = createLogger('chat-rest');
+const WebSearchConsent = z
+  .object({
+    sessionId: z.string().min(1).max(200),
+    expectedRevision: z.number().int().nonnegative(),
+    grant: z.enum(['allowed', 'denied']),
+  })
+  .strict();
 
 function getConnectionId(req: Request, res: Response): string | null {
   const connectionId = req.headers['x-connection-id'] as string | undefined;
@@ -132,47 +151,109 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
-      const receipt = await acceptSendCommandAsync(
-        ctx.eventStore,
-        msg,
-        async (command, sessionId) => {
-          const delegate = new SseTransport(connectionId, sseRegistry);
-          const transport = {
-            // This transport accepts events into durable storage even offline.
-            isOpen: () => true,
-            send(data: Record<string, unknown>) {
-              let event =
-                data.type === 'native_command_result' && !command.sessionId
-                  ? data
-                  : { ...data, sessionId: data.sessionId ?? sessionId };
-              if (data.type === 'error') {
-                ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
-              }
-              // Query-loop events already carry their durable sequence. Early
-              // startup metadata uses this boundary as its persistence point.
-              if (event.sessionId && typeof event.seq !== 'number') {
-                const durable = { ...event, v: 2 };
-                const seq = ctx.eventStore.append(
-                  String(event.sessionId),
-                  String(event.type),
-                  durable,
-                );
-                event = { ...durable, seq };
-              }
-              if (ctx.connRegistry.hasOpenWatchers(sessionId))
-                ctx.connRegistry.broadcast(sessionId, event);
-              else delegate.send(event);
-            },
-          };
-          const outcome = await handleSendV2(connectionId, transport, command, ctx, {
-            initialSessionId: command.sessionId ? undefined : sessionId,
-          });
-          if (outcome === 'native') return false;
-        },
-      );
-      res.status(202).json(receipt);
+      claimChatCommand(ctx.eventStore, msg);
+      const dispatch = async (
+        command: typeof msg,
+        sessionId: string,
+        options: {
+          preserveReceiptErrors?: boolean;
+          preserveReceiptSession?: boolean;
+          receiptAdmitted?: boolean;
+        } = {},
+      ) => {
+        const delegate = new SseTransport(connectionId, sseRegistry);
+        const transport = {
+          // This transport accepts events into durable storage even offline.
+          isOpen: () => true,
+          send(data: Record<string, unknown>) {
+            let event =
+              data.type === 'native_command_result' && !command.sessionId
+                ? data
+                : { ...data, sessionId: data.sessionId ?? sessionId };
+            if (data.type === 'error' && !options.preserveReceiptErrors) {
+              ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
+            }
+            // Query-loop events already carry their durable sequence. Early
+            // startup metadata uses this boundary as its persistence point.
+            if (event.sessionId && typeof event.seq !== 'number') {
+              const durable = { ...event, v: 2 };
+              const seq = ctx.eventStore.append(
+                String(event.sessionId),
+                String(event.type),
+                durable,
+              );
+              event = { ...durable, seq };
+            }
+            if (ctx.connRegistry.hasOpenWatchers(sessionId))
+              ctx.connRegistry.broadcast(sessionId, event);
+            else delegate.send(event);
+          },
+        };
+        const outcome = await handleSendV2(connectionId, transport, command, ctx, {
+          initialSessionId: command.sessionId ? undefined : sessionId,
+          awaitStartupAdmission: true,
+          identityClaimed: true,
+          // REST inserts the global receipt before dispatch; WS inserts it in
+          // handleSendV2 so the same check can fence cross-transport retries.
+          receiptAdmitted: options.receiptAdmitted ?? true,
+        });
+        if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
+      };
+      const parsed = parseSlashCommand(msg.prompt);
+      const paidReasoning = !!parsed && paidReasoningCommand(parsed.name, parsed.arguments);
+      const admittedMessage =
+        !paidReasoning &&
+        msg.sessionId &&
+        isReasoningSessionId(msg.sessionId) &&
+        ctx.eventStore.getSessionState(msg.sessionId) === 'ENDED'
+          ? { ...msg, sessionId: null }
+          : msg;
+      if (paidReasoning) {
+        // Keep the global receipt as the command identity, while replaying an
+        // exact receipt through the command's route/fingerprint gate. A
+        // sessionless receipt uses the same deterministic ID as the native
+        // admission, but the command remains sessionless to its transport.
+        const sessionId = msg.sessionId ?? reasoningSessionId(parsed!.name, msg.clientMsgId);
+        const receiptMessage = msg.sessionId ? msg : { ...msg, sessionId };
+        const existingReceipt = ctx.eventStore.getSendCommand(msg.clientMsgId);
+        if (existingReceipt && !isDeepStrictEqual(existingReceipt.payload, receiptMessage)) {
+          throw new ExecutionAdmissionError(
+            'fingerprint_conflict',
+            'Command ID already admitted for a different request',
+          );
+        }
+        const receipt = await acceptSendCommandAsync(
+          ctx.eventStore,
+          receiptMessage,
+          async (command, admittedSessionId) => {
+            await dispatch(
+              msg.sessionId ? command : { ...command, sessionId: null },
+              admittedSessionId,
+              {
+                preserveReceiptErrors: Boolean(existingReceipt),
+                preserveReceiptSession: true,
+                receiptAdmitted: true,
+              },
+            );
+          },
+          { replayExisting: true },
+        );
+        res.status(202).json(receipt);
+      } else {
+        const receipt = await acceptSendCommandAsync(ctx.eventStore, admittedMessage, dispatch);
+        res.status(202).json(receipt);
+      }
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
+      if (err instanceof ExecutionAdmissionError) {
+        res.status(409).json({
+          ok: false,
+          code: err.code,
+          error: err.message,
+          clientMsgId: msg.clientMsgId,
+        });
+        return;
+      }
       res.status(422).json({
         ok: false,
         error: err instanceof Error ? err.message : 'Send failed',
@@ -196,7 +277,7 @@ export function createChatRestRouter(
     res.status(202).json({ ok: true });
   });
 
-  router.post('/interrupt', (req, res) => {
+  router.post('/interrupt', async (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     const transport = getTransport(connectionId, sseRegistry, ctx.connRegistry, res);
@@ -204,10 +285,16 @@ export function createChatRestRouter(
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
     try {
-      handleInterruptV2(connectionId, transport, msg, ctx);
+      await handleInterruptV2(connectionId, transport, msg, ctx, {
+        awaitStartupAdmission: true,
+      });
       res.status(202).json({ ok: true });
     } catch (err) {
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
+      if (err instanceof ExecutionAdmissionError) {
+        res.status(409).json({ ok: false, code: err.code, error: err.message });
+        return;
+      }
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });
@@ -256,6 +343,56 @@ export function createChatRestRouter(
     } catch (err) {
       log.error('POST /chat/permission failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  router.get('/web-search-consent/:sessionId', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const found = ctx.sessionRegistry.findBySessionId(String(req.params.sessionId));
+    if (
+      !found ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      !found.session.queryInstance?.getWebSearchGrant
+    ) {
+      res.status(404).json({ ok: false, error: 'Codex conversation not found' });
+      return;
+    }
+    res.json({ ok: true, ...found.session.queryInstance.getWebSearchGrant() });
+  });
+
+  router.post('/web-search-consent', async (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(WebSearchConsent, req.body, res);
+    if (!msg) return;
+    const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+    if (
+      !found ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      !found.session.queryInstance?.setWebSearchGrant
+    ) {
+      res.status(404).json({ ok: false, error: 'Codex conversation not found' });
+      return;
+    }
+    try {
+      const updated = await found.session.queryInstance.setWebSearchGrant(
+        msg.expectedRevision,
+        msg.grant,
+      );
+      res.json({ ok: true, ...updated });
+    } catch (error) {
+      log.warn('web-search consent update rejected', {
+        connectionId,
+        sessionId: msg.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(409).json({
+        ok: false,
+        error: 'Web-search consent changed or the conversation is not between turns',
+      });
     }
   });
 

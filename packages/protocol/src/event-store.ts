@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import type {
   MitzoMode,
   StoredEvent,
@@ -8,6 +9,14 @@ import type {
   ClientSessionState,
   EventStoreLogger,
   AccountBinding,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
@@ -31,6 +40,14 @@ export type {
   SessionState,
   ClientSessionState,
   EventStoreLogger,
+  ExecutionPhase,
+  ExecutionStateChangedPayload,
+  ExecutionTerminalReason,
+  ExecutionToken,
+  ProviderAttemptPhase,
+  ProviderAttemptStateChangedPayload,
+  ProviderAttemptTerminalReason,
+  ProviderAttemptToken,
 };
 
 /**
@@ -98,6 +115,11 @@ interface SessionRow {
   last_speaker_at: number | null;
   state: string | null;
   last_state_change: number | null;
+  execution_generation: number;
+  execution_id: string | null;
+  execution_phase: string | null;
+  execution_terminal_reason: string | null;
+  execution_updated_at: number | null;
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
@@ -114,6 +136,86 @@ export interface SendCommandReceipt {
   error: string | null;
 }
 
+export type ExecutionTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'already_stopping' | 'invalid_transition';
+
+export interface ExecutionTransitionResult {
+  applied: boolean;
+  status: ExecutionTransitionStatus;
+  token: ExecutionToken;
+  seq?: number;
+  event?: ExecutionStateChangedPayload;
+}
+
+export interface NewExecutionResult {
+  token: ExecutionToken;
+  duplicate: false;
+  seq: number;
+  event: ExecutionStateChangedPayload;
+}
+
+export interface DuplicateExecutionResult {
+  token: ExecutionToken;
+  duplicate: true;
+}
+
+export type BeginExecutionResult = NewExecutionResult | DuplicateExecutionResult;
+
+export interface ExecutionAdmission {
+  token: ExecutionToken;
+  requestFingerprint: string;
+}
+
+export class ExecutionAdmissionError extends Error {
+  constructor(
+    readonly code: 'fingerprint_required' | 'fingerprint_conflict' | 'execution_id_conflict',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ExecutionAdmissionError';
+  }
+}
+
+export interface NewProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: false;
+  seq: number;
+  event: ProviderAttemptStateChangedPayload;
+}
+
+export interface DuplicateProviderAttemptResult {
+  token: ProviderAttemptToken;
+  duplicate: true;
+}
+
+export type BeginProviderAttemptResult = NewProviderAttemptResult | DuplicateProviderAttemptResult;
+
+export type ProviderAttemptTransitionStatus =
+  'applied' | 'stale' | 'terminal' | 'conflict' | 'invalid_transition';
+
+export interface ProviderAttemptTransitionResult {
+  applied: boolean;
+  status: ProviderAttemptTransitionStatus;
+  token: ProviderAttemptToken;
+  persistedTerminalReason?: ProviderAttemptTerminalReason | null;
+  seq?: number;
+  event?: ProviderAttemptStateChangedPayload;
+}
+
+export interface ProviderAttemptRecord {
+  token: ProviderAttemptToken;
+  phase: ProviderAttemptPhase;
+  terminalReason: ProviderAttemptTerminalReason | null;
+  updatedAt: number;
+}
+
+export interface ConversationTextEvent {
+  seq: number;
+  kind: 'user' | 'assistant_delta' | 'assistant_end';
+  messageId: string;
+  text: string;
+}
+
 type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
@@ -126,6 +228,38 @@ const SCHEMA = `
     error TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000)
   );
+
+  CREATE TABLE IF NOT EXISTS client_command_claims (
+    client_msg_id TEXT PRIMARY KEY,
+    request_fingerprint TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS execution_admissions (
+    session_id TEXT NOT NULL,
+    client_msg_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch('now', 'subsec') * 1000),
+    PRIMARY KEY (session_id, client_msg_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS provider_attempts (
+    session_id TEXT NOT NULL,
+    execution_id TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    provider_attempt_id TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    terminal_reason TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (session_id, execution_id, generation, attempt_number),
+    UNIQUE (session_id, provider_attempt_id)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_provider_attempts_active
+    ON provider_attempts (session_id, execution_id, generation, phase);
 
   CREATE TABLE IF NOT EXISTS events (
     seq         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +296,38 @@ const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
   ENDED: ['CREATED'],
 };
 
+const EXECUTION_TERMINAL_REASONS = new Set<ExecutionTerminalReason>([
+  'completed',
+  'failed',
+  'stopped',
+  'interrupted',
+  'closed',
+  'abandoned',
+  'server_restart',
+  'startup_failed',
+]);
+
+const EXECUTION_TRANSITIONS: Record<ExecutionPhase, ExecutionPhase[]> = {
+  RUNNING: ['REQUIRES_ACTION', 'STOPPING', 'TERMINAL'],
+  REQUIRES_ACTION: ['RUNNING', 'STOPPING', 'TERMINAL'],
+  STOPPING: ['TERMINAL'],
+  TERMINAL: [],
+};
+
+const PROVIDER_ATTEMPT_TERMINAL_REASONS = new Set<ProviderAttemptTerminalReason>([
+  'completed',
+  'failed',
+  'ambiguous',
+  'cancelled',
+  'server_restart',
+]);
+
+function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
+  if (phase === 'REQUIRES_ACTION') return 'requires_action';
+  if (phase === 'RUNNING' || phase === 'STOPPING') return 'running';
+  return 'idle';
+}
+
 export class EventStore {
   private db: Database.Database | null;
   private log: EventStoreLogger;
@@ -171,6 +337,7 @@ export class EventStore {
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
+    recentConversationText: Database.Statement;
     getSession: Database.Statement;
     listSessions: Database.Statement;
     listSessionsLimited: Database.Statement;
@@ -226,6 +393,25 @@ export class EventStore {
 
   /** A crash may happen between acceptance and dispatch. Never silently discard
    * that receipt or re-execute a possibly side-effecting command after restart. */
+  /** Global ingress identity, independent of transport receipts and session routing. */
+  claimClientCommand(clientMsgId: string, requestFingerprint: string): void {
+    this.validateExecutionAdmission(clientMsgId, requestFingerprint);
+    this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        'SELECT request_fingerprint FROM client_command_claims WHERE client_msg_id = ?',
+      ).get(clientMsgId) as { request_fingerprint: string } | undefined;
+      if (existing && existing.request_fingerprint !== requestFingerprint)
+        throw new ExecutionAdmissionError(
+          'fingerprint_conflict',
+          'Command ID already admitted for a different request',
+        );
+      if (!existing)
+        this.db!.prepare(
+          'INSERT INTO client_command_claims (client_msg_id, request_fingerprint) VALUES (?, ?)',
+        ).run(clientMsgId, requestFingerprint);
+    }).immediate();
+  }
+
   recoverPendingSendCommands(): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
@@ -235,6 +421,11 @@ export class EventStore {
       )`,
     ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
     for (const row of rows) {
+      // Durable execution admissions own their retry and recovery semantics.
+      // Deliberation receipts intentionally have no user_message event, so
+      // generic send recovery must not turn a completed or ambiguous execution
+      // into a poisoned receipt before the execution gate can re-evaluate it.
+      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);
@@ -274,6 +465,7 @@ export class EventStore {
     this.migrateCloseTracking(db);
     this.migrateAttentionTracking(db);
     this.migrateSessionState(db);
+    this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSymposium(db);
@@ -299,6 +491,21 @@ export class EventStore {
       ),
       sessionEvents: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
+      ),
+      recentConversationText: db.prepare(
+        `SELECT seq,type,
+          json_extract(payload, '$.messageId') AS message_id,
+          CASE
+            WHEN type='user_message' THEN json_extract(payload, '$.text')
+            WHEN type='block_delta' THEN json_extract(payload, '$.delta')
+            ELSE ''
+          END AS text
+        FROM events
+        WHERE session_id=? AND (
+          type='user_message' OR type='message_end' OR
+          (type='block_delta' AND json_extract(payload, '$.blockType')='text')
+        )
+        ORDER BY seq DESC LIMIT ?`,
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -443,6 +650,30 @@ export class EventStore {
     if (!columnNames.has('last_state_change')) {
       db.exec('ALTER TABLE sessions ADD COLUMN last_state_change INTEGER');
       this.log.info('migrated sessions table: added last_state_change');
+    }
+  }
+
+  private migrateExecutionState(db: Database.Database): void {
+    const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map((column) => column.name));
+    const migrations: Array<[string, string]> = [
+      [
+        'execution_generation',
+        'ALTER TABLE sessions ADD COLUMN execution_generation INTEGER NOT NULL DEFAULT 0',
+      ],
+      ['execution_id', 'ALTER TABLE sessions ADD COLUMN execution_id TEXT'],
+      ['execution_phase', 'ALTER TABLE sessions ADD COLUMN execution_phase TEXT'],
+      [
+        'execution_terminal_reason',
+        'ALTER TABLE sessions ADD COLUMN execution_terminal_reason TEXT',
+      ],
+      ['execution_updated_at', 'ALTER TABLE sessions ADD COLUMN execution_updated_at INTEGER'],
+    ];
+    for (const [column, sql] of migrations) {
+      if (!columnNames.has(column)) {
+        db.exec(sql);
+        this.log.info(`migrated sessions table: added ${column}`);
+      }
     }
   }
 
@@ -652,6 +883,488 @@ export class EventStore {
     return Number(result.lastInsertRowid);
   }
 
+  /**
+   * Atomically allocate the next durable execution generation for a session.
+   * When a client command identity is supplied, exact retries return the
+   * original token without appending another event or advancing generation.
+   */
+  beginExecution(
+    sessionId: string,
+    executionId?: string,
+    clientMsgId?: string,
+    requestFingerprint?: string,
+  ): BeginExecutionResult {
+    if (executionId !== undefined && !executionId.trim()) {
+      throw new Error('executionId must not be empty');
+    }
+    const fingerprint = this.validateExecutionAdmission(clientMsgId, requestFingerprint);
+    return this.db!.transaction((): BeginExecutionResult => {
+      const current = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      if (!current) throw new Error(`Cannot begin execution for unknown session: ${sessionId}`);
+
+      if (clientMsgId) {
+        const existing = this.getExecutionAdmission(sessionId, clientMsgId);
+        if (existing) {
+          if (existing.requestFingerprint !== fingerprint) {
+            throw new ExecutionAdmissionError(
+              'fingerprint_conflict',
+              'clientMsgId is already admitted for a different request fingerprint',
+            );
+          }
+          if (executionId && existing.token.executionId !== executionId) {
+            throw new ExecutionAdmissionError(
+              'execution_id_conflict',
+              'clientMsgId is already admitted for a different executionId',
+            );
+          }
+          return { token: existing.token, duplicate: true };
+        }
+      }
+
+      if (current.execution_phase && current.execution_phase !== 'TERMINAL') {
+        throw new Error(`Cannot overwrite active execution for session: ${sessionId}`);
+      }
+
+      const acceptedExecutionId = executionId ?? randomUUID();
+      const generation = (current.execution_generation ?? 0) + 1;
+      const token: ExecutionToken = { sessionId, executionId: acceptedExecutionId, generation };
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        clientState: 'running',
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_generation = ?, execution_id = ?, execution_phase = 'RUNNING',
+          execution_terminal_reason = NULL, execution_updated_at = ?, updated_at = ?
+         WHERE session_id = ?
+           AND (execution_phase IS NULL OR execution_phase = 'TERMINAL')`,
+      ).run(generation, acceptedExecutionId, timestamp, timestamp, sessionId);
+      if (updated.changes !== 1) {
+        throw new Error(`Execution admission changed for session: ${sessionId}`);
+      }
+      const seq = Number(
+        this.stmts.append.run(sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      if (clientMsgId) {
+        this.db!.prepare(
+          `INSERT INTO execution_admissions
+            (session_id, client_msg_id, request_fingerprint, execution_id, generation)
+           VALUES (?, ?, ?, ?, ?)`,
+        ).run(sessionId, clientMsgId, fingerprint, acceptedExecutionId, generation);
+      }
+      return { token, duplicate: false, seq, event };
+    }).immediate();
+  }
+
+  /** Read the terminal outcome of any generation, including superseded commands. */
+  getExecutionTerminalReason(token: ExecutionToken): ExecutionTerminalReason | undefined {
+    const row = this.db!.prepare(
+      `SELECT json_extract(payload, '$.terminalReason') AS reason FROM events
+       WHERE session_id = ? AND type = 'execution_state_changed'
+         AND json_extract(payload, '$.executionId') = ?
+         AND json_extract(payload, '$.generation') = ?
+         AND json_extract(payload, '$.phase') = 'TERMINAL'
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(token.sessionId, token.executionId, token.generation) as
+      { reason: ExecutionTerminalReason } | undefined;
+    return row?.reason;
+  }
+
+  /** Read a durable execution admission receipt without consulting transport state. */
+  getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
+    const row = this.db!.prepare(
+      `SELECT execution_id, generation, request_fingerprint
+       FROM execution_admissions WHERE session_id = ? AND client_msg_id = ?`,
+    ).get(sessionId, clientMsgId) as
+      { execution_id: string; generation: number; request_fingerprint: string } | undefined;
+    return (
+      row && {
+        token: { sessionId, executionId: row.execution_id, generation: row.generation },
+        requestFingerprint: row.request_fingerprint,
+      }
+    );
+  }
+
+  private validateExecutionAdmission(
+    clientMsgId: string | undefined,
+    requestFingerprint: string | undefined,
+  ): string | undefined {
+    if (clientMsgId === undefined) {
+      if (requestFingerprint !== undefined) {
+        throw new ExecutionAdmissionError(
+          'fingerprint_required',
+          'requestFingerprint requires a clientMsgId',
+        );
+      }
+      return undefined;
+    }
+    if (!clientMsgId.trim() || clientMsgId.length > 512) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'clientMsgId must be a non-empty string of at most 512 characters',
+      );
+    }
+    if (
+      typeof requestFingerprint !== 'string' ||
+      !requestFingerprint.trim() ||
+      requestFingerprint.length > 512
+    ) {
+      throw new ExecutionAdmissionError(
+        'fingerprint_required',
+        'requestFingerprint must be a non-empty string of at most 512 characters',
+      );
+    }
+    return requestFingerprint;
+  }
+
+  /** Start one durable provider dispatch owned by the exact active execution token. */
+  beginProviderAttempt(
+    executionToken: ExecutionToken,
+    providerAttemptId: string = randomUUID(),
+    options: { allowParallel?: boolean } = {},
+  ): BeginProviderAttemptResult {
+    if (!providerAttemptId.trim()) throw new Error('providerAttemptId must not be empty');
+    return this.db!.transaction((): BeginProviderAttemptResult => {
+      const existing = this.db!.prepare(
+        `SELECT execution_id, generation, attempt_number FROM provider_attempts
+         WHERE session_id = ? AND provider_attempt_id = ?`,
+      ).get(executionToken.sessionId, providerAttemptId) as
+        { execution_id: string; generation: number; attempt_number: number } | undefined;
+      if (existing) {
+        if (
+          existing.execution_id !== executionToken.executionId ||
+          existing.generation !== executionToken.generation
+        ) {
+          throw new Error('providerAttemptId is already bound to a different execution token');
+        }
+        return {
+          token: {
+            ...executionToken,
+            providerAttemptId,
+            attempt: existing.attempt_number,
+          },
+          duplicate: true,
+        };
+      }
+
+      const current = this.stmts.getSession.get(executionToken.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== executionToken.executionId ||
+        current.execution_generation !== executionToken.generation ||
+        current.execution_phase !== 'RUNNING'
+      ) {
+        throw new Error('Cannot begin provider attempt for stale execution token');
+      }
+
+      const active = this.db!.prepare(
+        `SELECT 1 FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+         LIMIT 1`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation);
+      if (active && !options.allowParallel) {
+        throw new Error(
+          `Cannot overwrite active provider attempt for execution: ${executionToken.executionId}`,
+        );
+      }
+
+      const previous = this.db!.prepare(
+        `SELECT MAX(attempt_number) AS attempt_number FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?`,
+      ).get(executionToken.sessionId, executionToken.executionId, executionToken.generation) as {
+        attempt_number: number | null;
+      };
+      const attempt = (previous.attempt_number ?? 0) + 1;
+      const token: ProviderAttemptToken = {
+        ...executionToken,
+        providerAttemptId,
+        attempt,
+      };
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: 'RUNNING',
+        timestamp,
+      };
+      this.db!.prepare(
+        `INSERT INTO provider_attempts (
+          session_id, execution_id, generation, attempt_number, provider_attempt_id,
+          phase, terminal_reason, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'RUNNING', NULL, ?, ?)`,
+      ).run(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+        timestamp,
+        timestamp,
+      );
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { token, duplicate: false, seq, event };
+    }).immediate();
+  }
+
+  /** Apply a token-guarded provider-attempt transition and event atomically. */
+  transitionProviderAttempt(
+    token: ProviderAttemptToken,
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): ProviderAttemptTransitionResult {
+    this.validateProviderAttemptTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ProviderAttemptTransitionResult => {
+      const current = this.db!.prepare(
+        `SELECT phase, terminal_reason FROM provider_attempts
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ?`,
+      ).get(
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      ) as
+        | {
+            phase: ProviderAttemptPhase;
+            terminal_reason: ProviderAttemptTerminalReason | null;
+          }
+        | undefined;
+      if (!current) return { applied: false, status: 'stale', token };
+      if (current.phase === 'TERMINAL') {
+        const persistedTerminalReason = current.terminal_reason;
+        if (nextPhase === 'TERMINAL' && persistedTerminalReason !== terminalReason) {
+          return {
+            applied: false,
+            status: 'conflict',
+            token,
+            persistedTerminalReason,
+          };
+        }
+        return {
+          applied: false,
+          status: 'terminal',
+          token,
+          persistedTerminalReason,
+        };
+      }
+
+      const currentExecution = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !currentExecution ||
+        currentExecution.execution_id !== token.executionId ||
+        currentExecution.execution_generation !== token.generation ||
+        currentExecution.execution_phase === 'TERMINAL'
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+      if (nextPhase !== 'TERMINAL') {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+
+      const timestamp = Date.now();
+      const event: ProviderAttemptStateChangedPayload = {
+        type: 'provider_attempt_state_changed',
+        ...token,
+        phase: nextPhase,
+        terminalReason,
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE provider_attempts SET phase = ?, terminal_reason = ?, updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND generation = ?
+           AND attempt_number = ? AND provider_attempt_id = ? AND phase = 'RUNNING'`,
+      ).run(
+        nextPhase,
+        terminalReason,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        token.attempt,
+        token.providerAttemptId,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Read provider-attempt history for one immutable execution generation. */
+  getProviderAttempts(executionToken: ExecutionToken): ProviderAttemptRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT attempt_number, provider_attempt_id, phase, terminal_reason, updated_at
+       FROM provider_attempts
+       WHERE session_id = ? AND execution_id = ? AND generation = ?
+       ORDER BY attempt_number`,
+    ).all(
+      executionToken.sessionId,
+      executionToken.executionId,
+      executionToken.generation,
+    ) as Array<{
+      attempt_number: number;
+      provider_attempt_id: string;
+      phase: ProviderAttemptPhase;
+      terminal_reason: ProviderAttemptTerminalReason | null;
+      updated_at: number;
+    }>;
+    return rows.map((row) => ({
+      token: {
+        ...executionToken,
+        providerAttemptId: row.provider_attempt_id,
+        attempt: row.attempt_number,
+      },
+      phase: row.phase,
+      terminalReason: row.terminal_reason,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  private validateProviderAttemptTransition(
+    nextPhase: ProviderAttemptPhase,
+    terminalReason?: ProviderAttemptTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !PROVIDER_ATTEMPT_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error(
+          'A valid terminal reason is required when transitioning provider attempt to TERMINAL',
+        );
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL provider attempts');
+    }
+  }
+
+  /** Apply one token-guarded execution transition and persist its event atomically. */
+  transitionExecution(
+    token: ExecutionToken,
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): ExecutionTransitionResult {
+    this.validateExecutionTransition(nextPhase, terminalReason);
+    return this.db!.transaction((): ExecutionTransitionResult => {
+      const current = this.stmts.getSession.get(token.sessionId) as SessionRow | undefined;
+      if (
+        !current ||
+        current.execution_id !== token.executionId ||
+        current.execution_generation !== token.generation ||
+        !current.execution_phase
+      ) {
+        return { applied: false, status: 'stale', token };
+      }
+
+      const phase = current.execution_phase as ExecutionPhase;
+      if (phase === 'TERMINAL') return { applied: false, status: 'terminal', token };
+      if (phase === 'STOPPING' && nextPhase === 'STOPPING') {
+        return { applied: false, status: 'already_stopping', token };
+      }
+      if (!EXECUTION_TRANSITIONS[phase]?.includes(nextPhase)) {
+        return { applied: false, status: 'invalid_transition', token };
+      }
+      if (nextPhase === 'TERMINAL') {
+        const activeProviderAttempt = this.db!.prepare(
+          `SELECT 1 FROM provider_attempts
+           WHERE session_id = ? AND execution_id = ? AND generation = ? AND phase = 'RUNNING'
+           LIMIT 1`,
+        ).get(token.sessionId, token.executionId, token.generation);
+        if (activeProviderAttempt) {
+          throw new Error('Cannot terminalize execution with an active provider attempt');
+        }
+      }
+
+      const timestamp = Date.now();
+      const event: ExecutionStateChangedPayload = {
+        type: 'execution_state_changed',
+        ...token,
+        phase: nextPhase,
+        clientState: clientStateForExecution(nextPhase),
+        ...(terminalReason ? { terminalReason } : {}),
+        timestamp,
+      };
+      const updated = this.db!.prepare(
+        `UPDATE sessions SET
+          execution_phase = ?, execution_terminal_reason = ?, execution_updated_at = ?,
+          updated_at = ?
+         WHERE session_id = ? AND execution_id = ? AND execution_generation = ?
+           AND execution_phase = ?`,
+      ).run(
+        nextPhase,
+        nextPhase === 'TERMINAL' ? terminalReason : null,
+        timestamp,
+        timestamp,
+        token.sessionId,
+        token.executionId,
+        token.generation,
+        phase,
+      );
+      if (updated.changes !== 1) return { applied: false, status: 'stale', token };
+      const seq = Number(
+        this.stmts.append.run(token.sessionId, event.type, JSON.stringify(event), null, null)
+          .lastInsertRowid,
+      );
+      return { applied: true, status: 'applied', token, seq, event };
+    }).immediate();
+  }
+
+  /** Terminalize only non-terminal executions orphaned by a process restart. */
+  recoverOrphanedExecutions(): number {
+    const rows = this.db!.prepare(
+      `SELECT session_id, execution_id, execution_generation
+       FROM sessions
+       WHERE execution_phase IN ('RUNNING', 'REQUIRES_ACTION', 'STOPPING')
+         AND execution_id IS NOT NULL`,
+    ).all() as Array<{
+      session_id: string;
+      execution_id: string;
+      execution_generation: number;
+    }>;
+    let recovered = 0;
+    for (const row of rows) {
+      const token: ExecutionToken = {
+        sessionId: row.session_id,
+        executionId: row.execution_id,
+        generation: row.execution_generation,
+      };
+      const activeProviderAttempts = this.getProviderAttempts(token).filter(
+        (attempt) => attempt.phase === 'RUNNING',
+      );
+      for (const attempt of activeProviderAttempts) {
+        this.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
+      }
+      const result = this.transitionExecution(token, 'TERMINAL', 'server_restart');
+      if (result.applied) recovered++;
+    }
+    return recovered;
+  }
+
+  private validateExecutionTransition(
+    nextPhase: ExecutionPhase,
+    terminalReason?: ExecutionTerminalReason,
+  ): void {
+    if (nextPhase === 'TERMINAL') {
+      if (!terminalReason || !EXECUTION_TERMINAL_REASONS.has(terminalReason)) {
+        throw new Error('A valid terminal reason is required when transitioning to TERMINAL');
+      }
+      return;
+    }
+    if (terminalReason !== undefined) {
+      throw new Error('terminalReason is only valid for TERMINAL transitions');
+    }
+  }
+
   /** Persist a seat-attributed event only when its provenance matches the active config. */
   appendSymposium(
     sessionId: string,
@@ -709,6 +1422,39 @@ export class EventStore {
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
+  }
+
+  /** Return only the bounded text projection needed to rebuild conversation
+   * continuity. Images, tool I/O, reasoning and arbitrary event payload fields
+   * never leave SQLite. Results are chronological. */
+  getRecentConversationText(sessionId: string, limit = 8192): ConversationTextEvent[] {
+    const rows = this.stmts.recentConversationText.all(sessionId, limit) as Array<{
+      seq: number;
+      type: 'user_message' | 'block_delta' | 'message_end';
+      message_id: string | null;
+      text: string | null;
+    }>;
+    const events: ConversationTextEvent[] = [];
+    for (const row of rows.reverse()) {
+      if (!row.message_id) continue;
+      if (row.type === 'user_message' && typeof row.text === 'string')
+        events.push({ seq: row.seq, kind: 'user', messageId: row.message_id, text: row.text });
+      else if (row.type === 'block_delta' && typeof row.text === 'string')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_delta',
+          messageId: row.message_id,
+          text: row.text,
+        });
+      if (row.type === 'message_end')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_end',
+          messageId: row.message_id,
+          text: '',
+        });
+    }
+    return events;
   }
 
   /** Persist a validated draft or activate Symposium on an existing session.
@@ -2202,6 +2948,12 @@ function rowToSession(row: SessionRow): SessionMeta {
     lastSpeakerAt: row.last_speaker_at ?? null,
     state: (row.state as SessionMeta['state']) ?? null,
     lastStateChange: row.last_state_change ?? null,
+    executionGeneration: row.execution_generation ?? 0,
+    executionId: row.execution_id ?? null,
+    executionPhase: (row.execution_phase as SessionMeta['executionPhase']) ?? null,
+    executionTerminalReason:
+      (row.execution_terminal_reason as SessionMeta['executionTerminalReason']) ?? null,
+    executionUpdatedAt: row.execution_updated_at ?? null,
     agentName: row.agent_name ?? null,
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),

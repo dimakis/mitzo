@@ -4,6 +4,7 @@ import request from 'supertest';
 import { mkdirSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { INTERNAL_TOKEN } from '../internal-token.js';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
@@ -83,13 +84,10 @@ describe('todo routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/todos — returns empty when script not found', async () => {
+  it('GET /api/todos — returns service unavailable when script not found', async () => {
     const res = await request(app).get('/api/todos').set('Cookie', authCookie);
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('profiles');
-    expect(res.body).toHaveProperty('items');
-    expect(Array.isArray(res.body.profiles)).toBe(true);
-    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 
   it('GET /api/todos — accepts profile query param', async () => {
@@ -97,9 +95,8 @@ describe('todo routes', () => {
       .get('/api/todos')
       .query({ profile: 'centaur' })
       .set('Cookie', authCookie);
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('profiles');
-    expect(res.body).toHaveProperty('items');
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 
   it('POST /api/todos/:id/action — unauthenticated returns 401', async () => {
@@ -178,6 +175,33 @@ describe('todo routes', () => {
     expect(res.body.ok).toBe(false);
   });
 
+  it('POST /api/todos/outcomes — rejects an incomplete outcome contract', async () => {
+    const res = await request(app)
+      .post('/api/todos/outcomes')
+      .send({ summary: 'Vague aspiration', profile: 'work' })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(400);
+    expect(res.body.ok).toBe(false);
+  });
+
+  it('POST /api/todos/outcomes — accepts a complete outcome contract', async () => {
+    const res = await request(app)
+      .post('/api/todos/outcomes')
+      .send({
+        summary: 'Ship searchable Telos outcomes',
+        intent: 'People can find and understand durable work in ten seconds.',
+        rationale: 'The current list hides intent inside activity logs.',
+        acceptanceCriteria: ['Search matches title, intent, and context'],
+        milestones: ['Add the structured creation contract'],
+        profile: 'work',
+        idempotencyKey: 'session-1:message-7',
+      })
+      .set('Cookie', authCookie);
+    // The script is absent here, proving validation accepted the complete contract.
+    expect(res.status).toBe(500);
+    expect(res.body.ok).toBe(false);
+  });
+
   it('POST /api/todos/:id/action — star action returns 500 when script not found', async () => {
     const res = await request(app)
       .post('/api/todos/abc123/action')
@@ -194,6 +218,50 @@ describe('todo routes', () => {
       .set('Cookie', authCookie);
     expect(res.status).toBe(500);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+describe('todo list execution', () => {
+  afterEach(() => {
+    try {
+      unlinkSync(TODO_SCRIPT);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('GET /api/todos — accepts output larger than the Node default buffer', async () => {
+    const largeOutputScript = `
+import json
+item = {
+  "id": "large-item",
+  "summary": "x" * 1100000,
+  "profile": "work",
+  "urgency": 0.5,
+  "status": "active",
+  "ageDays": 0,
+  "sources": [],
+  "contextHints": {}
+}
+print(json.dumps({"profiles": ["work"], "items": [item]}))
+`;
+    writeFileSync(TODO_SCRIPT, largeOutputScript);
+
+    const res = await request(app).get('/api/todos').set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.profiles).toEqual(['work']);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].summary).toHaveLength(1100000);
+  });
+
+  it('GET /api/todos — reports execution failures instead of an empty list', async () => {
+    writeFileSync(TODO_SCRIPT, 'raise RuntimeError("boom")\n');
+
+    const res = await request(app).get('/api/todos').set('Cookie', authCookie);
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 });
 
@@ -258,5 +326,65 @@ print(json.dumps({"ok": False, "error": "Item not found"}))
     expect(res.status).toBe(404);
     expect(res.body.ok).toBe(false);
     expect(res.body.error).toBe('Item not found');
+  });
+});
+
+describe('structured outcome creation', () => {
+  afterEach(() => {
+    try {
+      unlinkSync(TODO_SCRIPT);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('passes the validated contract to the Telos backend', async () => {
+    const successScript = `
+import json, sys
+payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
+print(json.dumps({"ok": True, "created": True, "item": payload}))
+`;
+    writeFileSync(TODO_SCRIPT, successScript);
+    const body = {
+      summary: 'Ship searchable Telos outcomes',
+      intent: 'People can find and understand durable work in ten seconds.',
+      rationale: 'The current list hides intent inside activity logs.',
+      acceptanceCriteria: ['Search matches title, intent, and context'],
+      milestones: ['Add the structured creation contract'],
+      profile: 'work',
+      idempotencyKey: 'session-1:message-7',
+      contextHints: { paths: ['frontend/src/pages/TodoView.tsx'] },
+    };
+
+    const res = await request(app).post('/api/todos/outcomes').send(body).set('Cookie', authCookie);
+
+    expect(res.status).toBe(201);
+    expect(res.body.created).toBe(true);
+    expect(res.body.item).toMatchObject(body);
+  });
+
+  it('gives the agent tool a server-derived idempotency key and session provenance', async () => {
+    const successScript = `
+import json, sys
+payload = json.loads(sys.argv[sys.argv.index('--create-outcome-json') + 1])
+print(json.dumps({"ok": True, "created": True, "item": payload}))
+`;
+    writeFileSync(TODO_SCRIPT, successScript);
+    const res = await request(app)
+      .post('/api/internal/telos/outcomes')
+      .set('x-internal-token', INTERNAL_TOKEN)
+      .set('x-client-id', 'client-7')
+      .send({
+        summary: 'Ship searchable Telos outcomes',
+        intent: 'People understand durable work in ten seconds.',
+        rationale: 'Progress logs currently obscure intent.',
+        acceptanceCriteria: ['Search matches outcome and context'],
+        milestones: ['Add the structured contract'],
+        profile: 'work',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.item.idempotencyKey).toMatch(/^client-7:[a-f0-9]{64}$/);
+    expect(res.body.item.contextHints.sessionIds).toEqual(['client-7']);
   });
 });

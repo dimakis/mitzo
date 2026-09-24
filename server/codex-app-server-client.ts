@@ -1,10 +1,30 @@
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { z } from 'zod';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+
+export const SUPPORTED_CODEX_CLI_VERSION = '0.153.4';
+
+export function assertSupportedCodexCliVersion(output: string): void {
+  const version = /^codex-cli\s+(\S+)\s*$/.exec(output)?.[1];
+  if (version !== SUPPORTED_CODEX_CLI_VERSION)
+    throw new Error(`Unsupported Codex CLI version; expected ${SUPPORTED_CODEX_CLI_VERSION}`);
+}
+
+function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv): void {
+  const result = spawnSync('codex', ['--version'], {
+    env: base,
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  if (result.error || result.status !== 0)
+    throw new Error('Unable to verify the Codex CLI version');
+  assertSupportedCodexCliVersion(result.stdout);
+}
 
 type JsonObject = Record<string, unknown>;
 interface RpcProcess extends EventEmitter {
@@ -19,9 +39,45 @@ export interface CodexLifecycleTransport {
   onClose(error: Error): void;
 }
 interface Pending {
+  method: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+}
+
+export type CodexRequestErrorCategory =
+  | 'thread_state'
+  | 'provider_transport'
+  | 'context_limit'
+  | 'rate_limit'
+  | 'authentication'
+  | 'invalid_request'
+  | 'unknown';
+
+function requestErrorCategory(message: string): CodexRequestErrorCategory {
+  if (/(?:active turn|turn.*(?:running|in progress)|thread.*busy)/i.test(message))
+    return 'thread_state';
+  if (/(?:stream.*disconnect|connection.*(?:closed|lost)|transport)/i.test(message))
+    return 'provider_transport';
+  if (/context[_ -]length|too many tokens/i.test(message)) return 'context_limit';
+  if (/(?:rate limit|too many requests|quota)/i.test(message)) return 'rate_limit';
+  if (/(?:unauthenticated|unauthorized|forbidden|credential)/i.test(message))
+    return 'authentication';
+  if (/(?:invalid (?:params|request)|method not found)/i.test(message)) return 'invalid_request';
+  return 'unknown';
+}
+
+/** Carries only a bounded failure class and numeric JSON-RPC code. The provider
+ * message is inspected in-process but never retained in the Error or logs. */
+export class CodexRequestError extends Error {
+  constructor(
+    readonly method: string,
+    readonly category: CodexRequestErrorCategory,
+    readonly code?: number,
+  ) {
+    super('Codex request failed; check configuration and retry');
+    this.name = 'CodexRequestError';
+  }
 }
 
 export interface OpenShellCodexOptions {
@@ -262,6 +318,7 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
   ) {
+    assertHostCodexRuntimeVersion(base);
     return new CodexAppServerClient(
       spawn(
         'codex',
@@ -326,7 +383,9 @@ export class CodexAppServerClient {
         'config/read',
         'thread/start',
         'thread/resume',
+        'thread/fork',
         'thread/read',
+        'thread/turns/list',
         'turn/start',
         'turn/interrupt',
       );
@@ -365,7 +424,7 @@ export class CodexAppServerClient {
         () => this.close(new Error('Codex request timed out; retry explicitly')),
         this.timeoutMs,
       );
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { method, resolve, reject, timer });
       try {
         this.write({ id, method, params });
       } catch {
@@ -442,9 +501,19 @@ export class CodexAppServerClient {
         if (!request) continue;
         this.pending.delete(message.id);
         clearTimeout(request.timer);
-        if (message.error)
-          request.reject(new Error('Codex request failed; check configuration and retry'));
-        else if ('result' in message) request.resolve(message.result);
+        if (message.error) {
+          const parsed = z
+            .object({ code: z.number().int().optional(), message: z.string().optional() })
+            .passthrough()
+            .safeParse(message.error);
+          request.reject(
+            new CodexRequestError(
+              request.method,
+              requestErrorCategory(parsed.success ? (parsed.data.message ?? '') : ''),
+              parsed.success ? parsed.data.code : undefined,
+            ),
+          );
+        } else if ('result' in message) request.resolve(message.result);
         else {
           request.reject(new Error('Invalid Codex protocol'));
           throw new Error();

@@ -9,6 +9,9 @@ vi.mock('../chat.js', () => ({
   startChat: vi.fn().mockResolvedValue(undefined),
   sendToChat: vi.fn().mockResolvedValue(true),
   interruptChat: vi.fn(),
+  preflightChatCommand: vi.fn().mockReturnValue(false),
+  preflightStartupProviderCommand: vi.fn().mockReturnValue(false),
+  nativeStartupSessionId: vi.fn((clientMsgId: string) => `native-${clientMsgId}`),
   stopChat: vi.fn(),
   isActive: vi.fn().mockReturnValue(false),
   reattachChat: vi.fn().mockReturnValue(true),
@@ -34,6 +37,7 @@ vi.mock('../skill-policy.js', () => ({
 
 vi.mock('../permissions.js', () => ({
   resolvePending: vi.fn(),
+  getPendingSessionId: vi.fn(),
   getPendingRequestsBySession: vi.fn().mockReturnValue([]),
   denyPendingBySession: vi.fn().mockReturnValue(0),
 }));
@@ -41,6 +45,8 @@ vi.mock('../permissions.js', () => ({
 import {
   startChat,
   interruptChat,
+  preflightChatCommand,
+  preflightStartupProviderCommand,
   sendToChat,
   stopChat,
   isActive,
@@ -52,6 +58,7 @@ import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
 import {
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
   resolvePending,
 } from '../permissions.js';
@@ -77,6 +84,7 @@ import {
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
+import { isAllowedPath } from '../app.js';
 
 function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -1511,6 +1519,45 @@ describe('handleStopV2', () => {
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
 
 describe('handlePermissionResponseV2', () => {
+  it('rejects the former owner after reconnect and lets the new owner approve', () => {
+    vi.mocked(getPendingSessionId).mockReturnValue('sess-1');
+    vi.mocked(resolvePending).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'new-conn' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const oldTransport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', mockTransport());
+    const response = {
+      type: 'permission_response' as const,
+      permId: 'p1',
+      decision: 'once' as const,
+    };
+
+    expect(handlePermissionResponseV2('old-conn', response, ctx)).toBe(false);
+    expect(oldTransport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_response_rejected', permId: 'p1' }),
+    );
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(
+      handlePermissionResponseV2('new-conn', { ...response, sessionId: 'other-session' }, ctx),
+    ).toBe(false);
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(handlePermissionResponseV2('new-conn', { ...response, sessionId: 'sess-1' }, ctx)).toBe(
+      true,
+    );
+    expect(resolvePending).toHaveBeenCalledWith('p1', 'once', undefined, 'sess-1');
+    vi.mocked(getPendingSessionId).mockReset();
+    vi.mocked(resolvePending).mockReset();
+  });
+
   it('calls resolvePending with correct args', () => {
     const ctx = createContext();
     expect(() =>
@@ -1781,7 +1828,7 @@ describe('handleSendV2 routing', () => {
     expect(startChat).not.toHaveBeenCalled();
   });
 
-  it('sends skill_invoked event for skill commands', () => {
+  it('sends skill_invoked event for admitted skill commands', async () => {
     // Reset resolveSlashCommand to plain first, then set skill for this test
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReset();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({
@@ -1791,13 +1838,15 @@ describe('handleSendV2 routing', () => {
       allowedTools: ['Bash'],
       arguments: '-m "test"',
     });
-    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (startChat as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      async (_transport, _clientId, _prompt, options) => options.onStartupAdmission?.(),
+    );
 
     const ctx = createContext();
     const transport = mockTransport();
     ctx.connRegistry.register('c1', transport);
 
-    handleSendV2(
+    await handleSendV2(
       'c1',
       transport,
       {
@@ -1848,8 +1897,9 @@ describe('handleSendV2 routing', () => {
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'passthrough' });
   });
 
-  it('validates cwd via isAllowedPath', () => {
+  it('does not pass a disallowed client cwd to startChat', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
+    vi.mocked(isAllowedPath).mockReturnValueOnce(false);
 
     const ctx = createContext();
     const transport = mockTransport();
@@ -1869,6 +1919,12 @@ describe('handleSendV2 routing', () => {
     );
 
     expect(startChat).toHaveBeenCalledTimes(1);
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      expect.any(String),
+      'hi',
+      expect.objectContaining({ cwd: '/tmp/test-repo' }),
+    );
   });
 });
 
@@ -2351,6 +2407,83 @@ describe('handleSwitchSession unwatch on clear', () => {
 // ─── handleSendV2 — connection ownership ─────────────────────────────────────
 
 describe('handleSendV2 connection ownership', () => {
+  it('rejects a conflicting command before send takeover side effects', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('fingerprint conflict');
+    });
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-1');
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'send-conflict' },
+      ctx,
+    );
+
+    expect(oldTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: 'fingerprint conflict' }),
+    );
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('reattaches a reconnecting exact send retry without redispatching it', async () => {
+    (sendToChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'send-duplicate' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('sess-1');
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('takes over session from another connection on send', () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2507,6 +2640,177 @@ describe('handleSendV2 connection ownership', () => {
 // ─── state-based routing (Phase 3) ──────────────────────────────────────────
 
 describe('handleSendV2 state-based routing', () => {
+  it('restores session identity and watch state for an exact initial retry', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(preflightStartupProviderCommand).mockReturnValueOnce(true);
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'initial-retry' },
+      ctx,
+    );
+
+    expect(startChat).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual({
+      type: 'session_id',
+      sessionId: 'native-initial-retry',
+    });
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('native-initial-retry')).toBe(true);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('native-initial-retry');
+  });
+
+  it('does not emit skill_invoked before cold-start admission preflight succeeds', async () => {
+    vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+      type: 'skill',
+      name: 'commit',
+      renderedPrompt: 'Create a commit...',
+      allowedTools: ['Bash'],
+      arguments: '-m "test"',
+    });
+    vi.mocked(preflightStartupProviderCommand).mockImplementationOnce(() => {
+      throw new Error('clientMsgId fingerprint conflict');
+    });
+
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: '/commit -m "test"', clientMsgId: 'skill-1' },
+      ctx,
+    );
+
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'skill_invoked' }));
+  });
+
+  it('does not emit skill_invoked when startup admission fails', async () => {
+    vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+      type: 'skill',
+      name: 'commit',
+      renderedPrompt: 'Create a commit...',
+      allowedTools: ['Bash'],
+      arguments: '-m "test"',
+    });
+    vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
+      options.onStartupAdmission?.(new Error('admission storage failed'));
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: null, prompt: '/commit -m "test"', clientMsgId: 'skill-2' },
+      ctx,
+    );
+
+    expect(transport.sent).not.toContainEqual(expect.objectContaining({ type: 'skill_invoked' }));
+  });
+
+  it('waits for startup admission before completing a durable delivery', async () => {
+    let admitStartup: (() => void) | undefined;
+    vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
+      admitStartup = () => options.onStartupAdmission?.();
+      await new Promise(() => {});
+    });
+
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    let completed = false;
+    const delivery = handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: null, prompt: 'hello', clientMsgId: 'admit-1' },
+      ctx,
+      { initialSessionId: 'initial-1', awaitStartupAdmission: true },
+    ).then(() => {
+      completed = true;
+    });
+
+    await vi.waitFor(() => expect(admitStartup).toBeTypeOf('function'));
+    expect(completed).toBe(false);
+    admitStartup!();
+    await delivery;
+    expect(completed).toBe(true);
+  });
+
+  it('rejects a cold-resume conflict before zombie cleanup or routing side effects', async () => {
+    (startChat as ReturnType<typeof vi.fn>).mockClear();
+    (stopChat as ReturnType<typeof vi.fn>).mockClear();
+    (preflightStartupProviderCommand as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('clientMsgId fingerprint conflict');
+    });
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await handleSendV2(
+      'c1',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'conflict' },
+      ctx,
+    );
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(false);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'error', error: expect.stringMatching(/fingerprint/i) }),
+    );
+  });
+
+  it('reattaches an exact cold-provider retry without redispatching it', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(stopChat).mockClear();
+    vi.mocked(preflightStartupProviderCommand).mockReturnValueOnce(true);
+    vi.mocked(isActive).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('replacement', transport);
+
+    await handleSendV2(
+      'replacement',
+      transport,
+      { type: 'send', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'cold-duplicate' },
+      ctx,
+    );
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('replacement')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('replacement')?.activeSession).toBe('sess-1');
+  });
+
   it('aborts zombie and resumes when state is ENDED but registry still has session', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
@@ -2737,6 +3041,75 @@ describe('handleSendV2 state-based routing', () => {
 });
 
 describe('handleInterruptV2 state-based routing', () => {
+  it('waits for cold startup admission before completing a durable delivery', async () => {
+    let admitStartup: (() => void) | undefined;
+    vi.mocked(startChat).mockImplementationOnce(async (_transport, _clientId, _prompt, options) => {
+      admitStartup = () => options.onStartupAdmission?.();
+      await new Promise(() => {});
+    });
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    let completed = false;
+    const delivery = handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'resume', clientMsgId: 'cold-admit' },
+      ctx,
+      { awaitStartupAdmission: true },
+    ).then(() => {
+      completed = true;
+    });
+
+    await vi.waitFor(() => expect(admitStartup).toBeTypeOf('function'));
+    expect(completed).toBe(false);
+    admitStartup!();
+    await delivery;
+    expect(completed).toBe(true);
+  });
+
+  it('rejects a cold conflict before zombie cleanup or connection mutation', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(stopChat).mockClear();
+    vi.mocked(preflightStartupProviderCommand).mockImplementationOnce(() => {
+      throw new Error('cold interrupt fingerprint conflict');
+    });
+    vi.mocked(isActive).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'cold-i' },
+        ctx,
+      ),
+    ).rejects.toThrow('cold interrupt fingerprint conflict');
+
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(false);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBeNull();
+  });
+
   it('aborts zombie and resumes when state is ENDED', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (stopChat as ReturnType<typeof vi.fn>).mockClear();
@@ -3198,7 +3571,7 @@ describe('handleInterruptV2 forwarding', () => {
     );
   });
 
-  it('msg.model takes precedence over found.session.model', () => {
+  it('ignores a legacy model hint when resuming a bound idle session', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
 
     const sessionReg = mockSessionRegistry();
@@ -3236,7 +3609,7 @@ describe('handleInterruptV2 forwarding', () => {
       transport,
       'c4:sess-precedence',
       'override',
-      expect.objectContaining({ resume: 'sess-precedence', model: 'claude-opus-4-8' }),
+      expect.objectContaining({ resume: 'sess-precedence', model: 'claude-sonnet-4-6' }),
     );
     expect(vi.mocked(startChat).mock.calls.at(-1)?.[3]).toMatchObject({
       accountId: 'openai-personal',
@@ -3284,6 +3657,82 @@ describe('getOwnerConnection', () => {
 // ─── handleInterruptV2 — connection ownership ───────────────────────────────
 
 describe('handleInterruptV2 connection ownership', () => {
+  it('rejects a conflicting command before takeover side effects', async () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('fingerprint conflict');
+    });
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+    ctx.connRegistry.watch('other-conn', 'sess-1');
+
+    await expect(
+      handleInterruptV2(
+        'c1',
+        transport,
+        { type: 'interrupt', sessionId: 'sess-1', prompt: 'changed', clientMsgId: 'i-conflict' },
+        ctx,
+      ),
+    ).rejects.toThrow('fingerprint conflict');
+
+    expect(oldTransport.sent).not.toContainEqual(
+      expect.objectContaining({ type: 'session_takeover' }),
+    );
+    expect(ctx.connRegistry.get('other-conn')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(reattachChat).not.toHaveBeenCalled();
+    expect(interruptChat).not.toHaveBeenCalled();
+  });
+
+  it('reattaches a reconnecting exact interrupt retry without redispatching it', async () => {
+    (interruptChat as ReturnType<typeof vi.fn>).mockClear();
+    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
+    (isActive as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+    (preflightChatCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce(true);
+
+    const sessionReg = mockSessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'other-conn:sess-1',
+      session: { transport: oldTransport },
+    });
+    sessionReg.isAttached.mockReturnValue(true);
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    ctx.connRegistry.register('other-conn', oldTransport);
+
+    await handleInterruptV2(
+      'c1',
+      transport,
+      { type: 'interrupt', sessionId: 'sess-1', prompt: 'same', clientMsgId: 'int-duplicate' },
+      ctx,
+    );
+
+    expect(reattachChat).toHaveBeenCalledWith('other-conn:sess-1', transport);
+    expect(ctx.connRegistry.get('c1')?.watchedSessions.has('sess-1')).toBe(true);
+    expect(ctx.connRegistry.get('c1')?.activeSession).toBe('sess-1');
+    expect(interruptChat).not.toHaveBeenCalled();
+  });
+
   it('takes over session from another connection on interrupt', () => {
     (interruptChat as ReturnType<typeof vi.fn>).mockClear();
     (reattachChat as ReturnType<typeof vi.fn>).mockClear();
@@ -3750,6 +4199,40 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('keeps a pending approval actionable when the app resumes on a new connection', () => {
+    const sessionReg = new SessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.register('old-conn:sess-1', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      ownerConnectionId: 'old-conn',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+      transport: oldTransport,
+    });
+    sessionReg.suspend('old-conn:sess-1', 0);
+
+    const ctx = createContext({ sessionRegistry: sessionReg });
+    const transport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', transport);
+    vi.mocked(getPendingRequestsBySession).mockReturnValueOnce([
+      { permId: 'pending-approval', toolName: 'Bash', toolInput: '{}', sessionId: 'sess-1' },
+    ]);
+    vi.mocked(denyPendingBySession).mockClear();
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_request', permId: 'pending-approval' }),
+    );
+  });
+
   it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();

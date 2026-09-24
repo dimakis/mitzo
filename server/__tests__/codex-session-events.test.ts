@@ -237,6 +237,167 @@ it('renders provider reasoning summaries as thinking without exposing raw reason
   expect(JSON.stringify(events)).not.toContain('private raw reasoning');
 });
 
+it('deduplicates only the replayed prefix of an in-progress reasoning item after reconnect', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  const started = {
+    threadId: 'provider',
+    item: { type: 'reasoning', id: 'reasoning-1' },
+  };
+
+  m.notification('item/started', started);
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'A',
+  });
+
+  m.beginReconnectReplay();
+  m.notification('item/started', started);
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'A',
+  });
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'A',
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: { type: 'reasoning', id: 'reasoning-1', summary: ['AA'] },
+  });
+
+  expect(events.filter((event) => event.type === 'assistant')).toEqual([
+    expect.objectContaining({
+      message: { content: [{ type: 'thinking', thinking: 'AA' }] },
+    }),
+  ]);
+  expect(
+    events
+      .filter((event) => event.type === 'stream_event')
+      .map((event) => event.event as { type: string; delta?: { thinking?: string } })
+      .filter((event) => event.type === 'content_block_delta')
+      .map((event) => event.delta?.thinking),
+  ).toEqual(['A', 'A']);
+});
+
+it('reconciles a resumed partial public reasoning summary with its completed summary', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  const started = {
+    threadId: 'provider',
+    item: { type: 'reasoning', id: 'reasoning-1' },
+  };
+
+  m.notification('item/started', started);
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Checked ',
+  });
+  m.beginReconnectReplay();
+  m.notification('item/started', started);
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Checked ',
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: {
+      type: 'reasoning',
+      id: 'reasoning-1',
+      summary: ['Checked the file'],
+      content: ['private raw reasoning'],
+    },
+  });
+
+  expect(events.filter((event) => event.type === 'assistant')).toEqual([
+    expect.objectContaining({
+      message: { content: [{ type: 'thinking', thinking: 'Checked the file' }] },
+    }),
+  ]);
+  expect(
+    events
+      .filter((event) => event.type === 'stream_event')
+      .map((event) => event.event as { type: string; delta?: { thinking?: string } })
+      .filter((event) => event.type === 'content_block_delta')
+      .map((event) => event.delta?.thinking),
+  ).toEqual(['Checked ', 'the file']);
+  expect(JSON.stringify(events)).not.toContain('private raw reasoning');
+});
+
+it('renders only actual Codex compaction lifecycle events as an explicit status', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  m.notification('thread/compacted', { threadId: 'provider', compactionId: 'thread-compact' });
+  m.notification('item/started', {
+    threadId: 'provider',
+    item: { type: 'contextCompaction', id: 'item-compact' },
+  });
+  m.notification('item/completed', {
+    threadId: 'provider',
+    item: { type: 'contextCompaction', id: 'item-compact' },
+  });
+
+  expect(events.filter((event) => event.type === 'system')).toEqual([
+    {
+      type: 'system',
+      subtype: 'status',
+      session_id: 'app',
+      status: 'Context compacted',
+      compact_result: 'success',
+    },
+    {
+      type: 'system',
+      subtype: 'status',
+      session_id: 'app',
+      status: 'Context compacted',
+      compact_result: 'success',
+    },
+  ]);
+});
+
+it('deduplicates an immediately replayed anonymous compaction without hiding a later one', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  const compacted = { threadId: 'provider' };
+
+  m.notification('thread/compacted', compacted);
+  m.notification('thread/compacted', compacted);
+  m.notification('thread/tokenUsage/updated', { threadId: 'provider', tokenUsage: {} });
+  m.notification('thread/compacted', compacted);
+
+  expect(events.filter((event) => event.type === 'system')).toHaveLength(2);
+});
+
+it('does not duplicate a completed reasoning block when a resumed transport replays it', () => {
+  const events: Record<string, unknown>[] = [];
+  const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  const summary = {
+    threadId: 'provider',
+    item: { type: 'reasoning', id: 'reasoning-1', summary: ['Checked the file'] },
+  };
+  m.notification('item/completed', summary);
+  m.notification('item/reasoning/summaryTextDelta', {
+    threadId: 'provider',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Checked the file',
+  });
+  m.notification('item/completed', summary);
+
+  expect(events.filter((event) => event.type === 'assistant')).toHaveLength(1);
+  expect(events.filter((event) => event.type === 'stream_event')).toHaveLength(4);
+});
+
 it('drops late item events after a result and accepts them after the next turn starts', () => {
   const events: Record<string, unknown>[] = [];
   const m = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));

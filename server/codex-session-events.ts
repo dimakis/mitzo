@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { StreamEvent } from '@mitzo/harness';
+import type { ProviderFailure } from '@mitzo/protocol';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
@@ -12,8 +13,13 @@ export class CodexSessionEvents {
     { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
   >();
   private finishedTurns = new Set<string>();
+  private startedTurns = new Set<string>();
+  private compacted = new Set<string>();
+  private lastAnonymousCompaction?: string;
   private commandTools = new Map<string, string>();
   private runtimeTools = new Map<string, string>();
+  private replayingReasoning = false;
+  private reasoningReplayOffsets = new Map<string, number>();
   private turnFinished = false;
   private usage?: {
     input_tokens: number;
@@ -29,8 +35,38 @@ export class CodexSessionEvents {
   setModel(model: string) {
     this.model = model;
   }
-  private stream(event: StreamEvent) {
-    this.emit({ type: 'stream_event', event, parent_tool_use_id: null });
+  beginReconnectReplay() {
+    this.replayingReasoning = true;
+  }
+  private beginReasoningReplay(itemId: string) {
+    if (!this.replayingReasoning) return;
+    const prefix = `reasoning:${itemId}:`;
+    for (const [id, item] of this.texts) {
+      if (id.startsWith(prefix) && !item.closed) this.reasoningReplayOffsets.set(id, 0);
+    }
+  }
+  private replayedReasoningDelta(id: string, item: { text: string }, delta: string) {
+    const offset = this.reasoningReplayOffsets.get(id);
+    if (offset === undefined) return false;
+    if (item.text.slice(offset, offset + delta.length) !== delta) {
+      this.reasoningReplayOffsets.delete(id);
+      return false;
+    }
+    const next = offset + delta.length;
+    if (next >= item.text.length) this.reasoningReplayOffsets.delete(id);
+    else this.reasoningReplayOffsets.set(id, next);
+    return true;
+  }
+  private finalReasoningSuffix(rendered: string, summary: string) {
+    return summary.startsWith(rendered) ? summary.slice(rendered.length) : '';
+  }
+  private stream(event: StreamEvent, rendererOnly = false) {
+    this.emit({
+      type: 'stream_event',
+      event,
+      parent_tool_use_id: null,
+      ...(rendererOnly ? { renderer_only: true } : {}),
+    });
   }
   private start(id: string, kind: 'text' | 'thinking' = 'text') {
     let item = this.texts.get(id);
@@ -39,15 +75,18 @@ export class CodexSessionEvents {
     this.flush();
     item = { text: '', closed: false, messageId: randomUUID(), kind };
     this.texts.set(id, item);
-    this.stream({
-      type: 'message_start',
-      message: {
-        id: item.messageId,
-        model: this.model,
-        role: 'assistant',
-        usage: { input_tokens: 0, output_tokens: 0 },
+    this.stream(
+      {
+        type: 'message_start',
+        message: {
+          id: item.messageId,
+          model: this.model,
+          role: 'assistant',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
       },
-    });
+      true,
+    );
     this.stream({
       type: 'content_block_start',
       index: 0,
@@ -77,16 +116,75 @@ export class CodexSessionEvents {
   flush() {
     for (const [id] of this.texts) this.complete(id);
   }
-  notification(method: string, params: ObjectValue) {
+  private compaction(method: string, params: ObjectValue, item?: ObjectValue) {
+    const privateId =
+      typeof item?.id === 'string'
+        ? item.id
+        : typeof params.compactionId === 'string'
+          ? params.compactionId
+          : typeof params.id === 'string'
+            ? params.id
+            : undefined;
+    if (privateId) {
+      const key = `${method}:${privateId}`;
+      if (this.compacted.has(key)) return;
+      this.compacted.add(key);
+    } else {
+      if (this.lastAnonymousCompaction === method) return;
+      this.lastAnonymousCompaction = method;
+    }
+    this.emit({
+      type: 'system',
+      subtype: 'status',
+      session_id: this.conversationId,
+      status: 'Context compacted',
+      compact_result: 'success',
+    });
+  }
+  notification(method: string, params: ObjectValue, providerFailure?: ProviderFailure) {
     if (params.threadId !== this.threadId) return;
+    const isCompactionNotification =
+      method === 'thread/compacted' ||
+      method === 'contextCompaction' ||
+      ((method === 'item/started' || method === 'item/completed') &&
+        object(params.item).type === 'contextCompaction');
+    if (!isCompactionNotification) this.lastAnonymousCompaction = undefined;
     if (method === 'turn/started') {
       this.turnFinished = false;
+      const turnId = object(params.turn).id;
+      if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
+        this.startedTurns.add(turnId);
+        this.emit({
+          type: 'provider_turn_start',
+          session_id: this.conversationId,
+          turn_id: turnId,
+        });
+      }
       return;
     }
     // Provider events may be delivered late. Never create renderer blocks after
     // the terminal result for a turn; the next turn/started reopens the mapper.
     if (this.turnFinished && method.startsWith('item/')) return;
     const commandItem = object(params.item);
+    if (method === 'thread/compacted' || method === 'contextCompaction') {
+      this.compaction(method, params);
+      return;
+    }
+    if (
+      (method === 'item/started' || method === 'item/completed') &&
+      commandItem.type === 'contextCompaction'
+    ) {
+      this.compaction('contextCompaction', params, commandItem);
+      return;
+    }
+    if (
+      method === 'item/started' &&
+      commandItem.type === 'reasoning' &&
+      typeof commandItem.id === 'string'
+    ) {
+      this.beginReasoningReplay(commandItem.id);
+      return;
+    }
     if (
       method === 'item/started' &&
       commandItem.type === 'commandExecution' &&
@@ -191,8 +289,10 @@ export class CodexSessionEvents {
       typeof params.delta === 'string' &&
       Number.isInteger(params.summaryIndex)
     ) {
-      const item = this.start(`reasoning:${params.itemId}:${params.summaryIndex}`, 'thinking');
+      const id = `reasoning:${params.itemId}:${params.summaryIndex}`;
+      const item = this.start(id, 'thinking');
       if (item.closed) return;
+      if (this.replayedReasoningDelta(id, item, params.delta)) return;
       item.text += params.delta;
       this.stream({
         type: 'content_block_delta',
@@ -211,14 +311,16 @@ export class CodexSessionEvents {
         final.summary.forEach((text, index) => {
           if (typeof text !== 'string' || !text) return;
           const id = `reasoning:${final.id}:${index}`;
+          this.reasoningReplayOffsets.delete(id);
           const item = this.start(id, 'thinking');
           if (item.closed) return;
-          if (!item.text) {
-            item.text = text;
+          const suffix = this.finalReasoningSuffix(item.text, text);
+          if (suffix) {
+            item.text += suffix;
             this.stream({
               type: 'content_block_delta',
               index: 0,
-              delta: { type: 'thinking_delta', thinking: text },
+              delta: { type: 'thinking_delta', thinking: suffix },
             });
           }
           this.complete(id);
@@ -263,11 +365,14 @@ export class CodexSessionEvents {
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
       this.finishedTurns.add(turn.id);
       this.turnFinished = true;
+      this.replayingReasoning = false;
+      this.reasoningReplayOffsets.clear();
       this.flush();
       this.emit({
         type: 'result',
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
+        ...(providerFailure ? { provider_failure: providerFailure } : {}),
         ...(this.usage ? { usage: this.usage } : {}),
       });
       this.usage = undefined;
@@ -276,15 +381,18 @@ export class CodexSessionEvents {
   toolStart(_providerCallId: string, name: string, input: ObjectValue): string {
     this.flush();
     const id = randomUUID();
-    this.stream({
-      type: 'message_start',
-      message: {
-        id: randomUUID(),
-        model: this.model,
-        role: 'assistant',
-        usage: { input_tokens: 0, output_tokens: 0 },
+    this.stream(
+      {
+        type: 'message_start',
+        message: {
+          id: randomUUID(),
+          model: this.model,
+          role: 'assistant',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
       },
-    });
+      true,
+    );
     this.stream({
       type: 'content_block_start',
       index: 0,

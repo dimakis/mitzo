@@ -13,6 +13,7 @@ import { createServer as createHttpsServer } from 'https';
 import type { Socket } from 'net';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
 import { authenticateWs, registerAuthSession, type AuthSession } from './auth.js';
@@ -90,7 +91,7 @@ import {
 } from './openshell-lifecycle-observability.js';
 import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
-import { localSignalCallbackBaseUrl, SignalProcessor } from './signal-processor.js';
+import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
@@ -110,7 +111,11 @@ import {
   type V2HandlerContext,
 } from './ws-handler-v2.js';
 import { withSpan, withSpanAsync } from './tracing.js';
-import { startupRepositoryMaintenanceEnabled } from './development-isolation.js';
+import {
+  resolveWorktreeCleanupPolicy,
+  startupRepositoryMaintenanceEnabled,
+} from './development-isolation.js';
+import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
@@ -287,7 +292,7 @@ const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(__filename, '..', '..');
 const CERT_PATH = join(PROJECT_ROOT, 'certs', 'cert.pem');
 const KEY_PATH = join(PROJECT_ROOT, 'certs', 'key.pem');
-const USE_TLS = existsSync(CERT_PATH) && existsSync(KEY_PATH);
+const USE_TLS = localServerUsesTls();
 
 // WebSocket for chat — use HTTPS when certs are available
 const server = USE_TLS
@@ -356,7 +361,7 @@ const signalProc = new SignalProcessor(
     orchestratorRef?.tick();
   },
   process.env.CENTAUR_URL || 'http://localhost:8642',
-  process.env.MITZO_URL || localSignalCallbackBaseUrl(PORT, USE_TLS),
+  process.env.MITZO_URL || localHttpBaseUrl(PORT, USE_TLS),
 );
 setSignalProcessor(signalProc);
 
@@ -1057,8 +1062,13 @@ function handleChatWs(
             'ws.has_resume': !!msg.resume,
           },
           (span) => {
-            const rawCwd = msg.cwd || registry.get(clientId)?.cwd || BASE_REPO;
-            const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+            const requestedCwd = msg.cwd;
+            const validatedCwd = requestedCwd
+              ? isAllowedPath(requestedCwd)
+                ? requestedCwd
+                : BASE_REPO
+              : undefined;
+            const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
             const skillRegistry = buildSkillRegistry(cwd);
             const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
             span.setAttribute('ws.send.resolution', resolution.type);
@@ -1112,7 +1122,7 @@ function handleChatWs(
                   clientMsgId: msg.clientMsgId,
                   startOptions: {
                     resume: msg.resume,
-                    cwd: msg.cwd,
+                    cwd: validatedCwd,
                     model: msg.model,
                     extraTools: msg.extraTools,
                     isolation: msg.isolation,
@@ -1149,7 +1159,7 @@ function handleChatWs(
               ) {
                 startChat(transport, clientId, msg.prompt, {
                   resume: msg.resume,
-                  cwd: msg.cwd,
+                  cwd: validatedCwd,
                   model: msg.model,
                   extraTools: msg.extraTools,
                   isolation: msg.isolation,
@@ -1328,6 +1338,7 @@ checkPort(PORT).then((inUse) => {
     // Must run before reconcileSessionsBackground() so reconciliation sees ENDED states.
     // recoverStaleSessions() logs internally — no need to log here.
     eventStore.recoverStaleSessions();
+    eventStore.recoverOrphanedExecutions();
     eventStore.recoverPendingSendCommands();
 
     const repositoryMaintenance = startupRepositoryMaintenanceEnabled();
@@ -1353,17 +1364,23 @@ checkPort(PORT).then((inUse) => {
       return ids;
     }
 
+    const cleanupPolicy = resolveWorktreeCleanupPolicy();
+    log.info('worktree cleanup policy', { policy: cleanupPolicy });
+    const runWorktreeCleanup = runWorktreeCleanupForRepos({
+      repoEntries,
+      inboxDir,
+      cleanupPolicy,
+      collectActiveWtIds,
+      cleanup: cleanupStaleWorktrees,
+      onError: (label, phase, err) => {
+        log.warn(`${phase} worktree cleanup failed for ${label}`, {
+          error: err instanceof Error ? err.message : 'unknown',
+        });
+      },
+    });
+
     if (repositoryMaintenance) {
-      const startupActiveWtIds = collectActiveWtIds();
-      for (const [label, repoPath] of repoEntries) {
-        try {
-          cleanupStaleWorktrees(repoPath, inboxDir, startupActiveWtIds);
-        } catch (err: unknown) {
-          log.warn(`stale worktree cleanup failed for ${label}`, {
-            error: err instanceof Error ? err.message : 'unknown',
-          });
-        }
-      }
+      runWorktreeCleanup('startup');
     } else {
       log.warn('repository reconciliation and worktree cleanup disabled for development isolation');
     }
@@ -1390,18 +1407,7 @@ checkPort(PORT).then((inUse) => {
     }, GUARD_STATS_INTERVAL_MS);
 
     if (repositoryMaintenance)
-      setInterval(() => {
-        const activeWtIds = collectActiveWtIds();
-        for (const [label, repoPath] of repoEntries) {
-          try {
-            cleanupStaleWorktrees(repoPath, inboxDir, activeWtIds);
-          } catch (err: unknown) {
-            log.warn(`periodic worktree cleanup failed for ${label}`, {
-              error: err instanceof Error ? err.message : 'unknown',
-            });
-          }
-        }
-      }, WORKTREE_CLEANUP_INTERVAL_MS);
+      setInterval(() => runWorktreeCleanup('periodic'), WORKTREE_CLEANUP_INTERVAL_MS);
   });
 });
 

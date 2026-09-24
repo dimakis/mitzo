@@ -6,13 +6,27 @@ import {
   SESSION_PERMISSION_INSTRUCTIONS,
 } from './session-permission-policy.js';
 import { credentials } from './credentials.js';
-import { getResponsesRuntime, openResponsesChat } from './responses-chat-session.js';
+import {
+  getResponsesRuntime,
+  openResponsesChat,
+  trackResponsesProviderAdmission,
+} from './responses-chat-session.js';
+import {
+  admitProviderDispatch,
+  preflightProviderDispatch,
+  type ProviderDispatchAdmission,
+} from './provider-execution.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
-import { openCodexChat, getCodexRuntime } from './codex-chat-session.js';
+import {
+  openCodexChat,
+  getCodexRuntime,
+  trackCodexProviderAdmission,
+} from './codex-chat-session.js';
 import {
   loadAccountProfiles,
   resolveAccountSelection,
+  resolveEffectiveAccountSelection,
   LEGACY_MODELS,
   type AccountProfiles,
 } from './account-profiles.js';
@@ -24,12 +38,18 @@ import {
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
 import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { SessionTransport, ConnectionRegistry, ManagedSession } from '@mitzo/harness';
+import type {
+  SessionTransport,
+  ConnectionRegistry,
+  ManagedSession,
+  CloseoutEpisode,
+} from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { randomUUID } from 'crypto';
+import { resolveBundledMcpEntrypoint } from './mcp-entrypoint.js';
+import { createHash, randomUUID } from 'crypto';
 import { homedir, platform } from 'os';
 import {
   createWorktree,
@@ -45,6 +65,12 @@ import { effectivePermissionMode } from '@mitzo/harness';
 import { SessionRegistry, type MitzoMode } from './session-registry.js';
 import { parseContentBlocks } from './content-blocks.js';
 import { loadMcpServers, type McpServerConfig } from './mcp-config.js';
+import {
+  buildConfiguredMcpAllowedTools,
+  rejectReservedMcpServerCollisions,
+  TASK_MCP_SERVER_NAME,
+  TELOS_MCP_SERVER_NAME,
+} from './host-mcp-servers.js';
 import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
@@ -131,6 +157,10 @@ import {
 } from './session-index.js';
 import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
+import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
+import type { ProviderAttemptToken } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -153,6 +183,57 @@ function initEventStore(): EventStore {
 }
 
 export const eventStore = initEventStore();
+
+const fallbackCloseoutAttempts = new WeakMap<
+  ManagedSession,
+  {
+    admission: CloseoutAdmission;
+    attempt: ProviderAttemptToken;
+    /** The SDK-generated input UUID echoed before the command's final result. */
+    inputUuid: string;
+    inputObserved: boolean;
+  }
+>();
+
+function markFallbackCloseoutInputObserved(session: ManagedSession, inputUuid: string): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (tracked?.inputUuid === inputUuid) tracked.inputObserved = true;
+}
+
+function markFallbackCloseoutAmbiguous(session: ManagedSession): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  // An SDK abort only stops this local stream. Without a matching provider
+  // result, the remote closeout may still run and its outcome is unknown.
+  eventStore.transitionProviderAttempt(tracked.attempt, 'TERMINAL', 'ambiguous');
+  eventStore.transitionExecution(tracked.admission.token, 'TERMINAL', 'failed');
+  fallbackCloseoutAttempts.delete(session);
+}
+
+function finishFallbackCloseout(
+  session: ManagedSession,
+  status: 'completed' | 'failed',
+  inputUuid?: string,
+): void {
+  const tracked = fallbackCloseoutAttempts.get(session);
+  if (!tracked) return;
+  // Generic assistant message ends happen between provider tool calls and can
+  // also belong to a turn that pre-dates the closeout input. Only the echoed
+  // closeout input followed by its terminal SDK result may complete admission.
+  // If the echo is absent, leave the dispatched work recoverably ambiguous.
+  if (!tracked.inputObserved || inputUuid === undefined || inputUuid !== tracked.inputUuid) return;
+  eventStore.transitionProviderAttempt(
+    tracked.attempt,
+    'TERMINAL',
+    status === 'completed' ? 'completed' : 'ambiguous',
+  );
+  eventStore.transitionExecution(
+    tracked.admission.token,
+    'TERMINAL',
+    status === 'completed' ? 'completed' : 'failed',
+  );
+  fallbackCloseoutAttempts.delete(session);
+}
 
 export type { MitzoMode } from './session-registry.js';
 
@@ -301,7 +382,13 @@ export async function fetchBootContext(
 
 let mcpServers: Record<string, McpServerConfig> = {};
 try {
-  mcpServers = loadMcpServers();
+  const configured = rejectReservedMcpServerCollisions(loadMcpServers());
+  mcpServers = configured.servers;
+  if (configured.rejected.length > 0) {
+    log.error('ignored configured MCP servers using reserved host names', {
+      names: configured.rejected,
+    });
+  }
 } catch (err: unknown) {
   log.error('failed to load MCP servers', { error: err instanceof Error ? err.message : err });
 }
@@ -532,7 +619,7 @@ function getBranch(cwd: string): string {
 }
 
 function buildMcpAllowedTools(clientId?: string): string[] {
-  const patterns = Object.keys(mcpServers).map((name) => `mcp__${name}__*`);
+  const patterns = buildConfiguredMcpAllowedTools(mcpServers);
   if (clientId) {
     const session = registry.get(clientId);
     if (session?.taskContext) {
@@ -629,24 +716,27 @@ export function createSessionWorktrees(
   };
 }
 
-const TASK_MCP_SERVER_NAME = 'task-board';
-
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
   const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
-      command: 'node',
-      args: [
-        '--import',
-        'tsx',
-        join(__dirname, 'task-mcp-server.ts'),
-        '--base-url',
-        `http://localhost:${port}`,
-        '--client-id',
-        clientId,
-      ],
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
+    },
+  };
+}
+
+function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> {
+  const port = process.env.PORT || '3100';
+  const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'telos-mcp-server');
+  return {
+    [TELOS_MCP_SERVER_NAME]: {
+      command: entrypoint.command,
+      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -807,14 +897,28 @@ function makeUserMessage(
   content: string,
   priority: 'now' | 'next' | 'later' = 'next',
   messageId?: string,
-): SDKUserMessage & { mitzoMessageId?: string } {
+  providerAdmission?: ProviderDispatchAdmission,
+  inputUuid?: SDKUserMessage['uuid'],
+): SDKUserMessage & {
+  mitzoMessageId?: string;
+  providerAdmission?: ProviderDispatchAdmission;
+} {
   return {
     type: 'user',
     message: { role: 'user', content },
     parent_tool_use_id: null,
     priority,
     ...(messageId ? { mitzoMessageId: messageId } : {}),
+    ...(providerAdmission ? { providerAdmission } : {}),
+    ...(inputUuid ? { uuid: inputUuid } : {}),
   };
+}
+
+/** Stable server-side conversation identity for retrying an initial native WS frame. */
+export function nativeStartupSessionId(clientMsgId: string): string {
+  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
+  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 export async function startChat(
@@ -838,11 +942,14 @@ export async function startChat(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
 ) {
+  const startupGuard: { admission?: ProviderDispatchAdmission } = {};
   return withSpanAsync(
     'chat.start',
     {
@@ -850,8 +957,15 @@ export async function startChat(
       'chat.resume': options.resume ?? '',
       'chat.mode': options.mode ?? 'agent',
     },
-    async () => _startChatInner(transport, clientId, prompt, options),
-  );
+    async () => _startChatInner(transport, clientId, prompt, options, startupGuard),
+  )
+    .catch((error: unknown) => {
+      options.onStartupAdmission?.(error);
+      throw error;
+    })
+    .finally(() => {
+      cleanupUndispatchedStartup(startupGuard.admission, clientId);
+    });
 }
 
 async function _startChatInner(
@@ -875,17 +989,22 @@ async function _startChatInner(
     contextBlocks?: string[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
+    onStartupAdmission?: (error?: unknown) => void;
     telosTaskId?: string;
     agentName?: string;
     userIntent?: string;
+    reattachOnly?: boolean;
   },
+  startupGuard: { admission?: ProviderDispatchAdmission },
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
+  let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
   let gemini: GeminiOptions | undefined;
   let accountEnv: Record<string, string> | undefined;
   try {
@@ -905,16 +1024,7 @@ async function _startChatInner(
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
       options = {
         ...options,
-        model: options.accountId
-          ? (options.model ?? storedMeta?.selectedModel ?? accountBinding.model)
-          : (storedMeta?.selectedModel ?? accountBinding.model),
-        reasoningEffort: options.accountId
-          ? options.reasoningEffort !== undefined
-            ? options.reasoningEffort
-            : options.model && options.model !== (storedMeta?.selectedModel ?? accountBinding.model)
-              ? null
-              : storedMeta?.reasoningEffort
-          : storedMeta?.reasoningEffort,
+        ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
       };
       if (
         accountBinding.provider === 'openai' ||
@@ -971,7 +1081,6 @@ async function _startChatInner(
             return token;
           },
         };
-        await gemini.getAccessToken();
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
         if (options.images?.length)
@@ -989,11 +1098,12 @@ async function _startChatInner(
             sandboxProvider: profile.sandboxProvider,
             model: accountBinding.model,
           };
-        } else apiKey = await credentials.resolve(profile.credentialRef);
+        } else apiCredentialRef = profile.credentialRef;
         accountEnv = openShellRequested ? restrictedChildEnv() : nativeExecutionEnv();
       } else accountEnv = profiles!.sdkEnv(accountBinding, sdkEnv());
     }
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     send(transport, {
       type: 'error',
       error: err instanceof Error ? err.message : 'Account selection failed',
@@ -1023,6 +1133,114 @@ async function _startChatInner(
     : (options.mode ?? 'agent');
 
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  const nativeProviderSelected = !!apiCredentialRef || !!gemini;
+
+  if (
+    nativeProviderSelected &&
+    !options.reattachOnly &&
+    !options.resume &&
+    !options.initialSessionId
+  ) {
+    options = { ...options, initialSessionId: nativeStartupSessionId(initialMessageId) };
+  }
+
+  // Native initial and cold-resume commands need durable identity before any
+  // worktree, registry, transcript, or provider queue side effect. New bound
+  // sessions receive their canonical ID here so an exact retry can consult the
+  // same admission instead of selecting a fresh initial route.
+  let initialProviderAdmission: ProviderDispatchAdmission | undefined;
+  if (nativeProviderSelected && !options.reattachOnly) {
+    const conversationId = options.resume ?? options.initialSessionId ?? randomUUID();
+    if (!options.resume && !options.initialSessionId) {
+      options = { ...options, initialSessionId: conversationId };
+    }
+    if (!eventStore.getSession(conversationId)) {
+      eventStore.upsertSession({
+        sessionId: conversationId,
+        cwd: baseCwd,
+        mode,
+        ...(accountBinding ? { accountBinding } : {}),
+        selectedModel: options.model ?? accountBinding?.model ?? null,
+        reasoningEffort: options.reasoningEffort ?? null,
+      });
+    }
+    try {
+      const stablePrompt = assemblePrompt(prompt, baseCwd, undefined, options.contextBlocks);
+      initialProviderAdmission = admitProviderDispatch({
+        store: eventStore,
+        request: {
+          sessionId: conversationId,
+          clientMsgId: initialMessageId,
+          effectivePrompt: stablePrompt,
+          fingerprintSource: providerFingerprintSource(stablePrompt, options.images),
+          model: options.model,
+          reasoningEffort: options.reasoningEffort,
+          accountBinding,
+        },
+        prepare: () => {},
+      });
+      if (initialProviderAdmission.duplicate) {
+        options.onStartupAdmission?.();
+        return;
+      }
+      startupGuard.admission = initialProviderAdmission;
+    } catch (err: unknown) {
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Provider command admission failed',
+      });
+      return;
+    }
+  }
+  if (apiCredentialRef) {
+    try {
+      apiKey = await credentials.resolve(apiCredentialRef);
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'OpenAI credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (gemini && !options.reattachOnly) {
+    try {
+      await gemini.getAccessToken();
+    } catch (err: unknown) {
+      if (initialProviderAdmission) {
+        eventStore.transitionExecution(
+          initialProviderAdmission.token,
+          'TERMINAL',
+          'startup_failed',
+        );
+      }
+      options.onStartupAdmission?.(err);
+      send(transport, {
+        type: 'error',
+        ...(options.resume || options.initialSessionId
+          ? { sessionId: options.resume ?? options.initialSessionId }
+          : {}),
+        error: err instanceof Error ? err.message : 'Google Vertex credentials unavailable',
+      });
+      return;
+    }
+  }
+  if (!apiKey && !gemini) options.onStartupAdmission?.();
 
   if (options.resume) {
     const validation =
@@ -1080,6 +1298,8 @@ async function _startChatInner(
     options.contextBlocks,
   );
   const userIntent = options.userIntent ?? prompt;
+  if (options.reattachOnly && (!options.resume || !codexProfile))
+    throw new Error('Provider-only reattachment requires a resumable Codex conversation');
 
   // Apply tier overrides from current .mitzo.json (re-read each session start).
   // Always call applyTierOverrides so removed overrides reset to defaults.
@@ -1094,7 +1314,10 @@ async function _startChatInner(
 
   // Streaming-input queue — kept open for the session lifetime.
   const inputQueue = new AsyncQueue<SDKUserMessage>();
-  inputQueue.push(makeUserMessage(fullPrompt, 'now'));
+  if (!options.reattachOnly && !initialProviderAdmission)
+    inputQueue.push(
+      makeUserMessage(fullPrompt, 'now', apiKey || gemini ? initialMessageId : undefined),
+    );
 
   if (options.initialSessionId) {
     eventStore.upsertSession({
@@ -1188,7 +1411,8 @@ async function _startChatInner(
 
   // Merge dynamic MCP servers (task board if active)
   const taskMcp = supportsHostTaskTools(openShellSelected) ? buildTaskMcpServer(clientId) : null;
-  const allMcpServers = { ...mcpServers, ...taskMcp };
+  const telosMcp = supportsHostTaskTools(openShellSelected) ? buildTelosMcpServer(clientId) : null;
+  const allMcpServers = { ...mcpServers, ...taskMcp, ...telosMcp };
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = loadProjectHooks(cwd);
@@ -1239,6 +1463,7 @@ async function _startChatInner(
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     bootContextAppend;
@@ -1307,17 +1532,18 @@ async function _startChatInner(
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      const messageId = options.clientMsgId ?? randomUUID();
-      storeAndEchoIfNew(
-        conversationId,
-        messageId,
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
+      const messageId = initialMessageId;
+      if (!options.reattachOnly)
+        storeAndEchoIfNew(
+          conversationId,
+          messageId,
+          fullPrompt,
+          clientId,
+          transport,
+          session.observers,
+          imagePreviews(options.images),
+          options.contextBlocks,
+        );
       q = await openCodexChat({
         resume: !!options.resume,
         conversationId,
@@ -1334,6 +1560,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
+        eventStore,
         onDemandCreate: buildOnDemandCreate(wtId),
         onBootContext: (context) => {
           const message: BootContextMessage = { ...context, source: 'sandbox' };
@@ -1344,22 +1571,13 @@ async function _startChatInner(
             bootContext: JSON.stringify(message),
           });
         },
+        reattachOnly: options.reattachOnly,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
       session.sessionId = conversationId;
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
-      storeAndEchoIfNew(
-        conversationId,
-        options.clientMsgId ?? randomUUID(),
-        fullPrompt,
-        clientId,
-        transport,
-        session.observers,
-        imagePreviews(options.images),
-        options.contextBlocks,
-      );
       q = await openResponsesChat({
         resume: !!options.resume,
         conversationId,
@@ -1371,11 +1589,30 @@ async function _startChatInner(
         session,
         registry,
         input: inputQueue,
+        eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
         onDemandCreate: buildOnDemandCreate(wtId),
       });
+      if (!initialProviderAdmission) {
+        throw new Error('Native provider startup is missing durable command admission');
+      }
+      storeAndEchoIfNew(
+        conversationId,
+        initialMessageId,
+        fullPrompt,
+        clientId,
+        transport,
+        session.observers,
+        imagePreviews(options.images),
+        options.contextBlocks,
+      );
+      trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
+      inputQueue.push(
+        makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
+      );
+      options.onStartupAdmission?.();
     } else
       q = adaptSdkQuery(
         query({
@@ -1468,10 +1705,25 @@ async function _startChatInner(
         onTurnEnd: (cId: string) => {
           _onSessionChange?.(cId, 'turn_end');
         },
+        onUserInput: (cId, inputUuid) => {
+          const active = registry.get(cId);
+          if (active) markFallbackCloseoutInputObserved(active, inputUuid);
+        },
+        onResult: (cId, result, inputUuid) => {
+          const active = registry.get(cId);
+          if (active)
+            finishFallbackCloseout(
+              active,
+              result.is_error === true ? 'failed' : 'completed',
+              inputUuid,
+            );
+        },
       },
     );
   } catch (err: unknown) {
+    options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
+    terminalizeUndispatchedStartup(initialProviderAdmission);
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
       send(transport, {
@@ -1484,7 +1736,10 @@ async function _startChatInner(
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', { clientId, reason: 'startup_failed' });
+      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
+        clientId,
+        reason: 'startup_failed',
+      });
     }
     const failedSession = registry.get(clientId);
     if (failedSession) cleanupSessionWorktrees(failedSession);
@@ -1596,6 +1851,127 @@ function imagePreviews(images?: Array<{ data: string; mediaType: string }>): str
   return images?.map((image) => `data:${image.mediaType};base64,${image.data}`);
 }
 
+function providerFingerprintSource(
+  fullPrompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+): string {
+  let stablePrompt = fullPrompt;
+  if (images?.length) {
+    const stagedImageMarker = `\n\nI've attached ${images.length} image(s). Read them using the Read tool:\n`;
+    const markerIndex = fullPrompt.lastIndexOf(stagedImageMarker);
+    if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
+  }
+  return JSON.stringify({ effectivePrompt: stablePrompt, images });
+}
+
+function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | undefined): boolean {
+  if (!admission) return false;
+  const current = eventStore.getSession(admission.token.sessionId);
+  if (
+    current?.executionId !== admission.token.executionId ||
+    current.executionGeneration !== admission.token.generation ||
+    current.executionPhase !== 'RUNNING' ||
+    eventStore.getProviderAttempts(admission.token).length > 0
+  ) {
+    return false;
+  }
+  try {
+    eventStore.transitionExecution(admission.token, 'TERMINAL', 'startup_failed');
+  } catch (cleanupError) {
+    log.warn('could not persist native startup failure; restart recovery required', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  return true;
+}
+
+function cleanupUndispatchedStartup(
+  admission: ProviderDispatchAdmission | undefined,
+  clientId: string,
+): void {
+  if (!admission || eventStore.getProviderAttempts(admission.token).length > 0) return;
+  terminalizeUndispatchedStartup(admission);
+  const current = eventStore.getSession(admission.token.sessionId);
+  const failedBeforeDispatch =
+    current?.executionId === admission.token.executionId &&
+    current.executionGeneration === admission.token.generation &&
+    current.executionPhase === 'TERMINAL' &&
+    current.executionTerminalReason === 'startup_failed';
+  if (!failedBeforeDispatch) return;
+  try {
+    eventStore.setSessionState(admission.token.sessionId, 'ENDED', {
+      clientId,
+      reason: 'startup_failed',
+    });
+  } catch (cleanupError) {
+    log.warn('could not persist failed native startup state', {
+      sessionId: admission.token.sessionId,
+      error: cleanupError instanceof Error ? cleanupError.message : 'unknown',
+    });
+  }
+  const failedSession = registry.get(clientId);
+  if (failedSession) cleanupSessionWorktrees(failedSession);
+  registry.abort(clientId);
+}
+
+/**
+ * Consult durable native-provider admission before a registry-missing resume
+ * route performs takeover, watch, transcript, or runtime side effects.
+ */
+export function preflightStartupProviderCommand(
+  store: EventStore,
+  request: {
+    sessionId: string;
+    clientMsgId: string;
+    prompt: string;
+    cwd: string;
+    images?: Array<{ data: string; mediaType: string }>;
+    contextBlocks?: string[];
+    model?: string;
+    reasoningEffort?: string | null;
+  },
+): boolean {
+  const meta = store.getSession(request.sessionId);
+  const binding = meta?.accountBinding;
+  if (!binding) return false;
+  const existingAdmission = store.getExecutionAdmission(request.sessionId, request.clientMsgId);
+  const stablePrompt = assemblePrompt(
+    request.prompt,
+    request.cwd,
+    undefined,
+    request.contextBlocks,
+  );
+  const providerRequest = {
+    sessionId: request.sessionId,
+    clientMsgId: request.clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, request.images),
+    model: request.model ?? meta.selectedModel ?? binding.model,
+    reasoningEffort: request.reasoningEffort,
+    accountBinding: binding,
+  };
+  // Durable evidence wins over the current environment. This keeps a routing
+  // toggle across restart from replaying a command through the other provider
+  // implementation. A native admission can be checked exactly; a legacy
+  // OpenShell user message is only evidence that startup began, so its dispatch
+  // outcome is ambiguous and requires a fresh command ID.
+  if (existingAdmission) return preflightProviderDispatch(store, providerRequest);
+  if (store.hasUserMessage(request.sessionId, request.clientMsgId)) {
+    throw new Error(
+      'Existing command has ambiguous legacy OpenShell dispatch state; retry with a new command ID',
+    );
+  }
+  const openShellAvailable =
+    process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const isNative =
+    binding.provider === 'google-vertex' ||
+    (binding.provider === 'openai' &&
+      (!openShellAvailable || process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED === '0'));
+  if (!isNative) return false;
+  return preflightProviderDispatch(store, providerRequest);
+}
+
 function validateNativeModelSelection(
   sessionId: string,
   model?: string,
@@ -1657,20 +2033,46 @@ export async function sendToChat(
     const previews = imagePreviews(images);
     let selectionReasoningEffort =
       model && model !== session.model && reasoningEffort === undefined ? null : reasoningEffort;
-    if (responses && session.sessionId && eventStore.hasUserMessage(session.sessionId, messageId))
-      return true;
+    let providerAdmission: ProviderDispatchAdmission | undefined;
     if (responses) {
       try {
         if (!session.sessionId) throw new Error('Bound session metadata is unavailable');
+        if (
+          clientMsgId &&
+          eventStore.hasUserMessage(session.sessionId, clientMsgId) &&
+          !eventStore.getExecutionAdmission(session.sessionId, clientMsgId)
+        ) {
+          return true;
+        }
+        const existingAdmission = eventStore.getExecutionAdmission(session.sessionId, messageId);
+        if (!existingAdmission && responses.isRunning()) {
+          throw new Error('Native Responses conversation already running');
+        }
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
-        responses.prepare(messageId, fullPrompt, {
-          ...(model ? { model } : {}),
-          ...(selectionReasoningEffort !== undefined
-            ? { reasoningEffort: selectionReasoningEffort }
-            : {}),
+        const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
+        const prepare = () =>
+          responses.prepare(messageId, fullPrompt, {
+            ...(model ? { model } : {}),
+            ...(selectionReasoningEffort !== undefined
+              ? { reasoningEffort: selectionReasoningEffort }
+              : {}),
+          });
+        providerAdmission = admitProviderDispatch({
+          store: eventStore,
+          request: {
+            sessionId: session.sessionId,
+            clientMsgId: messageId,
+            effectivePrompt: fullPrompt,
+            fingerprintSource: providerFingerprintSource(fullPrompt, images),
+            model,
+            reasoningEffort,
+            accountBinding: binding,
+          },
+          prepare,
         });
-        if (model) session.model = model;
-      } catch {
+        if (providerAdmission.duplicate) return true;
+      } catch (error) {
+        if (error instanceof ExecutionAdmissionError) throw error;
         send(session.transport, {
           type: 'error',
           sessionId: session.sessionId,
@@ -1679,18 +2081,41 @@ export async function sendToChat(
         return false;
       }
     }
-    const acknowledge = (): boolean => {
-      if (model) session.model = model;
+    const commitSelection = (): void => {
+      if (!model && selectionReasoningEffort === undefined) return;
       if (session.sessionId) {
-        if (model || selectionReasoningEffort !== undefined) {
-          eventStore.upsertSession({
-            sessionId: session.sessionId,
-            ...(model ? { selectedModel: model } : {}),
-            ...(selectionReasoningEffort !== undefined
-              ? { reasoningEffort: selectionReasoningEffort || null }
-              : {}),
-          });
+        eventStore.upsertSession({
+          sessionId: session.sessionId,
+          ...(model ? { selectedModel: model } : {}),
+          ...(selectionReasoningEffort !== undefined
+            ? { reasoningEffort: selectionReasoningEffort || null }
+            : {}),
+        });
+      }
+      if (model) session.model = model;
+    };
+    const failPreparedProviderCommand = (error: unknown): never => {
+      if (!responses || !providerAdmission) throw error;
+      const cleanupErrors: unknown[] = [];
+      try {
+        eventStore.transitionExecution(providerAdmission.token, 'TERMINAL', 'startup_failed');
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      } finally {
+        try {
+          responses.abandon(messageId);
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
         }
+      }
+      if (cleanupErrors.length) {
+        const message = error instanceof Error ? error.message : 'Provider command startup failed';
+        throw new AggregateError([error, ...cleanupErrors], message);
+      }
+      throw error;
+    };
+    const acknowledge = (): boolean => {
+      if (session.sessionId) {
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
@@ -1736,8 +2161,8 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        if (model) session.model = selection.model;
         acknowledge();
+        commitSelection();
         void codex.resumeAfterExplicitSend().catch(() =>
           send(session.transport, {
             type: 'error',
@@ -1756,16 +2181,61 @@ export async function sendToChat(
         return false;
       }
     } else {
-      if (acknowledge()) return true;
-      session.inputQueue.push(
-        makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined),
-      );
+      let duplicate = false;
+      try {
+        duplicate = acknowledge();
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
+      if (duplicate) {
+        if (responses && providerAdmission) {
+          failPreparedProviderCommand(
+            new Error('Provider command was already acknowledged without a dispatch'),
+          );
+        }
+        return true;
+      }
+      try {
+        commitSelection();
+        if (responses && providerAdmission) {
+          trackResponsesProviderAdmission(session, providerAdmission, eventStore);
+        }
+        session.inputQueue.push(
+          makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
+        );
+      } catch (error) {
+        failPreparedProviderCommand(error);
+      }
     }
     return true;
   });
 }
 
 /** Interrupt the current generation and inject a message the model sees immediately. */
+export function preflightChatCommand(
+  clientId: string,
+  prompt: string,
+  images?: Array<{ data: string; mediaType: string }>,
+  contextBlocks?: string[],
+  clientMsgId?: string,
+  model?: string,
+  reasoningEffort?: string | null,
+): boolean {
+  const session = registry.get(clientId);
+  if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
+  const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
+  return preflightProviderDispatch(eventStore, {
+    sessionId: session.sessionId,
+    clientMsgId,
+    effectivePrompt: stablePrompt,
+    fingerprintSource: providerFingerprintSource(stablePrompt, images),
+    model,
+    reasoningEffort,
+    accountBinding: binding,
+  });
+}
+
 export async function interruptChat(
   clientId: string,
   prompt: string,
@@ -1811,6 +2281,18 @@ export async function interruptChat(
       );
     }
     if (responses) {
+      if (
+        preflightChatCommand(
+          clientId,
+          prompt,
+          images,
+          contextBlocks,
+          clientMsgId,
+          model,
+          reasoningEffort,
+        )
+      )
+        return true;
       await session.queryInstance.interrupt();
       return sendToChat(
         clientId,
@@ -1963,42 +2445,77 @@ function queueCloseoutPrompt(
   session: import('./session-registry.js').ManagedSession,
   clientId: string,
   prompt: string,
+  episode: CloseoutEpisode,
 ): void {
-  const messageId = `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-closeout`;
+  if (!session.sessionId) {
+    log.warn('skipping closeout admission — session not yet resolved', { clientId });
+    return;
+  }
   const codex = getCodexRuntime(session);
   const responses = getResponsesRuntime(session);
+  const metadata = eventStore.getSession(session.sessionId);
+  let admission: CloseoutAdmission;
+  try {
+    admission = admitCloseout({
+      store: eventStore,
+      request: {
+        sessionId: session.sessionId,
+        episode,
+        prompt,
+        promptRevision: episode.source === 'automatic' ? 'automatic-v1' : 'user-v1',
+        task:
+          episode.source === 'automatic'
+            ? 'commit-push-memory-summarize'
+            : 'commit-memory-summarize',
+        model: metadata?.selectedModel ?? session.model ?? metadata?.accountBinding?.model,
+        reasoningEffort: metadata?.reasoningEffort,
+        accountBinding: metadata?.accountBinding ?? session.accountBinding,
+      },
+      prepare: (messageId) => {
+        if (codex) codex.enqueue({ id: messageId, prompt, intent: prompt });
+        else if (responses) responses.prepare(messageId, prompt);
+      },
+    });
+  } catch (error) {
+    log.warn('failed to admit closeout prompt', { clientId, error });
+    return;
+  }
+  if (admission.duplicate) return;
+  storeAndEchoIfNew(
+    session.sessionId,
+    admission.messageId,
+    prompt,
+    clientId,
+    session.transport,
+    session.observers,
+  );
   if (codex) {
-    try {
-      codex.enqueue({ id: messageId, prompt });
-    } catch (error) {
-      log.warn('failed to persist Codex closeout prompt', { clientId, error });
-      return;
-    }
-  } else if (responses) {
-    try {
-      responses.prepare(messageId, prompt);
-    } catch (error) {
-      log.warn('failed to persist OpenAI API closeout prompt', { clientId, error });
-      return;
-    }
-  }
-  if (session.sessionId) {
-    storeAndEchoIfNew(
-      session.sessionId,
-      messageId,
-      prompt,
-      clientId,
-      session.transport,
-      session.observers,
-    );
-  } else {
-    log.debug('skipping closeout echo — session not yet resolved', { clientId });
-  }
-  if (codex)
+    trackCodexProviderAdmission(session, admission.messageId, admission, eventStore);
     void codex
       .startQueued()
       .catch((error) => log.warn('failed to start Codex closeout prompt', { clientId, error }));
-  else session.inputQueue?.push(makeUserMessage(prompt, 'now', responses ? messageId : undefined));
+  } else if (responses) {
+    trackResponsesProviderAdmission(session, admission, eventStore);
+    session.inputQueue?.push(makeUserMessage(prompt, 'now', admission.messageId, admission));
+  } else {
+    const attempt = eventStore.beginProviderAttempt(admission.token, admission.providerAttemptId);
+    if (attempt.duplicate) return;
+    const inputUuid = randomUUID();
+    fallbackCloseoutAttempts.set(session, {
+      admission,
+      attempt: attempt.token,
+      inputUuid,
+      inputObserved: false,
+    });
+    session.abortController.signal.addEventListener(
+      'abort',
+      () => markFallbackCloseoutAmbiguous(session),
+      { once: true },
+    );
+    session.inputQueue?.push(
+      makeUserMessage(prompt, 'now', admission.messageId, undefined, inputUuid),
+    );
+  }
 }
 
 const CLOSEOUT_PROMPT = `This session is closing in 10 minutes due to inactivity.
@@ -2016,13 +2533,13 @@ Please perform session closeout:
  * the agent's input queue so it can commit work and write memory while it
  * still has full conversation context.
  */
-export function closeoutSession(clientId: string): void {
+export function closeoutSession(clientId: string, episode: CloseoutEpisode): void {
   withSpan('session.closeout', { 'session.clientId': clientId }, () =>
-    _closeoutSessionInner(clientId),
+    _closeoutSessionInner(clientId, episode),
   );
 }
 
-function _closeoutSessionInner(clientId: string): void {
+function _closeoutSessionInner(clientId: string, episode: CloseoutEpisode): void {
   const session = registry.get(clientId);
   if (!session?.inputQueue) {
     // No active session or input queue — just finalize as abandoned
@@ -2051,7 +2568,7 @@ function _closeoutSessionInner(clientId: string): void {
 
   log.info('injecting closeout prompt', { clientId, wtId: session.wtId });
 
-  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT);
+  queueCloseoutPrompt(session, clientId, CLOSEOUT_PROMPT, episode);
 
   // The registry's CLOSEOUT_TIMEOUT_MS timer will abort the session after
   // 10 minutes regardless. When the session is finally aborted (by the
@@ -2105,7 +2622,7 @@ export function closeSessionByUser(clientId: string): void {
     if (!session) return;
 
     // Mark as user-initiated close in the registry
-    registry.markUserClose(clientId);
+    const episode = registry.markUserClose(clientId);
 
     if (!session.inputQueue) {
       // No active agent — finalize immediately
@@ -2135,7 +2652,13 @@ export function closeSessionByUser(clientId: string): void {
 
     log.info('user-initiated closeout', { clientId, wtId: session.wtId });
 
-    queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT);
+    if (episode.source === 'user')
+      queueCloseoutPrompt(session, clientId, USER_CLOSEOUT_PROMPT, episode);
+    else
+      log.info('user close overlaps active automatic closeout; preserving admitted prompt', {
+        clientId,
+        episodeId: episode.id,
+      });
 
     // Register abort listener to finalize with closed_by: 'user'
     if (session.wtId) {

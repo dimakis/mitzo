@@ -10,12 +10,19 @@ export function codexRuntimeOverrides(
     .object({
       mcp_servers: z.record(z.string(), z.unknown()).optional(),
       model_providers: z.record(z.string(), z.unknown()).optional(),
+      model_reasoning_summary: z.enum(['none', 'auto', 'concise', 'detailed']).optional(),
     })
     .safeParse(configuration);
   if (!parsed.success) throw new Error('Cannot inspect Codex runtime configuration');
   if (parsed.data.model_providers?.openai)
     throw new Error('Custom OpenAI routing is unsupported for the ChatGPT runtime');
-  const config: Record<string, unknown> = { web_search: 'disabled', 'agents.enabled': false };
+  const config: Record<string, unknown> = {
+    // Temporary Phase 0 enablement. Replace this unconditional setting with
+    // the durable, approval-gated capability policy tracked in Telos.
+    web_search: 'live',
+    'agents.enabled': false,
+    model_reasoning_summary: parsed.data.model_reasoning_summary ?? 'detailed',
+  };
   if (workspaceId) config.forced_chatgpt_workspace_id = workspaceId;
   for (const feature of [
     'shell_tool',

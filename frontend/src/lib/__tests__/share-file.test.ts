@@ -83,6 +83,18 @@ describe('shareFile', () => {
     expect(result).toBe(true);
   });
 
+  it('scopes generated artifact downloads to their session', async () => {
+    const blob = new Blob(['artifact'], { type: 'text/plain' });
+    mockApiFetch.mockResolvedValue(new Response(blob, { status: 200 }));
+    Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true });
+
+    await shareFile('/workspace/report.md', 'session-1');
+
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/api/files/download?path=%2Fworkspace%2Freport.md&sessionId=session-1',
+    );
+  });
+
   it('throws when server returns error', async () => {
     mockApiFetch.mockResolvedValue(
       new Response(JSON.stringify({ error: 'Path not allowed' }), {

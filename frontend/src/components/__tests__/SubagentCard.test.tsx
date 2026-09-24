@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { SubagentCard } from '../SubagentCard';
 import type { FinishedBlock } from '../../types/chat';
 
@@ -95,6 +95,31 @@ describe('SubagentCard', () => {
     // Now detail section is visible
     expect(container.querySelector('.tool-pill-detail')).toBeTruthy();
     expect(screen.getByText('Search results here')).toBeTruthy();
+  });
+
+  it('passes the session to nested artifact links', () => {
+    const subagent = {
+      messageId: 'nested',
+      blocks: [
+        { blockId: 'text', blockType: 'text' as const, content: '[report](outputs/report.html)' },
+      ],
+      summary: 'Done',
+    };
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="location">{location.pathname + location.search}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/chat/origin']}>
+        <SubagentCard subagent={subagent} sessionId="origin" />
+        <Location />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Agent/ }));
+    fireEvent.click(screen.getByRole('link', { name: 'report' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+    expect(url.searchParams.get('path')).toBe('outputs/report.html');
+    expect(url.searchParams.get('sessionId')).toBe('origin');
   });
 
   it('shows pulsing indicator when running', () => {
