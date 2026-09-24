@@ -47,7 +47,16 @@ import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
 import type { EventStore } from './event-store.js';
+import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
+import { INTERNAL_TOKEN } from './internal-token.js';
+import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
+import {
+  executeTelosCreateOutcome,
+  telosCreateOutcomeDefinition,
+  TelosOutcomeInput,
+  TELOS_CREATE_OUTCOME_TOOL,
+} from './telos-tool.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 interface PendingProviderAdmission {
@@ -263,6 +272,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
   /** Recreate the provider runtime without admitting or replaying user intent. */
@@ -389,6 +399,9 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
       : openShell;
   const grantableProviders = runtimeManager ? configuredRuntime!.grantableServiceProviders : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
+  const openShellHostTools = connectedOpenShell
+    ? [telosCreateOutcomeDefinition, ...integrationTools]
+    : [];
   let integrationTurn:
     | {
         id: string;
@@ -582,7 +595,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     systemPrompt:
       options.systemPrompt +
       (connectedOpenShell
-        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
       (managedConnection
         ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
@@ -627,7 +640,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     validateModel: (model, reasoningEffort) => {
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: connectedOpenShell ? integrationTools : [...nativeToolDefinitions, ...mcp.definitions],
+    tools: connectedOpenShell ? openShellHostTools : [...nativeToolDefinitions, ...mcp.definitions],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       connectedOpenShell
@@ -648,6 +661,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     onProviderDispatch: (messageId) => beginTrackedProviderAttempt(options.session, messageId),
     onProviderComplete: (messageId, status) =>
       finishTrackedProviderAttempt(options.session, messageId, status),
+    loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     onClosed: () => {
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();
@@ -685,6 +699,36 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         }
       : {}),
     executeTool: async (name, input, signal) => {
+      if (connectedOpenShell && name === TELOS_CREATE_OUTCOME_TOOL) {
+        const parsed = TelosOutcomeInput.safeParse(input);
+        if (!parsed.success) return { content: 'Invalid Telos outcome input', isError: true };
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner) return { content: 'Codex session unavailable', isError: true };
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, {
+          signal,
+          toolUseID: randomUUID(),
+          forcePrompt: true,
+          title: 'Create this outcome in live Telos?',
+          description:
+            'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
+        });
+        signal.throwIfAborted();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Telos input changed during approval; retry the tool', isError: true };
+        if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
+          return { content: 'Session permissions changed; retry the tool', isError: true };
+        const port = Number.parseInt(process.env.PORT || '3100', 10);
+        return executeTelosCreateOutcome(
+          localHttpBaseUrl(port, localServerUsesTls()),
+          owner.clientId,
+          INTERNAL_TOKEN,
+          parsed.data,
+          signal,
+        );
+      }
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';
         return requestIntegrationAccess(provider, signal);

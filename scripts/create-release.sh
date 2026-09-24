@@ -3,7 +3,8 @@ set -euo pipefail
 
 SOURCE_ROOT="${MITZO_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 RUNTIME_ROOT="${MITZO_RUNTIME_ROOT:-$SOURCE_ROOT}"
-SOURCE_REF="${1:-HEAD}"
+RELEASE_SEED="${MITZO_RELEASE_SEED:-}"
+SOURCE_REF="${1:-origin/main}"
 RELEASE_ROOT="${MITZO_RELEASE_ROOT:-$HOME/tools/mitzo-releases}"
 LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"
 RELEASE_TEMP=""
@@ -23,23 +24,31 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 
-git -C "$SOURCE_ROOT" fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+git -C "$SOURCE_ROOT" fetch --quiet --prune origin \
+  '+refs/heads/main:refs/remotes/origin/main'
 SOURCE_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse --verify "$SOURCE_REF^{commit}")"
 MAIN_COMMIT="$(git -C "$SOURCE_ROOT" rev-parse --verify origin/main)"
-git -C "$SOURCE_ROOT" merge-base --is-ancestor "$MAIN_COMMIT" "$SOURCE_COMMIT" || {
-  echo "Refusing release: $SOURCE_COMMIT does not contain origin/main $MAIN_COMMIT" >&2
+if [ "$SOURCE_COMMIT" != "$MAIN_COMMIT" ]; then
+  echo "Refusing release: $SOURCE_COMMIT is not current origin/main $MAIN_COMMIT" >&2
   exit 1
-}
-REMOTE_REF="$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname:short) %(symref)' --contains "$SOURCE_COMMIT" refs/remotes/origin | awk 'NF == 1 { print $1; exit }')"
-[ -n "$REMOTE_REF" ] || {
-  echo "Refusing release: $SOURCE_COMMIT is not published on a remote branch" >&2
-  exit 1
-}
+fi
+REMOTE_REF="origin/main"
 
 [ -f "$RUNTIME_ROOT/.env" ] || {
   echo "Refusing release: canonical runtime .env is missing" >&2
   exit 1
 }
+if [ -n "$RELEASE_SEED" ]; then
+  [ -d "$RELEASE_SEED" ] || {
+    echo "Refusing release: MITZO_RELEASE_SEED is not a directory: $RELEASE_SEED" >&2
+    exit 1
+  }
+  [ -f "$RELEASE_SEED/../baseline.json" ] || {
+    echo "Refusing release: MITZO_RELEASE_SEED has no sibling baseline.json: $RELEASE_SEED" >&2
+    exit 1
+  }
+  RELEASE_SEED="$(cd "$RELEASE_SEED" && pwd -P)"
+fi
 SHORT_COMMIT="$(printf '%s' "$SOURCE_COMMIT" | cut -c1-12)"
 REF_SLUG="$(printf '%s' "$REMOTE_REF" | sed 's|^origin/||; s|[^A-Za-z0-9._-]|-|g')"
 RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
@@ -52,10 +61,9 @@ BUILD_DIR="$RELEASE_TEMP/release"
 FINAL_RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
 git clone --no-local --no-checkout "$SOURCE_ROOT" "$BUILD_DIR"
 ORIGIN_URL="$(git -C "$SOURCE_ROOT" remote get-url origin)"
-REMOTE_BRANCH="${REMOTE_REF#origin/}"
 git -C "$BUILD_DIR" remote set-url origin "$ORIGIN_URL"
 git -C "$BUILD_DIR" fetch --no-tags origin \
-  "+refs/heads/$REMOTE_BRANCH:refs/remotes/origin/$REMOTE_BRANCH"
+  '+refs/heads/main:refs/remotes/origin/main'
 git -C "$BUILD_DIR" checkout --detach "$SOURCE_COMMIT"
 # The source checkout may itself only have origin/main as a remote-tracking ref,
 # which a local clone does not copy. Pin the already-fetched main commit into the
@@ -83,6 +91,9 @@ manifest_value() {
 }
 
 rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$RELEASE_DIR/infra/openshell/production-stack.lock.json"
+if [ -n "$RELEASE_SEED" ]; then
+  rewrite_env_value MITZO_OPENSHELL_SEED "$RELEASE_SEED"
+fi
 rewrite_env_value MITZO_OPENSHELL_POLICY "$RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
 rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
 rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"

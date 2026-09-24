@@ -68,7 +68,7 @@ async function setup(
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
       if (method === 'thread/turns/list')
         return {
-          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status })),
+          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status, items: [] })),
           nextCursor: null,
         };
       if (method === 'thread/fork') {
@@ -118,6 +118,10 @@ async function setup(
     prepareTurn,
     onProviderDispatch,
     onProviderComplete,
+    loadConversationHistory: () => [
+      { role: 'user', text: 'Keep the existing workstream.' },
+      { role: 'assistant', text: 'The workstream is active.' },
+    ],
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -165,6 +169,61 @@ async function setup(
     getProviderThread: () => providerThread,
   };
 }
+
+it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
+
+  const first = await setup(store, undefined, undefined, undefined, async () => binding);
+
+  expect(first.requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+  expect(first.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+  expect(first.requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
+    dynamicTools: [expect.objectContaining({ name: 'Read' })],
+    config: { web_search: 'disabled' },
+  });
+  expect(store.read('app', binding)).toMatchObject({
+    threadId: 'provider-thread',
+    threadGeneration: 1,
+    toolSurfaceRevision: expect.any(String),
+    rolloverContext: expect.stringContaining('Keep the existing workstream.'),
+  });
+
+  // The handoff is durable across a server restart before the next user turn.
+  first.c.close();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => binding);
+  await resumed.c.send({ id: 'after-rollover', prompt: 'Continue.' });
+  const firstTurn = resumed.requests.find(({ method }) => method === 'turn/start');
+  expect(firstTurn?.params.additionalContext).toEqual({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('The workstream is active.'),
+    },
+  });
+  expect(
+    first.requests.some(
+      ({ method, params }) => method === 'thread/turns/list' && params.itemsView === 'full',
+    ),
+  ).toBe(false);
+  expect(store.read('app', binding).rolloverContext).toBeNull();
+
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: resumed.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await resumed.c.send({ id: 'second-after-rollover', prompt: 'Again.' });
+  const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
+  expect(turns).toHaveLength(2);
+  expect(turns[1].params).not.toHaveProperty('additionalContext');
+});
+
 it('reports the durable command boundary around provider dispatch', async () => {
   const onProviderDispatch = vi.fn();
   const onProviderComplete = vi.fn();
@@ -1212,6 +1271,9 @@ it('resumes durable queued work after replacing the runtime and acknowledging re
   expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).toMatchObject({
     config: { web_search: 'live' },
   });
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).not.toHaveProperty(
+    'dynamicTools',
+  );
   expect(resumed.requests.some((r) => r.method === 'turn/start')).toBe(false);
   expect(resumed.c.isPaused()).toBe(true);
   await resumed.c.acknowledgeRecovery();

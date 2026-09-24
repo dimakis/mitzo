@@ -8,6 +8,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 ## Features
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
@@ -17,6 +18,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **File browser** — view and edit repo files, switch between worktree roots
 - **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
+- **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
@@ -270,16 +272,27 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
-Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
-current `origin/main`, requires the selected commit to contain it and to be
-published on a remote branch, creates a self-contained detached release clone, records full
-commit/tree/base provenance in `release.txt`, and only then builds and updates
-launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+Production artifacts are staged with
+`./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
+clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
+the immutable image and seed, updates the stack lock and environment example
+together, and runs focused tests. It never deploys; its generated diff is
+reviewed and merged first.
+
+Production deploys use `./scripts/create-release.sh origin/main`. The command
+fetches only current `origin/main`, refuses every other commit, creates a
+self-contained detached release clone, records full commit/tree/base provenance
+in `release.txt`, and only then builds and updates launchd. `scripts/deploy.sh`
+fails closed when those invariants are absent.
 For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
 to the canonical installation that owns `.env` and `certs`; runtime material
 is never taken from the feature checkout. Paths for checked-in stack locks,
 policies, and provider profiles are rewritten to the immutable release so a
 copied environment cannot mix code from two deployment generations.
+When advancing the prepared MGMT seed, set `MITZO_RELEASE_SEED` to its `mgmt`
+directory. Release creation requires the sibling `baseline.json` and changes
+only the new release's copied `.env`, leaving the canonical runtime `.env`
+untouched.
 
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 

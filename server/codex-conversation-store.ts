@@ -73,6 +73,8 @@ interface Conversation {
   webSearchGrant: WebSearchGrant;
   webSearchGrantRevision: number;
   webSearchGrantUpdatedAt: number | null;
+  toolSurfaceRevision: string | null;
+  rolloverContext: string | null;
 }
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
@@ -90,7 +92,9 @@ export class CodexConversationStore {
       recovery_strategy TEXT NOT NULL DEFAULT 'resume',
       web_search_grant TEXT NOT NULL DEFAULT 'unresolved',
       web_search_grant_revision INTEGER NOT NULL DEFAULT 0,
-      web_search_grant_updated_at INTEGER);
+      web_search_grant_updated_at INTEGER,
+      tool_surface_revision TEXT,
+      rollover_context TEXT);
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
@@ -129,6 +133,10 @@ export class CodexConversationStore {
         this.db.exec(
           'ALTER TABLE codex_conversations ADD COLUMN web_search_grant_updated_at INTEGER',
         );
+      if (!conversationColumns.some((column) => column.name === 'tool_surface_revision'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN tool_surface_revision TEXT');
+      if (!conversationColumns.some((column) => column.name === 'rollover_context'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN rollover_context TEXT');
       this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_generations (
         conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         generation INTEGER NOT NULL,
@@ -192,6 +200,8 @@ export class CodexConversationStore {
           c.web_search_grant AS webSearchGrant,
           c.web_search_grant_revision AS webSearchGrantRevision,
           c.web_search_grant_updated_at AS webSearchGrantUpdatedAt,
+          c.tool_surface_revision AS toolSurfaceRevision,
+          c.rollover_context AS rolloverContext,
           g.last_completed_turn_id AS lastCompletedTurnId
         FROM codex_conversations c
         LEFT JOIN codex_thread_generations g
@@ -212,6 +222,8 @@ export class CodexConversationStore {
       webSearchGrant: WebSearchGrantSchema.parse(row.webSearchGrant),
       webSearchGrantRevision: row.webSearchGrantRevision,
       webSearchGrantUpdatedAt: row.webSearchGrantUpdatedAt,
+      toolSurfaceRevision: row.toolSurfaceRevision,
+      rolloverContext: row.rolloverContext,
     };
   }
   readWebSearchGrant(id: string, b: AccountBinding): PersistedWebSearchGrant {
@@ -241,18 +253,24 @@ export class CodexConversationStore {
     if (result.changes !== 1) throw new Error('Web search grant changed concurrently');
     return this.readWebSearchGrant(id, b);
   }
-  create(id: string, b: AccountBinding, cwd: string) {
+  create(id: string, b: AccountBinding, cwd: string, toolSurfaceRevision: string | null = null) {
     this.db
-      .prepare('INSERT OR IGNORE INTO codex_conversations(id,binding,cwd) VALUES (?,?,?)')
-      .run(id, this.key(b), cwd);
+      .prepare(
+        'INSERT OR IGNORE INTO codex_conversations(id,binding,cwd,tool_surface_revision) VALUES (?,?,?,?)',
+      )
+      .run(id, this.key(b), cwd, toolSurfaceRevision);
     if (this.read(id, b).cwd !== cwd) throw new Error('Codex conversation workspace changed');
   }
-  bindThread(id: string, b: AccountBinding, threadId: string) {
+  bindThread(id: string, b: AccountBinding, threadId: string, toolSurfaceRevision?: string) {
     this.db.transaction(() => {
       const current = this.read(id, b);
       if (!threadId || (current.threadId && current.threadId !== threadId))
         throw new Error('Codex provider thread changed');
-      this.db.prepare('UPDATE codex_conversations SET thread_id=? WHERE id=?').run(threadId, id);
+      this.db
+        .prepare(
+          'UPDATE codex_conversations SET thread_id=?,tool_surface_revision=COALESCE(?,tool_surface_revision) WHERE id=?',
+        )
+        .run(threadId, toolSurfaceRevision ?? null, id);
       this.db
         .prepare(
           `INSERT OR IGNORE INTO codex_thread_generations(
@@ -267,8 +285,10 @@ export class CodexConversationStore {
     b: AccountBinding,
     expectedThreadId: string,
     threadId: string,
-    reason: 'provider_transport_failure',
+    reason: 'provider_transport_failure' | 'tool_surface_change',
     lastCompletedTurnId?: string,
+    toolSurfaceRevision?: string,
+    rolloverContext?: string,
   ) {
     return this.db.transaction(() => {
       const current = this.read(id, b);
@@ -290,10 +310,21 @@ export class CodexConversationStore {
         )
         .run(id, generation, threadId, expectedThreadId, reason, lastCompletedTurnId ?? null, now);
       this.db
-        .prepare('UPDATE codex_conversations SET thread_id=?,thread_generation=? WHERE id=?')
-        .run(threadId, generation, id);
+        .prepare(
+          `UPDATE codex_conversations
+          SET thread_id=?,thread_generation=?,tool_surface_revision=COALESCE(?,tool_surface_revision),
+            rollover_context=COALESCE(?,rollover_context)
+          WHERE id=?`,
+        )
+        .run(threadId, generation, toolSurfaceRevision ?? null, rolloverContext ?? null, id);
       return generation;
     })();
+  }
+  clearRolloverContext(id: string, b: AccountBinding, expectedThreadId: string) {
+    this.read(id, b);
+    this.db
+      .prepare('UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?')
+      .run(id, expectedThreadId);
   }
   enqueue(id: string, b: AccountBinding, input: CodexCommandInput): boolean {
     this.read(id, b);

@@ -139,6 +139,7 @@ export function parseServerMessage(
       // Server unwatches the old client after takeover, so no subsequent
       // session_state_changed event will arrive — clear running inline.
       result.messagesActions.push({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+      result.messagesActions.push({ type: 'CLEAR_PERMISSIONS' });
       result.messagesActions.push({
         type: 'ERROR',
         error: 'Session resumed on another device.',

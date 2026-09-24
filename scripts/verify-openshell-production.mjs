@@ -148,9 +148,11 @@ function verifyOpenAiEndpoints(endpoints) {
       endpoint.protocol === 'rest' && endpoint.enforcement === 'enforce' && endpoint.port === 443,
       'OpenAI endpoint must enforce inspected REST on port 443',
     );
+    // These protobuf bools default to false and are omitted by the gateway's
+    // JSON export when disabled. Only an explicit opt-in is unsafe here.
     invariant(
-      endpoint.request_body_credential_rewrite === false &&
-        endpoint.allow_uninspected_credentials === false,
+      endpoint.request_body_credential_rewrite !== true &&
+        endpoint.allow_uninspected_credentials !== true,
       'OpenAI endpoint must use header authentication without body credential rewriting or inspection bypass',
     );
   }
@@ -168,6 +170,16 @@ export function verifyOpenAiHeaderAuthentication(profile) {
     'OpenAI provider must authenticate with the Authorization bearer header',
   );
   verifyOpenAiEndpoints(profile.endpoints ?? []);
+}
+
+export function verifyPreparedSeed(seedPath, expectedCommit) {
+  const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
+  invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
+  const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
+  invariant(
+    seedBaseline.startingCommit === expectedCommit,
+    'prepared seed commit does not match the stack lock',
+  );
 }
 
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
@@ -192,13 +204,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     sha256(policyPath) === manifest.policy.sha256,
     'sandbox policy hash does not match the stack lock',
   );
-  const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
-  invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
-  const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
-  invariant(
-    seedBaseline.startingCommit === manifest.runtime.mgmtSourceCommit,
-    'prepared seed commit does not match the stack lock',
-  );
+  verifyPreparedSeed(seedPath, manifest.runtime.mgmtSourceCommit);
 
   const openshell = required(config, 'MITZO_OPENSHELL_CLI');
   invariant(isAbsolute(openshell), 'MITZO_OPENSHELL_CLI must be absolute');
