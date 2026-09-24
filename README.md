@@ -8,6 +8,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 ## Features
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
