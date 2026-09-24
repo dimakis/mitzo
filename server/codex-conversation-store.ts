@@ -490,18 +490,26 @@ export class CodexConversationStore {
   ) {
     this.db.transaction(() => {
       const current = this.read(id, b);
-      this.db
+      const updated = this.db
         .prepare(
           "UPDATE codex_commands SET status=?, recovery_acknowledged=0 WHERE conversation_id=? AND id=? AND status='running'",
         )
         .run(status, id, commandId);
-      if (status === 'completed' && providerTurnId)
+      if (updated.changes === 1 && status === 'completed' && providerTurnId)
         this.db
           .prepare(
             `UPDATE codex_thread_generations SET last_completed_turn_id=?
             WHERE conversation_id=? AND generation=?`,
           )
           .run(providerTurnId, id, current.threadGeneration);
+      // A started turn can still fail before it establishes context on the
+      // replacement thread. Retire the handoff only with a durable completion.
+      if (updated.changes === 1 && status === 'completed' && current.threadId)
+        this.db
+          .prepare(
+            'UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?',
+          )
+          .run(id, current.threadId);
     })();
   }
   pauseForRecovery(

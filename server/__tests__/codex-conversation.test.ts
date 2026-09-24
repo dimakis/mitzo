@@ -208,16 +208,43 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
       ({ method, params }) => method === 'thread/turns/list' && params.itemsView === 'full',
     ),
   ).toBe(false);
-  expect(store.read('app', binding).rolloverContext).toBeNull();
+  expect(store.read('app', binding).rolloverContext).toContain('Keep the existing workstream.');
 
   resumed.callbacks.onNotification('turn/completed', {
     threadId: resumed.getProviderThread(),
     turn: { id: 'turn-1', status: 'completed' },
   });
+  expect(store.read('app', binding).rolloverContext).toBeNull();
   await resumed.c.send({ id: 'second-after-rollover', prompt: 'Again.' });
   const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
   expect(turns).toHaveLength(2);
   expect(turns[1].params).not.toHaveProperty('additionalContext');
+});
+
+it('retains rollover context when the first replacement-thread turn fails', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-rollover-failure-'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+  const first = await setup(store, undefined, undefined, undefined, async () => binding);
+  first.c.close();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => binding);
+
+  await resumed.c.send({ id: 'first-after-rollover', prompt: 'Continue.' });
+  expect(resumed.requests.find(({ method }) => method === 'turn/start')?.params).toHaveProperty(
+    'additionalContext',
+  );
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: resumed.getProviderThread(),
+    turn: { id: 'turn-1', status: 'failed', error: { message: 'provider stream failed' } },
+  });
+
+  expect(store.read('app', binding).rolloverContext).toContain('Keep the existing workstream.');
+  resumed.c.close();
 });
 
 it('reports the durable command boundary around provider dispatch', async () => {

@@ -4343,6 +4343,56 @@ describe('handleReconnect suspend resume', () => {
     );
   });
 
+  it('publishes ACTIVE after the attached owner resumes its suspended session', () => {
+    let durableState = 'SUSPENDED';
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1', ownerConnectionId: 'conn-1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    sessionReg.isSuspended.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockImplementation(() => durableState);
+    eventStore.setSessionState.mockImplementation((_sessionId, state) => {
+      durableState = state;
+    });
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: durableState },
+      cursor: durableState === 'ACTIVE' ? 6 : 5,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    }));
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('conn-1', transport);
+
+    handleReconnect(
+      'conn-1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 5 }] },
+      ctx,
+    );
+
+    expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
+    expect(eventStore.setSessionState).toHaveBeenCalledWith('sess-1', 'ACTIVE', {
+      clientId: 'conn-1:sess-1',
+      reason: 'resume',
+    });
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'running',
+        internalState: 'ACTIVE',
+        cursor: 6,
+      }),
+    );
+  });
+
   it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();

@@ -340,6 +340,13 @@ export function handleReconnect(
                 clientId: found!.clientId,
               });
             }
+          } else if (storeState === 'SUSPENDED') {
+            // resume() keeps the already-attached owner transport, so it does
+            // not pass through reattachChat's durable ACTIVE transition.
+            ctx.eventStore.setSessionState(entry.sessionId, 'ACTIVE', {
+              clientId: found!.clientId,
+              reason: 'resume',
+            });
           }
         }
 
