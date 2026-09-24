@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mgmt_repo="${1:?usage: stage-openshell-release.sh MGMT_REPO SEED_OUTPUT [IMAGE_TAG]}"
 seed_output="${2:?usage: stage-openshell-release.sh MGMT_REPO SEED_OUTPUT [IMAGE_TAG]}"
 manifest="$repo_root/infra/openshell/production-stack.lock.json"
+policy="$repo_root/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
 
 require_clean_main() {
   local repo="$1"
@@ -36,6 +37,7 @@ mgmt_short="$(printf '%s' "$mgmt_commit" | cut -c1-8)"
 release_date="${MITZO_RELEASE_DATE:-$(date -u +%Y%m%d)}"
 image="${3:-localhost/mitzo-mgmt-runtime:release-${mitzo_short}-${mgmt_short}-${release_date}}"
 base_image="$(node -e 'process.stdout.write(require(process.argv[1]).runtime.baseImage)' "$manifest")"
+policy_digest="$(node -e 'const {createHash}=require("node:crypto");const {readFileSync}=require("node:fs");process.stdout.write(createHash("sha256").update(readFileSync(process.argv[1])).digest("hex"))' "$policy")"
 
 podman image exists "$image" && {
   echo "Refusing staging: image already exists: $image" >&2
@@ -71,7 +73,7 @@ test ! -e "$seed_output/mgmt/.agents/skills/todo/SKILL.md" \
   exit 3
 }
 node "$repo_root/scripts/update-openshell-release-lock.mjs" \
-  "$image" "$digest" "$mitzo_commit" "$mgmt_commit"
+  "$image" "$digest" "$mitzo_commit" "$mgmt_commit" "$policy_digest"
 
 (
   cd "$repo_root"
@@ -87,5 +89,6 @@ printf 'MITZO_COMMIT=%s\n' "$mitzo_commit"
 printf 'MGMT_COMMIT=%s\n' "$mgmt_commit"
 printf 'RUNTIME_IMAGE=%s\n' "$image"
 printf 'RUNTIME_DIGEST=%s\n' "$digest"
+printf 'POLICY_DIGEST=%s\n' "$policy_digest"
 printf 'PREPARED_SEED=%s/mgmt\n' "$seed_output"
 printf 'NEXT_STEP=review and merge the generated stack-lock diff; do not deploy this checkout\n'

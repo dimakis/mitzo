@@ -11,6 +11,7 @@ const baseInput = {
       mgmtSourceCommit: '2'.repeat(40),
       baseImage: `example/base@sha256:${'3'.repeat(64)}`,
     },
+    policy: { sha256: '4'.repeat(64) },
     gateway: { version: 'unchanged' },
   },
   environment: 'MITZO_OPENSHELL_ENABLED=1\nMITZO_OPENSHELL_IMAGE=localhost/mitzo:release-old\n',
@@ -18,6 +19,7 @@ const baseInput = {
   digest: `sha256:${'a'.repeat(64)}`,
   mitzoCommit: 'b'.repeat(40),
   mgmtCommit: 'c'.repeat(40),
+  policyDigest: 'd'.repeat(64),
 };
 
 describe('OpenShell release lock updater', () => {
@@ -33,6 +35,7 @@ describe('OpenShell release lock updater', () => {
         mgmtSourceCommit: baseInput.mgmtCommit,
         baseImage: baseInput.manifest.runtime.baseImage,
       },
+      policy: { sha256: baseInput.policyDigest },
     });
     expect(result.environment).toContain(`MITZO_OPENSHELL_IMAGE=${baseInput.image}`);
     expect(result.environment).not.toContain('release-old');
@@ -49,6 +52,9 @@ describe('OpenShell release lock updater', () => {
     expect(() => updateReleasePins({ ...baseInput, digest: 'sha256:short' })).toThrow(/digest/);
     expect(() => updateReleasePins({ ...baseInput, mgmtCommit: 'short' })).toThrow(
       /MGMT source commit/,
+    );
+    expect(() => updateReleasePins({ ...baseInput, policyDigest: 'short' })).toThrow(
+      /policy digest/,
     );
   });
 });

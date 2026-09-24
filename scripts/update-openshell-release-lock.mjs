@@ -17,6 +17,7 @@ export function updateReleasePins({
   digest,
   mitzoCommit,
   mgmtCommit,
+  policyDigest,
 }) {
   invariant(
     /^[^\s:]+(?:\/[^\s:]+)*:[^\s:]+$/.test(image) && !/:(?:latest|dev)$/.test(image),
@@ -25,7 +26,11 @@ export function updateReleasePins({
   invariant(/^sha256:[0-9a-f]{64}$/.test(digest), 'runtime digest must be sha256');
   invariant(/^[0-9a-f]{40}$/.test(mitzoCommit), 'Mitzo source commit must be full SHA-1');
   invariant(/^[0-9a-f]{40}$/.test(mgmtCommit), 'MGMT source commit must be full SHA-1');
-  invariant(manifest?.schemaVersion === 1 && manifest.runtime, 'invalid production stack lock');
+  invariant(/^[0-9a-f]{64}$/.test(policyDigest), 'policy digest must be SHA-256');
+  invariant(
+    manifest?.schemaVersion === 1 && manifest.runtime && manifest.policy,
+    'invalid production stack lock',
+  );
 
   const nextManifest = structuredClone(manifest);
   Object.assign(nextManifest.runtime, {
@@ -34,6 +39,7 @@ export function updateReleasePins({
     mitzoSourceCommit: mitzoCommit,
     mgmtSourceCommit: mgmtCommit,
   });
+  nextManifest.policy.sha256 = policyDigest;
 
   const imageLine = /^MITZO_OPENSHELL_IMAGE=.*$/m;
   invariant(imageLine.test(environment), 'production environment example has no image pin');
@@ -42,10 +48,10 @@ export function updateReleasePins({
 }
 
 export function main(argv = process.argv.slice(2)) {
-  const [image, digest, mitzoCommit, mgmtCommit] = argv;
+  const [image, digest, mitzoCommit, mgmtCommit, policyDigest] = argv;
   invariant(
-    image && digest && mitzoCommit && mgmtCommit,
-    'usage: update-openshell-release-lock IMAGE DIGEST MITZO_COMMIT MGMT_COMMIT',
+    image && digest && mitzoCommit && mgmtCommit && policyDigest,
+    'usage: update-openshell-release-lock IMAGE DIGEST MITZO_COMMIT MGMT_COMMIT POLICY_SHA256',
   );
   const manifestPath = resolve(repoRoot, 'infra/openshell/production-stack.lock.json');
   const environmentPath = resolve(repoRoot, 'infra/openshell/production.env.example');
@@ -58,6 +64,7 @@ export function main(argv = process.argv.slice(2)) {
     digest,
     mitzoCommit,
     mgmtCommit,
+    policyDigest,
   });
   writeFileSync(manifestPath, `${JSON.stringify(updated.manifest, null, 2)}\n`);
   writeFileSync(environmentPath, updated.environment);

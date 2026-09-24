@@ -351,6 +351,7 @@ describe('OpenShell production bundle validation', () => {
     expect(stage).toContain('build-mgmt-runtime.sh');
     expect(stage).toContain('prepare-mgmt-seed.sh');
     expect(stage).toContain('legacy todo skill survived in prepared seed');
+    expect(stage).toContain('policy_digest=');
     expect(stage).toContain('update-openshell-release-lock.mjs');
     expect(stage).toContain('server/__tests__/openshell-production-config.test.ts');
     expect(stage).toContain('npm run build:server');
