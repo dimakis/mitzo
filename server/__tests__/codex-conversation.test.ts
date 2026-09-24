@@ -68,7 +68,33 @@ async function setup(
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
       if (method === 'thread/turns/list')
         return {
-          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status })),
+          data:
+            params.threadId === 'legacy-provider-thread' && params.itemsView === 'full'
+              ? [
+                  {
+                    id: 'legacy-turn',
+                    status: 'completed',
+                    items: [
+                      {
+                        id: 'legacy-user',
+                        type: 'userMessage',
+                        content: [{ type: 'text', text: 'Keep the existing workstream.' }],
+                      },
+                      {
+                        id: 'legacy-agent',
+                        type: 'agentMessage',
+                        text: 'The workstream is active.',
+                      },
+                      {
+                        id: 'legacy-tool',
+                        type: 'functionCallOutput',
+                        name: 'Bash',
+                        output: 'secret tool output',
+                      },
+                    ],
+                  },
+                ]
+              : [...providerTurns].reverse().map(([id, status]) => ({ id, status, items: [] })),
           nextCursor: null,
         };
       if (method === 'thread/fork') {
@@ -164,7 +190,7 @@ async function setup(
   };
 }
 
-it('starts a new provider generation when an existing thread has a stale tool surface', async () => {
+it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
   const store = new CodexConversationStore(join(dir, 'private.db'));
   cleanup.push(() => {
@@ -174,18 +200,42 @@ it('starts a new provider generation when an existing thread has a stale tool su
   store.create('app', binding, '/workspace');
   store.bindThread('app', binding, 'legacy-provider-thread');
 
-  const { requests } = await setup(store, undefined, undefined, undefined, async () => binding);
+  const first = await setup(store, undefined, undefined, undefined, async () => binding);
 
-  expect(requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
-  expect(requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
-  expect(requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
+  expect(first.requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+  expect(first.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+  expect(first.requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
     dynamicTools: [expect.objectContaining({ name: 'Read' })],
   });
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread',
     threadGeneration: 1,
     toolSurfaceRevision: expect.any(String),
+    rolloverContext: expect.stringContaining('Keep the existing workstream.'),
   });
+
+  // The handoff is durable across a server restart before the next user turn.
+  first.c.close();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => binding);
+  await resumed.c.send({ id: 'after-rollover', prompt: 'Continue.' });
+  const firstTurn = resumed.requests.find(({ method }) => method === 'turn/start');
+  expect(firstTurn?.params.additionalContext).toEqual({
+    'mitzo.tool-surface-rollover': {
+      kind: 'untrusted',
+      value: expect.stringContaining('The workstream is active.'),
+    },
+  });
+  expect(JSON.stringify(firstTurn?.params.additionalContext)).not.toContain('secret tool output');
+  expect(store.read('app', binding).rolloverContext).toBeNull();
+
+  resumed.callbacks.onNotification('turn/completed', {
+    threadId: resumed.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await resumed.c.send({ id: 'second-after-rollover', prompt: 'Again.' });
+  const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
+  expect(turns).toHaveLength(2);
+  expect(turns[1].params).not.toHaveProperty('additionalContext');
 });
 
 it('reports the durable command boundary around provider dispatch', async () => {

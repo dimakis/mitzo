@@ -69,6 +69,7 @@ interface Conversation {
   recovery: number;
   recoveryStrategy: 'resume' | 'fork';
   toolSurfaceRevision: string | null;
+  rolloverContext: string | null;
 }
 /** Private server-owned database. A single owning server calls recoverAtStartup before accepting work. */
 export class CodexConversationStore {
@@ -84,7 +85,8 @@ export class CodexConversationStore {
       thread_generation INTEGER NOT NULL DEFAULT 0,
       recovery INTEGER NOT NULL DEFAULT 0,
       recovery_strategy TEXT NOT NULL DEFAULT 'resume',
-      tool_surface_revision TEXT);
+      tool_surface_revision TEXT,
+      rollover_context TEXT);
       CREATE TABLE IF NOT EXISTS codex_commands (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
@@ -113,6 +115,8 @@ export class CodexConversationStore {
         );
       if (!conversationColumns.some((column) => column.name === 'tool_surface_revision'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN tool_surface_revision TEXT');
+      if (!conversationColumns.some((column) => column.name === 'rollover_context'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN rollover_context TEXT');
       this.db.exec(`CREATE TABLE IF NOT EXISTS codex_thread_generations (
         conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         generation INTEGER NOT NULL,
@@ -174,6 +178,7 @@ export class CodexConversationStore {
           c.thread_generation AS threadGeneration,c.recovery,
           c.recovery_strategy AS recoveryStrategy,
           c.tool_surface_revision AS toolSurfaceRevision,
+          c.rollover_context AS rolloverContext,
           g.last_completed_turn_id AS lastCompletedTurnId
         FROM codex_conversations c
         LEFT JOIN codex_thread_generations g
@@ -192,6 +197,7 @@ export class CodexConversationStore {
       recovery: row.recovery,
       recoveryStrategy: row.recoveryStrategy,
       toolSurfaceRevision: row.toolSurfaceRevision,
+      rolloverContext: row.rolloverContext,
     };
   }
   create(id: string, b: AccountBinding, cwd: string, toolSurfaceRevision: string | null = null) {
@@ -229,6 +235,7 @@ export class CodexConversationStore {
     reason: 'provider_transport_failure' | 'tool_surface_change',
     lastCompletedTurnId?: string,
     toolSurfaceRevision?: string,
+    rolloverContext?: string,
   ) {
     return this.db.transaction(() => {
       const current = this.read(id, b);
@@ -251,11 +258,20 @@ export class CodexConversationStore {
         .run(id, generation, threadId, expectedThreadId, reason, lastCompletedTurnId ?? null, now);
       this.db
         .prepare(
-          'UPDATE codex_conversations SET thread_id=?,thread_generation=?,tool_surface_revision=COALESCE(?,tool_surface_revision) WHERE id=?',
+          `UPDATE codex_conversations
+          SET thread_id=?,thread_generation=?,tool_surface_revision=COALESCE(?,tool_surface_revision),
+            rollover_context=?
+          WHERE id=?`,
         )
-        .run(threadId, generation, toolSurfaceRevision ?? null, id);
+        .run(threadId, generation, toolSurfaceRevision ?? null, rolloverContext ?? null, id);
       return generation;
     })();
+  }
+  clearRolloverContext(id: string, b: AccountBinding, expectedThreadId: string) {
+    this.read(id, b);
+    this.db
+      .prepare('UPDATE codex_conversations SET rollover_context=NULL WHERE id=? AND thread_id=?')
+      .run(id, expectedThreadId);
   }
   enqueue(id: string, b: AccountBinding, input: CodexCommandInput): boolean {
     this.read(id, b);
