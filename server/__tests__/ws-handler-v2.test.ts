@@ -284,6 +284,52 @@ describe('handleReconnect', () => {
     });
   });
 
+  it('captures the active boundary after reattaching a detached live session', () => {
+    let reattached = false;
+    (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      reattached = true;
+      return true;
+    });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('DETACHED');
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: reattached ? 'ACTIVE' : 'DETACHED' },
+      cursor: reattached ? 9 : 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: reattached
+        ? [{ seq: 9, payload: { type: 'session_state', sessionId: 'sess-1', state: 'ACTIVE' } }]
+        : [],
+    }));
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 8 }] },
+      ctx,
+    );
+
+    expect(reattached).toBe(true);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 9,
+        state: 'running',
+        internalState: 'ACTIVE',
+      }),
+    );
+  });
+
   it('auto-watches all reconnected sessions', () => {
     const ctx = createContext();
     const transport = mockTransport();

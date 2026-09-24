@@ -343,6 +343,29 @@ export function handleReconnect(
           }
         }
 
+        // Reattach can persist an ACTIVE transition. Capture the durable
+        // boundary only after that transition so the snapshot and replay
+        // suffix describe the state the new transport actually owns.
+        if (found && running) {
+          const ownerConnection =
+            found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
+          const ownerGone = !ctx.connRegistry.get(ownerConnection);
+          const isOwner = ownerConnection === connectionId;
+          if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
+            const conn = ctx.connRegistry.get(connectionId);
+            if (conn) {
+              reattachChat(found.clientId, conn.transport);
+              if (found.session) found.session.ownerConnectionId = connectionId;
+              log.info('reattached detached session on reconnect', {
+                connectionId,
+                sessionId: entry.sessionId,
+                clientId: found.clientId,
+                ownerGone,
+              });
+            }
+          }
+        }
+
         const reconnectState = ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
         const events = reconnectState.events;
         for (const evt of events) {
@@ -379,26 +402,6 @@ export function handleReconnect(
         // no suffix event needed replay or the client cursor was invalid.
         const newCursor = reconnectState.cursor;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
-
-        if (found && running) {
-          const ownerConnection =
-            found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
-          const ownerGone = !ctx.connRegistry.get(ownerConnection);
-          const isOwner = ownerConnection === connectionId;
-          if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found.clientId, conn.transport);
-              if (found.session) found.session.ownerConnectionId = connectionId;
-              log.info('reattached detached session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                clientId: found.clientId,
-                ownerGone,
-              });
-            }
-          }
-        }
 
         if (wasSuspended) {
           ctx.connRegistry.get(connectionId)?.transport.send({
