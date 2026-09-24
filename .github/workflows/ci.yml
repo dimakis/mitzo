@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Require README review for production changes
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const files = await github.paginate(github.rest.pulls.listFiles, {
