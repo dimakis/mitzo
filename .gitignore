@@ -10,6 +10,7 @@ frontend/.env.ios
 frontend/ios/local.xcconfig
 mcp-server/build/
 certs/
+release.txt
 logs/
 .jaeger-data/
 .loki-data/

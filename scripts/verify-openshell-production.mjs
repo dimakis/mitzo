@@ -7,6 +7,7 @@ import { isAbsolute, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 import { parse } from 'dotenv';
+import { load } from 'js-yaml';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -134,10 +135,47 @@ export function hasExactGlobalSetting(settings, key, value) {
   return settingPattern.test(settings);
 }
 
+export function loadProductionConfig(envPath, inheritedEnv = process.env) {
+  const fileConfig = existsSync(envPath) ? parse(readFileSync(envPath)) : {};
+  return { ...inheritedEnv, ...fileConfig };
+}
+
+function verifyOpenAiEndpoints(endpoints) {
+  const matching = endpoints.filter((endpoint) => endpoint.host === 'api.openai.com');
+  invariant(matching.length > 0, 'OpenAI inspected endpoint is missing');
+  for (const endpoint of matching) {
+    invariant(
+      endpoint.protocol === 'rest' && endpoint.enforcement === 'enforce' && endpoint.port === 443,
+      'OpenAI endpoint must enforce inspected REST on port 443',
+    );
+    invariant(
+      endpoint.request_body_credential_rewrite === false &&
+        endpoint.allow_uninspected_credentials === false,
+      'OpenAI endpoint must use header authentication without body credential rewriting or inspection bypass',
+    );
+  }
+}
+
+export function verifyOpenAiHeaderAuthentication(profile) {
+  invariant(
+    profile.credentials?.some(
+      (credential) =>
+        credential.env_vars?.includes('OPENAI_API_KEY') &&
+        credential.auth_style === 'bearer' &&
+        credential.header_name?.toLowerCase() === 'authorization' &&
+        !credential.query_param,
+    ),
+    'OpenAI provider must authenticate with the Authorization bearer header',
+  );
+  verifyOpenAiEndpoints(profile.endpoints ?? []);
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
-  const fileConfig = existsSync(envPath) ? parse(readFileSync(envPath)) : {};
-  const config = { ...fileConfig, ...inheritedEnv };
+  // The release-owned file is authoritative for deploy-critical values. This
+  // prevents an operator's inherited shell variables from validating a
+  // different stack than launchd will load.
+  const config = loadProductionConfig(envPath, inheritedEnv);
   if (config.MITZO_OPENSHELL_ENABLED !== '1') {
     console.log('OPENSHELL_PRODUCTION_PREFLIGHT=disabled');
     return;
@@ -198,7 +236,27 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
       );
     }
   }
-  verifyAccountBindings(JSON.parse(readFileSync(accountsPath, 'utf8')), providers);
+  const accounts = JSON.parse(readFileSync(accountsPath, 'utf8'));
+  verifyAccountBindings(accounts, providers);
+  const apiProfiles = new Set(
+    accounts
+      .filter((account) => account.provider === 'openai')
+      .map(
+        (account) => providers.find((provider) => provider.name === account.sandboxProvider).type,
+      ),
+  );
+  if (apiProfiles.size > 0) {
+    const policy = load(readFileSync(policyPath, 'utf8'));
+    verifyOpenAiEndpoints(
+      Object.values(policy.network_policies ?? {}).flatMap((rule) => rule.endpoints ?? []),
+    );
+    for (const profileType of apiProfiles) {
+      const profile = JSON.parse(
+        run(openshell, ['provider', 'profile', 'export', profileType, '-o', 'json']),
+      );
+      verifyOpenAiHeaderAuthentication(profile);
+    }
+  }
 
   const podman = inheritedEnv.PODMAN ?? '/opt/homebrew/bin/podman';
   const imageDigest = run(podman, [
@@ -227,6 +285,43 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     imageLabels['io.mitzo.openshell.base-image'] === manifest.runtime.baseImage,
     'runtime image base provenance does not match the stack lock',
   );
+  invariant(
+    manifest.supervisor.image.includes(manifest.supervisor.sourceCommit.slice(0, 7)),
+    'supervisor image tag does not identify the pinned source commit',
+  );
+  const supervisorDigest = run(podman, [
+    'image',
+    'inspect',
+    manifest.supervisor.image,
+    '--format',
+    '{{.Digest}}',
+  ]);
+  invariant(
+    supervisorDigest === manifest.supervisor.digest,
+    'local supervisor image digest does not match the stack lock',
+  );
+  const supervisorSourceCommit = run(podman, [
+    'image',
+    'inspect',
+    manifest.supervisor.image,
+    '--format',
+    '{{ index .Labels "org.opencontainers.image.revision" }}',
+  ]);
+  invariant(
+    supervisorSourceCommit === manifest.supervisor.sourceCommit,
+    'local supervisor image source revision does not match the stack lock',
+  );
+  const liveSupervisorDigest = run(podman, [
+    'image',
+    'inspect',
+    'localhost/openshell/supervisor:dev',
+    '--format',
+    '{{.Digest}}',
+  ]);
+  invariant(
+    liveSupervisorDigest === manifest.supervisor.digest,
+    'Podman driver supervisor alias does not match the stack lock',
+  );
   for (const binary of manifest.runtime.requiredBinaries ?? []) {
     run(podman, ['run', '--rm', '--entrypoint', '/usr/bin/test', staticResult.image, '-x', binary]);
   }
@@ -235,6 +330,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     `OPENSHELL_PRODUCTION_DRIVER=${manifest.gateway.driver}@${manifest.gateway.driverVersion}`,
   );
   console.log(`OPENSHELL_PRODUCTION_IMAGE=${manifest.runtime.image}`);
+  console.log(`OPENSHELL_PRODUCTION_SUPERVISOR=${manifest.supervisor.image}`);
   console.log(`OPENSHELL_PRODUCTION_PROVIDERS=${staticResult.configuredProviders.join(',')}`);
   console.log(
     `OPENSHELL_PRODUCTION_GRANTABLE_PROVIDERS=${staticResult.grantableProviders.join(',')}`,

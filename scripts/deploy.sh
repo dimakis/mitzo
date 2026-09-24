@@ -2,6 +2,8 @@
 set -e
 cd "$(dirname "$0")/.."
 
+./scripts/assert-deployable.sh
+
 MITZO_HOME="$(pwd)"
 PLIST_DEST="$HOME/Library/LaunchAgents/com.mitzo.server.plist"
 
