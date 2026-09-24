@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
+import { artifactApiUrl, artifactViewerUrl } from '../lib/file-paths';
 import { HtmlPreview } from './HtmlPreview';
 
 interface Props {
   filePath: string;
+  sessionId?: string;
 }
 
-export function HtmlPreviewCard({ filePath }: Props) {
+export function HtmlPreviewCard({ filePath, sessionId }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,7 @@ export function HtmlPreviewCard({ filePath }: Props) {
       setError(null);
       setLoading(true);
       try {
-        const res = await apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`);
+        const res = await apiFetch(artifactApiUrl('read', filePath, sessionId));
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         setContent(data.content);
@@ -46,11 +48,7 @@ export function HtmlPreviewCard({ filePath }: Props) {
         </button>
         <button
           className="html-preview-card-open"
-          onClick={() =>
-            navigate(
-              `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-            )
-          }
+          onClick={() => navigate(artifactViewerUrl(filePath, currentPath, sessionId))}
         >
           Open
         </button>

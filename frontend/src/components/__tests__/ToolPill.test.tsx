@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ToolPill } from '../ToolPill';
 import type { FinishedBlock } from '../../types/chat';
 
@@ -12,6 +12,34 @@ function wrap(ui: React.ReactElement) {
 }
 
 describe('ToolPill', () => {
+  it('keeps the session scope when a read result opens in Files', () => {
+    const block: FinishedBlock = {
+      blockId: 'read-artifact',
+      blockType: 'tool_use',
+      content: '',
+      toolName: 'Read',
+      toolInput: 'outputs/report.html',
+      toolResult: '<html></html>',
+      rawInput: { type: 'read', path: 'outputs/report.html' },
+    };
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="location">{location.pathname + location.search}</output>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/chat/origin']}>
+        <ToolPill block={block} sessionId="origin" />
+        <Location />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Read/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open in viewer' }));
+    const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+    expect(url.pathname).toBe('/files');
+    expect(url.searchParams.get('path')).toBe('outputs/report.html');
+    expect(url.searchParams.get('sessionId')).toBe('origin');
+  });
+
   it('shows running state when no toolResult', () => {
     const block: FinishedBlock = {
       blockId: 'b1',

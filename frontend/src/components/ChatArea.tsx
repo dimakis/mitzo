@@ -22,6 +22,7 @@ export type ChatAreaVoice = Pick<
 >;
 
 export interface ChatAreaProps {
+  sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   running: boolean;
@@ -41,6 +42,7 @@ export interface ChatAreaProps {
 }
 
 export function ChatArea({
+  sessionId,
   messages,
   current,
   running,
@@ -177,7 +179,7 @@ export function ChatArea({
             <div key={msg.messageId} className="msg-turn">
               {(grouped ?? []).map((item, i) => {
                 if (item.type === 'tool-group') {
-                  return <ToolGroup key={item.key} tools={item.tools} />;
+                  return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
                 }
                 const block: FinishedBlock = item.block;
                 if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -188,7 +190,7 @@ export function ChatArea({
                   if (progress) {
                     return <ProgressWidget key={block.blockId} items={progress.items} />;
                   }
-                  return <ToolPill key={block.blockId} block={block} />;
+                  return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
                 }
                 const bid = block.blockId || `text-${i}`;
                 return (
@@ -196,6 +198,7 @@ export function ChatArea({
                     key={bid}
                     content={block.content ?? ''}
                     timestamp={msg.timestamp}
+                    artifactSessionId={sessionId}
                     readAloud={
                       voice?.ttsAvailable
                         ? {
@@ -223,7 +226,7 @@ export function ChatArea({
               progressToolIds,
             ).map((item) => {
               if (item.type === 'tool-group') {
-                return <ToolGroup key={item.key} tools={item.tools} />;
+                return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
               }
               const block = item.block;
               if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -234,9 +237,16 @@ export function ChatArea({
                 if (progress) {
                   return <ProgressWidget key={block.blockId} items={progress.items} />;
                 }
-                return <ToolPill key={block.blockId} block={block} />;
+                return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
               }
-              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
+              return (
+                <TextBubble
+                  key={block.blockId}
+                  content={block.content ?? ''}
+                  streaming
+                  artifactSessionId={sessionId}
+                />
+              );
             })}
           </div>
         )}
