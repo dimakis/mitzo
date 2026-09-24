@@ -224,6 +224,11 @@ describe('OpenShell production bundle validation', () => {
       automatic: ['github'],
       grantable: ['google-workspace'],
     });
+    const example = loadProductionConfig(
+      new URL('../../infra/openshell/production.env.example', import.meta.url).pathname,
+      {},
+    );
+    expect(example.MITZO_OPENSHELL_IMAGE).toBe(lock.runtime.image);
   });
 
   it.each(['localhost/mitzo', 'localhost/mitzo:latest', 'localhost/mitzo:dev'])(
