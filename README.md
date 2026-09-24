@@ -100,10 +100,12 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 **Worktrees & Session Isolation**
 
-| File               | Purpose                                                                                                               |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `worktree.ts`      | Git worktree lifecycle: create, remove, cleanup stale (scans `.claude/` and `.cursor/`)                               |
-| `session-index.ts` | YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings |
+| File                   | Purpose                                                                                                               |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `worktree.ts`          | Git worktree lifecycle: create, remove, cleanup stale (scans `.claude/` and `.cursor/`)                               |
+| `worktree-manifest.ts` | Read-only worktree evidence manifest with conservative protection classification                                      |
+| `worktree-recovery.ts` | Owner-only recovery packages and checksum-verified restoration rehearsals                                             |
+| `session-index.ts`     | YAML session index at `<repo>/.claude/sessions/index.yaml`. Tracks active/closed sessions with repo worktree mappings |
 
 **Observability**
 
@@ -252,6 +254,14 @@ Drop this in your repo root to customize the home screen, enable multi-repo sess
 - **venvPaths** — Python venv paths added to `PATH`
 
 See [docs/onboarding.md](docs/onboarding.md) for a full configuration walkthrough.
+
+## Worktree evidence and recovery
+
+`npm run worktrees:evidence -- manifest` generates an owner-only, read-only manifest for explicitly supplied `--repo` paths. Active IDs are loaded conservatively from each repository's session index; supply `--active-session` for additional known live sessions, `--inbox` to reconcile worktree notices, `--include-prs` for GitHub PR evidence, and `--output` for an artifact outside the repository. Repositories without a GitHub remote are explicitly marked `unavailable` rather than falsely treated as having no PRs. The manifest records physical and registered worktrees, branch and HEAD identity, age, disk usage, Git status, file hashes, session signals, notices, and reachability. Unknown, active, recent, session-marked, or dirty worktrees stay protected or require recovery review.
+
+`npm run worktrees:evidence -- package` takes `--manifest`, `--session`, `--destination-root`, and one or more explicit `--select` paths. Recovery packages must live outside the source repository. They contain Git history, separate staged and unstaged binary patches, metadata, checksums, and only the selected untracked files. Sensitive paths, virtual environments, dependencies, symlinks, and unhashable files are rejected.
+
+`npm run worktrees:evidence -- rehearse` takes `--package`, a new `--destination`, and an evidence `--output`. It reconstructs and verifies HEAD, staged and unstaged state, selected untracked paths, and file hashes. These commands never remove, prune, rescue, commit, push, deploy, or restart anything.
 
 ## Development
 
