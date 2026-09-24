@@ -571,15 +571,16 @@ export class CodexConversation {
     this.transportGeneration += 1;
     this.ready = false;
     this.client.close();
-    const updated = this.opts.store.setWebSearchGrant(
-      this.opts.conversationId,
-      this.binding,
-      expectedRevision,
-      grant,
-    );
-    const client = this.createClient();
-    this.client = client;
+    let client: Rpc | undefined;
     try {
+      const updated = this.opts.store.setWebSearchGrant(
+        this.opts.conversationId,
+        this.binding,
+        expectedRevision,
+        grant,
+      );
+      client = this.createClient();
+      this.client = client;
       await client.initialize();
       const binding = await this.verifyCurrentBinding(this.binding);
       if (binding.profileRevision !== this.binding.profileRevision)
@@ -619,7 +620,18 @@ export class CodexConversation {
       this.ready = true;
       return updated;
     } catch (error) {
-      client.close();
+      client?.close();
+      this.paused = true;
+      try {
+        this.opts.store.pauseForRecovery(this.opts.conversationId, this.binding);
+      } catch (persistenceError) {
+        this.opts.onError?.(
+          persistenceError instanceof Error
+            ? persistenceError
+            : new Error('Codex recovery state could not be saved'),
+        );
+      }
+      this.opts.onQueueChange?.();
       throw error;
     }
   }

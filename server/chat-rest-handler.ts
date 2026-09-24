@@ -38,6 +38,7 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
+  getOwnerConnection,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
@@ -352,7 +353,7 @@ export function createChatRestRouter(
     const found = ctx.sessionRegistry.findBySessionId(String(req.params.sessionId));
     if (
       !found ||
-      found.clientId !== connectionId ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
       !found.session.queryInstance?.getWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
@@ -370,7 +371,7 @@ export function createChatRestRouter(
     const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
     if (
       !found ||
-      found.clientId !== connectionId ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
       !found.session.queryInstance?.setWebSearchGrant
     ) {
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });

@@ -59,7 +59,7 @@ async function setup(
     }),
   );
   const rpc = {
-    initialize: async () => {},
+    initialize: vi.fn(async () => {}),
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
       requests.push({ method, params });
@@ -375,6 +375,54 @@ it('rejects stale or mid-turn web-search consent without reopening the thread', 
   await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
   expect(rpc.close).not.toHaveBeenCalled();
 });
+it('recovers after consent persistence fails following transport retirement', async () => {
+  const { c, store, rpc, requests, getBinding } = await setup();
+  vi.spyOn(store, 'setWebSearchGrant').mockImplementationOnce(() => {
+    throw new Error('persistence failed');
+  });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('persistence failed');
+  expect(c.isPaused()).toBe(true);
+  expect(store.readWebSearchGrant('app', getBinding()).grant).toBe('unresolved');
+  await c.send({ id: 'after-failure', prompt: 'continue' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+  expect(rpc.initialize).toHaveBeenCalledTimes(2);
+});
+it.each(['initialize', 'resume'] as const)(
+  'recovers after consent %s fails with a persisted denial',
+  async (failure) => {
+    const { c, rpc, requests, store, getBinding } = await setup();
+    await c.setWebSearchGrant(0, 'allowed');
+    if (failure === 'initialize') {
+      rpc.initialize.mockRejectedValueOnce(new Error('reopen failed'));
+    } else {
+      const originalRequest = rpc.request.getMockImplementation()!;
+      let failed = false;
+      rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/resume' && !failed) {
+          failed = true;
+          throw new Error('reopen failed');
+        }
+        return originalRequest(method, params);
+      });
+    }
+    await expect(c.setWebSearchGrant(1, 'denied')).rejects.toThrow('reopen failed');
+    expect(c.isPaused()).toBe(true);
+    expect(store.readWebSearchGrant('app', getBinding())).toMatchObject({
+      grant: 'denied',
+      revision: 2,
+    });
+    await c.send({ id: `after-${failure}`, prompt: 'continue' });
+    expect(c.isPaused()).toBe(false);
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params,
+    ).toMatchObject({
+      config: { web_search: 'disabled' },
+    });
+  },
+);
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
   await expect(
