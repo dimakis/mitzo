@@ -85,7 +85,7 @@ function options(abortController: AbortController) {
       getRecentConversationText: () => [],
       getSession: () => undefined,
     },
-  } as Parameters<typeof openCodexChat>[0];
+  } as unknown as Parameters<typeof openCodexChat>[0];
 }
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
