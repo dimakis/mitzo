@@ -137,6 +137,7 @@ function createMockStore() {
     historyError: null,
     modeChangeReady: true,
     dispatchMessages: vi.fn(),
+    getConnectionId: () => null,
     switchSession: vi.fn().mockResolvedValue(undefined),
     newSession: vi.fn(),
     sendMessage: vi.fn(),

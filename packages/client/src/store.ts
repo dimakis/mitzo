@@ -97,6 +97,7 @@ export interface MitzoStoreState {
 
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
+  getConnectionId(): string | null;
   switchSession(id: string): Promise<void>;
   newSession(): void;
   sendMessage(text: string, opts?: SendMessageOptions): void;
@@ -281,6 +282,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     dispatchMessages(action: MessagesAction) {
       set((s) => ({ messages: messagesReducer(s.messages, action) }));
+    },
+
+    getConnectionId() {
+      return connection.getConnectionId();
     },
 
     async switchSession(id: string) {

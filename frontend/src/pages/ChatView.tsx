@@ -2,6 +2,7 @@ import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
+import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
@@ -56,6 +57,7 @@ export function ChatView() {
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const getConnectionId = useMitzoStore((s) => s.getConnectionId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const pendingSession = useMitzoStore((s) => s.pendingSession);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
@@ -324,6 +326,14 @@ export function ChatView() {
           )}
         </WorkspaceControls>
       </div>
+      <WebSearchConsent
+        key={activeSessionId ?? 'new'}
+        sessionId={activeSessionId}
+        mode={mode}
+        connected={connected}
+        connectionId={getConnectionId()}
+        running={messages.running}
+      />
       {(sendError || sendStatus) && (
         <div
           role={sendError ? 'alert' : 'status'}
