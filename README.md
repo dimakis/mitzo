@@ -281,6 +281,10 @@ to the canonical installation that owns `.env` and `certs`; runtime material
 is never taken from the feature checkout. Paths for checked-in stack locks,
 policies, and provider profiles are rewritten to the immutable release so a
 copied environment cannot mix code from two deployment generations.
+When advancing the prepared MGMT seed, set `MITZO_RELEASE_SEED` to its `mgmt`
+directory. Release creation requires the sibling `baseline.json` and changes
+only the new release's copied `.env`, leaving the canonical runtime `.env`
+untouched.
 
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 

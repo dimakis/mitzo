@@ -3,6 +3,7 @@ set -euo pipefail
 
 SOURCE_ROOT="${MITZO_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 RUNTIME_ROOT="${MITZO_RUNTIME_ROOT:-$SOURCE_ROOT}"
+RELEASE_SEED="${MITZO_RELEASE_SEED:-}"
 SOURCE_REF="${1:-HEAD}"
 RELEASE_ROOT="${MITZO_RELEASE_ROOT:-$HOME/tools/mitzo-releases}"
 LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"
@@ -40,6 +41,17 @@ REMOTE_REF="$(git -C "$SOURCE_ROOT" for-each-ref --format='%(refname:short) %(sy
   echo "Refusing release: canonical runtime .env is missing" >&2
   exit 1
 }
+if [ -n "$RELEASE_SEED" ]; then
+  [ -d "$RELEASE_SEED" ] || {
+    echo "Refusing release: MITZO_RELEASE_SEED is not a directory: $RELEASE_SEED" >&2
+    exit 1
+  }
+  [ -f "$RELEASE_SEED/../baseline.json" ] || {
+    echo "Refusing release: MITZO_RELEASE_SEED has no sibling baseline.json: $RELEASE_SEED" >&2
+    exit 1
+  }
+  RELEASE_SEED="$(cd "$RELEASE_SEED" && pwd -P)"
+fi
 SHORT_COMMIT="$(printf '%s' "$SOURCE_COMMIT" | cut -c1-12)"
 REF_SLUG="$(printf '%s' "$REMOTE_REF" | sed 's|^origin/||; s|[^A-Za-z0-9._-]|-|g')"
 RELEASE_DIR="$RELEASE_ROOT/${REF_SLUG}-${SHORT_COMMIT}"
@@ -83,6 +95,9 @@ manifest_value() {
 }
 
 rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$RELEASE_DIR/infra/openshell/production-stack.lock.json"
+if [ -n "$RELEASE_SEED" ]; then
+  rewrite_env_value MITZO_OPENSHELL_SEED "$RELEASE_SEED"
+fi
 rewrite_env_value MITZO_OPENSHELL_POLICY "$RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
 rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
 rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"

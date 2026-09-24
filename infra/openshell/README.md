@@ -77,7 +77,11 @@ file remains the optional observability stack.
    node scripts/verify-openshell-production.mjs .env
    ```
 
-6. Run a production-shaped controller on a non-production port and create a
+6. Create the immutable release with `MITZO_RELEASE_SEED` set to the new
+   prepared seed's `mgmt` directory. The release command validates the sibling
+   `baseline.json` and rewrites only the release copy of `.env`; it does not
+   modify the canonical runtime environment.
+7. Run a production-shaped controller on a non-production port and create a
    fresh conversation. After the normal chat, cancellation, retained recovery,
    and bounded provider checks pass, deploy through the existing launchd flow.
 

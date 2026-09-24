@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -286,6 +294,9 @@ describe('OpenShell production bundle validation', () => {
     expect(release).toContain('+refs/heads/*:refs/remotes/origin/*');
     expect(release).toContain("awk 'NF == 1 { print $1; exit }'");
     expect(release).toContain('canonical runtime .env is missing');
+    expect(release).toContain('MITZO_RELEASE_SEED is not a directory');
+    expect(release).toContain('MITZO_RELEASE_SEED has no sibling baseline.json');
+    expect(release).toContain('rewrite_env_value MITZO_OPENSHELL_SEED "$RELEASE_SEED"');
     expect(release).toContain('shlock -f "$LOCK_FILE" -p "$$"');
     expect(release).toContain('LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"');
     expect(release).not.toContain('LOCK_FILE="$RELEASE_ROOT');
@@ -403,6 +414,8 @@ describe('OpenShell production bundle validation', () => {
     const releases = join(root, 'releases');
     const bin = join(root, 'bin');
     const marker = join(root, 'publication-verified');
+    const preparedSeed = join(root, 'prepared-seed');
+    const seed = join(preparedSeed, 'mgmt');
     const repoRoot = new URL('../..', import.meta.url).pathname;
 
     execFileSync('git', ['init', '--bare', remote]);
@@ -431,7 +444,12 @@ describe('OpenShell production bundle validation', () => {
       encoding: 'utf8',
     }).trim();
     execFileSync('git', ['-C', source, 'checkout', '--detach', revision]);
-    writeFileSync(join(source, '.env'), 'MITZO_OPENSHELL_ENABLED=0\n');
+    writeFileSync(
+      join(source, '.env'),
+      'MITZO_OPENSHELL_ENABLED=0\nMITZO_OPENSHELL_SEED=/unchanged/canonical/seed\n',
+    );
+    mkdirSync(seed, { recursive: true });
+    writeFileSync(join(preparedSeed, 'baseline.json'), '{}\n');
     mkdirSync(bin);
     writeFileSync(
       join(bin, 'shlock'),
@@ -439,7 +457,7 @@ describe('OpenShell production bundle validation', () => {
     );
     writeFileSync(
       join(bin, 'npm'),
-      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nprintf ok > "$MARKER"\nexit 73\n',
+      '#!/bin/sh\nref="refs/remotes/origin/$EXPECTED_BRANCH"\ngit show-ref --verify "$ref" >/dev/null || exit 71\ngit merge-base --is-ancestor "$EXPECTED_REVISION" "$ref" || exit 72\nif [ -n "${EXPECTED_SEED-}" ]; then grep -Fx "MITZO_OPENSHELL_SEED=$EXPECTED_SEED" .env >/dev/null || exit 74; fi\nprintf ok > "$MARKER"\nexit 73\n',
     );
     chmodSync(join(bin, 'shlock'), 0o755);
     chmodSync(join(bin, 'npm'), 0o755);
@@ -453,13 +471,18 @@ describe('OpenShell production bundle validation', () => {
         MITZO_RELEASE_ROOT: releases,
         EXPECTED_REVISION: revision,
         EXPECTED_BRANCH: 'review-fixture',
+        EXPECTED_SEED: realpathSync(seed),
         MARKER: marker,
+        MITZO_RELEASE_SEED: seed,
       },
       encoding: 'utf8',
     });
 
     expect(result.status, result.stderr).toBe(73);
     expect(readFileSync(marker, 'utf8')).toBe('ok');
+    expect(readFileSync(join(source, '.env'), 'utf8')).toContain(
+      'MITZO_OPENSHELL_SEED=/unchanged/canonical/seed',
+    );
 
     const mainMarker = join(root, 'main-publication-verified');
     const mainResult = spawnSync(

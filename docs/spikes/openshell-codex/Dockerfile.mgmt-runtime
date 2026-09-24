@@ -14,11 +14,11 @@ RUN npm install --global @openai/codex@0.156.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY pyproject.toml uv.lock /opt/mgmt-deps/
 RUN cd /opt/mgmt-deps \
-    && uv lock \
-    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project
+    && uv lock --no-cache \
+    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project
 COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/
 RUN cd /opt/mgmt-jira-runtime \
-    && UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project \
+    && UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --no-cache --frozen --no-dev --no-install-project \
     && site_packages="$(find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print)" \
     && [ "$(printf '%s\n' "$site_packages" | sed '/^$/d' | wc -l | tr -d ' ')" = 1 ] \
     && case "$site_packages" in /opt/mgmt-jira-venv/lib/python*/site-packages) ;; *) exit 1 ;; esac \
