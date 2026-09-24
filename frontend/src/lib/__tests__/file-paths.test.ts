@@ -4,6 +4,7 @@ import {
   detectFilePaths,
   isFilePath,
   linkifyFilePaths,
+  relativeArtifactPath,
   remarkNeutralizeMalformedFileLinks,
   artifactApiUrl,
   artifactViewerUrl,
@@ -18,6 +19,14 @@ describe('artifact URLs', () => {
     expect(artifactViewerUrl('outputs/report.html', '/chat/session-1', 'session-1')).toBe(
       '/files?path=outputs%2Freport.html&from=%2Fchat%2Fsession-1&sessionId=session-1',
     );
+  });
+
+  it('recognizes bare file destinations without treating browser links as artifacts', () => {
+    expect(relativeArtifactPath('report.html')).toBe('report.html');
+    expect(relativeArtifactPath('notes.md?raw=1')).toBe('notes.md');
+    expect(relativeArtifactPath('README')).toBeNull();
+    expect(relativeArtifactPath('#section')).toBeNull();
+    expect(relativeArtifactPath('https://example.com/report.html')).toBeNull();
   });
 });
 

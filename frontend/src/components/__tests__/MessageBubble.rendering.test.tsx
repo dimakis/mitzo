@@ -19,7 +19,7 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
-  it.each(['outputs/report.html', './outputs/report.html'])(
+  it.each(['report.html', 'outputs/report.html', './outputs/report.html'])(
     'opens relative Markdown artifact %s in the originating session',
     (path) => {
       function Location() {

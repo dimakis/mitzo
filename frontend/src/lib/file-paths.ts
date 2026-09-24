@@ -25,7 +25,8 @@ export function relativeArtifactPath(href: string): string | null {
   if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
   try {
     const path = decodeURIComponent(href.split(/[?#]/, 1)[0]);
-    return isFilePath(path) ? path : null;
+    const bareFile = !path.includes('/') && /^[^./][^/]*\.[a-z\d][a-z\d._-]*$/i.test(path);
+    return isFilePath(path) || bareFile ? path : null;
   } catch {
     return null;
   }
