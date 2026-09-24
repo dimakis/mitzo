@@ -270,6 +270,17 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
+Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
+current `origin/main`, requires the selected commit to contain it and to be
+published on a remote branch, creates a self-contained detached release clone, records full
+commit/tree/base provenance in `release.txt`, and only then builds and updates
+launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
+to the canonical installation that owns `.env` and `certs`; runtime material
+is never taken from the feature checkout. Paths for checked-in stack locks,
+policies, and provider profiles are rewritten to the immutable release so a
+copied environment cannot mix code from two deployment generations.
+
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 
 ## Tech
@@ -283,3 +294,9 @@ Evolved from [claude-command-center](https://github.com/Afstkla/claude-command-c
 ## License
 
 MIT
+
+### macOS runtime startup
+
+The Podman launch agent preserves the VM process group after `podman machine start` exits. Without `AbandonProcessGroup`, launchd terminates those child processes and OpenShell sandbox startup fails even though the start command reports success. After installation, verify `podman info` still succeeds once the launch agent has exited. Use the production `com.mitzo.server` launch agent as the sole supervisor for Mitzo; stop and remove legacy PM2 startup entries before handing over the listening port.
+
+The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.

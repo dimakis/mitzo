@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "gateway": {
-    "version": "0.0.116-mitzo.2",
+    "version": "0.0.116-mitzo.3",
     "driver": "podman",
-    "driverVersion": "0.0.116-mitzo.2",
+    "driverVersion": "0.0.116-mitzo.3",
     "requiredGlobalSettings": {
       "providers_v2_enabled": true
     }
@@ -17,7 +17,7 @@
     "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
   },
   "policy": {
-    "sha256": "ad533acbc5838d0e9f8a6dc9b0d20a1e9214a7706a2db4ae0d8c71c6f24e0a20"
+    "sha256": "57584efe1027eb445d85320e0a424dfc9b304abbef793a1da33b0089e1a42673"
   },
   "serviceProviders": [
     {
@@ -38,5 +38,10 @@
   "defaults": {
     "workspace": "default",
     "webSearch": "live"
+  },
+  "supervisor": {
+    "image": "localhost/openshell/supervisor:mitzo-header-auth-6ed9a64-20260924",
+    "digest": "sha256:cb2e79db0d4f6475ae9901871d555511ba5e79a6f279f4e43bd42a86fe1d2d82",
+    "sourceCommit": "6ed9a64473615e05224a67b8cee49579a7cf95bc"
   }
 }
