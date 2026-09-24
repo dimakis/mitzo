@@ -40,6 +40,7 @@ import {
   handleReconnect,
   getOwnerConnection,
   claimWebSearchConsentOwner,
+  serializeSessionPermissionChange,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
@@ -388,31 +389,26 @@ export function createChatRestRouter(
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
       return;
     }
-    if (msg.grant === 'allowed' && found.session.mode === 'ask') {
-      res
-        .status(409)
-        .json({ ok: false, error: 'Switch to Agent or Auto before allowing web search' });
-      return;
-    }
-    if (ownerConnection !== connectionId) {
-      const current = found.session.queryInstance.getWebSearchGrant?.();
-      if (
-        !current ||
-        current.revision !== msg.expectedRevision ||
-        !found.session.queryInstance.canSetWebSearchGrant?.() ||
-        !claimWebSearchConsentOwner(connectionId, msg.sessionId, ctx)
-      ) {
-        res
-          .status(409)
-          .json({ ok: false, error: 'Cannot take control for web-search consent right now' });
-        return;
-      }
-    }
     try {
-      const updated = await found.session.queryInstance.setWebSearchGrant(
-        msg.expectedRevision,
-        msg.grant,
-      );
+      const updated = await serializeSessionPermissionChange(found.session, async () => {
+        if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session)
+          throw new Error('Session changed during web-search consent update');
+        if (msg.grant === 'allowed' && found.session.mode === 'ask')
+          throw new Error('Switch to Agent or Auto before allowing web search');
+        const currentOwner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
+        if (currentOwner !== connectionId) {
+          const current = found.session.queryInstance?.getWebSearchGrant?.();
+          if (
+            !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId) ||
+            !current ||
+            current.revision !== msg.expectedRevision ||
+            !found.session.queryInstance?.canSetWebSearchGrant?.() ||
+            !claimWebSearchConsentOwner(connectionId, msg.sessionId, ctx)
+          )
+            throw new Error('Cannot take control for web-search consent right now');
+        }
+        return found.session.queryInstance!.setWebSearchGrant!(msg.expectedRevision, msg.grant);
+      });
       res.json({ ok: true, ...updated, owner: true });
     } catch (error) {
       log.warn('web-search consent update rejected', {

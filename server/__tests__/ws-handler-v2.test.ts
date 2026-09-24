@@ -81,6 +81,7 @@ import {
   scheduleV2Message,
   getOwnerConnection,
   claimWebSearchConsentOwner,
+  serializeSessionPermissionChange,
   detectStateMismatch,
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
@@ -953,6 +954,27 @@ describe('live provider mode changes', () => {
     ctx.connRegistry.watch('c1', 'sess-1');
     return { ctx, sessionReg, transport };
   }
+
+  it('serializes web-search grants and mode changes on the same session', async () => {
+    let releaseGrant!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseGrant = resolve;
+    });
+    const setPermissionMode = vi.fn().mockResolvedValue(undefined);
+    const { ctx, sessionReg } = setup(setPermissionMode);
+    const session = sessionReg.findBySessionId('sess-1').session;
+    const grant = serializeSessionPermissionChange(session, () => gate);
+    const mode = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    await Promise.resolve();
+    expect(setPermissionMode).not.toHaveBeenCalled();
+    releaseGrant();
+    await Promise.all([grant, mode]);
+    expect(setPermissionMode).toHaveBeenCalledWith('agent');
+  });
 
   it('awaits provider acknowledgement before publishing and serializes racing updates', async () => {
     let resolve!: () => void;

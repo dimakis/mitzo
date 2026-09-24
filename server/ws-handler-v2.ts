@@ -1378,6 +1378,19 @@ export interface ModeChangeResult {
 }
 const pendingModeChanges = new WeakMap<object, Promise<unknown>>();
 
+/** Share the live session's permission queue with web-search grant updates. */
+export function serializeSessionPermissionChange<T>(
+  session: object,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = pendingModeChanges.get(session) ?? Promise.resolve();
+  const update = previous.then(action, action);
+  pendingModeChanges.set(session, update);
+  return update.finally(() => {
+    if (pendingModeChanges.get(session) === update) pendingModeChanges.delete(session);
+  });
+}
+
 export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,

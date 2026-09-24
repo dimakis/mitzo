@@ -29,6 +29,7 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleSessionClose: vi.fn(),
     handleReconnect: vi.fn(),
     claimWebSearchConsentOwner: vi.fn().mockReturnValue(true),
+    serializeSessionPermissionChange: vi.fn((_session, action) => action()),
   };
 });
 
@@ -45,6 +46,7 @@ import {
   handleSessionClose,
   handleReconnect,
   claimWebSearchConsentOwner,
+  serializeSessionPermissionChange,
 } from '../ws-handler-v2.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -549,6 +551,32 @@ describe('chat-rest-handler', () => {
         setWebSearchGrant,
       },
     } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rechecks Ask mode when a queued mode change finishes before Allow', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    vi.mocked(serializeSessionPermissionChange).mockImplementationOnce(async (session, action) => {
+      (session as { mode: string }).mode = 'ask';
+      return action();
+    });
     try {
       const response = await request(testApp)
         .post('/api/chat/web-search-consent')
