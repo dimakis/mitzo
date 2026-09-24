@@ -430,6 +430,22 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(42);
   });
 
+  it('replaces an invalid cursor from the reconnect snapshot', () => {
+    const conn = new SseConnection(createConfig());
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.trackSeq('sess-1', 99);
+
+    lastES()._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 12,
+      cursorValid: false,
+    });
+    lastES()._emit('message', { type: 'block_delta', sessionId: 'sess-1', seq: 11 });
+    expect(conn.getLastSeq('sess-1')).toBe(12);
+  });
+
   // ─── Message sending (client → server) ─────────────────────────────────
 
   it('sends messages via POST with X-Connection-ID', () => {

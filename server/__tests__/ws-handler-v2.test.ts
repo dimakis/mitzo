@@ -281,6 +281,7 @@ describe('handleReconnect', () => {
         terminalReason: 'completed',
       },
       providerAttempts: [],
+      pendingPermissions: [],
     });
   });
 

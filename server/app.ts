@@ -1557,6 +1557,20 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
+  const rawCursor = req.query.throughSeq;
+  if (rawCursor !== undefined) {
+    if (typeof rawCursor !== 'string' || !/^(0|[1-9]\d*)$/.test(rawCursor)) {
+      res.status(400).json({ error: 'Invalid reconnect cursor' });
+      return;
+    }
+    const cursor = Number(rawCursor);
+    if (!Number.isSafeInteger(cursor)) {
+      res.status(400).json({ error: 'Invalid reconnect cursor' });
+      return;
+    }
+    res.json(await getMessages(req.params.id as string, cursor));
+    return;
+  }
   res.json(await getMessages(req.params.id as string));
 });
 

@@ -179,6 +179,24 @@ describe('MitzoConnection', () => {
       expect(conn.getLastSeq('unknown')).toBe(0);
     });
 
+    it('acknowledges the snapshot cursor and ignores older duplicate events', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+      conn.trackSeq('s1', 99);
+
+      ws.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 12,
+        cursorValid: false,
+      });
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 11 });
+      expect(conn.getLastSeq('s1')).toBe(12);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 13 });
+      expect(conn.getLastSeq('s1')).toBe(13);
+    });
+
     it('allows manual seq tracking via trackSeq', () => {
       const conn = createConnection();
       conn.trackSeq('s1', 10);

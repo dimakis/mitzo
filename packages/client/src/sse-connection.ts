@@ -327,8 +327,23 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
-      if (typeof msg.seq === 'number' && typeof msg.sessionId === 'string') {
-        this.seqBySession.set(msg.sessionId as string, msg.seq as number);
+      if (
+        msg.type === 'session_reconnect_snapshot' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        Number.isSafeInteger(msg.cursor) &&
+        msg.cursor >= 0
+      ) {
+        this.seqBySession.set(msg.sessionId, msg.cursor);
+      } else if (
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        typeof msg.sessionId === 'string'
+      ) {
+        this.seqBySession.set(
+          msg.sessionId,
+          Math.max(this.seqBySession.get(msg.sessionId) ?? 0, msg.seq),
+        );
       }
 
       this.listener?.(msg);

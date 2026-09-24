@@ -402,6 +402,7 @@ export function handleReconnect(
                 }
               : {}),
             providerAttempts: reconnectState.providerAttempts,
+            pendingPermissions: getPendingRequestsBySession(entry.sessionId),
           });
         }
 

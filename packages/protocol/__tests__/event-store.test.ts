@@ -1,5 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../src/event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('EventStore', () => {
   let store: EventStore;
@@ -518,6 +521,48 @@ describe('EventStore', () => {
     it('returns empty array for unknown session', () => {
       const events = store.getSessionEvents('nonexistent');
       expect(events).toEqual([]);
+    });
+
+    it('reads only the immutable transcript prefix through a reconnect cursor', () => {
+      const first = store.append('sess-1', 'user_message', { messageId: 'u1', text: 'hello' });
+      store.append('sess-2', 'user_message', { messageId: 'other', text: 'unrelated' });
+      const boundary = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      store.append('sess-1', 'user_message', { messageId: 'u2', text: 'later' });
+
+      expect(store.getSessionEventsThroughCursor('sess-1', boundary).map((e) => e.seq)).toEqual([
+        first,
+        boundary,
+      ]);
+      expect(() => store.getSessionEventsThroughCursor('sess-1', -1)).toThrow('Reconnect cursor');
+    });
+
+    it('reconstructs the same bounded prefix after reopening the database', () => {
+      const dir = mkdtempSync(join(tmpdir(), 'mitzo-reconnect-prefix-'));
+      const path = join(dir, 'events.db');
+      const first = new EventStore(path);
+      try {
+        first.upsertSession({ sessionId: 'sess-reopen' });
+        const cursor = first.append('sess-reopen', 'user_message', {
+          messageId: 'u1',
+          text: 'saved before restart',
+        });
+        first.close();
+
+        const reopened = new EventStore(path);
+        try {
+          reopened.append('sess-reopen', 'user_message', {
+            messageId: 'u2',
+            text: 'later',
+          });
+          expect(reopened.getSessionEventsThroughCursor('sess-reopen', cursor)).toMatchObject([
+            { seq: cursor, payload: { text: 'saved before restart' } },
+          ]);
+        } finally {
+          reopened.close();
+        }
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 

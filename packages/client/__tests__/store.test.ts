@@ -371,7 +371,7 @@ describe('newSession', () => {
 });
 
 describe('reconnect recovery', () => {
-  it('re-fetches messages for active session on reconnected event', async () => {
+  it('re-fetches messages through the exact reconnect snapshot cursor', async () => {
     const transport = mockTransport();
     const msgs = [
       {
@@ -389,15 +389,100 @@ describe('reconnect recovery', () => {
     const store = createReadyStore(transport);
     await store.getState().switchSession('sess-1');
 
-    // Simulate reconnected event
-    lastWs.simulateMessage({ type: 'reconnected', sessions: [] });
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 42,
+      cursorValid: true,
+      state: 'idle',
+    });
 
     // Wait for the async fetch
     await new Promise((r) => setTimeout(r, 50));
 
     expect(transport.fetch).toHaveBeenCalledWith(
-      '/api/sessions/sess-1/messages',
+      '/api/sessions/sess-1/messages?throughSeq=42',
       expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('replaces stale local messages after an invalid cursor', async () => {
+    const transport = mockTransport();
+    const durable = [
+      {
+        messageId: 'durable',
+        role: 'assistant',
+        blocks: [{ blockId: 'b1', blockType: 'text', content: 'saved' }],
+      },
+    ];
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(url.includes('throughSeq=7') ? durable : []),
+        text: () => Promise.resolve(''),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [{ messageId: 'stale', role: 'assistant', blocks: [] }],
+      },
+    }));
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'idle',
+      pendingPermissions: [],
+    });
+
+    await vi.waitFor(() =>
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual(['durable']),
+    );
+    expect(store.getState().messages.permission).toBeNull();
+  });
+
+  it('keeps messages delivered after an invalid snapshot while bounded restore is in flight', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'sess-1',
+      messageId: 'live',
+      text: 'arrived after snapshot',
+      seq: 8,
+    });
+    releaseRestore({
+      ok: true,
+      json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),
+    });
+
+    await vi.waitFor(() =>
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+        'durable',
+        'live',
+      ]),
     );
   });
 });

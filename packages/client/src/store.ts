@@ -227,18 +227,43 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
-  function fetchAndRestoreMessages(sessionId: string) {
-    if (recoveryInFlight) return;
+  function fetchAndRestoreMessages(sessionId: string, throughSeq?: number, replace = false) {
+    if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
-    const request = historyRequest;
+    const request = ++historyRequest;
+    if (throughSeq !== undefined) {
+      historyAbort?.abort();
+      historyAbort = undefined;
+      store.setState({ historyLoading: true, historyError: null });
+    }
     const initialCurrent = store.getState().messages.current;
+    const initialIds = new Set(store.getState().messages.messages.map((m) => m.messageId));
     api
-      .getSessionMessages(sessionId)
+      .getSessionMessages(sessionId, undefined, throughSeq)
       .then((msgs) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           store.setState((s) => ({
-            messages: msgs.length > 0 ? mergeHistory(s.messages, msgs, initialCurrent) : s.messages, // preserve state — empty REST response doesn't mean state is invalid
+            messages: replace
+              ? {
+                  ...s.messages,
+                  messages: [
+                    ...msgs.filter(
+                      (m) =>
+                        s.messages.current === initialCurrent ||
+                        m.messageId !== s.messages.current?.messageId,
+                    ),
+                    ...s.messages.messages.filter(
+                      (m) =>
+                        !initialIds.has(m.messageId) &&
+                        !msgs.some((saved) => saved.messageId === m.messageId),
+                    ),
+                  ],
+                  current: s.messages.current !== initialCurrent ? s.messages.current : null,
+                }
+              : msgs.length > 0
+                ? mergeHistory(s.messages, msgs, initialCurrent)
+                : s.messages,
           }));
         }
       })
@@ -246,9 +271,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (typeof console !== 'undefined') {
           console.warn('[mitzo] message recovery fetch failed', err);
         }
+        if (replace && request === historyRequest)
+          store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
       })
       .finally(() => {
-        recoveryInFlight = false;
+        if (request === historyRequest) {
+          recoveryInFlight = false;
+          if (throughSeq !== undefined) store.setState({ historyLoading: false });
+        }
       });
   }
 
@@ -285,6 +315,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       const request = ++historyRequest;
+      recoveryInFlight = false;
       historyAbort?.abort();
       const abort = new AbortController();
       historyAbort = abort;
@@ -336,6 +367,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     newSession() {
       ++historyRequest;
+      recoveryInFlight = false;
       historyAbort?.abort();
       historyAbort = undefined;
       set({ historyLoading: false, historyError: null });
@@ -736,9 +768,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    onReconnected() {
-      const activeId = parserState.currentSessionId;
-      if (activeId) fetchAndRestoreMessages(activeId);
+    onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean) {
+      if (parserState.currentSessionId === sessionId) {
+        if (!cursorValid) {
+          store.setState((s) => ({
+            messages: { ...s.messages, messages: [], current: null },
+          }));
+        }
+        fetchAndRestoreMessages(sessionId, cursor, !cursorValid);
+      }
     },
 
     onTokensHydrated(tokens: Record<string, unknown>) {

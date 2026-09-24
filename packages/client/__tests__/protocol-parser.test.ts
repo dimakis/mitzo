@@ -684,6 +684,7 @@ describe('reconnected', () => {
   });
 
   it('applies the authoritative state from a reconnect snapshot', () => {
+    const onReconnectSnapshot = vi.fn();
     const r = parseServerMessage(
       {
         type: 'session_reconnect_snapshot',
@@ -699,13 +700,21 @@ describe('reconnected', () => {
           terminalReason: 'completed',
         },
         providerAttempts: [],
+        pendingPermissions: [
+          { permId: 'perm-1', toolName: 'Bash', toolInput: '{}', sessionId: 'sid-1' },
+        ],
       },
       makeState({ currentSessionId: 'sid-1' }),
-      makeCallbacks(),
+      makeCallbacks({ onReconnectSnapshot }),
       POOL_KEY,
     );
 
     expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+    expect(r.messagesActions).toContainEqual({
+      type: 'PERMISSION_SNAPSHOT',
+      permissions: [{ permId: 'perm-1', toolName: 'Bash', toolInput: '{}', sessionId: 'sid-1' }],
+    });
+    expect(onReconnectSnapshot).toHaveBeenCalledWith('sid-1', 42, true);
   });
 });
 

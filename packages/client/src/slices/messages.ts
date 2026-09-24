@@ -163,6 +163,7 @@ export type MessagesAction =
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_REJECTED'; permId: string; error: string }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
+  | { type: 'PERMISSION_SNAPSHOT'; permissions: PermissionRequest[] }
   | { type: 'CLEAR_PERMISSIONS' }
   | { type: 'RESTORE'; messages: FinishedMessage[]; interrupted?: boolean }
   | {
@@ -404,6 +405,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       return state.permission
         ? { ...state, permissionQueue: [...queue, action.payload] }
         : { ...state, permission: action.payload };
+    }
+
+    case 'PERMISSION_SNAPSHOT': {
+      const valid = action.permissions.filter(
+        (request) => request && typeof request.permId === 'string',
+      );
+      return { ...state, permission: valid[0] ?? null, permissionQueue: valid.slice(1) };
     }
 
     case 'PERMISSION_REJECTED': {

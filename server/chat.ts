@@ -3268,13 +3268,19 @@ export function replayEventsToMessages(
   return messages;
 }
 
-export async function getMessages(sessionId: string) {
+export async function getMessages(sessionId: string, throughSeq?: number) {
   // Primary: replay from durable event store
-  const events = eventStore.getSessionEvents(sessionId);
+  const events =
+    throughSeq === undefined
+      ? eventStore.getSessionEvents(sessionId)
+      : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   if (events.length > 0) {
     const session = eventStore.getSession(sessionId);
     return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
   }
+
+  // A bounded request must never fall through to a mutable SDK transcript.
+  if (throughSeq !== undefined) return [];
 
   // Fallback: SDK JSONL for pre-migration sessions
   let rawMessages: RawSdkMessage[] = [];
