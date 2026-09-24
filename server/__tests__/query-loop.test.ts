@@ -1774,6 +1774,52 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.totalCostUsd).toBe(0);
     });
 
+    it('persists completion usage when the stream ends before the SDK result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-completion-without-result';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_start',
+              message: { id: 'msg-completion', usage: { input_tokens: 0, output_tokens: 0 } },
+            },
+          },
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_delta',
+              usage: {
+                input_tokens: 1200,
+                output_tokens: 300,
+                cache_read_input_tokens: 400,
+                cache_creation_input_tokens: 100,
+              },
+            },
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+      );
+
+      expect(store.getSession(sessionId)).toMatchObject({
+        inputTokens: 1200,
+        outputTokens: 300,
+        cacheReadTokens: 400,
+        cacheCreationTokens: 100,
+        numTurns: 1,
+        state: 'ENDED',
+      });
+    });
+
     it('records fallback usage on external abort', async () => {
       const store = new EventStore(':memory:');
       const connRegistry = new ConnectionRegistry();

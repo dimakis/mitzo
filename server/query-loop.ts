@@ -315,6 +315,9 @@ async function _runQueryLoopInner(
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
   let activeTurnOutputTokens = 0; // latest output total reported for the active parent turn
+  let latestInputTokens = 0;
+  let latestCacheReadTokens = 0;
+  let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
@@ -881,6 +884,11 @@ async function _runQueryLoopInner(
             }
 
             if (isParent) {
+              if (msgContext > 0) {
+                latestInputTokens = msgInput;
+                latestCacheReadTokens = msgCacheRead;
+                latestCacheCreationTokens = msgCacheCreation;
+              }
               // A provider turn exists even when usage is reported only at completion.
               // OpenAI Responses starts the stream with zero usage and supplies the
               // authoritative counters in message_delta.
@@ -907,6 +915,12 @@ async function _runQueryLoopInner(
               const cacheCreation = usage?.cache_creation_input_tokens ?? 0;
               const output = usage?.output_tokens ?? 0;
               const contextTokens = input + cacheRead + cacheCreation;
+
+              if (contextTokens > 0) {
+                latestInputTokens = input;
+                latestCacheReadTokens = cacheRead;
+                latestCacheCreationTokens = cacheCreation;
+              }
 
               // Completion usage may repeat the output count seen at start, so only
               // add the increase for this turn. This also preserves partial-session
@@ -1529,10 +1543,10 @@ async function _runQueryLoopInner(
       if (!doneSent && store && resolvedSessionId) {
         const fallbackDurationMs = Date.now() - sessionStartedAt;
         store.recordUsage(resolvedSessionId, {
-          inputTokens: 0, // per-type breakdown unavailable without SDK result
+          inputTokens: latestInputTokens,
           outputTokens: cumulativeOutputTokens,
-          cacheReadTokens: 0,
-          cacheCreationTokens: 0,
+          cacheReadTokens: latestCacheReadTokens,
+          cacheCreationTokens: latestCacheCreationTokens,
           totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
           numTurns: turnIndex,
           durationMs: fallbackDurationMs,
