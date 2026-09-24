@@ -216,6 +216,17 @@ export interface ConversationTextEvent {
   text: string;
 }
 
+/** One transactionally consistent durable boundary used by reconnect delivery. */
+export interface ReconnectState {
+  session: SessionMeta | null;
+  events: StoredEvent[];
+  /** Highest event sequence included in the durable boundary. */
+  cursor: number;
+  /** False when the client claims a sequence beyond this boundary. */
+  cursorValid: boolean;
+  providerAttempts: ProviderAttemptRecord[];
+}
+
 type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
@@ -1455,6 +1466,45 @@ export class EventStore {
         });
     }
     return events;
+  }
+
+  /** Capture aggregate state and its replay suffix in one SQLite read transaction. */
+  captureReconnectState(sessionId: string, afterSeq: number): ReconnectState {
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
+      throw new Error('Reconnect cursor must be a non-negative safe integer');
+    }
+    return this.db!.transaction((): ReconnectState => {
+      const highWater = this.db!.prepare(
+        'SELECT COALESCE(MAX(seq), 0) AS cursor FROM events WHERE session_id = ?',
+      ).get(sessionId) as { cursor: number };
+      const cursor = Number(highWater.cursor);
+      const cursorValid = afterSeq <= cursor;
+      const events = cursorValid
+        ? (
+            this.db!.prepare(
+              `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+             FROM events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
+            ).all(sessionId, afterSeq, cursor) as EventRow[]
+          ).map(rowToEvent)
+        : [];
+      const sessionRow = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+      const session = sessionRow ? rowToSession(sessionRow) : null;
+      const providerAttempts =
+        session?.executionId && session.executionGeneration > 0
+          ? this.getProviderAttempts({
+              sessionId,
+              executionId: session.executionId,
+              generation: session.executionGeneration,
+            })
+          : [];
+      return {
+        session,
+        events,
+        cursor,
+        cursorValid,
+        providerAttempts,
+      };
+    })();
   }
 
   /** Persist a validated draft or activate Symposium on an existing session.

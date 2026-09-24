@@ -55,6 +55,52 @@ describe('EventStore', () => {
       expect(events[0].type).toBe('block_delta');
       expect(events[0].payload).toEqual({ delta: 'hello world' });
     });
+
+    it('captures one reconnect boundary with durable state and events after the client cursor', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const firstSeq = store.append('sess-1', 'user_message', {
+        type: 'user_message',
+        sessionId: 'sess-1',
+        messageId: 'u1',
+        text: 'hello',
+      });
+      const execution = store.beginExecution('sess-1', 'execution-1');
+      store.beginProviderAttempt(execution.token, 'attempt-1');
+
+      const snapshot = store.captureReconnectState('sess-1', firstSeq);
+
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.cursor).toBeGreaterThan(firstSeq);
+      expect(snapshot.events.map((event) => event.seq)).toEqual(
+        expect.arrayContaining([execution.seq, snapshot.cursor]),
+      );
+      expect(snapshot.events.every((event) => event.seq <= snapshot.cursor)).toBe(true);
+      expect(snapshot.session).toMatchObject({
+        sessionId: 'sess-1',
+        executionId: 'execution-1',
+        executionGeneration: 1,
+        executionPhase: 'RUNNING',
+      });
+      expect(snapshot.providerAttempts).toMatchObject([
+        {
+          token: {
+            sessionId: 'sess-1',
+            executionId: 'execution-1',
+            generation: 1,
+            providerAttemptId: 'attempt-1',
+            attempt: 1,
+          },
+          phase: 'RUNNING',
+        },
+      ]);
+    });
+
+    it('flags a client cursor beyond the durable high-water mark', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const cursor = store.append('sess-1', 'message_end', { messageId: 'm1' });
+      const snapshot = store.captureReconnectState('sess-1', cursor + 100);
+      expect(snapshot).toMatchObject({ cursor, cursorValid: false, events: [] });
+    });
   });
 
   describe('durable execution state', () => {

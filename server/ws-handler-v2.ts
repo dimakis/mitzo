@@ -343,7 +343,8 @@ export function handleReconnect(
           }
         }
 
-        const events = ctx.eventStore.getEventsAfter(entry.sessionId, entry.lastSeq);
+        const reconnectState = ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
+        const events = reconnectState.events;
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             ...evt.payload,
@@ -351,9 +352,32 @@ export function handleReconnect(
           } as Record<string, unknown>);
         }
 
-        // Reset cursor to last replayed seq — prevents duplicate delivery from
-        // periodic sync. If no events replayed, cursor stays at client's lastSeq.
-        const newCursor = events.length > 0 ? events[events.length - 1].seq : entry.lastSeq;
+        const durableSession = reconnectState.session;
+        if (durableSession?.state) {
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'session_reconnect_snapshot',
+            sessionId: entry.sessionId,
+            cursor: reconnectState.cursor,
+            cursorValid: reconnectState.cursorValid,
+            state: toClientState(durableSession.state),
+            internalState: durableSession.state,
+            ...(durableSession.executionId && durableSession.executionPhase
+              ? {
+                  execution: {
+                    generation: durableSession.executionGeneration,
+                    executionId: durableSession.executionId,
+                    phase: durableSession.executionPhase,
+                    terminalReason: durableSession.executionTerminalReason,
+                  },
+                }
+              : {}),
+            providerAttempts: reconnectState.providerAttempts,
+          });
+        }
+
+        // The snapshot cursor is the transaction's high-water mark, even when
+        // no suffix event needed replay or the client cursor was invalid.
+        const newCursor = reconnectState.cursor;
         ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
         if (found && running) {
@@ -391,7 +415,7 @@ export function handleReconnect(
           });
         }
 
-        const mode = found?.session?.mode ?? ctx.eventStore.getSession(entry.sessionId)?.mode;
+        const mode = found?.session?.mode ?? reconnectState.session?.mode;
         if (mode) {
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'mode_changed',
