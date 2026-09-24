@@ -321,7 +321,6 @@ export function handleReconnect(
             if (oldTransport?.isOpen())
               oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-            denyPendingBySession(entry.sessionId);
           }
 
           // The durable event replay below covers the same events buffered

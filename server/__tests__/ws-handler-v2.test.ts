@@ -4150,6 +4150,40 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('keeps a pending approval actionable when the app resumes on a new connection', () => {
+    const sessionReg = new SessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.register('old-conn:sess-1', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      ownerConnectionId: 'old-conn',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+      transport: oldTransport,
+    });
+    sessionReg.suspend('old-conn:sess-1', 0);
+
+    const ctx = createContext({ sessionRegistry: sessionReg });
+    const transport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', transport);
+    vi.mocked(getPendingRequestsBySession).mockReturnValueOnce([
+      { permId: 'pending-approval', toolName: 'Bash', toolInput: '{}', sessionId: 'sess-1' },
+    ]);
+    vi.mocked(denyPendingBySession).mockClear();
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_request', permId: 'pending-approval' }),
+    );
+  });
+
   it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();
