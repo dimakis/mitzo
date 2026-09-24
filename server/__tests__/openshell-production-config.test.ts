@@ -277,6 +277,8 @@ describe('OpenShell production bundle validation', () => {
     expect(release).toContain('+refs/heads/*:refs/remotes/origin/*');
     expect(release).toContain('canonical runtime .env is missing');
     expect(release).toContain('shlock -f "$LOCK_FILE" -p "$$"');
+    expect(release).toContain('LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"');
+    expect(release).not.toContain('LOCK_FILE="$RELEASE_ROOT');
     expect(release).toContain('mktemp -d "$RELEASE_ROOT/.build.XXXXXX"');
     expect(release).toContain(
       'MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"',

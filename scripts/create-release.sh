@@ -5,7 +5,7 @@ SOURCE_ROOT="${MITZO_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 RUNTIME_ROOT="${MITZO_RUNTIME_ROOT:-$SOURCE_ROOT}"
 SOURCE_REF="${1:-HEAD}"
 RELEASE_ROOT="${MITZO_RELEASE_ROOT:-$HOME/tools/mitzo-releases}"
-LOCK_FILE="$RELEASE_ROOT/.deploy.lock"
+LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"
 RELEASE_TEMP=""
 
 mkdir -p "$RELEASE_ROOT"
