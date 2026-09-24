@@ -49,7 +49,7 @@ describe('useFileNavigation session root', () => {
       const params = new URL(directoryCall![0] as string, 'https://mitzo.test').searchParams;
       expect(params.get('sessionId')).toBe('session-1');
       expect(params.has('root')).toBe(false);
-      expect(params.has('dir')).toBe(false);
+      expect(params.get('dir')).toBe('');
     });
   });
 });
