@@ -45,7 +45,7 @@ services:
   # Experiment tracking for knowledge space V-learning and prompt tuning.
   # Uses SQLite backend (single-writer, adequate for local dev).
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.22.0
+    image: ghcr.io/mlflow/mlflow:v3.16.1
     restart: always
     ports:
       - '5050:5000' # 5050 externally — 5000 conflicts with macOS AirPlay
