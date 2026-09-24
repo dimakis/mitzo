@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -293,7 +293,100 @@ describe('OpenShell production bundle validation', () => {
     expect(release.indexOf('mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"')).toBeGreaterThan(
       release.indexOf('node scripts/verify-openshell-production.mjs .env'),
     );
+    const guard = readFileSync(
+      new URL('../../scripts/assert-deployable.sh', import.meta.url),
+      'utf8',
+    );
+    expect(guard).toContain('fetch --prune "$DEPLOY_REMOTE"');
+    expect(guard).toContain('"refs/remotes/$DEPLOY_REMOTE"');
   });
+
+  it('refreshes publication and main ancestry before accepting a release', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-deploy-guard-'));
+    const remote = join(root, 'origin.git');
+    const source = join(root, 'source');
+    const release = join(root, 'release');
+    const repoRoot = new URL('../..', import.meta.url).pathname;
+
+    execFileSync('git', ['init', '--bare', remote]);
+    execFileSync('git', ['clone', '--no-local', repoRoot, source]);
+    execFileSync('git', ['-C', source, 'remote', 'set-url', 'origin', remote]);
+    execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
+    execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
+    cpSync(
+      join(repoRoot, 'scripts/assert-deployable.sh'),
+      join(source, 'scripts/assert-deployable.sh'),
+    );
+    execFileSync('git', ['-C', source, 'add', 'scripts/assert-deployable.sh']);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'deploy guard fixture',
+    ]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/main']);
+    const main = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'published feature',
+    ]);
+    const feature = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/review-fixture']);
+    execFileSync('git', ['clone', '--no-local', remote, release]);
+    execFileSync('git', ['-C', release, 'checkout', '--detach', feature]);
+    const tree = execFileSync('git', ['-C', release, 'rev-parse', 'HEAD^{tree}'], {
+      encoding: 'utf8',
+    }).trim();
+    writeFileSync(
+      join(release, 'release.txt'),
+      `source_commit=${feature}\nbase_main=${main}\nsource_tree=${tree}\n`,
+    );
+
+    let result = spawnSync('bash', [join(release, 'scripts/assert-deployable.sh')], {
+      encoding: 'utf8',
+    });
+    expect(result.status, result.stderr).toBe(0);
+
+    execFileSync('git', ['-C', source, 'push', 'origin', '--delete', 'review-fixture']);
+    result = spawnSync('bash', [join(release, 'scripts/assert-deployable.sh')], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('is not published on a remote branch');
+
+    execFileSync('git', ['-C', source, 'push', 'origin', `${feature}:refs/heads/review-fixture`]);
+    execFileSync('git', ['-C', source, 'checkout', '--detach', main]);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--allow-empty',
+      '-m',
+      'new main',
+    ]);
+    execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/main']);
+    result = spawnSync('bash', [join(release, 'scripts/assert-deployable.sh')], {
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('does not contain current origin/main');
+  }, 15_000);
 
   it('retains the published feature ref when releasing from a detached checkout', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-detached-release-'));
@@ -380,5 +473,5 @@ describe('OpenShell production bundle validation', () => {
     );
     expect(mainResult.status, mainResult.stderr).toBe(73);
     expect(readFileSync(mainMarker, 'utf8')).toBe('ok');
-  });
+  }, 15_000);
 });
