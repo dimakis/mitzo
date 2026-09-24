@@ -42,6 +42,17 @@ afterEach(() => {
 });
 
 describe('generateWorktreeManifest', () => {
+  it('records an unavailable configured repository instead of silently treating it as empty', () => {
+    const missing = join(temporaryDirectory('mitzo-worktree-manifest-missing-'), 'not-present');
+
+    const manifest = generateWorktreeManifest({ repositories: [missing] });
+
+    expect(manifest.entries).toEqual([]);
+    expect(manifest.repositoryResults).toEqual([
+      { repository: missing, status: 'unavailable', error: 'path-not-found', entries: 0 },
+    ]);
+  });
+
   it('records conservative evidence without refreshing linked-worktree Git metadata', () => {
     const repository = initializeRepository();
     const worktrees = join(repository, '.claude', 'worktrees');

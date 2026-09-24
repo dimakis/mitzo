@@ -171,10 +171,18 @@ export function createWorktreeRecoveryPackage(
     if (!evidence) throw new Error(`${path} is not eligible for recovery packaging`);
     return fileRecord(worktree, evidence);
   });
-  const trackedFiles = entry.files
-    .filter((file) => file.kinds.includes('staged') || file.kinds.includes('modified'))
-    .filter((file) => file.hashStatus === 'hashed')
-    .map((file) => fileRecord(worktree, file));
+  const trackedEvidence = entry.files.filter(
+    (file) => file.kinds.includes('staged') || file.kinds.includes('modified'),
+  );
+  const unsupportedTracked = trackedEvidence.find(
+    (file) => file.hashStatus !== 'hashed' || !file.sha256,
+  );
+  if (unsupportedTracked) {
+    throw new Error(
+      `tracked path is not eligible for verified recovery packaging: ${unsupportedTracked.path}`,
+    );
+  }
+  const trackedFiles = trackedEvidence.map((file) => fileRecord(worktree, file));
 
   const createdAt = options.createdAt ?? new Date();
   const packageName =

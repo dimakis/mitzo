@@ -72,6 +72,12 @@ export interface WorktreeManifest {
   generatedAt: string;
   readOnly: true;
   repositories: string[];
+  repositoryResults: Array<{
+    repository: string;
+    status: 'scanned' | 'unavailable';
+    error?: 'path-not-found' | 'not-a-git-repository';
+    entries: number;
+  }>;
   entries: WorktreeManifestEntry[];
 }
 
@@ -348,8 +354,32 @@ export function generateWorktreeManifest(
   });
   const notices = noticeIndex(options.inboxDirectories ?? []);
   const entries: WorktreeManifestEntry[] = [];
+  const repositoryResults: WorktreeManifest['repositoryResults'] = [];
 
   for (const repository of repositories) {
+    if (!existsSync(repository)) {
+      repositoryResults.push({
+        repository,
+        status: 'unavailable',
+        error: 'path-not-found',
+        entries: 0,
+      });
+      continue;
+    }
+    try {
+      if (git(repository, ['rev-parse', '--is-inside-work-tree']).trim() !== 'true') {
+        throw new Error('not a worktree');
+      }
+    } catch {
+      repositoryResults.push({
+        repository,
+        status: 'unavailable',
+        error: 'not-a-git-repository',
+        entries: 0,
+      });
+      continue;
+    }
+    const entryCountBefore = entries.length;
     const registered = registeredWorktrees(repository);
     const managedPaths = new Set(listPhysicalWorktrees(repository));
     const paths = new Set(managedPaths);
@@ -429,6 +459,11 @@ export function generateWorktreeManifest(
         recoveryLocation: null,
       });
     }
+    repositoryResults.push({
+      repository,
+      status: 'scanned',
+      entries: entries.length - entryCountBefore,
+    });
   }
 
   return {
@@ -436,6 +471,7 @@ export function generateWorktreeManifest(
     generatedAt: now.toISOString(),
     readOnly: true,
     repositories,
+    repositoryResults,
     entries: entries.sort((left, right) => left.path.localeCompare(right.path)),
   };
 }

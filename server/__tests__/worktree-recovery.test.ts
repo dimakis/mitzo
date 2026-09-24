@@ -118,4 +118,21 @@ describe('worktree recovery package', () => {
     ).toThrow('not eligible for recovery packaging');
     expect(existsSync(join(packages, 'must-not-exist'))).toBe(false);
   });
+
+  it('rejects tracked changes that cannot be verified with a working-tree hash', () => {
+    const { repository, worktree } = fixture();
+    rmSync(join(worktree, 'unstaged.txt'));
+    const entry = generateWorktreeManifest({ repositories: [repository] }).entries[0];
+    const packages = temporaryDirectory('mitzo-worktree-recovery-deleted-');
+
+    expect(() =>
+      createWorktreeRecoveryPackage({
+        entry,
+        destinationRoot: packages,
+        selectedUntrackedPaths: ['notes.md'],
+        packageName: 'must-not-exist',
+      }),
+    ).toThrow('tracked path is not eligible for verified recovery packaging: unstaged.txt');
+    expect(existsSync(join(packages, 'must-not-exist'))).toBe(false);
+  });
 });
