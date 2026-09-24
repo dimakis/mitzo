@@ -17,6 +17,7 @@ import type {
   PublicCapabilityTemplate,
   PublicProviderTemplate,
 } from './types.js';
+import { assertCompleteApprovalProjection } from './capabilities/approval-contract.js';
 
 type BoundHandler<T> = Readonly<{
   templateKey: string;
@@ -35,7 +36,7 @@ export type ReviewedHandlerBindings = Readonly<{
 }>;
 
 const symbolicIdentifier = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
-const SymbolicIdentifier = z.string().regex(symbolicIdentifier);
+const SymbolicIdentifier = z.string().max(120).regex(symbolicIdentifier);
 const TemplateReferenceSchema = z
   .object({ id: SymbolicIdentifier, version: z.number().int().positive() })
   .strict();
@@ -127,7 +128,7 @@ const JsonSchemaSchema = z
 const CapabilityTemplateSchema = z
   .object({
     id: SymbolicIdentifier,
-    version: z.number().int().positive(),
+    version: z.number().int().positive().max(999_999_999),
     label: z.string().min(1).max(120),
     description: z.string().min(1).max(500),
     connectionTemplates: z.array(TemplateReferenceSchema).min(1).max(20),
@@ -280,6 +281,7 @@ function parseCapabilityTemplate(value: unknown): CapabilityTemplate {
   if (!parsed.success) throw new Error('Invalid capability template');
   const template = parsed.data as CapabilityTemplate;
   uniqueTemplateReferences(template.connectionTemplates, 'capability provider template reference');
+  assertCompleteApprovalProjection(template.inputSchema);
   return Object.freeze({
     ...template,
     connectionTemplates: Object.freeze(
@@ -582,17 +584,35 @@ const providers: readonly ProviderTemplate[] = [
       {
         key: 'endpoint',
         label: 'HTTPS endpoint',
-        description: 'Exact public HTTPS origin; private, local, and IP hosts are rejected.',
+        description:
+          'Exact public HTTPS origin without a port; the reviewed port is selected separately.',
         kind: 'url',
         required: true,
       },
       {
-        key: 'methods',
-        label: 'Read methods',
-        description: 'Only reviewed read methods are available.',
+        key: 'port',
+        label: 'HTTPS port',
+        description: 'Only the administrator-reviewed TLS ports are available.',
         kind: 'enum-list',
         required: true,
-        choices: ['GET', 'HEAD', 'OPTIONS'],
+        choices: ['443', '8443'],
+      },
+      {
+        key: 'protocol',
+        label: 'Inspection protocol',
+        description:
+          'REST permits read methods; GraphQL permits only query inspection at /graphql.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['rest', 'graphql'],
+      },
+      {
+        key: 'methods',
+        label: 'Read methods',
+        description: 'GET, HEAD, and OPTIONS are available for REST; GraphQL uses GRAPHQL_QUERY.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['GET', 'HEAD', 'OPTIONS', 'GRAPHQL_QUERY'],
       },
       {
         key: 'paths',
@@ -600,6 +620,47 @@ const providers: readonly ProviderTemplate[] = [
         description: 'Exact absolute paths, with an optional terminal `/**` wildcard only.',
         kind: 'string-list',
         required: true,
+      },
+      {
+        key: 'credentialStyle',
+        label: 'Credential style',
+        description: 'A one-shot token can be compiled only as a reviewed bearer or API token.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['bearer-token', 'api-token'],
+      },
+      {
+        key: 'credentialLocation',
+        label: 'Credential location',
+        description: 'The token is sent only in the selected reviewed header or query position.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['header', 'query'],
+      },
+      {
+        key: 'credentialName',
+        label: 'Credential mapping',
+        description: 'Select a reviewed mapping compatible with the selected credential location.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['authorization', 'x-api-key', 'api_key', 'access_token'],
+      },
+      {
+        key: 'binaries',
+        label: 'Approved sandbox binaries',
+        description: 'Only administrator-catalog binaries are compiled into the provider policy.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['curl', 'jq', 'python3'],
+      },
+      {
+        key: 'attachmentMode',
+        label: 'Attachment mode',
+        description:
+          'Automatic attaches to eligible new conversations; on-demand requires an explicit grant.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['automatic', 'on-demand'],
       },
     ],
     policyCompiler: 'custom-rest-readonly-v1',
@@ -619,10 +680,10 @@ const capabilities: readonly CapabilityTemplate[] = [
       type: 'object',
       properties: {
         connectionId: { type: 'string', minLength: 1, maxLength: 128 },
-        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
-        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
-        title: { type: 'string', minLength: 1, maxLength: 256 },
-        body: { type: 'string', maxLength: 65_536 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
+        title: { type: 'string', minLength: 1, maxLength: 128 },
+        body: { type: 'string', maxLength: 512 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -730,17 +791,35 @@ const reviewedProviderContracts = Object.freeze({
       {
         key: 'endpoint',
         label: 'HTTPS endpoint',
-        description: 'Exact public HTTPS origin; private, local, and IP hosts are rejected.',
+        description:
+          'Exact public HTTPS origin without a port; the reviewed port is selected separately.',
         kind: 'url',
         required: true,
       },
       {
-        key: 'methods',
-        label: 'Read methods',
-        description: 'Only reviewed read methods are available.',
+        key: 'port',
+        label: 'HTTPS port',
+        description: 'Only the administrator-reviewed TLS ports are available.',
         kind: 'enum-list',
         required: true,
-        choices: ['GET', 'HEAD', 'OPTIONS'],
+        choices: ['443', '8443'],
+      },
+      {
+        key: 'protocol',
+        label: 'Inspection protocol',
+        description:
+          'REST permits read methods; GraphQL permits only query inspection at /graphql.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['rest', 'graphql'],
+      },
+      {
+        key: 'methods',
+        label: 'Read methods',
+        description: 'GET, HEAD, and OPTIONS are available for REST; GraphQL uses GRAPHQL_QUERY.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['GET', 'HEAD', 'OPTIONS', 'GRAPHQL_QUERY'],
       },
       {
         key: 'paths',
@@ -748,6 +827,47 @@ const reviewedProviderContracts = Object.freeze({
         description: 'Exact absolute paths, with an optional terminal `/**` wildcard only.',
         kind: 'string-list',
         required: true,
+      },
+      {
+        key: 'credentialStyle',
+        label: 'Credential style',
+        description: 'A one-shot token can be compiled only as a reviewed bearer or API token.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['bearer-token', 'api-token'],
+      },
+      {
+        key: 'credentialLocation',
+        label: 'Credential location',
+        description: 'The token is sent only in the selected reviewed header or query position.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['header', 'query'],
+      },
+      {
+        key: 'credentialName',
+        label: 'Credential mapping',
+        description: 'Select a reviewed mapping compatible with the selected credential location.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['authorization', 'x-api-key', 'api_key', 'access_token'],
+      },
+      {
+        key: 'binaries',
+        label: 'Approved sandbox binaries',
+        description: 'Only administrator-catalog binaries are compiled into the provider policy.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['curl', 'jq', 'python3'],
+      },
+      {
+        key: 'attachmentMode',
+        label: 'Attachment mode',
+        description:
+          'Automatic attaches to eligible new conversations; on-demand requires an explicit grant.',
+        kind: 'enum-list',
+        required: true,
+        choices: ['automatic', 'on-demand'],
       },
     ],
     capabilityTemplates: [],
@@ -765,10 +885,10 @@ const reviewedCapabilityContracts = Object.freeze({
       type: 'object',
       properties: {
         connectionId: { type: 'string', minLength: 1, maxLength: 128 },
-        repositoryPath: { type: 'string', minLength: 1, maxLength: 1024 },
-        baseBranch: { type: 'string', minLength: 1, maxLength: 255 },
-        title: { type: 'string', minLength: 1, maxLength: 256 },
-        body: { type: 'string', maxLength: 65_536 },
+        repositoryPath: { type: 'string', minLength: 1, maxLength: 256 },
+        baseBranch: { type: 'string', minLength: 1, maxLength: 128 },
+        title: { type: 'string', minLength: 1, maxLength: 128 },
+        body: { type: 'string', maxLength: 512 },
         draft: { type: 'boolean' },
       },
       required: ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body', 'draft'],
@@ -806,8 +926,15 @@ const githubCompilerGoldenOutput = compilerGoldenOutput({
 });
 const customRestCompilerGoldenOutput = compilerGoldenOutput({
   endpoint: 'https://api.openai.com',
+  port: '8443',
+  protocol: 'rest',
   methods: ['HEAD', 'GET'],
   paths: ['/', '/v1/**'],
+  credentialStyle: 'bearer-token',
+  credentialLocation: 'header',
+  credentialName: 'authorization',
+  binaries: ['curl', 'jq'],
+  attachmentMode: 'on-demand',
 });
 const probeGoldenOutput = (template: ProviderTemplate | CapabilityTemplate, handler: Probe) =>
   handler(template as ProviderTemplate);
@@ -837,7 +964,7 @@ const compilers: Readonly<Record<string, BoundHandler<PolicyCompiler>>> = nullPr
     'custom-rest-readonly@1',
     reviewedProviderContracts['custom-rest-readonly@1'],
     reviewedHandlerImplementationRevision,
-    '8c3824d0fb89e7cafa1842a19db3d66061f002d4392a7b7305c1cea0bda48df8',
+    '5c12dd81d64bb7bec938a5a1cb4319086066ba35a96383474b684c9f48f324df',
     customRestCompilerGoldenOutput,
     compileCustomRestReadonly,
   ),

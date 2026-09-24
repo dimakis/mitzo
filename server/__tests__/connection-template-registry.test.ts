@@ -32,6 +32,7 @@ import {
   reviewedHandlerBindings,
   validateVersionedTemplateRelationships,
 } from '../connections/registry.js';
+import type { JsonSchema } from '../connections/types.js';
 
 const jira = connectionTemplateRegistry.getProviderTemplate('jira-readonly', 1)!;
 const github = connectionTemplateRegistry.getProviderTemplate('github-readonly', 1)!;
@@ -540,6 +541,59 @@ describe('connection template registry', () => {
     ).toEqual(['head', 'Head', 'a'.repeat(39), 'a'.repeat(41), `${'a'.repeat(39)}g`]);
   });
 
+  it('compiles the full operator custom-builder schema with no wildcard escape hatch', () => {
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'custom-rest-readonly',
+      templateVersion: 1,
+      fields: {
+        endpoint: 'https://xn--bcher-kva.com',
+        port: '8443',
+        protocol: 'rest',
+        methods: ['GET', 'HEAD'],
+        paths: ['/v1/items', '/v1/metadata'],
+        credentialStyle: 'api-token',
+        credentialLocation: 'query',
+        credentialName: 'api_key',
+        binaries: ['curl', 'jq'],
+        attachmentMode: 'on-demand',
+      },
+    });
+    expect(policy.endpoints[0]).toMatchObject({
+      host: 'xn--bcher-kva.com',
+      port: 8443,
+      protocol: 'rest',
+      redirects: 'deny',
+      allowedBinaries: ['/usr/bin/curl', '/usr/bin/jq'],
+    });
+    expect(policy.publicConfig).toMatchObject({ attachmentMode: 'on-demand', port: '8443' });
+    expect(
+      connectionTemplateRegistry.compileProviderPolicy({
+        templateId: 'custom-rest-readonly',
+        templateVersion: 1,
+        fields: { ...policy.publicConfig, dnsPin: ['1.1.1.1'] },
+      }).endpoints[0],
+    ).toMatchObject({ host: 'xn--bcher-kva.com', port: 8443 });
+    for (const path of ['/v1/*', '/v1/**', '/v1/./items', '/v1/../items'])
+      expect(() =>
+        connectionTemplateRegistry.compileProviderPolicy({
+          templateId: 'custom-rest-readonly',
+          templateVersion: 1,
+          fields: {
+            endpoint: 'https://api.example.com',
+            port: '443',
+            protocol: 'rest',
+            methods: ['GET'],
+            paths: [path],
+            credentialStyle: 'bearer-token',
+            credentialLocation: 'header',
+            credentialName: 'authorization',
+            binaries: ['curl'],
+            attachmentMode: 'automatic',
+          },
+        }),
+      ).toThrow();
+  });
+
   it('fails closed for own-property handler lookup and bidirectional relationship drift', () => {
     expect(() =>
       createConnectionTemplateRegistry({
@@ -666,6 +720,14 @@ describe('connection template registry', () => {
         sources['policy-compiler.ts'].replace('ambiguousGithubBaseBranches.has(value)', 'false'),
       ),
     ).not.toBe(reviewedHandlerSourceArtifacts['policy-compiler.ts']);
+    expect(
+      reviewedHandlerSourceFingerprint(
+        sources['capabilities/github-publish-pr-transport.ts'].replace(
+          'exec /usr/bin/git "$@"',
+          'exec /bin/sh "$@"',
+        ),
+      ),
+    ).not.toBe(reviewedHandlerSourceArtifacts['capabilities/github-publish-pr-transport.ts']);
   });
 
   it('fails closed for duplicate and malformed manifests', () => {
@@ -706,6 +768,40 @@ describe('connection template registry', () => {
         ],
       }),
     ).toThrow('Invalid capability template');
+    const tooWideInputSchema: JsonSchema = {
+      type: 'object',
+      properties: Object.fromEntries(
+        Array.from({ length: 13 }, (_, index) => [
+          `actionableField${index}`,
+          { type: 'string', maxLength: 512 },
+        ]),
+      ),
+      required: Array.from({ length: 13 }, (_, index) => `actionableField${index}`),
+      additionalProperties: false,
+    };
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [{ ...githubPublish, inputSchema: tooWideInputSchema }],
+      }),
+    ).toThrow('cannot fit a complete approval projection');
+    const tooManyOptionalFlags: JsonSchema = {
+      type: 'object',
+      properties: Object.fromEntries(
+        Array.from({ length: 547 }, (_, index) => [
+          `actionableFlag${index}`,
+          { type: 'boolean' as const },
+        ]),
+      ),
+      required: [],
+      additionalProperties: false,
+    };
+    expect(() =>
+      createConnectionTemplateRegistry({
+        providers: [github],
+        capabilities: [{ ...githubPublish, inputSchema: tooManyOptionalFlags }],
+      }),
+    ).toThrow('cannot fit a complete approval projection');
     expect(() =>
       createConnectionTemplateRegistry({
         providers: [github],
