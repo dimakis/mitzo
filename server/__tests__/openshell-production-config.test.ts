@@ -89,11 +89,19 @@ describe('OpenShell production bundle validation', () => {
     expect(() => verifyOpenAiHeaderAuthentication(profile)).not.toThrow();
   });
 
+  it('accepts omitted false-default flags from the gateway protobuf export', () => {
+    const endpoint: Record<string, unknown> = { ...headerProfile.endpoints[0] };
+    delete endpoint.request_body_credential_rewrite;
+    delete endpoint.allow_uninspected_credentials;
+    expect(() =>
+      verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [endpoint] }),
+    ).not.toThrow();
+  });
+
   it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
-    'rejects live OpenAI profile drift omitting %s',
+    'rejects live OpenAI profile drift enabling %s',
     (flag) => {
-      const endpoint: Record<string, unknown> = { ...headerProfile.endpoints[0] };
-      delete endpoint[flag];
+      const endpoint: Record<string, unknown> = { ...headerProfile.endpoints[0], [flag]: true };
       expect(() =>
         verifyOpenAiHeaderAuthentication({ ...headerProfile, endpoints: [endpoint] }),
       ).toThrow(/OpenAI/);

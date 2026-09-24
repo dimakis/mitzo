@@ -148,9 +148,11 @@ function verifyOpenAiEndpoints(endpoints) {
       endpoint.protocol === 'rest' && endpoint.enforcement === 'enforce' && endpoint.port === 443,
       'OpenAI endpoint must enforce inspected REST on port 443',
     );
+    // These protobuf bools default to false and are omitted by the gateway's
+    // JSON export when disabled. Only an explicit opt-in is unsafe here.
     invariant(
-      endpoint.request_body_credential_rewrite === false &&
-        endpoint.allow_uninspected_credentials === false,
+      endpoint.request_body_credential_rewrite !== true &&
+        endpoint.allow_uninspected_credentials !== true,
       'OpenAI endpoint must use header authentication without body credential rewriting or inspection bypass',
     );
   }
