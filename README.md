@@ -161,6 +161,8 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
+For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
+
 **Key Hooks:**
 
 - `useChatMessages` — v2 protocol message reducer (MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE)
