@@ -71,6 +71,9 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -217,7 +220,10 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+      );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -255,6 +261,7 @@ app.use(cookieParser());
 // is injected from index after explicit feature configuration; importing app
 // never creates a database or starts a gateway process.
 let connectionsRouter: express.Router | null = null;
+let capabilityOperationsRouter: express.Router | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
   setActiveConnectionsRuntime(runtime);
   connectionsRouter = runtime
@@ -265,6 +272,51 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         gateway: runtime.gateway,
         workspace: runtime.workspace,
         legacyProviders: runtime.legacyProviders,
+        capabilities: runtime.capabilities,
+      })
+    : null;
+  capabilityOperationsRouter = runtime
+    ? createCapabilityOperationsRouter({
+        service: runtime.capabilities,
+        resolveConversationBinding: (req, res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          const live = getLiveCapabilityConversationBinding(conversationId);
+          if (!accountId || !live || live.accountId !== accountId) return undefined;
+          return {
+            accountId,
+            connectionId: live.connectionId,
+            connectionRevision: live.connectionRevision,
+          };
+        },
+        resolveConversationReadBinding: (req, _res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
+        sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+        approveForConversation: (conversationId) =>
+          capabilityApprovalForConversation(registry, conversationId),
       })
     : null;
 }
@@ -275,6 +327,11 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
         'Connections is not configured. Set MITZO_CONNECTIONS_ENABLED=1 with the reviewed OpenShell Jira profile before enabling it.',
     });
   return connectionsRouter(req, res, next);
+});
+app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+  if (!capabilityOperationsRouter)
+    return res.status(503).json({ error: 'Capability operations are not configured.' });
+  return capabilityOperationsRouter(req, res, next);
 });
 app.use(express.json({ limit: '10mb' }));
 

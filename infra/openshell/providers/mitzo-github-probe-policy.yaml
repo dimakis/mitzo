@@ -1,0 +1,20 @@
+version: 1
+filesystem_policy:
+  include_workdir: false
+  read_only: [/usr, /lib, /proc, /dev/urandom, /etc]
+  read_write: [/tmp, /dev/null]
+landlock:
+  compatibility: best_effort
+network_policies:
+  github_identity:
+    name: github-identity-readonly
+    endpoints:
+      - host: api.github.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        tls: terminate
+        rules:
+          - allow: { method: GET, path: /user }
+    binaries:
+      - { path: /usr/bin/python3 }

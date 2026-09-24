@@ -1477,7 +1477,12 @@ it('uses canonical display names while executing the original wire tool', async 
     { threadId: 'provider-thread', turnId: 'turn-1', callId: 'tool', tool: 'Read', arguments: {} },
     new AbortController().signal,
   );
-  expect(execute).toHaveBeenCalledWith('Read', {}, expect.anything());
+  expect(execute).toHaveBeenCalledWith(
+    'Read',
+    {},
+    expect.anything(),
+    expect.objectContaining({ turnId: 'turn-1', callId: 'tool' }),
+  );
   expect(events).toContainEqual(
     expect.objectContaining({
       type: 'stream_event',

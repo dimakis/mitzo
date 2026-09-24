@@ -25,6 +25,18 @@ function setup() {
     { name: string; phase: string; labels: Record<string, string> }
   >();
   const gateway: ConnectionGateway = {
+    supportsTemplate: vi.fn(
+      (templateId: string, templateVersion: number) =>
+        templateId === 'jira-readonly' && templateVersion === 1,
+    ),
+    validateBinding: vi.fn(({ provider }: { provider: GatewayProvider }) => {
+      if (
+        provider.type !== 'jira-readonly' ||
+        provider.credentialKeys.length !== 1 ||
+        provider.credentialKeys[0] !== 'JIRA_API_TOKEN'
+      )
+        throw new Error('Managed provider credential binding changed');
+    }),
     verifyCompatibility: vi.fn(),
     provision: vi.fn(async ({ name }) => {
       const value = provider(name);
@@ -81,7 +93,16 @@ function setup() {
       { operation: 'provision', outcome: 'success', actor: 'operator' },
     );
   };
-  return { directory, store, service, gateway, sandboxes, sandboxProviders, createActive };
+  return {
+    directory,
+    store,
+    service,
+    gateway,
+    providers,
+    sandboxes,
+    sandboxProviders,
+    createActive,
+  };
 }
 
 describe('connections runtime integration', () => {
@@ -103,6 +124,7 @@ describe('connections runtime integration', () => {
       await test.service.verifyRuntimeSandbox(
         'new-conversation',
         resolved,
+        'work',
         AbortSignal.timeout(500),
       );
     });
@@ -113,9 +135,30 @@ describe('connections runtime integration', () => {
     test.sandboxes.set('retained', { name: 'retained', phase: 'Ready', labels: {} });
     test.sandboxProviders.set('retained', []);
     await expect(
-      test.service.verifyRuntimeSandbox('retained', connection, AbortSignal.timeout(500)),
+      test.service.verifyRuntimeSandbox('retained', connection, 'work', AbortSignal.timeout(500)),
     ).rejects.toThrow('permissions changed');
   });
+
+  it.each([
+    { label: 'missing', credentialKeys: [] },
+    { label: 'wrong', credentialKeys: ['WRONG_TOKEN'] },
+  ])(
+    'blocks runtime use when the managed Jira provider has invalid credential keys: $label',
+    async ({ credentialKeys }) => {
+      const test = setup();
+      cleanups.push(test);
+      const connection = test.createActive();
+      test.providers.set(connection.gatewayProviderName, {
+        ...provider(connection.gatewayProviderName),
+        credentialKeys: [...credentialKeys],
+      });
+      const work = vi.fn();
+      await expect(
+        test.service.withAccountRuntime('work', work, AbortSignal.timeout(500)),
+      ).rejects.toThrow('credential binding changed');
+      expect(work).not.toHaveBeenCalled();
+    },
+  );
 
   it('serializes revoke behind an in-flight runtime ensure callback', async () => {
     const test = setup();
@@ -150,13 +193,18 @@ describe('connections runtime integration', () => {
     test.sandboxes.set('reconnect', { name: 'reconnect', phase: 'Ready', labels: {} });
     test.sandboxProviders.set('reconnect', [connection.gatewayProviderName]);
     await test.service.withAccountRuntime('work', async (resolved) => {
-      await test.service.verifyRuntimeSandbox('reconnect', resolved, AbortSignal.timeout(500));
+      await test.service.verifyRuntimeSandbox(
+        'reconnect',
+        resolved,
+        'work',
+        AbortSignal.timeout(500),
+      );
     });
 
     // A reconnect after revocation resolves no grant and must not accept the retained attachment.
     test.sandboxProviders.set('reconnect', [connection.gatewayProviderName]);
     await expect(
-      test.service.verifyRuntimeSandbox('reconnect', null, AbortSignal.timeout(500)),
+      test.service.verifyRuntimeSandbox('reconnect', null, 'work', AbortSignal.timeout(500)),
     ).rejects.toThrow('permissions changed');
   });
 
@@ -203,7 +251,7 @@ describe('connections runtime integration', () => {
     ).ensure('conversation', AbortSignal.timeout(500));
     expect(checks).toHaveLength(2);
     expect(policyState.write).toHaveBeenCalledWith(expect.any(String), {
-      automatic: [],
+      automatic: ['mitzo-conn-12345678'],
       granted: [],
     });
     const create = run.mock.calls[2][0] as string[];

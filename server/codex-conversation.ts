@@ -43,6 +43,8 @@ interface Options {
     name: string,
     input: ObjectValue,
     signal: AbortSignal,
+    /** Identifiers verified against the active provider turn, never model input. */
+    context: { turnId: string; callId: string },
   ): Promise<{ content: string; isError: boolean }>;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
@@ -1141,7 +1143,10 @@ export class CodexConversation {
     );
     let result: { content: string; isError: boolean };
     try {
-      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal);
+      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, {
+        turnId: call.turnId,
+        callId: call.callId,
+      });
     } catch {
       result = {
         content: 'Tool failed or was interrupted. Inspect current state before retrying.',

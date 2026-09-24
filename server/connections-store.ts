@@ -10,6 +10,8 @@ export interface Connection {
   templateVersion: number;
   label: string;
   endpoint: string;
+  /** Validated template fields only. Secret request values never enter this record. */
+  publicConfig: Record<string, string | string[]>;
   gatewayProviderName: string;
   gatewayProviderId: string | null;
   gateway: string;
@@ -65,6 +67,24 @@ const statuses = new Set<ConnectionStatus>([
   'revoked',
 ]);
 function row(row: Record<string, unknown>): Connection {
+  let publicConfig: Record<string, string | string[]>;
+  try {
+    const value = JSON.parse((row.public_config as string | undefined) ?? '{}') as unknown;
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.values(value as Record<string, unknown>).some(
+        (item) =>
+          typeof item !== 'string' &&
+          (!Array.isArray(item) || item.some((entry) => typeof entry !== 'string')),
+      )
+    )
+      throw new Error('invalid public config');
+    publicConfig = value as Record<string, string | string[]>;
+  } catch {
+    throw new Error('Stored connection public configuration is invalid');
+  }
   return {
     id: row.id as string,
     ownerId: row.owner_id as string,
@@ -72,6 +92,7 @@ function row(row: Record<string, unknown>): Connection {
     templateVersion: row.template_version as number,
     label: row.label as string,
     endpoint: row.endpoint as string,
+    publicConfig,
     gatewayProviderName: row.gateway_provider_name as string,
     gatewayProviderId: row.gateway_provider_id as string | null,
     gateway: row.gateway as string,
@@ -97,7 +118,7 @@ export class ConnectionStore {
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('busy_timeout = 5000');
     this.db
-      .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, archived_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+      .exec(`CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, template_id TEXT NOT NULL, template_version INTEGER NOT NULL, label TEXT NOT NULL, endpoint TEXT NOT NULL, public_config TEXT NOT NULL DEFAULT '{}', gateway_provider_name TEXT NOT NULL UNIQUE, gateway_provider_id TEXT, gateway TEXT NOT NULL DEFAULT 'openshell', workspace TEXT NOT NULL DEFAULT 'default', submitted_email TEXT NOT NULL DEFAULT '', status TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), desired_account_ids TEXT NOT NULL, identity TEXT, verified_at INTEGER, error_code TEXT, archived_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_audit (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), revision INTEGER NOT NULL, operation TEXT NOT NULL, outcome TEXT NOT NULL, actor TEXT NOT NULL, affected_refs TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_probe_operations (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL REFERENCES connections(id), provider_name TEXT NOT NULL, sandbox_name TEXT NOT NULL UNIQUE, gateway TEXT NOT NULL, workspace TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS connection_assignment_operations (connection_id TEXT PRIMARY KEY REFERENCES connections(id), account_ids TEXT NOT NULL, removed_ids TEXT NOT NULL);
@@ -108,6 +129,7 @@ export class ConnectionStore {
       "ALTER TABLE connections ADD COLUMN gateway TEXT NOT NULL DEFAULT 'openshell'",
       "ALTER TABLE connections ADD COLUMN workspace TEXT NOT NULL DEFAULT 'default'",
       "ALTER TABLE connections ADD COLUMN submitted_email TEXT NOT NULL DEFAULT ''",
+      "ALTER TABLE connections ADD COLUMN public_config TEXT NOT NULL DEFAULT '{}'",
       'ALTER TABLE connections ADD COLUMN archived_at INTEGER',
     ])
       try {
@@ -115,6 +137,11 @@ export class ConnectionStore {
       } catch {
         /* existing schema */
       }
+    // Legacy managed rows were Jira-only and kept the account email in a dedicated
+    // column.  Preserve their exact effective access under the neutral field map.
+    this.db.exec(
+      "UPDATE connections SET public_config=json_object('email', submitted_email) WHERE template_id='jira-readonly' AND public_config='{}' AND submitted_email != ''",
+    );
   }
   startAssignment(connection: Connection, accountIds: string[], removedIds: string[]) {
     return this.database().transaction(() => {
@@ -347,14 +374,19 @@ export class ConnectionStore {
       | 'gatewayProviderName'
       | 'desiredAccountIds'
     > &
-      Partial<Pick<Connection, 'gateway' | 'workspace' | 'submittedEmail'>>,
+      Partial<Pick<Connection, 'gateway' | 'workspace' | 'submittedEmail' | 'publicConfig'>>,
   ): Connection {
     const now = Date.now();
     const id = randomUUID();
     const db = this.database();
+    const publicConfig =
+      input.publicConfig ??
+      (input.templateId === 'jira-readonly' && input.submittedEmail
+        ? { email: input.submittedEmail }
+        : {});
     const transaction = db.transaction(() => {
       db.prepare(
-        'INSERT INTO connections (id, owner_id, template_id, template_version, label, endpoint, gateway_provider_name, gateway_provider_id, gateway, workspace, submitted_email, status, revision, desired_account_ids, identity, verified_at, error_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, ?, NULL, NULL, NULL, ?, ?)',
+        'INSERT INTO connections (id, owner_id, template_id, template_version, label, endpoint, public_config, gateway_provider_name, gateway_provider_id, gateway, workspace, submitted_email, status, revision, desired_account_ids, identity, verified_at, error_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, 1, ?, NULL, NULL, NULL, ?, ?)',
       ).run(
         id,
         input.ownerId,
@@ -362,6 +394,7 @@ export class ConnectionStore {
         input.templateVersion,
         input.label,
         input.endpoint,
+        JSON.stringify(publicConfig),
         input.gatewayProviderName,
         input.gateway ?? 'openshell',
         input.workspace ?? 'default',
