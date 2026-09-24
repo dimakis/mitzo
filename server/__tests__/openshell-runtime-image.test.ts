@@ -57,17 +57,18 @@ describe('OpenShell runtime image builder', () => {
     const build = readFileSync(builder, 'utf8');
     expect(dockerfile).toContain('COPY pyproject.toml uv.lock /opt/mgmt-deps/');
     expect(dockerfile).toContain(
-      'UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+      'UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project',
     );
     expect(dockerfile).toContain(
-      'RUN cd /opt/mgmt-deps \\\n    && uv lock \\\n    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --frozen --no-dev --no-install-project',
+      'RUN cd /opt/mgmt-deps \\\n    && uv lock --no-cache \\\n    && UV_PROJECT_ENVIRONMENT=/opt/mgmt-venv uv sync --no-cache --frozen --no-dev --no-install-project',
     );
     expect(dockerfile).toContain(
       'COPY jira_process/pyproject.toml jira_process/uv.lock /opt/mgmt-jira-runtime/',
     );
     expect(dockerfile).toContain(
-      'UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --frozen --no-dev --no-install-project',
+      'UV_PYTHON=/usr/bin/python3 UV_NO_MANAGED_PYTHON=1 UV_PROJECT_ENVIRONMENT=/opt/mgmt-jira-venv uv sync --no-cache --frozen --no-dev --no-install-project',
     );
+    expect(dockerfile.match(/uv (?:lock|sync) --no-cache/g)).toHaveLength(3);
     expect(dockerfile).toContain(
       'find /opt/mgmt-jira-venv/lib -mindepth 2 -maxdepth 2 -type d -name site-packages -print',
     );

@@ -172,6 +172,16 @@ export function verifyOpenAiHeaderAuthentication(profile) {
   verifyOpenAiEndpoints(profile.endpoints ?? []);
 }
 
+export function verifyPreparedSeed(seedPath, expectedCommit) {
+  const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
+  invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
+  const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
+  invariant(
+    seedBaseline.startingCommit === expectedCommit,
+    'prepared seed commit does not match the stack lock',
+  );
+}
+
 export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   const envPath = resolve(argv[0] ?? resolve(repoRoot, '.env'));
   // The release-owned file is authoritative for deploy-critical values. This
@@ -194,13 +204,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     sha256(policyPath) === manifest.policy.sha256,
     'sandbox policy hash does not match the stack lock',
   );
-  const seedBaselinePath = resolve(seedPath, '..', 'baseline.json');
-  invariant(existsSync(seedBaselinePath), 'prepared seed baseline.json does not exist');
-  const seedBaseline = JSON.parse(readFileSync(seedBaselinePath, 'utf8'));
-  invariant(
-    seedBaseline.startingCommit === manifest.runtime.mgmtSourceCommit,
-    'prepared seed commit does not match the stack lock',
-  );
+  verifyPreparedSeed(seedPath, manifest.runtime.mgmtSourceCommit);
 
   const openshell = required(config, 'MITZO_OPENSHELL_CLI');
   invariant(isAbsolute(openshell), 'MITZO_OPENSHELL_CLI must be absolute');
