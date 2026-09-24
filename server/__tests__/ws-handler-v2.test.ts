@@ -80,7 +80,6 @@ import {
   dispatchV2Message,
   scheduleV2Message,
   getOwnerConnection,
-  claimWebSearchConsentOwner,
   serializeSessionPermissionChange,
   detectStateMismatch,
   type V2HandlerContext,
@@ -973,6 +972,26 @@ describe('live provider mode changes', () => {
     expect(setPermissionMode).not.toHaveBeenCalled();
     releaseGrant();
     await Promise.all([grant, mode]);
+    expect(setPermissionMode).toHaveBeenCalledWith('agent');
+  });
+
+  it('still applies a queued mode change after a web-search grant fails', async () => {
+    let rejectGrant!: (error: Error) => void;
+    const gate = new Promise<void>((_resolve, reject) => {
+      rejectGrant = reject;
+    });
+    const setPermissionMode = vi.fn().mockResolvedValue(undefined);
+    const { ctx, sessionReg } = setup(setPermissionMode);
+    const session = sessionReg.findBySessionId('sess-1').session;
+    const grant = serializeSessionPermissionChange(session, () => gate);
+    const mode = handleSetModeV2(
+      'c1',
+      { type: 'set_mode', sessionId: 'sess-1', mode: 'agent' },
+      ctx,
+    );
+    rejectGrant(new Error('Grant update failed'));
+    await expect(grant).rejects.toThrow('Grant update failed');
+    await expect(mode).resolves.toMatchObject({ ok: true, applied: true });
     expect(setPermissionMode).toHaveBeenCalledWith('agent');
   });
 
@@ -2556,56 +2575,6 @@ describe('handleSendV2 connection ownership', () => {
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
-  });
-
-  it('transfers an idle Codex consent session to a watching connection', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-    (denyPendingBySession as ReturnType<typeof vi.fn>).mockClear();
-    const sessionReg = mockSessionRegistry();
-    const oldTransport = mockTransport();
-    const session = {
-      transport: oldTransport,
-      ownerConnectionId: 'old-owner',
-      queryInstance: { canSetWebSearchGrant: () => true },
-    };
-    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-owner:sess-1', session });
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    const watcher = mockTransport();
-    ctx.connRegistry.register('new-owner', watcher);
-    ctx.connRegistry.watch('new-owner', 'sess-1');
-    ctx.connRegistry.register('old-owner', oldTransport);
-    ctx.connRegistry.watch('old-owner', 'sess-1');
-
-    expect(claimWebSearchConsentOwner('new-owner', 'sess-1', ctx)).toBe(true);
-    expect(reattachChat).toHaveBeenCalledWith('old-owner:sess-1', watcher);
-    expect(session.ownerConnectionId).toBe('new-owner');
-    expect(oldTransport.sent).toContainEqual({ type: 'session_takeover', sessionId: 'sess-1' });
-    expect(ctx.connRegistry.get('old-owner')?.watchedSessions.has('sess-1')).toBe(false);
-    expect(ctx.connRegistry.get('new-owner')?.activeSession).toBe('sess-1');
-    expect(denyPendingBySession).toHaveBeenCalledWith('sess-1');
-  });
-
-  it('does not transfer consent ownership to a non-watcher or during a turn', () => {
-    (reattachChat as ReturnType<typeof vi.fn>).mockClear();
-    const sessionReg = mockSessionRegistry();
-    sessionReg.findBySessionId.mockReturnValue({
-      clientId: 'old-owner:sess-1',
-      session: {
-        transport: mockTransport(),
-        ownerConnectionId: 'old-owner',
-        queryInstance: { canSetWebSearchGrant: () => false },
-      },
-    });
-    const ctx = createContext({
-      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
-    });
-    ctx.connRegistry.register('new-owner', mockTransport());
-    expect(claimWebSearchConsentOwner('new-owner', 'sess-1', ctx)).toBe(false);
-    ctx.connRegistry.watch('new-owner', 'sess-1');
-    expect(claimWebSearchConsentOwner('new-owner', 'sess-1', ctx)).toBe(false);
-    expect(reattachChat).not.toHaveBeenCalled();
   });
 
   it('allows send when owner connection is gone (same device reconnect)', () => {

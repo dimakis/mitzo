@@ -857,7 +857,6 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') =>
       runtime.setWebSearchGrant(expectedRevision, grant),
     getWebSearchGrant: () => runtime.getWebSearchGrant(),
-    canSetWebSearchGrant: () => runtime.canSetWebSearchGrant(),
     interrupt: () => runtime.interrupt(),
     close,
     stopTask: async () => {

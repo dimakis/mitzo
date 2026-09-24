@@ -76,7 +76,7 @@ it('keeps choices unavailable during a turn and explains Ask mode', async () => 
   });
 });
 
-it('keeps consent visible for a watcher and explains that an update takes control', async () => {
+it('keeps consent visible for a watcher without taking control', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce({
       ok: true,
@@ -88,7 +88,10 @@ it('keeps consent visible for a watcher and explains that an update takes contro
         owner: false,
       }),
     } as Response)
-    .mockResolvedValueOnce(response('allowed', 1));
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ ok: true, grant: 'allowed', revision: 1, updatedAt: 123, owner: false }),
+    } as Response);
   render(
     <WebSearchConsent
       sessionId="session-1"
@@ -99,9 +102,24 @@ it('keeps consent visible for a watcher and explains that an update takes contro
     />,
   );
   fireEvent.click(await screen.findByRole('button', { name: 'Web search permission: Choose' }));
-  expect(screen.getByText(/take control of this conversation/)).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: 'Allow and take control' }));
+  expect(screen.getByText(/applies to the conversation in all tabs/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Allow for this conversation' }));
   await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+});
+
+it('shows the current consent during a running turn while keeping edits disabled', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response('denied', 3));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="watcher"
+      running
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Web search permission: Denied' }));
+  expect(screen.getByRole('button', { name: 'Deny' }).hasAttribute('disabled')).toBe(true);
 });
 
 it('does not show the control for a session without a Codex grant', async () => {

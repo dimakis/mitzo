@@ -28,7 +28,6 @@ vi.mock('../ws-handler-v2.js', async (importOriginal) => {
     handleSessionSuspend: vi.fn(),
     handleSessionClose: vi.fn(),
     handleReconnect: vi.fn(),
-    claimWebSearchConsentOwner: vi.fn().mockReturnValue(true),
     serializeSessionPermissionChange: vi.fn((_session, action) => action()),
   };
 });
@@ -45,7 +44,6 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
-  claimWebSearchConsentOwner,
   serializeSessionPermissionChange,
 } from '../ws-handler-v2.js';
 
@@ -497,7 +495,7 @@ describe('chat-rest-handler', () => {
     }
   });
 
-  it('lets a watching connection read consent and explicitly claim ownership on update', async () => {
+  it('lets a watching connection read and update consent without taking ownership', async () => {
     const sessions = new SessionRegistry();
     handlerContext.sessionRegistry = sessions;
     const setWebSearchGrant = vi.fn(async () => ({
@@ -511,7 +509,6 @@ describe('chat-rest-handler', () => {
       abortController: new AbortController(),
       queryInstance: {
         getWebSearchGrant: () => ({ grant: 'unresolved', revision: 0, updatedAt: null }),
-        canSetWebSearchGrant: () => true,
         setWebSearchGrant,
       },
     } as never);
@@ -531,7 +528,7 @@ describe('chat-rest-handler', () => {
         .set('X-Connection-ID', watcher)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
       expect(update.status).toBe(200);
-      expect(claimWebSearchConsentOwner).toHaveBeenCalledWith(watcher, 'sess-1', handlerContext);
+      expect(update.body.owner).toBe(false);
       expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
     } finally {
       sessions.dispose();

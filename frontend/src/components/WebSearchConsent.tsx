@@ -40,11 +40,11 @@ export function WebSearchConsent({
 
   useEffect(() => {
     let cancelled = false;
-    if (!sessionId || !connected || !connectionId || running) return;
+    if (!sessionId || !connected || !connectionId) return;
     const controller = new AbortController();
     void (async () => {
       try {
-        // The session switch can reach the UI before the server attaches its owner.
+        // The session switch can reach the UI before the Codex runtime is ready.
         for (const delay of [0, 500, 1500]) {
           if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
           if (cancelled) return;
@@ -135,9 +135,7 @@ export function WebSearchConsent({
               mode.
             </p>
           )}
-          {!consent.owner && (
-            <p>Changing this setting will take control of this conversation in this tab.</p>
-          )}
+          {!consent.owner && <p>This setting applies to the conversation in all tabs.</p>}
           <div className="web-search-consent-actions">
             <button
               type="button"
@@ -145,7 +143,7 @@ export function WebSearchConsent({
               aria-pressed={consent.grant === 'allowed'}
               onClick={() => void update('allowed')}
             >
-              {consent.owner ? 'Allow for this conversation' : 'Allow and take control'}
+              Allow for this conversation
             </button>
             <button
               type="button"
@@ -153,7 +151,7 @@ export function WebSearchConsent({
               aria-pressed={consent.grant === 'denied'}
               onClick={() => void update('denied')}
             >
-              {consent.owner ? 'Deny' : 'Deny and take control'}
+              Deny
             </button>
           </div>
           {(saving || running) && <span role="status">Changes are available between turns.</span>}

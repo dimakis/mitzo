@@ -39,7 +39,6 @@ import {
   handleSessionClose,
   handleReconnect,
   getOwnerConnection,
-  claimWebSearchConsentOwner,
   serializeSessionPermissionChange,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
@@ -396,20 +395,19 @@ export function createChatRestRouter(
         if (msg.grant === 'allowed' && found.session.mode === 'ask')
           throw new Error('Switch to Agent or Auto before allowing web search');
         const currentOwner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
-        if (currentOwner !== connectionId) {
-          const current = found.session.queryInstance?.getWebSearchGrant?.();
-          if (
-            !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId) ||
-            !current ||
-            current.revision !== msg.expectedRevision ||
-            !found.session.queryInstance?.canSetWebSearchGrant?.() ||
-            !claimWebSearchConsentOwner(connectionId, msg.sessionId, ctx)
-          )
-            throw new Error('Cannot take control for web-search consent right now');
-        }
+        if (
+          currentOwner !== connectionId &&
+          !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
+        )
+          throw new Error('Connection no longer watches this conversation');
         return found.session.queryInstance!.setWebSearchGrant!(msg.expectedRevision, msg.grant);
       });
-      res.json({ ok: true, ...updated, owner: true });
+      res.json({
+        ok: true,
+        ...updated,
+        owner:
+          (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId,
+      });
     } catch (error) {
       log.warn('web-search consent update rejected', {
         connectionId,

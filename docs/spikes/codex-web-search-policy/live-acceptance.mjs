@@ -54,10 +54,23 @@ async function closeClient() {
   const previous = child;
   previous.removeAllListeners('exit');
   const exited = new Promise((resolve) => previous.once('exit', resolve));
-  previous.kill();
-  await exited;
-  output.close();
-  child = undefined;
+  let timeout;
+  try {
+    previous.kill();
+    await Promise.race([
+      exited,
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => {
+          previous.kill('SIGKILL');
+          reject(new Error('app-server did not exit after 5 seconds'));
+        }, 5000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    output.close();
+    child = undefined;
+  }
 }
 function rejectAll(error) {
   for (const item of pending.values()) item.reject(error);
@@ -231,6 +244,9 @@ try {
   if (forkSearch.searched) throw new Error('Disabled fork emitted a webSearch item');
   process.stdout.write('disabled=fork:no-web-search\n');
 } finally {
-  await closeClient();
-  rmSync(root, { recursive: true, force: true });
+  try {
+    await closeClient();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 }
