@@ -12,7 +12,11 @@ import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import { CodexAppServerClient, CodexRequestError } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  CodexRequestError,
+  SUPPORTED_CODEX_CLI_VERSION,
+} from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import { CodexConversationStore } from './codex-conversation-store.js';
 import type { CodexAccountProfile } from './codex-account.js';
@@ -570,6 +574,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     profile: options.profile,
     storedBinding: options.binding,
     store: privateStorage,
+    webSearchBackend: openShell ? 'openshell' : 'host',
+    webSearchDeploymentRevision: openShell
+      ? 'openshell-runtime-config-v1'
+      : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
+    getMode: () => options.session.mode,
     systemPrompt:
       options.systemPrompt +
       (connectedOpenShell

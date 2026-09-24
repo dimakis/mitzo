@@ -5,6 +5,9 @@ Status: accepted contract spike for Telos outcome `11241b89c0aac3df`.
 ## Supported protocol
 
 Mitzo's host and OpenShell Codex runtimes are pinned to `codex-cli 0.153.4`.
+The host launcher runs `codex --version` and refuses to start if the executable
+does not match that exact reviewed version. The lifecycle probe performs the
+same check before opening app-server stdio.
 The checked-in contract fixture was reduced from the schema emitted by:
 
 ```sh
@@ -50,6 +53,8 @@ choices:
 - Allow provider-hosted web access for this conversation.
 
 There is no “allow once” option because the pinned protocol cannot enforce it.
+Ask, Agent, and Auto conversations all begin unresolved and therefore run with
+native search disabled; selecting Auto is not treated as web-access consent.
 If exact-query approval is required later, Mitzo must disable native search and
 provide a brokered `WebSearch` tool/backend that it controls before dispatch.
 

@@ -1,11 +1,30 @@
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { z } from 'zod';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+
+export const SUPPORTED_CODEX_CLI_VERSION = '0.153.4';
+
+export function assertSupportedCodexCliVersion(output: string): void {
+  const version = /^codex-cli\s+(\S+)\s*$/.exec(output)?.[1];
+  if (version !== SUPPORTED_CODEX_CLI_VERSION)
+    throw new Error(`Unsupported Codex CLI version; expected ${SUPPORTED_CODEX_CLI_VERSION}`);
+}
+
+function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv): void {
+  const result = spawnSync('codex', ['--version'], {
+    env: base,
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  if (result.error || result.status !== 0)
+    throw new Error('Unable to verify the Codex CLI version');
+  assertSupportedCodexCliVersion(result.stdout);
+}
 
 type JsonObject = Record<string, unknown>;
 interface RpcProcess extends EventEmitter {
@@ -299,6 +318,7 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
   ) {
+    assertHostCodexRuntimeVersion(base);
     return new CodexAppServerClient(
       spawn(
         'codex',

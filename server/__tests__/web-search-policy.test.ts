@@ -68,10 +68,10 @@ describe('server-owned web-search policy', () => {
     ).toMatchObject({ effective: 'disabled', reason: 'mode_ceiling' });
   });
 
-  it('seeds only new Auto conversations from their mode default', () => {
+  it('requires explicit consent for every new conversation mode', () => {
     expect(initialWebSearchGrant('ask')).toBe('unresolved');
     expect(initialWebSearchGrant('agent')).toBe('unresolved');
-    expect(initialWebSearchGrant('auto')).toBe('allowed');
+    expect(initialWebSearchGrant('auto')).toBe('unresolved');
   });
 
   it('binds deployment, mode, backend, and grant revisions into the fingerprint', () => {

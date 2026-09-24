@@ -108,6 +108,8 @@ async function setup(
       model: 'test-model',
     },
     store,
+    getMode: () => 'agent',
+    webSearchDeploymentRevision: 'test-deployment-1',
     systemPrompt: 'context',
     displayToolName,
     beforeComplete,
@@ -342,7 +344,7 @@ it('does not send an empty environments override that disables built-in Codex to
   const turn = requests.find((request) => request.method === 'turn/start');
   expect(thread?.params).not.toHaveProperty('environments');
   expect(turn?.params).not.toHaveProperty('environments');
-  expect(thread?.params).toMatchObject({ config: { web_search: 'live' } });
+  expect(thread?.params).toMatchObject({ config: { web_search: 'disabled' } });
 });
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
@@ -848,6 +850,7 @@ it('moves an old conversation to a new thread generation before accepting the ne
     async () => binding,
     beforeReconnect,
   );
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
   await c.send({ id: 'good', prompt: 'establish context' });
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
@@ -877,7 +880,7 @@ it('moves an old conversation to a new thread generation before accepting the ne
   expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
     threadId: 'provider-thread',
     lastTurnId: 'turn-1',
-    config: { web_search: 'live' },
+    config: { web_search: 'disabled' },
   });
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread-fork-1',
@@ -1123,6 +1126,7 @@ it('tolerates the transport closing while interrupt is in flight', async () => {
 
 it('resumes durable queued work after replacing the runtime and acknowledging recovery', async () => {
   const old = await setup();
+  old.store.setWebSearchGrant('app', old.getBinding(), 0, 'allowed', 123);
   await old.c.send({ id: 'first', prompt: 'first' });
   await old.c.send({ id: 'next', prompt: 'next' });
   old.c.close();

@@ -1,8 +1,21 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import readline from 'node:readline';
+
+const supportedCodexVersion = '0.153.4';
+const version = spawnSync('codex', ['--version'], { encoding: 'utf8', timeout: 5000 });
+if (
+  version.error ||
+  version.status !== 0 ||
+  version.stdout.trim() !== `codex-cli ${supportedCodexVersion}`
+) {
+  process.stderr.write(
+    `Expected codex-cli ${supportedCodexVersion}; refusing unreviewed runtime\n`,
+  );
+  process.exit(1);
+}
 
 const root = mkdtempSync(join(tmpdir(), 'mitzo-web-search-contract-'));
 const codexHome = join(root, 'codex-home');

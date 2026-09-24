@@ -38,13 +38,9 @@ export const DEFAULT_WEB_SEARCH_MODE_CEILINGS: Readonly<Record<MitzoMode, WebSea
   auto: 'live',
 };
 
-/**
- * New Auto conversations may receive an automatic mode-default grant. Agent
- * and Ask conversations start unresolved. Legacy migrations never call this:
- * their database default is deliberately unresolved, regardless of mode.
- */
-export function initialWebSearchGrant(mode: MitzoMode): WebSearchGrant {
-  return mode === 'auto' ? 'allowed' : 'unresolved';
+/** Every conversation requires an explicit web-search consent decision. */
+export function initialWebSearchGrant(_mode: MitzoMode): WebSearchGrant {
+  return 'unresolved';
 }
 
 export function resolveWebSearchPolicy(input: WebSearchPolicyInput): ResolvedWebSearchPolicy {

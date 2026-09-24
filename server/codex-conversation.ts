@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { CodexUserInput } from './codex-user-input.js';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { ToolDefinition } from '@mitzo/harness';
 import { CodexRequestError, type CodexLifecycleTransport } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
@@ -12,6 +12,7 @@ import {
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
+import { resolveWebSearchPolicy, type WebSearchBackend } from './web-search-policy.js';
 type ObjectValue = Record<string, unknown>;
 interface Rpc {
   initialize(): Promise<void>;
@@ -49,6 +50,9 @@ interface Options {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
+  webSearchBackend?: WebSearchBackend;
+  webSearchDeploymentRevision?: string;
+  getMode?: () => MitzoMode;
   turnSandboxPolicy?: Record<string, unknown>;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
@@ -225,7 +229,7 @@ export class CodexConversation {
       this.opts.runtimeConfig ??
       codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
     const modelProvider = this.opts.modelProvider ?? 'openai';
-    const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
+    const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
     const replacingFailedThread = !!state.threadId && state.recoveryStrategy === 'fork';
     const result = replacingFailedThread
       ? await this.replaceFailedProviderThread(this.client, state, threadOptions)
@@ -441,7 +445,7 @@ export class CodexConversation {
         codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
       const modelProvider = this.opts.modelProvider ?? 'openai';
       const state = this.opts.store.read(this.opts.conversationId, this.binding);
-      const threadOptions = this.threadOptions(runtimeConfig, modelProvider);
+      const threadOptions = this.threadOptions(runtimeConfig, modelProvider, state);
       const replacingProviderThread = state.recoveryStrategy === 'fork';
       if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
       const result = replacingProviderThread
@@ -475,12 +479,32 @@ export class CodexConversation {
     }
   }
 
-  private threadOptions(runtimeConfig: Record<string, unknown>, modelProvider: string) {
+  private threadOptions(
+    runtimeConfig: Record<string, unknown>,
+    modelProvider: string,
+    state: ReturnType<CodexConversationStore['read']>,
+  ) {
+    const backend = this.opts.webSearchBackend ?? 'host';
+    const deploymentRevision = this.opts.webSearchDeploymentRevision ?? `${backend}:unversioned`;
+    const policy = resolveWebSearchPolicy({
+      backend,
+      deploymentCeiling:
+        this.opts.webSearchDeploymentRevision && runtimeConfig.web_search === 'live'
+          ? 'live'
+          : 'disabled',
+      deploymentRevision,
+      mode: this.opts.getMode?.() ?? 'ask',
+      conversationGrant: {
+        grant: state.webSearchGrant,
+        revision: state.webSearchGrantRevision,
+        updatedAt: state.webSearchGrantUpdatedAt,
+      },
+    });
     return {
       model: this.binding!.model,
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      config: runtimeConfig,
+      config: { ...runtimeConfig, web_search: policy.effective },
       approvalPolicy: 'never',
       sandbox: 'read-only',
       developerInstructions: this.opts.systemPrompt,
