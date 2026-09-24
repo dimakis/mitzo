@@ -40,8 +40,8 @@
     "webSearch": "live"
   },
   "supervisor": {
-    "image": "localhost/openshell/supervisor:mitzo-header-auth-6ed9a64-20260923",
-    "digest": "sha256:79b6fcbfacf35ac6831c98ae4d4198865be6fd0c54713b5358ebe5c79685ace0",
-    "sourceCommit": "6ed9a64"
+    "image": "localhost/openshell/supervisor:mitzo-header-auth-6ed9a64-20260924",
+    "digest": "sha256:cb2e79db0d4f6475ae9901871d555511ba5e79a6f279f4e43bd42a86fe1d2d82",
+    "sourceCommit": "6ed9a64473615e05224a67b8cee49579a7cf95bc"
   }
 }

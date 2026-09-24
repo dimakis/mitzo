@@ -5,17 +5,19 @@ SOURCE_ROOT="${MITZO_SOURCE_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 RUNTIME_ROOT="${MITZO_RUNTIME_ROOT:-$SOURCE_ROOT}"
 SOURCE_REF="${1:-HEAD}"
 RELEASE_ROOT="${MITZO_RELEASE_ROOT:-$HOME/tools/mitzo-releases}"
-LOCK_DIR="$RELEASE_ROOT/.deploy.lock"
+LOCK_FILE="$RELEASE_ROOT/.deploy.lock"
+RELEASE_TEMP=""
 
 mkdir -p "$RELEASE_ROOT"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+if ! shlock -f "$LOCK_FILE" -p "$$"; then
   echo "Refusing release: another Mitzo deployment is active" >&2
   exit 1
 fi
 cleanup() {
   local status=$?
   trap - EXIT INT TERM HUP
-  rmdir "$LOCK_DIR" 2>/dev/null || true
+  if [ -n "$RELEASE_TEMP" ] && [ -d "$RELEASE_TEMP" ]; then rm -rf -- "$RELEASE_TEMP"; fi
+  rm -f -- "$LOCK_FILE"
   exit "$status"
 }
 trap cleanup EXIT
@@ -75,10 +77,10 @@ manifest_value() {
       "$STACK_MANIFEST" "$1"
 }
 
-rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"
-rewrite_env_value MITZO_OPENSHELL_POLICY "$FINAL_RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
-rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$FINAL_RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
-rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$FINAL_RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"
+rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$RELEASE_DIR/infra/openshell/production-stack.lock.json"
+rewrite_env_value MITZO_OPENSHELL_POLICY "$RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
+rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
+rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"
 rewrite_env_value MITZO_OPENSHELL_IMAGE "$(manifest_value runtime.image)"
 rewrite_env_value OPENSHELL_WORKSPACE "$(manifest_value defaults.workspace)"
 rewrite_env_value MITZO_OPENSHELL_WEB_SEARCH "$(manifest_value defaults.webSearch)"
@@ -102,8 +104,13 @@ EOF
   node scripts/verify-openshell-production.mjs .env
 )
 
+rewrite_env_value MITZO_OPENSHELL_STACK_MANIFEST "$FINAL_RELEASE_DIR/infra/openshell/production-stack.lock.json"
+rewrite_env_value MITZO_OPENSHELL_POLICY "$FINAL_RELEASE_DIR/docs/spikes/openshell-codex/openshell-openai-api-policy.yaml"
+rewrite_env_value MITZO_CONNECTIONS_JIRA_PROFILE_PATH "$FINAL_RELEASE_DIR/infra/openshell/providers/mitzo-jira-readonly.yaml"
+rewrite_env_value MITZO_CONNECTIONS_PROBE_POLICY "$FINAL_RELEASE_DIR/infra/openshell/providers/mitzo-jira-probe-policy.yaml"
 mv "$RELEASE_DIR" "$FINAL_RELEASE_DIR"
 rmdir "$RELEASE_TEMP"
+RELEASE_TEMP=""
 RELEASE_DIR="$FINAL_RELEASE_DIR"
 
 (

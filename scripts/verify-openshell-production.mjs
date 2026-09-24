@@ -286,7 +286,7 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     'runtime image base provenance does not match the stack lock',
   );
   invariant(
-    manifest.supervisor.image.includes(manifest.supervisor.sourceCommit),
+    manifest.supervisor.image.includes(manifest.supervisor.sourceCommit.slice(0, 7)),
     'supervisor image tag does not identify the pinned source commit',
   );
   const supervisorDigest = run(podman, [
@@ -299,6 +299,17 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
   invariant(
     supervisorDigest === manifest.supervisor.digest,
     'local supervisor image digest does not match the stack lock',
+  );
+  const supervisorSourceCommit = run(podman, [
+    'image',
+    'inspect',
+    manifest.supervisor.image,
+    '--format',
+    '{{ index .Labels "org.opencontainers.image.revision" }}',
+  ]);
+  invariant(
+    supervisorSourceCommit === manifest.supervisor.sourceCommit,
+    'local supervisor image source revision does not match the stack lock',
   );
   const liveSupervisorDigest = run(podman, [
     'image',
