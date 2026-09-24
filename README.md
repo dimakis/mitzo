@@ -271,11 +271,18 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
-Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
-current `origin/main`, requires the selected commit to contain it and to be
-published on a remote branch, creates a self-contained detached release clone, records full
-commit/tree/base provenance in `release.txt`, and only then builds and updates
-launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+Production artifacts are staged with
+`./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
+clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
+the immutable image and seed, updates the stack lock and environment example
+together, and runs focused tests. It never deploys; its generated diff is
+reviewed and merged first.
+
+Production deploys use `./scripts/create-release.sh origin/main`. The command
+fetches only current `origin/main`, refuses every other commit, creates a
+self-contained detached release clone, records full commit/tree/base provenance
+in `release.txt`, and only then builds and updates launchd. `scripts/deploy.sh`
+fails closed when those invariants are absent.
 For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
 to the canonical installation that owns `.env` and `certs`; runtime material
 is never taken from the feature checkout. Paths for checked-in stack locks,

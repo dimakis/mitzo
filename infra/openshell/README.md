@@ -58,30 +58,37 @@ file remains the optional observability stack.
 
 ## Release workflow
 
-1. Merge the runtime changes and build a uniquely tagged image with
-   `docs/spikes/openshell-codex/build-mgmt-runtime.sh`. The builder requires an
-   immutable base digest and labels the image with the Mitzo commit, MGMT
-   commit, and base image.
-2. Prepare a fresh seed with
-   `docs/spikes/openshell-codex/prepare-mgmt-seed.sh`. Never point production at
-   the live host MGMT checkout.
-3. Import/update reviewed provider profiles, configure gateway-owned credential
-   refresh, and set `providers_v2_enabled=true` globally.
-4. Populate the ignored account-profile file. Every OpenAI API account must name
-   its sandbox provider. Every personal subscription account must use a complete
-   `openai-codex-oauth` provider/grant binding and must not retain a host
-   `credentialRef`.
-5. Update the stack lock with the actual image digest and policy hash.
-6. Create the immutable release with `MITZO_RELEASE_SEED` set to the new
+1. Merge the runtime changes so the clean Mitzo and MGMT checkouts are both at
+   current `origin/main`.
+2. Stage the immutable image, prepared seed, synchronized stack lock and
+   environment example, and focused verification with one command:
+
+   ```bash
+   ./scripts/stage-openshell-release.sh \
+     /absolute/path/to/clean/mgmt \
+     /absolute/path/to/new/immutable-seed
+   ```
+
+   This command never deploys. It fails closed on dirty or stale checkouts,
+   existing artifact names, image provenance drift, a legacy todo skill in the
+   seed, or failed tests. Review and merge its generated lock diff.
+3. If provider or account bindings changed, import the reviewed profiles and
+   update the ignored account-profile file. Otherwise retain the already pinned
+   gateway state. Every OpenAI API account must name its sandbox provider; every
+   personal subscription account must use a complete `openai-codex-oauth`
+   provider/grant binding and must not retain a host `credentialRef`.
+4. Review and merge the generated stack-lock diff after CI and code review pass.
+5. Create and activate the immutable release from current `origin/main` with
+   `MITZO_RELEASE_SEED` set to the new
    prepared seed's `mgmt` directory. The release command validates the sibling
    `baseline.json`, rewrites only the release copy of `.env`, and runs
    `verify-openshell-production.mjs` against that coherent release before it
    becomes active. It does not modify or preflight against the canonical
    runtime environment, whose old seed intentionally remains paired with the
    old stack lock until the release is ready.
-7. Run a production-shaped controller on a non-production port and create a
-   fresh conversation. After the normal chat, cancellation, retained recovery,
-   and bounded provider checks pass, deploy through the existing launchd flow.
+6. Verify launchd, the HTTPS endpoint, retained sandboxes, and the active
+   release's image/seed/lock wiring. Run a Luna-backed conversation canary only
+   when the release changes model or provider execution behavior.
 
 ## Rollback
 
