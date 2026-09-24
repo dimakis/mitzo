@@ -1704,6 +1704,21 @@ it('queues concurrent prompts and deduplicates reconnect replay', () => {
   expect(state.permission).toBeNull();
 });
 
+it('clears all pending approvals when another connection takes over', () => {
+  const first = { permId: 'p1', toolName: 'Bash', toolInput: 'pwd' };
+  const second = { permId: 'p2', toolName: 'Edit', toolInput: '{}' };
+  let state = messagesReducer(INITIAL_MESSAGES_STATE, {
+    type: 'PERMISSION_REQUEST',
+    payload: first,
+  });
+  state = messagesReducer(state, { type: 'PERMISSION_REQUEST', payload: second });
+
+  state = messagesReducer(state, { type: 'CLEAR_PERMISSIONS' });
+
+  expect(state.permission).toBeNull();
+  expect(state.permissionQueue).toEqual([]);
+});
+
 it('keeps streaming state and the prompt when a permission response is rejected', () => {
   const permission = { permId: 'p1', toolName: 'Bash', toolInput: 'pwd' };
   const state = messagesReducer(

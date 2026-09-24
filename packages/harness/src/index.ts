@@ -30,6 +30,7 @@ export {
   resolvePending,
   removePending,
   hasPending,
+  getPendingSessionId,
   denyPendingBySession,
   getPendingCountBySession,
   getPendingRequestsBySession,
