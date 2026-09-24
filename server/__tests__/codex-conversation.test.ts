@@ -59,7 +59,7 @@ async function setup(
     }),
   );
   const rpc = {
-    initialize: async () => {},
+    initialize: vi.fn(async () => {}),
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
       requests.push({ method, params });
@@ -108,6 +108,8 @@ async function setup(
       model: 'test-model',
     },
     store,
+    getMode: () => 'agent',
+    webSearchDeploymentRevision: 'test-deployment-1',
     systemPrompt: 'context',
     displayToolName,
     beforeComplete,
@@ -177,6 +179,7 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
   });
   store.create('app', binding, '/workspace');
   store.bindThread('app', binding, 'legacy-provider-thread');
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
 
   const first = await setup(store, undefined, undefined, undefined, async () => binding);
 
@@ -184,6 +187,7 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
   expect(first.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
   expect(first.requests.find(({ method }) => method === 'thread/start')?.params).toMatchObject({
     dynamicTools: [expect.objectContaining({ name: 'Read' })],
+    config: { web_search: 'disabled' },
   });
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread',
@@ -399,7 +403,85 @@ it('does not send an empty environments override that disables built-in Codex to
   const turn = requests.find((request) => request.method === 'turn/start');
   expect(thread?.params).not.toHaveProperty('environments');
   expect(turn?.params).not.toHaveProperty('environments');
+  expect(thread?.params).toMatchObject({ config: { web_search: 'disabled' } });
 });
+it('applies explicit web-search consent by reopening the idle thread', async () => {
+  const { c, requests, rpc } = await setup();
+  await expect(c.setWebSearchGrant(0, 'allowed')).resolves.toMatchObject({
+    grant: 'allowed',
+    revision: 1,
+  });
+  expect(rpc.close).toHaveBeenCalledTimes(1);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    threadId: 'provider-thread',
+    config: { web_search: 'live' },
+  });
+  expect(() => c.assertPermissionModeChange('agent')).not.toThrow();
+  expect(() => c.assertPermissionModeChange('ask')).toThrow('start a new conversation');
+  await expect(c.setWebSearchGrant(1, 'denied')).resolves.toMatchObject({
+    grant: 'denied',
+    revision: 2,
+  });
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+});
+it('rejects stale or mid-turn web-search consent without reopening the thread', async () => {
+  const { c, rpc } = await setup();
+  await expect(c.setWebSearchGrant(1, 'allowed')).rejects.toThrow('concurrently');
+  expect(rpc.close).not.toHaveBeenCalled();
+  await c.send({ id: 'active', prompt: 'keep working' });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
+  expect(rpc.close).not.toHaveBeenCalled();
+});
+it('recovers after consent persistence fails following transport retirement', async () => {
+  const { c, store, rpc, requests, getBinding } = await setup();
+  vi.spyOn(store, 'setWebSearchGrant').mockImplementationOnce(() => {
+    throw new Error('persistence failed');
+  });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('persistence failed');
+  expect(c.isPaused()).toBe(true);
+  expect(store.readWebSearchGrant('app', getBinding()).grant).toBe('unresolved');
+  await c.send({ id: 'after-failure', prompt: 'continue' });
+  expect(c.isPaused()).toBe(false);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+  expect(rpc.initialize).toHaveBeenCalledTimes(2);
+});
+it.each(['initialize', 'resume'] as const)(
+  'recovers after consent %s fails with a persisted denial',
+  async (failure) => {
+    const { c, rpc, requests, store, getBinding } = await setup();
+    await c.setWebSearchGrant(0, 'allowed');
+    if (failure === 'initialize') {
+      rpc.initialize.mockRejectedValueOnce(new Error('reopen failed'));
+    } else {
+      const originalRequest = rpc.request.getMockImplementation()!;
+      let failed = false;
+      rpc.request.mockImplementation(async (method, params) => {
+        if (method === 'thread/resume' && !failed) {
+          failed = true;
+          throw new Error('reopen failed');
+        }
+        return originalRequest(method, params);
+      });
+    }
+    await expect(c.setWebSearchGrant(1, 'denied')).rejects.toThrow('reopen failed');
+    expect(c.isPaused()).toBe(true);
+    expect(store.readWebSearchGrant('app', getBinding())).toMatchObject({
+      grant: 'denied',
+      revision: 2,
+    });
+    await c.send({ id: `after-${failure}`, prompt: 'continue' });
+    expect(c.isPaused()).toBe(false);
+    expect(
+      requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params,
+    ).toMatchObject({
+      config: { web_search: 'disabled' },
+    });
+  },
+);
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
   await expect(
@@ -904,6 +986,7 @@ it('moves an old conversation to a new thread generation before accepting the ne
     async () => binding,
     beforeReconnect,
   );
+  store.setWebSearchGrant('app', binding, 0, 'denied', 123);
   await c.send({ id: 'good', prompt: 'establish context' });
   callbacks.onNotification('turn/completed', {
     threadId: 'provider-thread',
@@ -933,6 +1016,7 @@ it('moves an old conversation to a new thread generation before accepting the ne
   expect(requests.find((request) => request.method === 'thread/fork')?.params).toMatchObject({
     threadId: 'provider-thread',
     lastTurnId: 'turn-1',
+    config: { web_search: 'disabled' },
   });
   expect(store.read('app', binding)).toMatchObject({
     threadId: 'provider-thread-fork-1',
@@ -1178,11 +1262,15 @@ it('tolerates the transport closing while interrupt is in flight', async () => {
 
 it('resumes durable queued work after replacing the runtime and acknowledging recovery', async () => {
   const old = await setup();
+  old.store.setWebSearchGrant('app', old.getBinding(), 0, 'allowed', 123);
   await old.c.send({ id: 'first', prompt: 'first' });
   await old.c.send({ id: 'next', prompt: 'next' });
   old.c.close();
   const resumed = await setup(old.store);
   expect(resumed.requests.some((r) => r.method === 'thread/resume')).toBe(true);
+  expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).toMatchObject({
+    config: { web_search: 'live' },
+  });
   expect(resumed.requests.find((r) => r.method === 'thread/resume')?.params).not.toHaveProperty(
     'dynamicTools',
   );

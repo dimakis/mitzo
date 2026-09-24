@@ -38,13 +38,22 @@ import {
   handleSessionSuspend,
   handleSessionClose,
   handleReconnect,
+  getOwnerConnection,
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
 import { createLogger } from './logger.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
+import { z } from 'zod';
 
 const log = createLogger('chat-rest');
+const WebSearchConsent = z
+  .object({
+    sessionId: z.string().min(1).max(200),
+    expectedRevision: z.number().int().nonnegative(),
+    grant: z.enum(['allowed', 'denied']),
+  })
+  .strict();
 
 function getConnectionId(req: Request, res: Response): string | null {
   const connectionId = req.headers['x-connection-id'] as string | undefined;
@@ -334,6 +343,56 @@ export function createChatRestRouter(
     } catch (err) {
       log.error('POST /chat/permission failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
+    }
+  });
+
+  router.get('/web-search-consent/:sessionId', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const found = ctx.sessionRegistry.findBySessionId(String(req.params.sessionId));
+    if (
+      !found ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      !found.session.queryInstance?.getWebSearchGrant
+    ) {
+      res.status(404).json({ ok: false, error: 'Codex conversation not found' });
+      return;
+    }
+    res.json({ ok: true, ...found.session.queryInstance.getWebSearchGrant() });
+  });
+
+  router.post('/web-search-consent', async (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(WebSearchConsent, req.body, res);
+    if (!msg) return;
+    const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+    if (
+      !found ||
+      (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) !== connectionId ||
+      !found.session.queryInstance?.setWebSearchGrant
+    ) {
+      res.status(404).json({ ok: false, error: 'Codex conversation not found' });
+      return;
+    }
+    try {
+      const updated = await found.session.queryInstance.setWebSearchGrant(
+        msg.expectedRevision,
+        msg.grant,
+      );
+      res.json({ ok: true, ...updated });
+    } catch (error) {
+      log.warn('web-search consent update rejected', {
+        connectionId,
+        sessionId: msg.sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      res.status(409).json({
+        ok: false,
+        error: 'Web-search consent changed or the conversation is not between turns',
+      });
     }
   });
 

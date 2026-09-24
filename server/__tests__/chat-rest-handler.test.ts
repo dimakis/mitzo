@@ -424,6 +424,74 @@ describe('chat-rest-handler', () => {
     });
   });
 
+  it('reads and applies revision-checked Codex web-search consent for the owning session', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const getWebSearchGrant = vi.fn(() => ({
+      grant: 'unresolved' as const,
+      revision: 0,
+      updatedAt: null,
+    }));
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      abortController: new AbortController(),
+      observers: new Set(),
+      queryInstance: { getWebSearchGrant, setWebSearchGrant },
+    } as never);
+    try {
+      const current = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      expect(current.status).toBe(200);
+      expect(current.body).toEqual({
+        ok: true,
+        grant: 'unresolved',
+        revision: 0,
+        updatedAt: null,
+      });
+
+      const updated = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(updated.status).toBe(200);
+      expect(updated.body).toMatchObject({ ok: true, grant: 'allowed', revision: 1 });
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+
+      const takeoverConnection = 'conn-takeover';
+      sseRegistry.add(takeoverConnection, mockResponse());
+      connRegistry.register(takeoverConnection, new SseTransport(takeoverConnection, sseRegistry));
+      sessions.get(`${CONNECTION_ID}:sess-1`)!.ownerConnectionId = takeoverConnection;
+
+      const oldOwner = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      expect(oldOwner.status).toBe(404);
+      const oldOwnerUpdate = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(oldOwnerUpdate.status).toBe(404);
+      const newOwnerRead = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', takeoverConnection);
+      expect(newOwnerRead.status).toBe(200);
+      const currentOwner = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', takeoverConnection)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(currentOwner.status).toBe(200);
+      expect(setWebSearchGrant).toHaveBeenCalledTimes(2);
+    } finally {
+      sessions.dispose();
+    }
+  });
+
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
 
   it('POST /mode calls handleSetModeV2', async () => {

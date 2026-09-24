@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   mcpClose: vi.fn(),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
+  assertPermissionModeChange: vi.fn(),
+  setWebSearchGrant: vi.fn(),
+  getWebSearchGrant: vi.fn(),
   store: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
@@ -34,6 +37,9 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    assertPermissionModeChange = mocks.assertPermissionModeChange;
+    setWebSearchGrant = mocks.setWebSearchGrant;
+    getWebSearchGrant = mocks.getWebSearchGrant;
     close = mocks.close;
     send = mocks.send;
   },
