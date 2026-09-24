@@ -424,6 +424,49 @@ describe('chat-rest-handler', () => {
     });
   });
 
+  it('reads and applies revision-checked Codex web-search consent for the owning session', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const getWebSearchGrant = vi.fn(() => ({
+      grant: 'unresolved' as const,
+      revision: 0,
+      updatedAt: null,
+    }));
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'allowed' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(CONNECTION_ID, {
+      sessionId: 'sess-1',
+      abortController: new AbortController(),
+      observers: new Set(),
+      queryInstance: { getWebSearchGrant, setWebSearchGrant },
+    } as never);
+    try {
+      const current = await request(testApp)
+        .get('/api/chat/web-search-consent/sess-1')
+        .set('X-Connection-ID', CONNECTION_ID);
+      expect(current.status).toBe(200);
+      expect(current.body).toEqual({
+        ok: true,
+        grant: 'unresolved',
+        revision: 0,
+        updatedAt: null,
+      });
+
+      const updated = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(updated.status).toBe(200);
+      expect(updated.body).toMatchObject({ ok: true, grant: 'allowed', revision: 1 });
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
+    } finally {
+      sessions.dispose();
+    }
+  });
+
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
 
   it('POST /mode calls handleSetModeV2', async () => {

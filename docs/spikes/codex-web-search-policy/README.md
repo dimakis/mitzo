@@ -15,7 +15,9 @@ codex app-server generate-json-schema --experimental --out <temporary-directory>
 ```
 
 The production OpenShell image independently pins the same CLI version in
-`docs/spikes/openshell-codex/Dockerfile.mgmt-runtime`.
+`docs/spikes/openshell-codex/Dockerfile.mgmt-runtime`. Both sandbox app-server
+launchers also verify the exact version on every launch, so a retained sandbox
+from an older image cannot cross this contract boundary silently.
 
 ## Finding
 
@@ -55,6 +57,11 @@ choices:
 There is no “allow once” option because the pinned protocol cannot enforce it.
 Ask, Agent, and Auto conversations all begin unresolved and therefore run with
 native search disabled; selecting Auto is not treated as web-access consent.
+Authenticated chat clients read the current grant and revision through
+`GET /api/chat/web-search-consent/:sessionId` and submit an explicit Allow or
+Deny through `POST /api/chat/web-search-consent`. Updates are owner-bound,
+revision-checked, accepted only between turns, and applied by reopening the
+provider thread with freshly resolved lifecycle configuration.
 If exact-query approval is required later, Mitzo must disable native search and
 provide a brokered `WebSearch` tool/backend that it controls before dispatch.
 

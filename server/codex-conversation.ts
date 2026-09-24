@@ -12,7 +12,12 @@ import {
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
-import { resolveWebSearchPolicy, type WebSearchBackend } from './web-search-policy.js';
+import {
+  resolveWebSearchPolicy,
+  type PersistedWebSearchGrant,
+  type WebSearchAccess,
+  type WebSearchBackend,
+} from './web-search-policy.js';
 type ObjectValue = Record<string, unknown>;
 interface Rpc {
   initialize(): Promise<void>;
@@ -158,6 +163,8 @@ export class CodexConversation {
   private automaticTransportRecoveryAttempted = false;
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
+  private appliedWebSearchAccess: WebSearchAccess = 'disabled';
+  private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
   constructor(private opts: Options) {
     this.client = this.createClient();
   }
@@ -274,6 +281,40 @@ export class CodexConversation {
    * provider thread. Undefined means no checkpoint/deletion record may exist. */
   getThreadId() {
     return this.threadId;
+  }
+  assertPermissionModeChange(mode: MitzoMode) {
+    if (!this.binding) throw new Error('Codex account binding unavailable');
+    const state = this.opts.store.read(this.opts.conversationId, this.binding);
+    const effective = resolveWebSearchPolicy({
+      backend: this.opts.webSearchBackend ?? 'host',
+      deploymentCeiling: this.webSearchDeploymentCeiling,
+      deploymentRevision: this.opts.webSearchDeploymentRevision ?? 'unversioned',
+      mode,
+      conversationGrant: {
+        grant: state.webSearchGrant,
+        revision: state.webSearchGrantRevision,
+        updatedAt: state.webSearchGrantUpdatedAt,
+      },
+    }).effective;
+    if (effective !== this.appliedWebSearchAccess)
+      throw new Error('Permission mode would change web-search access; start a new conversation');
+  }
+  setWebSearchGrant(
+    expectedRevision: number,
+    grant: 'allowed' | 'denied',
+  ): Promise<PersistedWebSearchGrant> {
+    const operation = this.explicitEnqueue.then(() =>
+      this.reconfigureWebSearchGrant(expectedRevision, grant),
+    );
+    this.explicitEnqueue = operation.then(
+      () => undefined,
+      () => undefined,
+    );
+    return operation;
+  }
+  getWebSearchGrant(): PersistedWebSearchGrant {
+    if (!this.binding) throw new Error('Codex account binding unavailable');
+    return this.opts.store.readWebSearchGrant(this.opts.conversationId, this.binding);
   }
   queue() {
     if (!this.binding) return [];
@@ -486,12 +527,13 @@ export class CodexConversation {
   ) {
     const backend = this.opts.webSearchBackend ?? 'host';
     const deploymentRevision = this.opts.webSearchDeploymentRevision ?? `${backend}:unversioned`;
+    this.webSearchDeploymentCeiling =
+      this.opts.webSearchDeploymentRevision && runtimeConfig.web_search === 'live'
+        ? 'live'
+        : 'disabled';
     const policy = resolveWebSearchPolicy({
       backend,
-      deploymentCeiling:
-        this.opts.webSearchDeploymentRevision && runtimeConfig.web_search === 'live'
-          ? 'live'
-          : 'disabled',
+      deploymentCeiling: this.webSearchDeploymentCeiling,
       deploymentRevision,
       mode: this.opts.getMode?.() ?? 'ask',
       conversationGrant: {
@@ -500,6 +542,7 @@ export class CodexConversation {
         updatedAt: state.webSearchGrantUpdatedAt,
       },
     });
+    this.appliedWebSearchAccess = policy.effective;
     return {
       model: this.binding!.model,
       modelProvider,
@@ -509,6 +552,76 @@ export class CodexConversation {
       sandbox: 'read-only',
       developerInstructions: this.opts.systemPrompt,
     };
+  }
+
+  private async reconfigureWebSearchGrant(
+    expectedRevision: number,
+    grant: 'allowed' | 'denied',
+  ): Promise<PersistedWebSearchGrant> {
+    if (this.closed || !this.ready || !this.binding || !this.threadId)
+      throw new Error('Codex conversation unavailable');
+    if (this.active || this.pumping || this.paused)
+      throw new Error('Web-search consent can only change between turns');
+    const current = this.opts.store.readWebSearchGrant(this.opts.conversationId, this.binding);
+    if (current.revision !== expectedRevision)
+      throw new Error('Web search grant changed concurrently');
+
+    // Retire the old process before persisting a denial, so a failed reopen
+    // cannot leave a live-search thread reachable under a narrower grant.
+    this.transportGeneration += 1;
+    this.ready = false;
+    this.client.close();
+    const updated = this.opts.store.setWebSearchGrant(
+      this.opts.conversationId,
+      this.binding,
+      expectedRevision,
+      grant,
+    );
+    const client = this.createClient();
+    this.client = client;
+    try {
+      await client.initialize();
+      const binding = await this.verifyCurrentBinding(this.binding);
+      if (binding.profileRevision !== this.binding.profileRevision)
+        throw new Error('Codex execution binding changed');
+      const configResponse = z.object({ config: z.unknown() }).parse(
+        await client.request('config/read', {
+          cwd: this.opts.runtimeCwd ?? this.opts.cwd,
+          includeLayers: false,
+        }),
+      );
+      const runtimeConfig =
+        this.opts.runtimeConfig ??
+        codexRuntimeOverrides(configResponse.config, this.opts.profile.workspaceId);
+      const modelProvider = this.opts.modelProvider ?? 'openai';
+      const state = this.opts.store.read(this.opts.conversationId, this.binding);
+      this.mapper?.beginReconnectReplay();
+      const result = z
+        .object({
+          thread: z.object({ id: z.string().min(1) }),
+          model: z.string(),
+          modelProvider: z.string(),
+        })
+        .parse(
+          await client.request('thread/resume', {
+            threadId: this.threadId,
+            ...this.threadOptions(runtimeConfig, modelProvider, state),
+            allowProviderModelFallback: false,
+            ...this.dynamicToolsOption(),
+          }),
+        );
+      if (
+        result.thread.id !== this.threadId ||
+        result.model !== this.binding.model ||
+        result.modelProvider !== modelProvider
+      )
+        throw new Error('Codex execution binding changed');
+      this.ready = true;
+      return updated;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
 
   private dynamicToolsOption() {

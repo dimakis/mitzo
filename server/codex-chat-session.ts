@@ -808,7 +808,11 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
         throw new Error(
           'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',
         );
+      runtime.assertPermissionModeChange(mode);
     },
+    setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') =>
+      runtime.setWebSearchGrant(expectedRevision, grant),
+    getWebSearchGrant: () => runtime.getWebSearchGrant(),
     interrupt: () => runtime.interrupt(),
     close,
     stopTask: async () => {

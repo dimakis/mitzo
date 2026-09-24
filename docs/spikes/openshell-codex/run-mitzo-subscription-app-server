@@ -2,6 +2,10 @@
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
 /sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
+if [ "$(codex --version)" != "codex-cli 0.153.4" ]; then
+  echo "Unsupported Codex CLI version; expected 0.153.4" >&2
+  exit 1
+fi
 # Codex requires a non-empty provider key, but OpenShell strips this public
 # placeholder and injects the gateway-owned subscription bearer upstream.
 export OPENAI_API_KEY=unused

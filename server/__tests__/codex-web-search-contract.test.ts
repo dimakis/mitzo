@@ -27,6 +27,17 @@ describe('pinned Codex native web-search contract', () => {
     expect(contract.codexCliVersion).toBe('0.153.4');
   });
 
+  it('fences retained OpenShell sandboxes at the reviewed CLI version', () => {
+    for (const launcher of ['run-mitzo-app-server', 'run-mitzo-subscription-app-server']) {
+      const contents = readFileSync(
+        fileURLToPath(new URL(`../../docs/spikes/openshell-codex/${launcher}`, import.meta.url)),
+        'utf8',
+      );
+      expect(contents).toContain('$(codex --version)');
+      expect(contents).toContain(`codex-cli ${contract.codexCliVersion}`);
+    }
+  });
+
   it('has no pre-execution native web-search approval callback', () => {
     expect(contract.webSearchObservation).toMatchObject({
       itemType: 'webSearch',

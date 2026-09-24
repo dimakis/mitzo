@@ -346,6 +346,35 @@ it('does not send an empty environments override that disables built-in Codex to
   expect(turn?.params).not.toHaveProperty('environments');
   expect(thread?.params).toMatchObject({ config: { web_search: 'disabled' } });
 });
+it('applies explicit web-search consent by reopening the idle thread', async () => {
+  const { c, requests, rpc } = await setup();
+  await expect(c.setWebSearchGrant(0, 'allowed')).resolves.toMatchObject({
+    grant: 'allowed',
+    revision: 1,
+  });
+  expect(rpc.close).toHaveBeenCalledTimes(1);
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    threadId: 'provider-thread',
+    config: { web_search: 'live' },
+  });
+  expect(() => c.assertPermissionModeChange('agent')).not.toThrow();
+  expect(() => c.assertPermissionModeChange('ask')).toThrow('start a new conversation');
+  await expect(c.setWebSearchGrant(1, 'denied')).resolves.toMatchObject({
+    grant: 'denied',
+    revision: 2,
+  });
+  expect(requests.filter(({ method }) => method === 'thread/resume').at(-1)?.params).toMatchObject({
+    config: { web_search: 'disabled' },
+  });
+});
+it('rejects stale or mid-turn web-search consent without reopening the thread', async () => {
+  const { c, rpc } = await setup();
+  await expect(c.setWebSearchGrant(1, 'allowed')).rejects.toThrow('concurrently');
+  expect(rpc.close).not.toHaveBeenCalled();
+  await c.send({ id: 'active', prompt: 'keep working' });
+  await expect(c.setWebSearchGrant(0, 'allowed')).rejects.toThrow('between turns');
+  expect(rpc.close).not.toHaveBeenCalled();
+});
 it('rejects account changes and unsupported skill ceilings before model execution', async () => {
   const { c, rpc, requests } = await setup();
   await expect(

@@ -2,6 +2,10 @@
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
 /sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
+if [ "$(codex --version)" != "codex-cli 0.153.4" ]; then
+  echo "Unsupported Codex CLI version; expected 0.153.4" >&2
+  exit 1
+fi
 # OpenShell's inspected credential route must see the JSON body in order to
 # enforce its endpoint policy and inject the gateway-owned bearer. Codex's
 # optional zstd Responses encoding makes that body opaque on the affected
