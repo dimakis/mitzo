@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
@@ -1818,6 +1819,37 @@ describe('runQueryLoop', () => {
         numTurns: 1,
         state: 'ENDED',
       });
+    });
+
+    it('persists one Codex turn when several renderer blocks end without a result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-codex-fallback';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+      const events: Record<string, unknown>[] = [];
+      const mapper = new CodexSessionEvents(sessionId, 'thread-codex', 'model', (event) =>
+        events.push(event),
+      );
+      mapper.notification('turn/started', {
+        threadId: 'thread-codex',
+        turn: { id: 'turn-1' },
+      });
+      mapper.notification('item/reasoning/summaryTextDelta', {
+        threadId: 'thread-codex',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Thinking',
+      });
+      mapper.notification('item/agentMessage/delta', {
+        threadId: 'thread-codex',
+        itemId: 'message-1',
+        delta: 'Answer',
+      });
+      mapper.toolStart('provider-tool-1', 'Read', { file_path: 'README.md' });
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+
+      expect(store.getSession(sessionId)).toMatchObject({ numTurns: 1, state: 'ENDED' });
     });
 
     it('records fallback usage on external abort', async () => {

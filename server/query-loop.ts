@@ -577,6 +577,11 @@ async function _runQueryLoopInner(
               });
             }
           }
+        } else if (msg.type === 'provider_turn_start') {
+          // Codex renderer messages are blocks within a provider turn. Count the
+          // explicit turn start once, including when no renderable block arrives.
+          doneSent = false;
+          turnIndex++;
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
@@ -618,7 +623,7 @@ async function _runQueryLoopInner(
             cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
             cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
             totalCostUsd: result.total_cost_usd ?? 0,
-            numTurns: result.num_turns ?? 0,
+            numTurns: result.num_turns ?? turnIndex,
             durationMs: result.duration_ms ?? 0,
             durationApiMs: result.duration_api_ms ?? 0,
           };
@@ -892,7 +897,7 @@ async function _runQueryLoopInner(
               // A provider turn exists even when usage is reported only at completion.
               // OpenAI Responses starts the stream with zero usage and supplies the
               // authoritative counters in message_delta.
-              turnIndex++;
+              if (msg.renderer_only !== true) turnIndex++;
               const totalContext = msgInput + msgCacheRead + msgCacheCreation;
               if (totalContext > 0) {
                 agentContextTokens = totalContext;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { runQueryLoop } from '../query-loop.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake SessionTransport that records sent messages */
@@ -200,6 +201,48 @@ describe('token_update emission', () => {
       agentContext: 1200,
       sessionTotal: 1500,
       turnIndex: 1,
+    });
+  });
+
+  it('counts a Codex provider turn once across reasoning, text, and tool blocks', async () => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('sess-codex', 'thread-codex', 'model', (event) =>
+      events.push(event),
+    );
+    mapper.notification('turn/started', {
+      threadId: 'thread-codex',
+      turn: { id: 'turn-1' },
+    });
+    mapper.notification('item/reasoning/summaryTextDelta', {
+      threadId: 'thread-codex',
+      itemId: 'reasoning-1',
+      summaryIndex: 0,
+      delta: 'Thinking',
+    });
+    mapper.notification('item/agentMessage/delta', {
+      threadId: 'thread-codex',
+      itemId: 'message-1',
+      delta: 'Answer',
+    });
+    mapper.toolStart('provider-tool-1', 'Read', { file_path: 'README.md' });
+    mapper.notification('turn/completed', {
+      threadId: 'thread-codex',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    expect(events.filter((event) => event.type === 'provider_turn_start')).toHaveLength(1);
+    expect(
+      events.filter(
+        (event) => (event.event as { type?: string } | undefined)?.type === 'message_start',
+      ),
+    ).toHaveLength(3);
+    expect(
+      transport.sent.filter((message) => message.type === 'token_update').at(-1),
+    ).toMatchObject({
+      turnIndex: 1,
+      numTurns: 1,
     });
   });
 
