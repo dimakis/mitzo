@@ -124,6 +124,7 @@ describe('connections runtime integration', () => {
       await test.service.verifyRuntimeSandbox(
         'new-conversation',
         resolved,
+        'work',
         AbortSignal.timeout(500),
       );
     });
@@ -134,7 +135,7 @@ describe('connections runtime integration', () => {
     test.sandboxes.set('retained', { name: 'retained', phase: 'Ready', labels: {} });
     test.sandboxProviders.set('retained', []);
     await expect(
-      test.service.verifyRuntimeSandbox('retained', connection, AbortSignal.timeout(500)),
+      test.service.verifyRuntimeSandbox('retained', connection, 'work', AbortSignal.timeout(500)),
     ).rejects.toThrow('permissions changed');
   });
 
@@ -192,13 +193,18 @@ describe('connections runtime integration', () => {
     test.sandboxes.set('reconnect', { name: 'reconnect', phase: 'Ready', labels: {} });
     test.sandboxProviders.set('reconnect', [connection.gatewayProviderName]);
     await test.service.withAccountRuntime('work', async (resolved) => {
-      await test.service.verifyRuntimeSandbox('reconnect', resolved, AbortSignal.timeout(500));
+      await test.service.verifyRuntimeSandbox(
+        'reconnect',
+        resolved,
+        'work',
+        AbortSignal.timeout(500),
+      );
     });
 
     // A reconnect after revocation resolves no grant and must not accept the retained attachment.
     test.sandboxProviders.set('reconnect', [connection.gatewayProviderName]);
     await expect(
-      test.service.verifyRuntimeSandbox('reconnect', null, AbortSignal.timeout(500)),
+      test.service.verifyRuntimeSandbox('reconnect', null, 'work', AbortSignal.timeout(500)),
     ).rejects.toThrow('permissions changed');
   });
 
@@ -245,7 +251,7 @@ describe('connections runtime integration', () => {
     ).ensure('conversation', AbortSignal.timeout(500));
     expect(checks).toHaveLength(2);
     expect(policyState.write).toHaveBeenCalledWith(expect.any(String), {
-      automatic: [],
+      automatic: ['mitzo-conn-12345678'],
       granted: [],
     });
     const create = run.mock.calls[2][0] as string[];

@@ -36,6 +36,13 @@ export interface TemplateReference {
   version: number;
 }
 
+/** Reviewed, non-secret setup help that is safe to expose to browser clients. */
+export interface ProviderGuidance {
+  body: string;
+  href: string;
+  linkLabel: string;
+}
+
 export interface ProviderTemplate {
   id: string;
   version: number;
@@ -50,6 +57,7 @@ export interface ProviderTemplate {
   /** Code-owned symbolic key, never a path or command. */
   probe: string;
   capabilityTemplates: readonly TemplateReference[];
+  guidance?: ProviderGuidance;
 }
 
 export interface JsonSchema {
@@ -85,6 +93,7 @@ export interface PublicProviderTemplate {
   credentialFields: readonly CredentialField[];
   connectionFields: readonly ConnectionField[];
   capabilityTemplates: readonly TemplateReference[];
+  guidance?: ProviderGuidance;
 }
 
 export interface PublicCapabilityTemplate {
@@ -103,7 +112,7 @@ export interface ProviderPolicy {
   /** Each endpoint is inspected and constrained independently. */
   endpoints: readonly {
     host: string;
-    port: 443;
+    port: 443 | 8443;
     protocol: 'rest' | 'graphql' | 'git';
     tls: 'terminate';
     redirects: 'deny';
@@ -126,6 +135,13 @@ export interface PublicOnlyPinnedDnsRequirement {
   hostname: string;
   verifyAt: 'provision-and-every-use';
   rejectRebinding: true;
+}
+
+/** The custom builder exposes only this closed credential-mapping catalog. */
+export interface CustomCredentialMapping {
+  style: 'bearer-token' | 'api-token';
+  location: 'header' | 'query';
+  name: 'authorization' | 'x-api-key' | 'api_key' | 'access_token';
 }
 
 export interface PinnedPublicDnsAnswers extends PublicOnlyPinnedDnsRequirement {

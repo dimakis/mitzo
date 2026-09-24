@@ -68,7 +68,13 @@ export {
 } from './constants.js';
 
 // Permission handler
-export { UserQuestionsSchema, buildPermissionHandler } from './permission-handler.js';
+export {
+  UserQuestionsSchema,
+  buildPermissionHandler,
+  PERMISSION_INPUT_MAX_CHARS,
+  permissionDisplayInput,
+  serializePermissionDisplayInput,
+} from './permission-handler.js';
 
 // Auto-rename
 export {
