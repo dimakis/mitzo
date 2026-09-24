@@ -10,6 +10,7 @@ import {
   remarkNeutralizeMalformedFileLinks,
   FILE_SCHEME,
   artifactViewerUrl,
+  relativeArtifactPath,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
@@ -168,8 +169,12 @@ export function TextBubble({
               return <p>{children}</p>;
             },
             a: ({ href, children }) => {
-              if (href?.startsWith(FILE_SCHEME)) {
-                const filePath = decodeFilePathUrl(href);
+              const filePath = href?.startsWith(FILE_SCHEME)
+                ? decodeFilePathUrl(href)
+                : href
+                  ? relativeArtifactPath(href)
+                  : null;
+              if (href?.startsWith(FILE_SCHEME) || filePath) {
                 if (!filePath) {
                   return <span className="file-path-invalid">{children}</span>;
                 }

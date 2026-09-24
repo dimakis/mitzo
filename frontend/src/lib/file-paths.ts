@@ -19,6 +19,18 @@ export function artifactViewerUrl(filePath: string, from: string, sessionId?: st
   return `/files?${params.toString()}`;
 }
 
+/** A Markdown href that names a workspace file rather than a browser destination. */
+export function relativeArtifactPath(href: string): string | null {
+  if (href.startsWith('/') || href.startsWith('#') || href.startsWith('?')) return null;
+  if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
+  try {
+    const path = decodeURIComponent(href.split(/[?#]/, 1)[0]);
+    return isFilePath(path) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
  * into the React render path.

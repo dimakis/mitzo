@@ -1,7 +1,10 @@
+// @vitest-environment jsdom
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { useLocation } from 'react-router-dom';
 import { MessageBubble, TextBubble } from '../MessageBubble';
 import type { FinishedMessage } from '../../types/chat';
 
@@ -16,6 +19,35 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it.each(['outputs/report.html', './outputs/report.html'])(
+    'opens relative Markdown artifact %s in the originating session',
+    (path) => {
+      function Location() {
+        const location = useLocation();
+        return <output data-testid="location">{location.pathname + location.search}</output>;
+      }
+      render(
+        <MemoryRouter initialEntries={['/chat/test-session']}>
+          <TextBubble content={`[report](${path})`} artifactSessionId="test-session" />
+          <Location />
+        </MemoryRouter>,
+      );
+      fireEvent.click(screen.getByRole('link', { name: 'report' }));
+      const url = new URL(screen.getByTestId('location').textContent!, 'https://mitzo.test');
+      expect(url.pathname).toBe('/files');
+      expect(url.searchParams.get('path')).toBe(path);
+      expect(url.searchParams.get('sessionId')).toBe('test-session');
+      cleanup();
+    },
+  );
+
+  it('keeps external and page-relative browser links outside artifact routing', () => {
+    const html = renderBubble('[site](https://example.com) [section](#section)');
+    expect(html).toContain('href="https://example.com"');
+    expect(html).toContain('href="#section"');
+    expect(html).not.toContain('file-path-link');
+  });
+
   it.each([false, true])(
     'leaves a malformed encoded file link readable and inert when streaming=%s',
     (streaming) => {

@@ -17,14 +17,18 @@ vi.mock('../ThinkingBlock', () => ({
 }));
 
 vi.mock('../ToolPill', () => ({
-  ToolPill: ({ block }: { block: { blockId: string } }) => (
-    <div data-testid="tool-pill">{block.blockId}</div>
+  ToolPill: ({ block, sessionId }: { block: { blockId: string }; sessionId?: string }) => (
+    <div data-testid="tool-pill" data-session-id={sessionId}>
+      {block.blockId}
+    </div>
   ),
 }));
 
 vi.mock('../ToolGroup', () => ({
-  ToolGroup: ({ tools }: { tools: Array<{ blockId: string }> }) => (
-    <div data-testid="tool-group">{tools.map((tool) => tool.blockId).join(',')}</div>
+  ToolGroup: ({ tools, sessionId }: { tools: Array<{ blockId: string }>; sessionId?: string }) => (
+    <div data-testid="tool-group" data-session-id={sessionId}>
+      {tools.map((tool) => tool.blockId).join(',')}
+    </div>
   ),
 }));
 
@@ -160,11 +164,13 @@ describe('ChatArea', () => {
     render(
       <ChatArea
         {...defaultProps}
+        sessionId="origin"
         messages={messages}
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
     expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
+    expect(screen.getByTestId('tool-group').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();
   });
 
@@ -200,11 +206,13 @@ describe('ChatArea', () => {
     render(
       <ChatArea
         {...defaultProps}
+        sessionId="origin"
         current={current}
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
     expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
+    expect(screen.getByTestId('tool-group').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();
   });
 
