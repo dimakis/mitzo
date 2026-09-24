@@ -60,7 +60,9 @@ export function useFileNavigation(
   const [error, setError] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [roots, setRoots] = useState<FileRoot[]>([]);
-  const [activeRoot, setActiveRoot] = useState(rootParam);
+  // With session authority the server defaults to that session's workspace.
+  // Only an explicitly selected root should override it.
+  const activeRoot = rootParam || (sessionId ? '' : gitInfo?.repoPath || '');
 
   useEffect(() => {
     apiFetch('/api/git/info')
@@ -68,7 +70,6 @@ export function useFileNavigation(
       .then((data: GitInfo | null) => {
         if (data) {
           setGitInfo(data);
-          if (!activeRoot) setActiveRoot(data.repoPath);
         }
       })
       .catch(() => {
@@ -83,7 +84,7 @@ export function useFileNavigation(
       .catch(() => {
         // Network error loading roots — non-fatal
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -161,7 +162,8 @@ export function useFileNavigation(
   function handleBack(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
-      const parentDir = filePath.replace(/\/[^/]+$/, '');
+      const lastSlash = filePath.lastIndexOf('/');
+      const parentDir = lastSlash < 0 ? '' : filePath.slice(0, lastSlash) || '/';
       const params = navigationParams();
       if (parentDir) params.dir = parentDir;
       setSearchParams(params);
@@ -174,7 +176,6 @@ export function useFileNavigation(
 
   function handleRootChange(newRoot: string, dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
-    setActiveRoot(newRoot);
     const params: Record<string, string> = {};
     if (newRoot) params.root = newRoot;
     if (sessionId) params.sessionId = sessionId;

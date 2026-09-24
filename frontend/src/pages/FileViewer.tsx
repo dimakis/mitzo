@@ -1,6 +1,6 @@
-import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
+import { remarkPlugins, rehypePlugins, artifactMarkdownComponents } from '../lib/markdown-config';
 import { MitzoLogo } from '../components/MitzoLogo';
 import { useFileNavigation } from '../hooks/useFileNavigation';
 import { useFileEditor } from '../hooks/useFileEditor';
@@ -11,6 +11,7 @@ import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 export function FileViewer() {
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
+  const location = useLocation();
   const nav = useFileNavigation(searchParams, setSearchParams);
   const { state } = nav;
   const rawFrom = searchParams.get('from');
@@ -166,7 +167,12 @@ export function FileViewer() {
             <ReactMarkdown
               remarkPlugins={remarkPlugins}
               rehypePlugins={rehypePlugins}
-              components={markdownComponents}
+              components={artifactMarkdownComponents(
+                state.filePath,
+                state.sessionId || undefined,
+                location.pathname + location.search,
+                routerNavigate,
+              )}
             >
               {state.content}
             </ReactMarkdown>

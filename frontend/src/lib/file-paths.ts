@@ -32,6 +32,27 @@ export function relativeArtifactPath(href: string): string | null {
   }
 }
 
+/** Resolve a Markdown artifact's link against the directory containing the file. */
+export function linkedArtifactPath(href: string, containingFile: string): string | null {
+  const relative = relativeArtifactPath(href);
+  if (!relative) return null;
+
+  const base = containingFile.slice(0, containingFile.lastIndexOf('/') + 1);
+  const joined = `${base}${relative}`;
+  const absolute = joined.startsWith('/');
+  const segments: string[] = [];
+  for (const segment of joined.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') segments.pop();
+      else if (!absolute) segments.push('..');
+    } else {
+      segments.push(segment);
+    }
+  }
+  return `${absolute ? '/' : ''}${segments.join('/')}`;
+}
+
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
  * into the React render path.

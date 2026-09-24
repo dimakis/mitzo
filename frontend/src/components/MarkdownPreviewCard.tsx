@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
+import { remarkPlugins, rehypePlugins, artifactMarkdownComponents } from '../lib/markdown-config';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { artifactApiUrl, artifactViewerUrl } from '../lib/file-paths';
@@ -63,7 +63,7 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
               <ReactMarkdown
                 remarkPlugins={remarkPlugins}
                 rehypePlugins={rehypePlugins}
-                components={markdownComponents}
+                components={artifactMarkdownComponents(filePath, sessionId, currentPath, navigate)}
               >
                 {content}
               </ReactMarkdown>
