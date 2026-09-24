@@ -9,7 +9,7 @@ LABEL io.mitzo.openshell.base-image="${OPENSHELL_BASE_IMAGE}" \
       io.mitzo.mgmt-source-commit="${MGMT_SOURCE_COMMIT}"
 
 USER root
-RUN npm install --global @openai/codex@0.153.4 \
+RUN npm install --global @openai/codex@0.156.1 \
     && npm install --prefix /usr/lib/googleworkspace-cli @googleworkspace/cli@0.18.1 \
     && ln -s /usr/lib/googleworkspace-cli/node_modules/@googleworkspace/cli/run-gws.js /usr/bin/gws
 COPY pyproject.toml uv.lock /opt/mgmt-deps/
