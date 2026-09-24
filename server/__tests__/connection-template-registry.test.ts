@@ -483,10 +483,11 @@ describe('connection template registry', () => {
   });
 
   it('rejects malformed or incomplete IANA policy snapshots before generation', async () => {
+    const source = join(process.cwd(), 'server/connections/iana-data');
     const valid = {
-      ipv4: 'Address Block,Globally Reachable\n10.0.0.0/8,False\n',
-      ipv6Special: 'Address Block,Globally Reachable\n::1/128,False\n',
-      ipv6Allocated: 'Prefix,Status\n2001::/23,ALLOCATED\n3fff::/20,RESERVED\n',
+      ipv4: await readFile(join(source, 'ipv4-special-purpose.csv'), 'utf8'),
+      ipv6Special: await readFile(join(source, 'ipv6-special-purpose.csv'), 'utf8'),
+      ipv6Allocated: await readFile(join(source, 'ipv6-global-unicast.csv'), 'utf8'),
     };
     const invalidCases = [
       { file: 'ipv4', value: 'Address Blocks,Globally Reachable\n10.0.0.0/8,False\n' },
@@ -497,6 +498,11 @@ describe('connection template registry', () => {
       { file: 'ipv4', value: 'Address Block,Globally Reachable\n10.0.0.0/8,Maybe\n' },
       { file: 'ipv6Allocated', value: 'Prefix,Status\n2001::/23,UNKNOWN\n' },
       { file: 'ipv6Allocated', value: 'Prefix,Status\n3fff::/20,RESERVED\n' },
+      { file: 'ipv4', value: valid.ipv4.replace('10.0.0.0/8,False\n', '') },
+      { file: 'ipv4', value: valid.ipv4.replace('10.0.0.0/8,False\n', '10.0.0.0/8,True\n') },
+      { file: 'ipv4', value: valid.ipv4.replace('192.0.2.0/24,False\n', '') },
+      { file: 'ipv6Special', value: valid.ipv6Special.replace('fc00::/7,False\n', '') },
+      { file: 'ipv6Allocated', value: valid.ipv6Allocated.replace('3fff::/20,RESERVED\n', '') },
     ] as const;
 
     for (const invalid of invalidCases) {

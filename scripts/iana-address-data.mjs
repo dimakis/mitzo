@@ -9,6 +9,51 @@ const snapshotFiles = Object.freeze({
   ipv6Allocated: 'ipv6-global-unicast.csv',
 });
 
+// An independent floor for the reviewed snapshots. Regeneration must not silently
+// turn an omitted special-purpose range into a public address. Updating this
+// baseline requires reviewing the registry change, not just its generated hash.
+const reviewedBaseline = Object.freeze({
+  ipv4: {
+    minimumRows: 26,
+    required: [
+      '0.0.0.0/8',
+      '10.0.0.0/8',
+      '100.64.0.0/10',
+      '127.0.0.0/8',
+      '169.254.0.0/16',
+      '172.16.0.0/12',
+      '192.168.0.0/16',
+      '240.0.0.0/4',
+    ].map((cidr) => [cidr, 'False']),
+    valueField: 'Globally Reachable',
+  },
+  ipv6Special: {
+    minimumRows: 25,
+    required: ['::/128', '::1/128', '::ffff:0:0/96', 'fc00::/7', 'fe80::/10'].map((cidr) => [
+      cidr,
+      'False',
+    ]),
+    valueField: 'Globally Reachable',
+  },
+  ipv6Allocated: {
+    minimumRows: 51,
+    required: [
+      ['2001::/23', 'ALLOCATED'],
+      ['3fff::/20', 'RESERVED'],
+    ],
+    valueField: 'Status',
+  },
+});
+
+function requireReviewedBaseline(entries, field, baseline, file) {
+  const actual = new Map(entries.map((entry) => [entry[field], entry[baseline.valueField]]));
+  if (
+    entries.length < baseline.minimumRows ||
+    baseline.required.some(([cidr, value]) => actual.get(cidr) !== value)
+  )
+    throw new Error(`${file} is missing reviewed baseline ranges`);
+}
+
 function digest(value) {
   return createHash('sha256').update(value.replace(/\r\n/g, '\n')).digest('hex');
 }
@@ -63,6 +108,19 @@ export async function loadIanaAddressData(root) {
     'Globally Reachable',
   ]);
   const ipv6Allocated = rows(contents[2], snapshotFiles.ipv6Allocated, ['Prefix', 'Status']);
+  requireReviewedBaseline(ipv4, 'Address Block', reviewedBaseline.ipv4, snapshotFiles.ipv4);
+  requireReviewedBaseline(
+    ipv6Special,
+    'Address Block',
+    reviewedBaseline.ipv6Special,
+    snapshotFiles.ipv6Special,
+  );
+  requireReviewedBaseline(
+    ipv6Allocated,
+    'Prefix',
+    reviewedBaseline.ipv6Allocated,
+    snapshotFiles.ipv6Allocated,
+  );
   if (
     [...ipv4, ...ipv6Special].some(
       (entry) => !['True', 'False'].includes(entry['Globally Reachable']),
