@@ -17,7 +17,7 @@
     "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
   },
   "policy": {
-    "sha256": "4a36fd351002ed1639989181cb09c480761750223c1208120a0cc4d3ddc60e8f"
+    "sha256": "57584efe1027eb445d85320e0a424dfc9b304abbef793a1da33b0089e1a42673"
   },
   "serviceProviders": [
     {

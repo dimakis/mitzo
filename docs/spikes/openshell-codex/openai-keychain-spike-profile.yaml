@@ -22,6 +22,7 @@ endpoints:
     # Responses authenticates in Authorization; conversation text is data.
     # Requires the supervisor's identity-aware streamed credential guard.
     request_body_credential_rewrite: false
+    allow_uninspected_credentials: false
 binaries:
   - /usr/bin/curl
   - /usr/bin/codex

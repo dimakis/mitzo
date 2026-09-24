@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 import {
   hasExactGlobalSetting,
@@ -57,6 +58,35 @@ describe('OpenShell production bundle validation', () => {
       expect(() => verifyOpenAiHeaderAuthentication(profile)).toThrow(/OpenAI/);
     },
   );
+
+  it('keeps the checked-in policy and provider profile explicitly inspected', () => {
+    const policy = load(
+      readFileSync(
+        new URL(
+          '../../docs/spikes/openshell-codex/openshell-openai-api-policy.yaml',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as {
+      network_policies: { openai_api: { endpoints: Array<Record<string, unknown>> } };
+    };
+    const profile = load(
+      readFileSync(
+        new URL(
+          '../../docs/spikes/openshell-codex/openai-keychain-spike-profile.yaml',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ) as Record<string, unknown>;
+
+    expect(policy.network_policies.openai_api.endpoints[0]).toMatchObject({
+      request_body_credential_rewrite: false,
+      allow_uninspected_credentials: false,
+    });
+    expect(() => verifyOpenAiHeaderAuthentication(profile)).not.toThrow();
+  });
 
   it.each(['request_body_credential_rewrite', 'allow_uninspected_credentials'])(
     'rejects live OpenAI profile drift omitting %s',

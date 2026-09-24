@@ -19,6 +19,7 @@ network_policies:
           enforcement: enforce,
           access: read-write,
           request_body_credential_rewrite: false,
+          allow_uninspected_credentials: false,
         }
     binaries:
       - { path: /usr/bin/curl }
