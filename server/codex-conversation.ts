@@ -13,6 +13,7 @@ import {
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
+import type { ConversationHistoryEntry } from './codex-rollover-context.js';
 type ObjectValue = Record<string, unknown>;
 const ROLLOVER_CONTEXT_MAX_CHARS = 64 * 1024;
 const ROLLOVER_CONTEXT_MAX_TURNS = 64;
@@ -59,6 +60,7 @@ interface Options {
   onThreadChanged?: (threadId: string) => void | Promise<void>;
   onProviderDispatch?: (commandId: string) => void;
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
+  loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
 }
@@ -538,7 +540,7 @@ export class CodexConversation {
     toolSurfaceRevision: string,
   ) {
     if (!state.threadId) throw new Error('Codex provider thread is unavailable');
-    const rolloverContext = await this.providerConversationContext(client, state.threadId);
+    const rolloverContext = this.conversationRolloverContext();
     const result = z
       .object({
         thread: z.object({ id: z.string().min(1) }),
@@ -577,74 +579,13 @@ export class CodexConversation {
    * output or reasoning: copy only completed user and assistant text into a
    * bounded, one-shot context fragment for the first turn on the new thread.
    */
-  private async providerConversationContext(
-    client: Rpc,
-    threadId: string,
-  ): Promise<string | undefined> {
-    const textInput = z.object({ type: z.literal('text'), text: z.string() }).passthrough();
-    const userMessage = z
-      .object({ type: z.literal('userMessage'), content: z.array(z.unknown()) })
-      .passthrough();
-    const agentMessage = z
-      .object({ type: z.literal('agentMessage'), text: z.string() })
-      .passthrough();
-    const response = z.object({
-      data: z.array(
-        z.object({
-          status: z.string(),
-          items: z.array(z.unknown()),
-        }),
-      ),
-      nextCursor: z.string().nullable().optional(),
-    });
-    const newestFirst: string[] = [];
-    const seenCursors = new Set<string>();
-    let cursor: string | undefined;
-    let chars = 0;
-    while (newestFirst.length < ROLLOVER_CONTEXT_MAX_TURNS && chars < ROLLOVER_CONTEXT_MAX_CHARS) {
-      const page = response.parse(
-        await client.request('thread/turns/list', {
-          threadId,
-          limit: 32,
-          sortDirection: 'desc',
-          itemsView: 'full',
-          ...(cursor ? { cursor } : {}),
-        }),
-      );
-      for (const turn of page.data) {
-        if (turn.status !== 'completed') continue;
-        const lines: string[] = [];
-        for (const item of turn.items) {
-          const user = userMessage.safeParse(item);
-          if (user.success) {
-            const text = user.data.content
-              .map((part) => textInput.safeParse(part))
-              .filter((part) => part.success)
-              .map((part) => part.data.text.trim())
-              .filter(Boolean)
-              .join('\n');
-            if (text) lines.push(`User:\n${text}`);
-            continue;
-          }
-          const agent = agentMessage.safeParse(item);
-          if (agent.success && agent.data.text.trim())
-            lines.push(`Assistant:\n${agent.data.text.trim()}`);
-        }
-        const transcript = lines.join('\n\n');
-        if (!transcript) continue;
-        newestFirst.push(transcript);
-        chars += transcript.length;
-        if (newestFirst.length >= ROLLOVER_CONTEXT_MAX_TURNS || chars >= ROLLOVER_CONTEXT_MAX_CHARS)
-          break;
-      }
-      if (!page.nextCursor || chars >= ROLLOVER_CONTEXT_MAX_CHARS) break;
-      if (seenCursors.has(page.nextCursor))
-        throw new Error('Codex turn pagination repeated a cursor');
-      seenCursors.add(page.nextCursor);
-      cursor = page.nextCursor;
-    }
-    if (!newestFirst.length) return undefined;
-    const transcript = newestFirst.reverse().join('\n\n---\n\n');
+  private conversationRolloverContext(): string | undefined {
+    const entries = this.opts.loadConversationHistory?.() ?? [];
+    if (!entries.length) return undefined;
+    const transcript = entries
+      .slice(-ROLLOVER_CONTEXT_MAX_TURNS)
+      .map((entry) => `${entry.role === 'user' ? 'User' : 'Assistant'}:\n${entry.text}`)
+      .join('\n\n---\n\n');
     const bounded = transcript.slice(Math.max(0, transcript.length - ROLLOVER_CONTEXT_MAX_CHARS));
     return [
       'Prior conversation transcript retained across an application tool-registry refresh.',

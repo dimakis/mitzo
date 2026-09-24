@@ -260,7 +260,7 @@ export class CodexConversationStore {
         .prepare(
           `UPDATE codex_conversations
           SET thread_id=?,thread_generation=?,tool_surface_revision=COALESCE(?,tool_surface_revision),
-            rollover_context=?
+            rollover_context=COALESCE(?,rollover_context)
           WHERE id=?`,
         )
         .run(threadId, generation, toolSurfaceRevision ?? null, rolloverContext ?? null, id);

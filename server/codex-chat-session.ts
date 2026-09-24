@@ -43,6 +43,7 @@ import { requestedIntegrationProviders } from './integration-intent.js';
 import { createLogger } from './logger.js';
 import { providerFailureTelemetry, ProviderFailureError } from './provider-failure.js';
 import type { EventStore } from './event-store.js';
+import { codexRolloverHistory } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
@@ -267,6 +268,7 @@ interface Options {
   systemPrompt: string;
   env: Record<string, string>;
   mcpServers: Record<string, McpServerConfig>;
+  eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
   /** Recreate the provider runtime without admitting or replaying user intent. */
@@ -650,6 +652,7 @@ async function openCodexChatBound(options: Options, managedConnection: Connectio
     onProviderDispatch: (messageId) => beginTrackedProviderAttempt(options.session, messageId),
     onProviderComplete: (messageId, status) =>
       finishTrackedProviderAttempt(options.session, messageId, status),
+    loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
     onClosed: () => {
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();

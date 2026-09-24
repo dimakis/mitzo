@@ -68,33 +68,7 @@ async function setup(
         return { account: { type: 'chatgpt', email: 'test@example.com', planType: 'test' } };
       if (method === 'thread/turns/list')
         return {
-          data:
-            params.threadId === 'legacy-provider-thread' && params.itemsView === 'full'
-              ? [
-                  {
-                    id: 'legacy-turn',
-                    status: 'completed',
-                    items: [
-                      {
-                        id: 'legacy-user',
-                        type: 'userMessage',
-                        content: [{ type: 'text', text: 'Keep the existing workstream.' }],
-                      },
-                      {
-                        id: 'legacy-agent',
-                        type: 'agentMessage',
-                        text: 'The workstream is active.',
-                      },
-                      {
-                        id: 'legacy-tool',
-                        type: 'functionCallOutput',
-                        name: 'Bash',
-                        output: 'secret tool output',
-                      },
-                    ],
-                  },
-                ]
-              : [...providerTurns].reverse().map(([id, status]) => ({ id, status, items: [] })),
+          data: [...providerTurns].reverse().map(([id, status]) => ({ id, status, items: [] })),
           nextCursor: null,
         };
       if (method === 'thread/fork') {
@@ -142,6 +116,10 @@ async function setup(
     prepareTurn,
     onProviderDispatch,
     onProviderComplete,
+    loadConversationHistory: () => [
+      { role: 'user', text: 'Keep the existing workstream.' },
+      { role: 'assistant', text: 'The workstream is active.' },
+    ],
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -225,7 +203,11 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
       value: expect.stringContaining('The workstream is active.'),
     },
   });
-  expect(JSON.stringify(firstTurn?.params.additionalContext)).not.toContain('secret tool output');
+  expect(
+    first.requests.some(
+      ({ method, params }) => method === 'thread/turns/list' && params.itemsView === 'full',
+    ),
+  ).toBe(false);
   expect(store.read('app', binding).rolloverContext).toBeNull();
 
   resumed.callbacks.onNotification('turn/completed', {

@@ -221,6 +221,29 @@ it('records tool-surface revisions across provider thread generations', () => {
   });
   s.close();
 });
+it('carries an unconsumed rollover context through provider recovery', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+    'prior conversation',
+  );
+  s.replaceThread('c', binding, 'thread-1', 'thread-2', 'provider_transport_failure');
+
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-2',
+    rolloverContext: 'prior conversation',
+  });
+  s.close();
+});
 it('exposes raw queued, running, and recovery state for lifecycle protection', () => {
   const { path } = setup();
   const s = new CodexConversationStore(path);
