@@ -1591,6 +1591,7 @@ export class EventStore {
   getSymposiumSourceMessage(
     sessionId: string,
     messageId: string,
+    identity?: { seatId: string | null; membershipGeneration?: number | null },
   ):
     | {
         messageId: string;
@@ -1604,8 +1605,20 @@ export class EventStore {
        FROM events WHERE session_id = ? AND type IN ('message_start', 'user_message')
          AND json_extract(payload, '$.messageId') = ? ORDER BY seq`,
     ).all(sessionId, messageId) as EventRow[];
-    if (starts.length !== 1) return undefined;
-    const start = rowToEvent(starts[0]);
+    const matchingStarts = starts.filter((row) => {
+      if (!identity) return true;
+      const event = rowToEvent(row);
+      const generation = event.symposiumProvenance?.membershipGeneration ?? null;
+      return (
+        (event.seatId ?? null) === identity.seatId &&
+        (identity.membershipGeneration === undefined ||
+          generation === identity.membershipGeneration)
+      );
+    });
+    // An omitted generation must never select one of several historical turns.
+    if (matchingStarts.length !== 1) return undefined;
+    const sourceRow = matchingStarts[0];
+    const start = rowToEvent(sourceRow);
     if (start.type === 'user_message') {
       const content = start.payload.text;
       return typeof content === 'string'
@@ -1620,12 +1633,14 @@ export class EventStore {
     const end = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
        FROM events WHERE session_id = ? AND type = 'message_end'
-         AND json_extract(payload, '$.messageId') = ? AND seq > ? ORDER BY seq LIMIT 1`,
-    ).get(sessionId, messageId, start.seq) as EventRow | undefined;
+         AND json_extract(payload, '$.messageId') = ? AND seq > ?
+         AND seat_id IS ? AND symposium_provenance IS ? ORDER BY seq LIMIT 1`,
+    ).get(sessionId, messageId, start.seq, sourceRow.seat_id, sourceRow.symposium_provenance) as
+      EventRow | undefined;
     if (!end) return undefined;
     if (
-      end.seat_id !== starts[0].seat_id ||
-      end.symposium_provenance !== starts[0].symposium_provenance
+      end.seat_id !== sourceRow.seat_id ||
+      end.symposium_provenance !== sourceRow.symposium_provenance
     )
       return undefined;
     const events = this.db!.prepare(
@@ -1638,8 +1653,8 @@ export class EventStore {
       const event = rowToEvent(row);
       if (
         event.payload.messageId !== messageId ||
-        row.seat_id !== starts[0].seat_id ||
-        row.symposium_provenance !== starts[0].symposium_provenance
+        row.seat_id !== sourceRow.seat_id ||
+        row.symposium_provenance !== sourceRow.symposium_provenance
       )
         continue;
       const blockId = event.payload.blockId;
@@ -2322,7 +2337,10 @@ export class EventStore {
         }
       }
       if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) {
-        const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId);
+        const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId, {
+          seatId: record.sourceSeatId,
+          membershipGeneration: record.sourceProvenance?.membershipGeneration ?? null,
+        });
         if (
           !source ||
           source.seatId !== record.sourceSeatId ||

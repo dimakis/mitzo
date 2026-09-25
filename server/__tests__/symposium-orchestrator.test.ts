@@ -701,6 +701,93 @@ describe('SymposiumOrchestrator', () => {
       }),
     ).toBe(false);
   });
+  it('projects and shares colliding provider IDs only with exact seat and generation identity', () => {
+    admit('builder');
+    admit('reviewer');
+    const identityFor = (seatIndex: number, membershipGeneration: number) => {
+      const seat = config.seats[seatIndex];
+      return {
+        seatId: seat.id,
+        configRevision: config.revision,
+        accountProfileRevision: seat.accountBinding!.profileRevision,
+        seatProfileRevision: seat.profileBinding!.profileRevision,
+        contextGrantRevision: seat.contextGrant!.revision,
+        authorityGrantRevision: seat.authorityGrant!.revision,
+        isolationDomainId: seat.isolationRequest!.trustDomainId,
+        isolationDomainRevision: seat.isolationRequest!.revision,
+        membershipGeneration,
+      };
+    };
+    const builderIdentity = identityFor(0, 1);
+    const reviewerIdentity = identityFor(1, 1);
+    const restoredIdentity = identityFor(0, 3);
+    // Interleaving includes the other seat's terminal before this seat's terminal.
+    for (const identity of [builderIdentity, reviewerIdentity]) {
+      store.appendSymposium('chat', 'message_start', { messageId: 'shared-id' }, identity);
+      store.appendSymposium(
+        'chat',
+        'block_start',
+        { messageId: 'shared-id', blockId: 'text', blockType: 'text' },
+        identity,
+      );
+      store.appendSymposium(
+        'chat',
+        'block_delta',
+        { messageId: 'shared-id', blockId: 'text', delta: identity.seatId + ' aside' },
+        identity,
+      );
+    }
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, reviewerIdentity);
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, builderIdentity);
+    store.appendSymposium('chat', 'message_start', { messageId: 'shared-id' }, restoredIdentity);
+    store.appendSymposium(
+      'chat',
+      'block_start',
+      { messageId: 'shared-id', blockId: 'text', blockType: 'text' },
+      restoredIdentity,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_delta',
+      { messageId: 'shared-id', blockId: 'text', delta: 'restored aside' },
+      restoredIdentity,
+    );
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, restoredIdentity);
+    expect(store.getSymposiumSourceMessage('chat', 'shared-id')).toBeUndefined();
+    expect(
+      store.getSymposiumSourceMessage('chat', 'shared-id', { seatId: 'builder' }),
+    ).toBeUndefined();
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'all' }).items.map((item) => item.content),
+    ).toEqual(['builder aside', 'reviewer aside', 'restored aside']);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items.map(
+        (item) => item.content,
+      ),
+    ).toEqual(['reviewer aside']);
+    const share = {
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      sourceMessageId: 'shared-id',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'restored aside',
+      idempotencyKey: 'share-collision',
+    };
+    expect(() => orchestrator.stageDelivery(share)).toThrow(/source message/i);
+    const delivery = orchestrator.stageDelivery({ ...share, sourceMembershipGeneration: 3 });
+    expect(delivery.sourceProvenance).toEqual(restoredIdentity);
+    expect(() => orchestrator.stageDelivery({ ...share, sourceMembershipGeneration: 1 })).toThrow(
+      /idempotency/i,
+    );
+    store.close();
+    store = openStore();
+    expect(
+      store.getSymposiumSourceMessage('chat', 'shared-id', {
+        seatId: 'builder',
+        membershipGeneration: 3,
+      })?.content,
+    ).toBe('restored aside');
+  });
   it('pins a shared excerpt to a durable source message through disk reopen', () => {
     admit('builder');
     admit('reviewer');

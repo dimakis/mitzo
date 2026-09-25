@@ -244,10 +244,18 @@ export class SymposiumOrchestrator {
     sessionId: string;
     sourceSeatId: string | null;
     sourceMessageId?: string | null;
+    sourceMembershipGeneration?: number;
     recipientSeatIds: string[];
     originalContent: string;
     idempotencyKey: string;
   }): SymposiumDeliveryRecord {
+    if (
+      input.sourceMembershipGeneration !== undefined &&
+      (!Number.isSafeInteger(input.sourceMembershipGeneration) ||
+        input.sourceMembershipGeneration < 0)
+    ) {
+      throw new Error('Source membership generation must be a nonnegative integer');
+    }
     requireText(input.originalContent, 'Original delivery content');
     requireText(input.idempotencyKey, 'Delivery idempotency key');
     const prior = this.store.getSymposiumDeliveryByIdempotencyKey(
@@ -258,6 +266,8 @@ export class SymposiumOrchestrator {
       if (
         prior.sourceSeatId !== input.sourceSeatId ||
         (prior.sourceMessageId ?? null) !== (input.sourceMessageId ?? null) ||
+        (input.sourceMembershipGeneration !== undefined &&
+          prior.sourceProvenance?.membershipGeneration !== input.sourceMembershipGeneration) ||
         prior.originalContent !== input.originalContent ||
         !sameMembers(prior.recipientSeatIds, input.recipientSeatIds)
       ) {
@@ -319,7 +329,10 @@ export class SymposiumOrchestrator {
     const deliveryId = this.idFactory();
     const timestamp = this.now();
     const sourceMessage = input.sourceMessageId
-      ? this.store.getSymposiumSourceMessage(input.sessionId, input.sourceMessageId)
+      ? this.store.getSymposiumSourceMessage(input.sessionId, input.sourceMessageId, {
+          seatId: input.sourceSeatId,
+          membershipGeneration: input.sourceMembershipGeneration,
+        })
       : undefined;
     if (
       input.sourceMessageId &&

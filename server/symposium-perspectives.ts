@@ -105,7 +105,10 @@ export function getSymposiumPerspective(
     const messageId = event.payload.messageId;
     if (typeof messageId !== 'string') continue;
     if (perspective.kind === 'seat' && event.seatId !== perspective.seatId) continue;
-    const source = store.getSymposiumSourceMessage(sessionId, messageId);
+    const source = store.getSymposiumSourceMessage(sessionId, messageId, {
+      seatId: event.seatId ?? null,
+      membershipGeneration: event.symposiumProvenance?.membershipGeneration ?? null,
+    });
     if (!source) continue;
     items.push({
       kind: 'authored',
