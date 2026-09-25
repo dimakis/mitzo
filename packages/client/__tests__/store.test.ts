@@ -189,6 +189,62 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('opens attributed active turns as currents and replays a newer live suffix', async () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const transport = mockTransport();
+    let resolveHistory!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('transcript=1')
+        ? new Promise((resolve) => {
+            resolveHistory = resolve;
+          })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
+    );
+    const store = createReadyStore(transport);
+    const opening = store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 8,
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+      messageId: 'a1',
+      blockId: 'b0',
+      delta: ' suffix',
+    });
+    resolveHistory({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          cursor: 7,
+          messages: [],
+          current: null,
+          currents: [
+            {
+              messageId: 'a1',
+              startedSeq: 1,
+              symposiumProvenance: provenance,
+              blocks: [{ blockId: 'b0', blockType: 'text', content: 'prefix', done: false }],
+            },
+          ],
+        }),
+    });
+    await opening;
+    expect(store.getState().messages.currentByMessage.a1.blocks.get('b0')?.content).toBe(
+      'prefix suffix',
+    );
+    expect(store.getState().messages.messages).toEqual([]);
+    expect(store.getState().messages.resyncRequired).toBe(false);
+  });
   it('establishes a zero cursor so a missing predecessor can request a bounded reconnect snapshot', async () => {
     vi.useFakeTimers();
     try {
@@ -252,7 +308,7 @@ describe('switchSession', () => {
     await store.getState().switchSession('session-abc');
 
     expect(transport.fetch).toHaveBeenCalledWith(
-      '/api/sessions/session-abc/messages',
+      '/api/sessions/session-abc/messages?transcript=1',
       expect.objectContaining({ credentials: 'include' }),
     );
     expect(store.getState().messages.messages).toHaveLength(1);

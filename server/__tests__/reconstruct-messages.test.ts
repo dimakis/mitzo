@@ -321,6 +321,27 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     ).toEqual(['first output', 'second output']);
   });
 
+  it('attaches a late unlabelled tool result only to a unique prior tool occurrence', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'first' }),
+      evt(2, 'block_start', { messageId: 'first', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'block_end', { messageId: 'first', blockId: 'b0', toolId: 'tool-1' }),
+      evt(4, 'message_end', { messageId: 'first' }),
+      evt(5, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'late output' }),
+    ];
+    expect(replayEventsToTranscript(events).messages[0].blocks[0].toolResult).toBe('late output');
+    expect(() =>
+      replayEventsToTranscript([
+        ...events,
+        evt(6, 'message_start', { messageId: 'second' }),
+        evt(7, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'tool_use' }),
+        evt(8, 'block_end', { messageId: 'second', blockId: 'b0', toolId: 'tool-1' }),
+        evt(9, 'message_end', { messageId: 'second' }),
+        evt(10, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'ambiguous' }),
+      ]),
+    ).toThrow(/ambiguous|unattributed/i);
+  });
+
   it('accepts an exact duplicate attributed message_end after the turn is finished', () => {
     const provenance = {
       seatId: 'architect',

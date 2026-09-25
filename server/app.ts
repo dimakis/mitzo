@@ -49,6 +49,7 @@ import {
   reconcileSessionsBackground,
   getMessages,
   getReconnectTranscript,
+  getSessionTranscript,
   hideSession,
   hideAllSessions,
   renameSessionById,
@@ -1559,6 +1560,10 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
+  if (req.query.transcript === '1') {
+    res.json(await getSessionTranscript(req.params.id as string));
+    return;
+  }
   const rawCursor = req.query.throughSeq;
   if (rawCursor !== undefined) {
     if (typeof rawCursor !== 'string' || !/^(0|[1-9]\d*)$/.test(rawCursor)) {

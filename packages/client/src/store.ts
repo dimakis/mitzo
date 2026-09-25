@@ -248,6 +248,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         liveActions: MessagesAction[];
       }
     | undefined;
+  let openingHistory:
+    | {
+        sessionId: string;
+        request: number;
+        actions: Array<{ seq: number; action: MessagesAction }>;
+      }
+    | undefined;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
@@ -423,6 +430,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       const request = ++historyRequest;
+      openingHistory = { sessionId: id, request, actions: [] };
       recoveryInFlight = false;
       historyAbort?.abort();
       const abort = new AbortController();
@@ -463,17 +471,60 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
 
       try {
-        const msgs = await api.getSessionMessages(id, abort.signal);
+        const {
+          messages: msgs,
+          current,
+          currents = [],
+          cursor,
+        } = await api.getSessionTranscript(id, abort.signal);
         if (request !== historyRequest || get().sessions.active !== id) return;
-        if (Array.isArray(msgs) && msgs.length > 0) {
-          set((s) => ({
-            messages: mergeHistory(s.messages, msgs, null),
-          }));
+        if (cursor === undefined) {
+          if (msgs.length > 0) set((s) => ({ messages: mergeHistory(s.messages, msgs, null) }));
+        } else {
+          const liveActions = (openingHistory?.request === request ? openingHistory.actions : [])
+            .filter((item) => item.seq > cursor)
+            .map((item) => item.action);
+          const replayedIds = new Set(
+            liveActions.flatMap((action) =>
+              'messageId' in action && typeof action.messageId === 'string'
+                ? [action.messageId]
+                : [],
+            ),
+          );
+          const optimistic = get().messages.messages.filter(
+            (message) =>
+              pendingOptimisticMessageIds.has(message.messageId) &&
+              !msgs.some((saved) => saved.messageId === message.messageId) &&
+              !replayedIds.has(message.messageId),
+          );
+          let restored = messagesReducer(INITIAL_MESSAGES_STATE, {
+            type: 'RESTORE',
+            messages: [...msgs, ...optimistic],
+          });
+          if (current)
+            restored = messagesReducer(restored, {
+              type: 'MESSAGE_SNAPSHOT',
+              messageId: current.messageId,
+              startedSeq: current.startedSeq,
+              blocks: current.blocks,
+            });
+          for (const seat of currents)
+            restored = messagesReducer(restored, {
+              type: 'MESSAGE_SNAPSHOT',
+              messageId: seat.messageId,
+              startedSeq: seat.startedSeq,
+              blocks: seat.blocks,
+              symposiumProvenance: seat.symposiumProvenance,
+            });
+          restored = liveActions.reduce(messagesReducer, restored);
+          if (restored.resyncRequired) throw new Error('Unsafe session-open transcript');
+          set({ messages: restored });
         }
       } catch {
         if (request === historyRequest && get().sessions.active === id)
           set({ historyError: 'Could not load this conversation. Please retry.' });
       } finally {
+        if (openingHistory?.request === request) openingHistory = undefined;
         if (request === historyRequest) set({ historyLoading: false });
       }
     },
@@ -1042,6 +1093,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const action of result.messagesActions) {
+      const opening = openingHistory;
+      if (
+        opening !== undefined &&
+        opening.sessionId === eventSessionId &&
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq)
+      )
+        opening.actions.push({ seq: msg.seq, action });
       if (action.type === 'USER_MESSAGE_RECEIVED')
         pendingOptimisticMessageIds.delete(action.messageId);
       const isPostCursorAction =

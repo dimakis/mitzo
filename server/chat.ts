@@ -3228,14 +3228,20 @@ function replaySingleEventsToTranscript(
   const toolResults = new Map<string, Record<string, unknown>>();
   const pendingResults = new Map<string, Array<Record<string, unknown>>>();
   const pendingBlocks = new Map<string, string[]>();
+  const toolOwners = new Map<string, Set<string>>();
   let activeMessageId: string | null = null;
   for (const event of events) {
     const p = event.payload;
     if (event.type === 'message_start' && typeof p.messageId === 'string')
       activeMessageId = p.messageId;
     if (event.type === 'tool_result' && typeof p.toolId === 'string') {
-      const messageId = typeof p.messageId === 'string' ? p.messageId : activeMessageId;
-      if (!messageId) continue;
+      let messageId = typeof p.messageId === 'string' ? p.messageId : activeMessageId;
+      if (!messageId) {
+        const owners = toolOwners.get(p.toolId);
+        if (owners?.size !== 1)
+          throw new Error('Ambiguous or unattributed late tool result in stored transcript');
+        messageId = [...owners][0];
+      }
       const key = JSON.stringify([messageId, p.toolId]);
       const waiting = pendingBlocks.get(key);
       if (waiting?.length) toolResults.set(JSON.stringify([messageId, waiting.shift()]), p);
@@ -3247,6 +3253,9 @@ function replaySingleEventsToTranscript(
       typeof p.blockId === 'string' &&
       typeof p.toolId === 'string'
     ) {
+      const owners = toolOwners.get(p.toolId) ?? new Set<string>();
+      owners.add(p.messageId);
+      toolOwners.set(p.toolId, owners);
       const key = JSON.stringify([p.messageId, p.toolId]);
       const waiting = pendingResults.get(key);
       if (waiting?.length)
@@ -3783,6 +3792,18 @@ export function getReconnectTranscript(sessionId: string, throughSeq: number) {
   const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   const session = eventStore.getSession(sessionId);
   return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
+}
+
+/** Full durable transcript and its high-water mark for opening an active session. */
+export async function getSessionTranscript(sessionId: string) {
+  const events = eventStore.getSessionEvents(sessionId);
+  if (events.length === 0)
+    return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
+  const session = eventStore.getSession(sessionId);
+  return {
+    ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),
+    cursor: events[events.length - 1].seq,
+  };
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---

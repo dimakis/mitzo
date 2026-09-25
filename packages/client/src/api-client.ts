@@ -36,6 +36,7 @@ export interface GitInfo {
 }
 
 export interface ReconnectTranscript {
+  cursor?: number;
   messages: FinishedMessage[];
   current: {
     messageId: string;
@@ -146,6 +147,23 @@ export class MitzoApiClient {
       }),
     );
     const body: unknown = await res.json();
+    return this.normalizeTranscript(body);
+  }
+
+  async getSessionTranscript(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<ReconnectTranscript> {
+    const res = await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}/messages?transcript=1`, {
+        credentials: 'include',
+        signal,
+      }),
+    );
+    return this.normalizeTranscript((await res.json()) as unknown);
+  }
+
+  private normalizeTranscript(body: unknown): ReconnectTranscript {
     // Old server releases returned an array at this endpoint.
     if (Array.isArray(body))
       return { messages: body as FinishedMessage[], current: null, currents: [] };
@@ -183,6 +201,11 @@ export class MitzoApiClient {
       ids.add(current.messageId);
       seats.add(provenance.data.seatId);
     }
+    if (
+      transcript.cursor !== undefined &&
+      (!Number.isSafeInteger(transcript.cursor) || transcript.cursor < 0)
+    )
+      throw new Error('Invalid transcript cursor');
     return { ...transcript, currents };
   }
 
