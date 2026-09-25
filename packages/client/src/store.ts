@@ -356,11 +356,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             const liveActions = currentBoundedRestore.liveActions
               .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
               .map((item) => item.action);
-            if (
-              appliedCursor === undefined ||
-              (s.messages.current !== initialCurrent && liveActions.length === 0)
-            )
-              return { messages: restored };
+            if (appliedCursor === undefined) return { messages: restored };
+            const preserveLiveCurrent =
+              s.messages.current !== initialCurrent && liveActions.length === 0;
             // Rebuild live completed turns from the captured suffix so their
             // order and blocks are applied once after the durable prefix.
             const replayedIds = new Set(
@@ -383,18 +381,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   ) &&
                   !replayedIds.has(messageIdentity(message.messageId, message.symposiumProvenance)),
               ),
-              current: null,
+              current: preserveLiveCurrent ? s.messages.current : null,
               currentByMessage: {},
               resyncRequired: false,
             };
-            const withSnapshot = current
-              ? messagesReducer(withoutStaleCurrent, {
-                  type: 'MESSAGE_SNAPSHOT',
-                  messageId: current.messageId,
-                  startedSeq: current.startedSeq,
-                  blocks: current.blocks,
-                })
-              : withoutStaleCurrent;
+            const withSnapshot =
+              current && !preserveLiveCurrent
+                ? messagesReducer(withoutStaleCurrent, {
+                    type: 'MESSAGE_SNAPSHOT',
+                    messageId: current.messageId,
+                    startedSeq: current.startedSeq,
+                    blocks: current.blocks,
+                  })
+                : withoutStaleCurrent;
             const withSeatSnapshots = currents.reduce(
               (state, seat) =>
                 messagesReducer(state, {

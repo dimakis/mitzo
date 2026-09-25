@@ -2394,6 +2394,85 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('restores seat currents while retaining a newer ordinary current covered by the cursor', async () => {
+    const seat = {
+      seatId: 'architect',
+      configRevision: 1,
+      membershipGeneration: 1,
+      accountProfileRevision: 'a',
+      seatProfileRevision: 's',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    };
+    const transport = mockTransport();
+    let request = 0;
+    let resolveForeground!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (!url.includes('transcript=1'))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      request++;
+      return request === 1
+        ? Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ messages: [], current: null, currents: [], cursor: 0 }),
+          })
+        : new Promise((resolve) => {
+            resolveForeground = resolve;
+          });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({ type: '_foreground' });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'sess-1',
+      messageId: 'ordinary-live',
+      seq: 5,
+    });
+    expect(store.getState().messages.current?.messageId).toBe('ordinary-live');
+    resolveForeground({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: null,
+          cursor: 5,
+          currents: [
+            {
+              messageId: 'seat-live',
+              startedSeq: 1,
+              symposiumProvenance: seat,
+              blocks: [{ blockId: 'b0', blockType: 'text', content: 'before', done: false }],
+            },
+          ],
+        }),
+    });
+    await vi.waitFor(() =>
+      expect(
+        store.getState().messages.currentByMessage[messageIdentity('seat-live', seat)],
+      ).toBeDefined(),
+    );
+    expect(store.getState().messages.current?.messageId).toBe('ordinary-live');
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      seatId: 'architect',
+      symposiumProvenance: seat,
+      messageId: 'seat-live',
+      blockId: 'b0',
+      delta: ' after',
+    });
+    expect(
+      store
+        .getState()
+        .messages.currentByMessage[messageIdentity('seat-live', seat)].blocks.get('b0')?.content,
+    ).toBe('before after');
+    expect(store.getState().messages.resyncRequired).toBe(false);
+  });
+
   it('restores a live seat as a current and accepts its next chained block', async () => {
     const transport = mockTransport();
     const seat = {
