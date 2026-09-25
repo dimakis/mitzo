@@ -941,12 +941,6 @@ export class CodexConversation {
             : {}),
         }),
       );
-      if (rolloverContext && this.threadId)
-        this.opts.store.clearRolloverContext(
-          this.opts.conversationId,
-          this.binding!,
-          this.threadId,
-        );
       if (this.active === active) {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');

@@ -682,6 +682,31 @@ describe('reconnected', () => {
     expect(r.messagesActions).toHaveLength(0);
     expect(r.connectionUpdate).toEqual({ status: 'connected' });
   });
+
+  it('applies the authoritative state from a reconnect snapshot', () => {
+    const r = parseServerMessage(
+      {
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sid-1',
+        cursor: 42,
+        cursorValid: true,
+        state: 'idle',
+        internalState: 'ENDED',
+        execution: {
+          generation: 2,
+          executionId: 'execution-2',
+          phase: 'TERMINAL',
+          terminalReason: 'completed',
+        },
+        providerAttempts: [],
+      },
+      makeState({ currentSessionId: 'sid-1' }),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+
+    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+  });
 });
 
 // ─── error handling (session expired) ────────────────────────────────────────

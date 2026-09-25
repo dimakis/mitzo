@@ -135,6 +135,19 @@ export function parseServerMessage(
       callbacks.onReconnected?.();
       break;
 
+    case 'session_reconnect_snapshot':
+      // The snapshot closes the replay boundary with authoritative durable
+      // state, including when no lifecycle event exists after the client cursor.
+      if (typeof msg.state === 'string' && VALID_CLIENT_STATES.has(msg.state)) {
+        result.messagesActions.push({
+          type: 'SESSION_STATE_CHANGED',
+          state: msg.state as ClientSessionState,
+        });
+      } else if (typeof msg.state === 'string') {
+        console.warn('[mitzo] unknown reconnect snapshot state:', msg.state);
+      }
+      break;
+
     case 'session_takeover':
       // Server unwatches the old client after takeover, so no subsequent
       // session_state_changed event will arrive — clear running inline.

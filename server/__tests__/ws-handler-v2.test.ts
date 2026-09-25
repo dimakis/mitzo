@@ -100,13 +100,25 @@ function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 }
 
 function mockEventStore() {
-  return {
+  const store = {
     getEventsAfter: vi.fn().mockReturnValue([]),
+    captureReconnectState: vi.fn(),
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
     getSessionState: vi.fn().mockReturnValue('ACTIVE'),
     setSessionState: vi.fn(),
   };
+  store.captureReconnectState.mockImplementation((sessionId: string, afterSeq: number) => {
+    const events = store.getEventsAfter(sessionId, afterSeq);
+    return {
+      session: store.getSession(sessionId),
+      events,
+      cursor: events.at(-1)?.seq ?? afterSeq,
+      cursorValid: true,
+      providerAttempts: [],
+    };
+  });
+  return store;
 }
 
 function mockSessionRegistry() {
@@ -195,14 +207,20 @@ describe('handleHello', () => {
 describe('handleReconnect', () => {
   it('replays missed events for each session', () => {
     const eventStore = mockEventStore();
-    eventStore.getEventsAfter.mockReturnValue([
-      {
-        seq: 6,
-        sessionId: 'sess-1',
-        type: 'block_delta',
-        payload: { v: 2, type: 'block_delta', delta: 'hi', sessionId: 'sess-1' },
-      },
-    ]);
+    eventStore.captureReconnectState.mockReturnValue({
+      session: null,
+      cursor: 6,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [
+        {
+          seq: 6,
+          sessionId: 'sess-1',
+          type: 'block_delta',
+          payload: { v: 2, type: 'block_delta', delta: 'hi', sessionId: 'sess-1' },
+        },
+      ],
+    });
 
     const ctx = createContext({
       eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
@@ -216,8 +234,100 @@ describe('handleReconnect', () => {
       ctx,
     );
 
-    expect(eventStore.getEventsAfter).toHaveBeenCalledWith('sess-1', 5);
+    expect(eventStore.captureReconnectState).toHaveBeenCalledWith('sess-1', 5);
     expect(transport.sent.some((m) => m.type === 'block_delta' && m.seq === 6)).toBe(true);
+  });
+
+  it('publishes durable terminal state even when the client cursor includes every event', () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: {
+        sessionId: 'sess-1',
+        state: 'ENDED',
+        executionGeneration: 2,
+        executionId: 'execution-2',
+        executionPhase: 'TERMINAL',
+        executionTerminalReason: 'completed',
+      },
+      cursor: 42,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    eventStore.getSessionState.mockReturnValue('ENDED');
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+
+    handleReconnect(
+      'c1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 42 }] },
+      ctx,
+    );
+
+    expect(transport.sent).toContainEqual({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 42,
+      cursorValid: true,
+      state: 'idle',
+      internalState: 'ENDED',
+      execution: {
+        generation: 2,
+        executionId: 'execution-2',
+        phase: 'TERMINAL',
+        terminalReason: 'completed',
+      },
+      providerAttempts: [],
+    });
+  });
+
+  it('captures the active boundary after reattaching a detached live session', () => {
+    let reattached = false;
+    (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      reattached = true;
+      return true;
+    });
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockReturnValue('DETACHED');
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: reattached ? 'ACTIVE' : 'DETACHED' },
+      cursor: reattached ? 9 : 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: reattached
+        ? [{ seq: 9, payload: { type: 'session_state', sessionId: 'sess-1', state: 'ACTIVE' } }]
+        : [],
+    }));
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({ clientId: 'old-conn:sess-1', session: {} });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(false);
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('new-conn', transport);
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 8 }] },
+      ctx,
+    );
+
+    expect(reattached).toBe(true);
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 9,
+        state: 'running',
+        internalState: 'ACTIVE',
+      }),
+    );
   });
 
   it('auto-watches all reconnected sessions', () => {
@@ -4230,6 +4340,56 @@ describe('handleReconnect suspend resume', () => {
     expect(denyPendingBySession).not.toHaveBeenCalled();
     expect(transport.sent).toContainEqual(
       expect.objectContaining({ type: 'permission_request', permId: 'pending-approval' }),
+    );
+  });
+
+  it('publishes ACTIVE after the attached owner resumes its suspended session', () => {
+    let durableState = 'SUSPENDED';
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'conn-1:sess-1',
+      session: { sessionId: 'sess-1', ownerConnectionId: 'conn-1' },
+    });
+    sessionReg.isActive.mockReturnValue(true);
+    sessionReg.isAttached.mockReturnValue(true);
+    sessionReg.isSuspended.mockReturnValue(true);
+    const eventStore = mockEventStore();
+    eventStore.getSessionState.mockImplementation(() => durableState);
+    eventStore.setSessionState.mockImplementation((_sessionId, state) => {
+      durableState = state;
+    });
+    eventStore.captureReconnectState.mockImplementation(() => ({
+      session: { sessionId: 'sess-1', state: durableState },
+      cursor: durableState === 'ACTIVE' ? 6 : 5,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    }));
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('conn-1', transport);
+
+    handleReconnect(
+      'conn-1',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 5 }] },
+      ctx,
+    );
+
+    expect(sessionReg.resume).toHaveBeenCalledWith('conn-1:sess-1');
+    expect(eventStore.setSessionState).toHaveBeenCalledWith('sess-1', 'ACTIVE', {
+      clientId: 'conn-1:sess-1',
+      reason: 'resume',
+    });
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'session_reconnect_snapshot',
+        state: 'running',
+        internalState: 'ACTIVE',
+        cursor: 6,
+      }),
     );
   });
 
