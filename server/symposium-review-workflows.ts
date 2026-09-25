@@ -367,8 +367,9 @@ export class SymposiumReviewStore {
         return stop('unknown_cost');
       if (
         state.limits.maxCostUsd !== null &&
-        parsed.maxCostUsd !== null &&
-        state.costUsd + parsed.maxCostUsd > state.limits.maxCostUsd
+        (state.costUsd >= state.limits.maxCostUsd ||
+          (parsed.maxCostUsd !== null &&
+            state.costUsd + parsed.maxCostUsd > state.limits.maxCostUsd))
       )
         return stop('cost_budget_exhausted');
       if (parsed.kind === 'review') {
@@ -381,6 +382,7 @@ export class SymposiumReviewStore {
         if (parsed.actorSeatId !== state.implementer.seatId)
           throw new Error('Controlled implementer selection required');
         if (state.status !== 'awaiting_fix') throw new Error('Fix admission is not due');
+        this.requireFixAuthority(state);
       }
       if (state.attempts.some((attempt) => attempt.attemptId === parsed.attemptId))
         throw new Error('Attempt already accounted');
@@ -574,20 +576,7 @@ export class SymposiumReviewStore {
         )
       )
         throw new Error('Matching pre-dispatch fix reservation is required');
-      const authorized = new Set(
-        state.authorizations
-          .filter(
-            (auth) =>
-              auth.artifactRevision === state.artifactRevision &&
-              auth.artifactHash === state.artifactHash &&
-              auth.actor === state.owner,
-          )
-          .flatMap((auth) => auth.findingFingerprints),
-      );
-      if (
-        state.findings.some((item) => item.status === 'open' && !authorized.has(item.fingerprint))
-      )
-        throw new Error('Fix authority is required for every open finding');
+      this.requireFixAuthority(state);
       this.charge(state, parsed.usage);
       state.artifactRevision = parsed.result.artifactRevision;
       state.artifactHash = parsed.result.artifactHash;
@@ -595,6 +584,21 @@ export class SymposiumReviewStore {
       if (!state.decisionCode) state.status = 'awaiting_delta_review';
       return this.write(state, 'fix_recorded', parsed);
     })();
+  }
+
+  private requireFixAuthority(state: Workflow): void {
+    const authorized = new Set(
+      state.authorizations
+        .filter(
+          (auth) =>
+            auth.artifactRevision === state.artifactRevision &&
+            auth.artifactHash === state.artifactHash &&
+            auth.actor === state.owner,
+        )
+        .flatMap((auth) => auth.findingFingerprints),
+    );
+    if (state.findings.some((item) => item.status === 'open' && !authorized.has(item.fingerprint)))
+      throw new Error('Fix authority is required for every open finding');
   }
 
   advanceArtifact(workflowId: string, result: WorkResult): Workflow {

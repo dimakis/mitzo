@@ -104,6 +104,50 @@ const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
 };
 
 describe('artifact-pinned Symposium review workflow', () => {
+  it('requires fix authority before reserving a native fix attempt', () => {
+    reviews.create(create());
+    recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [finding],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1'),
+    });
+    expect(() =>
+      reviews.admitAttempt({
+        workflowId: 'workflow-1',
+        attemptId: 'unauthorized-fix',
+        kind: 'fix',
+        actorSeatId: 'coder',
+        artifactRevision: 'commit-1',
+        artifactHash: hash('b'),
+        maxTokens: 20,
+        maxCostUsd: 0.1,
+      }),
+    ).toThrow(/authority/i);
+    expect(reviews.get('workflow-1')!.reservations).toHaveLength(1);
+  });
+
+  it('does not admit a zero-priced estimate after exhausting the cost ceiling', () => {
+    reviews.create(create({ limits: { maxReviewRounds: 2, maxTokens: 500, maxCostUsd: 0 } }));
+    expect(
+      reviews.admitAttempt({
+        workflowId: 'workflow-1',
+        attemptId: 'free-estimate',
+        kind: 'review',
+        actorSeatId: 'reviewer',
+        artifactRevision: 'commit-1',
+        artifactHash: hash('b'),
+        maxTokens: 20,
+        maxCostUsd: 0,
+      }),
+    ).toMatchObject({ kind: 'decision_required', code: 'cost_budget_exhausted' });
+  });
+
   it('admits coder and independent reviewer only from approved O1 role selections', () => {
     const accounts = new AccountProfiles([
       {
