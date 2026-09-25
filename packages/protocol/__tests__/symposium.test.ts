@@ -581,6 +581,44 @@ describe('Symposium persistence', () => {
     );
     expect(store.getLatestSymposiumMembership('chat', 'implementer')?.seatId).toBe('implementer');
   });
+  it('reports the exact generation whose reconciliation changed after a later revocation', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    const base = {
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      configRevision: 1,
+      actor: 'director',
+      reason: 'change',
+      occurredAt: 1,
+    };
+    store.transitionSymposiumMembership({
+      ...base,
+      action: 'admit',
+      expectedGeneration: 0,
+      idempotencyKey: 'admit',
+    });
+    store.transitionSymposiumMembership({
+      ...base,
+      action: 'remove',
+      expectedGeneration: 1,
+      idempotencyKey: 'remove',
+    });
+    expect(
+      store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'recovery_required'),
+    ).toMatchObject({ generation: 1, state: 'active', reconciliation: 'recovery_required' });
+    expect(store.getLatestSymposiumMembership('chat', 'reviewer')).toMatchObject({
+      generation: 2,
+      state: 'removed',
+      reconciliation: 'pending',
+    });
+  });
   it('activates only when Seat 1 retains the existing session binding', () => {
     const store = open();
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });

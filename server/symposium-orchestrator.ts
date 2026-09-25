@@ -163,11 +163,12 @@ export class SymposiumOrchestrator {
         record.generation,
         'confirmed',
       );
-    } catch (error) {
+    } catch {
       log.warn('Symposium membership cleanup requires recovery', {
         sessionId,
         seatId,
-        error: error instanceof Error ? error.message : String(error),
+        reason:
+          record.state === 'active' ? 'admission_reconcile_failed' : 'revocation_reconcile_failed',
       });
       return this.store.markSymposiumMembershipReconciled(
         sessionId,

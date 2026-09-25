@@ -1865,7 +1865,15 @@ export class EventStore {
       WHERE session_id = ? AND seat_id = ? AND generation = ? AND status != 'confirmed'`,
     ).run(status, sessionId, seatId, generation);
     if (result.changes !== 1) throw new Error('Symposium membership reconciliation conflict');
-    return this.getLatestSymposiumMembership(sessionId, seatId)!;
+    const row = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND m.seat_id = ? AND m.generation = ?`,
+    ).get(sessionId, seatId, generation) as Record<string, unknown>;
+    return rowToSymposiumMembership(row);
   }
 
   getSymposiumRequiredProviders(
@@ -1877,11 +1885,15 @@ export class EventStore {
     for (const seat of config.seats) {
       if (config.version === 2) {
         const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
-        const admission = this.getLatestSymposiumAdmission(sessionId, seat.id, config.revision);
+        const admission = this.getMostRecentSymposiumAdmission(sessionId, seat.id);
         if (
           membership?.state !== 'active' ||
           admission?.decision !== 'admitted' ||
-          admission.membershipGeneration !== membership.generation
+          admission.membershipGeneration !== membership.generation ||
+          admission.provider !== seat.accountBinding?.provider ||
+          admission.accountId !== seat.accountBinding.accountId ||
+          admission.model !== seat.accountBinding.model ||
+          admission.accountProfileRevision !== seat.accountBinding.profileRevision
         )
           continue;
       }
@@ -2033,6 +2045,17 @@ export class EventStore {
        WHERE session_id = ? AND seat_id = ? AND config_revision = ?
        ORDER BY decided_at DESC, rowid DESC LIMIT 1`,
     ).get(sessionId, seatId, configRevision) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumAdmission(row) : undefined;
+  }
+
+  private getMostRecentSymposiumAdmission(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumAdmissionRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT * FROM symposium_admissions
+      WHERE session_id = ? AND seat_id = ? ORDER BY config_revision DESC, decided_at DESC, rowid DESC LIMIT 1`,
+    ).get(sessionId, seatId) as Record<string, unknown> | undefined;
     return row ? rowToSymposiumAdmission(row) : undefined;
   }
 

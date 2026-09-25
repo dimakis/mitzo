@@ -417,10 +417,13 @@ describe('SymposiumOrchestrator', () => {
       activeSeatCap: 2,
       seats: [config.seats[0]],
     });
+    const providerSets: string[][] = [];
     orchestrator = new SymposiumOrchestrator({
       store,
       executors: { builder, reviewer },
-      reconcileProviders: async () => {},
+      reconcileProviders: async ({ requiredProviders }) => {
+        providerSets.push(requiredProviders);
+      },
     });
     await orchestrator.transitionMembership({
       sessionId: 'fresh',
@@ -463,6 +466,7 @@ describe('SymposiumOrchestrator', () => {
       idempotencyKey: 'reviewer-admission',
     });
     await orchestrator.reconcileMembership('fresh', 'reviewer', 1);
+    expect(providerSets.at(-1)).toEqual(['anthropic-vertex', 'openai-codex']);
     orchestrator.recordProviderAdmission({
       sessionId: 'fresh',
       seatId: 'builder',
