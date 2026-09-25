@@ -450,6 +450,38 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('Active for: work');
     expect(button('Revoke grant')).toBeTruthy();
   });
+  it('drops an unsaved grant draft when the connection revision changes', async () => {
+    const github = {
+      ...catalog.connections[0]!,
+      id: 'github-1',
+      templateId: 'github-readonly',
+      label: 'GitHub',
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
+    };
+    let revision = github.revision;
+    vi.mocked(connections.getConnections).mockImplementation(async () => ({
+      ...catalog,
+      connections: [{ ...github, revision, desiredAccountIds: [...github.desiredAccountIds] }],
+    }));
+    await render();
+    await act(async () => button('Manage capability grants').click());
+    const profile = container.querySelector(
+      '.connections-capability input[type="checkbox"]',
+    ) as HTMLInputElement;
+    act(() => profile.click());
+    expect(profile.checked).toBe(true);
+    revision += 1;
+    await reauthorize();
+    await flush();
+    expect(
+      (
+        container.querySelector(
+          '.connections-capability input[type="checkbox"]',
+        ) as HTMLInputElement
+      ).checked,
+    ).toBe(false);
+    expect(button('Save grant').disabled).toBe(true);
+  });
   it('shows reviewed catalog cards with category, authentication, and risk summaries', async () => {
     await render();
     expect(container.textContent).toContain('Read-only sandbox egress');
