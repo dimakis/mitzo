@@ -61,8 +61,10 @@ export interface ChildLink extends ChildCreateRequest {
 export interface ChildRuntime {
   /** `absent` must be an authoritative observation; uncertainty is `unknown`. */
   inspect(conversationId: string): Promise<'absent' | 'running' | 'completed' | 'unknown'>;
-  /** Resolve after runtime has accepted this exact conversation ID, not after the turn. */
-  start(child: ChildLink): Promise<void>;
+  /** The adapter must call admitExecution immediately before provider dispatch.
+   * Runtime setup may precede it; no provider action may. Resolve after the
+   * runtime accepts this exact conversation ID, not after the turn. */
+  start(child: ChildLink, admitExecution: () => Promise<boolean>): Promise<void>;
   stop(conversationId: string): Promise<'confirmed' | 'unknown'>;
 }
 
@@ -156,6 +158,27 @@ function requestFingerprint(request: ChildCreateRequest): string {
     isolation: request.isolation,
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+function canonicalAuthority(authority: ChildAuthority): string {
+  return JSON.stringify({
+    parentConversationId: authority.parentConversationId,
+    parentActive: authority.parentActive,
+    grantId: authority.grantId,
+    grantRevision: authority.grantRevision,
+    accountBinding: AccountBindingSchema.parse(authority.accountBinding),
+    reasoningEffort: authority.reasoningEffort,
+    taskRootId: authority.taskRootId,
+    taskNodeId: authority.taskNodeId ?? null,
+    planRevision: authority.planRevision ?? null,
+    allowedFiles: [...new Set(authority.allowedFiles)].sort(),
+    allowedCapabilities: [...new Set(authority.allowedCapabilities)].sort(),
+    maxChildren: authority.maxChildren,
+    maxConcurrent: authority.maxConcurrent,
+    maxDepth: authority.maxDepth,
+    maxSpawnsPerMinute: authority.maxSpawnsPerMinute,
+    allowSymposiumSharing: authority.allowSymposiumSharing === true,
+  });
 }
 
 function childFromRow(row: ChildRow): ChildLink {
@@ -362,7 +385,7 @@ export class SessionService {
             request.idempotencyKey,
             fingerprint,
             JSON.stringify(request),
-            JSON.stringify(authority),
+            canonicalAuthority(authority),
             depth,
             'allocated',
             1,
@@ -425,7 +448,21 @@ export class SessionService {
       .prepare('SELECT authority_json FROM child_allocations WHERE conversation_id = ?')
       .get(child.conversationId) as { authority_json: string };
     const current = await this.resolveCurrentAuthority(child);
-    return Boolean(current?.parentActive && JSON.stringify(current) === snapshot.authority_json);
+    return Boolean(
+      current?.parentActive && canonicalAuthority(current) === snapshot.authority_json,
+    );
+  }
+
+  private async admitExecution(child: ChildLink): Promise<boolean> {
+    if (!(await this.authorityStillCurrent(child))) return false;
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM child_allocations
+      WHERE conversation_id = ? AND generation = ? AND status IN ('starting','running')
+        AND cancel_requested_at IS NULL AND dispatch_owner = ?`,
+      )
+      .get(child.conversationId, child.generation, this.ownerId);
+    return Boolean(row);
   }
 
   /** Inspect before dispatching the pending start. An uncertain observation is
@@ -469,14 +506,18 @@ export class SessionService {
       child = this.requestCancellation(conversationId, latest.parentConversationId);
       return child.status === 'cancelled' ? child : this.reconcile(conversationId);
     }
-    if (observed === 'unknown')
+    if (observed === 'unknown') {
+      if (latest.status === 'starting') {
+        this.requestCancellation(conversationId, latest.parentConversationId);
+        return this.reconcile(conversationId);
+      }
       this.casStatus(
         conversationId,
         child.generation,
-        ['allocated', 'starting', 'running'],
+        ['allocated', 'running'],
         'recovery_required',
       );
-    else if (observed === 'completed')
+    } else if (observed === 'completed')
       this.casStatus(
         conversationId,
         child.generation,
@@ -496,8 +537,10 @@ export class SessionService {
       const lease = this.db
         .prepare('SELECT dispatch_lease_until FROM child_allocations WHERE conversation_id = ?')
         .get(conversationId) as { dispatch_lease_until: number | null };
-      if (lease.dispatch_lease_until !== null && lease.dispatch_lease_until < Date.now())
-        this.casStatus(conversationId, child.generation, ['starting'], 'recovery_required');
+      if (lease.dispatch_lease_until !== null && lease.dispatch_lease_until < Date.now()) {
+        this.requestCancellation(conversationId, latest.parentConversationId);
+        return this.reconcile(conversationId);
+      }
     } else {
       const now = Date.now();
       const claimed = this.db
@@ -510,10 +553,10 @@ export class SessionService {
         .run(this.ownerId, now + 30_000, now, conversationId, child.generation);
       if (claimed.changes !== 1) return this.getChild(conversationId)!;
       try {
-        await this.runtime.start(this.getChild(conversationId)!);
+        await this.runtime.start(this.getChild(conversationId)!, () => this.admitExecution(child));
       } catch {
-        this.casStatus(conversationId, child.generation, ['starting'], 'recovery_required');
-        return this.getChild(conversationId)!;
+        this.requestCancellation(conversationId, child.parentConversationId);
+        return this.reconcile(conversationId);
       }
       const after = this.getChild(conversationId)!;
       if (after.cancellationRequested) {

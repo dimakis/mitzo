@@ -165,14 +165,15 @@ describe('SessionService', () => {
   it('does not reclaim an expired start lease while the original start remains in flight', async () => {
     const child = service.createChild(request(), authority());
     let release!: () => void;
-    runtime.start = async () => {
+    runtime.start = async (_child, admitExecution) => {
       observed.push('start');
       await new Promise<void>((resolve) => {
         release = resolve;
       });
+      observed.push((await admitExecution()) ? 'execute' : 'fenced');
     };
     const first = service.reconcile(child.conversationId);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(observed).toContain('start'));
     const secondService = new SessionService(dbPath, runtime, async () => currentAuthority);
     const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 31_000);
     try {
@@ -184,6 +185,33 @@ describe('SessionService', () => {
       release();
       await first;
     }
+    expect(observed.filter((event) => event === `stop:${child.conversationId}`)).toHaveLength(2);
+    expect(observed).toContain('fenced');
+    expect(observed).not.toContain('execute');
+    expect(service.getChild(child.conversationId)?.status).toBe('cancelled');
+  });
+
+  it('treats equivalent authority object order as the same grant', async () => {
+    const child = service.createChild(request(), authority());
+    currentAuthority = {
+      maxSpawnsPerMinute: 2,
+      maxDepth: 2,
+      maxConcurrent: 1,
+      maxChildren: 2,
+      allowedCapabilities: ['read'],
+      allowedFiles: ['src/**'],
+      planRevision: 'plan-1',
+      taskNodeId: undefined,
+      taskRootId: 'root',
+      reasoningEffort: 'medium',
+      accountBinding: { ...binding },
+      grantRevision: 1,
+      grantId: 'grant-a',
+      parentActive: true,
+      parentConversationId: 'parent',
+    };
+    await service.reconcile(child.conversationId);
+    expect(service.getChild(child.conversationId)?.status).toBe('running');
   });
 
   it('fences revoked authority between allocation and dispatch and rejects changed binding or scope', async () => {
