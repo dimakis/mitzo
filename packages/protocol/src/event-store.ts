@@ -2016,29 +2016,39 @@ export class EventStore {
     knownCostUsd: number;
     unknownCostAttempts: number;
   } {
-    const attempts = this.db!.prepare(
-      `SELECT count(*) AS attempts,
-      coalesce(sum(CASE WHEN a.cost_known = 1 THEN a.cost_usd ELSE 0 END),0) AS cost,
-      coalesce(sum(CASE WHEN a.cost_known = 0 AND NOT EXISTS (
-        SELECT 1 FROM symposium_late_results settled WHERE settled.claim_token = a.claim_token
-          AND settled.delivery_id = a.delivery_id AND settled.seat_id = a.seat_id
-      ) THEN 1 ELSE 0 END),0) AS unknown_cost FROM symposium_recipient_attempts a
-      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
-      WHERE d.session_id = ?`,
+    // Retries retain one provider idempotency identity even though each host
+    // dispatch has its own claim. Price that provider turn once, using evidence
+    // from any of its attempts or their exact-claim late results.
+    const usage = this.db!.prepare(
+      `WITH attempts AS (
+        SELECT a.* FROM symposium_recipient_attempts a
+        JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+        WHERE d.session_id = ?
+      ), evidence AS (
+        SELECT delivery_id, seat_id, idempotency_key, cost_known, cost_usd FROM attempts
+        UNION ALL
+        SELECT a.delivery_id, a.seat_id, a.idempotency_key, l.cost_known, l.cost_usd
+        FROM attempts a JOIN symposium_late_results l
+          ON l.delivery_id = a.delivery_id AND l.seat_id = a.seat_id
+          AND l.claim_token = a.claim_token
+      ), prices AS (
+        SELECT delivery_id, seat_id, idempotency_key,
+          count(DISTINCT CASE WHEN cost_known = 1 THEN cost_usd END) AS price_count,
+          max(CASE WHEN cost_known = 1 THEN cost_usd END) AS price
+        FROM evidence GROUP BY delivery_id, seat_id, idempotency_key
+      )
+      SELECT (SELECT count(*) FROM attempts) AS attempts,
+        coalesce(sum(CASE WHEN price_count = 1 THEN price ELSE 0 END), 0) AS cost,
+        coalesce(sum(CASE WHEN price_count != 1 THEN (
+          SELECT count(*) FROM attempts a WHERE a.delivery_id = prices.delivery_id
+            AND a.seat_id = prices.seat_id AND a.idempotency_key = prices.idempotency_key
+        ) ELSE 0 END), 0) AS unknown_cost FROM prices`,
     ).get(sessionId) as { attempts: number; cost: number; unknown_cost: number };
-    const late = this.db!.prepare(
-      `SELECT coalesce(sum(CASE WHEN l.cost_known = 1 THEN l.cost_usd ELSE 0 END),0) AS cost,
-      coalesce(sum(CASE WHEN l.cost_known = 0 THEN 1 ELSE 0 END),0) AS unknown_cost
-      FROM symposium_late_results l JOIN symposium_deliveries d ON d.delivery_id = l.delivery_id
-      WHERE d.session_id = ?`,
-    ).get(sessionId) as { cost: number; unknown_cost: number };
-    const knownCostUsd = attempts.cost + late.cost;
-    const unknownCostAttempts = attempts.unknown_cost + late.unknown_cost;
     return {
-      attempts: attempts.attempts,
-      costUsd: unknownCostAttempts ? null : knownCostUsd,
-      knownCostUsd,
-      unknownCostAttempts,
+      attempts: usage.attempts,
+      costUsd: usage.unknown_cost ? null : usage.cost,
+      knownCostUsd: usage.cost,
+      unknownCostAttempts: usage.unknown_cost,
     };
   }
 

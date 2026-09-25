@@ -244,7 +244,9 @@ The delivery and attempt ledgers preserve missing provider prices as unknown
 known subtotal (`knownCostUsd`) and the count of attempts without price evidence
 (`unknownCostAttempts`); its total `costUsd` is unknown while any such attempt
 remains. A late result reconciles the exact original claim without reviving a
-cancelled delivery. Historical positive costs remain known during migration;
+cancelled delivery. Failed attempts and successful retries sharing the same
+provider idempotency identity count as one priced turn; host attempts still count
+individually toward the turn cap. Conflicting reported prices remain unresolved. Historical positive costs remain known during migration;
 historical zeros remain unknown because earlier code also used zero for omitted
 prices. Negative or nonfinite provider costs are rejected as billing evidence.
 

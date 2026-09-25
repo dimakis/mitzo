@@ -97,7 +97,7 @@ class FakeExecutor implements SymposiumSeatExecutor {
   private threadCount = 0;
   private results = new Map<
     string,
-    { providerThreadId: string; content: string; costUsd: number }
+    { providerThreadId: string; content: string; costUsd: number | null }
   >();
 
   async execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult> {
@@ -1479,56 +1479,74 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.calls).toHaveLength(1);
   });
 
-  it('retries a failed seat attempt with the same provider idempotency key', async () => {
-    admit('builder');
-    admit('reviewer');
-    let calls = 0;
-    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
-      reviewer.calls.push(input);
-      calls += 1;
-      if (calls === 1) throw new Error('temporary provider failure');
-      return { providerThreadId: 'thread-reviewer', content: 'recovered', costUsd: 0 };
-    });
-    const staged = orchestrator.stageDelivery({
-      sessionId: 'chat',
-      sourceSeatId: 'builder',
-      recipientSeatIds: ['reviewer'],
-      originalContent: 'review this',
-      idempotencyKey: 'stage-failure',
-    });
-    orchestrator.intervene({
-      deliveryId: staged.deliveryId,
-      action: 'approve',
-      idempotencyKey: 'approve-failure',
-    });
-    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'failed' });
-    orchestrator.intervene({
-      deliveryId: staged.deliveryId,
-      action: 'retry',
-      reason: 'Provider recovered',
-      idempotencyKey: 'retry-failure',
-    });
-    expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
-    expect(reviewer.calls.map((call) => call.idempotencyKey)).toEqual([
-      'delivery:delivery-1:seat:reviewer',
-      'delivery:delivery-1:seat:reviewer',
-    ]);
-    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
-      {
-        attemptNumber: 1,
-        idempotencyKey: 'delivery:delivery-1:seat:reviewer',
-        status: 'failed',
-        error: 'temporary provider failure',
-      },
-      {
-        attemptNumber: 2,
-        idempotencyKey: 'delivery:delivery-1:seat:reviewer',
-        status: 'delivered',
-        resultContent: 'recovered',
-        costUsd: 0,
-      },
-    ]);
-  });
+  it.each([0, 0.25, null])(
+    'reconciles failed retry cost %s for the same provider turn',
+    async (costUsd) => {
+      admit('builder');
+      admit('reviewer');
+      let calls = 0;
+      reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+        reviewer.calls.push(input);
+        calls += 1;
+        if (calls === 1) throw new Error('temporary provider failure');
+        return {
+          providerThreadId: 'thread-reviewer',
+          content: 'recovered',
+          costUsd,
+        };
+      });
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'review this',
+        idempotencyKey: 'stage-failure',
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'approve-failure',
+      });
+      expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'failed' });
+      expect(store.getSymposiumUsage('chat')).toMatchObject({
+        attempts: 1,
+        costUsd: null,
+        unknownCostAttempts: 1,
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'retry',
+        reason: 'Provider recovered',
+        idempotencyKey: 'retry-failure',
+      });
+      expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+      expect(reviewer.calls.map((call) => call.idempotencyKey)).toEqual([
+        'delivery:delivery-1:seat:reviewer',
+        'delivery:delivery-1:seat:reviewer',
+      ]);
+      expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')).toMatchObject([
+        {
+          attemptNumber: 1,
+          idempotencyKey: 'delivery:delivery-1:seat:reviewer',
+          status: 'failed',
+          error: 'temporary provider failure',
+        },
+        {
+          attemptNumber: 2,
+          idempotencyKey: 'delivery:delivery-1:seat:reviewer',
+          status: 'delivered',
+          resultContent: 'recovered',
+          costUsd,
+        },
+      ]);
+      expect(store.getSymposiumUsage('chat')).toEqual({
+        attempts: 2,
+        costUsd,
+        knownCostUsd: costUsd ?? 0,
+        unknownCostAttempts: costUsd === null ? 2 : 0,
+      });
+    },
+  );
 
   it('retries a failed second recipient without re-executing the delivered first recipient', async () => {
     admit('builder');
