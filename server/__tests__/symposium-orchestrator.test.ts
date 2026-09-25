@@ -9,6 +9,7 @@ import {
   SymposiumOrchestrator,
   type SymposiumSeatExecutor,
   type SymposiumSeatExecution,
+  type SymposiumSeatExecutionResult,
 } from '../symposium-orchestrator.js';
 
 const config: SymposiumConfig = {
@@ -99,7 +100,7 @@ class FakeExecutor implements SymposiumSeatExecutor {
     { providerThreadId: string; content: string; costUsd: number }
   >();
 
-  async execute(input: SymposiumSeatExecution) {
+  async execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult> {
     this.calls.push(input);
     const prior = this.results.get(input.idempotencyKey);
     if (prior) return prior;
@@ -178,6 +179,79 @@ afterEach(() => {
 });
 
 describe('SymposiumOrchestrator', () => {
+  it.each([-1, Infinity])(
+    'refuses invalid provider cost %s as billing evidence',
+    async (costUsd) => {
+      await prepareConcurrentSeats();
+      orchestrator = new SymposiumOrchestrator({
+        store,
+        executors: {
+          builder: {
+            execute: async () => ({ providerThreadId: 'bad-cost', content: 'Done', costUsd }),
+          },
+          reviewer,
+        },
+      });
+      const result = await orchestrator.deliver(readyFor(['builder'], 'bad-cost'));
+      expect(result.status).toBe('failed');
+      expect(result.recipients[0].error).toMatch(/cost/i);
+      expect(store.getSymposiumUsage('chat').costUsd).toBeNull();
+    },
+  );
+
+  it.each([undefined, 0])(
+    'preserves reported cost %s without inventing free execution',
+    async (costUsd) => {
+      await prepareConcurrentSeats();
+      orchestrator = new SymposiumOrchestrator({
+        store,
+        executors: {
+          builder: {
+            execute: async () => ({
+              providerThreadId: 'cost-thread',
+              content: 'Completed',
+              costUsd,
+            }),
+          },
+          reviewer,
+        },
+      });
+      const id = readyFor(['builder'], 'cost-evidence');
+      const completed = await orchestrator.deliver(id);
+      expect(completed.recipients[0].costUsd).toBe(costUsd ?? null);
+      expect(store.getSymposiumRecipientAttempts(id)[0].costUsd).toBe(costUsd ?? null);
+      expect(store.getSymposiumUsage('chat')).toMatchObject({
+        costUsd: costUsd ?? null,
+        knownCostUsd: 0,
+        unknownCostAttempts: costUsd === undefined ? 1 : 0,
+      });
+    },
+  );
+
+  it('treats historical zero cost without explicit evidence as unknown on migration', async () => {
+    await prepareConcurrentSeats();
+    const id = readyFor(['builder'], 'legacy-cost');
+    await orchestrator.deliver(id);
+    store.close();
+    const legacy = new Database(dbPath);
+    for (const table of [
+      'symposium_delivery_recipients',
+      'symposium_recipient_attempts',
+      'symposium_late_results',
+    ]) {
+      const columns = legacy.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+        name: string;
+      }>;
+      if (columns.some((column) => column.name === 'cost_known'))
+        legacy.exec(`ALTER TABLE ${table} DROP COLUMN cost_known`);
+      legacy.exec(`UPDATE ${table} SET cost_usd = 0`);
+    }
+    legacy.close();
+    store = new EventStore(dbPath);
+    expect(store.getSymposiumRecipientAttempts(id)[0].costUsd).toBeNull();
+    expect(store.getSymposiumUsage('chat').costUsd).toBeNull();
+  });
+
   async function prepareConcurrentSeats(secondWriter = false) {
     const third = {
       ...config.seats[1],
@@ -693,107 +767,116 @@ describe('SymposiumOrchestrator', () => {
     );
     expect(reviewer.calls).toHaveLength(0);
   });
-  it('retains a late result as audit evidence without reviving a suspended recipient', async () => {
-    store.setSymposiumConfig('chat', {
-      ...config,
-      version: 2,
-      revision: 4,
-      anchorSeatId: 'builder',
-      activeSeatCap: 2,
-    });
-    let release!: (result: { providerThreadId: string; content: string; costUsd: number }) => void;
-    reviewer.execute = vi.fn(
-      () =>
-        new Promise<{ providerThreadId: string; content: string; costUsd: number }>((resolve) => {
-          release = resolve;
-        }),
-    );
-    orchestrator = new SymposiumOrchestrator({
-      store,
-      executors: { builder, reviewer },
-      now: () => 123,
-      stopSeat: async () => {},
-      reconcileProviders: async () => {},
-    });
-    for (const seatId of ['builder', 'reviewer']) {
+  it.each([0.7, null])(
+    'retains late cost %s without reviving a suspended recipient',
+    async (costUsd) => {
+      store.setSymposiumConfig('chat', {
+        ...config,
+        version: 2,
+        revision: 4,
+        anchorSeatId: 'builder',
+        activeSeatCap: 2,
+      });
+      let release!: (result: {
+        providerThreadId: string;
+        content: string;
+        costUsd: number | null;
+      }) => void;
+      reviewer.execute = vi.fn(
+        () =>
+          new Promise<{ providerThreadId: string; content: string; costUsd: number | null }>(
+            (resolve) => {
+              release = resolve;
+            },
+          ),
+      );
+      orchestrator = new SymposiumOrchestrator({
+        store,
+        executors: { builder, reviewer },
+        now: () => 123,
+        stopSeat: async () => {},
+        reconcileProviders: async () => {},
+      });
+      for (const seatId of ['builder', 'reviewer']) {
+        await orchestrator.transitionMembership({
+          sessionId: 'chat',
+          seatId,
+          action: 'admit',
+          expectedGeneration: 0,
+          configRevision: 4,
+          actor: 'director',
+          reason: 'start',
+          idempotencyKey: `membership:${seatId}`,
+        });
+        orchestrator.recordProviderAdmission({
+          sessionId: 'chat',
+          seatId,
+          decision: 'admitted',
+          reason: 'approved',
+          idempotencyKey: `admission:${seatId}`,
+        });
+        await orchestrator.reconcileMembership('chat', seatId, 1);
+      }
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'Review',
+        idempotencyKey: 'late-stage',
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'late-approve',
+      });
+      const pending = orchestrator.deliver(staged.deliveryId);
+      await vi.waitFor(() => expect(reviewer.execute).toHaveBeenCalledOnce());
+      const originalSnapshot = vi.mocked(reviewer.execute).mock.calls[0][0].provenance;
+      expect(originalSnapshot).toMatchObject({
+        version: 2,
+        seatLabel: 'Reviewer',
+        seatRole: 'reviewer',
+        accountBinding: config.seats[1].accountBinding,
+        profileBinding: config.seats[1].profileBinding,
+      });
       await orchestrator.transitionMembership({
         sessionId: 'chat',
-        seatId,
-        action: 'admit',
-        expectedGeneration: 0,
+        seatId: 'reviewer',
+        action: 'suspend',
+        expectedGeneration: 1,
         configRevision: 4,
         actor: 'director',
-        reason: 'start',
-        idempotencyKey: `membership:${seatId}`,
+        reason: 'pause',
+        idempotencyKey: 'suspend:reviewer',
       });
-      orchestrator.recordProviderAdmission({
-        sessionId: 'chat',
-        seatId,
-        decision: 'admitted',
-        reason: 'approved',
-        idempotencyKey: `admission:${seatId}`,
+      store.setSymposiumConfig('chat', {
+        ...config,
+        version: 2,
+        revision: 5,
+        anchorSeatId: 'builder',
+        activeSeatCap: 2,
+        seats: config.seats.map((seat) =>
+          seat.id === 'reviewer' ? { ...seat, name: 'Renamed reviewer', role: 'verifier' } : seat,
+        ),
       });
-      await orchestrator.reconcileMembership('chat', seatId, 1);
-    }
-    const staged = orchestrator.stageDelivery({
-      sessionId: 'chat',
-      sourceSeatId: 'builder',
-      recipientSeatIds: ['reviewer'],
-      originalContent: 'Review',
-      idempotencyKey: 'late-stage',
-    });
-    orchestrator.intervene({
-      deliveryId: staged.deliveryId,
-      action: 'approve',
-      idempotencyKey: 'late-approve',
-    });
-    const pending = orchestrator.deliver(staged.deliveryId);
-    await vi.waitFor(() => expect(reviewer.execute).toHaveBeenCalledOnce());
-    const originalSnapshot = vi.mocked(reviewer.execute).mock.calls[0][0].provenance;
-    expect(originalSnapshot).toMatchObject({
-      version: 2,
-      seatLabel: 'Reviewer',
-      seatRole: 'reviewer',
-      accountBinding: config.seats[1].accountBinding,
-      profileBinding: config.seats[1].profileBinding,
-    });
-    await orchestrator.transitionMembership({
-      sessionId: 'chat',
-      seatId: 'reviewer',
-      action: 'suspend',
-      expectedGeneration: 1,
-      configRevision: 4,
-      actor: 'director',
-      reason: 'pause',
-      idempotencyKey: 'suspend:reviewer',
-    });
-    store.setSymposiumConfig('chat', {
-      ...config,
-      version: 2,
-      revision: 5,
-      anchorSeatId: 'builder',
-      activeSeatCap: 2,
-      seats: config.seats.map((seat) =>
-        seat.id === 'reviewer' ? { ...seat, name: 'Renamed reviewer', role: 'verifier' } : seat,
-      ),
-    });
-    release({ providerThreadId: 'late-thread', content: 'Late answer', costUsd: 0.7 });
-    await pending;
-    expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('cancelled');
-    expect(store.getSymposiumLateResults(staged.deliveryId)).toEqual([
-      expect.objectContaining({
-        seatId: 'reviewer',
-        resultContent: 'Late answer',
-        costUsd: 0.7,
+      release({ providerThreadId: 'late-thread', content: 'Late answer', costUsd });
+      await pending;
+      expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('cancelled');
+      expect(store.getSymposiumLateResults(staged.deliveryId)).toEqual([
+        expect.objectContaining({
+          seatId: 'reviewer',
+          resultContent: 'Late answer',
+          costUsd,
+          provenance: originalSnapshot,
+        }),
+      ]);
+      expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
         provenance: originalSnapshot,
-      }),
-    ]);
-    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
-      provenance: originalSnapshot,
-    });
-    expect(store.getSymposiumDelivery(staged.deliveryId)?.recipients[0].resultContent).toBeNull();
-    expect(store.getSymposiumUsage('chat')).toMatchObject({ attempts: 1, costUsd: 0.7 });
-  });
+      });
+      expect(store.getSymposiumDelivery(staged.deliveryId)?.recipients[0].resultContent).toBeNull();
+      expect(store.getSymposiumUsage('chat')).toMatchObject({ attempts: 1, costUsd });
+    },
+  );
   it('keeps uncertain admission blocked across restart until explicit reconciliation succeeds', async () => {
     store.setSymposiumConfig('chat', {
       ...config,

@@ -328,7 +328,7 @@ export interface SymposiumDeliveryRecipient {
   isolationDomainRevision: number;
   providerThreadId: string | null;
   resultContent: string | null;
-  costUsd: number;
+  costUsd: number | null;
   error: string | null;
   updatedAt: number;
 }
@@ -345,7 +345,7 @@ export interface SymposiumRecipientAttemptRecord {
   status: Exclude<SymposiumRecipientStatus, 'pending'>;
   providerThreadId: string | null;
   resultContent: string | null;
-  costUsd: number;
+  costUsd: number | null;
   error: string | null;
   startedAt: number;
   completedAt: number | null;
