@@ -188,6 +188,19 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
 }
 
 /** Merge an older HTTP snapshot with events received while it was in flight. */
+function mergeLiveWithDurable(
+  live: FinishedMessage | undefined,
+  durable: FinishedMessage,
+): FinishedMessage {
+  if (!live) return durable;
+  return {
+    ...live,
+    ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
+    images: live.images ?? durable.images,
+    contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+  };
+}
+
 function mergeHistory(
   state: MessagesState,
   history: FinishedMessage[],
@@ -206,7 +219,7 @@ function mergeHistory(
     )
       continue;
     seen.add(message.messageId);
-    merged.push(live.get(message.messageId) ?? message);
+    merged.push(mergeLiveWithDurable(live.get(message.messageId), message));
   }
   return messagesReducer(state, { type: 'RESTORE', messages: merged });
 }
@@ -265,7 +278,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   messages: (() => {
                     const live = s.messages.messages.filter(
                       (m) =>
-                        initialMessages.get(m.messageId) !== m ||
+                        (initialMessages.get(m.messageId) !== m &&
+                          (throughSeq === undefined ||
+                            m.startedSeq === undefined ||
+                            m.startedSeq > throughSeq)) ||
                         pendingOptimisticMessageIds.has(m.messageId) ||
                         currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
@@ -278,7 +294,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                             s.messages.current === initialCurrent ||
                             m.messageId !== s.messages.current?.messageId,
                         )
-                        .map((m) => liveById.get(m.messageId) ?? m),
+                        .map((m) => mergeLiveWithDurable(liveById.get(m.messageId), m)),
                       ...live.filter((m) => !savedIds.has(m.messageId)),
                     ];
                   })(),
@@ -820,10 +836,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
   };
 
-  function wsListener(msg: Record<string, unknown>) {
+  function wsListener(msg: Record<string, unknown>): boolean {
     if (msg.type === '_auth_lost') {
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('mitzo:auth-lost'));
-      return;
+      return true;
     }
     if (
       msg.type === '_send_pending' ||
@@ -863,7 +879,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         )
           callbacks.onSessionAssigned(msg.sessionId as string);
       }
-      return;
+      return true;
     }
     // Foreground recovery: when the page becomes visible again (iOS may have
     // evicted it from memory, losing in-memory state), re-fetch messages from
@@ -874,7 +890,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         fetchAndRestoreMessages(sessions.active);
         // syncRunningState removed — state events handle this
       }
-      return;
+      return true;
     }
 
     if (msg.type === 'session_resumed') {
@@ -884,7 +900,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           replayed: msg.replayed,
         });
       }
-      return;
+      return true;
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
@@ -904,7 +920,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return;
+          return true;
         }
       } else {
         // Allow session_id (new session assignment) and permission_request
@@ -920,7 +936,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             msg.cursor >= 0
           )
             connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return;
+          return true;
         }
       }
     }
@@ -938,6 +954,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState({ modeChangeReady: true });
     }
     const result = parseServerMessage(msg as WsMsg, parserState, callbacks, 'v2');
+    if (result.resyncRequired) {
+      store.setState((s) => ({
+        messages: { ...s.messages, resyncRequired: true },
+      }));
+      return false;
+    }
 
     if (result.modeUpdate) {
       awaitingModeHydration = undefined;
@@ -960,9 +982,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       ) {
         boundedRestore.confirmedMessageIds.add(action.messageId);
       }
-      store.setState((s) => ({
-        messages: messagesReducer(s.messages, action),
-      }));
+      const nextMessages = messagesReducer(store.getState().messages, action);
+      if (nextMessages.resyncRequired) {
+        store.setState({ messages: nextMessages });
+        return false;
+      }
+      store.setState({ messages: nextMessages });
     }
 
     if (result.tasksUpdate) {
@@ -1044,6 +1069,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         .catch(() => {});
       store.getState().refreshSessions();
     }
+    return true;
   }
 
   connection.onMessage(wsListener);

@@ -158,6 +158,10 @@ export interface StreamingBlock {
 
 export interface StreamingMessage {
   messageId: string;
+  /** Durable message_start cursor, when known. */
+  startedSeq?: number;
+  /** Immutable seat execution snapshot; absent for ordinary chat. */
+  symposiumProvenance?: SymposiumProvenance;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
 }
@@ -180,6 +184,9 @@ export interface FinishedBlock {
 
 export interface FinishedMessage {
   messageId: string;
+  /** Durable user_message or message_start cursor, when known. */
+  startedSeq?: number;
+  symposiumProvenance?: SymposiumProvenance;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];
   images?: string[];

@@ -19,7 +19,8 @@ export interface MitzoConnectionConfig {
   suspendUrl?: string;
 }
 
-export type ConnectionListener = (msg: Record<string, unknown>) => void;
+/** `false` means the event was refused and its durable cursor must not be acknowledged. */
+export type ConnectionListener = (msg: Record<string, unknown>) => boolean | void;
 
 const MAX_PENDING_SENDS = 100;
 const HEARTBEAT_INTERVAL_MS = 5_000;

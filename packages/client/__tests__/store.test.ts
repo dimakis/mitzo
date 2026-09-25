@@ -560,7 +560,10 @@ describe('reconnect recovery', () => {
       text: 'old prompt',
       seq: 6,
     });
-    expect(store.getState().messages.messages[1]).toBe(optimistic);
+    expect(store.getState().messages.messages[1]).toMatchObject({
+      ...optimistic,
+      startedSeq: 8,
+    });
     releaseRestore({
       ok: true,
       json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),

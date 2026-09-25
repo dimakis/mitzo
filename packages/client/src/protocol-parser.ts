@@ -20,6 +20,7 @@ import type {
   ClientSessionState,
   PermissionRequest,
 } from '@mitzo/protocol';
+import { SymposiumProvenanceSchema } from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
 import type { Task, LoopStatus } from './slices/tasks.js';
@@ -69,6 +70,8 @@ export interface ProtocolParserState {
 // ─── Parser result ───────────────────────────────────────────────────────────
 
 export interface ParseResult {
+  /** Refuse this event and request an authoritative replay; do not acknowledge it. */
+  resyncRequired?: boolean;
   /** Server-confirmed permission mode for the current session. */
   modeUpdate?: MitzoMode;
   /** Messages actions to dispatch to the messages slice. */
@@ -113,6 +116,35 @@ export function parseServerMessage(
   poolKey: string,
 ): ParseResult {
   const result: ParseResult = { messagesActions: [] };
+  const attributedEventTypes = new Set([
+    'message_start',
+    'block_start',
+    'block_delta',
+    'block_end',
+    'tool_result',
+    'message_end',
+    'message_snapshot',
+    'session_end',
+    'subagent_start',
+    'subagent_block_start',
+    'subagent_block_delta',
+    'subagent_block_end',
+    'subagent_tool_result',
+    'subagent_end',
+    'subagent_cancelled',
+  ]);
+  const envelope = msg as Record<string, unknown>;
+  let provenance: import('@mitzo/protocol').SymposiumProvenance | undefined;
+  if (
+    attributedEventTypes.has(msg.type) &&
+    ('seatId' in envelope || 'symposiumProvenance' in envelope)
+  ) {
+    const parsed = SymposiumProvenanceSchema.safeParse(envelope.symposiumProvenance);
+    if (!parsed.success || envelope.seatId !== parsed.data.seatId) {
+      return { messagesActions: [], resyncRequired: true };
+    }
+    provenance = parsed.data;
+  }
 
   if (
     ['mode_changed', 'session_switched', 'reconnected', 'session_id'].includes(msg.type) &&
@@ -323,6 +355,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'MESSAGE_START',
         messageId: msg.messageId as string,
+        ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
+          ? { startedSeq: msg.seq }
+          : {}),
       });
       break;
 
@@ -385,6 +420,9 @@ export function parseServerMessage(
         result.messagesActions.push({
           type: 'MESSAGE_SNAPSHOT',
           messageId: msg.messageId as string,
+          ...(typeof msg.startedSeq === 'number' && Number.isSafeInteger(msg.startedSeq)
+            ? { startedSeq: msg.startedSeq }
+            : {}),
           blocks: msg.blocks as FinishedBlock[],
         });
       }
@@ -395,7 +433,7 @@ export function parseServerMessage(
         type: 'SESSION_END',
         sessionId: msg.sessionId as string | undefined,
       });
-      callbacks.setWsRunning?.(poolKey, false);
+      if (!provenance) callbacks.setWsRunning?.(poolKey, false);
       if (msg.sessionId && !state.currentSessionId) {
         callbacks.onSessionAssigned(msg.sessionId as string);
       }
@@ -478,6 +516,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,
+        ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
+          ? { startedSeq: msg.seq }
+          : {}),
         text: msg.text as string,
         images: Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
         contextBlocks: Array.isArray(msg.contextBlocks)
@@ -665,5 +706,14 @@ export function parseServerMessage(
       break;
   }
 
+  if (provenance) {
+    result.messagesActions = result.messagesActions.map((action) => ({
+      ...action,
+      symposiumProvenance: provenance,
+      ...(typeof envelope.messageId === 'string' && envelope.messageId.length > 0
+        ? { attributedMessageId: envelope.messageId }
+        : {}),
+    }));
+  }
   return result;
 }
