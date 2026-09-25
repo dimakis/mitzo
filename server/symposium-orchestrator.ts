@@ -6,12 +6,15 @@ import type {
   SymposiumDeliveryRecord,
   SymposiumIntervention,
   SymposiumProvenance,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
 } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('symposium-orchestrator');
+const sharedReconciliationQueues = new WeakMap<EventStore, Map<string, Promise<void>>>();
 
 /** Narrow provider boundary. Phase 2 deliberately supplies only fakes.
  * Implementations must reconcile repeated idempotency keys to one provider turn.
@@ -44,6 +47,9 @@ export interface SymposiumOrchestratorDeps {
   idFactory?: () => string;
   claimIdFactory?: () => string;
   now?: () => number;
+  stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
+  reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
+  retainedProviders?: (sessionId: string) => string[];
 }
 
 export class SymposiumOrchestrator {
@@ -52,8 +58,12 @@ export class SymposiumOrchestrator {
   private readonly idFactory: () => string;
   private readonly claimIdFactory: () => string;
   private readonly now: () => number;
+  private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
+  private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
+  private readonly retainedProviders: (sessionId: string) => string[];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
+  private readonly reconciliationQueues: Map<string, Promise<void>>;
 
   constructor(deps: SymposiumOrchestratorDeps) {
     this.store = deps.store;
@@ -61,6 +71,112 @@ export class SymposiumOrchestrator {
     this.idFactory = deps.idFactory ?? randomUUID;
     this.claimIdFactory = deps.claimIdFactory ?? randomUUID;
     this.now = deps.now ?? Date.now;
+    this.stopSeat = deps.stopSeat;
+    this.reconcileProviders = deps.reconcileProviders;
+    this.retainedProviders = deps.retainedProviders ?? (() => []);
+    this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
+    sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
+  }
+
+  /** Persist revocation and fence dispatch before requesting runtime cleanup. */
+  async transitionMembership(input: {
+    sessionId: string;
+    seatId: string;
+    action: SymposiumMembershipAction;
+    expectedGeneration: number;
+    configRevision: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+    replacesSeatId?: string;
+  }): Promise<SymposiumMembershipRecord> {
+    const record = this.store.transitionSymposiumMembership({ ...input, occurredAt: this.now() });
+    if (record.reconciliation === 'confirmed' || record.state === 'active') return record;
+    return this.reconcileMembership(input.sessionId, input.seatId, record.generation);
+  }
+
+  /** Resume uncertain stop/provider reconciliation after a crash or failed cleanup. */
+  async reconcileMembership(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const predecessor = this.reconciliationQueues.get(sessionId) ?? Promise.resolve();
+    const work = predecessor
+      .catch(() => {})
+      .then(() => this.reconcileMembershipNow(sessionId, seatId, generation));
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(sessionId, settled);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(sessionId) === settled)
+        this.reconciliationQueues.delete(sessionId);
+    }
+  }
+
+  private async reconcileMembershipNow(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const record = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    if (!record || record.generation !== generation)
+      throw new Error('Symposium membership generation is stale');
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active') {
+      const admission = this.store.getLatestSymposiumAdmission(
+        sessionId,
+        seatId,
+        this.store.getActiveSymposiumConfig(sessionId).revision,
+      );
+      if (admission?.decision !== 'admitted' || admission.membershipGeneration !== generation) {
+        throw new Error('Current-generation provider admission is required before reconciliation');
+      }
+    }
+    try {
+      if (!this.reconcileProviders || (record.state !== 'active' && !this.stopSeat))
+        throw new Error('Runtime cleanup interface unavailable');
+      if (record.state !== 'active') {
+        await this.stopSeat!({
+          sessionId,
+          seatId,
+          generation: record.generation,
+        });
+      }
+      await this.reconcileProviders({
+        sessionId,
+        requiredProviders: this.store.getSymposiumRequiredProviders(
+          sessionId,
+          this.retainedProviders(sessionId),
+        ),
+      });
+      if (this.store.getLatestSymposiumMembership(sessionId, seatId)?.generation !== generation) {
+        throw new Error('Symposium membership changed during provider reconciliation');
+      }
+      return this.store.markSymposiumMembershipReconciled(
+        sessionId,
+        seatId,
+        record.generation,
+        'confirmed',
+      );
+    } catch {
+      log.warn('Symposium membership cleanup requires recovery', {
+        sessionId,
+        seatId,
+        reason:
+          record.state === 'active' ? 'admission_reconcile_failed' : 'revocation_reconcile_failed',
+      });
+      return this.store.markSymposiumMembershipReconciled(
+        sessionId,
+        seatId,
+        record.generation,
+        'recovery_required',
+      );
+    }
   }
 
   recordProviderAdmission(input: {
@@ -93,6 +209,12 @@ export class SymposiumOrchestrator {
       admissionId: `admission:${input.sessionId}:${input.idempotencyKey}`,
       sessionId: input.sessionId,
       seatId: seat.id,
+      ...(config.version === 2
+        ? {
+            membershipGeneration: this.store.getLatestSymposiumMembership(input.sessionId, seat.id)
+              ?.generation,
+          }
+        : {}),
       decision: input.decision,
       reason: input.reason?.trim() || null,
       idempotencyKey: input.idempotencyKey,
@@ -142,7 +264,7 @@ export class SymposiumOrchestrator {
       new Set(input.recipientSeatIds).size !== input.recipientSeatIds.length ||
       input.recipientSeatIds.some((seatId) => !seatIds.has(seatId))
     ) {
-      throw new Error('Delivery recipients must be one or two distinct configured seats');
+      throw new Error('Delivery recipients must be distinct configured seats');
     }
 
     const sourceSeat =
@@ -155,6 +277,23 @@ export class SymposiumOrchestrator {
         seat.id === sourceSeat?.id || recipients.some((recipient) => recipient.id === seat.id),
     );
     for (const seat of admittedSeats) {
+      if (config.version === 2) {
+        const membership = this.store.getLatestSymposiumMembership(input.sessionId, seat.id);
+        const admission = this.store.getLatestSymposiumAdmission(
+          input.sessionId,
+          seat.id,
+          config.revision,
+        );
+        if (
+          membership?.state !== 'active' ||
+          membership.reconciliation !== 'confirmed' ||
+          admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== membership.generation
+        ) {
+          throw new Error(`Symposium seat ${seat.id} is not active`);
+        }
+        continue;
+      }
       const admission = this.store.getLatestSymposiumAdmission(
         input.sessionId,
         seat.id,
@@ -179,7 +318,15 @@ export class SymposiumOrchestrator {
       interventionReason: null,
       idempotencyKey: input.idempotencyKey,
       configRevision: config.revision,
-      sourceProvenance: sourceSeat ? provenanceFor(sourceSeat, config.revision) : null,
+      sourceProvenance: sourceSeat
+        ? provenanceFor(
+            sourceSeat,
+            config.revision,
+            config.version === 2
+              ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)?.generation
+              : undefined,
+          )
+        : null,
       cancellationReason: null,
       cancellationIdempotencyKey: null,
       cancelledAt: null,
@@ -190,6 +337,14 @@ export class SymposiumOrchestrator {
         return {
           deliveryId,
           seatId: seat.id,
+          ...(config.version === 2
+            ? {
+                membershipGeneration: this.store.getLatestSymposiumMembership(
+                  input.sessionId,
+                  seat.id,
+                )!.generation,
+              }
+            : {}),
           status: 'pending',
           idempotencyKey: `delivery:${deliveryId}:seat:${seat.id}`,
           configRevision: config.revision,
@@ -370,7 +525,13 @@ export class SymposiumOrchestrator {
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
           providerThreadId: thread?.providerThreadId,
-          provenance: provenanceFor(seat, currentConfig.revision),
+          provenance: provenanceFor(
+            seat,
+            currentConfig.revision,
+            currentConfig.version === 2
+              ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+              : undefined,
+          ),
           signal: abortController.signal,
         });
         const timestamp = this.now();
@@ -431,7 +592,11 @@ function requireActiveSeat(seat: SeatConfig) {
   };
 }
 
-function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProvenance {
+function provenanceFor(
+  seat: SeatConfig,
+  configRevision: number,
+  membershipGeneration?: number,
+): SymposiumProvenance {
   const active = requireActiveSeat(seat);
   return {
     seatId: seat.id,
@@ -442,6 +607,7 @@ function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProve
     authorityGrantRevision: active.authorityGrant.revision,
     isolationDomainId: active.isolationRequest.trustDomainId,
     isolationDomainRevision: active.isolationRequest.revision,
+    ...(membershipGeneration !== undefined ? { membershipGeneration } : {}),
   };
 }
 
@@ -452,6 +618,7 @@ function seatBindingKey(seat: SeatConfig): string {
     active.accountBinding.accountId,
     active.accountBinding.model,
     active.accountBinding.profileRevision,
+    seat.reasoningEffort ?? null,
     active.profileBinding.profileId,
     active.profileBinding.profileRevision,
     active.contextGrant.grantId,

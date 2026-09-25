@@ -205,4 +205,8 @@ export type {
   SymposiumDeliveryRecord,
   SymposiumInterventionRecord,
   SymposiumSeatThreadRecord,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
+  SymposiumMembershipState,
+  SymposiumReconciliationStatus,
 } from './symposium.js';
