@@ -300,6 +300,14 @@ describe('SymposiumOrchestrator', () => {
     });
     const pending = orchestrator.deliver(staged.deliveryId);
     await vi.waitFor(() => expect(reviewer.execute).toHaveBeenCalledOnce());
+    const originalSnapshot = vi.mocked(reviewer.execute).mock.calls[0][0].provenance;
+    expect(originalSnapshot).toMatchObject({
+      version: 2,
+      seatLabel: 'Reviewer',
+      seatRole: 'reviewer',
+      accountBinding: config.seats[1].accountBinding,
+      profileBinding: config.seats[1].profileBinding,
+    });
     await orchestrator.transitionMembership({
       sessionId: 'chat',
       seatId: 'reviewer',
@@ -310,12 +318,30 @@ describe('SymposiumOrchestrator', () => {
       reason: 'pause',
       idempotencyKey: 'suspend:reviewer',
     });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 5,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+      seats: config.seats.map((seat) =>
+        seat.id === 'reviewer' ? { ...seat, name: 'Renamed reviewer', role: 'verifier' } : seat,
+      ),
+    });
     release({ providerThreadId: 'late-thread', content: 'Late answer', costUsd: 0.7 });
     await pending;
     expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('cancelled');
     expect(store.getSymposiumLateResults(staged.deliveryId)).toEqual([
-      expect.objectContaining({ seatId: 'reviewer', resultContent: 'Late answer', costUsd: 0.7 }),
+      expect.objectContaining({
+        seatId: 'reviewer',
+        resultContent: 'Late answer',
+        costUsd: 0.7,
+        provenance: originalSnapshot,
+      }),
     ]);
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
+      provenance: originalSnapshot,
+    });
     expect(store.getSymposiumDelivery(staged.deliveryId)?.recipients[0].resultContent).toBeNull();
     expect(store.getSymposiumUsage('chat')).toMatchObject({ attempts: 1, costUsd: 0.7 });
   });

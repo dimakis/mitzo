@@ -535,7 +535,16 @@ describe('Symposium persistence', () => {
       activeSeatCap: 2,
     });
     const provenance = {
+      version: 2 as const,
       seatId: 'reviewer',
+      seatLabel: config.seats[1].name,
+      seatRole: config.seats[1].role,
+      capturedAt: 1,
+      accountBinding: config.seats[1].accountBinding!,
+      reasoningEffort: null,
+      profileBinding: config.seats[1].profileBinding!,
+      contextGrant: { grantId: config.seats[1].contextGrant!.grantId, revision: 1 },
+      authorityGrant: { grantId: config.seats[1].authorityGrant!.grantId, revision: 1 },
       configRevision: 1,
       accountProfileRevision: 'account-2',
       seatProfileRevision: 'profile-2',

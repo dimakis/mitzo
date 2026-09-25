@@ -859,6 +859,8 @@ export class EventStore {
           seat_id TEXT NOT NULL,
           attempt_number INTEGER NOT NULL,
           idempotency_key TEXT NOT NULL,
+          claim_token TEXT,
+          symposium_provenance TEXT,
           status TEXT NOT NULL CHECK (status IN (
             'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
           )),
@@ -896,6 +898,7 @@ export class EventStore {
           delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
           provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
           cost_usd REAL NOT NULL, observed_at INTEGER NOT NULL,
+          symposium_provenance TEXT,
           PRIMARY KEY(delivery_id,seat_id,claim_token),
           FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
         );
@@ -915,6 +918,43 @@ export class EventStore {
         db.exec(
           'ALTER TABLE symposium_admissions ADD COLUMN membership_generation INTEGER NOT NULL DEFAULT 0',
         );
+      }
+      const attemptColumns = db
+        .prepare("PRAGMA table_info('symposium_recipient_attempts')")
+        .all() as Array<{ name: string }>;
+      if (!attemptColumns.some((column) => column.name === 'claim_token')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN claim_token TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN symposium_provenance TEXT');
+      }
+      // Claims that were live when an older database is upgraded already have a durable
+      // execution token. Bind that token to the matching attempt before revocation can
+      // delete the live claim; historical attribution remains unknown.
+      db.exec(`
+        UPDATE symposium_recipient_attempts AS attempt
+        SET claim_token = (
+          SELECT claim.claim_token FROM symposium_seat_execution_claims AS claim
+          WHERE claim.delivery_id = attempt.delivery_id
+            AND claim.seat_id = attempt.seat_id
+            AND claim.recipient_idempotency_key = attempt.idempotency_key
+        )
+        WHERE attempt.claim_token IS NULL AND attempt.status = 'executing'
+          AND EXISTS (
+            SELECT 1 FROM symposium_seat_execution_claims AS claim
+            WHERE claim.delivery_id = attempt.delivery_id
+              AND claim.seat_id = attempt.seat_id
+              AND claim.recipient_idempotency_key = attempt.idempotency_key
+          )
+      `);
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_attempt_claim_token ON symposium_recipient_attempts(claim_token) WHERE claim_token IS NOT NULL',
+      );
+      const lateColumns = db.prepare("PRAGMA table_info('symposium_late_results')").all() as Array<{
+        name: string;
+      }>;
+      if (!lateColumns.some((column) => column.name === 'symposium_provenance')) {
+        db.exec('ALTER TABLE symposium_late_results ADD COLUMN symposium_provenance TEXT');
       }
     })();
   }
@@ -1440,6 +1480,9 @@ export class EventStore {
       const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
       if (!seat) throw new Error('Symposium provenance references an unknown seat');
       if (config.version === 2) {
+        if (!('version' in provenance) || provenance.version !== 2) {
+          throw new Error('New Symposium v2 events require an immutable v2 snapshot');
+        }
         const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
         if (
           membership?.state !== 'active' ||
@@ -1449,15 +1492,7 @@ export class EventStore {
           throw new Error('Symposium membership generation does not permit event attribution');
         }
       }
-      if (
-        provenance.configRevision !== config.revision ||
-        provenance.accountProfileRevision !== seat.accountBinding?.profileRevision ||
-        provenance.seatProfileRevision !== seat.profileBinding?.profileRevision ||
-        provenance.contextGrantRevision !== seat.contextGrant?.revision ||
-        provenance.authorityGrantRevision !== seat.authorityGrant?.revision ||
-        provenance.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
-        provenance.isolationDomainRevision !== seat.isolationRequest?.revision
-      ) {
+      if (!matchesSeatProvenance(config, seat, provenance)) {
         throw new Error('Symposium provenance does not match the active seat configuration');
       }
       const result = this.stmts.append.run(
@@ -1930,6 +1965,7 @@ export class EventStore {
     resultContent: string;
     costUsd: number;
     observedAt: number;
+    provenance: SymposiumProvenance | null;
   }> {
     const rows = this.db!.prepare(
       `SELECT * FROM symposium_late_results WHERE delivery_id = ?
@@ -1943,6 +1979,7 @@ export class EventStore {
       resultContent: row.result_content as string,
       costUsd: row.cost_usd as number,
       observedAt: row.observed_at as number,
+      provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     }));
   }
 
@@ -2411,6 +2448,7 @@ export class EventStore {
     recipientIdempotencyKey: string;
     claimToken: string;
     claimedAt: number;
+    provenance: SymposiumProvenance;
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
       const recipient = this.db!.prepare(
@@ -2442,11 +2480,21 @@ export class EventStore {
       let boundaryError: string | undefined;
       try {
         const config = this.getActiveSymposiumConfig(input.sessionId);
+        const provenance = SymposiumProvenanceSchema.parse(input.provenance);
+        const seat = config.seats.find((candidate) => candidate.id === input.seatId);
         if (config.revision !== input.expectedConfigRevision) {
           boundaryError = 'Delivery configuration revision is stale';
+        } else if (!seat || !matchesSeatProvenance(config, seat, provenance)) {
+          boundaryError = 'Symposium claim provenance does not match the admitted seat';
+        } else if (
+          config.version === 2 &&
+          (!('version' in provenance) ||
+            provenance.version !== 2 ||
+            provenance.membershipGeneration !== recipient.membership_generation)
+        ) {
+          boundaryError = 'Symposium claim provenance must pin the active membership';
         } else if (config.version === 2) {
           const membership = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
-          const seat = config.seats.find((candidate) => candidate.id === input.seatId);
           const currentBinding = seat
             ? JSON.stringify([
                 seat.accountBinding,
@@ -2544,15 +2592,17 @@ export class EventStore {
       }
       this.db!.prepare(
         `INSERT INTO symposium_recipient_attempts (
-          delivery_id, seat_id, attempt_number, idempotency_key, status,
-          provider_thread_id, started_at, updated_at
+          delivery_id, seat_id, attempt_number, idempotency_key, claim_token,
+          symposium_provenance, status, provider_thread_id, started_at, updated_at
         )
-        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, 'executing', ?, ?, ?
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?
         FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
       ).run(
         input.deliveryId,
         input.seatId,
         input.recipientIdempotencyKey,
+        input.claimToken,
+        JSON.stringify(input.provenance),
         thread?.providerThreadId ?? null,
         input.claimedAt,
         input.claimedAt,
@@ -2596,15 +2646,23 @@ export class EventStore {
            AND delivery_id = ? AND claim_token = ?`,
       ).get(input.sessionId, input.seatId, input.bindingKey, input.deliveryId, input.claimToken);
       if (!claim) {
+        const originalAttempt = this.db!.prepare(
+          `SELECT symposium_provenance FROM symposium_recipient_attempts
+           WHERE delivery_id = ? AND seat_id = ? AND claim_token = ?`,
+        ).get(input.deliveryId, input.seatId, input.claimToken) as
+          { symposium_provenance: string | null } | undefined;
         const recipient = this.db!.prepare(
           `SELECT status FROM symposium_delivery_recipients
           WHERE delivery_id = ? AND seat_id = ?`,
         ).get(input.deliveryId, input.seatId) as { status: string } | undefined;
-        if (recipient?.status === 'cancelled' || recipient?.status === 'recovery_required') {
+        if (
+          originalAttempt &&
+          (recipient?.status === 'cancelled' || recipient?.status === 'recovery_required')
+        ) {
           this.db!.prepare(
             `INSERT OR IGNORE INTO symposium_late_results
-            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,observed_at)
-            VALUES(?,?,?,?,?,?,?)`,
+            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,observed_at,symposium_provenance)
+            VALUES(?,?,?,?,?,?,?,?)`,
           ).run(
             input.deliveryId,
             input.seatId,
@@ -2613,6 +2671,7 @@ export class EventStore {
             input.resultContent,
             input.costUsd,
             input.updatedAt,
+            originalAttempt.symposium_provenance,
           );
         }
         return this.getSymposiumDelivery(input.deliveryId)!;
@@ -3346,6 +3405,8 @@ function rowToSymposiumRecipientAttempt(
     seatId: row.seat_id as string,
     attemptNumber: row.attempt_number as number,
     idempotencyKey: row.idempotency_key as string,
+    claimToken: (row.claim_token as string | null) ?? null,
+    provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     status: row.status as SymposiumRecipientAttemptRecord['status'],
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
@@ -3556,7 +3617,7 @@ function matchesSeatProvenance(
   seat: SymposiumConfig['seats'][number],
   provenance: SymposiumProvenance,
 ): boolean {
-  return (
+  const legacyMatches =
     provenance.seatId === seat.id &&
     provenance.configRevision === config.revision &&
     provenance.accountProfileRevision === seat.accountBinding?.profileRevision &&
@@ -3564,6 +3625,23 @@ function matchesSeatProvenance(
     provenance.contextGrantRevision === seat.contextGrant?.revision &&
     provenance.authorityGrantRevision === seat.authorityGrant?.revision &&
     provenance.isolationDomainId === seat.isolationRequest?.trustDomainId &&
-    provenance.isolationDomainRevision === seat.isolationRequest?.revision
-  );
+    provenance.isolationDomainRevision === seat.isolationRequest?.revision;
+  if (!legacyMatches) return false;
+  if ('version' in provenance && provenance.version === 2) {
+    return (
+      provenance.seatLabel === seat.name &&
+      provenance.seatRole === seat.role &&
+      provenance.reasoningEffort === (seat.reasoningEffort ?? null) &&
+      !!seat.accountBinding &&
+      sameBinding(provenance.accountBinding, seat.accountBinding) &&
+      provenance.accountBinding.accountLabel === seat.accountBinding.accountLabel &&
+      provenance.profileBinding.profileId === seat.profileBinding?.profileId &&
+      provenance.profileBinding.profileRevision === seat.profileBinding?.profileRevision &&
+      provenance.contextGrant.grantId === seat.contextGrant?.grantId &&
+      provenance.contextGrant.revision === seat.contextGrant?.revision &&
+      provenance.authorityGrant.grantId === seat.authorityGrant?.grantId &&
+      provenance.authorityGrant.revision === seat.authorityGrant?.revision
+    );
+  }
+  return true;
 }
