@@ -141,6 +141,8 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     this._connected = false;
+    this._connectionId = null;
+    this.appliedAckChain = Promise.resolve();
   }
 
   blockAuthentication(): void {
@@ -243,13 +245,14 @@ export class SseConnection implements ChatConnection {
     const connectionId = this._connectionId;
     if (!connectionId) return;
     this.appliedAckChain = this.appliedAckChain
-      .then(() =>
-        this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+      .then(() => {
+        if (this._connectionId !== connectionId) return;
+        return this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
           body: JSON.stringify(body),
-        }),
-      )
+        });
+      })
       .catch(() => {
         /* Reconnect advertises the locally applied cursor. */
       });
@@ -260,6 +263,7 @@ export class SseConnection implements ChatConnection {
     if (!connectionId) return Promise.resolve(false);
     const pending = this.appliedAckChain
       .then(async () => {
+        if (this._connectionId !== connectionId) return false;
         const response = await this.config.fetch(
           `${this.config.baseUrl}/api/chat/reconnect-snapshot-applied`,
           {
@@ -336,6 +340,8 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     const wasConnected = this._connected;
+    this._connectionId = null;
+    this.appliedAckChain = Promise.resolve();
     this._connected = false;
     if (wasConnected) {
       this.listener?.({ type: '_close' });
@@ -374,6 +380,8 @@ export class SseConnection implements ChatConnection {
       }
 
       this._connectionId = msg.connectionId as string;
+      // An unresponsive ACK from the previous transport must not fence this one.
+      this.appliedAckChain = Promise.resolve();
       this.appliedDelivery.clearPending();
 
       // Control messages wait for replay readiness. Prompt delivery uses

@@ -108,6 +108,72 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(0);
   });
 
+  it.each(['snapshot', 'event'])(
+    'recovers a new connection while an old %s ACK never settles',
+    async (kind) => {
+      let resolveOld!: (value: Response) => void;
+      const fetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1')
+          return new Promise<Response>((resolve) => {
+            resolveOld = resolve;
+          });
+        return Promise.resolve(Response.json({ applied: true }));
+      });
+      const conn = new SseConnection(createConfig({ fetch }));
+      conn.onMessage((message) => {
+        if (message.type === 'session_reconnect_snapshot')
+          conn.acknowledgeReconnectSnapshot(
+            'sess-1',
+            message.cursor as number,
+            message.offerId as string,
+          );
+        return true;
+      });
+      conn.connect();
+      lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+      if (kind === 'snapshot')
+        lastES()._emit('message', {
+          type: 'session_reconnect_snapshot',
+          sessionId: 'sess-1',
+          cursor: 5,
+          offerId: 'old',
+        });
+      else conn.commitTranscriptCursor('sess-1', 5);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      // Queue a second ACK behind the stuck request; it must not run after transport replacement.
+      conn.commitTranscriptCursor('other-session', 3);
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-2' });
+      await Promise.resolve();
+      await Promise.resolve();
+      lastES()._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 7,
+        offerId: 'new',
+      });
+      lastES()._emit('message', {
+        type: 'block_delta',
+        sessionId: 'sess-1',
+        seq: 8,
+        prevSessionSeq: 7,
+        delta: 'new',
+      });
+      await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(8));
+      resolveOld(Response.json({ applied: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        fetch.mock.calls.filter(
+          ([, init]) => (init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1',
+        ),
+      ).toHaveLength(1);
+      expect(conn.getLastSeq('sess-1')).toBe(8);
+      conn.disconnect();
+    },
+  );
+
   it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
     let resolveAck!: (value: Response) => void;
     const fetch = vi.fn(
