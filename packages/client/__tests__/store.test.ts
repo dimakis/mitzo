@@ -573,6 +573,52 @@ describe('reconnect recovery', () => {
     ]);
   });
 
+  it('keeps a pending optimistic prompt until its echo arrives after bounded restore', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.getState().sendMessage('pending prompt');
+    const promptId = store.getState().messages.messages[0].messageId;
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    releaseRestore({
+      ok: true,
+      json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+      'durable',
+      promptId,
+    ]);
+
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'sess-1',
+      messageId: promptId,
+      text: 'pending prompt',
+      seq: 8,
+    });
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+      'durable',
+      promptId,
+    ]);
+  });
+
   it('keeps a newer live version when bounded history has the same message ID', async () => {
     const transport = mockTransport();
     let releaseRestore!: (value: unknown) => void;

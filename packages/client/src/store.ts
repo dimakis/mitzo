@@ -224,6 +224,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
+  const pendingOptimisticMessageIds = new Set<string>();
   let boundedRestore:
     { sessionId: string; throughSeq: number; confirmedMessageIds: Set<string> } | undefined;
   let awaitingSessionId = false;
@@ -265,6 +266,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     const live = s.messages.messages.filter(
                       (m) =>
                         initialMessages.get(m.messageId) !== m ||
+                        pendingOptimisticMessageIds.has(m.messageId) ||
                         currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
                     const liveById = new Map(live.map((m) => [m.messageId, m]));
@@ -355,6 +357,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = id;
       connection.clearPendingSends();
+      pendingOptimisticMessageIds.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -402,6 +405,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
+      pendingOptimisticMessageIds.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -421,6 +425,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      pendingOptimisticMessageIds.add(clientMsgId);
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -467,6 +472,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       const sent = connection.send(msg);
       if (!sent) {
+        pendingOptimisticMessageIds.delete(clientMsgId);
         awaitingSessionId = false;
         set({ modeChangeReady: true });
       }
@@ -499,6 +505,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return;
       }
 
+      pendingOptimisticMessageIds.add(clientMsgId);
       set((s) => ({
         messages: messagesReducer(s.messages, {
           type: 'USER_SEND',
@@ -824,6 +831,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
+        pendingOptimisticMessageIds.delete(msg.clientMsgId);
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
@@ -939,6 +948,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const action of result.messagesActions) {
+      if (action.type === 'USER_MESSAGE_RECEIVED')
+        pendingOptimisticMessageIds.delete(action.messageId);
       if (
         boundedRestore &&
         eventSessionId === boundedRestore.sessionId &&
