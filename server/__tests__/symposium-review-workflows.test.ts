@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { AccountProfiles } from '../account-profiles.js';
+import { ExecutionPolicySchema } from '@mitzo/protocol';
 
 const hash = (letter: string) => letter.repeat(64);
 const implementation = {
@@ -62,6 +64,94 @@ afterEach(() => {
 });
 
 describe('artifact-pinned Symposium review workflow', () => {
+  it('admits coder and independent reviewer only from approved O1 role selections', () => {
+    const accounts = new AccountProfiles([
+      {
+        id: 'work',
+        label: 'Work',
+        provider: 'anthropic-vertex',
+        projectId: 'p',
+        region: 'r',
+        credentialRef: '/tmp/test-adc',
+        models: [
+          { id: 'coder', label: 'Coder' },
+          { id: 'reviewer', label: 'Reviewer' },
+        ],
+      },
+    ]);
+    const policyInput = (role: 'coder' | 'reviewer', profileRevision = '1') => ({
+      policy: ExecutionPolicySchema.parse({
+        version: 1,
+        policyId: `${role}-policy`,
+        revision: 'policy-1',
+        role,
+        profileBinding: { profileId: role, profileRevision },
+        primary: { accountId: 'work', model: role, reasoningEffort: null },
+        alternatives: [],
+        contextGrant: { grantId: 'context', revision: 1 },
+        authorityGrant: { grantId: 'authority', revision: 1 },
+        requiredCapabilities: { tools: false, context: false, route: true },
+        limits: {
+          maxAttempts: 2,
+          maxTokens: 500,
+          maxCostUsd: 1,
+          maxReplans: 0,
+          maxFallbacks: 0,
+          maxEscalations: 0,
+          unknownCostPolicy: 'decision',
+        },
+      }),
+      accountProfiles: accounts,
+      capabilities: () => ({ tools: true, context: true, route: true }),
+      pricing: () => ({ kind: 'known' as const, maxUsdPerMillionTokens: 1 }),
+      usage: { attempts: 0, tokens: 0, costUsd: 0, replans: 0, fallbacks: 0, escalations: 0 },
+    });
+    const base = create();
+    const withoutSelections = {
+      workflowId: base.workflowId,
+      owner: base.owner,
+      sessionId: base.sessionId,
+      implementation: base.implementation,
+      acceptanceCriteria: base.acceptanceCriteria,
+      limits: base.limits,
+    };
+    const roles = {
+      implementer: {
+        seatId: 'coder',
+        selectionId: 'coder-policy-selection',
+        profileRevision: 1,
+        policyInput: policyInput('coder'),
+      },
+      reviewer: {
+        seatId: 'reviewer',
+        selectionId: 'reviewer-policy-selection',
+        profileRevision: 1,
+        policyInput: policyInput('reviewer'),
+      },
+    };
+    expect(reviews.createWithPolicies(withoutSelections, roles)).toMatchObject({
+      implementer: { accountId: 'work', model: 'coder', profileRevision: 1 },
+      reviewer: { accountId: 'work', model: 'reviewer', profileRevision: 1 },
+    });
+    expect(() =>
+      reviews.createWithPolicies(
+        { ...withoutSelections, workflowId: 'bad-profile' },
+        {
+          ...roles,
+          reviewer: { ...roles.reviewer, policyInput: policyInput('reviewer', '2') },
+        },
+      ),
+    ).toThrow(/profile/i);
+    expect(() =>
+      reviews.createWithPolicies(
+        { ...withoutSelections, workflowId: 'bad-seat' },
+        {
+          ...roles,
+          reviewer: { ...roles.reviewer, seatId: 'coder' },
+        },
+      ),
+    ).toThrow(/independent/i);
+  });
   it('requires an independently selected reviewer and a completed pinned implementation', () => {
     expect(() => reviews.create(create({ reviewer: selection('coder', 'reviewer') }))).toThrow(
       /independent/i,

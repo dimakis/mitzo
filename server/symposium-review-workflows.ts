@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { OutcomeEvidenceSchema, WorkResultSchema } from '@mitzo/protocol';
+import { resolveRoleExecution } from './model-routing-policy.js';
 
 const Id = z.string().trim().min(1);
 const Sha256 = z.string().regex(/^[a-f0-9]{64}$/);
@@ -80,6 +81,12 @@ const DismissalSchema = z.strictObject({
 });
 
 type Create = z.infer<typeof CreateSchema>;
+type RoleAdmission = {
+  seatId: string;
+  selectionId: string;
+  profileRevision: number;
+  policyInput: Parameters<typeof resolveRoleExecution>[0];
+};
 type Review = z.infer<typeof ReviewSchema>;
 type FixAuthorization = z.infer<typeof FixAuthorizationSchema>;
 type Fix = z.infer<typeof FixSchema>;
@@ -264,6 +271,36 @@ export class SymposiumReviewStore {
       });
     })();
     return state;
+  }
+
+  /** Resolve O1 policy at admission; persist only pins, never account credentials or grants. */
+  createWithPolicies(
+    input: Omit<Create, 'implementer' | 'reviewer'>,
+    roles: { implementer: RoleAdmission; reviewer: RoleAdmission },
+  ): Workflow {
+    const admitted = (role: RoleAdmission): z.infer<typeof SelectionSchema> => {
+      const decision = resolveRoleExecution(role.policyInput);
+      if (decision.kind !== 'selected')
+        throw new Error(`Role policy decision required: ${decision.code}`);
+      const audit = decision.audit;
+      if (audit.profileBinding.profileRevision !== String(role.profileRevision))
+        throw new Error('Portable profile revision does not match role policy');
+      return SelectionSchema.parse({
+        seatId: role.seatId,
+        role: audit.role,
+        selectionId: role.selectionId,
+        policyRevision: audit.policyRevision,
+        profileId: audit.profileBinding.profileId,
+        profileRevision: role.profileRevision,
+        accountId: audit.actual.accountId,
+        model: audit.actual.model,
+      });
+    };
+    return this.create({
+      ...input,
+      implementer: admitted(roles.implementer),
+      reviewer: admitted(roles.reviewer),
+    });
   }
 
   private requireArtifact(state: Workflow, revision: string, hash: string): void {
