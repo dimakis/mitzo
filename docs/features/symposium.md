@@ -244,7 +244,9 @@ durable transcript anchor. A separate provider acceptance receipt pins that
 attempt's claim, native thread, and native turn. Execution completion is not a
 substitute for acceptance: an accepted input remains received even if the turn
 later fails or membership is revoked. A dispatched input without a receipt remains
-uncertain. Queued inputs are exposed separately and are never presented as received.
+uncertain. Completion cannot replace a thread identity pinned by an acceptance
+receipt. Queued inputs are exposed separately and are never presented as received;
+dropped deliveries are excluded.
 
 Audience projections include each seat's own completed messages and only the
 inputs dispatched to it, with received/uncertain labels. All aggregates these
@@ -253,6 +255,10 @@ excerpt must match completed durable source text, retaining source provenance an
 any later delivery edits. Source identity includes seat and membership generation,
 so colliding provider message IDs cannot select another seat's text. Ambiguous
 historical references are refused.
+
+Assistant messages use completion events as pagination anchors, so a turn that
+finishes after a page is read remains discoverable on a subsequent page. User
+messages and dispatched inputs retain their original event anchors.
 
 These bounded persistence projections provide message anchors for rich transcript
 rendering. Runtime receipt/event wiring and the full interactive composer remain

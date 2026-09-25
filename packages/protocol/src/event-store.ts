@@ -959,9 +959,10 @@ export class EventStore {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
         ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
         WHERE type IN ('message_start', 'user_message', 'message_end')`);
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_perspective_anchors
+      db.exec(`DROP INDEX IF EXISTS idx_events_perspective_anchors`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_completed_perspective_anchors
         ON events(session_id, seq)
-        WHERE type IN ('message_start', 'user_message', 'symposium_delivery_dispatched')`);
+        WHERE type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_symposium_pending_recipients
         ON symposium_delivery_recipients(seat_id, delivery_id)
         WHERE status = 'pending'`);
@@ -1594,8 +1595,15 @@ export class EventStore {
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-       FROM events WHERE session_id = ? AND seq > ?
-         AND type IN ('message_start', 'user_message', 'symposium_delivery_dispatched')
+       FROM events e WHERE session_id = ? AND seq > ?
+         AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
+         AND (type != 'message_end' OR NOT EXISTS (
+           SELECT 1 FROM events prior
+           WHERE prior.session_id = e.session_id AND prior.type = 'message_end'
+             AND prior.seq < e.seq AND prior.seat_id IS e.seat_id
+             AND prior.symposium_provenance IS e.symposium_provenance
+             AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
+         ))
        ORDER BY seq LIMIT ?`,
     ).all(sessionId, afterSeq, limit) as EventRow[];
     return rows.map(rowToEvent);
@@ -2521,7 +2529,8 @@ export class EventStore {
     const rows = this.db!.prepare(
       `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
        JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
-       WHERE d.session_id = ? AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
+       WHERE d.session_id = ? AND d.status != 'dropped'
+         AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
        ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
     ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
       delivery_id: string;
@@ -2987,6 +2996,16 @@ export class EventStore {
         delivery.config_revision !== input.configRevision
       ) {
         throw new Error('Symposium completion does not match its delivery configuration');
+      }
+      // The acceptance receipt pins the native thread before an executor can finish.
+      // Validate even late completions so archived results cannot contradict that receipt.
+      const accepted = this.db!.prepare(
+        `SELECT provider_thread_id FROM symposium_recipient_attempts
+         WHERE delivery_id = ? AND seat_id = ? AND claim_token = ? AND accepted_at IS NOT NULL`,
+      ).get(input.deliveryId, input.seatId, input.claimToken) as
+        { provider_thread_id: string } | undefined;
+      if (accepted && accepted.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Symposium completion conflicts with provider acceptance receipt');
       }
       const claim = this.db!.prepare(
         `SELECT 1 FROM symposium_seat_execution_claims

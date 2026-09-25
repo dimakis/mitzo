@@ -701,6 +701,124 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('excludes dropped deliveries from queued input after reopening', () => {
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'discard me',
+      idempotencyKey: 'drop-queue',
+    });
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toHaveLength(1);
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'drop',
+      idempotencyKey: 'drop',
+    });
+    store.close();
+    store = openStore();
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toEqual([]);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual(
+      [],
+    );
+  });
+
+  it('pages completed message anchors when a turn finishes after the cursor advances', () => {
+    store.append('chat', 'message_start', { messageId: 'slow' });
+    store.append('chat', 'block_start', { messageId: 'slow', blockId: 'text', blockType: 'text' });
+    store.append('chat', 'block_delta', {
+      messageId: 'slow',
+      blockId: 'text',
+      delta: 'finished later',
+    });
+    store.append('chat', 'user_message', { messageId: 'later-user', text: 'meanwhile' });
+    const page = getSymposiumPerspective(store, 'chat', { kind: 'all' }, { limit: 1 });
+    expect(page.items.map((item) => (item.kind === 'authored' ? item.messageId : null))).toEqual([
+      'later-user',
+    ]);
+    expect(page.nextSeq).not.toBeNull();
+    store.append('chat', 'message_end', { messageId: 'slow' });
+    store.close();
+    store = openStore();
+    const next = getSymposiumPerspective(
+      store,
+      'chat',
+      { kind: 'all' },
+      { afterSeq: page.nextSeq! },
+    );
+    expect(next.items).toEqual([
+      expect.objectContaining({ messageId: 'slow', content: 'finished later' }),
+    ]);
+    store.append('chat', 'message_end', { messageId: 'slow' });
+    const duplicatePage = getSymposiumPerspective(
+      store,
+      'chat',
+      { kind: 'all' },
+      {
+        afterSeq: next.items[0].eventSeq,
+      },
+    );
+    expect(duplicatePage.items).toEqual([]);
+  });
+
+  it('rejects completion that contradicts the accepted native thread', async () => {
+    admit('reviewer');
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
+      store.markSymposiumRecipientAccepted({
+        deliveryId: input.deliveryId,
+        seatId: 'reviewer',
+        claimToken: attempt.claimToken!,
+        providerThreadId: 'accepted-thread',
+        providerTurnId: 'accepted-turn',
+        acceptedAt: Date.now(),
+      });
+      return { providerThreadId: 'conflicting-thread', content: 'result', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'conflicting-completion',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-conflict',
+    });
+    const result = await orchestrator.deliver(staged.deliveryId);
+    expect(result.recipients[0].status).toBe('failed');
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
+      providerThreadId: 'accepted-thread',
+      providerTurnId: 'accepted-turn',
+    });
+    const attempt = store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0];
+    // The receipt must also survive a contradictory late result after claim release.
+    expect(() =>
+      store.completeSymposiumRecipient({
+        sessionId: 'chat',
+        deliveryId: staged.deliveryId,
+        seatId: 'reviewer',
+        bindingKey: 'irrelevant-after-claim-release',
+        providerThreadId: 'late-conflict',
+        configRevision: config.revision,
+        threadCreatedAt: Date.now(),
+        resultContent: 'late',
+        costUsd: 0,
+        updatedAt: Date.now(),
+        claimToken: attempt.claimToken!,
+      }),
+    ).toThrow(/acceptance receipt/);
+    store.close();
+    store = openStore();
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
+      providerThreadId: 'accepted-thread',
+      providerTurnId: 'accepted-turn',
+    });
+  });
+
   it('retains exact provider turn acceptance even when recipient execution fails', async () => {
     admit('reviewer');
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
@@ -854,7 +972,7 @@ describe('SymposiumOrchestrator', () => {
     ).toBeUndefined();
     expect(
       getSymposiumPerspective(store, 'chat', { kind: 'all' }).items.map((item) => item.content),
-    ).toEqual(['builder aside', 'reviewer aside', 'restored aside']);
+    ).toEqual(['reviewer aside', 'builder aside', 'restored aside']);
     expect(
       getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items.map(
         (item) => item.content,
