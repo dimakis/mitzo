@@ -4,17 +4,21 @@ import {
   createConnection,
   deleteConnection,
   getConnectionAudit,
+  getConnectionCapabilityGrants,
   getConnectionTemplates,
   getConnections,
   reauthorize,
   retryConnection,
   revokeConnection,
   rotateConnection,
+  setConnectionCapabilityGrant,
   testConnection,
   updateAssignments,
 } from '../lib/connections-api';
 import type {
   ConnectionAuditEntry,
+  ConnectionCapabilityGrant,
+  ConnectionCapability,
   ConnectionCredentialField,
   ConnectionTemplate,
   ConnectionsCatalog,
@@ -145,6 +149,7 @@ const singleChoiceCustomFields = new Set([
 
 export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
+  const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [templates, setTemplates] = useState<ConnectionTemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState('');
   const [templateError, setTemplateError] = useState('');
@@ -179,7 +184,10 @@ export function ConnectionsView() {
     setTemplateError('');
     const connectionsRefresh = getConnections().then(
       (value) => {
-        if (generation === refreshGeneration.current) setData(value);
+        if (generation === refreshGeneration.current) {
+          setData(value);
+          setConnectionRefreshEpoch((current) => current + 1);
+        }
       },
       (reason) => {
         if (generation === refreshGeneration.current)
@@ -238,7 +246,7 @@ export function ConnectionsView() {
     success: string,
     onFailure?: () => void,
     onSuccess?: () => void,
-  ) => {
+  ): Promise<boolean> => {
     setBusy(name);
     setMessage('');
     try {
@@ -246,10 +254,12 @@ export function ConnectionsView() {
       setMessage(success);
       onSuccess?.();
       await refresh();
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The request failed. Refresh and retry.');
       onFailure?.();
       await refresh();
+      return false;
     } finally {
       setBusy(null);
     }
@@ -452,6 +462,8 @@ export function ConnectionsView() {
                   item.id === connection.templateId && item.version === connection.templateVersion,
               )}
               accounts={data.eligibleAccounts}
+              capabilityCatalog={templates?.capabilities ?? []}
+              refreshEpoch={connectionRefreshEpoch}
               csrf={csrf}
               busy={busy}
               audit={audit[connection.id]}
@@ -821,7 +833,7 @@ function CapabilityNotice({ hasCapabilities }: { hasCapabilities: boolean }) {
       <h3>Capabilities</h3>
       <p className="workspace-muted">
         {hasCapabilities
-          ? 'This template has reviewed controller-mediated capabilities, but capability grants and their audit records are not available in this release. No mutation access is enabled by this connection.'
+          ? 'No mutation capability is enabled during setup. After verification, grant a reviewed capability to specific assigned profiles from the connection card. Each use requires approval and is audited.'
           : 'This service exposes no reviewed mutation capabilities.'}
       </p>
     </div>
@@ -898,7 +910,7 @@ function Review({
             : 'Template-defined only'}
         </dd>
         <dt>Mutation capabilities</dt>
-        <dd>Not enabled by this connection.</dd>
+        <dd>None enabled during setup. Grants can be configured after verification.</dd>
         <dt>Assigned profiles</dt>
         <dd>{accounts.join(', ') || 'None'}</dd>
       </dl>
@@ -934,10 +946,207 @@ function CustomPolicyPreview({ scope }: { scope: Record<string, string | string[
   );
 }
 
+function CapabilityGrants({
+  connection,
+  references,
+  catalog,
+  refreshEpoch,
+  csrf,
+  busy,
+  requireReauthorization,
+  onAction,
+}: {
+  connection: ManagedConnection;
+  references: Array<{ id: string; version: number }>;
+  catalog: ConnectionCapability[];
+  refreshEpoch: number;
+  csrf: string;
+  busy: string | null;
+  requireReauthorization: () => boolean;
+  onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<boolean>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [grants, setGrants] = useState<ConnectionCapabilityGrant[]>([]);
+  const [selected, setSelected] = useState<Record<string, string[]>>({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const generation = useRef(0);
+  const dirtyKeys = useRef(new Set<string>());
+  // A response refresh creates new arrays even when assignments did not change.
+  // Keep an in-progress grant selection through reauthorization in that case.
+  const assignmentKey = connection.desiredAccountIds.join('\u0000');
+  const load = useCallback(async () => {
+    const request = ++generation.current;
+    setLoading(true);
+    setError('');
+    try {
+      const next = await getConnectionCapabilityGrants(connection.id);
+      if (request !== generation.current) return;
+      setGrants(next);
+      const assigned = new Set(assignmentKey ? assignmentKey.split('\u0000') : []);
+      const persisted = Object.fromEntries(
+        next
+          .filter(
+            (grant) =>
+              grant.connectionRevision === connection.revision && grant.status === 'active',
+          )
+          .map((grant) => [
+            templateKey({ id: grant.capabilityId, version: grant.capabilityVersion }),
+            grant.accountIds.filter((id) => assigned.has(id)),
+          ]),
+      );
+      setSelected((previous) => ({
+        ...persisted,
+        ...Object.fromEntries(
+          [...dirtyKeys.current]
+            .filter((key) => key in previous)
+            .map((key) => [key, previous[key]]),
+        ),
+      }));
+    } catch (reason) {
+      if (request === generation.current)
+        setError(reason instanceof Error ? reason.message : 'Unable to load capability grants.');
+    } finally {
+      if (request === generation.current) setLoading(false);
+    }
+  }, [connection.id, connection.revision, assignmentKey]);
+  useEffect(() => {
+    dirtyKeys.current.clear();
+  }, [connection.id, connection.revision, assignmentKey]);
+  useEffect(() => {
+    if (open) void load();
+    return () => {
+      generation.current += 1;
+    };
+  }, [open, load, refreshEpoch]);
+  if (!references.length) return null;
+  return (
+    <section
+      className="connections-capabilities"
+      aria-label={`Capabilities for ${connection.label}`}
+    >
+      <h3>Controller capabilities</h3>
+      <p className="workspace-muted">
+        A grant authorizes a profile to request this action. Each use still requires approval and is
+        audited.
+      </p>
+      <button type="button" onClick={() => setOpen(!open)}>
+        {open ? 'Hide capability grants' : 'Manage capability grants'}
+      </button>
+      {open && (
+        <>
+          {loading && <p role="status">Loading grants…</p>}
+          {error && <p role="alert">{error}</p>}
+          {!loading &&
+            !error &&
+            references.map((reference) => {
+              const key = templateKey(reference);
+              const capability = catalog.find(
+                (item) => item.id === reference.id && item.version === reference.version,
+              );
+              const current = grants.find(
+                (item) =>
+                  item.connectionRevision === connection.revision &&
+                  item.capabilityId === reference.id &&
+                  item.capabilityVersion === reference.version,
+              );
+              const active = current?.status === 'active';
+              const assigned = connection.desiredAccountIds;
+              const values = selected[key] ?? [];
+              const save = async (status: 'active' | 'revoked', accountIds: string[]) => {
+                if (!requireReauthorization()) return;
+                const saved = await onAction(
+                  `grant:${connection.id}:${key}`,
+                  () =>
+                    setConnectionCapabilityGrant({
+                      id: connection.id,
+                      revision: connection.revision,
+                      capabilityId: reference.id,
+                      capabilityVersion: reference.version,
+                      accountIds,
+                      status,
+                      csrf,
+                    }),
+                  status === 'active'
+                    ? 'Capability grant updated for new conversations.'
+                    : 'Capability grant revoked.',
+                );
+                if (saved) dirtyKeys.current.delete(key);
+                await load();
+              };
+              return (
+                <div className="connections-capability" key={key}>
+                  <h4>{capability?.label ?? `${reference.id} v${reference.version}`}</h4>
+                  {capability?.description && <p>{capability.description}</p>}
+                  <p className="workspace-muted">
+                    {active ? `Active for: ${current.accountIds.join(', ')}` : 'No active grant.'}
+                  </p>
+                  <fieldset className="connections-profiles">
+                    <legend>Profiles allowed to request this capability</legend>
+                    {assigned.map((id) => (
+                      <label className="connections-profile-option" key={id}>
+                        <input
+                          type="checkbox"
+                          checked={values.includes(id)}
+                          disabled={busy !== null || connection.status !== 'active'}
+                          onChange={() => {
+                            dirtyKeys.current.add(key);
+                            setSelected((previous) => ({
+                              ...previous,
+                              [key]: values.includes(id)
+                                ? values.filter((value) => value !== id)
+                                : [...values, id],
+                            }));
+                          }}
+                        />{' '}
+                        {id}
+                      </label>
+                    ))}
+                    {!assigned.length && (
+                      <p className="workspace-muted">
+                        Assign a profile before enabling this capability.
+                      </p>
+                    )}
+                  </fieldset>
+                  <button
+                    type="button"
+                    disabled={
+                      busy !== null ||
+                      connection.status !== 'active' ||
+                      !values.length ||
+                      (active &&
+                        values.length === current.accountIds.length &&
+                        values.every((id) => current.accountIds.includes(id)))
+                    }
+                    onClick={() => void save('active', values)}
+                  >
+                    Save grant
+                  </button>{' '}
+                  {active && (
+                    <button
+                      type="button"
+                      className="connections-danger"
+                      disabled={busy !== null}
+                      onClick={() => void save('revoked', current.accountIds)}
+                    >
+                      Revoke grant
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+        </>
+      )}
+    </section>
+  );
+}
+
 function ConnectionCard({
   connection,
   template,
   accounts,
+  capabilityCatalog,
+  refreshEpoch,
   csrf,
   busy,
   audit,
@@ -953,6 +1162,8 @@ function ConnectionCard({
   connection: ManagedConnection;
   template?: ConnectionTemplate;
   accounts: string[];
+  capabilityCatalog: ConnectionCapability[];
+  refreshEpoch: number;
   csrf: string;
   busy: string | null;
   audit?: ConnectionAuditEntry[];
@@ -967,7 +1178,7 @@ function ConnectionCard({
     action: () => Promise<unknown>,
     success: string,
     onFailure?: () => void,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onAudit: (id: string) => Promise<void>;
 }) {
   const [removalOpen, setRemovalOpen] = useState(false);
@@ -1028,6 +1239,16 @@ function ConnectionCard({
             </label>
           ))}
         </fieldset>
+        <CapabilityGrants
+          connection={connection}
+          references={connection.capabilityTemplates ?? template?.capabilityTemplates ?? []}
+          catalog={capabilityCatalog}
+          refreshEpoch={refreshEpoch}
+          csrf={csrf}
+          busy={busy}
+          requireReauthorization={requireReauthorization}
+          onAction={onAction}
+        />
       </div>
       <div className="connections-actions">
         <button

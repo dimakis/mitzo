@@ -7,6 +7,8 @@ export interface ManagedConnection {
   templateVersion: number;
   /** Reviewed nonsecret form metadata, available even if the setup catalog fails. */
   credentialFields?: ConnectionCredentialField[];
+  /** Reviewed capability references stay visible during setup-catalog outages. */
+  capabilityTemplates?: Array<{ id: string; version: number }>;
   label: string;
   status: ConnectionStatus;
   revision: number;
@@ -75,6 +77,16 @@ export interface ConnectionAuditEntry {
   outcome: string;
   affectedRefs: string[];
   createdAt: number;
+}
+
+export interface ConnectionCapabilityGrant {
+  id: string;
+  connectionId: string;
+  connectionRevision: number;
+  capabilityId: string;
+  capabilityVersion: number;
+  accountIds: string[];
+  status: 'active' | 'revoked';
 }
 
 export interface ConnectionsCatalog {

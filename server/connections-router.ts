@@ -40,6 +40,9 @@ type PublicConnection = Pick<
   credentialFields: NonNullable<
     ReturnType<typeof connectionTemplateRegistry.getProviderTemplate>
   >['credentialFields'];
+  capabilityTemplates: NonNullable<
+    ReturnType<typeof connectionTemplateRegistry.getProviderTemplate>
+  >['capabilityTemplates'];
 };
 const publicConnection = (c: Connection): PublicConnection => {
   const {
@@ -65,6 +68,9 @@ const publicConnection = (c: Connection): PublicConnection => {
     credentialFields:
       connectionTemplateRegistry.getProviderTemplate(templateId, templateVersion)
         ?.credentialFields ?? [],
+    capabilityTemplates:
+      connectionTemplateRegistry.getProviderTemplate(templateId, templateVersion)
+        ?.capabilityTemplates ?? [],
     label,
     endpoint,
     publicConfig,
