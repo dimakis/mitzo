@@ -3224,7 +3224,7 @@ function replaySingleEventsToTranscript(
   } | null = null;
   // Tool IDs can be reused by later turns. Bind each result to the exact
   // message/block occurrence in event order, including legacy results that
-  // omitted messageId while a turn was active.
+  // omitted messageId after another turn started.
   const toolResults = new Map<string, Record<string, unknown>>();
   const pendingResults = new Map<string, Array<Record<string, unknown>>>();
   const pendingBlocks = new Map<string, string[]>();
@@ -3235,13 +3235,15 @@ function replaySingleEventsToTranscript(
     if (event.type === 'message_start' && typeof p.messageId === 'string')
       activeMessageId = p.messageId;
     if (event.type === 'tool_result' && typeof p.toolId === 'string') {
-      let messageId = typeof p.messageId === 'string' ? p.messageId : activeMessageId;
+      let messageId = typeof p.messageId === 'string' ? p.messageId : null;
       if (!messageId) {
         const owners = toolOwners.get(p.toolId);
-        if (owners?.size !== 1)
+        if (owners && owners.size > 1)
           throw new Error('Ambiguous or unattributed late tool result in stored transcript');
-        messageId = [...owners][0];
+        messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
       }
+      if (!messageId)
+        throw new Error('Ambiguous or unattributed late tool result in stored transcript');
       const key = JSON.stringify([messageId, p.toolId]);
       const waiting = pendingBlocks.get(key);
       if (waiting?.length) toolResults.set(JSON.stringify([messageId, waiting.shift()]), p);

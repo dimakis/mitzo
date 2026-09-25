@@ -330,6 +330,18 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
       evt(5, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'late output' }),
     ];
     expect(replayEventsToTranscript(events).messages[0].blocks[0].toolResult).toBe('late output');
+    const acrossTurn = [
+      ...events.slice(0, 4),
+      evt(5, 'message_start', { messageId: 'second' }),
+      evt(6, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'tool_use' }),
+      evt(7, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'first late output' }),
+      evt(8, 'block_end', { messageId: 'second', blockId: 'b0', toolId: 'tool-1' }),
+      evt(9, 'tool_result', { messageId: 'second', toolId: 'tool-1', result: 'second output' }),
+      evt(10, 'message_end', { messageId: 'second' }),
+    ];
+    expect(
+      replayEventsToTranscript(acrossTurn).messages.map((message) => message.blocks[0].toolResult),
+    ).toEqual(['first late output', 'second output']);
     expect(() =>
       replayEventsToTranscript([
         ...events,
