@@ -38,6 +38,7 @@ export interface SymposiumSeatExecutionResult {
 
 export interface SymposiumSeatExecutor {
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
+  /** Resolve only after the attempt can no longer execute tools or native writes. */
   cancel?(input: { providerThreadId?: string; idempotencyKey: string }): Promise<void>;
 }
 
@@ -410,6 +411,7 @@ export class SymposiumOrchestrator {
     requireText(input.idempotencyKey, 'Cancellation idempotency key');
     const before = this.store.getSymposiumDelivery(input.deliveryId);
     if (!before) throw new Error('Unknown Symposium delivery');
+    const unsettled = this.store.getUnsettledSymposiumExecutions(input.deliveryId);
     const cancelled = this.store.cancelSymposiumDelivery({
       deliveryId: input.deliveryId,
       reason: input.reason?.trim() || null,
@@ -419,7 +421,7 @@ export class SymposiumOrchestrator {
     this.abortControllers.get(input.deliveryId)?.abort();
     await Promise.all(
       before.recipients
-        .filter((recipient) => recipient.status === 'executing')
+        .filter((recipient) => unsettled.some((attempt) => attempt.seatId === recipient.seatId))
         .map(async (recipient) => {
           const executor = this.executors[recipient.seatId];
           if (!executor?.cancel) return;
@@ -428,6 +430,10 @@ export class SymposiumOrchestrator {
               providerThreadId: recipient.providerThreadId ?? undefined,
               idempotencyKey: recipient.idempotencyKey,
             });
+            for (const attempt of unsettled.filter(
+              (attempt) => attempt.seatId === recipient.seatId,
+            ))
+              this.store.confirmSymposiumExecutionCleanup(attempt.claimToken);
           } catch (error) {
             log.warn('provider cancellation cleanup failed after durable cancellation', {
               deliveryId: input.deliveryId,
@@ -538,6 +544,7 @@ export class SymposiumOrchestrator {
           provenance,
           signal: abortController.signal,
         });
+        this.store.confirmSymposiumExecutionCleanup(claim.claimToken);
         const timestamp = this.now();
         this.store.completeSymposiumRecipient({
           sessionId: delivery.sessionId,
@@ -553,6 +560,17 @@ export class SymposiumOrchestrator {
           claimToken: claim.claimToken,
         });
       } catch (error) {
+        if (executor.cancel) {
+          try {
+            await executor.cancel({
+              providerThreadId: thread?.providerThreadId,
+              idempotencyKey: recipient.idempotencyKey,
+            });
+            this.store.confirmSymposiumExecutionCleanup(claim.claimToken);
+          } catch {
+            /* Uncertain cleanup retains the durable resource reservation. */
+          }
+        }
         const latest = this.store.getSymposiumDelivery(deliveryId)!;
         if (latest.status === 'cancelled' || abortController.signal.aborted) return false;
         this.store.failSymposiumRecipient({

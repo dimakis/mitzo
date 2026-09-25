@@ -313,6 +313,31 @@ describe('SymposiumOrchestrator', () => {
     }
   });
 
+  it('continues independent readers when the first recipient is already occupied', async () => {
+    const architect = await prepareConcurrentSeats();
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-builder', content: 'done', costUsd: 0 };
+    });
+    const first = readyFor(['builder'], 'busy-first');
+    const second = readyFor(['builder', 'reviewer', 'architect'], 'busy-followup');
+    const run = orchestrator.deliver(first);
+    try {
+      await vi.waitFor(() => expect(builder.calls).toHaveLength(1));
+      expect(await orchestrator.deliver(second)).toMatchObject({ status: 'ready' });
+      expect(reviewer.calls).toHaveLength(1);
+      expect(architect.calls).toHaveLength(1);
+    } finally {
+      release();
+      await run;
+    }
+  });
+
   it('holds a queued writer until revoked-seat cleanup is confirmed', async () => {
     const architect = await prepareConcurrentSeats(true);
     let release!: () => void;
@@ -348,6 +373,75 @@ describe('SymposiumOrchestrator', () => {
       await orchestrator.reconcileMembership('chat', 'architect', 2);
       expect(await orchestrator.deliver(second)).toMatchObject({ status: 'delivered' });
       expect(builder.calls).toHaveLength(1);
+    } finally {
+      release();
+      await run;
+    }
+  });
+
+  it.each(['cancel-failed', 'recovered'] as const)(
+    'retains writer reservation after %s until execution settles',
+    async (transition) => {
+      const architect = await prepareConcurrentSeats(true);
+      let release!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+        builder.calls.push(input);
+        await waiting;
+        return { providerThreadId: 'thread-builder', content: 'late', costUsd: 0 };
+      });
+      builder.cancel = vi.fn(async () => {
+        throw new Error('stop unavailable');
+      });
+      const first = readyFor(['builder'], 'held-writer');
+      const second = readyFor(['architect'], 'next-writer');
+      const run = orchestrator.deliver(first);
+      const another = new EventStore(dbPath);
+      try {
+        await vi.waitFor(() => expect(builder.calls).toHaveLength(1));
+        if (transition === 'recovered') another.recoverSymposiumDeliveries(Date.now());
+        else await orchestrator.cancel({ deliveryId: first, idempotencyKey: 'cancel-held' });
+        expect(await orchestrator.deliver(second)).toMatchObject({ status: 'ready' });
+        expect(architect.calls).toHaveLength(0);
+        release();
+        await run;
+        expect(await orchestrator.deliver(second)).toMatchObject({ status: 'delivered' });
+      } finally {
+        release();
+        await run;
+        another.close();
+      }
+    },
+  );
+
+  it('refuses retry while another recipient of the failed delivery still executes', async () => {
+    await prepareConcurrentSeats();
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-builder', content: 'done', costUsd: 0 };
+    });
+    reviewer.execute = vi.fn(async () => {
+      throw new Error('review failed');
+    });
+    const id = readyFor(['builder', 'reviewer'], 'retry-race');
+    const run = orchestrator.deliver(id);
+    try {
+      await vi.waitFor(() => expect(store.getSymposiumDelivery(id)?.status).toBe('failed'));
+      expect(() =>
+        orchestrator.intervene({ deliveryId: id, action: 'retry', idempotencyKey: 'too-soon' }),
+      ).toThrow(/execut|settle|cleanup/i);
+      release();
+      await run;
+      expect(
+        orchestrator.intervene({ deliveryId: id, action: 'retry', idempotencyKey: 'after-settle' }),
+      ).toMatchObject({ status: 'ready' });
     } finally {
       release();
       await run;

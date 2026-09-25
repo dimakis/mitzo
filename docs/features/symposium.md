@@ -191,3 +191,11 @@ is executing, so the host can drain approved work after the resource is released
 Unconfirmed revocation cleanup also blocks new writers, including after a restart.
 This scheduling rule does not enforce a provider's tools: runtime admission must
 still enforce the declared authority. It adds no per-seat sandbox isolation.
+
+Resource reservations persist on the existing recipient attempt until its executor
+returns a completed result or confirms cancellation. Cancelling a delivery or
+marking it recovery-required does not release this reservation. A second host
+therefore cannot infer that a recovered writer has stopped. Failed multi-seat
+deliveries cannot be retried while any attempt still has unconfirmed cleanup.
+Executor cancellation must resolve only when further native operations are
+impossible; missing or failed cancellation retains the reservation for recovery.
