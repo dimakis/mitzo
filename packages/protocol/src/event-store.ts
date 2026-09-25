@@ -1616,6 +1616,18 @@ export class EventStore {
         }
       }
 
+      if (config.version === 2) {
+        const active = this.db!.prepare(
+          `SELECT count(*) AS n FROM symposium_membership m
+          WHERE m.session_id = ? AND m.generation = (SELECT max(generation)
+            FROM symposium_membership WHERE session_id = m.session_id AND seat_id = m.seat_id)
+            AND m.state = 'active'`,
+        ).get(sessionId) as { n: number };
+        if (active.n > config.activeSeatCap) {
+          throw new Error('Symposium active-seat cap is below current active membership');
+        }
+      }
+
       if (config.state === 'active') {
         const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
         const anchorId = config.version === 2 ? config.anchorSeatId : config.seats[0].id;
@@ -1786,8 +1798,16 @@ export class EventStore {
         ).get(input.sessionId) as { n: number };
         if (active.n >= config.activeSeatCap) throw new Error('Symposium active-seat cap exceeded');
       } else {
-        if (previous?.state !== 'active')
-          throw new Error('Only active Symposium seats can be revoked');
+        if (
+          previous?.state !== 'active' &&
+          !(
+            input.action === 'remove' &&
+            previous?.state === 'suspended' &&
+            previous.reconciliation === 'confirmed'
+          )
+        ) {
+          throw new Error('Only active or reconciled suspended Symposium seats can be revoked');
+        }
         if (seat.id === config.anchorSeatId)
           throw new Error('Symposium anchor seat cannot be revoked');
       }

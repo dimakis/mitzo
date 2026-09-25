@@ -279,6 +279,60 @@ describe('Symposium configuration contract', () => {
 });
 
 describe('Symposium persistence', () => {
+  it('removes a reconciled suspended seat without restoring or consuming capacity', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    const move = (action: 'admit' | 'suspend' | 'remove', expectedGeneration: number) =>
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        action,
+        expectedGeneration,
+        configRevision: 1,
+        actor: 'director',
+        reason: action,
+        idempotencyKey: `${action}:${expectedGeneration}`,
+        occurredAt: Date.now(),
+      });
+    move('admit', 0);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'confirmed');
+    move('suspend', 1);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 2, 'confirmed');
+    expect(move('remove', 2)).toMatchObject({ generation: 3, state: 'removed' });
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 3, 'confirmed');
+    expect(() => move('remove', 3)).toThrow(/revoked|invalid|removed/i);
+  });
+  it('rejects a v2 cap reduction below active membership count in the config transaction', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const v2 = { ...config, version: 2 as const, anchorSeatId: 'builder', activeSeatCap: 2 };
+    store.setSymposiumConfig('chat', v2);
+    for (const seatId of ['builder', 'reviewer']) {
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId,
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 1,
+        actor: 'director',
+        reason: 'admit',
+        idempotencyKey: `admit:${seatId}`,
+        occurredAt: Date.now(),
+      });
+      store.markSymposiumMembershipReconciled('chat', seatId, 1, 'confirmed');
+    }
+    expect(() =>
+      store.setSymposiumConfig('chat', { ...v2, revision: 2, activeSeatCap: 1 }),
+    ).toThrow(/cap/i);
+    expect(store.getSession('chat')?.symposiumRevision).toBe(1);
+    expect(store.getLatestSymposiumMembership('chat', 'builder')?.state).toBe('active');
+  });
   it('reserves active capacity atomically and retains suspended seat history', () => {
     const store = open();
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
