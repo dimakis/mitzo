@@ -171,9 +171,13 @@ with its original provenance and start sequence, alongside the ordinary current
 turn. Replay isolates seat streams so reused block IDs cannot cross seats. The
 client applies all durable seat snapshots before captured post-cursor actions;
 an ambiguous or mismatched transcript fails recovery without replacing visible
-history or acknowledging the cursor. This remains client and persistence
-groundwork until the acknowledged transport and provider runtime are integrated.
-Directed-seat controls are later integration work.
+history or acknowledging the cursor. The WebSocket and SSE transport advances
+its applied cursor only after the consumer accepts an event or the matching
+connection-scoped REST snapshot offer. Negotiated reconnect loads a bounded
+snapshot before replaying buffered live events. Missing consumers, refused
+events, stale offers, and buffer overflow trigger recovery without acknowledging
+unapplied state. Provider execution and directed-seat controls remain integration
+work.
 
 Next, integrate provider execution and websocket controls (Phase 3), complete
 seat-attributed controls in the existing ChatView (Phases 4–6).
@@ -189,5 +193,8 @@ This clean implementation on current main replaces its foundation scope without
 bringing those changes forward. #446 is not a required stacked dependency. It has
 not been closed or modified by this change.
 
-No runtime, UI, model calls, or production deployment are included in this first
-slice. The Telos parent and later phases remain unfinished.
+The original foundation slice did not include runtime or UI integration. The
+current implementation includes concurrent transcript rendering and acknowledged
+reconnect transport. Shared provider execution, director controls, and reusable
+review workflows remain unfinished. No live model acceptance or production
+deployment has been performed for these changes; the Telos parent remains open.
