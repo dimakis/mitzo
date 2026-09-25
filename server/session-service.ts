@@ -48,6 +48,11 @@ export interface ChildAuthority {
   allowSymposiumSharing?: boolean;
 }
 
+export interface HostSpawnGrant {
+  authority: ChildAuthority;
+  actorSessionId: string;
+}
+
 export interface ChildLink extends ChildCreateRequest {
   conversationId: string;
   depth: number;
@@ -208,6 +213,16 @@ export class SessionService {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS child_spawn_grants (
+        grant_id TEXT NOT NULL,
+        revision INTEGER NOT NULL,
+        actor_session_id TEXT NOT NULL,
+        authority_json TEXT NOT NULL,
+        active INTEGER NOT NULL CHECK(active IN (0,1)),
+        created_at INTEGER NOT NULL,
+        revoked_at INTEGER,
+        PRIMARY KEY(grant_id,revision)
+      );
       CREATE TABLE IF NOT EXISTS child_allocations (
         conversation_id TEXT PRIMARY KEY REFERENCES sessions(session_id),
         parent_conversation_id TEXT NOT NULL REFERENCES sessions(session_id),
@@ -241,6 +256,104 @@ export class SessionService {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Called only after the host authenticates the explicit parent and user action. */
+  recordHostGrant(authority: ChildAuthority, actorSessionId: string): HostSpawnGrant {
+    requireId(actorSessionId, 'authenticated actor');
+    if (!authority.parentActive) throw new Error('Parent is not active');
+    const normalized = canonicalAuthority(authority);
+    return this.db
+      .transaction(() => {
+        const parent = this.db
+          .prepare('SELECT 1 FROM sessions WHERE session_id = ?')
+          .get(authority.parentConversationId);
+        if (!parent) throw new Error('Parent conversation does not exist');
+        const existing = this.db
+          .prepare(
+            `SELECT actor_session_id, authority_json, active
+        FROM child_spawn_grants WHERE grant_id = ? AND revision = ?`,
+          )
+          .get(authority.grantId, authority.grantRevision) as
+          { actor_session_id: string; authority_json: string; active: number } | undefined;
+        if (existing) {
+          if (
+            existing.actor_session_id !== actorSessionId ||
+            existing.authority_json !== normalized ||
+            existing.active !== 1
+          )
+            throw new Error('Host grant conflict or revocation');
+        } else {
+          this.db
+            .prepare(
+              `INSERT INTO child_spawn_grants
+          (grant_id,revision,actor_session_id,authority_json,active,created_at)
+          VALUES (?,?,?,?,1,?)`,
+            )
+            .run(
+              authority.grantId,
+              authority.grantRevision,
+              actorSessionId,
+              normalized,
+              Date.now(),
+            );
+        }
+        return { authority, actorSessionId };
+      })
+      .immediate();
+  }
+
+  getHostGrant(grantId: string, revision: number): HostSpawnGrant | null {
+    const row = this.db
+      .prepare(
+        `SELECT actor_session_id,authority_json FROM child_spawn_grants
+      WHERE grant_id = ? AND revision = ? AND active = 1`,
+      )
+      .get(grantId, revision) as { actor_session_id: string; authority_json: string } | undefined;
+    if (!row) return null;
+    return {
+      actorSessionId: row.actor_session_id,
+      authority: JSON.parse(row.authority_json) as ChildAuthority,
+    };
+  }
+
+  async revokeHostGrant(grantId: string, revision: number, actorSessionId: string): Promise<void> {
+    const children = this.db
+      .transaction(() => {
+        const row = this.db
+          .prepare(
+            `SELECT actor_session_id FROM child_spawn_grants
+        WHERE grant_id = ? AND revision = ?`,
+          )
+          .get(grantId, revision) as { actor_session_id: string } | undefined;
+        if (!row || row.actor_session_id !== actorSessionId)
+          throw new Error('Host grant revocation authority denied');
+        this.db
+          .prepare(
+            `UPDATE child_spawn_grants SET active = 0, revoked_at = ?
+        WHERE grant_id = ? AND revision = ? AND active = 1`,
+          )
+          .run(Date.now(), grantId, revision);
+        return this.db
+          .prepare(
+            `SELECT conversation_id,parent_conversation_id
+        FROM child_allocations WHERE json_extract(request_json,'$.grantId') = ?
+          AND json_extract(request_json,'$.grantRevision') = ?`,
+          )
+          .all(grantId, revision) as Array<{
+          conversation_id: string;
+          parent_conversation_id: string;
+        }>;
+      })
+      .immediate();
+    for (const child of children) {
+      const cancelled = this.requestCancellation(
+        child.conversation_id,
+        child.parent_conversation_id,
+      );
+      if (cancelled.status !== 'cancelled' && cancelled.status !== 'completed')
+        await this.reconcile(child.conversation_id);
+    }
   }
 
   getChild(conversationId: string): ChildLink | null {
@@ -308,6 +421,9 @@ export class SessionService {
           if (existing.request_hash !== fingerprint) throw new Error('Idempotency conflict');
           return childFromRow(existing);
         }
+        const persisted = this.getHostGrant(request.grantId, request.grantRevision);
+        if (!persisted || canonicalAuthority(persisted.authority) !== canonicalAuthority(authority))
+          throw new Error('Host grant is missing or revoked');
         const parent = this.db
           .prepare('SELECT session_id FROM sessions WHERE session_id = ?')
           .get(request.parentConversationId);
@@ -444,6 +560,8 @@ export class SessionService {
   }
 
   private async authorityStillCurrent(child: ChildLink): Promise<boolean> {
+    const grant = this.getHostGrant(child.grantId, child.grantRevision);
+    if (!grant) return false;
     const snapshot = this.db
       .prepare('SELECT authority_json FROM child_allocations WHERE conversation_id = ?')
       .get(child.conversationId) as { authority_json: string };

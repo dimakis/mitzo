@@ -88,6 +88,7 @@ describe('SessionService', () => {
       },
     };
     service = new SessionService(dbPath, runtime, async () => currentAuthority);
+    service.recordHostGrant(authority(), 'auth-session-1');
   });
   afterEach(() => {
     service.close();
@@ -212,6 +213,22 @@ describe('SessionService', () => {
     };
     await service.reconcile(child.conversationId);
     expect(service.getChild(child.conversationId)?.status).toBe('running');
+  });
+
+  it('persists an exact host grant and revokes its children without minting a new grant', async () => {
+    const grant = service.recordHostGrant(authority(), 'auth-session-1');
+    expect(service.recordHostGrant(authority(), 'auth-session-1')).toEqual(grant);
+    expect(() =>
+      service.recordHostGrant({ ...authority(), maxConcurrent: 2 }, 'auth-session-1'),
+    ).toThrow(/conflict/i);
+    const child = service.createChild(request(), authority());
+    service.close();
+    service = new SessionService(dbPath, runtime, async () => currentAuthority);
+    expect(service.getHostGrant('grant-a', 1)?.actorSessionId).toBe('auth-session-1');
+    await service.revokeHostGrant('grant-a', 1, 'auth-session-1');
+    expect(service.getHostGrant('grant-a', 1)).toBeNull();
+    expect(service.getChild(child.conversationId)?.status).toBe('cancelled');
+    expect(() => service.createChild(request('task-2'), authority())).toThrow(/grant|revoked/i);
   });
 
   it('fences revoked authority between allocation and dispatch and rejects changed binding or scope', async () => {
