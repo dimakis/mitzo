@@ -65,6 +65,12 @@ function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
   );
 }
 
+function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
+  return provenance
+    ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, messageId])}`
+    : messageId;
+}
+
 export function ChatArea({
   sessionId,
   messages,
@@ -241,7 +247,10 @@ export function ChatArea({
           if (turn.kind === 'streaming') {
             const stream = turn.value;
             return (
-              <div key={stream.messageId} className="msg-turn msg-turn--streaming">
+              <div
+                key={turnKey(stream.messageId, stream.symposiumProvenance)}
+                className="msg-turn msg-turn--streaming"
+              >
                 <SeatAttribution provenance={stream.symposiumProvenance} />
                 {groupBlocks(
                   stream.blockOrder.flatMap((blockId) => {
@@ -291,7 +300,7 @@ export function ChatArea({
             const textBlock = msg.blocks.find((b) => b.blockType === 'text');
             return (
               <UserBubble
-                key={msg.messageId}
+                key={turnKey(msg.messageId, msg.symposiumProvenance)}
                 text={textBlock?.content}
                 images={msg.images}
                 contextBlocks={msg.contextBlocks}
@@ -311,7 +320,7 @@ export function ChatArea({
 
           // Assistant turn — render grouped blocks
           return (
-            <div key={msg.messageId} className="msg-turn">
+            <div key={turnKey(msg.messageId, msg.symposiumProvenance)} className="msg-turn">
               <SeatAttribution provenance={msg.symposiumProvenance} />
               {(grouped ?? []).map((item, i) => {
                 if (item.type === 'tool-group') {

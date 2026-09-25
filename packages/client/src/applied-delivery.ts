@@ -4,7 +4,11 @@ export interface AppliedDeliveryOptions {
   setCursor(sessionId: string, seq: number): void;
   deliver(event: Record<string, unknown>): boolean | void;
   ackEvent(sessionId: string, seq: number): void;
-  ackSnapshot(sessionId: string, cursor: number, offerId: string): void;
+  ackSnapshot(
+    sessionId: string,
+    cursor: number,
+    offerId: string,
+  ): void | boolean | Promise<boolean>;
   resync(sessionId: string): void;
 }
 
@@ -14,7 +18,7 @@ interface PendingSession {
   gapTimer?: ReturnType<typeof setTimeout>;
   waitingForSnapshot?: boolean;
   resyncRequested?: boolean;
-  offer?: { cursor: number; offerId: string; connectionId: string };
+  offer?: { cursor: number; offerId: string; connectionId: string; ackRequested?: boolean };
 }
 
 const MAX_BUFFERED_EVENTS = 256;
@@ -100,6 +104,54 @@ export class AppliedDelivery {
       offer.connectionId !== connectionId
     )
       return false;
+    if (offer.ackRequested) return true;
+    offer.ackRequested = true;
+    try {
+      const acknowledgement = this.options.ackSnapshot(sessionId, cursor, offerId);
+      if (acknowledgement instanceof Promise) {
+        void acknowledgement.then(
+          (applied) =>
+            applied
+              ? this.confirmSnapshot(sessionId, cursor, offerId, connectionId)
+              : this.failSnapshot(sessionId, state, offer),
+          () => this.failSnapshot(sessionId, state, offer),
+        );
+      } else if (acknowledgement === true) {
+        this.confirmSnapshot(sessionId, cursor, offerId, connectionId);
+      }
+    } catch {
+      this.failSnapshot(sessionId, state, offer);
+    }
+    return true;
+  }
+
+  private failSnapshot(
+    sessionId: string,
+    state: PendingSession,
+    offer: NonNullable<PendingSession['offer']>,
+  ): void {
+    if (this.sessions.get(sessionId) === state && state.offer === offer)
+      this.requestResync(sessionId, state);
+  }
+
+  /** Confirm only the exact offer after the server has removed its ACK fence. */
+  confirmSnapshot(
+    sessionId: string,
+    cursor: number,
+    offerId: string,
+    connectionId: string,
+  ): boolean {
+    const state = this.sessions.get(sessionId);
+    const offer = state?.offer;
+    if (
+      !state ||
+      !offer ||
+      !offer.ackRequested ||
+      offer.cursor !== cursor ||
+      offer.offerId !== offerId ||
+      offer.connectionId !== connectionId
+    )
+      return false;
     state.offer = undefined;
     this.clearGapTimer(state);
     for (const [seq, event] of state.events) {
@@ -108,7 +160,6 @@ export class AppliedDelivery {
       state.bytes -= JSON.stringify(event).length;
     }
     this.options.setCursor(sessionId, cursor);
-    this.options.ackSnapshot(sessionId, cursor, offerId);
     this.drain(sessionId, state);
     return true;
   }

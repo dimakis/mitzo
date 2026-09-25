@@ -14,13 +14,43 @@ function harness() {
       return true;
     },
     ackEvent: (_sessionId, seq) => acks.push(seq),
-    ackSnapshot: vi.fn(),
+    ackSnapshot: vi.fn(() => true),
     resync: overflow,
   });
   return { tracker, cursors, received, acks, overflow };
 }
 
 describe('AppliedDelivery', () => {
+  it('retains an offered cursor until exact server confirmation and reconnects after silent ACK loss', () => {
+    vi.useFakeTimers();
+    try {
+      const cursors = new Map([['a', 2]]);
+      const delivered = vi.fn(() => true);
+      const resync = vi.fn();
+      const ackSnapshot = vi.fn(() => undefined);
+      const tracker = new AppliedDelivery({
+        getCursor: (id) => cursors.get(id) ?? 0,
+        setCursor: (id, seq) => {
+          cursors.set(id, seq);
+        },
+        deliver: delivered,
+        ackEvent: vi.fn(),
+        ackSnapshot,
+        resync,
+      });
+      tracker.offerSnapshot('a', 5, 'offer', 'conn-1');
+      tracker.receive({ sessionId: 'a', seq: 6, prevSessionSeq: 5 });
+      expect(tracker.acknowledgeSnapshot('a', 5, 'offer', 'conn-1')).toBe(true);
+      expect(cursors.get('a')).toBe(2);
+      expect(delivered).not.toHaveBeenCalled();
+      expect(tracker.confirmSnapshot('a', 5, 'wrong', 'conn-1')).toBe(false);
+      vi.advanceTimersByTime(30_000);
+      expect(resync).toHaveBeenCalledWith('a');
+      expect(ackSnapshot).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('uses session predecessors across interleaved global IDs and drains a missing event once', () => {
     const h = harness();
     h.tracker.receive({ sessionId: 'a', seq: 9, prevSessionSeq: 5, type: 'block_delta' });

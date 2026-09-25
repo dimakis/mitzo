@@ -359,6 +359,64 @@ describe('handleReconnect', () => {
     );
   });
 
+  it('confirms only a matching snapshot ACK after removing the server offer fence', async () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      cursor: 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.setEventStore(eventStore);
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 5 }],
+      },
+      ctx,
+    );
+    const offer = transport.sent.find((message) => message.type === 'session_reconnect_snapshot')!;
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'reconnect_snapshot_applied',
+        sessionId: 'sess-1',
+        cursor: 8,
+        offerId: 'wrong',
+      }),
+      ctx,
+    );
+    expect(transport.sent.some((message) => message.type === 'reconnect_snapshot_confirmed')).toBe(
+      false,
+    );
+    await dispatchV2Message(
+      'c1',
+      transport,
+      JSON.stringify({
+        type: 'reconnect_snapshot_applied',
+        sessionId: 'sess-1',
+        cursor: 8,
+        offerId: offer.offerId,
+      }),
+      ctx,
+    );
+    expect(transport.sent.at(-1)).toMatchObject({
+      type: 'reconnect_snapshot_confirmed',
+      sessionId: 'sess-1',
+      cursor: 8,
+      offerId: offer.offerId,
+    });
+  });
+
   it('captures the active boundary after reattaching a detached live session', () => {
     let reattached = false;
     (reattachChat as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {

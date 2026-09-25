@@ -18,6 +18,50 @@ class MockWebSocket implements WebSocketLike {
 }
 
 describe('MitzoConnection authentication loss', () => {
+  it('reconnects when a snapshot ACK is silently lost on an open socket', () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: MockWebSocket[] = [];
+      const connection = new MitzoConnection({
+        buildUrl: () => '/ws/chat',
+        createWebSocket: () => {
+          const socket = new MockWebSocket();
+          sockets.push(socket);
+          return socket;
+        },
+      });
+      connection.onMessage((message) => {
+        if (message.type === 'session_reconnect_snapshot')
+          connection.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+        return true;
+      });
+      connection.connect();
+      const socket = sockets[0];
+      socket.readyState = 1;
+      socket.onopen?.({});
+      socket.onmessage?.({ data: JSON.stringify({ type: 'welcome', connectionId: 'conn-1' }) });
+      connection.trackSeq('sess-1', 2);
+      socket.onmessage?.({
+        data: JSON.stringify({
+          type: 'session_reconnect_snapshot',
+          sessionId: 'sess-1',
+          cursor: 5,
+          offerId: 'offer-1',
+        }),
+      });
+      expect(
+        socket.sent
+          .map((value) => JSON.parse(value))
+          .some((value) => value.type === 'reconnect_snapshot_applied'),
+      ).toBe(true);
+      expect(connection.getLastSeq('sess-1')).toBe(2);
+      vi.advanceTimersByTime(30_000);
+      expect(sockets).toHaveLength(2);
+      connection.disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('clears the prior connection identity when authentication is invalidated', () => {
     const socket = new MockWebSocket();
     const connection = new MitzoConnection({

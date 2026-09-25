@@ -67,7 +67,7 @@ export class SseConnection implements ChatConnection {
         seq,
       }),
     ackSnapshot: (sessionId, cursor, offerId) =>
-      this.sendAppliedAck('reconnect-snapshot-applied', {
+      this.sendSnapshotAck({
         type: 'reconnect_snapshot_applied',
         sessionId,
         cursor,
@@ -253,6 +253,28 @@ export class SseConnection implements ChatConnection {
       .catch(() => {
         /* Reconnect advertises the locally applied cursor. */
       });
+  }
+
+  private sendSnapshotAck(body: Record<string, unknown>): Promise<boolean> {
+    const connectionId = this._connectionId;
+    if (!connectionId) return Promise.resolve(false);
+    const pending = this.appliedAckChain
+      .then(async () => {
+        const response = await this.config.fetch(
+          `${this.config.baseUrl}/api/chat/reconnect-snapshot-applied`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
+            body: JSON.stringify(body),
+          },
+        );
+        if (!response.ok) return false;
+        const result = (await response.json()) as { applied?: unknown };
+        return result.applied === true && this._connectionId === connectionId;
+      })
+      .catch(() => false);
+    this.appliedAckChain = pending;
+    return pending;
   }
 
   // Navigation discards stale controls, not submitted prompts. Scope prevents

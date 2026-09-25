@@ -86,6 +86,69 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('reconnects when the applied snapshot POST loses its response after server acceptance', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('response lost'));
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage((message) => {
+      if (message.type === 'session_reconnect_snapshot')
+        conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      return true;
+    });
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    first._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: 'offer-1',
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(lastES()).not.toBe(first));
+    expect(conn.getLastSeq('sess-1')).toBe(0);
+  });
+
+  it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
+    let resolveAck!: (value: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveAck = resolve;
+        }),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn((message: Record<string, unknown>) => {
+      if (message.type === 'session_reconnect_snapshot')
+        conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      return true;
+    });
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    lastES()._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: 'offer-1',
+    });
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      prevSessionSeq: 5,
+    });
+    expect(conn.getLastSeq('sess-1')).toBe(0);
+    expect(listener.mock.calls.filter(([message]) => message.type === 'block_delta')).toHaveLength(
+      0,
+    );
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    resolveAck(new Response(JSON.stringify({ applied: true }), { status: 200 }));
+    await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(6));
+    expect(listener.mock.calls.filter(([message]) => message.type === 'block_delta')).toHaveLength(
+      1,
+    );
+  });
+
   it('does not start a persisted outbox when invalidated before connect', async () => {
     const fetch = vi.fn();
     const key = 'mitzo-send-outbox:https://localhost:3100/api/chat/send';

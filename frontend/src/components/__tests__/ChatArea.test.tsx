@@ -48,6 +48,52 @@ vi.mock('../PermissionBanner', () => ({
 afterEach(() => cleanup());
 
 describe('ChatArea', () => {
+  it('keeps distinct seat generations mounted when provider message IDs collide', () => {
+    const provenance = (seatId: string, membershipGeneration: number) => ({
+      seatId,
+      membershipGeneration,
+      configRevision: 1,
+      accountProfileRevision: 'a',
+      seatProfileRevision: 'p',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    });
+    const first: FinishedMessage = {
+      messageId: 'same',
+      startedSeq: 1,
+      role: 'assistant',
+      symposiumProvenance: provenance('builder', 1),
+      blocks: [{ blockId: 'a', blockType: 'text', content: 'Builder first' }],
+    };
+    const second: FinishedMessage = {
+      messageId: 'same',
+      startedSeq: 2,
+      role: 'assistant',
+      symposiumProvenance: provenance('reviewer', 1),
+      blocks: [{ blockId: 'b', blockType: 'text', content: 'Reviewer second' }],
+    };
+    const { container, rerender } = render(
+      <ChatArea {...defaultProps} messages={[first, second]} />,
+    );
+    const original = [...container.querySelectorAll('[data-testid="text-bubble"]')];
+    rerender(
+      <ChatArea
+        {...defaultProps}
+        messages={[
+          { ...second, startedSeq: 0 },
+          { ...first, startedSeq: 3 },
+        ]}
+      />,
+    );
+    const reordered = [...container.querySelectorAll('[data-testid="text-bubble"]')];
+    expect(reordered).toEqual([original[1], original[0]]);
+    expect(reordered.map((element) => element.textContent)).toEqual([
+      'Reviewer second',
+      'Builder first',
+    ]);
+  });
   const defaultProps = {
     messages: [] as FinishedMessage[],
     current: null,

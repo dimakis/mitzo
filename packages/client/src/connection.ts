@@ -354,6 +354,22 @@ export class MitzoConnection {
       }
 
       if (
+        msg.type === 'reconnect_snapshot_confirmed' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        typeof msg.offerId === 'string' &&
+        this._connectionId
+      ) {
+        this.appliedDelivery.confirmSnapshot(
+          msg.sessionId,
+          msg.cursor,
+          msg.offerId,
+          this._connectionId,
+        );
+        return;
+      }
+
+      if (
         msg.type === 'session_reconnect_snapshot' &&
         typeof msg.sessionId === 'string' &&
         typeof msg.offerId === 'string' &&

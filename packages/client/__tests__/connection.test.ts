@@ -295,6 +295,12 @@ describe('MitzoConnection', () => {
         state: 'running',
       });
       conn.acknowledgeReconnectSnapshot('s1', 5, 'offer-1');
+      ws.simulateMessage({
+        type: 'reconnect_snapshot_confirmed',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'offer-1',
+      });
       ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
       expect(conn.getLastSeq('s1')).toBe(5);
       expect(
@@ -346,6 +352,13 @@ describe('MitzoConnection', () => {
       expect(received).toEqual([]);
       expect(conn.getLastSeq('s1')).toBe(2);
       conn.acknowledgeReconnectSnapshot('s1', 5, '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7');
+      expect(conn.getLastSeq('s1')).toBe(2);
+      ws.simulateMessage({
+        type: 'reconnect_snapshot_confirmed',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7',
+      });
       expect(conn.getLastSeq('s1')).toBe(5);
       ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 12, prevSessionSeq: 9 });
       ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });

@@ -1751,7 +1751,13 @@ export async function dispatchV2Message(
       handleReconnect(connectionId, msg, ctx);
       break;
     case 'reconnect_snapshot_applied':
-      ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId);
+      if (ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId))
+        ctx.connRegistry.get(connectionId)?.transport.send({
+          type: 'reconnect_snapshot_confirmed',
+          sessionId: msg.sessionId,
+          cursor: msg.cursor,
+          offerId: msg.offerId,
+        });
       break;
     case 'session_event_applied':
       ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
