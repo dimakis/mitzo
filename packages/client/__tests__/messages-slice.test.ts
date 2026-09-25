@@ -1719,6 +1719,20 @@ it('clears all pending approvals when another connection takes over', () => {
   expect(state.permissionQueue).toEqual([]);
 });
 
+it('replaces stale approvals with the reconnect snapshot queue', () => {
+  const stale = { permId: 'stale', toolName: 'Bash', toolInput: 'old' };
+  const live = { permId: 'live', toolName: 'Edit', toolInput: '{}' };
+  const state = messagesReducer(
+    { ...INITIAL_MESSAGES_STATE, permission: stale },
+    { type: 'PERMISSION_SNAPSHOT', permissions: [live] },
+  );
+  expect(state.permission).toEqual(live);
+  expect(state.permissionQueue).toEqual([]);
+  expect(
+    messagesReducer(state, { type: 'PERMISSION_SNAPSHOT', permissions: [] }).permission,
+  ).toBeNull();
+});
+
 it('keeps streaming state and the prompt when a permission response is rejected', () => {
   const permission = { permId: 'p1', toolName: 'Bash', toolInput: 'pwd' };
   const state = messagesReducer(

@@ -18,6 +18,7 @@ import type {
   RawToolInput,
   ToolResultImage,
   ClientSessionState,
+  PermissionRequest,
 } from '@mitzo/protocol';
 import type { MessagesAction } from './slices/messages.js';
 import type { WsMsg } from './server-messages.js';
@@ -53,6 +54,9 @@ export interface ProtocolCallbacks {
 
   /** v2: Called after WS reconnect completes — triggers message re-fetch. */
   onReconnected?(): void;
+
+  /** Restore the transcript prefix at the exact durable reconnect cursor. */
+  onReconnectSnapshot?(sessionId: string, cursor: number, cursorValid: boolean): void;
 }
 
 // ─── Parser state ────────────────────────────────────────────────────────────
@@ -145,6 +149,20 @@ export function parseServerMessage(
         });
       } else if (typeof msg.state === 'string') {
         console.warn('[mitzo] unknown reconnect snapshot state:', msg.state);
+      }
+      if (Array.isArray(msg.pendingPermissions)) {
+        result.messagesActions.push({
+          type: 'PERMISSION_SNAPSHOT',
+          permissions: msg.pendingPermissions as PermissionRequest[],
+        });
+      }
+      if (
+        typeof msg.sessionId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        Number.isSafeInteger(msg.cursor) &&
+        msg.cursor >= 0
+      ) {
+        callbacks.onReconnectSnapshot?.(msg.sessionId, msg.cursor, msg.cursorValid !== false);
       }
       break;
 

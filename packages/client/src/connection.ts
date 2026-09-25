@@ -31,6 +31,11 @@ export class MitzoConnection {
   private _isReconnect = false;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
+  private replayingSessions = new Set<string>();
+  private replaySeenSeq = new Map<string, number>();
+  private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
+  /** Events applied while a transcript restore is unacknowledged. */
+  private unacknowledgedSeq = new Map<string, Set<number>>();
   private pendingSends: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -130,8 +135,20 @@ export class MitzoConnection {
     return this.seqBySession.get(sessionId) ?? 0;
   }
 
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void {
+    const pending = this.pendingSnapshots.get(sessionId);
+    if (!pending || pending.cursor !== cursor) return;
+    this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
+    this.pendingSnapshots.delete(sessionId);
+    this.unacknowledgedSeq.delete(sessionId);
+  }
+
   clearSession(sessionId: string): void {
     this.seqBySession.delete(sessionId);
+    this.replayingSessions.delete(sessionId);
+    this.replaySeenSeq.delete(sessionId);
+    this.pendingSnapshots.delete(sessionId);
+    this.unacknowledgedSeq.delete(sessionId);
   }
 
   /** Drain the pending-send queue (e.g. on session switch to avoid cross-session message leaks). */
@@ -283,6 +300,13 @@ export class MitzoConnection {
             sessionId,
             lastSeq,
           }));
+          for (const { sessionId } of sessions) {
+            this.replayingSessions.add(sessionId);
+            this.replaySeenSeq.delete(sessionId);
+            this.pendingSnapshots.delete(sessionId);
+            if (!this.unacknowledgedSeq.has(sessionId))
+              this.unacknowledgedSeq.set(sessionId, new Set());
+          }
           ws.send(JSON.stringify({ type: 'reconnect', sessions }));
         }
         this._isReconnect = true;
@@ -292,12 +316,51 @@ export class MitzoConnection {
         return;
       }
 
-      // Track seq for reconnect replay
-      if (typeof msg.seq === 'number' && typeof msg.sessionId === 'string') {
-        this.seqBySession.set(msg.sessionId as string, msg.seq as number);
+      const sequencedSessionId =
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        typeof msg.sessionId === 'string'
+          ? msg.sessionId
+          : undefined;
+      const applied = sequencedSessionId
+        ? this.unacknowledgedSeq.get(sequencedSessionId)
+        : undefined;
+      const duplicate = applied?.has(msg.seq as number) ?? false;
+
+      if (
+        msg.type === 'session_reconnect_snapshot' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        Number.isSafeInteger(msg.cursor) &&
+        msg.cursor >= 0
+      ) {
+        this.replayingSessions.delete(msg.sessionId);
+        const seen = this.replaySeenSeq.get(msg.sessionId) ?? 0;
+        this.replaySeenSeq.delete(msg.sessionId);
+        this.pendingSnapshots.set(msg.sessionId, {
+          cursor: msg.cursor,
+          afterSeq: seen > msg.cursor ? seen : 0,
+        });
+      } else if (sequencedSessionId) {
+        if (this.replayingSessions.has(sequencedSessionId)) {
+          this.replaySeenSeq.set(
+            sequencedSessionId,
+            Math.max(this.replaySeenSeq.get(sequencedSessionId) ?? 0, msg.seq as number),
+          );
+        } else {
+          const pending = this.pendingSnapshots.get(sequencedSessionId);
+          if (pending) pending.afterSeq = Math.max(pending.afterSeq, msg.seq as number);
+          else
+            this.seqBySession.set(
+              sequencedSessionId,
+              Math.max(this.getLastSeq(sequencedSessionId), msg.seq as number),
+            );
+        }
       }
 
+      if (duplicate) return;
       this.listener?.(msg);
+      if (applied && sequencedSessionId) applied.add(msg.seq as number);
     };
 
     ws.onclose = (event) => {

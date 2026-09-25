@@ -179,6 +179,25 @@ describe('MitzoConnection', () => {
       expect(conn.getLastSeq('unknown')).toBe(0);
     });
 
+    it('holds the snapshot cursor until the restore is applied', () => {
+      const conn = createConnection();
+      conn.onMessage(() => {});
+      const ws = openWithHandshake(conn);
+      conn.trackSeq('s1', 99);
+
+      ws.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 12,
+        cursorValid: false,
+      });
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 11 });
+      expect(conn.getLastSeq('s1')).toBe(99);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 13 });
+      conn.acknowledgeReconnectSnapshot('s1', 12);
+      expect(conn.getLastSeq('s1')).toBe(13);
+    });
+
     it('allows manual seq tracking via trackSeq', () => {
       const conn = createConnection();
       conn.trackSeq('s1', 10);
@@ -194,6 +213,47 @@ describe('MitzoConnection', () => {
   });
 
   describe('reconnect', () => {
+    it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((msg) => received.push(msg));
+      conn.trackSeq('s1', 5);
+      const first = openWithHandshake(conn);
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const second = lastWs!;
+      second.simulateOpen();
+      second.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      second.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 6, delta: 'hello' });
+      second.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 6,
+        cursorValid: true,
+      });
+      // The bounded transcript request fails, so the snapshot is not acknowledged.
+      expect(conn.getLastSeq('s1')).toBe(5);
+
+      second.simulateClose();
+      vi.advanceTimersByTime(100);
+      const third = lastWs!;
+      third.simulateOpen();
+      third.simulateMessage({ type: 'welcome', connectionId: 'conn-3' });
+      third.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 6, delta: 'hello' });
+      third.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 6,
+        cursorValid: true,
+      });
+
+      expect(received.filter((msg) => msg.type === 'block_delta')).toHaveLength(1);
+      conn.acknowledgeReconnectSnapshot('s1', 6);
+      expect(conn.getLastSeq('s1')).toBe(6);
+      vi.useRealTimers();
+    });
+
     it('reconnects after close and sends hello + reconnect with tracked sessions', () => {
       vi.useFakeTimers();
       const conn = createConnection();
@@ -231,6 +291,18 @@ describe('MitzoConnection', () => {
           { sessionId: 's2', lastSeq: 3 },
         ]),
       );
+
+      ws2.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9 });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      ws2.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 9,
+        cursorValid: true,
+      });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      conn.acknowledgeReconnectSnapshot('s1', 9);
+      expect(conn.getLastSeq('s1')).toBe(9);
 
       vi.useRealTimers();
     });

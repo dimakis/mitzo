@@ -224,31 +224,86 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
+  const pendingOptimisticMessageIds = new Set<string>();
+  let boundedRestore:
+    { sessionId: string; throughSeq: number; confirmedMessageIds: Set<string> } | undefined;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
-  function fetchAndRestoreMessages(sessionId: string) {
-    if (recoveryInFlight) return;
+  function fetchAndRestoreMessages(
+    sessionId: string,
+    throughSeq?: number,
+    replace = false,
+    onApplied?: () => void,
+  ) {
+    if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
-    const request = historyRequest;
+    const request = ++historyRequest;
+    const currentBoundedRestore =
+      replace && throughSeq !== undefined
+        ? { sessionId, throughSeq, confirmedMessageIds: new Set<string>() }
+        : undefined;
+    boundedRestore = currentBoundedRestore;
+    if (throughSeq !== undefined) {
+      historyAbort?.abort();
+      historyAbort = undefined;
+      store.setState({ historyLoading: true, historyError: null });
+    }
     const initialCurrent = store.getState().messages.current;
+    const initialMessages = new Map(
+      store.getState().messages.messages.map((m) => [m.messageId, m]),
+    );
     api
-      .getSessionMessages(sessionId)
+      .getSessionMessages(sessionId, undefined, throughSeq)
       .then((msgs) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           store.setState((s) => ({
-            messages: msgs.length > 0 ? mergeHistory(s.messages, msgs, initialCurrent) : s.messages, // preserve state — empty REST response doesn't mean state is invalid
+            messages: replace
+              ? {
+                  ...s.messages,
+                  messages: (() => {
+                    const live = s.messages.messages.filter(
+                      (m) =>
+                        initialMessages.get(m.messageId) !== m ||
+                        pendingOptimisticMessageIds.has(m.messageId) ||
+                        currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
+                    );
+                    const liveById = new Map(live.map((m) => [m.messageId, m]));
+                    const savedIds = new Set(msgs.map((m) => m.messageId));
+                    return [
+                      ...msgs
+                        .filter(
+                          (m) =>
+                            s.messages.current === initialCurrent ||
+                            m.messageId !== s.messages.current?.messageId,
+                        )
+                        .map((m) => liveById.get(m.messageId) ?? m),
+                      ...live.filter((m) => !savedIds.has(m.messageId)),
+                    ];
+                  })(),
+                  current: s.messages.current !== initialCurrent ? s.messages.current : null,
+                }
+              : msgs.length > 0
+                ? mergeHistory(s.messages, msgs, initialCurrent)
+                : s.messages,
           }));
+          onApplied?.();
         }
       })
       .catch((err) => {
         if (typeof console !== 'undefined') {
           console.warn('[mitzo] message recovery fetch failed', err);
         }
+        if (replace && request === historyRequest)
+          store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
       })
       .finally(() => {
-        recoveryInFlight = false;
+        if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
+        if (request === historyRequest) {
+          recoveryInFlight = false;
+          if (throughSeq !== undefined) store.setState({ historyLoading: false });
+        }
       });
   }
 
@@ -285,6 +340,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     async switchSession(id: string) {
       const request = ++historyRequest;
+      recoveryInFlight = false;
       historyAbort?.abort();
       const abort = new AbortController();
       historyAbort = abort;
@@ -301,6 +357,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = id;
       connection.clearPendingSends();
+      pendingOptimisticMessageIds.clear();
 
       set((s) => ({
         sessions: { ...s.sessions, active: id },
@@ -336,6 +393,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     newSession() {
       ++historyRequest;
+      recoveryInFlight = false;
       historyAbort?.abort();
       historyAbort = undefined;
       set({ historyLoading: false, historyError: null });
@@ -347,6 +405,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       parserState.currentSessionId = undefined;
       connection.clearPendingSends();
+      pendingOptimisticMessageIds.clear();
       connection.send({ type: 'switch_session', sessionId: null });
       set({
         sessions: { ...get().sessions, active: null },
@@ -366,6 +425,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      pendingOptimisticMessageIds.add(clientMsgId);
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -412,6 +472,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       const sent = connection.send(msg);
       if (!sent) {
+        pendingOptimisticMessageIds.delete(clientMsgId);
         awaitingSessionId = false;
         set({ modeChangeReady: true });
       }
@@ -444,6 +505,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return;
       }
 
+      pendingOptimisticMessageIds.add(clientMsgId);
       set((s) => ({
         messages: messagesReducer(s.messages, {
           type: 'USER_SEND',
@@ -736,9 +798,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    onReconnected() {
-      const activeId = parserState.currentSessionId;
-      if (activeId) fetchAndRestoreMessages(activeId);
+    onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean) {
+      if (parserState.currentSessionId === sessionId) {
+        fetchAndRestoreMessages(sessionId, cursor, !cursorValid, () =>
+          connection.acknowledgeReconnectSnapshot(sessionId, cursor),
+        );
+      }
     },
 
     onTokensHydrated(tokens: Record<string, unknown>) {
@@ -766,6 +831,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
+        pendingOptimisticMessageIds.delete(msg.clientMsgId);
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
@@ -829,14 +896,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // - Otherwise → drop (foreign session event)
     if (eventSessionId) {
       if (parserState.currentSessionId) {
-        if (eventSessionId !== parserState.currentSessionId) return;
+        if (eventSessionId !== parserState.currentSessionId) {
+          if (
+            msg.type === 'session_reconnect_snapshot' &&
+            typeof msg.cursor === 'number' &&
+            Number.isSafeInteger(msg.cursor) &&
+            msg.cursor >= 0
+          )
+            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return;
+        }
       } else {
         // Allow session_id (new session assignment) and permission_request
         // (can arrive before session_id on the first turn) through when no
         // active session. Drop everything else (session_end, etc.) to prevent
         // foreign session bleed.
         const isFirstTurnEvent = msg.type === 'session_id' || msg.type === 'permission_request';
-        if (!isFirstTurnEvent) return;
+        if (!isFirstTurnEvent) {
+          if (
+            msg.type === 'session_reconnect_snapshot' &&
+            typeof msg.cursor === 'number' &&
+            Number.isSafeInteger(msg.cursor) &&
+            msg.cursor >= 0
+          )
+            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return;
+        }
       }
     }
 
@@ -863,6 +948,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const action of result.messagesActions) {
+      if (action.type === 'USER_MESSAGE_RECEIVED')
+        pendingOptimisticMessageIds.delete(action.messageId);
+      if (
+        boundedRestore &&
+        eventSessionId === boundedRestore.sessionId &&
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        msg.seq > boundedRestore.throughSeq &&
+        action.type === 'USER_MESSAGE_RECEIVED'
+      ) {
+        boundedRestore.confirmedMessageIds.add(action.messageId);
+      }
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),
       }));

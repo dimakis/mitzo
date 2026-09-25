@@ -105,9 +105,14 @@ export class MitzoApiClient {
     return res.json();
   }
 
-  async getSessionMessages(sessionId: string, signal?: AbortSignal): Promise<FinishedMessage[]> {
+  async getSessionMessages(
+    sessionId: string,
+    signal?: AbortSignal,
+    throughSeq?: number,
+  ): Promise<FinishedMessage[]> {
+    const query = throughSeq === undefined ? '' : `?throughSeq=${throughSeq}`;
     const res = await this.assertOk(
-      await this.fetch(`/api/sessions/${sessionId}/messages`, {
+      await this.fetch(`/api/sessions/${sessionId}/messages${query}`, {
         credentials: 'include',
         signal,
       }),

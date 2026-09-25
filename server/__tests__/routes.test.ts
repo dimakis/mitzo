@@ -558,6 +558,20 @@ describe('session routes', () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 
+  it('GET /api/sessions/:id/messages — bounds restore by a valid cursor', async () => {
+    const { getMessages } = await import('../chat.js');
+    const bounded = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=42')
+      .set('Cookie', authCookie);
+    expect(bounded.status).toBe(200);
+    expect(getMessages).toHaveBeenCalledWith('s1', 42);
+
+    const invalid = await request(app)
+      .get('/api/sessions/s1/messages?throughSeq=9007199254740993')
+      .set('Cookie', authCookie);
+    expect(invalid.status).toBe(400);
+  });
+
   it('DELETE /api/sessions/:id — hides session', async () => {
     const res = await request(app).delete('/api/sessions/s1').set('Cookie', authCookie);
     expect(res.status).toBe(200);

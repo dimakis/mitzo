@@ -1435,6 +1435,18 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Read the immutable transcript prefix belonging to a reconnect boundary. */
+  getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
+    if (!Number.isSafeInteger(cursor) || cursor < 0) {
+      throw new Error('Reconnect cursor must be a non-negative safe integer');
+    }
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq <= ? ORDER BY seq`,
+    ).all(sessionId, cursor) as EventRow[];
+    return rows.map(rowToEvent);
+  }
+
   /** Return only the bounded text projection needed to rebuild conversation
    * continuity. Images, tool I/O, reasoning and arbitrary event payload fields
    * never leave SQLite. Results are chronological. */

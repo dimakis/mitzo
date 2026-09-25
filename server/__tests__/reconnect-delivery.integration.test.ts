@@ -137,7 +137,15 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
       return es as unknown as EventSource;
     },
   });
-  client.onMessage((event) => clientEvents.push(event));
+  client.onMessage((event) => {
+    clientEvents.push(event);
+    if (
+      event.type === 'session_reconnect_snapshot' &&
+      typeof event.sessionId === 'string' &&
+      typeof event.cursor === 'number'
+    )
+      client.acknowledgeReconnectSnapshot(event.sessionId, event.cursor);
+  });
   try {
     client.connect();
     client.send({
