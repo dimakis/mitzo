@@ -397,7 +397,10 @@ export function createChatRestRouter(
           !ctx.connRegistry.get(connectionId)?.watchedSessions.has(msg.sessionId)
         )
           throw new Error('Connection no longer watches this conversation');
-        return found.session.queryInstance!.setWebSearchGrant!(msg.expectedRevision, msg.grant);
+        const query = found.session.queryInstance;
+        if (!query?.setWebSearchGrant)
+          throw new Error('Codex conversation unavailable during web-search consent update');
+        return query.setWebSearchGrant(msg.expectedRevision, msg.grant);
       });
       res.json({ ok: true, ...updated });
     } catch (error) {

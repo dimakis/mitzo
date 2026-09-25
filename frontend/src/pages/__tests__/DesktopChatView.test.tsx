@@ -222,8 +222,9 @@ function renderWithRouter(sessionId?: string) {
 describe('DesktopChatView', () => {
   it('updates web-search consent when the connection ID changes without a status change', () => {
     const store = createMockStore();
-    let connectionId = 'connection-one';
-    store.setState({ getConnectionId: () => connectionId });
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-one' },
+    });
     render(
       <MemoryRouter>
         <MitzoStoreProvider value={store}>
@@ -233,10 +234,14 @@ describe('DesktopChatView', () => {
     );
     expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
 
-    connectionId = 'connection-two';
-    act(() => store.setState({ todos: { ...store.getState().todos } }));
+    act(() =>
+      store.setState({
+        connection: { ...store.getState().connection, clientId: 'connection-two' },
+      }),
+    );
     expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
   });
+
   it('renders three-panel layout', () => {
     renderWithRouter();
     expect(screen.getByTestId('session-panel')).toBeTruthy();

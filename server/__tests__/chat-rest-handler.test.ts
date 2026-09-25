@@ -635,6 +635,32 @@ describe('chat-rest-handler', () => {
     }
   });
 
+  it('rejects a queued grant if its provider runtime disappears before execution', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    vi.mocked(serializeSessionPermissionChange).mockImplementationOnce(async (session, action) => {
+      (session as { queryInstance?: unknown }).queryInstance = undefined;
+      return action();
+    });
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
   // ─── POST /api/chat/mode ───────────────────────────────────────────────
 
   it('POST /mode calls handleSetModeV2', async () => {

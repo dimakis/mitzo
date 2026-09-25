@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { WebSearchConsent } from '../WebSearchConsent';
 import { apiFetch } from '../../lib/api-fetch';
 
@@ -148,18 +148,26 @@ it('shows the current consent during a running turn while keeping edits disabled
 });
 
 it('does not show the control for a session without a Codex grant', async () => {
+  vi.useFakeTimers();
   vi.mocked(apiFetch).mockResolvedValue({ status: 404 } as Response);
-  render(
-    <WebSearchConsent
-      sessionId="other-provider"
-      mode="agent"
-      connected
-      connectionId="owner-1"
-      running={false}
-    />,
-  );
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
-  expect(screen.queryByText(/Web search permission:/)).toBeNull();
+  try {
+    render(
+      <WebSearchConsent
+        sessionId="other-provider"
+        mode="agent"
+        connected
+        connectionId="owner-1"
+        running={false}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(3);
+    expect(screen.queryByText(/Web search permission:/)).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('finds a Codex grant when ownership attaches after a session switch', async () => {

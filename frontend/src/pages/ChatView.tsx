@@ -57,7 +57,7 @@ export function ChatView() {
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
-  const connectionId = useMitzoStore((s) => s.getConnectionId());
+  const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const pendingSession = useMitzoStore((s) => s.pendingSession);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);

@@ -58,10 +58,8 @@ afterEach(() => {
 
 it('updates web-search consent when the connection ID changes without a status change', () => {
   const store = createTestStore();
-  let connectionId = 'connection-one';
   store.setState({
-    getConnectionId: () => connectionId,
-    connection: { ...store.getState().connection, status: 'connected' },
+    connection: { ...store.getState().connection, status: 'connected', clientId: 'connection-one' },
   });
   render(
     <MitzoStoreProvider value={store}>
@@ -72,8 +70,11 @@ it('updates web-search consent when the connection ID changes without a status c
   );
   expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
 
-  connectionId = 'connection-two';
-  act(() => store.setState({ todos: { ...store.getState().todos } }));
+  act(() =>
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-two' },
+    }),
+  );
   expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
 });
 
