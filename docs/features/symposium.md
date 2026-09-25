@@ -236,3 +236,24 @@ A later successful attempt with the same idempotency identity settles its earlie
 historical failures during migration. Seat restoration includes membership
 generation in the provider-thread binding, so it cannot reuse a pre-suspension
 thread even when account and profile choices are unchanged.
+
+## Directed context and provider receipts
+
+Each dispatched recipient attempt retains the exact approved input and an ordered
+durable transcript anchor. A separate provider acceptance receipt pins that
+attempt's claim, native thread, and native turn. Execution completion is not a
+substitute for acceptance: an accepted input remains received even if the turn
+later fails or membership is revoked. A dispatched input without a receipt remains
+uncertain. Queued inputs are exposed separately and are never presented as received.
+
+Audience projections include each seat's own completed messages and only the
+inputs dispatched to it, with received/uncertain labels. All aggregates these
+records for the user; it grants no automatic delivery to other seats. A selected
+excerpt must match completed durable source text, retaining source provenance and
+any later delivery edits. Source identity includes seat and membership generation,
+so colliding provider message IDs cannot select another seat's text. Ambiguous
+historical references are refused.
+
+These bounded persistence projections provide message anchors for rich transcript
+rendering. Runtime receipt/event wiring and the full interactive composer remain
+separate integration work; these tests do not invoke providers.
