@@ -12,8 +12,7 @@ const Consent = z.object({
 });
 type ConsentState = z.infer<typeof Consent>;
 
-// Allow 2 seconds for a newly switched Codex runtime to attach. Stop after
-// that so sessions from other providers do not keep polling this endpoint.
+// Allow 2 seconds for a newly switched Codex runtime to attach before offering a retry.
 const CONSENT_ATTACH_RETRY_DELAYS_MS = [0, 500, 1500] as const;
 
 export function WebSearchConsent({
@@ -64,7 +63,18 @@ export function WebSearchConsent({
           }
           return;
         }
-        if (!cancelled) setConsent(null); // Other providers have no native search grant.
+        // A 404 can mean either another provider or a Codex runtime still starting.
+        const metaResponse = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`, {
+          signal: controller.signal,
+        });
+        if (!metaResponse.ok) throw new Error('Could not load session metadata.');
+        const isCodex = z
+          .object({ codexQueue: z.object({}).passthrough() })
+          .safeParse(await metaResponse.json()).success;
+        if (!cancelled) {
+          setConsent(null);
+          if (isCodex) setError('Web search setting is still starting.');
+        }
       } catch {
         if (!cancelled) setError('Could not load web access setting.');
       }

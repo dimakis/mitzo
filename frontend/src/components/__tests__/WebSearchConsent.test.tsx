@@ -149,7 +149,14 @@ it('shows the current consent during a running turn while keeping edits disabled
 
 it('does not show the control for a session without a Codex grant', async () => {
   vi.useFakeTimers();
-  vi.mocked(apiFetch).mockResolvedValue({ status: 404 } as Response);
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ accountBinding: { provider: 'anthropic-vertex' } }),
+    } as Response);
   try {
     render(
       <WebSearchConsent
@@ -163,8 +170,49 @@ it('does not show the control for a session without a Codex grant', async () => 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(apiFetch).toHaveBeenCalledTimes(3);
+    expect(apiFetch).toHaveBeenCalledTimes(4);
     expect(screen.queryByText(/Web search permission:/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Refresh setting' })).toBeNull();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('offers retry when Codex startup exceeds the attach window', async () => {
+  vi.useFakeTimers();
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({ status: 404 } as Response)
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ codexQueue: { connected: false } }),
+    } as Response)
+    .mockResolvedValueOnce(response('denied', 1));
+  try {
+    render(
+      <WebSearchConsent
+        sessionId="slow-codex"
+        mode="agent"
+        connected
+        connectionId="owner-1"
+        running={false}
+      />,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole('button', { name: 'Refresh setting' })).toBeTruthy();
+    expect(apiFetch).toHaveBeenNthCalledWith(4, '/api/sessions/slow-codex/meta', {
+      signal: expect.any(AbortSignal),
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh setting' }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('button', { name: 'Web search permission: Denied' })).toBeTruthy();
+    expect(apiFetch).toHaveBeenCalledTimes(5);
   } finally {
     vi.useRealTimers();
   }
