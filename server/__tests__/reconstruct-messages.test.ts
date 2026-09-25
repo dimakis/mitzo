@@ -204,6 +204,51 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
       },
     ]);
     expect(restored.current).toBeNull();
+    expect(replayEventsToMessages(events)).toMatchObject([
+      {
+        messageId: 'a1',
+        symposiumProvenance: { seatId: 'architect' },
+        blocks: [{ content: 'design' }],
+      },
+      {
+        messageId: 'a2',
+        symposiumProvenance: { seatId: 'reviewer' },
+        blocks: [{ content: 'review' }],
+      },
+    ]);
+  });
+
+  it('keeps durable seat provenance in the historical messages projection', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>): StoredEvent => ({
+      ...evt(seq, type, payload),
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', { messageId: 'a1' }),
+      seat(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'block_delta', { messageId: 'a1', blockId: 'b0', delta: 'design' }),
+      seat(4, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(5, 'message_end', { messageId: 'a1' }),
+    ];
+    expect(replayEventsToMessages(events)).toMatchObject([
+      {
+        messageId: 'a1',
+        symposiumProvenance: provenance,
+        blocks: [{ content: 'design' }],
+      },
+    ]);
   });
 
   it('keeps nested subagents under the correct seat when both use parent b0', () => {

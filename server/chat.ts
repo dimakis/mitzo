@@ -3506,6 +3506,27 @@ export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): RestoredMessage[] {
+  // Historical REST reads must use the same immutable seat partitioning as
+  // bounded reconnect. The legacy single-stream builder below cannot keep
+  // simultaneous turns or reused block IDs separate, and would omit their
+  // provenance from the response.
+  if (
+    events.some(
+      (event) =>
+        event.seatId !== undefined ||
+        event.symposiumProvenance !== undefined ||
+        'seatId' in event.payload ||
+        'symposiumProvenance' in event.payload,
+    )
+  ) {
+    const restored = replayEventsToTranscript(events, initialPrompt);
+    const partials = [restored.current, ...restored.currents]
+      .filter((current): current is RestoredCurrentMessage => current !== null)
+      .map((current): RestoredMessage => ({ ...current, role: 'assistant' }));
+    return [...restored.messages, ...partials].sort(
+      (a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1),
+    );
+  }
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
