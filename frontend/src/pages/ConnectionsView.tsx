@@ -973,6 +973,7 @@ function ConnectionCard({
   const [removalOpen, setRemovalOpen] = useState(false);
   const [removalError, setRemovalError] = useState('');
   const credentialFields =
+    connection.credentialFields ??
     template?.credentialFields ??
     (connection.templateId === 'jira-readonly' && connection.templateVersion === 1
       ? jiraFallbackCredentials

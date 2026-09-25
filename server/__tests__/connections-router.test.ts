@@ -294,9 +294,12 @@ describe('connections router', () => {
       .send({ csrf, revision: connection.revision });
     expect(pendingRemoval.status).toBe(422);
     expect(pendingRemoval.body).toEqual({ error: 'Removal is pending; retry later.' });
-    expect(
-      (await request(app).get('/api/connections').set('x-browser', 'yes')).body.connections,
-    ).toHaveLength(1);
+    const listed = await request(app).get('/api/connections').set('x-browser', 'yes');
+    expect(listed.body.connections).toHaveLength(1);
+    expect(listed.body.connections[0].credentialFields).toEqual([
+      expect.objectContaining({ key: 'token', secret: true, required: true }),
+    ]);
+    expect(JSON.stringify(listed.body)).not.toContain('SENTINEL_DO_NOT_LEAK');
     const templates = await request(app).get('/api/connections/templates').set('x-browser', 'yes');
     expect(templates.status).toBe(200);
     expect(templates.body.templates).toEqual(
