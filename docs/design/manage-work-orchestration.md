@@ -38,7 +38,8 @@ time. A profile is not an account, and a context grant is not filesystem isolati
 the operation key, input hash, ownership generation and any seat membership generation
 in its authoritative store before allocating a runtime. Same key and input may
 reconcile the original operation; changed input conflicts. Stale ownership or seat
-generation denies dispatch. The outbox/recovery implementation belongs to O2's
+generation denies dispatch. Membership presence must match: a seat operation cannot
+claim an ordinary worker context or omit an active seat. The outbox/recovery implementation belongs to O2's
 SessionService and existing execution stores, not this protocol module.
 
 An attempt uses the existing `ProviderAttemptToken` identity. Runtime recovery
@@ -49,7 +50,9 @@ the provider's retry delay, remaining attempt budget and, for ambiguity, separat
 confirmation. The runtime records a sanitized
 `ProviderFailure` with the existing failure envelope. Cancellation and revocation
 persist a fence before signaling a process. A late provider result remains evidence
-but cannot complete work under a newer membership or input revision. Work-result
+but cannot complete work under a newer ownership, membership or input revision/hash.
+Recovery-required retries always need ambiguity confirmation, even if a later
+failure classification reports `ambiguous: false`. Work-result
 completion and criterion-level outcome verification are distinct records.
 
 ## Handover

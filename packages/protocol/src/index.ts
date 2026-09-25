@@ -146,6 +146,7 @@ export {
   CancellationRecordSchema,
   RecoveryRecordSchema,
   DispatchOperationSchema,
+  ExecutionFenceSchema,
   HandoverManifestSchema,
   admitDispatch,
   transitionAttempt,
@@ -158,6 +159,7 @@ export type {
   OrchestrationAttempt,
   DispatchOperation,
   DispatchDecision,
+  ExecutionFence,
   RetryDecision,
   HandoverManifest,
 } from './orchestration.js';

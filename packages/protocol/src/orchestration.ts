@@ -78,6 +78,7 @@ export const OrchestrationAttemptSchema = z.strictObject({
   workOrderId: Id,
   providerAttempt: ProviderAttemptTokenSchema,
   membership: MembershipReferenceSchema.optional(),
+  ownershipGeneration: z.number().int().nonnegative(),
   state: AttemptStateSchema,
   inputRevision: Id,
   inputHash: Sha256,
@@ -176,6 +177,7 @@ export function admitDispatch(
   DispatchOperationSchema.parse(proposed);
   if (
     proposed.ownershipGeneration !== current.ownershipGeneration ||
+    Boolean(proposed.membership) !== Boolean(current.membership) ||
     (proposed.membership &&
       (proposed.membership.seatId !== current.membership?.seatId ||
         proposed.membership.membershipGeneration !== current.membership.membershipGeneration ||
@@ -206,20 +208,44 @@ const ALLOWED: Record<AttemptState, readonly AttemptState[]> = {
   cancelled: [],
 };
 
+export const ExecutionFenceSchema = z.strictObject({
+  ownershipGeneration: z.number().int().nonnegative(),
+  inputRevision: Id,
+  inputHash: Sha256,
+  membership: MembershipReferenceSchema.optional(),
+});
+export type ExecutionFence = z.infer<typeof ExecutionFenceSchema>;
+
+function executionFenceError(
+  attempt: OrchestrationAttempt,
+  current: ExecutionFence,
+): string | null {
+  ExecutionFenceSchema.parse(current);
+  if (attempt.ownershipGeneration !== current.ownershipGeneration) {
+    return 'Ownership generation changed; execution is fenced';
+  }
+  if (attempt.inputRevision !== current.inputRevision || attempt.inputHash !== current.inputHash) {
+    return 'Input revision or hash changed; execution is fenced';
+  }
+  if (
+    attempt.membership?.seatId !== current.membership?.seatId ||
+    attempt.membership?.membershipGeneration !== current.membership?.membershipGeneration
+  ) {
+    return 'Membership generation changed; execution is fenced';
+  }
+  return null;
+}
+
 export function transitionAttempt(
   attempt: OrchestrationAttempt,
   next: AttemptState,
   timestamp: number,
-  currentMembershipGeneration?: number,
+  current: ExecutionFence,
 ): OrchestrationAttempt {
   OrchestrationAttemptSchema.parse(attempt);
   if (!Number.isSafeInteger(timestamp) || timestamp < 0) throw new Error('Invalid attempt time');
-  if (
-    attempt.membership &&
-    attempt.membership.membershipGeneration !== currentMembershipGeneration
-  ) {
-    throw new Error('Membership generation changed; execution is fenced');
-  }
+  const fenceError = executionFenceError(attempt, current);
+  if (fenceError) throw new Error(fenceError);
   if (timestamp < attempt.updatedAt) throw new Error('Attempt time cannot move backward');
   if (!ALLOWED[attempt.state].includes(next)) {
     throw new Error(`Invalid attempt transition ${attempt.state} → ${next}`);
@@ -232,15 +258,12 @@ export function reconcileProviderOutcome(
   attempt: OrchestrationAttempt,
   outcome: 'completed' | 'failed' | 'ambiguous',
   timestamp: number,
-  currentMembershipGeneration?: number,
+  current: ExecutionFence,
 ): OrchestrationAttempt {
   if (outcome === 'ambiguous' && attempt.state === 'recovery_required') {
-    if (
-      attempt.membership &&
-      attempt.membership.membershipGeneration !== currentMembershipGeneration
-    ) {
-      throw new Error('Membership generation changed; recovery is fenced');
-    }
+    OrchestrationAttemptSchema.parse(attempt);
+    const fenceError = executionFenceError(attempt, current);
+    if (fenceError) throw new Error(fenceError);
     if (!Number.isSafeInteger(timestamp) || timestamp < attempt.updatedAt) {
       throw new Error('Invalid recovery time');
     }
@@ -254,7 +277,7 @@ export function reconcileProviderOutcome(
         ? 'completed'
         : 'failed',
     timestamp,
-    currentMembershipGeneration,
+    current,
   );
 }
 
@@ -276,7 +299,7 @@ export function authorizeRetry(input: {
   retryRequested: boolean;
   confirmAmbiguous: boolean;
   budget: { attemptsUsed: number; maxAttempts: number };
-  currentMembershipGeneration?: number;
+  current: ExecutionFence;
 }): RetryDecision {
   const {
     attempt,
@@ -286,7 +309,7 @@ export function authorizeRetry(input: {
     retryRequested,
     confirmAmbiguous,
     budget,
-    currentMembershipGeneration,
+    current,
   } = input;
   OrchestrationAttemptSchema.parse(attempt);
   if (!Number.isSafeInteger(now) || now < attempt.updatedAt) throw new Error('Invalid retry time');
@@ -310,12 +333,7 @@ export function authorizeRetry(input: {
     budget.maxAttempts < 1
   )
     throw new Error('Invalid retry budget');
-  if (
-    attempt.membership &&
-    attempt.membership.membershipGeneration !== currentMembershipGeneration
-  ) {
-    return { kind: 'stale_fence' };
-  }
+  if (executionFenceError(attempt, current)) return { kind: 'stale_fence' };
   if (
     (attempt.state !== 'failed' && attempt.state !== 'recovery_required') ||
     !failure.retryable ||
@@ -327,7 +345,9 @@ export function authorizeRetry(input: {
   if (!retryRequested) return { kind: 'authorization_required' };
   const retryAt = failureObservedAt + (failure.retryAfterMs ?? 0);
   if (now < retryAt) return { kind: 'too_early', retryAt };
-  if (failure.ambiguous && !confirmAmbiguous) return { kind: 'confirmation_required' };
+  if ((failure.ambiguous || attempt.state === 'recovery_required') && !confirmAmbiguous) {
+    return { kind: 'confirmation_required' };
+  }
   return { kind: 'authorized' };
 }
 

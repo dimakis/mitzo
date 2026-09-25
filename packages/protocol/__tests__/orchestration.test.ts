@@ -54,11 +54,18 @@ const attempt = {
     attempt: 1,
   },
   membership: seat,
+  ownershipGeneration: 4,
   state: 'queued' as const,
   inputRevision: workOrder.inputRevision,
   inputHash: workOrder.inputHash,
   createdAt: 1,
   updatedAt: 1,
+};
+const fence = {
+  ownershipGeneration: 4,
+  inputRevision: workOrder.inputRevision,
+  inputHash: workOrder.inputHash,
+  membership: seat,
 };
 
 describe('O0 identities and work orders', () => {
@@ -133,29 +140,57 @@ describe('O0 dispatch and attempt transitions', () => {
         membership: { ...current.membership, reconciliation: 'pending' as const },
       }),
     ).toEqual({ kind: 'stale_fence' });
+    expect(admitDispatch(undefined, { ...operation, membership: undefined }, current)).toEqual({
+      kind: 'stale_fence',
+    });
   });
 
   it('fences stale membership and never reopens a terminal attempt', () => {
-    expect(transitionAttempt(attempt, 'claimed', 2, 3).state).toBe('claimed');
-    expect(() => transitionAttempt(attempt, 'claimed', 2, 4)).toThrow(/generation/i);
+    expect(transitionAttempt(attempt, 'claimed', 2, fence).state).toBe('claimed');
+    expect(() =>
+      transitionAttempt(attempt, 'claimed', 2, {
+        ...fence,
+        membership: { ...seat, membershipGeneration: 4 },
+      }),
+    ).toThrow(/generation/i);
+    expect(() =>
+      transitionAttempt(attempt, 'claimed', 2, { ...fence, ownershipGeneration: 5 }),
+    ).toThrow(/ownership/i);
+    expect(() =>
+      transitionAttempt(attempt, 'claimed', 2, { ...fence, inputRevision: 'new-revision' }),
+    ).toThrow(/input/i);
+    expect(() =>
+      transitionAttempt(attempt, 'claimed', 2, { ...fence, inputHash: 'f'.repeat(64) }),
+    ).toThrow(/input/i);
     const completed = transitionAttempt(
-      transitionAttempt(attempt, 'claimed', 2, 3),
+      transitionAttempt(attempt, 'claimed', 2, fence),
       'completed',
       3,
-      3,
+      fence,
     );
-    expect(() => transitionAttempt(completed, 'running', 4, 3)).toThrow();
-    expect(() => transitionAttempt(attempt, 'claimed', Number.NaN, 3)).toThrow(/time/i);
+    expect(() => transitionAttempt(completed, 'running', 4, fence)).toThrow();
+    expect(() => transitionAttempt(attempt, 'claimed', Number.NaN, fence)).toThrow(/time/i);
   });
 
   it('reconciles an ambiguous provider outcome on the same attempt; retry needs explicit authorization', () => {
-    const running = transitionAttempt(transitionAttempt(attempt, 'claimed', 2, 3), 'running', 3, 3);
-    const uncertain = reconcileProviderOutcome(running, 'ambiguous', 4, 3);
+    const running = transitionAttempt(
+      transitionAttempt(attempt, 'claimed', 2, fence),
+      'running',
+      3,
+      fence,
+    );
+    const uncertain = reconcileProviderOutcome(running, 'ambiguous', 4, fence);
     expect(uncertain.state).toBe('recovery_required');
     expect(uncertain.providerAttempt.providerAttemptId).toBe(
       attempt.providerAttempt.providerAttemptId,
     );
-    expect(reconcileProviderOutcome(uncertain, 'ambiguous', 5, 3)).toEqual(uncertain);
+    expect(reconcileProviderOutcome(uncertain, 'ambiguous', 5, fence)).toEqual(uncertain);
+    expect(() =>
+      reconcileProviderOutcome(uncertain, 'completed', 5, {
+        ...fence,
+        inputRevision: 'new-revision',
+      }),
+    ).toThrow(/input/i);
     const failure = {
       category: 'transport' as const,
       retryable: true,
@@ -173,7 +208,7 @@ describe('O0 dispatch and attempt transitions', () => {
       retryRequested: true,
       confirmAmbiguous: false,
       budget: { attemptsUsed: 1, maxAttempts: 2 },
-      currentMembershipGeneration: 3,
+      current: fence,
     };
     expect(authorizeRetry(retryInput)).toEqual({ kind: 'too_early', retryAt: 2004 });
     expect(authorizeRetry({ ...retryInput, now: 2004 })).toEqual({ kind: 'confirmation_required' });
@@ -202,6 +237,9 @@ describe('O0 dispatch and attempt transitions', () => {
         failure: { ...failure, ambiguous: false },
       }),
     ).toEqual({ kind: 'authorization_required' });
+    expect(
+      authorizeRetry({ ...retryInput, now: 2004, failure: { ...failure, ambiguous: false } }),
+    ).toEqual({ kind: 'confirmation_required' });
     expect(() =>
       authorizeRetry({ ...retryInput, failure: { ...failure, retryAfterMs: Number.NaN } }),
     ).toThrow(/retry-after/i);
