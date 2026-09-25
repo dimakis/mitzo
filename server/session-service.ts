@@ -20,7 +20,10 @@ export interface ChildCreateRequest {
   taskNodeId?: string;
   planRevision?: string;
   grantId: string;
+  grantRevision: number;
   accountBinding: AccountBinding;
+  reasoningEffort: string | null;
+  scope: { files: string[]; capabilities: string[] };
   isolation: 'independent' | 'symposium_shared';
 }
 
@@ -28,7 +31,16 @@ export interface ChildCreateRequest {
  * current grant. Never construct this from model-supplied tool arguments. */
 export interface ChildAuthority {
   parentConversationId: string;
-  allowedGrantIds: readonly string[];
+  parentActive: boolean;
+  grantId: string;
+  grantRevision: number;
+  accountBinding: AccountBinding;
+  reasoningEffort: string | null;
+  taskRootId: string;
+  taskNodeId?: string;
+  planRevision?: string;
+  allowedFiles: readonly string[];
+  allowedCapabilities: readonly string[];
   maxChildren: number;
   maxConcurrent: number;
   maxDepth: number;
@@ -40,6 +52,8 @@ export interface ChildLink extends ChildCreateRequest {
   conversationId: string;
   depth: number;
   status: ChildStatus;
+  generation: number;
+  cancellationRequested: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -58,8 +72,11 @@ interface ChildRow {
   idempotency_key: string;
   request_hash: string;
   request_json: string;
+  authority_json: string;
   depth: number;
   status: ChildStatus;
+  generation: number;
+  cancel_requested_at: number | null;
   created_at: number;
   updated_at: number;
   dispatch_owner: string | null;
@@ -89,10 +106,36 @@ function validateRequest(request: ChildCreateRequest): void {
   }))
     requireId(value, name);
   if (!/^[0-9a-f]{64}$/i.test(request.inputHash)) throw new Error('Invalid input hash');
+  if (request.inputHash !== childInputHash(request)) throw new Error('Child input hash mismatch');
   if (request.taskNodeId && !request.taskRootId) throw new Error('Task node needs a task root');
+  if (!Number.isSafeInteger(request.grantRevision) || request.grantRevision < 1)
+    throw new Error('Invalid grant revision');
+  if (
+    !request.scope ||
+    !Array.isArray(request.scope.files) ||
+    !Array.isArray(request.scope.capabilities)
+  )
+    throw new Error('Invalid child scope');
   AccountBindingSchema.parse(request.accountBinding);
   if (!['independent', 'symposium_shared'].includes(request.isolation))
     throw new Error('Invalid isolation');
+}
+
+export function childInputHash(request: Omit<ChildCreateRequest, 'inputHash'>): string {
+  const input = {
+    parentConversationId: request.parentConversationId,
+    prompt: request.prompt,
+    taskRootId: request.taskRootId ?? null,
+    taskNodeId: request.taskNodeId ?? null,
+    planRevision: request.planRevision ?? null,
+    grantId: request.grantId,
+    grantRevision: request.grantRevision,
+    accountBinding: AccountBindingSchema.parse(request.accountBinding),
+    reasoningEffort: request.reasoningEffort,
+    scope: request.scope,
+    isolation: request.isolation,
+  };
+  return createHash('sha256').update(JSON.stringify(input)).digest('hex');
 }
 
 function requestFingerprint(request: ChildCreateRequest): string {
@@ -106,7 +149,10 @@ function requestFingerprint(request: ChildCreateRequest): string {
     taskNodeId: request.taskNodeId ?? null,
     planRevision: request.planRevision ?? null,
     grantId: request.grantId,
+    grantRevision: request.grantRevision,
     accountBinding: AccountBindingSchema.parse(request.accountBinding),
+    reasoningEffort: request.reasoningEffort,
+    scope: request.scope,
     isolation: request.isolation,
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
@@ -118,6 +164,8 @@ function childFromRow(row: ChildRow): ChildLink {
     conversationId: row.conversation_id,
     depth: row.depth,
     status: row.status,
+    generation: row.generation,
+    cancellationRequested: row.cancel_requested_at !== null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -131,6 +179,7 @@ export class SessionService {
   constructor(
     dbPath: string,
     private runtime: ChildRuntime,
+    private resolveCurrentAuthority: (child: ChildLink) => Promise<ChildAuthority | null>,
   ) {
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
@@ -142,9 +191,12 @@ export class SessionService {
         idempotency_key TEXT NOT NULL,
         request_hash TEXT NOT NULL,
         request_json TEXT NOT NULL,
+        authority_json TEXT NOT NULL,
         depth INTEGER NOT NULL,
         status TEXT NOT NULL CHECK(status IN
           ('allocated','starting','running','recovery_required','cancel_requested','cancelled','completed')),
+        generation INTEGER NOT NULL DEFAULT 1,
+        cancel_requested_at INTEGER,
         dispatch_owner TEXT,
         dispatch_lease_until INTEGER,
         created_at INTEGER NOT NULL,
@@ -190,7 +242,27 @@ export class SessionService {
     requireId(authority.parentConversationId, 'trusted parent');
     if (request.parentConversationId !== authority.parentConversationId)
       throw new Error('Parent authority mismatch');
-    if (!authority.allowedGrantIds.includes(request.grantId)) throw new Error('Grant denied');
+    if (!authority.parentActive) throw new Error('Parent is not active');
+    if (request.grantId !== authority.grantId || request.grantRevision !== authority.grantRevision)
+      throw new Error('Grant denied');
+    if (
+      JSON.stringify(request.accountBinding) !== JSON.stringify(authority.accountBinding) ||
+      request.reasoningEffort !== authority.reasoningEffort
+    )
+      throw new Error('Account binding or reasoning effort exceeds parent authority');
+    if (
+      request.taskRootId !== authority.taskRootId ||
+      (authority.taskNodeId && request.taskNodeId !== authority.taskNodeId) ||
+      request.planRevision !== authority.planRevision
+    )
+      throw new Error('Task scope exceeds parent authority');
+    if (
+      request.scope.files.some((file) => !authority.allowedFiles.includes(file)) ||
+      request.scope.capabilities.some(
+        (capability) => !authority.allowedCapabilities.includes(capability),
+      )
+    )
+      throw new Error('Child scope exceeds parent authority');
     if (request.isolation === 'symposium_shared' && !authority.allowSymposiumSharing)
       throw new Error('Symposium sharing requires explicit host authorization');
     for (const value of [
@@ -226,7 +298,18 @@ export class SessionService {
         if (parentAllocation) {
           if (parentAllocation.status !== 'running') throw new Error('Parent is not active');
           const inherited = JSON.parse(parentAllocation.request_json) as ChildCreateRequest;
-          if (inherited.grantId !== request.grantId) throw new Error('Grant exceeds parent scope');
+          if (
+            inherited.grantId !== request.grantId ||
+            inherited.grantRevision !== request.grantRevision
+          )
+            throw new Error('Grant exceeds parent scope');
+          if (
+            request.scope.files.some((file) => !inherited.scope.files.includes(file)) ||
+            request.scope.capabilities.some(
+              (capability) => !inherited.scope.capabilities.includes(capability),
+            )
+          )
+            throw new Error('Child scope exceeds parent scope');
         }
         const depth = (parentAllocation?.depth ?? 0) + 1;
         if (depth > authority.maxDepth) throw new Error('Child depth budget exceeded');
@@ -252,14 +335,16 @@ export class SessionService {
         this.db
           .prepare(
             `INSERT INTO sessions
-        (session_id, mode, account_binding, selected_model, initial_prompt, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        (session_id, mode, account_binding, selected_model, reasoning_effort,
+         initial_prompt, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             conversationId,
             'agent',
             JSON.stringify(request.accountBinding),
             request.accountBinding.model,
+            request.reasoningEffort,
             request.prompt,
             now,
             now,
@@ -267,8 +352,9 @@ export class SessionService {
         this.db
           .prepare(
             `INSERT INTO child_allocations
-        (conversation_id,parent_conversation_id,idempotency_key,request_hash,request_json,depth,status,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?)`,
+        (conversation_id,parent_conversation_id,idempotency_key,request_hash,request_json,authority_json,
+         depth,status,generation,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
           )
           .run(
             conversationId,
@@ -276,8 +362,10 @@ export class SessionService {
             request.idempotencyKey,
             fingerprint,
             JSON.stringify(request),
+            JSON.stringify(authority),
             depth,
             'allocated',
+            1,
             now,
             now,
           );
@@ -286,10 +374,58 @@ export class SessionService {
       .immediate();
   }
 
-  private setStatus(id: string, status: ChildStatus): void {
-    this.db
-      .prepare('UPDATE child_allocations SET status = ?, updated_at = ? WHERE conversation_id = ?')
-      .run(status, Date.now(), id);
+  private casStatus(
+    id: string,
+    generation: number,
+    from: readonly ChildStatus[],
+    to: ChildStatus,
+    cancellation: 'none' | 'required' = 'none',
+  ): boolean {
+    const statuses = from.map(() => '?').join(',');
+    const condition =
+      cancellation === 'none' ? 'cancel_requested_at IS NULL' : 'cancel_requested_at IS NOT NULL';
+    return (
+      this.db
+        .prepare(
+          `UPDATE child_allocations SET status = ?, updated_at = ?
+      WHERE conversation_id = ? AND generation = ? AND status IN (${statuses}) AND ${condition}`,
+        )
+        .run(to, Date.now(), id, generation, ...from).changes === 1
+    );
+  }
+
+  private requestCancellation(conversationId: string, actorConversationId: string): ChildLink {
+    return this.db
+      .transaction(() => {
+        const child = this.getChild(conversationId);
+        if (!child) throw new Error('Unknown child');
+        if (actorConversationId !== child.parentConversationId)
+          throw new Error('Child cancellation authority denied');
+        if (
+          child.status === 'completed' ||
+          child.status === 'cancelled' ||
+          child.cancellationRequested
+        )
+          return child;
+        this.db
+          .prepare(
+            `UPDATE child_allocations SET
+        status = CASE WHEN status = 'allocated' THEN 'cancelled' ELSE 'cancel_requested' END,
+        cancel_requested_at = ?, generation = generation + 1, updated_at = ?
+        WHERE conversation_id = ? AND generation = ? AND cancel_requested_at IS NULL`,
+          )
+          .run(Date.now(), Date.now(), conversationId, child.generation);
+        return this.getChild(conversationId)!;
+      })
+      .immediate();
+  }
+
+  private async authorityStillCurrent(child: ChildLink): Promise<boolean> {
+    const snapshot = this.db
+      .prepare('SELECT authority_json FROM child_allocations WHERE conversation_id = ?')
+      .get(child.conversationId) as { authority_json: string };
+    const current = await this.resolveCurrentAuthority(child);
+    return Boolean(current?.parentActive && JSON.stringify(current) === snapshot.authority_json);
   }
 
   /** Inspect before dispatching the pending start. An uncertain observation is
@@ -297,9 +433,15 @@ export class SessionService {
   async reconcile(conversationId: string): Promise<ChildLink> {
     let child = this.getChild(conversationId);
     if (!child) throw new Error('Unknown child');
-    if (child.status === 'cancel_requested') {
+    if (child.cancellationRequested && child.status !== 'cancelled') {
       const stopped = await this.runtime.stop(conversationId);
-      this.setStatus(conversationId, stopped === 'confirmed' ? 'cancelled' : 'recovery_required');
+      this.casStatus(
+        conversationId,
+        child.generation,
+        ['cancel_requested', 'recovery_required', 'starting', 'running'],
+        stopped === 'confirmed' ? 'cancelled' : 'recovery_required',
+        'required',
+      );
       return this.getChild(conversationId)!;
     }
     if (
@@ -308,71 +450,129 @@ export class SessionService {
       child.status === 'recovery_required'
     )
       return child;
+    if (!(await this.authorityStillCurrent(child))) {
+      child = this.requestCancellation(conversationId, child.parentConversationId);
+      return child.status === 'cancelled' ? child : this.reconcile(conversationId);
+    }
     const observed = await this.runtime.inspect(conversationId);
-    child = this.getChild(conversationId)!;
-    if (child.status === 'cancel_requested' || child.status === 'cancelled')
+    const latest = this.getChild(conversationId)!;
+    if (latest.cancellationRequested && latest.status !== 'cancelled')
       return this.reconcile(conversationId);
-    if (observed === 'unknown') this.setStatus(conversationId, 'recovery_required');
-    else if (observed === 'completed') this.setStatus(conversationId, 'completed');
-    else if (observed === 'running') this.setStatus(conversationId, 'running');
-    else if (child.status === 'running') this.setStatus(conversationId, 'recovery_required');
-    else {
+    if (
+      latest.generation !== child.generation ||
+      latest.status === 'cancelled' ||
+      latest.status === 'completed' ||
+      latest.status === 'recovery_required'
+    )
+      return latest;
+    if (!(await this.authorityStillCurrent(latest))) {
+      child = this.requestCancellation(conversationId, latest.parentConversationId);
+      return child.status === 'cancelled' ? child : this.reconcile(conversationId);
+    }
+    if (observed === 'unknown')
+      this.casStatus(
+        conversationId,
+        child.generation,
+        ['allocated', 'starting', 'running'],
+        'recovery_required',
+      );
+    else if (observed === 'completed')
+      this.casStatus(
+        conversationId,
+        child.generation,
+        ['allocated', 'starting', 'running'],
+        'completed',
+      );
+    else if (observed === 'running')
+      this.casStatus(
+        conversationId,
+        child.generation,
+        ['allocated', 'starting', 'running'],
+        'running',
+      );
+    else if (latest.status === 'running')
+      this.casStatus(conversationId, child.generation, ['running'], 'recovery_required');
+    else if (latest.status === 'starting') {
+      const lease = this.db
+        .prepare('SELECT dispatch_lease_until FROM child_allocations WHERE conversation_id = ?')
+        .get(conversationId) as { dispatch_lease_until: number | null };
+      if (lease.dispatch_lease_until !== null && lease.dispatch_lease_until < Date.now())
+        this.casStatus(conversationId, child.generation, ['starting'], 'recovery_required');
+    } else {
       const now = Date.now();
       const claimed = this.db
         .prepare(
           `UPDATE child_allocations
         SET status = 'starting', dispatch_owner = ?, dispatch_lease_until = ?, updated_at = ?
-        WHERE conversation_id = ? AND (status = 'allocated' OR
-          (status = 'starting' AND dispatch_lease_until < ?))`,
+        WHERE conversation_id = ? AND generation = ? AND status = 'allocated'
+          AND cancel_requested_at IS NULL`,
         )
-        .run(this.ownerId, now + 30_000, now, conversationId, now);
+        .run(this.ownerId, now + 30_000, now, conversationId, child.generation);
       if (claimed.changes !== 1) return this.getChild(conversationId)!;
       try {
         await this.runtime.start(this.getChild(conversationId)!);
       } catch {
-        this.setStatus(conversationId, 'recovery_required');
+        this.casStatus(conversationId, child.generation, ['starting'], 'recovery_required');
         return this.getChild(conversationId)!;
       }
       const after = this.getChild(conversationId)!;
-      if (after.status === 'cancel_requested' || after.status === 'cancelled') {
+      if (after.cancellationRequested) {
         // A stop may have raced ahead of a late runtime attachment. Repeat
         // cleanup after start resolves; an unknown stop remains fenced.
         const stopped = await this.runtime.stop(conversationId);
-        this.setStatus(conversationId, stopped === 'confirmed' ? 'cancelled' : 'recovery_required');
+        this.casStatus(
+          conversationId,
+          after.generation,
+          ['cancel_requested', 'recovery_required', 'cancelled'],
+          stopped === 'confirmed' ? 'cancelled' : 'recovery_required',
+          'required',
+        );
         return this.getChild(conversationId)!;
+      }
+      if (!(await this.authorityStillCurrent(after))) {
+        this.requestCancellation(conversationId, after.parentConversationId);
+        return this.reconcile(conversationId);
       }
       this.db
         .prepare(
           `UPDATE child_allocations SET status = 'running', updated_at = ?
-        WHERE conversation_id = ? AND status = 'starting' AND dispatch_owner = ?`,
+        WHERE conversation_id = ? AND generation = ? AND status = 'starting'
+          AND dispatch_owner = ? AND cancel_requested_at IS NULL`,
         )
-        .run(Date.now(), conversationId, this.ownerId);
+        .run(Date.now(), conversationId, child.generation, this.ownerId);
     }
     return this.getChild(conversationId)!;
   }
 
   async cancelChild(conversationId: string, actorConversationId: string): Promise<ChildLink> {
-    const child = this.getChild(conversationId);
-    if (!child) throw new Error('Unknown child');
-    if (actorConversationId !== child.parentConversationId)
-      throw new Error('Child cancellation authority denied');
-    if (child.status === 'completed' || child.status === 'cancelled') return child;
-    this.setStatus(conversationId, child.status === 'allocated' ? 'cancelled' : 'cancel_requested');
-    if (child.status !== 'allocated') return this.reconcile(conversationId);
-    return this.getChild(conversationId)!;
+    const child = this.requestCancellation(conversationId, actorConversationId);
+    return child.status === 'cancelled' || child.status === 'completed'
+      ? child
+      : this.reconcile(conversationId);
   }
 
-  submitResult(conversationId: string, actorConversationId: string, payload: string): void {
-    const child = this.getChild(conversationId);
-    if (!child) throw new Error('Unknown child');
-    if (actorConversationId !== conversationId) throw new Error('Result authority denied');
-    if (child.status !== 'running') throw new Error('Child is cancelled or not running');
+  submitResult(
+    conversationId: string,
+    actorConversationId: string,
+    expectedGeneration: number,
+    payload: string,
+  ): void {
     this.db
       .transaction(() => {
+        const child = this.getChild(conversationId);
+        if (!child) throw new Error('Unknown child');
+        if (actorConversationId !== conversationId) throw new Error('Result authority denied');
+        if (
+          child.generation !== expectedGeneration ||
+          child.cancellationRequested ||
+          child.status !== 'running'
+        )
+          throw new Error('Child is cancelled or fenced');
         this.db
           .prepare('INSERT INTO child_mailbox(child_id,type,payload,created_at) VALUES (?,?,?,?)')
           .run(conversationId, 'result', payload, Date.now());
-        this.setStatus(conversationId, 'completed');
+        if (!this.casStatus(conversationId, expectedGeneration, ['running'], 'completed'))
+          throw new Error('Child result fence changed');
       })
       .immediate();
   }
