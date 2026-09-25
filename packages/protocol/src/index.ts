@@ -135,6 +135,36 @@ export type {
 } from './account-binding.js';
 
 export {
+  MembershipReferenceSchema,
+  OrchestrationIdentitySchema,
+  WorkOrderSchema,
+  AttemptStateSchema,
+  OrchestrationAttemptSchema,
+  WorkResultSchema,
+  OutcomeEvidenceSchema,
+  ApprovalDecisionSchema,
+  CancellationRecordSchema,
+  RecoveryRecordSchema,
+  DispatchOperationSchema,
+  ExecutionFenceSchema,
+  HandoverManifestSchema,
+  admitDispatch,
+  transitionAttempt,
+  reconcileProviderOutcome,
+  authorizeRetry,
+  validateHandover,
+} from './orchestration.js';
+export type {
+  AttemptState,
+  OrchestrationAttempt,
+  DispatchOperation,
+  DispatchDecision,
+  ExecutionFence,
+  RetryDecision,
+  HandoverManifest,
+} from './orchestration.js';
+
+export {
   MITZO_CLIENT_CAPABILITIES,
   buildClientCapabilitiesPrompt,
   findArtifactCapabilityByExtension,
