@@ -392,22 +392,27 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
     };
   }
 
+  let toolCurrent: StreamingMessage | undefined;
   if (action.type === 'TOOL_RESULT') {
-    const candidates = Object.values(active).filter(
-      (current) =>
-        current.symposiumProvenance &&
-        sameProvenance(current.symposiumProvenance, provenance) &&
-        [...current.blocks.values()].some((block) => block.toolId === action.toolId),
+    const liveMatches = Object.values(active).flatMap((candidate) =>
+      candidate.symposiumProvenance &&
+      sameProvenance(candidate.symposiumProvenance, provenance) &&
+      (!messageId || candidate.messageId === messageId)
+        ? [...candidate.blocks.values()]
+            .filter((block) => block.toolId === action.toolId)
+            .map(() => candidate)
+        : [],
     );
-    if (candidates.length > 1) return refuseAttributedEvent(state);
-    if (candidates.length === 0) {
-      const index = state.messages.findIndex(
-        (message) =>
-          message.symposiumProvenance &&
-          sameProvenance(message.symposiumProvenance, provenance) &&
-          message.blocks.some((block) => block.toolId === action.toolId),
-      );
-      if (index < 0) return refuseAttributedEvent(state);
+    const finishedMatches = state.messages.flatMap((candidate, index) =>
+      candidate.symposiumProvenance &&
+      sameProvenance(candidate.symposiumProvenance, provenance) &&
+      (!messageId || candidate.messageId === messageId)
+        ? candidate.blocks.filter((block) => block.toolId === action.toolId).map(() => index)
+        : [],
+    );
+    if (liveMatches.length + finishedMatches.length !== 1) return refuseAttributedEvent(state);
+    if (finishedMatches.length === 1) {
+      const index = finishedMatches[0];
       const existing = state.messages[index];
       const patched = patchToolResult(
         [existing],
@@ -421,18 +426,14 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
       messages[index] = patched;
       return { ...state, messages };
     }
+    toolCurrent = liveMatches[0];
   }
 
   let current: StreamingMessage | undefined;
   if (messageId) {
     current = active[messageId];
   } else if (action.type === 'TOOL_RESULT') {
-    current = Object.values(active).find(
-      (candidate) =>
-        candidate.symposiumProvenance &&
-        sameProvenance(candidate.symposiumProvenance, provenance) &&
-        [...candidate.blocks.values()].some((block) => block.toolId === action.toolId),
-    );
+    current = toolCurrent;
   } else if ('parentBlockId' in action) {
     const candidates = Object.values(active).filter(
       (candidate) =>
@@ -477,6 +478,17 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
           message.messageId === action.messageId &&
           message.symposiumProvenance &&
           sameProvenance(message.symposiumProvenance, provenance),
+      )
+    )
+      return state;
+    if (
+      action.type === 'SESSION_END' &&
+      !Object.values(active).some(
+        (candidate) => candidate.symposiumProvenance?.seatId === provenance.seatId,
+      ) &&
+      state.messages.some(
+        (message) =>
+          message.symposiumProvenance && sameProvenance(message.symposiumProvenance, provenance),
       )
     )
       return state;

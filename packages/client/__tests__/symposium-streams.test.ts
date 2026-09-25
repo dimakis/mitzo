@@ -141,6 +141,67 @@ describe('concurrent Symposium streams', () => {
     ]);
   });
 
+  it('scopes late tool results to the attributed turn and refuses reused ambiguous IDs', () => {
+    const reviewer = provenance('reviewer');
+    const messages = ['old', 'new'].map((messageId) => ({
+      messageId,
+      role: 'assistant' as const,
+      blocks: [{ blockId: 'b0', blockType: 'tool_use' as const, content: '', toolId: 'same-tool' }],
+      symposiumProvenance: reviewer,
+    }));
+    const state = { ...INITIAL_MESSAGES_STATE, messages };
+    const scoped = reduceWire(state, {
+      type: 'tool_result',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+      messageId: 'new',
+      toolId: 'same-tool',
+      result: 'new result',
+    });
+    expect(scoped.messages[0].blocks[0].toolResult).toBeUndefined();
+    expect(scoped.messages[1].blocks[0].toolResult).toBe('new result');
+    const ambiguous = reduceWire(state, {
+      type: 'tool_result',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+      toolId: 'same-tool',
+      result: 'unknown result',
+    });
+    expect(ambiguous.resyncRequired).toBe(true);
+    expect(ambiguous.messages).toEqual(messages);
+  });
+
+  it('accepts a seat terminal after its message already ended', () => {
+    const reviewer = provenance('reviewer');
+    let state = reduceWire(INITIAL_MESSAGES_STATE, {
+      type: 'message_start',
+      messageId: 'review',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+    });
+    state = reduceWire(state, {
+      type: 'block_start',
+      messageId: 'review',
+      blockId: 'b0',
+      blockType: 'text',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+    });
+    state = reduceWire(state, {
+      type: 'message_end',
+      messageId: 'review',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+    });
+    const ended = reduceWire(state, {
+      type: 'session_end',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+    });
+    expect(ended.resyncRequired).toBe(false);
+    expect(ended.messages.map((message) => message.messageId)).toEqual(['review']);
+  });
+
   it('refuses mismatched envelopes and stale membership generations without relabeling history', () => {
     const original = provenance('reviewer');
     const mismatch = parseServerMessage(
