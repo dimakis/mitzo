@@ -149,6 +149,7 @@ const singleChoiceCustomFields = new Set([
 
 export function ConnectionsView() {
   const [data, setData] = useState<ConnectionsCatalog | null>(null);
+  const [connectionRefreshEpoch, setConnectionRefreshEpoch] = useState(0);
   const [templates, setTemplates] = useState<ConnectionTemplateCatalog | null>(null);
   const [loadError, setLoadError] = useState('');
   const [templateError, setTemplateError] = useState('');
@@ -183,7 +184,10 @@ export function ConnectionsView() {
     setTemplateError('');
     const connectionsRefresh = getConnections().then(
       (value) => {
-        if (generation === refreshGeneration.current) setData(value);
+        if (generation === refreshGeneration.current) {
+          setData(value);
+          setConnectionRefreshEpoch((current) => current + 1);
+        }
       },
       (reason) => {
         if (generation === refreshGeneration.current)
@@ -457,6 +461,7 @@ export function ConnectionsView() {
               )}
               accounts={data.eligibleAccounts}
               capabilityCatalog={templates?.capabilities ?? []}
+              refreshEpoch={connectionRefreshEpoch}
               csrf={csrf}
               busy={busy}
               audit={audit[connection.id]}
@@ -943,6 +948,7 @@ function CapabilityGrants({
   connection,
   references,
   catalog,
+  refreshEpoch,
   csrf,
   busy,
   requireReauthorization,
@@ -951,6 +957,7 @@ function CapabilityGrants({
   connection: ManagedConnection;
   references: Array<{ id: string; version: number }>;
   catalog: ConnectionCapability[];
+  refreshEpoch: number;
   csrf: string;
   busy: string | null;
   requireReauthorization: () => boolean;
@@ -962,6 +969,7 @@ function CapabilityGrants({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const generation = useRef(0);
+  const dirtyKeys = useRef(new Set<string>());
   // A response refresh creates new arrays even when assignments did not change.
   // Keep an in-progress grant selection through reauthorization in that case.
   const assignmentKey = connection.desiredAccountIds.join('\u0000');
@@ -974,19 +982,25 @@ function CapabilityGrants({
       if (request !== generation.current) return;
       setGrants(next);
       const assigned = new Set(assignmentKey ? assignmentKey.split('\u0000') : []);
-      setSelected(
-        Object.fromEntries(
-          next
-            .filter(
-              (grant) =>
-                grant.connectionRevision === connection.revision && grant.status === 'active',
-            )
-            .map((grant) => [
-              templateKey({ id: grant.capabilityId, version: grant.capabilityVersion }),
-              grant.accountIds.filter((id) => assigned.has(id)),
-            ]),
-        ),
+      const persisted = Object.fromEntries(
+        next
+          .filter(
+            (grant) =>
+              grant.connectionRevision === connection.revision && grant.status === 'active',
+          )
+          .map((grant) => [
+            templateKey({ id: grant.capabilityId, version: grant.capabilityVersion }),
+            grant.accountIds.filter((id) => assigned.has(id)),
+          ]),
       );
+      setSelected((previous) => ({
+        ...persisted,
+        ...Object.fromEntries(
+          [...dirtyKeys.current]
+            .filter((key) => key in previous)
+            .map((key) => [key, previous[key]]),
+        ),
+      }));
     } catch (reason) {
       if (request === generation.current)
         setError(reason instanceof Error ? reason.message : 'Unable to load capability grants.');
@@ -995,11 +1009,14 @@ function CapabilityGrants({
     }
   }, [connection.id, connection.revision, assignmentKey]);
   useEffect(() => {
+    dirtyKeys.current.clear();
+  }, [connection.id, connection.revision, assignmentKey]);
+  useEffect(() => {
     if (open) void load();
     return () => {
       generation.current += 1;
     };
-  }, [open, load]);
+  }, [open, load, refreshEpoch]);
   if (!references.length) return null;
   return (
     <section
@@ -1052,6 +1069,7 @@ function CapabilityGrants({
                     ? 'Capability grant updated for new conversations.'
                     : 'Capability grant revoked.',
                 );
+                dirtyKeys.current.delete(key);
                 await load();
               };
               return (
@@ -1069,14 +1087,15 @@ function CapabilityGrants({
                           type="checkbox"
                           checked={values.includes(id)}
                           disabled={busy !== null || connection.status !== 'active'}
-                          onChange={() =>
+                          onChange={() => {
+                            dirtyKeys.current.add(key);
                             setSelected((previous) => ({
                               ...previous,
                               [key]: values.includes(id)
                                 ? values.filter((value) => value !== id)
                                 : [...values, id],
-                            }))
-                          }
+                            }));
+                          }}
                         />{' '}
                         {id}
                       </label>
@@ -1125,6 +1144,7 @@ function ConnectionCard({
   template,
   accounts,
   capabilityCatalog,
+  refreshEpoch,
   csrf,
   busy,
   audit,
@@ -1141,6 +1161,7 @@ function ConnectionCard({
   template?: ConnectionTemplate;
   accounts: string[];
   capabilityCatalog: ConnectionCapability[];
+  refreshEpoch: number;
   csrf: string;
   busy: string | null;
   audit?: ConnectionAuditEntry[];
@@ -1220,6 +1241,7 @@ function ConnectionCard({
           connection={connection}
           references={connection.capabilityTemplates ?? template?.capabilityTemplates ?? []}
           catalog={capabilityCatalog}
+          refreshEpoch={refreshEpoch}
           csrf={csrf}
           busy={busy}
           requireReauthorization={requireReauthorization}

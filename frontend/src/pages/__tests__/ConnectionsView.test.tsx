@@ -414,6 +414,42 @@ describe('ConnectionsView', () => {
     expect(container.textContent).toContain('github.publish-pr v1');
     expect(button('Revoke grant')).toBeTruthy();
   });
+  it('reloads grant status changed elsewhere on refresh without changing the connection revision', async () => {
+    const github = {
+      ...catalog.connections[0]!,
+      id: 'github-1',
+      templateId: 'github-readonly',
+      label: 'GitHub',
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
+    };
+    vi.mocked(connections.getConnections).mockImplementation(async () => ({
+      ...catalog,
+      connections: [{ ...github, desiredAccountIds: [...github.desiredAccountIds] }],
+    }));
+    let active = false;
+    vi.mocked(connections.getConnectionCapabilityGrants).mockImplementation(async () =>
+      active
+        ? [
+            {
+              id: 'grant-1',
+              connectionId: github.id,
+              connectionRevision: github.revision,
+              capabilityId: 'github.publish-pr',
+              capabilityVersion: 1,
+              accountIds: ['work'],
+              status: 'active',
+            },
+          ]
+        : [],
+    );
+    await render();
+    await act(async () => button('Manage capability grants').click());
+    expect(container.textContent).toContain('No active grant.');
+    active = true;
+    await reauthorize();
+    expect(container.textContent).toContain('Active for: work');
+    expect(button('Revoke grant')).toBeTruthy();
+  });
   it('shows reviewed catalog cards with category, authentication, and risk summaries', async () => {
     await render();
     expect(container.textContent).toContain('Read-only sandbox egress');
