@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { context, SpanStatusCode, type Span } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
@@ -13,6 +14,7 @@ import {
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
+import { tracer } from './tracing.js';
 import {
   resolveWebSearchPolicy,
   type PersistedWebSearchGrant,
@@ -161,6 +163,7 @@ export class CodexConversation {
     completionHook?: 'pending' | 'done';
     interruptRequested?: boolean;
     abort: AbortController;
+    span?: Span;
   };
   private paused = false;
   private closed = false;
@@ -190,6 +193,7 @@ export class CodexConversation {
     this.transportGeneration += 1;
     this.ready = false;
     const active = this.active;
+    this.finishTurnSpan('failed', 'transport');
     const commandId = active?.command.id;
     // Transport loss occurs after dispatch and has an unknown provider outcome.
     // An interrupt is only a confirmed cancellation after its turn completion
@@ -866,6 +870,18 @@ export class CodexConversation {
     });
     return this.pumping;
   }
+  private finishTurnSpan(
+    status: 'completed' | 'interrupted' | 'failed',
+    failureCategory: 'none' | 'provider' | 'dispatch' | 'transport' | 'close',
+  ) {
+    const span = this.active?.span;
+    if (!span) return;
+    this.active!.span = undefined;
+    span.setAttribute('mitzo.turn.status', status);
+    span.setAttribute('mitzo.failure.category', failureCategory);
+    span.setStatus({ code: status === 'failed' ? SpanStatusCode.ERROR : SpanStatusCode.OK });
+    span.end();
+  }
   private async beginNext() {
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
@@ -875,6 +891,7 @@ export class CodexConversation {
       turnId: undefined as string | undefined,
       completion: undefined as ObjectValue | undefined,
       interruptRequested: false,
+      span: undefined as Span | undefined,
     };
     this.active = active;
     const transportGeneration = this.transportGeneration;
@@ -892,6 +909,9 @@ export class CodexConversation {
         )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
+      active.span = tracer.startSpan('codex.turn', {}, context.active());
+      active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
+      active.span.setAttribute('gen_ai.request.model', model);
       const state = this.opts.store.read(this.opts.conversationId, this.binding!);
       const rolloverContext = state.threadId === this.threadId ? state.rolloverContext : null;
       const result = z.object({ turn: z.object({ id: z.string() }) }).parse(
@@ -953,6 +973,7 @@ export class CodexConversation {
       // propagate the old RPC rejection into the adapter's close path.
       if (transportGeneration !== this.transportGeneration) return;
       const replaceProviderThread = requiresProviderThreadReplacement(error);
+      if (this.active === active) this.finishTurnSpan('failed', 'dispatch');
       this.opts.onProviderComplete?.(command.id, 'failed');
       this.paused = true;
       active.abort.abort();
@@ -1044,6 +1065,7 @@ export class CodexConversation {
               attempt: this.active.command.attempt,
             })
           : undefined;
+      this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
       this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
@@ -1184,6 +1206,7 @@ export class CodexConversation {
     if (this.closed) return;
     this.closed = true;
     this.paused = true;
+    this.finishTurnSpan('failed', 'close');
     if (this.active) this.opts.onProviderComplete?.(this.active.command.id, 'failed');
     this.active?.abort.abort();
     try {
