@@ -160,6 +160,8 @@ export interface StreamingMessage {
   messageId: string;
   /** Durable message_start cursor, when known. */
   startedSeq?: number;
+  /** Immutable seat execution snapshot; absent for ordinary chat. */
+  symposiumProvenance?: SymposiumProvenance;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
 }
@@ -184,6 +186,7 @@ export interface FinishedMessage {
   messageId: string;
   /** Durable user_message or message_start cursor, when known. */
   startedSeq?: number;
+  symposiumProvenance?: SymposiumProvenance;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];
   images?: string[];
@@ -457,6 +460,8 @@ export interface ProgressBlock {
   progressId: string;
   items: ProgressItem[];
   sourceToolId?: string;
+  sourceMessageId?: string;
+  symposiumProvenance?: import('./symposium.js').SymposiumProvenance;
 }
 
 // --- Subagent nesting (nested agent execution visibility) ---

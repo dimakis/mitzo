@@ -37,8 +37,19 @@ vi.mock('../../hooks/useVoice', () => ({
 }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: ({ messages }: { messages: unknown[] }) => (
-    <div data-testid="chat-message-count">Messages: {messages.length}</div>
+  ChatArea: ({
+    messages,
+    currentByMessage,
+  }: {
+    messages: unknown[];
+    currentByMessage?: Record<string, unknown>;
+  }) => (
+    <div>
+      <span data-testid="chat-message-count">Messages: {messages.length}</span>
+      <span data-testid="active-seats">
+        Active seats: {Object.keys(currentByMessage ?? {}).length}
+      </span>
+    </div>
   ),
 }));
 vi.mock('../../components/ChatInput', () => ({
@@ -49,6 +60,27 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+it('passes concurrent seat streams to the shared mobile ChatArea', () => {
+  const store = createTestStore();
+  store.setState((state) => ({
+    messages: {
+      ...state.messages,
+      currentByMessage: {
+        reviewer: { messageId: 'reviewer', blocks: new Map(), blockOrder: [] },
+        architect: { messageId: 'architect', blocks: new Map(), blockOrder: [] },
+      },
+    },
+  }));
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByTestId('active-seats').textContent).toContain('Active seats: 2');
 });
 
 it('does not speak when an assistant response completes on mobile', async () => {

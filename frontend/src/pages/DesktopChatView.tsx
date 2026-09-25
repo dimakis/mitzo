@@ -280,6 +280,9 @@ export function DesktopChatView() {
             sessionId={sessionId || activeSessionId || undefined}
             messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
             current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+            currentByMessage={
+              sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage
+            }
             running={messages.running}
             permission={messages.permission}
             onPermissionRespond={handlePermission}

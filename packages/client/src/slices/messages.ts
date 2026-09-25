@@ -17,7 +17,9 @@ import type {
   FinishedSubagentState,
   ToolResultImage,
   ClientSessionState,
+  SymposiumProvenance,
 } from '@mitzo/protocol';
+import { messageIdentity } from '../message-identity.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +54,10 @@ export interface BootContextMeta {
 export interface MessagesState {
   messages: FinishedMessage[];
   current: StreamingMessage | null;
+  /** Simultaneous attributed seat turns, keyed by seat, generation, and provider message ID. */
+  currentByMessage: Record<string, StreamingMessage>;
+  /** A wire event could not be safely applied; transport must request a resync. */
+  resyncRequired: boolean;
   running: boolean;
   permission: PermissionRequest | null;
   permissionQueue?: PermissionRequest[];
@@ -66,6 +72,8 @@ export interface MessagesState {
 export const INITIAL_MESSAGES_STATE: MessagesState = {
   messages: [],
   current: null,
+  currentByMessage: {},
+  resyncRequired: false,
   running: false,
   permission: null,
   branch: null,
@@ -78,7 +86,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-export type MessagesAction =
+type MessagesCoreAction =
   // v2 content events
   | { type: 'MESSAGE_START'; messageId: string; startedSeq?: number }
   | {
@@ -180,6 +188,12 @@ export type MessagesAction =
   | { type: 'SET_BOOT_CONTEXT'; bootContext: BootContextMeta }
   | { type: 'CLEAR' };
 
+export type MessagesAction = MessagesCoreAction & {
+  symposiumProvenance?: SymposiumProvenance;
+  /** Optional parent turn identity for seat-scoped tool and subagent events. */
+  attributedMessageId?: string;
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Narrow a block's subagent to StreamingSubagentState, or null if already finished. */
@@ -239,6 +253,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
     blocks,
     timestamp: Date.now(),
     ...(current.startedSeq !== undefined ? { startedSeq: current.startedSeq } : {}),
+    ...(current.symposiumProvenance ? { symposiumProvenance: current.symposiumProvenance } : {}),
   };
 }
 
@@ -296,11 +311,284 @@ export function patchToolResult(
 
 // ─── Reducer ─────────────────────────────────────────────────────────────────
 
+function provenanceFields(value: SymposiumProvenance): unknown[] {
+  const legacy = [
+    value.seatId,
+    value.configRevision,
+    value.membershipGeneration,
+    value.accountProfileRevision,
+    value.seatProfileRevision,
+    value.contextGrantRevision,
+    value.authorityGrantRevision,
+    value.isolationDomainId,
+    value.isolationDomainRevision,
+  ];
+  if (!('version' in value) || value.version !== 2) return [1, ...legacy];
+  return [
+    2,
+    ...legacy,
+    value.seatLabel,
+    value.seatRole,
+    value.capturedAt,
+    value.accountBinding.accountId,
+    value.accountBinding.accountLabel,
+    value.accountBinding.provider,
+    value.accountBinding.model,
+    value.accountBinding.profileRevision,
+    value.reasoningEffort,
+    value.profileBinding.profileId,
+    value.profileBinding.profileRevision,
+    value.contextGrant.grantId,
+    value.contextGrant.revision,
+    value.authorityGrant.grantId,
+    value.authorityGrant.revision,
+  ];
+}
+
+function sameProvenance(a: SymposiumProvenance, b: SymposiumProvenance): boolean {
+  return JSON.stringify(provenanceFields(a)) === JSON.stringify(provenanceFields(b));
+}
+
+function refuseAttributedEvent(state: MessagesState): MessagesState {
+  return state.resyncRequired ? state : { ...state, resyncRequired: true };
+}
+
+function reduceAttributed(state: MessagesState, action: MessagesAction): MessagesState {
+  const provenance = action.symposiumProvenance!;
+  const active = state.currentByMessage;
+  const messageId = 'messageId' in action ? action.messageId : action.attributedMessageId;
+  const key = messageId ? messageIdentity(messageId, provenance) : undefined;
+  if (action.type === 'MESSAGE_START') {
+    const prior = active[key!];
+    if (prior) {
+      return prior.symposiumProvenance && sameProvenance(prior.symposiumProvenance, provenance)
+        ? state
+        : refuseAttributedEvent(state);
+    }
+    const finished = state.messages.find(
+      (message) => messageIdentity(message.messageId, message.symposiumProvenance) === key,
+    );
+    if (finished) {
+      return finished.symposiumProvenance &&
+        sameProvenance(finished.symposiumProvenance, provenance)
+        ? state
+        : refuseAttributedEvent(state);
+    }
+    if (
+      Object.values(active).some(
+        (current) =>
+          current.symposiumProvenance?.seatId === provenance.seatId &&
+          current.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
+      )
+    ) {
+      return refuseAttributedEvent(state);
+    }
+    return {
+      ...state,
+      currentByMessage: {
+        ...active,
+        [key!]: {
+          messageId: action.messageId,
+          startedSeq: action.startedSeq,
+          symposiumProvenance: provenance,
+          blocks: new Map(),
+          blockOrder: [],
+        },
+      },
+    };
+  }
+
+  let toolCurrent: StreamingMessage | undefined;
+  if (action.type === 'TOOL_RESULT') {
+    const liveMatches = Object.values(active).flatMap((candidate) =>
+      candidate.symposiumProvenance &&
+      sameProvenance(candidate.symposiumProvenance, provenance) &&
+      (!messageId || candidate.messageId === messageId)
+        ? [...candidate.blocks.values()]
+            .filter((block) => block.toolId === action.toolId)
+            .map(() => candidate)
+        : [],
+    );
+    const finishedMatches = state.messages.flatMap((candidate, index) =>
+      candidate.symposiumProvenance &&
+      sameProvenance(candidate.symposiumProvenance, provenance) &&
+      (!messageId || candidate.messageId === messageId)
+        ? candidate.blocks.filter((block) => block.toolId === action.toolId).map(() => index)
+        : [],
+    );
+    if (liveMatches.length + finishedMatches.length !== 1) return refuseAttributedEvent(state);
+    if (finishedMatches.length === 1) {
+      const index = finishedMatches[0];
+      const existing = state.messages[index];
+      const patched = patchToolResult(
+        [existing],
+        null,
+        action.toolId,
+        action.result,
+        action.isError,
+        action.images,
+      ).messages[0];
+      const messages = [...state.messages];
+      messages[index] = patched;
+      return { ...state, messages };
+    }
+    toolCurrent = liveMatches[0];
+  }
+
+  let current: StreamingMessage | undefined;
+  if (messageId) {
+    current = active[key!];
+  } else if (action.type === 'TOOL_RESULT') {
+    current = toolCurrent;
+  } else if ('parentBlockId' in action) {
+    const candidates = Object.values(active).filter(
+      (candidate) =>
+        candidate.symposiumProvenance &&
+        sameProvenance(candidate.symposiumProvenance, provenance) &&
+        candidate.blocks.has(action.parentBlockId),
+    );
+    if (candidates.length > 1) return refuseAttributedEvent(state);
+    current = candidates[0];
+  } else if (action.type === 'SESSION_END') {
+    const candidates = Object.values(active).filter(
+      (candidate) =>
+        candidate.symposiumProvenance && sameProvenance(candidate.symposiumProvenance, provenance),
+    );
+    if (candidates.length > 1) return refuseAttributedEvent(state);
+    current = candidates[0];
+  }
+
+  if (action.type === 'MESSAGE_SNAPSHOT') {
+    const finished = state.messages.find(
+      (message) => messageIdentity(message.messageId, message.symposiumProvenance) === key,
+    );
+    if (finished) {
+      return finished.symposiumProvenance &&
+        sameProvenance(finished.symposiumProvenance, provenance)
+        ? state
+        : refuseAttributedEvent(state);
+    }
+    if (
+      !current &&
+      Object.values(active).some(
+        (candidate) =>
+          candidate.symposiumProvenance?.seatId === provenance.seatId &&
+          candidate.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
+      )
+    )
+      return refuseAttributedEvent(state);
+    if (current?.symposiumProvenance && !sameProvenance(current.symposiumProvenance, provenance))
+      return refuseAttributedEvent(state);
+  } else if (!current) {
+    // Replayed terminal events for an already restored message are harmless.
+    if (
+      action.type === 'MESSAGE_END' &&
+      state.messages.some(
+        (message) =>
+          messageIdentity(message.messageId, message.symposiumProvenance) === key &&
+          message.symposiumProvenance &&
+          sameProvenance(message.symposiumProvenance, provenance),
+      )
+    )
+      return state;
+    if (
+      action.type === 'SESSION_END' &&
+      !Object.values(active).some(
+        (candidate) =>
+          candidate.symposiumProvenance?.seatId === provenance.seatId &&
+          candidate.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
+      ) &&
+      state.messages.some(
+        (message) =>
+          message.symposiumProvenance && sameProvenance(message.symposiumProvenance, provenance),
+      )
+    )
+      return state;
+    return refuseAttributedEvent(state);
+  } else if (
+    !current.symposiumProvenance ||
+    !sameProvenance(current.symposiumProvenance, provenance)
+  ) {
+    return refuseAttributedEvent(state);
+  }
+
+  // The existing one-turn reducer owns block/subagent semantics. Run it on the
+  // selected seat turn, then restore the ordinary chat adapter unchanged.
+  const scoped = reduceLegacyMessages({ ...state, current: current ?? null }, action);
+  const currentByMessage = { ...active };
+  if (scoped.current) {
+    currentByMessage[messageIdentity(scoped.current.messageId, provenance)] = {
+      ...scoped.current,
+      symposiumProvenance: provenance,
+    };
+  } else if (current) {
+    delete currentByMessage[messageIdentity(current.messageId, provenance)];
+  }
+  return {
+    ...scoped,
+    current: state.current,
+    currentByMessage,
+    // A seat terminal does not make another seat or the conversation idle.
+    running: action.type === 'SESSION_END' ? state.running : scoped.running,
+  };
+}
+
 export function messagesReducer(state: MessagesState, action: MessagesAction): MessagesState {
+  if (
+    action.symposiumProvenance &&
+    (action.type === 'MESSAGE_START' ||
+      action.type === 'BLOCK_START' ||
+      action.type === 'BLOCK_DELTA' ||
+      action.type === 'BLOCK_END' ||
+      action.type === 'TOOL_RESULT' ||
+      action.type === 'MESSAGE_END' ||
+      action.type === 'MESSAGE_SNAPSHOT' ||
+      action.type === 'SESSION_END' ||
+      action.type.startsWith('SUBAGENT_'))
+  )
+    return reduceAttributed(state, action);
+  const next = reduceLegacyMessages(state, action);
+  if (action.type === 'SESSION_END' && Object.keys(state.currentByMessage).length > 0) {
+    let messages = next.messages;
+    for (const current of Object.values(state.currentByMessage)) {
+      if (
+        !messages.some(
+          (message) =>
+            messageIdentity(message.messageId, message.symposiumProvenance) ===
+            messageIdentity(current.messageId, current.symposiumProvenance),
+        )
+      )
+        messages = insertByStartedSeq(messages, finishCurrent(current));
+    }
+    return { ...next, messages, currentByMessage: {} };
+  }
+  if (action.type === 'RESTORE') {
+    const finishedIds = new Set(
+      next.messages.map((message) =>
+        messageIdentity(message.messageId, message.symposiumProvenance),
+      ),
+    );
+    const currentByMessage = state.resyncRequired
+      ? {}
+      : Object.fromEntries(
+          Object.entries(state.currentByMessage).filter(([id]) => !finishedIds.has(id)),
+        );
+    return { ...next, currentByMessage, resyncRequired: false };
+  }
+  return next;
+}
+
+function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
   switch (action.type) {
     case 'MESSAGE_START': {
       // Dedup: skip if this message was already restored (e.g. WS replay after RESTORE)
-      if (state.messages.some((m) => m.messageId === action.messageId)) {
+      if (
+        state.messages.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(action.messageId, action.symposiumProvenance),
+        )
+      ) {
         return state;
       }
       const base = state.current
@@ -378,7 +666,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     case 'MESSAGE_END': {
       if (!state.current) return state;
       // Dedup: if this message was already restored, discard the streaming copy
-      if (state.messages.some((m) => m.messageId === state.current!.messageId)) {
+      if (
+        state.messages.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+        )
+      ) {
         return { ...state, current: null };
       }
       const finished = finishCurrent(state.current);
@@ -568,22 +862,31 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
       if (!action.interrupted) {
-        const existingById = new Map(state.messages.map((m) => [m.messageId, m]));
-        const hasNewMessages = valid.some((m) => !existingById.has(m.messageId));
+        const existingById = new Map(
+          state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
+        );
+        const hasNewMessages = valid.some(
+          (m) => !existingById.has(messageIdentity(m.messageId, m.symposiumProvenance)),
+        );
         const hasNewSequence = valid.some(
           (m) =>
             m.startedSeq !== undefined &&
-            existingById.get(m.messageId)?.startedSeq !== m.startedSeq,
+            existingById.get(messageIdentity(m.messageId, m.symposiumProvenance))?.startedSeq !==
+              m.startedSeq,
         );
         if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
           return state;
         }
       }
       if (action.interrupted) {
-        const restoredIds = new Set(valid.map((m) => m.messageId));
+        const restoredIds = new Set(
+          valid.map((m) => messageIdentity(m.messageId, m.symposiumProvenance)),
+        );
         const optimisticUserMsgs = state.messages.filter(
           (m) =>
-            m.role === 'user' && m.messageId.startsWith('user-') && !restoredIds.has(m.messageId),
+            m.role === 'user' &&
+            m.messageId.startsWith('user-') &&
+            !restoredIds.has(messageIdentity(m.messageId, m.symposiumProvenance)),
         );
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,
@@ -614,13 +917,23 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         }
         merged.push(notice);
         const currentStale =
-          state.current && merged.some((m) => m.messageId === state.current!.messageId);
+          state.current &&
+          merged.some(
+            (m) =>
+              messageIdentity(m.messageId, m.symposiumProvenance) ===
+              messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+          );
         return { ...state, messages: merged, current: currentStale ? null : state.current };
       }
       // Clear current if the restored set already contains it (prevents
       // MESSAGE_END from re-inserting a message that RESTORE already has).
       const currentStale =
-        state.current && valid.some((m) => m.messageId === state.current!.messageId);
+        state.current &&
+        valid.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+        );
       return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 

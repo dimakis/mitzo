@@ -41,8 +41,19 @@ vi.mock('../../components/CommandCenter', () => ({
 }));
 
 vi.mock('../../components/ChatArea', () => ({
-  ChatArea: ({ messages }: { messages: unknown[] }) => (
-    <div data-testid="chat-area">Messages: {messages.length}</div>
+  ChatArea: ({
+    messages,
+    currentByMessage,
+  }: {
+    messages: unknown[];
+    currentByMessage?: Record<string, unknown>;
+  }) => (
+    <div data-testid="chat-area">
+      <span>Messages: {messages.length}</span>
+      <span data-testid="active-seats">
+        Active seats: {Object.keys(currentByMessage ?? {}).length}
+      </span>
+    </div>
   ),
 }));
 
@@ -213,6 +224,26 @@ function renderWithRouter(sessionId?: string) {
 }
 
 describe('DesktopChatView', () => {
+  it('passes concurrent seat streams to the shared ChatArea', () => {
+    const store = createMockStore();
+    store.setState((state) => ({
+      messages: {
+        ...state.messages,
+        currentByMessage: {
+          reviewer: { messageId: 'reviewer', blocks: new Map(), blockOrder: [] },
+          architect: { messageId: 'architect', blocks: new Map(), blockOrder: [] },
+        },
+      },
+    }));
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('active-seats').textContent).toContain('Active seats: 2');
+  });
   it('renders three-panel layout', () => {
     renderWithRouter();
     expect(screen.getByTestId('session-panel')).toBeTruthy();

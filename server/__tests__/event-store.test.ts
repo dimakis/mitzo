@@ -112,6 +112,14 @@ describe('EventStore', () => {
   });
 
   describe('getEventsAfter', () => {
+    it('finds a session predecessor across unrelated global sequence IDs', () => {
+      const first = store.append('sess-1', 'message_start', { messageId: 'm1' });
+      const unrelated = store.append('sess-2', 'message_start', { messageId: 'm2' });
+      const second = store.append('sess-1', 'block_delta', { delta: 'a' });
+      expect(store.getSessionPredecessorSeq('sess-1', first)).toBe(0);
+      expect(store.getSessionPredecessorSeq('sess-1', second)).toBe(first);
+      expect(store.getSessionPredecessorSeq('sess-2', unrelated)).toBe(0);
+    });
     it('returns all events for a session when afterSeq is 0', () => {
       store.append('sess-1', 'message_start', { messageId: 'm1' });
       store.append('sess-1', 'block_delta', { delta: 'a' });

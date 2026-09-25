@@ -144,7 +144,12 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
       typeof event.sessionId === 'string' &&
       typeof event.cursor === 'number'
     )
-      client.acknowledgeReconnectSnapshot(event.sessionId, event.cursor);
+      client.acknowledgeReconnectSnapshot(
+        event.sessionId,
+        event.cursor,
+        typeof event.offerId === 'string' ? event.offerId : undefined,
+      );
+    return true;
   });
   try {
     client.connect();
@@ -156,8 +161,18 @@ it('delivers one prompt after background/reconnect even when its HTTP acknowledg
       cwd: root,
       isolation: false,
     });
-    await vi.waitFor(() => expect(clientEvents.some((e) => e.type === 'session_end')).toBe(true));
+    await vi.waitFor(() =>
+      expect(clientEvents.some((e) => e.type === '_send_accepted')).toBe(true),
+    );
     const sessionId = clientEvents.find((e) => e.type === '_send_accepted')!.sessionId as string;
+    // This transport-only harness acknowledges the reconnect snapshot without
+    // a transcript reducer. The snapshot subsumes replayed events through its
+    // cursor, so observe turn completion in the durable source instead.
+    await vi.waitFor(() =>
+      expect(
+        chat.eventStore.getSessionEvents(sessionId).some((e) => e.type === 'session_end'),
+      ).toBe(true),
+    );
     const runtimeId = chat.registry.findBySessionId(sessionId)!.clientId;
     client.sendSuspend();
     await vi.waitFor(() => expect(chat.registry.isSuspended(runtimeId)).toBe(true));

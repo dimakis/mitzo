@@ -10,6 +10,7 @@ import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -48,6 +49,7 @@ import {
   reconcileSessionsBackground,
   getMessages,
   getReconnectTranscript,
+  getSessionTranscript,
   hideSession,
   hideAllSessions,
   renameSessionById,
@@ -1558,6 +1560,10 @@ app.get('/api/sessions', async (req, res) => {
 });
 
 app.get('/api/sessions/:id/messages', async (req, res) => {
+  if (req.query.transcript === '1') {
+    res.json(await getSessionTranscript(req.params.id as string));
+    return;
+  }
   const rawCursor = req.query.throughSeq;
   if (rawCursor !== undefined) {
     if (typeof rawCursor !== 'string' || !/^(0|[1-9]\d*)$/.test(rawCursor)) {
@@ -1753,7 +1759,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
     return;
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
-  res.json(events.map((e) => ({ ...e.payload, seq: e.seq })));
+  res.json(events.map(storedEventToClientMessage));
 });
 
 app.delete('/api/sessions', (_req, res) => {

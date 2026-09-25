@@ -86,6 +86,178 @@ describe('SseConnection', () => {
     vi.useRealTimers();
   });
 
+  it('reconnects when the applied snapshot POST loses its response after server acceptance', async () => {
+    const fetch = vi.fn().mockRejectedValue(new Error('response lost'));
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.onMessage((message) => {
+      if (message.type === 'session_reconnect_snapshot')
+        conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      return true;
+    });
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    first._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: 'offer-1',
+    });
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    await vi.waitFor(() => expect(lastES()).not.toBe(first));
+    expect(conn.getLastSeq('sess-1')).toBe(0);
+  });
+
+  it.each(['snapshot', 'event'])(
+    'recovers a new connection while an old %s ACK never settles',
+    async (kind) => {
+      let resolveOld!: (value: Response) => void;
+      const fetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+        if ((init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1')
+          return new Promise<Response>((resolve) => {
+            resolveOld = resolve;
+          });
+        return Promise.resolve(Response.json({ applied: true }));
+      });
+      const conn = new SseConnection(createConfig({ fetch }));
+      conn.onMessage((message) => {
+        if (message.type === 'session_reconnect_snapshot')
+          conn.acknowledgeReconnectSnapshot(
+            'sess-1',
+            message.cursor as number,
+            message.offerId as string,
+          );
+        return true;
+      });
+      conn.connect();
+      lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+      if (kind === 'snapshot')
+        lastES()._emit('message', {
+          type: 'session_reconnect_snapshot',
+          sessionId: 'sess-1',
+          cursor: 5,
+          offerId: 'old',
+        });
+      else conn.commitTranscriptCursor('sess-1', 5);
+      await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+      // Queue a second ACK behind the stuck request; it must not run after transport replacement.
+      conn.commitTranscriptCursor('other-session', 3);
+      conn.checkAndReconnect(true);
+      lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-2' });
+      await Promise.resolve();
+      await Promise.resolve();
+      lastES()._emit('message', {
+        type: 'session_reconnect_snapshot',
+        sessionId: 'sess-1',
+        cursor: 7,
+        offerId: 'new',
+      });
+      lastES()._emit('message', {
+        type: 'block_delta',
+        sessionId: 'sess-1',
+        seq: 8,
+        prevSessionSeq: 7,
+        delta: 'new',
+      });
+      await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(8));
+      resolveOld(Response.json({ applied: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(
+        fetch.mock.calls.filter(
+          ([, init]) => (init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1',
+        ),
+      ).toHaveLength(1);
+      expect(conn.getLastSeq('sess-1')).toBe(8);
+      conn.disconnect();
+    },
+  );
+
+  it('reconnects after an applied event ACK stalls and releases the next connection', async () => {
+    let stalledSignal: AbortSignal | undefined;
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      if (
+        String(url).endsWith('/session-event-applied') &&
+        (init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1'
+      ) {
+        stalledSignal = init?.signal ?? undefined;
+        return new Promise<Response>(() => {});
+      }
+      return Promise.resolve(Response.json({ applied: true }));
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.commitTranscriptCursor('sess-1', 5);
+    await vi.waitFor(() => expect(stalledSignal).toBeDefined());
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stalledSignal?.aborted).toBe(true);
+    expect(lastES()).not.toBe(first);
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-2' });
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/chat/reconnect'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Connection-ID': 'conn-2' }),
+        }),
+      ),
+    );
+    conn.commitTranscriptCursor('sess-1', 6);
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/session-event-applied'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Connection-ID': 'conn-2' }),
+        }),
+      ),
+    );
+    conn.disconnect();
+  });
+
+  it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
+    let resolveAck!: (value: Response) => void;
+    const fetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveAck = resolve;
+        }),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn((message: Record<string, unknown>) => {
+      if (message.type === 'session_reconnect_snapshot')
+        conn.acknowledgeReconnectSnapshot('sess-1', 5, 'offer-1');
+      return true;
+    });
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    lastES()._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      offerId: 'offer-1',
+    });
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      prevSessionSeq: 5,
+    });
+    expect(conn.getLastSeq('sess-1')).toBe(0);
+    expect(listener.mock.calls.filter(([message]) => message.type === 'block_delta')).toHaveLength(
+      0,
+    );
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
+    resolveAck(new Response(JSON.stringify({ applied: true }), { status: 200 }));
+    await vi.waitFor(() => expect(conn.getLastSeq('sess-1')).toBe(6));
+    expect(listener.mock.calls.filter(([message]) => message.type === 'block_delta')).toHaveLength(
+      1,
+    );
+  });
+
   it('does not start a persisted outbox when invalidated before connect', async () => {
     const fetch = vi.fn();
     const key = 'mitzo-send-outbox:https://localhost:3100/api/chat/send';
@@ -448,6 +620,82 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(12);
   });
 
+  it('holds a chained event until an authoritative listener confirms application', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 5);
+    const event = { type: 'block_delta', sessionId: 'sess-1', seq: 9, prevSessionSeq: 5 };
+    lastES()._emit('message', event);
+    expect(conn.getLastSeq('sess-1')).toBe(5);
+    expect(
+      mockFetch.mock.calls.some(([url]) => String(url).includes('session-event-applied')),
+    ).toBe(false);
+    conn.onMessage(() => true);
+    lastES()._emit('message', event);
+    await Promise.resolve();
+    expect(conn.getLastSeq('sess-1')).toBe(9);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/session-event-applied',
+      expect.objectContaining({
+        body: JSON.stringify({ type: 'session_event_applied', sessionId: 'sess-1', seq: 9 }),
+      }),
+    );
+  });
+
+  it('does not advance an unchained cursor when the reducer refuses the event', () => {
+    const conn = new SseConnection(createConfig());
+    conn.onMessage((msg) => (msg.type === 'block_delta' ? false : true));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 2);
+    first._emit('message', { type: 'block_delta', sessionId: 'sess-1', seq: 9, delta: 'bad' });
+    expect(conn.getLastSeq('sess-1')).toBe(2);
+    expect(lastES()).not.toBe(first);
+  });
+
+  it('cancels a predecessor-gap retry after explicit disconnect', () => {
+    const conn = new SseConnection(createConfig());
+    conn.onMessage(() => true);
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 2);
+    first._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 9,
+      prevSessionSeq: 5,
+    });
+    conn.disconnect();
+    vi.advanceTimersByTime(15_000);
+    expect(lastES()).toBe(first);
+  });
+
+  it('resyncs instead of acknowledging a refused snapshot offer', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.onMessage((msg) => (msg.type === 'session_reconnect_snapshot' ? false : true));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 5);
+    first._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 8,
+      offerId: 'offer-refused',
+      state: 'running',
+    });
+    expect(conn.getLastSeq('sess-1')).toBe(5);
+    expect(
+      mockFetch.mock.calls.some(([url]) => String(url).includes('reconnect-snapshot-applied')),
+    ).toBe(false);
+    expect(lastES()).not.toBe(first);
+  });
+
   it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();
@@ -701,6 +949,7 @@ describe('SseConnection', () => {
         method: 'POST',
         body: JSON.stringify({
           type: 'reconnect',
+          supportsAppliedCursor: true,
           sessions: [{ sessionId: 'sess-1', lastSeq: 10 }],
         }),
       }),

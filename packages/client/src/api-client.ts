@@ -5,11 +5,13 @@
  * Uses a TransportAdapter.fetch so it works in both browser and Theia.
  */
 
-import type { FinishedBlock, FinishedMessage, Session } from '@mitzo/protocol';
+import { SymposiumProvenanceSchema } from '@mitzo/protocol';
+import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
 import type { InboxItem } from './slices/inbox.js';
 import type { CalendarEvent, SprintInfo } from './slices/calendar.js';
+import { messageIdentity } from './message-identity.js';
 import type { ContextBlockEntry, SkillMetadata } from './slices/config.js';
 
 // ─── Transport ───────────────────────────────────────────────────────────────
@@ -35,12 +37,19 @@ export interface GitInfo {
 }
 
 export interface ReconnectTranscript {
+  cursor?: number;
   messages: FinishedMessage[];
   current: {
     messageId: string;
     startedSeq?: number;
     blocks: Array<FinishedBlock & { done: boolean }>;
   } | null;
+  currents?: Array<{
+    messageId: string;
+    startedSeq?: number;
+    blocks: Array<FinishedBlock & { done: boolean }>;
+    symposiumProvenance: SymposiumProvenance;
+  }>;
 }
 
 export interface FileEntry {
@@ -139,11 +148,76 @@ export class MitzoApiClient {
       }),
     );
     const body: unknown = await res.json();
+    return this.normalizeTranscript(body);
+  }
+
+  async getSessionTranscript(
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<ReconnectTranscript> {
+    const res = await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}/messages?transcript=1`, {
+        credentials: 'include',
+        signal,
+      }),
+    );
+    return this.normalizeTranscript((await res.json()) as unknown);
+  }
+
+  private normalizeTranscript(body: unknown): ReconnectTranscript {
     // Old server releases returned an array at this endpoint.
-    if (Array.isArray(body)) return { messages: body as FinishedMessage[], current: null };
+    if (Array.isArray(body))
+      return { messages: body as FinishedMessage[], current: null, currents: [] };
     if (!body || typeof body !== 'object' || !Array.isArray((body as ReconnectTranscript).messages))
       throw new Error('Invalid reconnect transcript');
-    return body as ReconnectTranscript;
+    const transcript = body as ReconnectTranscript;
+    const currents = transcript.currents ?? [];
+    if (!Array.isArray(currents)) throw new Error('Invalid reconnect seat currents');
+    for (const message of transcript.messages) {
+      if (
+        !message ||
+        typeof message.messageId !== 'string' ||
+        !Array.isArray(message.blocks) ||
+        ('symposiumProvenance' in message &&
+          !SymposiumProvenanceSchema.safeParse(message.symposiumProvenance).success)
+      )
+        throw new Error('Invalid reconnect finished message');
+    }
+    const ids = new Set(
+      transcript.messages.map((message) =>
+        messageIdentity(message.messageId, message.symposiumProvenance),
+      ),
+    );
+    if (transcript.current) ids.add(messageIdentity(transcript.current.messageId));
+    const seats = new Set<string>();
+    for (const current of currents) {
+      const provenance = SymposiumProvenanceSchema.safeParse(current.symposiumProvenance);
+      if (
+        !provenance.success ||
+        typeof current.messageId !== 'string' ||
+        !current.messageId ||
+        !Array.isArray(current.blocks) ||
+        (current.startedSeq !== undefined &&
+          (!Number.isSafeInteger(current.startedSeq) || current.startedSeq < 0)) ||
+        ids.has(
+          messageIdentity(current.messageId, provenance.success ? provenance.data : undefined),
+        ) ||
+        seats.has(
+          JSON.stringify([provenance.data.seatId, provenance.data.membershipGeneration ?? null]),
+        )
+      )
+        throw new Error('Invalid reconnect seat current');
+      ids.add(messageIdentity(current.messageId, provenance.data));
+      seats.add(
+        JSON.stringify([provenance.data.seatId, provenance.data.membershipGeneration ?? null]),
+      );
+    }
+    if (
+      transcript.cursor !== undefined &&
+      (!Number.isSafeInteger(transcript.cursor) || transcript.cursor < 0)
+    )
+      throw new Error('Invalid transcript cursor');
+    return { ...transcript, currents };
   }
 
   async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {

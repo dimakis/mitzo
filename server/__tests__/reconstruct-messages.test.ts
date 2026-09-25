@@ -160,6 +160,495 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     return { seq, sessionId: 'sess-1', type, payload, createdAt: seq };
   }
 
+  it('restores interleaved seat turns with reused block IDs and immutable provenance', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, payload: Record<string, unknown>) => ({
+      ...evt(seq, type, payload),
+      seatId,
+      symposiumProvenance: provenance(seatId),
+    });
+    const events = [
+      seat(1, 'message_start', 'architect', { messageId: 'a1' }),
+      seat(2, 'block_start', 'architect', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'message_start', 'reviewer', { messageId: 'a2' }),
+      seat(4, 'block_start', 'reviewer', { messageId: 'a2', blockId: 'b0', blockType: 'text' }),
+      seat(5, 'block_delta', 'architect', { messageId: 'a1', blockId: 'b0', delta: 'design' }),
+      seat(6, 'block_delta', 'reviewer', { messageId: 'a2', blockId: 'b0', delta: 'review' }),
+      seat(7, 'message_end', 'architect', { messageId: 'a1' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages).toMatchObject([
+      {
+        messageId: 'a1',
+        startedSeq: 1,
+        symposiumProvenance: { seatId: 'architect' },
+        blocks: [{ content: 'design' }],
+      },
+    ]);
+    expect(restored.currents).toMatchObject([
+      {
+        messageId: 'a2',
+        startedSeq: 3,
+        symposiumProvenance: { seatId: 'reviewer' },
+        blocks: [{ content: 'review', done: false }],
+      },
+    ]);
+    expect(restored.current).toBeNull();
+    expect(replayEventsToMessages(events)).toMatchObject([
+      {
+        messageId: 'a1',
+        symposiumProvenance: { seatId: 'architect' },
+        blocks: [{ content: 'design' }],
+      },
+      {
+        messageId: 'a2',
+        symposiumProvenance: { seatId: 'reviewer' },
+        blocks: [{ content: 'review' }],
+      },
+    ]);
+  });
+
+  it('keeps durable seat provenance in the historical messages projection', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>): StoredEvent => ({
+      ...evt(seq, type, payload),
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', { messageId: 'a1' }),
+      seat(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'block_delta', { messageId: 'a1', blockId: 'b0', delta: 'design' }),
+      seat(4, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(5, 'message_end', { messageId: 'a1' }),
+    ];
+    expect(replayEventsToMessages(events)).toMatchObject([
+      {
+        messageId: 'a1',
+        symposiumProvenance: provenance,
+        blocks: [{ content: 'design' }],
+      },
+    ]);
+  });
+
+  it('scopes repeated tool IDs to the attributed message and block across turns', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>): StoredEvent => ({
+      ...evt(seq, type, payload),
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', { messageId: 'first' }),
+      seat(2, 'block_start', { messageId: 'first', blockId: 'b0', blockType: 'tool_use' }),
+      seat(3, 'tool_result', { messageId: 'first', toolId: 'shared', result: 'first output' }),
+      seat(4, 'block_end', { messageId: 'first', blockId: 'b0', toolId: 'shared' }),
+      seat(5, 'message_end', { messageId: 'first' }),
+      seat(6, 'message_start', { messageId: 'second' }),
+      seat(7, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'tool_use' }),
+      seat(8, 'tool_result', { messageId: 'second', toolId: 'shared', result: 'second output' }),
+      seat(9, 'block_end', { messageId: 'second', blockId: 'b0', toolId: 'shared' }),
+      seat(10, 'message_end', { messageId: 'second' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages.map((message) => message.blocks[0].toolResult)).toEqual([
+      'first output',
+      'second output',
+    ]);
+    expect(replayEventsToMessages(events).map((message) => message.blocks[0].toolResult)).toEqual([
+      'first output',
+      'second output',
+    ]);
+  });
+
+  it('refuses an attributed result with no matching tool block', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const events = [
+      {
+        ...evt(1, 'message_start', { messageId: 'a1' }),
+        seatId: 'architect',
+        symposiumProvenance: provenance,
+      },
+      {
+        ...evt(2, 'tool_result', { messageId: 'a1', toolId: 'missing', result: 'lost' }),
+        seatId: 'architect',
+        symposiumProvenance: provenance,
+      },
+    ];
+    expect(() => replayEventsToTranscript(events)).toThrow(/unmatched attributed tool result/i);
+  });
+
+  it('scopes repeated tool IDs to separate blocks within one attributed turn', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>): StoredEvent => ({
+      ...evt(seq, type, payload),
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', { messageId: 'one' }),
+      seat(2, 'block_start', { messageId: 'one', blockId: 'b0', blockType: 'tool_use' }),
+      seat(3, 'tool_result', { messageId: 'one', toolId: 'shared', result: 'first output' }),
+      seat(4, 'block_end', { messageId: 'one', blockId: 'b0', toolId: 'shared' }),
+      seat(5, 'block_start', { messageId: 'one', blockId: 'b1', blockType: 'tool_use' }),
+      seat(6, 'tool_result', { messageId: 'one', toolId: 'shared', result: 'second output' }),
+      seat(7, 'block_end', { messageId: 'one', blockId: 'b1', toolId: 'shared' }),
+      seat(8, 'message_end', { messageId: 'one' }),
+    ];
+    expect(
+      replayEventsToTranscript(events).messages[0].blocks.map((block) => block.toolResult),
+    ).toEqual(['first output', 'second output']);
+  });
+
+  it('attaches a late unlabelled tool result only to a unique prior tool occurrence', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'first' }),
+      evt(2, 'block_start', { messageId: 'first', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'block_end', { messageId: 'first', blockId: 'b0', toolId: 'tool-1' }),
+      evt(4, 'message_end', { messageId: 'first' }),
+      evt(5, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'late output' }),
+    ];
+    expect(replayEventsToTranscript(events).messages[0].blocks[0].toolResult).toBe('late output');
+    const acrossTurn = [
+      ...events.slice(0, 4),
+      evt(5, 'message_start', { messageId: 'second' }),
+      evt(6, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'tool_use' }),
+      evt(7, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'first late output' }),
+      evt(8, 'block_end', { messageId: 'second', blockId: 'b0', toolId: 'tool-1' }),
+      evt(9, 'tool_result', { messageId: 'second', toolId: 'tool-1', result: 'second output' }),
+      evt(10, 'message_end', { messageId: 'second' }),
+    ];
+    expect(
+      replayEventsToTranscript(acrossTurn).messages.map((message) => message.blocks[0].toolResult),
+    ).toEqual(['first late output', 'second output']);
+    expect(() =>
+      replayEventsToTranscript([
+        ...events,
+        evt(6, 'message_start', { messageId: 'second' }),
+        evt(7, 'block_start', { messageId: 'second', blockId: 'b0', blockType: 'tool_use' }),
+        evt(8, 'block_end', { messageId: 'second', blockId: 'b0', toolId: 'tool-1' }),
+        evt(9, 'message_end', { messageId: 'second' }),
+        evt(10, 'tool_result', { messageId: null, toolId: 'tool-1', result: 'ambiguous' }),
+      ]),
+    ).toThrow(/ambiguous|unattributed/i);
+  });
+
+  it('retains completed identities through newer turns and ignores delayed duplicate terminals', () => {
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, messageId: string, extra = {}) => ({
+      ...evt(seq, type, { messageId, ...extra }),
+      seatId: 'reviewer',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', 'first'),
+      seat(2, 'block_start', 'first', { blockId: 'text', blockType: 'text' }),
+      seat(3, 'block_delta', 'first', { blockId: 'text', delta: 'first reply' }),
+      seat(4, 'message_end', 'first'),
+      seat(5, 'message_start', 'second'),
+      seat(6, 'message_end', 'first'),
+      seat(7, 'block_start', 'second', { blockId: 'text', blockType: 'text' }),
+      seat(8, 'block_delta', 'second', { blockId: 'text', delta: 'second reply' }),
+    ];
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'first', blocks: [{ content: 'first reply' }] }],
+      currents: [{ messageId: 'second', blocks: [{ content: 'second reply' }] }],
+    });
+    for (const terminal of [evt(9, 'session_end', {}), seat(9, 'session_end', 'second')]) {
+      expect(
+        replayEventsToTranscript([
+          ...events,
+          terminal,
+          seat(10, 'message_start', 'third'),
+          seat(11, 'message_end', 'second'),
+        ]),
+      ).toMatchObject({ currents: [{ messageId: 'third' }] });
+    }
+    events.push(seat(9, 'message_end', 'second'), seat(10, 'message_end', 'first'));
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'first' }, { messageId: 'second' }],
+      currents: [],
+    });
+    expect(() =>
+      replayEventsToTranscript([
+        ...events,
+        {
+          ...seat(11, 'message_end', 'first'),
+          symposiumProvenance: { ...provenance, accountProfileRevision: 'wrong-snapshot' },
+        },
+      ]),
+    ).toThrow(/mismatch/);
+  });
+
+  it('accepts an exact duplicate attributed message_end after the turn is finished', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, payload: Record<string, unknown>): StoredEvent => ({
+      ...evt(seq, type, payload),
+      seatId: 'architect',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', { messageId: 'first' }),
+      seat(2, 'block_start', { messageId: 'first', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'block_delta', { messageId: 'first', blockId: 'b0', delta: 'done' }),
+      seat(4, 'message_end', { messageId: 'first' }),
+      seat(5, 'message_end', { messageId: 'first' }),
+    ];
+    expect(replayEventsToTranscript(events).messages).toMatchObject([
+      { messageId: 'first', blocks: [{ content: 'done' }] },
+    ]);
+    expect(() =>
+      replayEventsToTranscript([...events, seat(6, 'message_end', { messageId: 'other' })]),
+    ).toThrow(/mismatch/i);
+  });
+
+  it('keeps nested subagents under the correct seat when both use parent b0', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, payload: Record<string, unknown>) => ({
+      ...evt(seq, type, payload),
+      seatId,
+      symposiumProvenance: provenance(seatId),
+    });
+    const events = [
+      seat(1, 'message_start', 'architect', { messageId: 'a1' }),
+      seat(2, 'block_start', 'architect', {
+        messageId: 'a1',
+        blockId: 'b0',
+        blockType: 'tool_use',
+      }),
+      seat(3, 'message_start', 'reviewer', { messageId: 'a2' }),
+      seat(4, 'block_start', 'reviewer', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      seat(5, 'subagent_start', 'architect', { parentBlockId: 'b0', subagentMessageId: 's1' }),
+      seat(6, 'subagent_start', 'reviewer', { parentBlockId: 'b0', subagentMessageId: 's2' }),
+      seat(7, 'subagent_block_start', 'architect', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      seat(8, 'subagent_block_start', 'reviewer', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      seat(9, 'subagent_block_delta', 'architect', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        delta: 'design',
+      }),
+      seat(10, 'subagent_block_delta', 'reviewer', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        delta: 'critique',
+      }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.currents[0].blocks[0].subagent?.blocks[0].content).toBe('design');
+    expect(restored.currents[1].blocks[0].subagent?.blocks[0].content).toBe('critique');
+  });
+
+  it('refuses a mismatched stored seat provenance', () => {
+    const bad = {
+      ...evt(1, 'message_start', { messageId: 'a1' }),
+      seatId: 'reviewer',
+      symposiumProvenance: {
+        seatId: 'architect',
+        configRevision: 1,
+        accountProfileRevision: 'account-1',
+        seatProfileRevision: 'profile-1',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'domain-1',
+        isolationDomainRevision: 1,
+      },
+    };
+    expect(() => replayEventsToTranscript([bad])).toThrow(/seat/i);
+  });
+
+  it('refuses a payload-only seat claim without durable attribution', () => {
+    const ordinary = evt(1, 'message_start', { messageId: 'ordinary' });
+    expect(replayEventsToTranscript([ordinary]).current?.messageId).toBe('ordinary');
+    const unverifiable = evt(2, 'message_start', {
+      messageId: 'claimed-seat',
+      seatId: 'reviewer',
+    });
+    expect(() => replayEventsToTranscript([ordinary, unverifiable])).toThrow(
+      /unverifiable|attribution/i,
+    );
+  });
+
+  it('refuses two open messages for the same seat', () => {
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const events = [
+      {
+        ...evt(1, 'message_start', { messageId: 'a1' }),
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      },
+      {
+        ...evt(2, 'message_start', { messageId: 'a2' }),
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      },
+    ];
+    expect(() => replayEventsToTranscript(events)).toThrow(/simultaneous|ambiguous/i);
+  });
+
+  it('restores colliding provider message IDs from distinct seat generations', () => {
+    const provenance = (seatId: string, membershipGeneration: number) => ({
+      seatId,
+      membershipGeneration,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, generation: number) => ({
+      ...evt(seq, type, { messageId: 'shared-id' }),
+      seatId,
+      symposiumProvenance: provenance(seatId, generation),
+    });
+    const transcript = replayEventsToTranscript([
+      seat(1, 'message_start', 'architect', 1),
+      seat(2, 'message_start', 'reviewer', 1),
+      seat(3, 'message_end', 'architect', 1),
+      seat(4, 'message_start', 'architect', 2),
+    ]);
+    expect(
+      transcript.currents.map((current) => [
+        current.symposiumProvenance?.seatId,
+        current.symposiumProvenance?.membershipGeneration,
+        current.messageId,
+      ]),
+    ).toEqual([
+      ['reviewer', 1, 'shared-id'],
+      ['architect', 2, 'shared-id'],
+    ]);
+  });
+
+  it('keeps the original seat revision after later configuration changes', () => {
+    const provenance = (configRevision: number) => ({
+      seatId: 'reviewer',
+      configRevision,
+      accountProfileRevision: `account-${configRevision}`,
+      seatProfileRevision: `profile-${configRevision}`,
+      contextGrantRevision: configRevision,
+      authorityGrantRevision: configRevision,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (
+      seq: number,
+      type: string,
+      revision: number,
+      payload: Record<string, unknown>,
+    ) => ({
+      ...evt(seq, type, payload),
+      seatId: 'reviewer',
+      symposiumProvenance: provenance(revision),
+    });
+    const restored = replayEventsToTranscript([
+      seat(1, 'message_start', 1, { messageId: 'old' }),
+      seat(2, 'block_start', 1, { messageId: 'old', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'block_delta', 1, { messageId: 'old', blockId: 'b0', delta: 'old answer' }),
+      seat(4, 'message_end', 1, { messageId: 'old' }),
+      seat(5, 'message_start', 2, { messageId: 'new' }),
+    ]);
+    expect(restored.messages[0].symposiumProvenance).toMatchObject({
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+    });
+    expect(restored.currents[0].symposiumProvenance).toMatchObject({
+      configRevision: 2,
+      accountProfileRevision: 'account-2',
+    });
+  });
+
   it('keeps open text, thinking and tool blocks typed and out of finished history', () => {
     const events = [
       evt(1, 'user_message', { messageId: 'u1', text: 'Inspect this' }),

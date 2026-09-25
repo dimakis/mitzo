@@ -24,6 +24,8 @@ import {
   SessionSuspendMessage,
   SessionCloseMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
 } from '@mitzo/protocol';
 import type { V2HandlerContext } from './ws-handler-v2.js';
 import {
@@ -506,6 +508,31 @@ export function createChatRestRouter(
       log.error('POST /chat/reconnect failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
+  });
+
+  router.post('/reconnect-snapshot-applied', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(ReconnectSnapshotAppliedMessage, req.body, res);
+    if (!msg) return;
+    res.json({
+      applied: ctx.connRegistry.ackAppliedSnapshot(
+        connectionId,
+        msg.sessionId,
+        msg.cursor,
+        msg.offerId,
+      ),
+    });
+  });
+
+  router.post('/session-event-applied', (req, res) => {
+    const connectionId = getConnectionId(req, res);
+    if (!connectionId) return;
+    if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
+    const msg = validateBody(SessionEventAppliedMessage, req.body, res);
+    if (!msg) return;
+    res.json({ applied: ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq) });
   });
 
   return router;

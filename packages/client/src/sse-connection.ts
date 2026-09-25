@@ -16,6 +16,7 @@
 import { SendOutbox } from './send-outbox.js';
 import type { ConnectionListener } from './connection.js';
 import type { ChatConnection } from './chat-connection.js';
+import { AppliedDelivery } from './applied-delivery.js';
 
 export interface SseConnectionConfig {
   /** Base URL for API endpoints (e.g. "https://host:3100"). No trailing slash. */
@@ -33,6 +34,7 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
+const APPLIED_ACK_TIMEOUT_MS = 10_000;
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
@@ -54,6 +56,26 @@ export class SseConnection implements ChatConnection {
   private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
   /** Events applied while a transcript restore is unacknowledged. */
   private unacknowledgedSeq = new Map<string, Set<number>>();
+  private appliedAckChain: Promise<unknown> = Promise.resolve();
+  private appliedDelivery = new AppliedDelivery({
+    getCursor: (sessionId) => this.getLastSeq(sessionId),
+    setCursor: (sessionId, seq) => this.seqBySession.set(sessionId, seq),
+    deliver: (event) => this.listener?.(event),
+    ackEvent: (sessionId, seq) =>
+      this.sendAppliedAck('session-event-applied', {
+        type: 'session_event_applied',
+        sessionId,
+        seq,
+      }),
+    ackSnapshot: (sessionId, cursor, offerId) =>
+      this.sendSnapshotAck({
+        type: 'reconnect_snapshot_applied',
+        sessionId,
+        cursor,
+        offerId,
+      }),
+    resync: () => this.checkAndReconnect(true),
+  });
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
@@ -107,6 +129,7 @@ export class SseConnection implements ChatConnection {
 
   disconnect(): void {
     this.foregroundProbe?.cancel();
+    this.appliedDelivery.clearPending();
     this.outbox.stop();
     this.clearPendingSends();
     this.removeBrowserListeners();
@@ -119,6 +142,8 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     this._connected = false;
+    this._connectionId = null;
+    this.appliedAckChain = Promise.resolve();
   }
 
   blockAuthentication(): void {
@@ -186,16 +211,26 @@ export class SseConnection implements ChatConnection {
     this.seqBySession.set(sessionId, seq);
   }
 
+  commitTranscriptCursor(sessionId: string, cursor: number): void {
+    this.appliedDelivery.commitTranscript(sessionId, cursor);
+  }
+
   getLastSeq(sessionId: string): number {
     return this.seqBySession.get(sessionId) ?? 0;
   }
 
-  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void {
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number, offerId?: string): void {
+    if (offerId) {
+      if (this._connectionId)
+        this.appliedDelivery.acknowledgeSnapshot(sessionId, cursor, offerId, this._connectionId);
+      return;
+    }
     const pending = this.pendingSnapshots.get(sessionId);
     if (!pending || pending.cursor !== cursor) return;
     this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
     this.pendingSnapshots.delete(sessionId);
     this.unacknowledgedSeq.delete(sessionId);
+    this.appliedDelivery.clearSession(sessionId);
   }
 
   clearSession(sessionId: string): void {
@@ -204,6 +239,70 @@ export class SseConnection implements ChatConnection {
     this.replaySeenSeq.delete(sessionId);
     this.pendingSnapshots.delete(sessionId);
     this.unacknowledgedSeq.delete(sessionId);
+    this.appliedDelivery.clearSession(sessionId);
+  }
+
+  private sendAppliedAck(endpoint: string, body: Record<string, unknown>): void {
+    const connectionId = this._connectionId;
+    if (!connectionId) return;
+    this.appliedAckChain = this.appliedAckChain
+      .then(async () => {
+        if (this._connectionId !== connectionId) return;
+        const response = await this.postAppliedAck(endpoint, body, connectionId);
+        if (!response.ok) throw new Error('Applied event acknowledgement failed');
+      })
+      .catch(() => {
+        // A failed ACK leaves the server cursor behind. Reconnect advertises
+        // the locally applied cursor and releases any later queued ACKs.
+        if (this._connectionId === connectionId) this.checkAndReconnect(true);
+      });
+  }
+
+  private sendSnapshotAck(body: Record<string, unknown>): Promise<boolean> {
+    const connectionId = this._connectionId;
+    if (!connectionId) return Promise.resolve(false);
+    const pending = this.appliedAckChain
+      .then(async () => {
+        if (this._connectionId !== connectionId) return false;
+        const response = await this.postAppliedAck(
+          'reconnect-snapshot-applied',
+          body,
+          connectionId,
+        );
+        if (!response.ok) return false;
+        const result = (await response.json()) as { applied?: unknown };
+        return result.applied === true && this._connectionId === connectionId;
+      })
+      .catch(() => false);
+    this.appliedAckChain = pending;
+    return pending;
+  }
+
+  private async postAppliedAck(
+    endpoint: string,
+    body: Record<string, unknown>,
+    connectionId: string,
+  ): Promise<Response> {
+    const abort = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+          method: 'POST',
+          signal: abort.signal,
+          headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
+          body: JSON.stringify(body),
+        }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            abort.abort();
+            reject(new Error('Applied acknowledgement timed out'));
+          }, APPLIED_ACK_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 
   // Navigation discards stale controls, not submitted prompts. Scope prevents
@@ -265,6 +364,8 @@ export class SseConnection implements ChatConnection {
       this.es = null;
     }
     const wasConnected = this._connected;
+    this._connectionId = null;
+    this.appliedAckChain = Promise.resolve();
     this._connected = false;
     if (wasConnected) {
       this.listener?.({ type: '_close' });
@@ -303,6 +404,9 @@ export class SseConnection implements ChatConnection {
       }
 
       this._connectionId = msg.connectionId as string;
+      // An unresponsive ACK from the previous transport must not fence this one.
+      this.appliedAckChain = Promise.resolve();
+      this.appliedDelivery.clearPending();
 
       // Control messages wait for replay readiness. Prompt delivery uses
       // its independent HTTP outbox and never waits for this handshake.
@@ -344,6 +448,38 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
+      if (
+        msg.type === 'session_reconnect_snapshot' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.offerId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        this._connectionId
+      ) {
+        this.replayingSessions.delete(msg.sessionId);
+        this.replaySeenSeq.delete(msg.sessionId);
+        this.appliedDelivery.offerSnapshot(
+          msg.sessionId,
+          msg.cursor,
+          msg.offerId,
+          this._connectionId,
+        );
+        try {
+          if (this.listener?.(msg) === false) this.checkAndReconnect(true);
+        } catch {
+          this.checkAndReconnect(true);
+        }
+        return;
+      }
+      if (msg.type === 'session_reconnect_snapshot' && typeof msg.sessionId === 'string')
+        this.appliedDelivery.releaseReplay(msg.sessionId);
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.replayingSessions.has(msg.sessionId) &&
+        typeof msg.prevSessionSeq === 'number'
+      )
+        this.appliedDelivery.holdReplay(msg.sessionId);
+      if (this.appliedDelivery.receive(msg)) return;
+
       const sequencedSessionId =
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
@@ -369,7 +505,23 @@ export class SseConnection implements ChatConnection {
           cursor: msg.cursor,
           afterSeq: seen > msg.cursor ? seen : 0,
         });
-      } else if (sequencedSessionId) {
+      }
+
+      if (duplicate) return;
+      try {
+        if (this.listener?.(msg) === false) {
+          this.checkAndReconnect(true);
+          return;
+        }
+      } catch {
+        this.checkAndReconnect(true);
+        return;
+      }
+
+      // Legacy unchained envelopes retain their historical void-listener
+      // compatibility, but an explicit reducer refusal must not move any
+      // delivery or replay cursor.
+      if (sequencedSessionId) {
         if (this.replayingSessions.has(sequencedSessionId)) {
           this.replaySeenSeq.set(
             sequencedSessionId,
@@ -385,9 +537,6 @@ export class SseConnection implements ChatConnection {
             );
         }
       }
-
-      if (duplicate) return;
-      this.listener?.(msg);
       if (applied && sequencedSessionId) applied.add(msg.seq as number);
     };
 
@@ -423,6 +572,7 @@ export class SseConnection implements ChatConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.appliedDelivery.clearPending();
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -475,6 +625,7 @@ export class SseConnection implements ChatConnection {
           },
           body: JSON.stringify({
             type: 'reconnect',
+            supportsAppliedCursor: true,
             sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
               sessionId,
               lastSeq,

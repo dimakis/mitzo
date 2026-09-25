@@ -82,6 +82,8 @@ export { getRawInput, summarizeToolInput } from './tool-summary.js';
 // Language detection
 export { languageFromPath } from './language.js';
 
+export { storedEventToClientMessage } from './stored-event-wire.js';
+
 // Content blocks
 export {
   extractToolResultText,
@@ -108,6 +110,8 @@ export {
 export {
   HelloMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,

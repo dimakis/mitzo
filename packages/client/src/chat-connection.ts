@@ -27,10 +27,12 @@ export interface ChatConnection {
   getConnectionId(): string | null;
   /** Track the latest received seq for a session (for reconnect replay). */
   trackSeq(sessionId: string, seq: number): void;
+  /** Commit a freshly installed REST transcript and deliver any buffered successor. */
+  commitTranscriptCursor(sessionId: string, cursor: number): void;
   /** Get the last received seq for a session (0 if untracked). */
   getLastSeq(sessionId: string): number;
   /** Commit a reconnect boundary after its state and transcript have been applied. */
-  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void;
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number, offerId?: string): void;
   /** Stop tracking a session (e.g. after close). */
   clearSession(sessionId: string): void;
   /** Drain the pending-send queue. */

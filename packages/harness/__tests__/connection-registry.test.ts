@@ -297,6 +297,85 @@ describe('ConnectionRegistry', () => {
     });
   });
 
+  describe('applied delivery', () => {
+    it('retries a sent event until its session predecessor is acknowledged', async () => {
+      vi.useFakeTimers();
+      const transport = mockTransport();
+      const events = [
+        { seq: 5, payload: { type: 'block_delta', sessionId: 'sess-a', delta: 'a' } },
+        { seq: 9, payload: { type: 'block_delta', sessionId: 'sess-a', delta: 'b' } },
+      ];
+      registry.setEventStore({
+        ...mockEventStore(events),
+        getSessionPredecessorSeq: (_sessionId, seq) => (seq === 5 ? 0 : 5),
+        isSessionActive: () => false,
+      });
+      registry.register('conn-1', transport);
+      registry.watch('conn-1', 'sess-a');
+      registry.enableAppliedCursor('conn-1', 'sess-a', 0);
+      registry.broadcast('sess-a', { ...events[0].payload, seq: 5 });
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({ seq: 5, prevSessionSeq: 0 }),
+      );
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 9)).toBe(false);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 5)).toBe(true);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(registry.ackAppliedEvent('conn-1', 'sess-a', 9)).toBe(true);
+      registry.stopPeriodicSync();
+      vi.useRealTimers();
+    });
+
+    it('accepts only the current snapshot offer for its connection and exact cursor', () => {
+      registry.register('conn-1', mockTransport());
+      registry.register('conn-2', mockTransport());
+      registry.watch('conn-1', 'sess-a');
+      registry.watch('conn-2', 'sess-a');
+      registry.enableAppliedCursor('conn-1', 'sess-a', 3);
+      registry.offerSnapshot('conn-1', 'sess-a', 7, 'old');
+      registry.offerSnapshot('conn-1', 'sess-a', 8, 'new');
+      expect(registry.ackAppliedSnapshot('conn-2', 'sess-a', 8, 'new')).toBe(false);
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 7, 'old')).toBe(false);
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 7, 'new')).toBe(false);
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(true);
+      expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(false);
+    });
+
+    it('withholds live and periodic backlog until the snapshot offer is confirmed', async () => {
+      vi.useFakeTimers();
+      try {
+        const transport = mockTransport();
+        const store = mockEventStore([
+          { seq: 1, payload: { type: 'block_delta', delta: 'old' } },
+          { seq: 2, payload: { type: 'block_delta', delta: 'snapshot' } },
+          { seq: 3, payload: { type: 'block_delta', delta: 'new' } },
+        ]);
+        registry.setEventStore(store);
+        registry.register('conn-1', transport);
+        registry.watch('conn-1', 'sess-a');
+        registry.enableAppliedCursor('conn-1', 'sess-a', 0);
+        registry.offerSnapshot('conn-1', 'sess-a', 2, 'offer-1');
+        registry.broadcast('sess-a', { type: 'block_delta', seq: 3, delta: 'new' });
+        registry.startPeriodicSync();
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(transport.send).not.toHaveBeenCalled();
+        expect(store.getEventsAfter).not.toHaveBeenCalled();
+
+        expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 2, 'offer-1')).toBe(true);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(store.getEventsAfter).toHaveBeenCalledWith('sess-a', 2, 50);
+        expect(transport.send).toHaveBeenCalledTimes(1);
+        expect(transport.send).toHaveBeenCalledWith(
+          expect.objectContaining({ seq: 3, delta: 'new' }),
+        );
+      } finally {
+        registry.stopPeriodicSync();
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('periodic sync', () => {
     afterEach(() => {
       vi.useRealTimers();
@@ -324,10 +403,60 @@ describe('ConnectionRegistry', () => {
       // Should fetch events > 0 from store and deliver them
       expect(store.getEventsAfter).toHaveBeenCalledWith('sess-a', 0, 50);
       expect(t.send).toHaveBeenCalledTimes(3);
-      expect(t.send).toHaveBeenCalledWith({ type: 'msg1', data: 'a', seq: 5 });
-      expect(t.send).toHaveBeenCalledWith({ type: 'msg2', data: 'b', seq: 10 });
-      expect(t.send).toHaveBeenCalledWith({ type: 'msg3', data: 'c', seq: 15 });
+      expect(t.send).toHaveBeenCalledWith({ type: 'msg1', data: 'a', seq: 5, sessionId: 'sess-a' });
+      expect(t.send).toHaveBeenCalledWith({
+        type: 'msg2',
+        data: 'b',
+        seq: 10,
+        sessionId: 'sess-a',
+      });
+      expect(t.send).toHaveBeenCalledWith({
+        type: 'msg3',
+        data: 'c',
+        seq: 15,
+        sessionId: 'sess-a',
+      });
 
+      registry.stopPeriodicSync();
+    });
+
+    it('retries a seat event with its durable provenance despite a spoofed payload', async () => {
+      vi.useFakeTimers();
+      const transport = mockTransport(true);
+      const provenance = {
+        seatId: 'reviewer',
+        configRevision: 1,
+        accountProfileRevision: 'a',
+        seatProfileRevision: 'p',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'work',
+        isolationDomainRevision: 1,
+      };
+      registry.setEventStore({
+        getSessionPredecessorSeq: () => 2,
+        getEventsAfter: () => [
+          {
+            seq: 5,
+            payload: { type: 'block_delta', seatId: 'spoofed', blockId: 'b0' },
+            seatId: 'reviewer',
+            symposiumProvenance: provenance,
+          },
+        ],
+      });
+      registry.register('conn-1', transport);
+      registry.watch('conn-1', 'sess-a');
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'block_delta',
+        blockId: 'b0',
+        seq: 5,
+        sessionId: 'sess-a',
+        prevSessionSeq: 2,
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      });
       registry.stopPeriodicSync();
     });
 

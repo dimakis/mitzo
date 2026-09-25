@@ -22,6 +22,79 @@ function makeCallbacks(overrides?: Partial<ProtocolCallbacks>): ProtocolCallback
 
 const POOL_KEY = 'session:test';
 
+describe('attributed progress', () => {
+  const provenance = {
+    seatId: 'reviewer',
+    configRevision: 1,
+    accountProfileRevision: 'a',
+    seatProfileRevision: 'p',
+    contextGrantRevision: 1,
+    authorityGrantRevision: 1,
+    isolationDomainId: 'shared',
+    isolationDomainRevision: 1,
+    membershipGeneration: 2,
+  };
+  it('carries durable seat provenance into progress indexing', () => {
+    const parsed = parseServerMessage(
+      {
+        type: 'progress_start',
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+        messageId: 'turn-1',
+        progressId: 'progress-1',
+        sourceToolId: 'todo',
+        items: [],
+      } as never,
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(parsed.progressUpdate).toMatchObject({
+      type: 'start',
+      messageId: 'turn-1',
+      symposiumProvenance: provenance,
+    });
+  });
+  it.each(['progress_update', 'progress_replace'] as const)(
+    'keeps seat provenance on %s',
+    (type) => {
+      const parsed = parseServerMessage(
+        {
+          type,
+          seatId: 'reviewer',
+          symposiumProvenance: provenance,
+          progressId: 'progress-1',
+          itemId: 'task',
+          status: 'done',
+          items: [],
+        } as never,
+        makeState(),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      expect(parsed.progressUpdate).toMatchObject({ symposiumProvenance: provenance });
+    },
+  );
+  it('refuses mismatched attributed progress rather than assigning it to another seat', () => {
+    const parsed = parseServerMessage(
+      {
+        type: 'progress_start',
+        seatId: 'architect',
+        symposiumProvenance: provenance,
+        messageId: 'turn-1',
+        progressId: 'progress-1',
+        sourceToolId: 'todo',
+        items: [],
+      } as never,
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(parsed.resyncRequired).toBe(true);
+    expect(parsed.progressUpdate).toBeUndefined();
+  });
+});
+
 // ─── Lifecycle events ─────────────────────────────────────────────────────────
 
 describe('pool lifecycle events', () => {
@@ -714,7 +787,7 @@ describe('reconnected', () => {
       type: 'PERMISSION_SNAPSHOT',
       permissions: [{ permId: 'perm-1', toolName: 'Bash', toolInput: '{}', sessionId: 'sid-1' }],
     });
-    expect(onReconnectSnapshot).toHaveBeenCalledWith('sid-1', 42, true);
+    expect(onReconnectSnapshot).toHaveBeenCalledWith('sid-1', 42, true, undefined);
   });
 });
 

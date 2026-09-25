@@ -213,6 +213,171 @@ describe('MitzoConnection', () => {
   });
 
   describe('reconnect', () => {
+    it('does not advance an unchained cursor when the reducer refuses the event', () => {
+      const conn = createConnection();
+      conn.onMessage((msg) => (msg.type === 'block_delta' ? false : true));
+      conn.trackSeq('s1', 2);
+      const ws = openWithHandshake(conn);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, delta: 'bad' });
+      expect(conn.getLastSeq('s1')).toBe(2);
+      expect(lastWs).not.toBe(ws);
+    });
+
+    it('resyncs instead of acknowledging a refused snapshot offer', () => {
+      const conn = createConnection();
+      conn.onMessage((msg) => (msg.type === 'session_reconnect_snapshot' ? false : true));
+      conn.trackSeq('s1', 5);
+      const first = openWithHandshake(conn);
+      first.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 8,
+        offerId: 'offer-refused',
+        state: 'running',
+      });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      expect(
+        first.send.mock.calls
+          .map(([payload]) => JSON.parse(payload))
+          .filter((msg) => msg.type === 'reconnect_snapshot_applied'),
+      ).toEqual([]);
+      expect(lastWs).not.toBe(first);
+    });
+
+    it('ignores a callback captured from a replaced socket', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => true);
+      conn.trackSeq('s1', 5);
+      const first = openWithHandshake(conn);
+      const staleMessage = first.onmessage!;
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const second = lastWs!;
+      second.simulateOpen();
+      second.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      second.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'offer-new',
+        state: 'running',
+      });
+      conn.acknowledgeReconnectSnapshot('s1', 5, 'offer-new');
+      staleMessage({
+        data: JSON.stringify({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 }),
+      });
+      staleMessage({ data: JSON.stringify({ type: 'block_delta', sessionId: 's1', seq: 10 }) });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      expect(
+        second.send.mock.calls
+          .map(([payload]) => JSON.parse(payload))
+          .filter((msg) => msg.type === 'session_event_applied'),
+      ).toEqual([]);
+      vi.useRealTimers();
+    });
+
+    it('does not acknowledge a negotiated event without an authoritative applied callback', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.trackSeq('s1', 2);
+      const first = openWithHandshake(conn);
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const ws = lastWs!;
+      ws.simulateOpen();
+      ws.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      ws.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'offer-1',
+        state: 'running',
+      });
+      conn.acknowledgeReconnectSnapshot('s1', 5, 'offer-1');
+      ws.simulateMessage({
+        type: 'reconnect_snapshot_confirmed',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: 'offer-1',
+      });
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      expect(
+        ws.send.mock.calls
+          .map(([payload]) => JSON.parse(payload))
+          .filter((msg) => msg.type === 'session_event_applied'),
+      ).toEqual([]);
+      conn.onMessage(() => true);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
+      expect(conn.getLastSeq('s1')).toBe(9);
+      expect(ws.send.mock.calls.map(([payload]) => JSON.parse(payload))).toContainEqual({
+        type: 'session_event_applied',
+        sessionId: 's1',
+        seq: 9,
+      });
+      vi.useRealTimers();
+    });
+
+    it('waits for a fenced snapshot then applies interleaved session sequences in order', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: number[] = [];
+      conn.onMessage((msg) => {
+        if (typeof msg.seq === 'number') received.push(msg.seq);
+        return true;
+      });
+      conn.trackSeq('s1', 2);
+      const first = openWithHandshake(conn);
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const ws = lastWs!;
+      ws.simulateOpen();
+      ws.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'reconnect',
+          supportsAppliedCursor: true,
+          sessions: [{ sessionId: 's1', lastSeq: 2 }],
+        }),
+      );
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 5, prevSessionSeq: 2 });
+      ws.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7',
+        state: 'running',
+      });
+      expect(received).toEqual([]);
+      expect(conn.getLastSeq('s1')).toBe(2);
+      conn.acknowledgeReconnectSnapshot('s1', 5, '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7');
+      expect(conn.getLastSeq('s1')).toBe(2);
+      ws.simulateMessage({
+        type: 'reconnect_snapshot_confirmed',
+        sessionId: 's1',
+        cursor: 5,
+        offerId: '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7',
+      });
+      expect(conn.getLastSeq('s1')).toBe(5);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 12, prevSessionSeq: 9 });
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 12, prevSessionSeq: 9 });
+      expect(received).toEqual([9, 12]);
+      expect(conn.getLastSeq('s1')).toBe(12);
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({
+          type: 'reconnect_snapshot_applied',
+          sessionId: 's1',
+          cursor: 5,
+          offerId: '6a29cf2e-f8bb-4ec2-8f39-914ddc6053c7',
+        }),
+      );
+      expect(ws.send).toHaveBeenCalledWith(
+        JSON.stringify({ type: 'session_event_applied', sessionId: 's1', seq: 12 }),
+      );
+      vi.useRealTimers();
+    });
     it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
       vi.useFakeTimers();
       const conn = createConnection();
@@ -349,6 +514,19 @@ describe('MitzoConnection', () => {
   });
 
   describe('disconnect', () => {
+    it('cancels a predecessor-gap retry after explicit disconnect', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => true);
+      conn.trackSeq('s1', 2);
+      const ws = openWithHandshake(conn);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
+      conn.disconnect();
+      vi.advanceTimersByTime(15_000);
+      expect(lastWs).toBe(ws);
+      vi.useRealTimers();
+    });
+
     it('closes the WS and clears reconnect timer', () => {
       vi.useFakeTimers();
       const conn = createConnection();

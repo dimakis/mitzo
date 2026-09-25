@@ -8,6 +8,7 @@
 
 import type { WebSocketLike } from './ws-connection.js';
 import { WS_READY_STATE } from './types.js';
+import { AppliedDelivery } from './applied-delivery.js';
 
 export interface MitzoConnectionConfig {
   buildUrl(): string;
@@ -19,7 +20,8 @@ export interface MitzoConnectionConfig {
   suspendUrl?: string;
 }
 
-export type ConnectionListener = (msg: Record<string, unknown>) => void;
+/** `false` means the event was refused and its durable cursor must not be acknowledged. */
+export type ConnectionListener = (msg: Record<string, unknown>) => boolean | void;
 
 const MAX_PENDING_SENDS = 100;
 const HEARTBEAT_INTERVAL_MS = 5_000;
@@ -36,6 +38,16 @@ export class MitzoConnection {
   private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
   /** Events applied while a transcript restore is unacknowledged. */
   private unacknowledgedSeq = new Map<string, Set<number>>();
+  private appliedDelivery = new AppliedDelivery({
+    getCursor: (sessionId) => this.getLastSeq(sessionId),
+    setCursor: (sessionId, seq) => this.seqBySession.set(sessionId, seq),
+    deliver: (event) => this.listener?.(event),
+    ackEvent: (sessionId, seq) =>
+      this.sendAppliedAck({ type: 'session_event_applied', sessionId, seq }),
+    ackSnapshot: (sessionId, cursor, offerId) =>
+      this.sendAppliedAck({ type: 'reconnect_snapshot_applied', sessionId, cursor, offerId }),
+    resync: () => this.checkAndReconnect(true),
+  });
   private pendingSends: string[] = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -65,6 +77,7 @@ export class MitzoConnection {
   disconnect(): void {
     this.authCheckGeneration++;
     this.authCheckInFlight = false;
+    this.appliedDelivery.clearPending();
     this.stopHeartbeat();
     this.removeBrowserListeners();
     if (this.reconnectTimer) {
@@ -131,16 +144,26 @@ export class MitzoConnection {
     this.seqBySession.set(sessionId, seq);
   }
 
+  commitTranscriptCursor(sessionId: string, cursor: number): void {
+    this.appliedDelivery.commitTranscript(sessionId, cursor);
+  }
+
   getLastSeq(sessionId: string): number {
     return this.seqBySession.get(sessionId) ?? 0;
   }
 
-  acknowledgeReconnectSnapshot(sessionId: string, cursor: number): void {
+  acknowledgeReconnectSnapshot(sessionId: string, cursor: number, offerId?: string): void {
+    if (offerId) {
+      if (this._connectionId)
+        this.appliedDelivery.acknowledgeSnapshot(sessionId, cursor, offerId, this._connectionId);
+      return;
+    }
     const pending = this.pendingSnapshots.get(sessionId);
     if (!pending || pending.cursor !== cursor) return;
     this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
     this.pendingSnapshots.delete(sessionId);
     this.unacknowledgedSeq.delete(sessionId);
+    this.appliedDelivery.clearSession(sessionId);
   }
 
   clearSession(sessionId: string): void {
@@ -149,6 +172,17 @@ export class MitzoConnection {
     this.replaySeenSeq.delete(sessionId);
     this.pendingSnapshots.delete(sessionId);
     this.unacknowledgedSeq.delete(sessionId);
+    this.appliedDelivery.clearSession(sessionId);
+  }
+
+  private sendAppliedAck(message: Record<string, unknown>): void {
+    if (this._connected && this.ws?.readyState === WS_READY_STATE.OPEN) {
+      try {
+        this.ws.send(JSON.stringify(message));
+      } catch {
+        // Reconnect advertises the last locally applied cursor if this ack is lost.
+      }
+    }
   }
 
   /** Drain the pending-send queue (e.g. on session switch to avoid cross-session message leaks). */
@@ -280,10 +314,12 @@ export class MitzoConnection {
     this.ws = ws;
 
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       ws.send(JSON.stringify({ type: 'hello', protocolVersion: 2 }));
     };
 
     ws.onmessage = (e: { data: string }) => {
+      if (this.ws !== ws) return;
       let msg: Record<string, unknown>;
       try {
         msg = JSON.parse(e.data);
@@ -294,6 +330,7 @@ export class MitzoConnection {
       if (msg.type === 'welcome') {
         this._connectionId = msg.connectionId as string;
         this._connected = true;
+        this.appliedDelivery.clearPending();
 
         if (this._isReconnect && this.seqBySession.size > 0) {
           const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
@@ -307,7 +344,7 @@ export class MitzoConnection {
             if (!this.unacknowledgedSeq.has(sessionId))
               this.unacknowledgedSeq.set(sessionId, new Set());
           }
-          ws.send(JSON.stringify({ type: 'reconnect', sessions }));
+          ws.send(JSON.stringify({ type: 'reconnect', supportsAppliedCursor: true, sessions }));
         }
         this._isReconnect = true;
 
@@ -315,6 +352,54 @@ export class MitzoConnection {
         this.listener?.({ type: '_open' });
         return;
       }
+
+      if (
+        msg.type === 'reconnect_snapshot_confirmed' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        typeof msg.offerId === 'string' &&
+        this._connectionId
+      ) {
+        this.appliedDelivery.confirmSnapshot(
+          msg.sessionId,
+          msg.cursor,
+          msg.offerId,
+          this._connectionId,
+        );
+        return;
+      }
+
+      if (
+        msg.type === 'session_reconnect_snapshot' &&
+        typeof msg.sessionId === 'string' &&
+        typeof msg.offerId === 'string' &&
+        typeof msg.cursor === 'number' &&
+        this._connectionId
+      ) {
+        this.replayingSessions.delete(msg.sessionId);
+        this.replaySeenSeq.delete(msg.sessionId);
+        this.appliedDelivery.offerSnapshot(
+          msg.sessionId,
+          msg.cursor,
+          msg.offerId,
+          this._connectionId,
+        );
+        try {
+          if (this.listener?.(msg) === false) this.checkAndReconnect(true);
+        } catch {
+          this.checkAndReconnect(true);
+        }
+        return;
+      }
+      if (msg.type === 'session_reconnect_snapshot' && typeof msg.sessionId === 'string')
+        this.appliedDelivery.releaseReplay(msg.sessionId);
+      if (
+        typeof msg.sessionId === 'string' &&
+        this.replayingSessions.has(msg.sessionId) &&
+        typeof msg.prevSessionSeq === 'number'
+      )
+        this.appliedDelivery.holdReplay(msg.sessionId);
+      if (this.appliedDelivery.receive(msg)) return;
 
       const sequencedSessionId =
         typeof msg.seq === 'number' &&
@@ -341,7 +426,23 @@ export class MitzoConnection {
           cursor: msg.cursor,
           afterSeq: seen > msg.cursor ? seen : 0,
         });
-      } else if (sequencedSessionId) {
+      }
+
+      if (duplicate) return;
+      try {
+        if (this.listener?.(msg) === false) {
+          this.checkAndReconnect(true);
+          return;
+        }
+      } catch {
+        this.checkAndReconnect(true);
+        return;
+      }
+
+      // Legacy unchained envelopes retain their historical void-listener
+      // compatibility, but an explicit reducer refusal must not move any
+      // delivery or replay cursor.
+      if (sequencedSessionId) {
         if (this.replayingSessions.has(sequencedSessionId)) {
           this.replaySeenSeq.set(
             sequencedSessionId,
@@ -357,13 +458,11 @@ export class MitzoConnection {
             );
         }
       }
-
-      if (duplicate) return;
-      this.listener?.(msg);
       if (applied && sequencedSessionId) applied.add(msg.seq as number);
     };
 
     ws.onclose = (event) => {
+      if (this.ws !== ws) return;
       this.ws = null;
       this._connected = false;
       if (event?.code === 4401) {
@@ -382,6 +481,7 @@ export class MitzoConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.appliedDelivery.clearPending();
     this.authCheckGeneration++;
     this.authCheckInFlight = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

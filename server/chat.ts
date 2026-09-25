@@ -159,8 +159,8 @@ import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
-import type { ProviderAttemptToken } from '@mitzo/protocol';
-import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
+import type { ProviderAttemptToken, SymposiumProvenance } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt, SymposiumProvenanceSchema } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -1839,6 +1839,7 @@ function storeAndEchoIfNew(
     text,
     sessionId,
     seq,
+    prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
   };
@@ -3078,6 +3079,7 @@ export async function discoverSession(
 
 export interface RestoredMessage {
   messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
   role: string;
   timestamp?: number;
   startedSeq?: number;
@@ -3108,6 +3110,7 @@ export interface RestoredSubagentState {
 
 export interface RestoredCurrentMessage {
   messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
 }
@@ -3206,7 +3209,7 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
 }
 
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
-export function replayEventsToTranscript(
+function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
@@ -3220,11 +3223,60 @@ export function replayEventsToTranscript(
     index: number;
     blocks: Map<string, ReplayBlock>;
   } | null = null;
+  // Tool IDs can be reused by later turns. Bind each result to the exact
+  // message/block occurrence in event order, including legacy results that
+  // omitted messageId after another turn started.
   const toolResults = new Map<string, Record<string, unknown>>();
+  const pendingResults = new Map<string, Array<Record<string, unknown>>>();
+  const pendingBlocks = new Map<string, string[]>();
+  const toolOwners = new Map<string, Set<string>>();
+  let activeMessageId: string | null = null;
   for (const event of events) {
-    if (event.type === 'tool_result' && typeof event.payload.toolId === 'string')
-      toolResults.set(event.payload.toolId, event.payload);
+    const p = event.payload;
+    if (event.type === 'message_start' && typeof p.messageId === 'string')
+      activeMessageId = p.messageId;
+    if (event.type === 'tool_result' && typeof p.toolId === 'string') {
+      let messageId = typeof p.messageId === 'string' ? p.messageId : null;
+      if (!messageId) {
+        const owners = toolOwners.get(p.toolId);
+        if (owners && owners.size > 1)
+          throw new Error('Ambiguous or unattributed late tool result in stored transcript');
+        messageId = owners?.size === 1 ? [...owners][0] : activeMessageId;
+      }
+      if (!messageId)
+        throw new Error('Ambiguous or unattributed late tool result in stored transcript');
+      const key = JSON.stringify([messageId, p.toolId]);
+      const waiting = pendingBlocks.get(key);
+      if (waiting?.length) toolResults.set(JSON.stringify([messageId, waiting.shift()]), p);
+      else pendingResults.set(key, [...(pendingResults.get(key) ?? []), p]);
+    }
+    if (
+      event.type === 'block_end' &&
+      typeof p.messageId === 'string' &&
+      typeof p.blockId === 'string' &&
+      typeof p.toolId === 'string'
+    ) {
+      const owners = toolOwners.get(p.toolId) ?? new Set<string>();
+      owners.add(p.messageId);
+      toolOwners.set(p.toolId, owners);
+      const key = JSON.stringify([p.messageId, p.toolId]);
+      const waiting = pendingResults.get(key);
+      if (waiting?.length)
+        toolResults.set(JSON.stringify([p.messageId, p.blockId]), waiting.shift()!);
+      else pendingBlocks.set(key, [...(pendingBlocks.get(key) ?? []), p.blockId]);
+    }
+    if (
+      (event.type === 'message_end' && p.messageId === activeMessageId) ||
+      event.type === 'session_end'
+    )
+      activeMessageId = null;
   }
+  if (
+    [...pendingResults.values()].some((results) =>
+      results.some((result) => typeof result.messageId === 'string'),
+    )
+  )
+    throw new Error('Unmatched attributed tool result in stored transcript');
 
   // Legacy sessions persisted their first user prompt after message_start.
   // Keep that compatibility while ordering every subsequent event as stored.
@@ -3285,7 +3337,9 @@ export function replayEventsToTranscript(
   const materializeBlocks = (active: boolean) => {
     if (!turn) return [];
     return [...turn.blocks.values()].map((block) => {
-      const result = block.toolId ? toolResults.get(block.toolId) : undefined;
+      const result = block.toolId
+        ? toolResults.get(JSON.stringify([turn!.messageId, block.blockId]))
+        : undefined;
       const restored = {
         ...block,
         ...(result && typeof result.result === 'string' ? { toolResult: result.result } : {}),
@@ -3388,6 +3442,133 @@ export function replayEventsToTranscript(
   };
 }
 
+/** Restore each immutable seat stream independently so reused block IDs cannot cross seats. */
+export function replayEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): {
+  messages: RestoredMessage[];
+  current: RestoredCurrentMessage | null;
+  currents: RestoredCurrentMessage[];
+} {
+  const ordinary: typeof events = [];
+  const bySnapshot = new Map<string, { events: typeof events; provenance: SymposiumProvenance }>();
+  const globalTerminals: typeof events = [];
+  const openBySeat = new Map<
+    string,
+    { messageId: string; snapshotKey: string; blockIds: Set<string> }
+  >();
+  const completedTurns = new Set<string>();
+  for (const event of events) {
+    if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+      if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
+        throw new Error('Stored event has unverifiable Symposium attribution');
+      ordinary.push(event);
+      if (event.type === 'session_end') {
+        globalTerminals.push(event);
+        for (const active of openBySeat.values())
+          completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
+        openBySeat.clear();
+      }
+      continue;
+    }
+    const parsed = SymposiumProvenanceSchema.safeParse(event.symposiumProvenance);
+    if (!parsed.success || event.seatId !== parsed.data.seatId)
+      throw new Error('Stored Symposium event has mismatched seat provenance');
+    // Schema parsing provides a stable field order for equivalent snapshots.
+    const key = JSON.stringify(parsed.data);
+    const seatGeneration = JSON.stringify([
+      parsed.data.seatId,
+      parsed.data.membershipGeneration ?? null,
+    ]);
+    const active = openBySeat.get(seatGeneration);
+    if (event.type === 'message_start') {
+      if (active) throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+      if (typeof event.payload.messageId !== 'string' || !event.payload.messageId)
+        throw new Error('Stored Symposium message_start has no message identity');
+      openBySeat.set(seatGeneration, {
+        messageId: event.payload.messageId,
+        snapshotKey: key,
+        blockIds: new Set(),
+      });
+    } else if (event.type === 'message_end') {
+      const terminalIdentity = JSON.stringify([key, event.payload.messageId]);
+      if (active && active.messageId === event.payload.messageId && active.snapshotKey === key) {
+        completedTurns.add(terminalIdentity);
+        openBySeat.delete(seatGeneration);
+      } else if (completedTurns.has(terminalIdentity)) {
+        // A delayed duplicate must not close or invalidate a newer active turn.
+        continue;
+      } else {
+        throw new Error('Stored Symposium message_end mismatches active seat turn');
+      }
+    } else if (event.type === 'session_end') {
+      if (active && active.snapshotKey !== key)
+        throw new Error('Stored Symposium terminal mismatches active seat snapshot');
+      if (active) completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
+      openBySeat.delete(seatGeneration);
+    } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
+      if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
+        throw new Error('Stored Symposium block mismatches active seat turn');
+      if (typeof event.payload.blockId !== 'string' || !event.payload.blockId)
+        throw new Error('Stored Symposium block has no identity');
+      if (event.type === 'block_start') active.blockIds.add(event.payload.blockId);
+      else if (!active.blockIds.has(event.payload.blockId))
+        throw new Error('Stored Symposium block has no matching start');
+    } else if (event.type.startsWith('subagent_')) {
+      if (
+        !active ||
+        active.snapshotKey !== key ||
+        typeof event.payload.parentBlockId !== 'string' ||
+        !active.blockIds.has(event.payload.parentBlockId)
+      )
+        throw new Error('Stored Symposium subagent mismatches active seat turn');
+    }
+    let stream = bySnapshot.get(key);
+    if (!stream) {
+      stream = { events: [], provenance: parsed.data };
+      bySnapshot.set(key, stream);
+    }
+    stream.events.push(event);
+  }
+
+  const base = replaySingleEventsToTranscript(ordinary, initialPrompt);
+  const messages = [...base.messages];
+  const currents: RestoredCurrentMessage[] = [];
+  const activeSeats = new Set<string>();
+  for (const { events: streamEvents, provenance } of bySnapshot.values()) {
+    const stream = replaySingleEventsToTranscript(
+      [...streamEvents, ...globalTerminals].sort((a, b) => a.seq - b.seq),
+    );
+    messages.push(
+      ...stream.messages.map((message) => ({ ...message, symposiumProvenance: provenance })),
+    );
+    if (!stream.current) continue;
+    const seatGeneration = JSON.stringify([
+      provenance.seatId,
+      provenance.membershipGeneration ?? null,
+    ]);
+    if (activeSeats.has(seatGeneration))
+      throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+    activeSeats.add(seatGeneration);
+    currents.push({ ...stream.current, symposiumProvenance: provenance });
+  }
+  messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  const ids = new Set<string>();
+  for (const message of [...messages, ...currents]) {
+    const id = JSON.stringify([
+      message.symposiumProvenance?.seatId ?? null,
+      message.symposiumProvenance?.membershipGeneration ?? null,
+      message.messageId,
+    ]);
+    if (ids.has(id))
+      throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
+    ids.add(id);
+  }
+  return { messages, current: base.current, currents };
+}
+
 /**
  * Replay v2 events from the event store into finished messages.
  *
@@ -3401,6 +3582,27 @@ export function replayEventsToMessages(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): RestoredMessage[] {
+  // Historical REST reads must use the same immutable seat partitioning as
+  // bounded reconnect. The legacy single-stream builder below cannot keep
+  // simultaneous turns or reused block IDs separate, and would omit their
+  // provenance from the response.
+  if (
+    events.some(
+      (event) =>
+        event.seatId !== undefined ||
+        event.symposiumProvenance !== undefined ||
+        'seatId' in event.payload ||
+        'symposiumProvenance' in event.payload,
+    )
+  ) {
+    const restored = replayEventsToTranscript(events, initialPrompt);
+    const partials = [restored.current, ...restored.currents]
+      .filter((current): current is RestoredCurrentMessage => current !== null)
+      .map((current): RestoredMessage => ({ ...current, role: 'assistant' }));
+    return [...restored.messages, ...partials].sort(
+      (a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1),
+    );
+  }
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
@@ -3604,6 +3806,18 @@ export function getReconnectTranscript(sessionId: string, throughSeq: number) {
   const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   const session = eventStore.getSession(sessionId);
   return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
+}
+
+/** Full durable transcript and its high-water mark for opening an active session. */
+export async function getSessionTranscript(sessionId: string) {
+  const events = eventStore.getSessionEvents(sessionId);
+  if (events.length === 0)
+    return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
+  const session = eventStore.getSession(sessionId);
+  return {
+    ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),
+    cursor: events[events.length - 1].seq,
+  };
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---

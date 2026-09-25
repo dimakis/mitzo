@@ -1578,6 +1578,16 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
+  getSessionPredecessorSeq(sessionId: string, seq: number): number {
+    if (!Number.isSafeInteger(seq) || seq < 0)
+      throw new Error('Event sequence must be a non-negative safe integer');
+    const row = this.db!.prepare(
+      'SELECT COALESCE(MAX(seq), 0) AS predecessor FROM events WHERE session_id = ? AND seq < ?',
+    ).get(sessionId, seq) as { predecessor: number };
+    return row.predecessor;
+  }
+
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
@@ -1744,7 +1754,7 @@ export class EventStore {
   }
 
   /** Capture aggregate state and its replay suffix in one SQLite read transaction. */
-  captureReconnectState(sessionId: string, afterSeq: number): ReconnectState {
+  captureReconnectState(sessionId: string, afterSeq: number, includeEvents = true): ReconnectState {
     if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
       throw new Error('Reconnect cursor must be a non-negative safe integer');
     }
@@ -1754,14 +1764,15 @@ export class EventStore {
       ).get(sessionId) as { cursor: number };
       const cursor = Number(highWater.cursor);
       const cursorValid = afterSeq <= cursor;
-      const events = cursorValid
-        ? (
-            this.db!.prepare(
-              `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+      const events =
+        cursorValid && includeEvents
+          ? (
+              this.db!.prepare(
+                `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
              FROM events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
-            ).all(sessionId, afterSeq, cursor) as EventRow[]
-          ).map(rowToEvent)
-        : [];
+              ).all(sessionId, afterSeq, cursor) as EventRow[]
+            ).map(rowToEvent)
+          : [];
       const sessionRow = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       const session = sessionRow ? rowToSession(sessionRow) : null;
       const providerAttempts =

@@ -154,13 +154,33 @@ silently presenting it as a live message. During upgrade, a still-live historica
 claim supplies its durable token to the matching executing attempt, so later
 revocation cannot erase the evidence needed to audit its result and cost. Its
 provenance stays unknown. A claim already revoked before upgrade has no provable
-token and is not reconstructed from current configuration. This is protocol and
-persistence groundwork only. Client
-demultiplexing of simultaneous seat streams and attributed ChatView rendering are
-still required before Phase 4 is complete.
+token and is not reconstructed from current configuration.
 
-Next, integrate provider execution and websocket controls (Phase 3), followed by
-seat-attributed rich rendering and controls in the existing ChatView (Phases 4–6).
+The client keeps simultaneous seat turns in a message-keyed map while ordinary
+chat retains its single current-turn adapter. It validates the stored seat
+envelope before applying events, routes tools and nested subagents within their
+seat, and refuses stale generations or conflicting snapshots for resync. The
+existing ChatArea merges active and finished turns by durable start sequence on
+mobile and desktop and renders v2 labels from each immutable snapshot. Legacy
+rows show the seat ID with unknown account/model; current configuration never
+relabels history. Event replay, REST event reads, and periodic sync project
+seat attribution from durable event columns rather than payload fields.
+
+The bounded REST reconnect transcript returns every active attributed seat turn
+with its original provenance and start sequence, alongside the ordinary current
+turn. Replay isolates seat streams so reused block IDs cannot cross seats. The
+client applies all durable seat snapshots before captured post-cursor actions;
+an ambiguous or mismatched transcript fails recovery without replacing visible
+history or acknowledging the cursor. The WebSocket and SSE transport advances
+its applied cursor only after the consumer accepts an event or the matching
+connection-scoped REST snapshot offer. Negotiated reconnect loads a bounded
+snapshot before replaying buffered live events. Missing consumers, refused
+events, stale offers, and buffer overflow trigger recovery without acknowledging
+unapplied state. Provider execution and directed-seat controls remain integration
+work.
+
+Next, integrate provider execution and websocket controls (Phase 3), complete
+seat-attributed controls in the existing ChatView (Phases 4–6).
 The old Phase 6 separate-session creation wording is superseded by add/remove seat
 within a chat. Review findings, delta review, profile catalog, context selection,
 and account/model selection need explicit coverage in those slices. Account/model
@@ -173,8 +193,11 @@ This clean implementation on current main replaces its foundation scope without
 bringing those changes forward. #446 is not a required stacked dependency. It has
 not been closed or modified by this change.
 
-No runtime, UI, model calls, or production deployment are included in this first
-slice. The Telos parent and later phases remain unfinished.
+The original foundation slice did not include runtime or UI integration. The
+current implementation includes concurrent transcript rendering and acknowledged
+reconnect transport. Shared provider execution, director controls, and reusable
+review workflows remain unfinished. No live model acceptance or production
+deployment has been performed for these changes; the Telos parent remains open.
 
 ## Portable profiles and artifact review services
 

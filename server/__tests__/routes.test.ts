@@ -26,6 +26,12 @@ vi.mock('../chat.js', () => {
     reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     getReconnectTranscript: vi.fn().mockReturnValue({ messages: [], current: null }),
+    getSessionTranscript: vi.fn().mockResolvedValue({
+      messages: [],
+      current: null,
+      currents: [{ messageId: 'seat-active', blocks: [], symposiumProvenance: { seatId: 'a' } }],
+      cursor: 7,
+    }),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
@@ -572,6 +578,16 @@ describe('session routes', () => {
       .get('/api/sessions/s1/messages?throughSeq=9007199254740993')
       .set('Cookie', authCookie);
     expect(invalid.status).toBe(400);
+  });
+
+  it('GET /api/sessions/:id/messages?transcript=1 preserves active seat turns', async () => {
+    const { getSessionTranscript } = await import('../chat.js');
+    const response = await request(app)
+      .get('/api/sessions/s1/messages?transcript=1')
+      .set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ cursor: 7, currents: [{ messageId: 'seat-active' }] });
+    expect(getSessionTranscript).toHaveBeenCalledWith('s1');
   });
 
   it('DELETE /api/sessions/:id — hides session', async () => {

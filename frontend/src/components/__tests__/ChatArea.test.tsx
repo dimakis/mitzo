@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
+import { progressToolLookupKey } from '@mitzo/client';
 
 // Mock child components to isolate ChatArea tests
 vi.mock('../MessageBubble', () => ({
@@ -33,7 +34,9 @@ vi.mock('../ToolGroup', () => ({
 }));
 
 vi.mock('../ProgressWidget', () => ({
-  ProgressWidget: () => <div data-testid="progress-widget" />,
+  ProgressWidget: ({ items }: { items: Array<{ title: string }> }) => (
+    <div data-testid="progress-widget">{items.map((item) => item.title).join(',')}</div>
+  ),
 }));
 
 vi.mock('../PermissionBanner', () => ({
@@ -45,6 +48,52 @@ vi.mock('../PermissionBanner', () => ({
 afterEach(() => cleanup());
 
 describe('ChatArea', () => {
+  it('keeps distinct seat generations mounted when provider message IDs collide', () => {
+    const provenance = (seatId: string, membershipGeneration: number) => ({
+      seatId,
+      membershipGeneration,
+      configRevision: 1,
+      accountProfileRevision: 'a',
+      seatProfileRevision: 'p',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    });
+    const first: FinishedMessage = {
+      messageId: 'same',
+      startedSeq: 1,
+      role: 'assistant',
+      symposiumProvenance: provenance('builder', 1),
+      blocks: [{ blockId: 'a', blockType: 'text', content: 'Builder first' }],
+    };
+    const second: FinishedMessage = {
+      messageId: 'same',
+      startedSeq: 2,
+      role: 'assistant',
+      symposiumProvenance: provenance('reviewer', 1),
+      blocks: [{ blockId: 'b', blockType: 'text', content: 'Reviewer second' }],
+    };
+    const { container, rerender } = render(
+      <ChatArea {...defaultProps} messages={[first, second]} />,
+    );
+    const original = [...container.querySelectorAll('[data-testid="text-bubble"]')];
+    rerender(
+      <ChatArea
+        {...defaultProps}
+        messages={[
+          { ...second, startedSeq: 0 },
+          { ...first, startedSeq: 3 },
+        ]}
+      />,
+    );
+    const reordered = [...container.querySelectorAll('[data-testid="text-bubble"]')];
+    expect(reordered).toEqual([original[1], original[0]]);
+    expect(reordered.map((element) => element.textContent)).toEqual([
+      'Reviewer second',
+      'Builder first',
+    ]);
+  });
   const defaultProps = {
     messages: [] as FinishedMessage[],
     current: null,
@@ -104,6 +153,207 @@ describe('ChatArea', () => {
     };
     render(<ChatArea {...defaultProps} current={current} />);
     expect(screen.getByText('Streaming...')).toBeTruthy();
+  });
+
+  it('renders concurrent seats in durable start order with immutable account and model labels', () => {
+    const reviewer = {
+      version: 2 as const,
+      seatId: 'reviewer',
+      seatLabel: 'Original Reviewer',
+      seatRole: 'reviewer',
+      configRevision: 1,
+      membershipGeneration: 1,
+      capturedAt: 1,
+      accountBinding: {
+        accountId: 'work-reviewer',
+        accountLabel: 'Work Reviewer',
+        provider: 'openai-codex' as const,
+        model: 'model-r',
+        profileRevision: 'a1',
+      },
+      reasoningEffort: 'high',
+      profileBinding: { profileId: 'profile-r', profileRevision: 'p1' },
+      contextGrant: { grantId: 'context-r', revision: 1 },
+      authorityGrant: { grantId: 'authority-r', revision: 1 },
+      accountProfileRevision: 'a1',
+      seatProfileRevision: 'p1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    };
+    const architect = {
+      ...reviewer,
+      seatId: 'architect',
+      seatLabel: 'Original Architect',
+      seatRole: 'architect',
+      accountBinding: {
+        ...reviewer.accountBinding,
+        accountId: 'work-architect',
+        accountLabel: 'Work Architect',
+        model: 'model-a',
+      },
+    };
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'reviewer-done',
+        startedSeq: 3,
+        role: 'assistant',
+        symposiumProvenance: reviewer,
+        blocks: [{ blockId: 'b0', blockType: 'text', content: 'Finished review' }],
+      },
+    ];
+    const currentByMessage = {
+      'architect-live': {
+        messageId: 'architect-live',
+        startedSeq: 2,
+        symposiumProvenance: architect,
+        blocks: new Map<string, StreamingBlock>([
+          ['b0', { blockId: 'b0', blockType: 'text', content: 'Live design', done: false }],
+        ]),
+        blockOrder: ['b0'],
+      },
+    };
+    const { container } = render(
+      <ChatArea {...defaultProps} messages={messages} currentByMessage={currentByMessage} />,
+    );
+    const turns = [...container.querySelectorAll('.msg-turn')];
+    expect(turns).toHaveLength(2);
+    expect(turns[0].textContent).toContain('Original Architect');
+    expect(turns[0].textContent).toContain('Work Architect');
+    expect(turns[0].textContent).toContain('model-a');
+    expect(turns[0].textContent).toContain('high');
+    expect(turns[1].textContent).toContain('Original Reviewer');
+    expect(turns[1].textContent).toContain('Finished review');
+  });
+
+  it('orders sequenced turns across an optimistic row without moving that row', () => {
+    const { container } = render(
+      <ChatArea
+        {...defaultProps}
+        messages={[
+          {
+            messageId: 'later',
+            startedSeq: 3,
+            role: 'assistant',
+            blocks: [{ blockId: 'later-text', blockType: 'text', content: 'Later turn' }],
+          },
+          {
+            messageId: 'optimistic',
+            role: 'user',
+            blocks: [{ blockId: 'draft', blockType: 'text', content: 'Optimistic prompt' }],
+          },
+        ]}
+        currentByMessage={{
+          seat: {
+            messageId: 'earlier',
+            startedSeq: 1,
+            blocks: new Map([
+              [
+                'earlier-text',
+                {
+                  blockId: 'earlier-text',
+                  blockType: 'text',
+                  content: 'Earlier seat turn',
+                  done: false,
+                },
+              ],
+            ]),
+            blockOrder: ['earlier-text'],
+          },
+        }}
+      />,
+    );
+    expect(
+      [
+        ...container.querySelectorAll('[data-testid="text-bubble"], [data-testid="user-bubble"]'),
+      ].map((node) => node.textContent),
+    ).toEqual(['Earlier seat turn', 'Optimistic prompt', 'Later turn']);
+  });
+
+  it('keeps legacy seat history honest about unknown account and model', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'legacy',
+        role: 'assistant',
+        symposiumProvenance: {
+          seatId: 'reviewer',
+          configRevision: 1,
+          accountProfileRevision: 'a1',
+          seatProfileRevision: 'p1',
+          contextGrantRevision: 1,
+          authorityGrantRevision: 1,
+          isolationDomainId: 'shared',
+          isolationDomainRevision: 1,
+        },
+        blocks: [{ blockId: 'b0', blockType: 'text', content: 'Historical review' }],
+      },
+    ];
+    render(<ChatArea {...defaultProps} messages={messages} />);
+    expect(screen.getByText(/Reviewer seat.*account and model unknown/i)).toBeTruthy();
+  });
+
+  it('does not render another seat’s reused tool progress in concurrent turns', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'a',
+      seatProfileRevision: 'p',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+      membershipGeneration: 2,
+    });
+    const architect = provenance('architect');
+    const reviewer = provenance('reviewer');
+    const stream = (messageId: string, symposiumProvenance: ReturnType<typeof provenance>) => ({
+      messageId,
+      symposiumProvenance,
+      blocks: new Map<string, StreamingBlock>([
+        [
+          'b0',
+          {
+            blockId: 'b0',
+            blockType: 'tool_use',
+            toolId: 'todo',
+            toolName: 'TodoWrite',
+            content: '',
+            done: false,
+          },
+        ],
+      ]),
+      blockOrder: ['b0'],
+    });
+    const { container } = render(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{
+          'architect-turn': stream('architect-turn', architect),
+          'reviewer-turn': stream('reviewer-turn', reviewer),
+        }}
+        progressByToolId={{
+          todo: {
+            progressId: 'unscoped',
+            items: [{ id: 'wrong', title: 'Wrong seat', status: 'pending' }],
+          },
+          [progressToolLookupKey('architect-turn', 'todo', architect)]: {
+            progressId: 'architect-progress',
+            items: [{ id: 'a', title: 'Design', status: 'pending' }],
+          },
+          [progressToolLookupKey('reviewer-turn', 'todo', reviewer)]: {
+            progressId: 'reviewer-progress',
+            items: [{ id: 'r', title: 'Review', status: 'pending' }],
+          },
+        }}
+      />,
+    );
+    const turns = [...container.querySelectorAll('.msg-turn')];
+    expect(turns[0].textContent).toContain('Design');
+    expect(turns[0].textContent).not.toContain('Review');
+    expect(turns[1].textContent).toContain('Review');
+    expect(turns[1].textContent).not.toContain('Design');
+    expect(container.textContent).not.toContain('Wrong seat');
   });
 
   it('renders PermissionBanner when permission is present', () => {
@@ -281,6 +531,39 @@ describe('ChatArea', () => {
       />,
     );
 
+    expect(el.scrollTop).toBe(600);
+  });
+
+  it('respects a reader who scrolled up while another seat streams', () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const stream = (content: string) => ({
+      messageId: 'seat-stream',
+      blocks: new Map<string, StreamingBlock>([
+        ['b0', { blockId: 'b0', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['b0'],
+    });
+    const { rerender } = render(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{ seat: stream('First line') }}
+        scrollRef={scrollRef}
+      />,
+    );
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    el.scrollTop = 600;
+    fireEvent.scroll(el);
+    rerender(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{ seat: stream('First line\nMore') }}
+        scrollRef={scrollRef}
+      />,
+    );
     expect(el.scrollTop).toBe(600);
   });
 });
