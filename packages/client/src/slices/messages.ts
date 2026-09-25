@@ -648,10 +648,34 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
 
     case 'MESSAGE_SNAPSHOT': {
       const snapshotBlocks = action.blocks ?? [];
-      if (!Array.isArray(snapshotBlocks) || snapshotBlocks.length === 0) return state;
+      if (!Array.isArray(action.blocks)) return state;
       const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
       for (const b of snapshotBlocks) {
+        const nested = b.subagent as unknown as
+          | {
+              messageId: string;
+              running?: boolean;
+              blocks: Array<FinishedBlock & { done?: boolean }>;
+            }
+          | undefined;
+        const subagent: StreamingSubagentState | FinishedSubagentState | undefined =
+          nested?.running && Array.isArray(nested.blocks)
+            ? {
+                messageId: nested.messageId,
+                blocks: new Map(
+                  nested.blocks.map((block) => [
+                    block.blockId,
+                    {
+                      ...block,
+                      done: block.done ?? false,
+                    },
+                  ]),
+                ),
+                blockOrder: nested.blocks.map((block) => block.blockId),
+                running: true as const,
+              }
+            : b.subagent;
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -664,6 +688,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           toolResult: b.toolResult,
           toolResultImages: b.toolResultImages,
           toolError: b.toolError,
+          ...(subagent ? { subagent } : {}),
         });
         blockOrder.push(b.blockId);
       }

@@ -3080,6 +3080,7 @@ export interface RestoredMessage {
   messageId: string;
   role: string;
   timestamp?: number;
+  startedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   blocks: Array<{
@@ -3091,8 +3092,300 @@ export interface RestoredMessage {
     toolInput?: string;
     rawInput?: unknown;
     toolResult?: string;
+    toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
+    subagent?: RestoredSubagentState;
   }>;
+}
+
+export interface RestoredSubagentState {
+  messageId: string;
+  blocks: Array<RestoredMessage['blocks'][number] & { done?: boolean }>;
+  running?: true;
+  summary?: string;
+  usage?: Record<string, number>;
+}
+
+export interface RestoredCurrentMessage {
+  messageId: string;
+  startedSeq?: number;
+  blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+/** Scope reused block IDs to the assistant turn that opened the parent tool. */
+function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
+  type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
+  const key = (messageId: string, blockId: string) => JSON.stringify([messageId, blockId]);
+  const parentMessageByBlock = new Map<string, string>();
+  const activeStateByParent = new Map<string, string>();
+  const states = new Map<
+    string,
+    {
+      messageId: string;
+      blocks: Map<string, NestedBlock>;
+      order: string[];
+      running: boolean;
+      summary?: string;
+      usage?: Record<string, number>;
+    }
+  >();
+  for (const event of events) {
+    const p = event.payload;
+    if (
+      event.type === 'block_start' &&
+      typeof p.blockId === 'string' &&
+      typeof p.messageId === 'string'
+    ) {
+      parentMessageByBlock.set(p.blockId, p.messageId);
+      activeStateByParent.delete(p.blockId);
+    }
+    const parentId = p.parentBlockId as string;
+    if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
+      const parentMessageId = parentMessageByBlock.get(parentId);
+      if (!parentMessageId) continue;
+      const scope = key(parentMessageId, parentId);
+      activeStateByParent.set(parentId, scope);
+      states.set(scope, {
+        messageId: p.subagentMessageId,
+        blocks: new Map(),
+        order: [],
+        running: true,
+      });
+      continue;
+    }
+    const state = states.get(activeStateByParent.get(parentId) ?? '');
+    if (!state) continue;
+    if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
+      state.blocks.set(p.blockId, {
+        blockId: p.blockId,
+        blockType: p.blockType as string,
+        content: '',
+        done: false,
+        ...(typeof p.toolName === 'string' ? { toolName: p.toolName } : {}),
+      });
+      if (!state.order.includes(p.blockId)) state.order.push(p.blockId);
+    } else if (event.type === 'subagent_block_delta') {
+      const block = state.blocks.get(p.blockId as string);
+      if (block && typeof p.delta === 'string') block.content += p.delta;
+    } else if (event.type === 'subagent_block_end') {
+      const block = state.blocks.get(p.blockId as string);
+      if (!block) continue;
+      block.done = true;
+      if (typeof p.toolName === 'string') block.toolName = p.toolName;
+      if (typeof p.toolId === 'string') block.toolId = p.toolId;
+      if (typeof p.input === 'string') block.toolInput = p.input;
+      if (p.rawInput) block.rawInput = p.rawInput;
+    } else if (event.type === 'subagent_tool_result') {
+      for (const block of state.blocks.values()) {
+        if (block.toolId !== p.toolId) continue;
+        if (typeof p.result === 'string') block.toolResult = p.result;
+        if (typeof p.isError === 'boolean') block.toolError = p.isError;
+        if (Array.isArray(p.images))
+          block.toolResultImages = p.images as Array<{ id: string; mediaType: string }>;
+      }
+    } else if (event.type === 'subagent_end' || event.type === 'subagent_cancelled') {
+      state.running = false;
+      if (typeof p.summary === 'string') state.summary = p.summary;
+      else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
+      if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
+    }
+  }
+  return (messageId: string, block: RestoredMessage['blocks'][number], active: boolean) => {
+    const state = states.get(key(messageId, block.blockId));
+    if (!state) return block;
+    const blocks = state.order.map((id) => state.blocks.get(id)!);
+    const subagent: RestoredSubagentState = {
+      messageId: state.messageId,
+      blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),
+      ...(active && state.running ? { running: true } : {}),
+      ...(state.summary ? { summary: state.summary } : {}),
+      ...(state.usage ? { usage: state.usage } : {}),
+    };
+    return { ...block, subagent };
+  };
+}
+
+/** Reconstruct the typed live turn from the same immutable event prefix as history. */
+export function replayEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
+  const attachSubagent = replaySubagents(events);
+  const messages: RestoredMessage[] = [];
+  type ReplayBlock = RestoredCurrentMessage['blocks'][number];
+  let turn: {
+    messageId: string;
+    timestamp: number;
+    startedSeq: number;
+    index: number;
+    blocks: Map<string, ReplayBlock>;
+  } | null = null;
+  const toolResults = new Map<string, Record<string, unknown>>();
+  for (const event of events) {
+    if (event.type === 'tool_result' && typeof event.payload.toolId === 'string')
+      toolResults.set(event.payload.toolId, event.payload);
+  }
+
+  // Legacy sessions persisted their first user prompt after message_start.
+  // Keep that compatibility while ordering every subsequent event as stored.
+  let seenStart = false;
+  let seenEnd = false;
+  let seenUser = false;
+  let legacyInitial: (typeof events)[number] | undefined;
+  for (const event of events) {
+    if (event.type === 'user_message') {
+      if (!initialPrompt && seenStart && !seenEnd && !seenUser) legacyInitial = event;
+      seenUser = true;
+    }
+    if (event.type === 'message_start') seenStart = true;
+    if (event.type === 'message_end' || event.type === 'session_end') seenEnd = true;
+  }
+  const promptEvent = initialPrompt
+    ? events.find((event) => event.type === 'user_message' && event.payload.text === initialPrompt)
+    : legacyInitial;
+  const userMessage = (event: (typeof events)[number]): RestoredMessage => {
+    const payload = event.payload;
+    const messageId = payload.messageId as string;
+    return {
+      messageId,
+      role: 'user',
+      timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
+      startedSeq: event.seq,
+      images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
+      contextBlocks: Array.isArray(payload.contextBlocks)
+        ? (payload.contextBlocks as string[])
+        : undefined,
+      blocks: [
+        { blockId: `user-${messageId}`, blockType: 'text', content: payload.text as string },
+      ],
+    };
+  };
+  if (initialPrompt) {
+    const firstStart = events.findIndex((event) => event.type === 'message_start');
+    const hoistedPrompt =
+      promptEvent && firstStart >= 0 && firstStart < events.indexOf(promptEvent);
+    const prompt = promptEvent
+      ? userMessage(promptEvent)
+      : {
+          messageId: 'umsg-initial',
+          role: 'user',
+          blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+        };
+    messages.push({
+      ...prompt,
+      ...(hoistedPrompt ? { startedSeq: undefined } : {}),
+      timestamp: events[0]?.createdAt,
+    });
+  } else if (legacyInitial) {
+    const hoisted = userMessage(legacyInitial);
+    delete hoisted.startedSeq;
+    messages.push(hoisted);
+  }
+
+  const materializeBlocks = (active: boolean) => {
+    if (!turn) return [];
+    return [...turn.blocks.values()].map((block) => {
+      const result = block.toolId ? toolResults.get(block.toolId) : undefined;
+      const restored = {
+        ...block,
+        ...(result && typeof result.result === 'string' ? { toolResult: result.result } : {}),
+        ...(result && typeof result.isError === 'boolean' ? { toolError: result.isError } : {}),
+        ...(result && Array.isArray(result.images)
+          ? { toolResultImages: result.images as Array<{ id: string; mediaType: string }> }
+          : {}),
+      };
+      return { ...block, ...attachSubagent(turn!.messageId, restored, active) };
+    });
+  };
+  const finishTurn = () => {
+    if (!turn) return;
+    const blocks = materializeBlocks(false).map(({ done: _done, ...block }) => block);
+    if (blocks.length > 0)
+      messages[turn.index] = {
+        messageId: turn.messageId,
+        role: 'assistant',
+        timestamp: turn.timestamp,
+        startedSeq: turn.startedSeq,
+        blocks,
+      };
+    else messages.splice(turn.index, 1);
+    turn = null;
+  };
+
+  for (const event of events) {
+    const payload = event.payload;
+    switch (event.type) {
+      case 'user_message':
+        if (event === promptEvent) break;
+        messages.push(userMessage(event));
+        break;
+      case 'message_start':
+        finishTurn();
+        if (typeof payload.messageId === 'string') {
+          const timestamp = typeof payload.ts === 'number' ? payload.ts : event.createdAt;
+          turn = {
+            messageId: payload.messageId,
+            timestamp,
+            startedSeq: event.seq,
+            index: messages.length,
+            blocks: new Map(),
+          };
+          messages.push({
+            messageId: payload.messageId,
+            role: 'assistant',
+            timestamp,
+            startedSeq: event.seq,
+            blocks: [],
+          });
+        }
+        break;
+      case 'block_start':
+        if (
+          turn &&
+          payload.messageId === turn.messageId &&
+          typeof payload.blockId === 'string' &&
+          typeof payload.blockType === 'string'
+        )
+          turn.blocks.set(payload.blockId, {
+            blockId: payload.blockId,
+            blockType: payload.blockType,
+            content: '',
+            done: false,
+            ...(typeof payload.toolName === 'string' ? { toolName: payload.toolName } : {}),
+          });
+        break;
+      case 'block_delta': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (block && typeof payload.delta === 'string') block.content += payload.delta;
+        break;
+      }
+      case 'block_end': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (!block) break;
+        block.done = true;
+        if (typeof payload.toolName === 'string') block.toolName = payload.toolName;
+        if (typeof payload.toolId === 'string') block.toolId = payload.toolId;
+        if (typeof payload.input === 'string') block.toolInput = payload.input;
+        if (payload.rawInput) block.rawInput = payload.rawInput;
+        break;
+      }
+      case 'message_end':
+        if (turn && payload.messageId === turn.messageId) finishTurn();
+        break;
+      case 'session_end':
+        finishTurn();
+        break;
+    }
+  }
+  if (turn) messages.splice(turn.index, 1);
+  return {
+    messages,
+    current: turn
+      ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
+      : null,
+  };
 }
 
 /**
@@ -3129,7 +3422,7 @@ export function replayEventsToMessages(
       });
     }
     if (evt.type === 'message_start') seenMessageStart = true;
-    if (evt.type === 'message_end') seenMessageEnd = true;
+    if (evt.type === 'message_end' || evt.type === 'session_end') seenMessageEnd = true;
     // A user_message that appears after message_start but before any message_end
     // is an out-of-order initial prompt from the legacy storage path.
     // After the first message_end, user_messages are normal follow-ups.
@@ -3304,6 +3597,13 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
     });
     return [];
   }
+}
+
+/** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
+export function getReconnectTranscript(sessionId: string, throughSeq: number) {
+  const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
+  const session = eventStore.getSession(sessionId);
+  return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---

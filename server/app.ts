@@ -48,6 +48,7 @@ import {
   getSessionsCached,
   reconcileSessionsBackground,
   getMessages,
+  getReconnectTranscript,
   hideSession,
   hideAllSessions,
   renameSessionById,
@@ -1569,7 +1570,7 @@ app.get('/api/sessions/:id/messages', async (req, res) => {
       res.status(400).json({ error: 'Invalid reconnect cursor' });
       return;
     }
-    res.json(await getMessages(req.params.id as string, cursor));
+    res.json(getReconnectTranscript(req.params.id as string, cursor));
     return;
   }
   res.json(await getMessages(req.params.id as string));

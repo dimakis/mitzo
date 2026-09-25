@@ -486,6 +486,16 @@ describe('SESSION_END', () => {
 // ─── MESSAGE_SNAPSHOT ─────────────────────────────────────────────────────────
 
 describe('MESSAGE_SNAPSHOT', () => {
+  it('restores a started message before its first block arrives', () => {
+    const state = messagesReducer(INITIAL, {
+      type: 'MESSAGE_SNAPSHOT',
+      messageId: 'msg-started',
+      blocks: [],
+    });
+    expect(state.current?.messageId).toBe('msg-started');
+    expect(state.current?.blockOrder).toEqual([]);
+  });
+
   it('reconstructs current from snapshot on reattach', () => {
     const blocks: FinishedBlock[] = [
       { blockId: 'b1', blockType: 'text', content: 'partial text' },
