@@ -184,6 +184,7 @@ export type { ArtifactCapability, ClientCapability } from './client-capabilities
 
 export {
   ProfileBindingSchema,
+  SymposiumProfileDefinitionSchema,
   ContextGrantSchema,
   AuthorityGrantSchema,
   IsolationRequestSchema,
@@ -195,6 +196,7 @@ export {
 } from './symposium.js';
 export type {
   ProfileBinding,
+  SymposiumProfileDefinition,
   ContextGrant,
   AuthorityGrant,
   IsolationRequest,
