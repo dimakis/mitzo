@@ -380,7 +380,12 @@ export function handleReconnect(
           }
         }
 
-        const reconnectState = ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
+        // Applied-cursor clients restore the complete prefix through the
+        // offered cursor over REST. Replaying the offline backlog first can
+        // overflow the bounded client buffer before that restore begins.
+        const reconnectState = msg.supportsAppliedCursor
+          ? ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq, false)
+          : ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
         const events = reconnectState.events;
         for (const evt of events) {
           ctx.connRegistry.get(connectionId)?.transport.send(

@@ -1580,7 +1580,7 @@ export class EventStore {
   }
 
   /** Capture aggregate state and its replay suffix in one SQLite read transaction. */
-  captureReconnectState(sessionId: string, afterSeq: number): ReconnectState {
+  captureReconnectState(sessionId: string, afterSeq: number, includeEvents = true): ReconnectState {
     if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) {
       throw new Error('Reconnect cursor must be a non-negative safe integer');
     }
@@ -1590,14 +1590,15 @@ export class EventStore {
       ).get(sessionId) as { cursor: number };
       const cursor = Number(highWater.cursor);
       const cursorValid = afterSeq <= cursor;
-      const events = cursorValid
-        ? (
-            this.db!.prepare(
-              `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+      const events =
+        cursorValid && includeEvents
+          ? (
+              this.db!.prepare(
+                `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
              FROM events WHERE session_id = ? AND seq > ? AND seq <= ? ORDER BY seq`,
-            ).all(sessionId, afterSeq, cursor) as EventRow[]
-          ).map(rowToEvent)
-        : [];
+              ).all(sessionId, afterSeq, cursor) as EventRow[]
+            ).map(rowToEvent)
+          : [];
       const sessionRow = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
       const session = sessionRow ? rowToSession(sessionRow) : null;
       const providerAttempts =

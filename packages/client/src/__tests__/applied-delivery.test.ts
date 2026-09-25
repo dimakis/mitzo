@@ -95,6 +95,21 @@ describe('AppliedDelivery', () => {
     expect(h.cursors.get('a')).toBe(5);
   });
 
+  it('holds post-cursor events arriving across a large snapshot restore and applies each once', () => {
+    const h = harness();
+    h.tracker.holdReplay('a');
+    h.tracker.receive({ sessionId: 'a', seq: 271, prevSessionSeq: 270, type: 'block_delta' });
+    h.tracker.offerSnapshot('a', 270, 'offer', 'conn-1');
+    h.tracker.receive({ sessionId: 'a', seq: 275, prevSessionSeq: 271, type: 'block_end' });
+    expect(h.received).toEqual([]);
+    expect(h.cursors.get('a')).toBe(2);
+    expect(h.tracker.acknowledgeSnapshot('a', 270, 'offer', 'conn-1')).toBe(true);
+    expect(h.received).toEqual([271, 275]);
+    expect(h.acks).toEqual([271, 275]);
+    expect(h.cursors.get('a')).toBe(275);
+    expect(h.overflow).not.toHaveBeenCalled();
+  });
+
   it('requests resync instead of retaining an unbounded out-of-order suffix', () => {
     const h = harness();
     for (let i = 0; i < 260; i++)

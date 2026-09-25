@@ -104,6 +104,20 @@ describe('EventStore', () => {
       const snapshot = store.captureReconnectState('sess-1', cursor + 100);
       expect(snapshot).toMatchObject({ cursor, cursorValid: false, events: [] });
     });
+
+    it('captures a snapshot boundary without materializing a large offline replay', () => {
+      store.upsertSession({ sessionId: 'sess-1' });
+      const payload = 'x'.repeat(9 * 1024);
+      for (let i = 0; i < 270; i++)
+        store.append('sess-1', 'block_delta', { type: 'block_delta', delta: payload });
+
+      const snapshot = store.captureReconnectState('sess-1', 0, false);
+
+      expect(snapshot.cursor).toBe(270);
+      expect(snapshot.cursorValid).toBe(true);
+      expect(snapshot.events).toEqual([]);
+      expect(store.getSessionEvents('sess-1')).toHaveLength(270);
+    });
   });
 
   describe('durable execution state', () => {
