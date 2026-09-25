@@ -379,6 +379,30 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
       for (const b of snapshotBlocks) {
+        const nested = b.subagent as unknown as
+          | {
+              messageId: string;
+              running?: boolean;
+              blocks: Array<FinishedBlock & { done?: boolean }>;
+            }
+          | undefined;
+        const subagent: StreamingSubagentState | FinishedSubagentState | undefined =
+          nested?.running && Array.isArray(nested.blocks)
+            ? {
+                messageId: nested.messageId,
+                blocks: new Map(
+                  nested.blocks.map((block) => [
+                    block.blockId,
+                    {
+                      ...block,
+                      done: block.done ?? false,
+                    },
+                  ]),
+                ),
+                blockOrder: nested.blocks.map((block) => block.blockId),
+                running: true as const,
+              }
+            : b.subagent;
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -391,6 +415,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           toolResult: b.toolResult,
           toolResultImages: b.toolResultImages,
           toolError: b.toolError,
+          ...(subagent ? { subagent } : {}),
         });
         blockOrder.push(b.blockId);
       }

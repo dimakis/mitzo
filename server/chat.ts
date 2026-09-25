@@ -3093,12 +3093,99 @@ export interface RestoredMessage {
     toolResult?: string;
     toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
+    subagent?: RestoredSubagentState;
   }>;
+}
+
+export interface RestoredSubagentState {
+  messageId: string;
+  blocks: Array<RestoredMessage['blocks'][number] & { done?: boolean }>;
+  running?: true;
+  summary?: string;
+  usage?: Record<string, number>;
 }
 
 export interface RestoredCurrentMessage {
   messageId: string;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+/** Subagent events are keyed by their parent tool block, not assistant message ID. */
+function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
+  type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
+  const states = new Map<
+    string,
+    {
+      messageId: string;
+      blocks: Map<string, NestedBlock>;
+      order: string[];
+      running: boolean;
+      summary?: string;
+      usage?: Record<string, number>;
+    }
+  >();
+  for (const event of events) {
+    const p = event.payload;
+    const parentId = p.parentBlockId as string;
+    if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
+      states.set(parentId, {
+        messageId: p.subagentMessageId,
+        blocks: new Map(),
+        order: [],
+        running: true,
+      });
+      continue;
+    }
+    const state = states.get(parentId);
+    if (!state) continue;
+    if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
+      state.blocks.set(p.blockId, {
+        blockId: p.blockId,
+        blockType: p.blockType as string,
+        content: '',
+        done: false,
+        ...(typeof p.toolName === 'string' ? { toolName: p.toolName } : {}),
+      });
+      if (!state.order.includes(p.blockId)) state.order.push(p.blockId);
+    } else if (event.type === 'subagent_block_delta') {
+      const block = state.blocks.get(p.blockId as string);
+      if (block && typeof p.delta === 'string') block.content += p.delta;
+    } else if (event.type === 'subagent_block_end') {
+      const block = state.blocks.get(p.blockId as string);
+      if (!block) continue;
+      block.done = true;
+      if (typeof p.toolName === 'string') block.toolName = p.toolName;
+      if (typeof p.toolId === 'string') block.toolId = p.toolId;
+      if (typeof p.input === 'string') block.toolInput = p.input;
+      if (p.rawInput) block.rawInput = p.rawInput;
+    } else if (event.type === 'subagent_tool_result') {
+      for (const block of state.blocks.values()) {
+        if (block.toolId !== p.toolId) continue;
+        if (typeof p.result === 'string') block.toolResult = p.result;
+        if (typeof p.isError === 'boolean') block.toolError = p.isError;
+        if (Array.isArray(p.images))
+          block.toolResultImages = p.images as Array<{ id: string; mediaType: string }>;
+      }
+    } else if (event.type === 'subagent_end' || event.type === 'subagent_cancelled') {
+      state.running = false;
+      if (typeof p.summary === 'string') state.summary = p.summary;
+      else if (event.type === 'subagent_cancelled') state.summary = 'Cancelled';
+      if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
+    }
+  }
+  return (block: RestoredMessage['blocks'][number], active: boolean) => {
+    const state = states.get(block.blockId);
+    if (!state) return block;
+    const blocks = state.order.map((id) => state.blocks.get(id)!);
+    const subagent: RestoredSubagentState = {
+      messageId: state.messageId,
+      blocks: active && state.running ? blocks : blocks.map(({ done: _done, ...rest }) => rest),
+      ...(active && state.running ? { running: true } : {}),
+      ...(state.summary ? { summary: state.summary } : {}),
+      ...(state.usage ? { usage: state.usage } : {}),
+    };
+    return { ...block, subagent };
+  };
 }
 
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
@@ -3144,10 +3231,16 @@ export function replayEventsToTranscript(
     else if (event.type === 'session_end' && openMessageId) {
       terminalMessageId = openMessageId;
       openMessageId = undefined;
+    } else if (event.type === 'user_message') {
+      terminalMessageId = undefined;
     }
   }
 
-  const messages = replayEventsToMessages(closedEvents, initialPrompt);
+  const attachSubagent = replaySubagents(events);
+  const messages = replayEventsToMessages(closedEvents, initialPrompt).map((message) => ({
+    ...message,
+    blocks: message.blocks.map((block) => attachSubagent(block, false)),
+  }));
   const targetMessageId = openMessageId ?? terminalMessageId;
   if (!targetMessageId) return { messages, current: null };
 
@@ -3197,14 +3290,20 @@ export function replayEventsToTranscript(
   }
 
   const withoutTarget = messages.filter((message) => message.messageId !== targetMessageId);
-  const snapshotBlocks = blockOrder.map((id) => blocks.get(id)!);
+  const snapshotBlocks = blockOrder.map((id) => ({
+    ...blocks.get(id)!,
+    ...attachSubagent(blocks.get(id)!, !!openMessageId),
+  }));
   if (terminalMessageId && !openMessageId) {
     if (snapshotBlocks.length > 0) {
-      withoutTarget.push({
+      const finished = {
         messageId: terminalMessageId,
         role: 'assistant',
         blocks: snapshotBlocks.map(({ done: _done, ...block }) => block),
-      });
+      };
+      const targetIndex = messages.findIndex((message) => message.messageId === terminalMessageId);
+      if (targetIndex >= 0) withoutTarget.splice(targetIndex, 0, finished);
+      else withoutTarget.push(finished);
     }
     return { messages: withoutTarget, current: null };
   }
@@ -3248,7 +3347,7 @@ export function replayEventsToMessages(
       });
     }
     if (evt.type === 'message_start') seenMessageStart = true;
-    if (evt.type === 'message_end') seenMessageEnd = true;
+    if (evt.type === 'message_end' || evt.type === 'session_end') seenMessageEnd = true;
     // A user_message that appears after message_start but before any message_end
     // is an out-of-order initial prompt from the legacy storage path.
     // After the first message_end, user_messages are normal follow-ups.

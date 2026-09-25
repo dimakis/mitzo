@@ -599,6 +599,68 @@ describe('reconnect recovery', () => {
     expect(store.getState().messages.current?.blockOrder).toEqual(['a', 'b']);
   });
 
+  it('continues a nested subagent block from the bounded transcript', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [],
+                  current: {
+                    messageId: 'a1',
+                    blocks: [
+                      {
+                        blockId: 'parent',
+                        blockType: 'tool_use',
+                        content: '',
+                        done: false,
+                        subagent: {
+                          messageId: 's1',
+                          running: true,
+                          blocks: [
+                            {
+                              blockId: 'nested',
+                              blockType: 'text',
+                              content: 'saved ',
+                              done: false,
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: true,
+      state: 'running',
+    });
+    await vi.waitFor(() => expect(store.getState().messages.current?.messageId).toBe('a1'));
+    lastWs.simulateMessage({
+      type: 'subagent_block_delta',
+      sessionId: 'sess-1',
+      parentBlockId: 'parent',
+      blockId: 'nested',
+      delta: 'continued',
+      seq: 8,
+    });
+    const subagent = store.getState().messages.current?.blocks.get('parent')?.subagent;
+    expect(subagent && 'blockOrder' in subagent && subagent.blocks.get('nested')?.content).toBe(
+      'saved continued',
+    );
+  });
+
   it('replays a later completed turn once after a delayed partial restore', async () => {
     const transport = mockTransport();
     let resolveRestore!: (value: unknown) => void;

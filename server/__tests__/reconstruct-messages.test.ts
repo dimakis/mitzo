@@ -252,6 +252,77 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
+  it('keeps a terminal partial assistant before a newer user follow-up', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'text', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'a1', blockId: 'text', delta: 'interrupted' }),
+      evt(4, 'session_end', {}),
+      evt(5, 'user_message', { messageId: 'u2', text: 'continue' }),
+    ];
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      current: null,
+      messages: [
+        { messageId: 'a1', blocks: [{ content: 'interrupted' }] },
+        { messageId: 'u2', role: 'user' },
+      ],
+    });
+  });
+
+  it('restores running and completed nested subagents inside a current turn', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', {
+        messageId: 'a1',
+        blockId: 'parent',
+        blockType: 'tool_use',
+        toolName: 'Agent',
+      }),
+      evt(3, 'subagent_start', { parentBlockId: 'parent', subagentMessageId: 's1' }),
+      evt(4, 'subagent_block_start', {
+        parentBlockId: 'parent',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      evt(5, 'subagent_block_delta', {
+        parentBlockId: 'parent',
+        blockId: 'nested',
+        delta: 'saved ',
+      }),
+    ];
+    expect(replayEventsToTranscript(events).current?.blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      running: true,
+      blocks: [{ blockId: 'nested', content: 'saved ', done: false }],
+    });
+    const completed = [
+      ...events,
+      evt(6, 'subagent_block_delta', { parentBlockId: 'parent', blockId: 'nested', delta: 'work' }),
+      evt(7, 'subagent_block_end', { parentBlockId: 'parent', blockId: 'nested' }),
+      evt(8, 'subagent_end', { parentBlockId: 'parent', summary: 'finished' }),
+    ];
+    expect(replayEventsToTranscript(completed).current?.blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      summary: 'finished',
+      blocks: [{ blockId: 'nested', content: 'saved work' }],
+    });
+    const finishedTurn = [
+      ...completed,
+      evt(9, 'block_end', {
+        messageId: 'a1',
+        blockId: 'parent',
+        blockType: 'tool_use',
+        toolName: 'Agent',
+      }),
+      evt(10, 'message_end', { messageId: 'a1' }),
+    ];
+    expect(replayEventsToTranscript(finishedTurn).messages[0].blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      summary: 'finished',
+      blocks: [{ blockId: 'nested', content: 'saved work' }],
+    });
+  });
+
   it('restores the same partial turn after disk reopen and excludes events beyond the cursor', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mitzo-transcript-reopen-'));
     const path = join(dir, 'events.db');
