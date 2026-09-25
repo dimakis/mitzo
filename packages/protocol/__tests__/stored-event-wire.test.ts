@@ -29,6 +29,7 @@ describe('stored Symposium event wire envelope', () => {
       blockId: 'b0',
       delta: 'hello',
       seq: 7,
+      sessionId: 'conversation',
       seatId: 'reviewer',
       symposiumProvenance: provenance,
     });
@@ -41,9 +42,10 @@ describe('stored Symposium event wire envelope', () => {
       sessionId: 'conversation',
       type: 'block_delta',
       payload: {
-        type: 'block_delta',
         seatId: 'forged',
         symposiumProvenance: { seatId: 'forged' },
+        sessionId: 'other-conversation',
+        type: 'message_end',
         seq: 999,
         prevSessionSeq: 999,
       },
@@ -54,6 +56,8 @@ describe('stored Symposium event wire envelope', () => {
     expect(storedEventToClientMessage(event)).toMatchObject({
       seq: 8,
       prevSessionSeq: 7,
+      sessionId: 'conversation',
+      type: 'block_delta',
       seatId: 'reviewer',
       symposiumProvenance: provenance,
     });
@@ -71,5 +75,23 @@ describe('stored Symposium event wire envelope', () => {
         createdAt: 102,
       }),
     ).toThrow(/seat.*provenance/i);
+  });
+
+  it('uses the durable message start sequence as its chronology anchor', () => {
+    expect(
+      storedEventToClientMessage({
+        seq: 12,
+        sessionId: 'conversation',
+        type: 'message_start',
+        payload: { type: 'message_start', messageId: 'm2', startedSeq: 900 },
+        createdAt: 103,
+      }),
+    ).toMatchObject({
+      type: 'message_start',
+      messageId: 'm2',
+      sessionId: 'conversation',
+      seq: 12,
+      startedSeq: 12,
+    });
   });
 });

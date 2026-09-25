@@ -4,7 +4,7 @@ import type { StoredEvent } from './types.js';
 /** Project a durable event onto the client wire without trusting payload attribution. */
 export function storedEventToClientMessage(
   event: Pick<StoredEvent, 'seq' | 'payload'> &
-    Partial<Pick<StoredEvent, 'seatId' | 'symposiumProvenance'>> & {
+    Partial<Pick<StoredEvent, 'sessionId' | 'type' | 'seatId' | 'symposiumProvenance'>> & {
       prevSessionSeq?: number;
     },
 ): Record<string, unknown> {
@@ -13,6 +13,9 @@ export function storedEventToClientMessage(
     symposiumProvenance: _payloadProvenance,
     seq: _payloadSeq,
     prevSessionSeq: _payloadPrevSessionSeq,
+    sessionId: _payloadSessionId,
+    type: payloadType,
+    startedSeq: payloadStartedSeq,
     ...payload
   } = event.payload;
   const provenance = event.symposiumProvenance
@@ -23,7 +26,18 @@ export function storedEventToClientMessage(
   }
   return {
     ...payload,
+    ...(event.type !== undefined || payloadType !== undefined
+      ? { type: event.type ?? payloadType }
+      : {}),
+    ...(event.sessionId !== undefined || _payloadSessionId !== undefined
+      ? { sessionId: event.sessionId ?? _payloadSessionId }
+      : {}),
     seq: event.seq,
+    ...(event.type === 'message_start'
+      ? { startedSeq: event.seq }
+      : payloadStartedSeq !== undefined
+        ? { startedSeq: payloadStartedSeq }
+        : {}),
     ...(event.prevSessionSeq !== undefined ? { prevSessionSeq: event.prevSessionSeq } : {}),
     ...(event.seatId !== undefined ? { seatId: event.seatId } : {}),
     ...(provenance ? { symposiumProvenance: provenance } : {}),

@@ -37,7 +37,7 @@ export interface EventStoreAdapter {
     limit?: number,
   ): Array<
     Pick<StoredEvent, 'seq' | 'payload'> &
-      Partial<Pick<StoredEvent, 'seatId' | 'symposiumProvenance'>> & {
+      Partial<Pick<StoredEvent, 'sessionId' | 'type' | 'seatId' | 'symposiumProvenance'>> & {
         prevSessionSeq?: number;
       }
   >;
