@@ -766,6 +766,7 @@ export class EventStore {
           delivery_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
           source_seat_id TEXT,
+          source_message_id TEXT,
           recipient_seat_ids TEXT NOT NULL,
           original_content TEXT NOT NULL,
           delivered_content TEXT,
@@ -810,6 +811,7 @@ export class EventStore {
           provider_thread_id TEXT,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (delivery_id, seat_id),
@@ -860,13 +862,18 @@ export class EventStore {
           attempt_number INTEGER NOT NULL,
           idempotency_key TEXT NOT NULL,
           claim_token TEXT,
+          dispatched_content TEXT,
+          dispatch_seq INTEGER,
           symposium_provenance TEXT,
           status TEXT NOT NULL CHECK (status IN (
             'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
           )),
           provider_thread_id TEXT,
+          provider_turn_id TEXT,
+          accepted_at INTEGER,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
@@ -897,12 +904,30 @@ export class EventStore {
         CREATE TABLE IF NOT EXISTS symposium_late_results (
           delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
           provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
-          cost_usd REAL NOT NULL, observed_at INTEGER NOT NULL,
+          cost_usd REAL NOT NULL, cost_known INTEGER NOT NULL DEFAULT 0, observed_at INTEGER NOT NULL,
           symposium_provenance TEXT,
           PRIMARY KEY(delivery_id,seat_id,claim_token),
           FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
         );
       `);
+      const deliveryColumns = db
+        .prepare("PRAGMA table_info('symposium_deliveries')")
+        .all() as Array<{ name: string }>;
+      if (!deliveryColumns.some((column) => column.name === 'source_message_id')) {
+        db.exec('ALTER TABLE symposium_deliveries ADD COLUMN source_message_id TEXT');
+      }
+      for (const table of [
+        'symposium_delivery_recipients',
+        'symposium_recipient_attempts',
+        'symposium_late_results',
+      ]) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'cost_known')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 0`);
+          // Legacy zeros could mean omitted provider cost. Preserve that uncertainty.
+          db.exec(`UPDATE ${table} SET cost_known = 1 WHERE cost_usd > 0`);
+        }
+      }
       const recipientColumns = db
         .prepare("PRAGMA table_info('symposium_delivery_recipients')")
         .all() as Array<{ name: string }>;
@@ -924,6 +949,28 @@ export class EventStore {
         .all() as Array<{ name: string }>;
       if (!attemptColumns.some((column) => column.name === 'claim_token')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN claim_token TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'dispatched_content')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatched_content TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'dispatch_seq')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatch_seq INTEGER');
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
+        ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
+        WHERE type IN ('message_start', 'user_message', 'message_end')`);
+      db.exec(`DROP INDEX IF EXISTS idx_events_perspective_anchors`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_completed_perspective_anchors
+        ON events(session_id, seq)
+        WHERE type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_symposium_pending_recipients
+        ON symposium_delivery_recipients(seat_id, delivery_id)
+        WHERE status = 'pending'`);
+      if (!attemptColumns.some((column) => column.name === 'provider_turn_id')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN provider_turn_id TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'accepted_at')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN accepted_at INTEGER');
       }
       if (!attemptColumns.some((column) => column.name === 'symposium_provenance')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN symposium_provenance TEXT');
@@ -1546,6 +1593,121 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Bounded ordered anchors for audience-specific transcript projections. */
+  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+    if (
+      !Number.isSafeInteger(afterSeq) ||
+      afterSeq < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 500
+    )
+      throw new Error('Invalid Symposium perspective page');
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events e WHERE session_id = ? AND seq > ?
+         AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
+         AND (type != 'message_end' OR NOT EXISTS (
+           SELECT 1 FROM events prior
+           WHERE prior.session_id = e.session_id AND prior.type = 'message_end'
+             AND prior.seq < e.seq AND prior.seat_id IS e.seat_id
+             AND prior.symposium_provenance IS e.symposium_provenance
+             AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
+         ))
+       ORDER BY seq LIMIT ?`,
+    ).all(sessionId, afterSeq, limit) as EventRow[];
+    return rows.map(rowToEvent);
+  }
+
+  /** Completed durable text that a user may explicitly select for a later delivery. */
+  getSymposiumSourceMessage(
+    sessionId: string,
+    messageId: string,
+    identity?: { seatId: string | null; membershipGeneration?: number | null },
+  ):
+    | {
+        messageId: string;
+        seatId: string | null;
+        content: string;
+        provenance: SymposiumProvenance | null;
+      }
+    | undefined {
+    const starts = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type IN ('message_start', 'user_message')
+         AND json_extract(payload, '$.messageId') = ? ORDER BY seq`,
+    ).all(sessionId, messageId) as EventRow[];
+    const matchingStarts = starts.filter((row) => {
+      if (!identity) return true;
+      const event = rowToEvent(row);
+      const generation = event.symposiumProvenance?.membershipGeneration ?? null;
+      return (
+        (event.seatId ?? null) === identity.seatId &&
+        (identity.membershipGeneration === undefined ||
+          generation === identity.membershipGeneration)
+      );
+    });
+    // An omitted generation must never select one of several historical turns.
+    if (matchingStarts.length !== 1) return undefined;
+    const sourceRow = matchingStarts[0];
+    const start = rowToEvent(sourceRow);
+    if (start.type === 'user_message') {
+      const content = start.payload.text;
+      return typeof content === 'string'
+        ? {
+            messageId,
+            seatId: start.seatId ?? null,
+            content,
+            provenance: start.symposiumProvenance ?? null,
+          }
+        : undefined;
+    }
+    const end = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type = 'message_end'
+         AND json_extract(payload, '$.messageId') = ? AND seq > ?
+         AND seat_id IS ? AND symposium_provenance IS ? ORDER BY seq LIMIT 1`,
+    ).get(sessionId, messageId, start.seq, sourceRow.seat_id, sourceRow.symposium_provenance) as
+      EventRow | undefined;
+    if (!end) return undefined;
+    if (
+      end.seat_id !== sourceRow.seat_id ||
+      end.symposium_provenance !== sourceRow.symposium_provenance
+    )
+      return undefined;
+    const events = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq > ? AND seq < ? ORDER BY seq`,
+    ).all(sessionId, start.seq, end.seq) as EventRow[];
+    const textBlocks = new Set<string>();
+    let content = '';
+    for (const row of events) {
+      const event = rowToEvent(row);
+      if (
+        event.payload.messageId !== messageId ||
+        row.seat_id !== sourceRow.seat_id ||
+        row.symposium_provenance !== sourceRow.symposium_provenance
+      )
+        continue;
+      const blockId = event.payload.blockId;
+      if (typeof blockId !== 'string') continue;
+      if (event.type === 'block_start' && event.payload.blockType === 'text')
+        textBlocks.add(blockId);
+      if (
+        event.type === 'block_delta' &&
+        textBlocks.has(blockId) &&
+        typeof event.payload.delta === 'string'
+      )
+        content += event.payload.delta;
+    }
+    return {
+      messageId,
+      seatId: start.seatId ?? null,
+      content,
+      provenance: start.symposiumProvenance ?? null,
+    };
+  }
+
   /** Read the immutable transcript prefix belonging to a reconnect boundary. */
   getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
     if (!Number.isSafeInteger(cursor) || cursor < 0) {
@@ -1986,7 +2148,7 @@ export class EventStore {
     claimToken: string;
     providerThreadId: string;
     resultContent: string;
-    costUsd: number;
+    costUsd: number | null;
     observedAt: number;
     provenance: SymposiumProvenance | null;
   }> {
@@ -2000,26 +2162,53 @@ export class EventStore {
       claimToken: row.claim_token as string,
       providerThreadId: row.provider_thread_id as string,
       resultContent: row.result_content as string,
-      costUsd: row.cost_usd as number,
+      costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
       observedAt: row.observed_at as number,
       provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     }));
   }
 
   /** Historical attempts and late results keep spending visible across seat changes. */
-  getSymposiumUsage(sessionId: string): { attempts: number; costUsd: number } {
-    const attempts = this.db!.prepare(
-      `SELECT count(*) AS attempts,
-      coalesce(sum(a.cost_usd),0) AS cost FROM symposium_recipient_attempts a
-      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
-      WHERE d.session_id = ?`,
-    ).get(sessionId) as { attempts: number; cost: number };
-    const late = this.db!.prepare(
-      `SELECT coalesce(sum(l.cost_usd),0) AS cost
-      FROM symposium_late_results l JOIN symposium_deliveries d ON d.delivery_id = l.delivery_id
-      WHERE d.session_id = ?`,
-    ).get(sessionId) as { cost: number };
-    return { attempts: attempts.attempts, costUsd: attempts.cost + late.cost };
+  getSymposiumUsage(sessionId: string): {
+    attempts: number;
+    costUsd: number | null;
+    knownCostUsd: number;
+    unknownCostAttempts: number;
+  } {
+    // Retries retain one provider idempotency identity even though each host
+    // dispatch has its own claim. Price that provider turn once, using evidence
+    // from any of its attempts or their exact-claim late results.
+    const usage = this.db!.prepare(
+      `WITH attempts AS (
+        SELECT a.* FROM symposium_recipient_attempts a
+        JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+        WHERE d.session_id = ?
+      ), evidence AS (
+        SELECT delivery_id, seat_id, idempotency_key, cost_known, cost_usd FROM attempts
+        UNION ALL
+        SELECT a.delivery_id, a.seat_id, a.idempotency_key, l.cost_known, l.cost_usd
+        FROM attempts a JOIN symposium_late_results l
+          ON l.delivery_id = a.delivery_id AND l.seat_id = a.seat_id
+          AND l.claim_token = a.claim_token
+      ), prices AS (
+        SELECT delivery_id, seat_id, idempotency_key,
+          count(DISTINCT CASE WHEN cost_known = 1 THEN cost_usd END) AS price_count,
+          max(CASE WHEN cost_known = 1 THEN cost_usd END) AS price
+        FROM evidence GROUP BY delivery_id, seat_id, idempotency_key
+      )
+      SELECT (SELECT count(*) FROM attempts) AS attempts,
+        coalesce(sum(CASE WHEN price_count = 1 THEN price ELSE 0 END), 0) AS cost,
+        coalesce(sum(CASE WHEN price_count != 1 THEN (
+          SELECT count(*) FROM attempts a WHERE a.delivery_id = prices.delivery_id
+            AND a.seat_id = prices.seat_id AND a.idempotency_key = prices.idempotency_key
+        ) ELSE 0 END), 0) AS unknown_cost FROM prices`,
+    ).get(sessionId) as { attempts: number; cost: number; unknown_cost: number };
+    return {
+      attempts: usage.attempts,
+      costUsd: usage.unknown_cost ? null : usage.cost,
+      knownCostUsd: usage.cost,
+      unknownCostAttempts: usage.unknown_cost,
+    };
   }
 
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
@@ -2148,6 +2337,7 @@ export class EventStore {
         const existing = this.getSymposiumDelivery(prior.delivery_id)!;
         if (
           existing.sourceSeatId !== record.sourceSeatId ||
+          (existing.sourceMessageId ?? null) !== (record.sourceMessageId ?? null) ||
           existing.originalContent !== record.originalContent ||
           JSON.stringify(existing.recipientSeatIds) !== JSON.stringify(record.recipientSeatIds) ||
           existing.configRevision !== record.configRevision ||
@@ -2194,14 +2384,30 @@ export class EventStore {
         const source = config.seats.find((seat) => seat.id === record.sourceSeatId);
         if (
           !source ||
-          !record.sourceProvenance ||
-          !matchesSeatProvenance(config, source, record.sourceProvenance) ||
-          (config.version === 2 &&
+          (record.sourceMessageId == null &&
+            (!record.sourceProvenance ||
+              !matchesSeatProvenance(config, source, record.sourceProvenance))) ||
+          (record.sourceMessageId == null &&
+            config.version === 2 &&
+            record.sourceProvenance &&
             this.getLatestSymposiumMembership(record.sessionId, source.id)?.generation !==
               record.sourceProvenance.membershipGeneration)
         ) {
           throw new Error('Symposium delivery source provenance does not match its seat');
         }
+      }
+      if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) {
+        const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId, {
+          seatId: record.sourceSeatId,
+          membershipGeneration: record.sourceProvenance?.membershipGeneration ?? null,
+        });
+        if (
+          !source ||
+          source.seatId !== record.sourceSeatId ||
+          !source.content.includes(record.originalContent) ||
+          JSON.stringify(source.provenance) !== JSON.stringify(record.sourceProvenance)
+        )
+          throw new Error('Symposium delivery source message is not durable for its seat');
       }
       record.recipients.forEach((recipient, index) => {
         const seat = expectedRecipients[index];
@@ -2229,15 +2435,16 @@ export class EventStore {
       });
       this.db!.prepare(
         `INSERT INTO symposium_deliveries (
-          delivery_id, session_id, source_seat_id, recipient_seat_ids, original_content,
+          delivery_id, session_id, source_seat_id, source_message_id, recipient_seat_ids, original_content,
           delivered_content, status, intervention, intervention_reason, idempotency_key,
           config_revision, source_provenance, cancellation_reason, cancelled_at,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         record.deliveryId,
         record.sessionId,
         record.sourceSeatId,
+        record.sourceMessageId ?? null,
         JSON.stringify(record.recipientSeatIds),
         record.originalContent,
         record.deliveredContent,
@@ -2259,8 +2466,8 @@ export class EventStore {
           context_grant_id, context_grant_revision, authority_grant_id,
           authority_grant_revision, isolation_domain_id, isolation_domain_revision,
           provider_thread_id, result_content, cost_usd, error, updated_at,
-          membership_generation
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          membership_generation, cost_known
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       record.recipients.forEach((recipient, index) =>
         insertRecipient.run(
@@ -2280,10 +2487,11 @@ export class EventStore {
           recipient.isolationDomainRevision,
           recipient.providerThreadId,
           recipient.resultContent,
-          recipient.costUsd,
+          recipient.costUsd ?? 0,
           recipient.error,
           recipient.updatedAt,
           recipient.membershipGeneration ?? 0,
+          recipient.costUsd === null ? 0 : 1,
         ),
       );
       return this.getSymposiumDelivery(record.deliveryId)!;
@@ -2319,6 +2527,30 @@ export class EventStore {
        WHERE session_id = ? ORDER BY created_at, delivery_id`,
     ).all(sessionId) as Array<{ delivery_id: string }>;
     return rows.map((row) => this.getSymposiumDelivery(row.delivery_id)!);
+  }
+
+  /** Bounded pending recipient rows; a queue entry is not evidence of provider receipt. */
+  getQueuedSymposiumRecipients(
+    sessionId: string,
+    seatId?: string,
+    limit = 100,
+  ): Array<{ delivery: SymposiumDeliveryRecord; seatId: string }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw new Error('Invalid Symposium queue limit');
+    const rows = this.db!.prepare(
+      `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
+       JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
+       WHERE d.session_id = ? AND d.status IN ('awaiting_intervention', 'ready', 'delivering')
+         AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
+       ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
+    ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
+      delivery_id: string;
+      seat_id: string;
+    }>;
+    return rows.map((row) => ({
+      delivery: this.getSymposiumDelivery(row.delivery_id)!,
+      seatId: row.seat_id,
+    }));
   }
 
   recordSymposiumIntervention(input: {
@@ -2545,7 +2777,7 @@ export class EventStore {
       const recipient = this.db!.prepare(
         `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
           d.status AS delivery_status,
-          d.session_id
+          d.session_id, d.delivered_content
          FROM symposium_delivery_recipients r
          JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
          WHERE r.delivery_id = ? AND r.seat_id = ?`,
@@ -2556,6 +2788,7 @@ export class EventStore {
             membership_generation: number;
             delivery_status: string;
             session_id: string;
+            delivered_content: string | null;
           }
         | undefined;
       if (
@@ -2563,6 +2796,7 @@ export class EventStore {
         recipient.session_id !== input.sessionId ||
         recipient.delivery_status !== 'delivering' ||
         recipient.recipient_status !== 'pending' ||
+        recipient.delivered_content === null ||
         recipient.idempotency_key !== input.recipientIdempotencyKey
       ) {
         return undefined;
@@ -2714,12 +2948,17 @@ export class EventStore {
         );
         return undefined;
       }
+      const dispatchSeq = this.append(input.sessionId, 'symposium_delivery_dispatched', {
+        deliveryId: input.deliveryId,
+        seatId: input.seatId,
+        claimToken: input.claimToken,
+      });
       this.db!.prepare(
         `INSERT INTO symposium_recipient_attempts (
           delivery_id, seat_id, attempt_number, idempotency_key, claim_token,
-          symposium_provenance, status, provider_thread_id, started_at, updated_at
+          symposium_provenance, status, provider_thread_id, dispatched_content, dispatch_seq, started_at, updated_at
         )
-        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?, ?, ?
         FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
       ).run(
         input.deliveryId,
@@ -2728,6 +2967,8 @@ export class EventStore {
         input.claimToken,
         JSON.stringify(input.provenance),
         thread?.providerThreadId ?? null,
+        recipient.delivered_content,
+        dispatchSeq,
         input.claimedAt,
         input.claimedAt,
         input.deliveryId,
@@ -2749,10 +2990,13 @@ export class EventStore {
     configRevision: number;
     threadCreatedAt: number;
     resultContent: string;
-    costUsd: number;
+    costUsd: number | null;
     updatedAt: number;
     claimToken: string;
   }): SymposiumDeliveryRecord {
+    if (input.costUsd !== null && (!Number.isFinite(input.costUsd) || input.costUsd < 0)) {
+      throw new Error('Symposium provider cost must be finite and nonnegative, or unknown');
+    }
     return this.db!.transaction(() => {
       const delivery = this.db!.prepare(
         `SELECT session_id, config_revision FROM symposium_deliveries WHERE delivery_id = ?`,
@@ -2763,6 +3007,16 @@ export class EventStore {
         delivery.config_revision !== input.configRevision
       ) {
         throw new Error('Symposium completion does not match its delivery configuration');
+      }
+      // The acceptance receipt pins the native thread before an executor can finish.
+      // Validate even late completions so archived results cannot contradict that receipt.
+      const accepted = this.db!.prepare(
+        `SELECT provider_thread_id FROM symposium_recipient_attempts
+         WHERE delivery_id = ? AND seat_id = ? AND claim_token = ? AND accepted_at IS NOT NULL`,
+      ).get(input.deliveryId, input.seatId, input.claimToken) as
+        { provider_thread_id: string } | undefined;
+      if (accepted && accepted.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Symposium completion conflicts with provider acceptance receipt');
       }
       const claim = this.db!.prepare(
         `SELECT 1 FROM symposium_seat_execution_claims
@@ -2785,15 +3039,16 @@ export class EventStore {
         ) {
           this.db!.prepare(
             `INSERT OR IGNORE INTO symposium_late_results
-            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,observed_at,symposium_provenance)
-            VALUES(?,?,?,?,?,?,?,?)`,
+            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,cost_known,observed_at,symposium_provenance)
+            VALUES(?,?,?,?,?,?,?,?,?)`,
           ).run(
             input.deliveryId,
             input.seatId,
             input.claimToken,
             input.providerThreadId,
             input.resultContent,
-            input.costUsd,
+            input.costUsd ?? 0,
+            input.costUsd === null ? 0 : 1,
             input.updatedAt,
             originalAttempt.symposium_provenance,
           );
@@ -2802,12 +3057,13 @@ export class EventStore {
       }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
-          provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
+          provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL, updated_at = ?
          WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
       ).run(
         input.providerThreadId,
         input.resultContent,
-        input.costUsd,
+        input.costUsd ?? 0,
+        input.costUsd === null ? 0 : 1,
         input.updatedAt,
         input.deliveryId,
         input.seatId,
@@ -2815,13 +3071,14 @@ export class EventStore {
       if (result.changes === 1) {
         const attempt = this.db!.prepare(
           `UPDATE symposium_recipient_attempts SET status = 'delivered',
-            provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL,
+            provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL,
             completed_at = ?, updated_at = ?
            WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
         ).run(
           input.providerThreadId,
           input.resultContent,
-          input.costUsd,
+          input.costUsd ?? 0,
+          input.costUsd === null ? 0 : 1,
           input.updatedAt,
           input.updatedAt,
           input.deliveryId,
@@ -3023,6 +3280,71 @@ export class EventStore {
            WHERE delivery_id = ? ORDER BY seat_id, attempt_number`,
         ).all(deliveryId) as Record<string, unknown>[]);
     return rows.map(rowToSymposiumRecipientAttempt);
+  }
+
+  getSymposiumRecipientAttemptByClaimToken(
+    claimToken: string,
+  ): SymposiumRecipientAttemptRecord | undefined {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_recipient_attempts WHERE claim_token = ?',
+    ).get(claimToken) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumRecipientAttempt(row) : undefined;
+  }
+
+  /** Exact provider turn acceptance receipt; never changes recipient delivery status. */
+  markSymposiumRecipientAccepted(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    providerTurnId: string;
+    acceptedAt: number;
+  }): boolean {
+    if (
+      !input.providerThreadId.trim() ||
+      !input.providerTurnId.trim() ||
+      !Number.isSafeInteger(input.acceptedAt) ||
+      input.acceptedAt < 0
+    )
+      throw new Error('Provider acceptance requires exact turn identity and timestamp');
+    return this.db!.transaction(() => {
+      const row = this.db!.prepare(
+        `SELECT provider_thread_id, provider_turn_id, accepted_at
+        FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ? AND claim_token = ?`,
+      ).get(input.deliveryId, input.seatId, input.claimToken) as
+        | {
+            provider_thread_id: string | null;
+            provider_turn_id: string | null;
+            accepted_at: number | null;
+          }
+        | undefined;
+      if (!row) return false;
+      if (row.provider_thread_id !== null && row.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Provider acceptance thread conflicts with the claimed seat thread');
+      }
+      if (row.accepted_at !== null) {
+        if (
+          row.provider_thread_id !== input.providerThreadId ||
+          row.provider_turn_id !== input.providerTurnId
+        )
+          throw new Error('Provider acceptance receipt conflict');
+        return true;
+      }
+      const updated = this.db!.prepare(
+        `UPDATE symposium_recipient_attempts
+        SET provider_thread_id = ?, provider_turn_id = ?, accepted_at = ?, updated_at = ?
+        WHERE delivery_id = ? AND seat_id = ? AND claim_token = ? AND accepted_at IS NULL`,
+      ).run(
+        input.providerThreadId,
+        input.providerTurnId,
+        input.acceptedAt,
+        input.acceptedAt,
+        input.deliveryId,
+        input.seatId,
+        input.claimToken,
+      );
+      return updated.changes === 1;
+    }).immediate();
   }
 
   getSymposiumSeatThread(
@@ -3514,7 +3836,7 @@ function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliver
     isolationDomainRevision: row.isolation_domain_revision as number,
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: (row.cost_usd as number) ?? 0,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     updatedAt: row.updated_at as number,
   };
@@ -3530,11 +3852,15 @@ function rowToSymposiumRecipientAttempt(
     attemptNumber: row.attempt_number as number,
     idempotencyKey: row.idempotency_key as string,
     claimToken: (row.claim_token as string | null) ?? null,
+    dispatchedContent: (row.dispatched_content as string | null) ?? null,
+    dispatchSeq: (row.dispatch_seq as number | null) ?? null,
     provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     status: row.status as SymposiumRecipientAttemptRecord['status'],
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
+    providerTurnId: (row.provider_turn_id as string | null) ?? null,
+    acceptedAt: (row.accepted_at as number | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: row.cost_usd as number,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     startedAt: row.started_at as number,
     completedAt: (row.completed_at as number | null) ?? null,
@@ -3574,6 +3900,7 @@ function rowToSymposiumDelivery(
     deliveryId: row.delivery_id as string,
     sessionId: row.session_id as string,
     sourceSeatId: (row.source_seat_id as string | null) ?? null,
+    sourceMessageId: (row.source_message_id as string | null) ?? null,
     recipientSeatIds: JSON.parse(row.recipient_seat_ids as string) as string[],
     originalContent: row.original_content as string,
     deliveredContent: (row.delivered_content as string | null) ?? null,

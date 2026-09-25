@@ -328,7 +328,7 @@ export interface SymposiumDeliveryRecipient {
   isolationDomainRevision: number;
   providerThreadId: string | null;
   resultContent: string | null;
-  costUsd: number;
+  costUsd: number | null;
   error: string | null;
   updatedAt: number;
 }
@@ -341,11 +341,15 @@ export interface SymposiumRecipientAttemptRecord {
   attemptNumber: number;
   idempotencyKey: string;
   claimToken: string | null;
+  dispatchedContent: string | null;
+  dispatchSeq: number | null;
   provenance: SymposiumProvenance | null;
   status: Exclude<SymposiumRecipientStatus, 'pending'>;
   providerThreadId: string | null;
+  providerTurnId: string | null;
+  acceptedAt: number | null;
   resultContent: string | null;
-  costUsd: number;
+  costUsd: number | null;
   error: string | null;
   startedAt: number;
   completedAt: number | null;
@@ -357,6 +361,8 @@ export interface SymposiumDeliveryRecord {
   deliveryId: string;
   sessionId: string;
   sourceSeatId: string | null;
+  /** Durable originating message; null for unlinked/director-authored content. */
+  sourceMessageId?: string | null;
   recipientSeatIds: string[];
   originalContent: string;
   deliveredContent: string | null;
