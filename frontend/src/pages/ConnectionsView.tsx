@@ -246,7 +246,7 @@ export function ConnectionsView() {
     success: string,
     onFailure?: () => void,
     onSuccess?: () => void,
-  ) => {
+  ): Promise<boolean> => {
     setBusy(name);
     setMessage('');
     try {
@@ -254,10 +254,12 @@ export function ConnectionsView() {
       setMessage(success);
       onSuccess?.();
       await refresh();
+      return true;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'The request failed. Refresh and retry.');
       onFailure?.();
       await refresh();
+      return false;
     } finally {
       setBusy(null);
     }
@@ -961,7 +963,7 @@ function CapabilityGrants({
   csrf: string;
   busy: string | null;
   requireReauthorization: () => boolean;
-  onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<void>;
+  onAction: (name: string, action: () => Promise<unknown>, success: string) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [grants, setGrants] = useState<ConnectionCapabilityGrant[]>([]);
@@ -1053,7 +1055,7 @@ function CapabilityGrants({
               const values = selected[key] ?? [];
               const save = async (status: 'active' | 'revoked', accountIds: string[]) => {
                 if (!requireReauthorization()) return;
-                await onAction(
+                const saved = await onAction(
                   `grant:${connection.id}:${key}`,
                   () =>
                     setConnectionCapabilityGrant({
@@ -1069,7 +1071,7 @@ function CapabilityGrants({
                     ? 'Capability grant updated for new conversations.'
                     : 'Capability grant revoked.',
                 );
-                dirtyKeys.current.delete(key);
+                if (saved) dirtyKeys.current.delete(key);
                 await load();
               };
               return (
@@ -1176,7 +1178,7 @@ function ConnectionCard({
     action: () => Promise<unknown>,
     success: string,
     onFailure?: () => void,
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   onAudit: (id: string) => Promise<void>;
 }) {
   const [removalOpen, setRemovalOpen] = useState(false);

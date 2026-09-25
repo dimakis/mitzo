@@ -482,6 +482,34 @@ describe('ConnectionsView', () => {
     ).toBe(false);
     expect(button('Save grant').disabled).toBe(true);
   });
+  it('preserves a grant draft after a rejected save so the operator can retry', async () => {
+    const github = {
+      ...catalog.connections[0]!,
+      id: 'github-1',
+      templateId: 'github-readonly',
+      label: 'GitHub',
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
+    };
+    vi.mocked(connections.getConnections).mockImplementation(async () => ({
+      ...catalog,
+      connections: [{ ...github, desiredAccountIds: [...github.desiredAccountIds] }],
+    }));
+    vi.mocked(connections.setConnectionCapabilityGrant).mockRejectedValue(
+      new Error('Grant unavailable'),
+    );
+    await render();
+    await reauthorize();
+    await act(async () => button('Manage capability grants').click());
+    const profile = container.querySelector(
+      '.connections-capability input[type="checkbox"]',
+    ) as HTMLInputElement;
+    act(() => profile.click());
+    await act(async () => button('Save grant').click());
+    await flush();
+    expect(container.textContent).toContain('Grant unavailable');
+    expect(profile.checked).toBe(true);
+    expect(button('Save grant').disabled).toBe(false);
+  });
   it('shows reviewed catalog cards with category, authentication, and risk summaries', async () => {
     await render();
     expect(container.textContent).toContain('Read-only sandbox egress');
