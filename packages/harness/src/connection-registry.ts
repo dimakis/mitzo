@@ -18,6 +18,7 @@
 
 import type { SessionTransport } from './session-transport.js';
 import { createLogger } from './logger.js';
+import { storedEventToClientMessage, type StoredEvent } from '@mitzo/protocol';
 
 const log = createLogger('connection-registry');
 
@@ -34,10 +35,12 @@ export interface EventStoreAdapter {
     sessionId: string,
     afterSeq: number,
     limit?: number,
-  ): Array<{
-    seq: number;
-    payload: Record<string, unknown>;
-  }>;
+  ): Array<
+    Pick<StoredEvent, 'seq' | 'payload'> &
+      Partial<Pick<StoredEvent, 'seatId' | 'symposiumProvenance'>> & {
+        prevSessionSeq?: number;
+      }
+  >;
   /** Optional: check if a session is still active. When provided, periodic sync
    *  skips ended sessions to avoid unnecessary EventStore queries. */
   isSessionActive?(sessionId: string): boolean;
@@ -253,7 +256,7 @@ export class ConnectionRegistry {
           // Retry delivery
           for (const evt of missedEvents) {
             try {
-              conn.transport.send({ ...evt.payload, seq: evt.seq });
+              conn.transport.send(storedEventToClientMessage(evt));
               // Update cursor on success
               const current = connCursors.get(sessionId) ?? 0;
               if (evt.seq > current) {

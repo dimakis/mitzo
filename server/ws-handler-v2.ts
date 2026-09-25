@@ -41,6 +41,7 @@ import {
   V2InterruptMessage,
   V2PermissionResponseMessage,
   V2SetModeMessage,
+  storedEventToClientMessage,
 } from '@mitzo/protocol';
 import type { z } from 'zod';
 
@@ -376,10 +377,7 @@ export function handleReconnect(
         const reconnectState = ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
         const events = reconnectState.events;
         for (const evt of events) {
-          ctx.connRegistry.get(connectionId)?.transport.send({
-            ...evt.payload,
-            seq: evt.seq,
-          } as Record<string, unknown>);
+          ctx.connRegistry.get(connectionId)?.transport.send(storedEventToClientMessage(evt));
         }
 
         const durableSession = reconnectState.session;

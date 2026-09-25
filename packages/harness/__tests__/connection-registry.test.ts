@@ -331,6 +331,43 @@ describe('ConnectionRegistry', () => {
       registry.stopPeriodicSync();
     });
 
+    it('retries a seat event with its durable provenance despite a spoofed payload', async () => {
+      vi.useFakeTimers();
+      const transport = mockTransport(true);
+      const provenance = {
+        seatId: 'reviewer',
+        configRevision: 1,
+        accountProfileRevision: 'a',
+        seatProfileRevision: 'p',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'work',
+        isolationDomainRevision: 1,
+      };
+      registry.setEventStore({
+        getEventsAfter: () => [
+          {
+            seq: 5,
+            payload: { type: 'block_delta', seatId: 'spoofed', blockId: 'b0' },
+            seatId: 'reviewer',
+            symposiumProvenance: provenance,
+          },
+        ],
+      });
+      registry.register('conn-1', transport);
+      registry.watch('conn-1', 'sess-a');
+      registry.startPeriodicSync();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(transport.send).toHaveBeenCalledWith({
+        type: 'block_delta',
+        blockId: 'b0',
+        seq: 5,
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      });
+      registry.stopPeriodicSync();
+    });
+
     it('stops retrying on first send failure in a batch', async () => {
       vi.useFakeTimers();
       const t = mockTransport(true);

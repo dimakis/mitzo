@@ -42,6 +42,7 @@ import {
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
 import { NullTransport } from './null-transport.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import {
   HEARTBEAT_INTERVAL_MS,
   PORT_DEFAULT,
@@ -807,7 +808,7 @@ function replayMissedEvents(
         }
       }
     }
-    transport.send({ ...evt.payload, seq: evt.seq } as Record<string, unknown>);
+    transport.send(storedEventToClientMessage(evt));
   }
   return missed.length;
 }

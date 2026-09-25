@@ -10,6 +10,7 @@ import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import express from 'express';
+import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -1752,7 +1753,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
     return;
   }
   const events = eventStore.getEventsAfter(req.params.id, afterSeq);
-  res.json(events.map((e) => ({ ...e.payload, seq: e.seq })));
+  res.json(events.map(storedEventToClientMessage));
 });
 
 app.delete('/api/sessions', (_req, res) => {
