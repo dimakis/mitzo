@@ -255,7 +255,7 @@ describe('SymposiumOrchestrator', () => {
     let release!: (result: { providerThreadId: string; content: string; costUsd: number }) => void;
     reviewer.execute = vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<{ providerThreadId: string; content: string; costUsd: number }>((resolve) => {
           release = resolve;
         }),
     );
