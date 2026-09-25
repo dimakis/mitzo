@@ -945,6 +945,12 @@ export class EventStore {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
         ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
         WHERE type IN ('message_start', 'user_message', 'message_end')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_perspective_anchors
+        ON events(session_id, seq)
+        WHERE type IN ('message_start', 'user_message', 'symposium_delivery_dispatched')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_symposium_pending_recipients
+        ON symposium_delivery_recipients(seat_id, delivery_id)
+        WHERE status = 'pending'`);
       if (!attemptColumns.some((column) => column.name === 'provider_turn_id')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN provider_turn_id TEXT');
       }
