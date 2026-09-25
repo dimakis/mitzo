@@ -342,6 +342,62 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     ).toThrow(/ambiguous|unattributed/i);
   });
 
+  it('retains completed identities through newer turns and ignores delayed duplicate terminals', () => {
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const seat = (seq: number, type: string, messageId: string, extra = {}) => ({
+      ...evt(seq, type, { messageId, ...extra }),
+      seatId: 'reviewer',
+      symposiumProvenance: provenance,
+    });
+    const events = [
+      seat(1, 'message_start', 'first'),
+      seat(2, 'block_start', 'first', { blockId: 'text', blockType: 'text' }),
+      seat(3, 'block_delta', 'first', { blockId: 'text', delta: 'first reply' }),
+      seat(4, 'message_end', 'first'),
+      seat(5, 'message_start', 'second'),
+      seat(6, 'message_end', 'first'),
+      seat(7, 'block_start', 'second', { blockId: 'text', blockType: 'text' }),
+      seat(8, 'block_delta', 'second', { blockId: 'text', delta: 'second reply' }),
+    ];
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'first', blocks: [{ content: 'first reply' }] }],
+      currents: [{ messageId: 'second', blocks: [{ content: 'second reply' }] }],
+    });
+    for (const terminal of [evt(9, 'session_end', {}), seat(9, 'session_end', 'second')]) {
+      expect(
+        replayEventsToTranscript([
+          ...events,
+          terminal,
+          seat(10, 'message_start', 'third'),
+          seat(11, 'message_end', 'second'),
+        ]),
+      ).toMatchObject({ currents: [{ messageId: 'third' }] });
+    }
+    events.push(seat(9, 'message_end', 'second'), seat(10, 'message_end', 'first'));
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'first' }, { messageId: 'second' }],
+      currents: [],
+    });
+    expect(() =>
+      replayEventsToTranscript([
+        ...events,
+        {
+          ...seat(11, 'message_end', 'first'),
+          symposiumProvenance: { ...provenance, accountProfileRevision: 'wrong-snapshot' },
+        },
+      ]),
+    ).toThrow(/mismatch/);
+  });
+
   it('accepts an exact duplicate attributed message_end after the turn is finished', () => {
     const provenance = {
       seatId: 'architect',

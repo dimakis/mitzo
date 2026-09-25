@@ -3449,7 +3449,7 @@ export function replayEventsToTranscript(
     string,
     { messageId: string; snapshotKey: string; blockIds: Set<string> }
   >();
-  const completedBySeat = new Map<string, { messageId: string; snapshotKey: string }>();
+  const completedTurns = new Set<string>();
   for (const event of events) {
     if (event.seatId === undefined && event.symposiumProvenance === undefined) {
       if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
@@ -3457,6 +3457,8 @@ export function replayEventsToTranscript(
       ordinary.push(event);
       if (event.type === 'session_end') {
         globalTerminals.push(event);
+        for (const active of openBySeat.values())
+          completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
         openBySeat.clear();
       }
       continue;
@@ -3480,31 +3482,21 @@ export function replayEventsToTranscript(
         snapshotKey: key,
         blockIds: new Set(),
       });
-      completedBySeat.delete(seatGeneration);
     } else if (event.type === 'message_end') {
-      const completed = completedBySeat.get(seatGeneration);
-      if (
-        !active &&
-        completed?.messageId === event.payload.messageId &&
-        completed?.snapshotKey === key
-      ) {
-        // A duplicate durable terminal is idempotent for this exact turn.
-      } else if (
-        !active ||
-        active.messageId !== event.payload.messageId ||
-        active.snapshotKey !== key
-      )
-        throw new Error('Stored Symposium message_end mismatches active seat turn');
-      else {
-        completedBySeat.set(seatGeneration, {
-          messageId: active.messageId,
-          snapshotKey: active.snapshotKey,
-        });
+      const terminalIdentity = JSON.stringify([key, event.payload.messageId]);
+      if (active && active.messageId === event.payload.messageId && active.snapshotKey === key) {
+        completedTurns.add(terminalIdentity);
         openBySeat.delete(seatGeneration);
+      } else if (completedTurns.has(terminalIdentity)) {
+        // A delayed duplicate must not close or invalidate a newer active turn.
+        continue;
+      } else {
+        throw new Error('Stored Symposium message_end mismatches active seat turn');
       }
     } else if (event.type === 'session_end') {
       if (active && active.snapshotKey !== key)
         throw new Error('Stored Symposium terminal mismatches active seat snapshot');
+      if (active) completedTurns.add(JSON.stringify([active.snapshotKey, active.messageId]));
       openBySeat.delete(seatGeneration);
     } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
       if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
