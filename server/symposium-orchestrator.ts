@@ -38,8 +38,14 @@ export interface SymposiumSeatExecutionResult {
 
 export interface SymposiumSeatExecutor {
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
-  /** Resolve only after the attempt can no longer execute tools or native writes. */
-  cancel?(input: { providerThreadId?: string; idempotencyKey: string }): Promise<void>;
+  /** Target the exact supplied attempt identity, never a newer retry on the same thread.
+   * Resolve only after that attempt can no longer execute tools or native writes. */
+  cancel?(input: {
+    providerThreadId?: string;
+    idempotencyKey: string;
+    attemptId?: number;
+    claimToken?: string;
+  }): Promise<void>;
 }
 
 export interface SymposiumOrchestratorDeps {
@@ -423,30 +429,61 @@ export class SymposiumOrchestrator {
     });
     this.abortControllers.get(input.deliveryId)?.abort();
     await Promise.all(
-      before.recipients
-        .filter((recipient) => unsettled.some((attempt) => attempt.seatId === recipient.seatId))
-        .map(async (recipient) => {
-          const executor = this.executors[recipient.seatId];
-          if (!executor?.cancel) return;
-          try {
-            await executor.cancel({
-              providerThreadId: recipient.providerThreadId ?? undefined,
-              idempotencyKey: recipient.idempotencyKey,
-            });
-            for (const attempt of unsettled.filter(
-              (attempt) => attempt.seatId === recipient.seatId,
-            ))
-              this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
-          } catch (error) {
-            log.warn('provider cancellation cleanup failed after durable cancellation', {
-              deliveryId: input.deliveryId,
-              seatId: recipient.seatId,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }),
+      unsettled.map(async (attempt) => {
+        const executor = this.executors[attempt.seatId];
+        if (!executor?.cancel) return;
+        const recipient = before.recipients.find((row) => row.seatId === attempt.seatId);
+        try {
+          await executor.cancel({
+            providerThreadId: recipient?.providerThreadId ?? undefined,
+            idempotencyKey: attempt.idempotencyKey,
+            attemptId: attempt.attemptId,
+          });
+          this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+        } catch (error) {
+          log.warn('provider cancellation cleanup failed after durable cancellation', {
+            deliveryId: input.deliveryId,
+            seatId: attempt.seatId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }),
     );
     return cancelled;
+  }
+
+  /** Inspect/stop only the captured failed attempts; this never dispatches or retries. */
+  async reconcileDeliveryCleanup(deliveryId: string): Promise<{
+    delivery: SymposiumDeliveryRecord;
+    cleanup: 'confirmed' | 'recovery_required';
+  }> {
+    const delivery = this.store.getSymposiumDelivery(deliveryId);
+    if (!delivery) throw new Error('Unknown Symposium delivery');
+    if (
+      !['failed', 'recovery_required', 'cancelled', 'delivered'].includes(delivery.status) ||
+      delivery.recipients.some((recipient) => recipient.status === 'executing')
+    )
+      throw new Error('Active recipient execution must settle or be cancelled before cleanup');
+    const attempts = this.store.getUnsettledSymposiumExecutions(deliveryId);
+    await Promise.allSettled(
+      attempts.map(async (attempt) => {
+        const executor = this.executors[attempt.seatId];
+        if (!executor?.cancel) return;
+        const recipient = delivery.recipients.find((row) => row.seatId === attempt.seatId);
+        await executor.cancel({
+          providerThreadId: recipient?.providerThreadId ?? undefined,
+          idempotencyKey: attempt.idempotencyKey,
+          attemptId: attempt.attemptId,
+        });
+        this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      }),
+    );
+    return {
+      delivery: this.store.getSymposiumDelivery(deliveryId)!,
+      cleanup: this.store.getUnsettledSymposiumExecutions(deliveryId).length
+        ? 'recovery_required'
+        : 'confirmed',
+    };
   }
 
   recover(): SymposiumDeliveryRecord[] {
@@ -572,6 +609,7 @@ export class SymposiumOrchestrator {
             await executor.cancel({
               providerThreadId: thread?.providerThreadId,
               idempotencyKey: recipient.idempotencyKey,
+              claimToken: claim.claimToken,
             });
             this.store.confirmSymposiumExecutionCleanup(claim.claimToken);
           } catch {

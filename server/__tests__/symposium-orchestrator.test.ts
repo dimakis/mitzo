@@ -586,6 +586,46 @@ describe('SymposiumOrchestrator', () => {
     expect(store.getUnsettledSymposiumExecutions(id)).toEqual([]);
   });
 
+  it('recovers a final legacy failure safely before an explicit retry', async () => {
+    await prepareConcurrentSeats();
+    reviewer.execute = vi.fn(async () => {
+      throw new Error('legacy failure');
+    });
+    const id = readyFor(['reviewer'], 'legacy-final-failure');
+    await orchestrator.deliver(id);
+    store.close();
+    const legacy = new Database(dbPath);
+    legacy.exec('ALTER TABLE symposium_recipient_attempts DROP COLUMN cleanup_confirmed');
+    legacy
+      .prepare('UPDATE symposium_recipient_attempts SET claim_token = NULL WHERE delivery_id = ?')
+      .run(id);
+    legacy.close();
+    store = new EventStore(dbPath);
+    orchestrator = new SymposiumOrchestrator({ store, executors: { builder, reviewer } });
+    expect(() =>
+      orchestrator.intervene({ deliveryId: id, action: 'retry', idempotencyKey: 'unsafe' }),
+    ).toThrow(/cleanup/i);
+    reviewer.cancel = vi.fn(async () => {
+      throw new Error('still unknown');
+    });
+    expect(await orchestrator.reconcileDeliveryCleanup(id)).toMatchObject({
+      cleanup: 'recovery_required',
+    });
+    expect(() =>
+      orchestrator.intervene({ deliveryId: id, action: 'retry', idempotencyKey: 'still-unsafe' }),
+    ).toThrow(/cleanup/i);
+    reviewer.cancel = vi.fn(async () => {});
+    expect(await orchestrator.reconcileDeliveryCleanup(id)).toMatchObject({ cleanup: 'confirmed' });
+    expect(
+      orchestrator.intervene({
+        deliveryId: id,
+        action: 'retry',
+        idempotencyKey: 'confirmed-retry',
+      }),
+    ).toMatchObject({ status: 'ready' });
+    expect(reviewer.execute).toHaveBeenCalledTimes(1);
+  });
+
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
     const implementerSeat = {
       ...config.seats[1],

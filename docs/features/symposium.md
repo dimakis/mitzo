@@ -199,3 +199,12 @@ therefore cannot infer that a recovered writer has stopped. Failed multi-seat
 deliveries cannot be retried while any attempt still has unconfirmed cleanup.
 Executor cancellation must resolve only when further native operations are
 impossible; missing or failed cancellation retains the reservation for recovery.
+
+For historical failures with uncertain cleanup, the host calls
+`reconcileDeliveryCleanup` to stop the exact persisted attempts. Missing or failed
+cleanup keeps the reservation and returns `recovery_required`. Confirmed cleanup
+unblocks a separate explicit retry; reconciliation itself never dispatches work.
+A later successful attempt with the same idempotency identity settles its earlier
+historical failures during migration. Seat restoration includes membership
+generation in the provider-thread binding, so it cannot reuse a pre-suspension
+thread even when account and profile choices are unchanged.
