@@ -110,6 +110,8 @@ export {
 export {
   HelloMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,

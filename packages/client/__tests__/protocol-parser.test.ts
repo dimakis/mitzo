@@ -714,7 +714,7 @@ describe('reconnected', () => {
       type: 'PERMISSION_SNAPSHOT',
       permissions: [{ permId: 'perm-1', toolName: 'Bash', toolInput: '{}', sessionId: 'sid-1' }],
     });
-    expect(onReconnectSnapshot).toHaveBeenCalledWith('sid-1', 42, true);
+    expect(onReconnectSnapshot).toHaveBeenCalledWith('sid-1', 42, true, undefined);
   });
 });
 

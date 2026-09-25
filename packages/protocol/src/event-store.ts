@@ -1519,6 +1519,16 @@ export class EventStore {
     return (rows as EventRow[]).map(rowToEvent);
   }
 
+  /** Predecessor in this session's durable stream; global IDs need not be contiguous. */
+  getSessionPredecessorSeq(sessionId: string, seq: number): number {
+    if (!Number.isSafeInteger(seq) || seq < 0)
+      throw new Error('Event sequence must be a non-negative safe integer');
+    const row = this.db!.prepare(
+      'SELECT COALESCE(MAX(seq), 0) AS predecessor FROM events WHERE session_id = ? AND seq < ?',
+    ).get(sessionId, seq) as { predecessor: number };
+    return row.predecessor;
+  }
+
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);

@@ -189,6 +189,34 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('establishes a zero cursor so a missing predecessor can request a bounded reconnect snapshot', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createReadyStore();
+      await store.getState().switchSession('session-existing');
+      const first = lastWs;
+      first.simulateMessage({
+        type: 'block_delta',
+        sessionId: 'session-existing',
+        seq: 9,
+        prevSessionSeq: 5,
+        messageId: 'reply',
+        blockId: 'b0',
+        delta: 'late',
+      });
+      vi.advanceTimersByTime(15_000);
+      expect(lastWs).not.toBe(first);
+      lastWs.completeHandshake();
+      expect(lastWs.parsedSent()).toContainEqual({
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'session-existing', lastSeq: 0 }],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('updates active session and resets messages', async () => {
     const store = createReadyStore();
 

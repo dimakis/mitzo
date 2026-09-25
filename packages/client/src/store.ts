@@ -439,6 +439,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         connection.clearSession(oldId);
       }
       parserState.currentSessionId = id;
+      // Even a session whose history is loaded through REST needs an explicit
+      // reconnect baseline. Otherwise a predecessor gap can force a reconnect
+      // with no tracked sessions and never request its durable snapshot.
+      connection.trackSeq(id, connection.getLastSeq(id));
       connection.clearPendingSends();
       pendingOptimisticMessageIds.clear();
 
@@ -847,6 +851,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   const callbacks: ProtocolCallbacks = {
     onSessionAssigned(sessionId: string) {
       parserState.currentSessionId = sessionId;
+      connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
       store.setState((s) => ({
         sessions: { ...s.sessions, active: sessionId },
       }));
@@ -881,10 +886,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return api.getSessionMessages(sessionId);
     },
 
-    onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean) {
+    onReconnectSnapshot(sessionId: string, cursor: number, cursorValid: boolean, offerId?: string) {
       if (parserState.currentSessionId === sessionId) {
         fetchAndRestoreMessages(sessionId, cursor, !cursorValid, () =>
-          connection.acknowledgeReconnectSnapshot(sessionId, cursor),
+          connection.acknowledgeReconnectSnapshot(sessionId, cursor, offerId),
         );
       }
     },
@@ -986,8 +991,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             Number.isSafeInteger(msg.cursor) &&
             msg.cursor >= 0
           )
-            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return true;
+            if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return false;
         }
       } else {
         // Allow session_id (new session assignment) and permission_request
@@ -1002,8 +1007,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             Number.isSafeInteger(msg.cursor) &&
             msg.cursor >= 0
           )
-            connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
-          return true;
+            if (!msg.offerId) connection.acknowledgeReconnectSnapshot(eventSessionId, msg.cursor);
+          return false;
         }
       }
     }

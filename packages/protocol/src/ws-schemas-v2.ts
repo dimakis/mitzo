@@ -30,12 +30,26 @@ export const HelloMessage = z.object({
 
 export const ReconnectMessage = z.object({
   type: z.literal('reconnect'),
+  supportsAppliedCursor: z.boolean().optional(),
   sessions: z.array(
     z.object({
       sessionId: z.string().min(1),
       lastSeq: z.number().int().min(0),
     }),
   ),
+});
+
+export const ReconnectSnapshotAppliedMessage = z.object({
+  type: z.literal('reconnect_snapshot_applied'),
+  sessionId: z.string().min(1),
+  cursor: z.number().int().min(0),
+  offerId: z.string().uuid(),
+});
+
+export const SessionEventAppliedMessage = z.object({
+  type: z.literal('session_event_applied'),
+  sessionId: z.string().min(1),
+  seq: z.number().int().positive(),
 });
 
 // ─── Session management ─────────────────────────────────────────────────────
@@ -140,6 +154,8 @@ export const V2SetModeMessage = z.object({
 export const IncomingWsMessageV2 = z.discriminatedUnion('type', [
   HelloMessage,
   ReconnectMessage,
+  ReconnectSnapshotAppliedMessage,
+  SessionEventAppliedMessage,
   WatchMessage,
   UnwatchMessage,
   SwitchSessionMessage,

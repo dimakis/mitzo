@@ -57,7 +57,12 @@ export interface ProtocolCallbacks {
   onReconnected?(): void;
 
   /** Restore the transcript prefix at the exact durable reconnect cursor. */
-  onReconnectSnapshot?(sessionId: string, cursor: number, cursorValid: boolean): void;
+  onReconnectSnapshot?(
+    sessionId: string,
+    cursor: number,
+    cursorValid: boolean,
+    offerId?: string,
+  ): void;
 }
 
 // ─── Parser state ────────────────────────────────────────────────────────────
@@ -194,7 +199,12 @@ export function parseServerMessage(
         Number.isSafeInteger(msg.cursor) &&
         msg.cursor >= 0
       ) {
-        callbacks.onReconnectSnapshot?.(msg.sessionId, msg.cursor, msg.cursorValid !== false);
+        callbacks.onReconnectSnapshot?.(
+          msg.sessionId,
+          msg.cursor,
+          msg.cursorValid !== false,
+          typeof msg.offerId === 'string' ? msg.offerId : undefined,
+        );
       }
       break;
 

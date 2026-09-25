@@ -275,7 +275,11 @@ export function handleHello(
 
 export function handleReconnect(
   connectionId: string,
-  msg: { type: 'reconnect'; sessions: Array<{ sessionId: string; lastSeq: number }> },
+  msg: {
+    type: 'reconnect';
+    supportsAppliedCursor?: boolean;
+    sessions: Array<{ sessionId: string; lastSeq: number }>;
+  },
   ctx: V2HandlerContext,
 ): void {
   withSpan(
@@ -289,7 +293,9 @@ export function handleReconnect(
 
         // Set cursor to client's lastSeq BEFORE replay, so periodic sync
         // sees a reasonable cursor during replay instead of 0.
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
+        if (msg.supportsAppliedCursor)
+          ctx.connRegistry.enableAppliedCursor(connectionId, entry.sessionId, entry.lastSeq);
+        else ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
         // Resolve ownership before replay. A suspended session deliberately
         // remains in memory through the grace period, and its old transport
@@ -377,16 +383,30 @@ export function handleReconnect(
         const reconnectState = ctx.eventStore.captureReconnectState(entry.sessionId, entry.lastSeq);
         const events = reconnectState.events;
         for (const evt of events) {
-          ctx.connRegistry.get(connectionId)?.transport.send(storedEventToClientMessage(evt));
+          ctx.connRegistry.get(connectionId)?.transport.send(
+            storedEventToClientMessage({
+              ...evt,
+              prevSessionSeq: ctx.eventStore.getSessionPredecessorSeq(entry.sessionId, evt.seq),
+            }),
+          );
         }
 
         const durableSession = reconnectState.session;
         if (durableSession?.state) {
+          const offerId = msg.supportsAppliedCursor ? randomUUID() : undefined;
+          if (offerId)
+            ctx.connRegistry.offerSnapshot(
+              connectionId,
+              entry.sessionId,
+              reconnectState.cursor,
+              offerId,
+            );
           ctx.connRegistry.get(connectionId)?.transport.send({
             type: 'session_reconnect_snapshot',
             sessionId: entry.sessionId,
             cursor: reconnectState.cursor,
             cursorValid: reconnectState.cursorValid,
+            ...(offerId ? { offerId } : {}),
             state: toClientState(durableSession.state),
             internalState: durableSession.state,
             ...(durableSession.executionId && durableSession.executionPhase
@@ -407,7 +427,8 @@ export function handleReconnect(
         // The snapshot cursor is the transaction's high-water mark, even when
         // no suffix event needed replay or the client cursor was invalid.
         const newCursor = reconnectState.cursor;
-        ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
+        if (!msg.supportsAppliedCursor)
+          ctx.connRegistry.resetCursor(connectionId, entry.sessionId, newCursor);
 
         if (wasSuspended) {
           ctx.connRegistry.get(connectionId)?.transport.send({
@@ -1723,6 +1744,12 @@ export async function dispatchV2Message(
       break;
     case 'reconnect':
       handleReconnect(connectionId, msg, ctx);
+      break;
+    case 'reconnect_snapshot_applied':
+      ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId);
+      break;
+    case 'session_event_applied':
+      ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
       break;
     case 'watch':
       handleWatch(connectionId, msg, ctx);

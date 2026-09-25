@@ -102,6 +102,7 @@ function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 function mockEventStore() {
   const store = {
     getEventsAfter: vi.fn().mockReturnValue([]),
+    getSessionPredecessorSeq: vi.fn().mockReturnValue(0),
     captureReconnectState: vi.fn(),
     getSession: vi.fn().mockReturnValue(null),
     upsertSession: vi.fn(),
@@ -283,6 +284,38 @@ describe('handleReconnect', () => {
       providerAttempts: [],
       pendingPermissions: [],
     });
+  });
+
+  it('offers a fenced applied snapshot without advancing on transport send', () => {
+    const eventStore = mockEventStore();
+    eventStore.captureReconnectState.mockReturnValue({
+      session: { sessionId: 'sess-1', state: 'ACTIVE' },
+      cursor: 8,
+      cursorValid: true,
+      providerAttempts: [],
+      events: [],
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    ctx.connRegistry.setEventStore(eventStore);
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    handleReconnect(
+      'c1',
+      {
+        type: 'reconnect',
+        supportsAppliedCursor: true,
+        sessions: [{ sessionId: 'sess-1', lastSeq: 5 }],
+      },
+      ctx,
+    );
+    const snapshot = transport.sent.find((m) => m.type === 'session_reconnect_snapshot')!;
+    expect(snapshot).toMatchObject({ sessionId: 'sess-1', cursor: 8, offerId: expect.any(String) });
+    expect(ctx.connRegistry.ackAppliedEvent('c1', 'sess-1', 8)).toBe(false);
+    expect(ctx.connRegistry.ackAppliedSnapshot('c1', 'sess-1', 8, snapshot.offerId as string)).toBe(
+      true,
+    );
   });
 
   it('captures the active boundary after reattaching a detached live session', () => {

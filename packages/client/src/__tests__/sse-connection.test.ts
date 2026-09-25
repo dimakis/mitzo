@@ -448,6 +448,52 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(12);
   });
 
+  it('holds a chained event until an authoritative listener confirms application', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 5);
+    const event = { type: 'block_delta', sessionId: 'sess-1', seq: 9, prevSessionSeq: 5 };
+    lastES()._emit('message', event);
+    expect(conn.getLastSeq('sess-1')).toBe(5);
+    expect(
+      mockFetch.mock.calls.some(([url]) => String(url).includes('session-event-applied')),
+    ).toBe(false);
+    conn.onMessage(() => true);
+    lastES()._emit('message', event);
+    await Promise.resolve();
+    expect(conn.getLastSeq('sess-1')).toBe(9);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://localhost:3100/api/chat/session-event-applied',
+      expect.objectContaining({
+        body: JSON.stringify({ type: 'session_event_applied', sessionId: 'sess-1', seq: 9 }),
+      }),
+    );
+  });
+
+  it('resyncs instead of acknowledging a refused snapshot offer', () => {
+    const mockFetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch: mockFetch }));
+    conn.onMessage((msg) => (msg.type === 'session_reconnect_snapshot' ? false : true));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 5);
+    first._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 8,
+      offerId: 'offer-refused',
+      state: 'running',
+    });
+    expect(conn.getLastSeq('sess-1')).toBe(5);
+    expect(
+      mockFetch.mock.calls.some(([url]) => String(url).includes('reconnect-snapshot-applied')),
+    ).toBe(false);
+    expect(lastES()).not.toBe(first);
+  });
+
   it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
     const conn = new SseConnection(createConfig());
     const listener = vi.fn();
@@ -701,6 +747,7 @@ describe('SseConnection', () => {
         method: 'POST',
         body: JSON.stringify({
           type: 'reconnect',
+          supportsAppliedCursor: true,
           sessions: [{ sessionId: 'sess-1', lastSeq: 10 }],
         }),
       }),
