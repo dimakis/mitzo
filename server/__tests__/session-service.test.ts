@@ -140,8 +140,24 @@ describe('SessionService', () => {
     expect(service.getChild(child.conversationId)?.status).toBe('running');
     expect(observed).toEqual([]);
     runtime.inspect = async () => 'unknown';
+    runtime.stop = async (id) => {
+      observed.push(`stop:${id}`);
+      return 'unknown';
+    };
     await service.reconcile(child.conversationId);
     expect(service.getChild(child.conversationId)?.status).toBe('recovery_required');
+    expect(service.getChild(child.conversationId)?.cancellationRequested).toBe(true);
+    expect(observed).toEqual([`stop:${child.conversationId}`]);
+    await service.reconcile(child.conversationId);
+    expect(observed).toEqual([`stop:${child.conversationId}`, `stop:${child.conversationId}`]);
+  });
+
+  it('does not complete an inspected worker without a persisted result', async () => {
+    const child = service.createChild(request(), authority());
+    runtime.inspect = async () => 'completed';
+    await service.reconcile(child.conversationId);
+    expect(service.getChild(child.conversationId)?.status).toBe('recovery_required');
+    expect(service.readMailbox(child.conversationId, 'parent')).toEqual([]);
     expect(observed).toEqual([]);
   });
 
@@ -263,7 +279,9 @@ describe('SessionService', () => {
     const revoking = service.revokeHostGrant('grant-b', 1, 'auth-session-1');
     await vi.waitFor(() => expect(observed).toContain(`stop:${second.conversationId}`));
     expect(service.getChild(first.conversationId)?.cancellationRequested).toBe(true);
-    expect(service.getChild(second.conversationId)?.status).toBe('cancelled');
+    await vi.waitFor(() =>
+      expect(service.getChild(second.conversationId)?.status).toBe('cancelled'),
+    );
     releaseFirst();
     await revoking;
     expect(service.getChild(first.conversationId)?.status).toBe('recovery_required');
@@ -384,6 +402,68 @@ describe('SessionService', () => {
     await starting;
     expect(observed.filter((event) => event.startsWith('stop:'))).toHaveLength(2);
     expect(service.getChild(child.conversationId)?.status).toBe('cancelled');
+  });
+
+  it('repeats cleanup when a late runtime attachment rejects after cancellation', async () => {
+    const child = service.createChild(request(), authority());
+    let rejectStart!: (error: Error) => void;
+    runtime.start = async () => {
+      observed.push('start');
+      await new Promise<void>((_resolve, reject) => {
+        rejectStart = reject;
+      });
+    };
+    const starting = service.reconcile(child.conversationId);
+    await vi.waitFor(() => expect(observed).toContain('start'));
+    await service.cancelChild(child.conversationId, 'parent');
+    rejectStart(new Error('runtime attached before reporting failure'));
+    await starting;
+    expect(observed.filter((event) => event === `stop:${child.conversationId}`)).toHaveLength(2);
+    expect(service.getChild(child.conversationId)?.status).toBe('cancelled');
+  });
+
+  it('fences and stops nested descendants when their parent is cancelled', async () => {
+    const child = service.createChild(request('task-1'), authority());
+    await service.reconcile(child.conversationId);
+    const grandchild = service.createChild(
+      rehash({ ...request('task-2'), parentConversationId: child.conversationId }),
+      authority(),
+    );
+    await service.reconcile(grandchild.conversationId);
+    let releaseStop!: () => void;
+    runtime.stop = async (id) => {
+      observed.push(`stop:${id}`);
+      if (id === child.conversationId)
+        await new Promise<void>((resolve) => {
+          releaseStop = resolve;
+        });
+      return 'confirmed';
+    };
+    const cancelling = service.cancelChild(child.conversationId, 'parent');
+    await vi.waitFor(() => expect(observed).toContain(`stop:${grandchild.conversationId}`));
+    expect(service.getChild(grandchild.conversationId)?.cancellationRequested).toBe(true);
+    expect(service.getChild(grandchild.conversationId)?.generation).toBe(grandchild.generation + 1);
+    releaseStop();
+    await cancelling;
+    expect(service.getChild(grandchild.conversationId)?.status).toBe('cancelled');
+  });
+
+  it('retains cancellation intent when descendant cleanup throws', async () => {
+    const child = service.createChild(request('task-1'), authority());
+    await service.reconcile(child.conversationId);
+    const grandchild = service.createChild(
+      rehash({ ...request('task-2'), parentConversationId: child.conversationId }),
+      authority(),
+    );
+    await service.reconcile(grandchild.conversationId);
+    runtime.stop = async (id) => {
+      if (id === grandchild.conversationId) throw new Error('private runtime detail');
+      return 'confirmed';
+    };
+    await service.cancelChild(child.conversationId, 'parent');
+    expect(service.getChild(child.conversationId)?.status).toBe('cancelled');
+    expect(service.getChild(grandchild.conversationId)?.status).toBe('recovery_required');
+    expect(service.getChild(grandchild.conversationId)?.cancellationRequested).toBe(true);
   });
 
   it('persists revocation before stop, prevents start, and retains parent-visible child result', async () => {

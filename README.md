@@ -70,6 +70,8 @@ Phone (Tailscale) ──┬── HTTP: REST API
 
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
 
+The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
+
 ### Packages (`packages/`) — npm workspace
 
 Mitzo uses an npm workspace with three internal packages shared between server and frontend:
@@ -89,6 +91,7 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 | `query-loop.ts`         | SDK → v2 event translator. Deferred `message_end`, snapshot state, block lifecycle. |
 | `chat.ts`               | Agent SDK `query()`, prompt assembly, streaming-input queue, session restore API    |
 | `session-registry.ts`   | Session state: detach, reattach, rekey, TTL abort, snapshot storage                 |
+| `session-service.ts`    | Durable child allocation, host grant, cancellation, and start reconciliation ledger |
 | `permission-handler.ts` | `canUseTool` callback — auto-allow by tier, prompt via WS + push notifications      |
 | `async-queue.ts`        | `AsyncIterable` queue for follow-up messages and interrupt                          |
 

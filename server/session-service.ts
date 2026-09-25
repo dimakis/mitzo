@@ -558,23 +558,47 @@ export class SessionService {
         if (!child) throw new Error('Unknown child');
         if (actorConversationId !== child.parentConversationId)
           throw new Error('Child cancellation authority denied');
-        if (
-          child.status === 'completed' ||
-          child.status === 'cancelled' ||
-          child.cancellationRequested
-        )
-          return child;
+        // Fence the entire lineage in one transaction. Runtime cleanup can be
+        // slow or uncertain, but no descendant may keep its old generation.
+        const descendants = this.descendantIds(conversationId);
+        const now = Date.now();
         this.db
           .prepare(
             `UPDATE child_allocations SET
         status = CASE WHEN status = 'allocated' THEN 'cancelled' ELSE 'cancel_requested' END,
         cancel_requested_at = ?, generation = generation + 1, updated_at = ?
-        WHERE conversation_id = ? AND generation = ? AND cancel_requested_at IS NULL`,
+        WHERE conversation_id = ? AND status NOT IN ('completed','cancelled')
+          AND cancel_requested_at IS NULL`,
           )
-          .run(Date.now(), Date.now(), conversationId, child.generation);
+          .run(now, now, conversationId);
+        for (const id of descendants.slice(1))
+          this.db
+            .prepare(
+              `UPDATE child_allocations SET
+              status = CASE WHEN status = 'allocated' THEN 'cancelled' ELSE 'cancel_requested' END,
+              cancel_requested_at = ?, generation = generation + 1, updated_at = ?
+              WHERE conversation_id = ? AND status NOT IN ('completed','cancelled')
+                AND cancel_requested_at IS NULL`,
+            )
+            .run(now, now, id);
         return this.getChild(conversationId)!;
       })
       .immediate();
+  }
+
+  private descendantIds(conversationId: string): string[] {
+    return (
+      this.db
+        .prepare(
+          `WITH RECURSIVE descendants(conversation_id) AS (
+            SELECT conversation_id FROM child_allocations WHERE conversation_id = ?
+            UNION ALL
+            SELECT child.conversation_id FROM child_allocations child
+              JOIN descendants parent ON child.parent_conversation_id = parent.conversation_id
+          ) SELECT conversation_id FROM descendants`,
+        )
+        .all(conversationId) as Array<{ conversation_id: string }>
+    ).map((row) => row.conversation_id);
   }
 
   private async authorityStillCurrent(child: ChildLink): Promise<boolean> {
@@ -604,10 +628,10 @@ export class SessionService {
   /** Inspect before dispatching the pending start. An uncertain observation is
    * fenced; it never mints another provider attempt. */
   async reconcile(conversationId: string): Promise<ChildLink> {
-    let child = this.getChild(conversationId);
+    const child = this.getChild(conversationId);
     if (!child) throw new Error('Unknown child');
     if (child.cancellationRequested && child.status !== 'cancelled') {
-      const stopped = await this.runtime.stop(conversationId);
+      const stopped = await this.runtime.stop(conversationId).catch(() => 'unknown' as const);
       this.casStatus(
         conversationId,
         child.generation,
@@ -624,8 +648,7 @@ export class SessionService {
     )
       return child;
     if (!(await this.authorityStillCurrent(child))) {
-      child = this.requestCancellation(conversationId, child.parentConversationId);
-      return child.status === 'cancelled' ? child : this.reconcile(conversationId);
+      return this.cancelChild(conversationId, child.parentConversationId);
     }
     const observed = await this.runtime.inspect(conversationId);
     const latest = this.getChild(conversationId)!;
@@ -639,28 +662,21 @@ export class SessionService {
     )
       return latest;
     if (!(await this.authorityStillCurrent(latest))) {
-      child = this.requestCancellation(conversationId, latest.parentConversationId);
-      return child.status === 'cancelled' ? child : this.reconcile(conversationId);
+      return this.cancelChild(conversationId, latest.parentConversationId);
     }
     if (observed === 'unknown') {
-      if (latest.status === 'starting') {
-        this.requestCancellation(conversationId, latest.parentConversationId);
-        return this.reconcile(conversationId);
-      }
-      this.casStatus(
-        conversationId,
-        child.generation,
-        ['allocated', 'running'],
-        'recovery_required',
-      );
-    } else if (observed === 'completed')
+      return this.cancelChild(conversationId, latest.parentConversationId);
+    } else if (observed === 'completed') {
+      const result = this.db
+        .prepare("SELECT 1 FROM child_mailbox WHERE child_id = ? AND type = 'result' LIMIT 1")
+        .get(conversationId);
       this.casStatus(
         conversationId,
         child.generation,
         ['allocated', 'starting', 'running'],
-        'completed',
+        result ? 'completed' : 'recovery_required',
       );
-    else if (observed === 'running')
+    } else if (observed === 'running')
       this.casStatus(
         conversationId,
         child.generation,
@@ -674,8 +690,7 @@ export class SessionService {
         .prepare('SELECT dispatch_lease_until FROM child_allocations WHERE conversation_id = ?')
         .get(conversationId) as { dispatch_lease_until: number | null };
       if (lease.dispatch_lease_until !== null && lease.dispatch_lease_until < Date.now()) {
-        this.requestCancellation(conversationId, latest.parentConversationId);
-        return this.reconcile(conversationId);
+        return this.cancelChild(conversationId, latest.parentConversationId);
       }
     } else {
       const now = Date.now();
@@ -691,8 +706,22 @@ export class SessionService {
       try {
         await this.runtime.start(this.getChild(conversationId)!, () => this.admitExecution(child));
       } catch {
-        this.requestCancellation(conversationId, child.parentConversationId);
-        return this.reconcile(conversationId);
+        // A rejected start may still have attached a worker after an earlier
+        // stop confirmed cancellation. Always repeat cleanup after it settles.
+        const alreadyStopped = this.getChild(conversationId)?.status === 'cancelled';
+        await this.cancelChild(conversationId, child.parentConversationId);
+        if (alreadyStopped) {
+          const afterFailure = this.getChild(conversationId)!;
+          const stopped = await this.runtime.stop(conversationId).catch(() => 'unknown' as const);
+          this.casStatus(
+            conversationId,
+            afterFailure.generation,
+            ['cancel_requested', 'recovery_required', 'cancelled'],
+            stopped === 'confirmed' ? 'cancelled' : 'recovery_required',
+            'required',
+          );
+        }
+        return this.getChild(conversationId)!;
       }
       const after = this.getChild(conversationId)!;
       if (after.cancellationRequested) {
@@ -709,8 +738,7 @@ export class SessionService {
         return this.getChild(conversationId)!;
       }
       if (!(await this.authorityStillCurrent(after))) {
-        this.requestCancellation(conversationId, after.parentConversationId);
-        return this.reconcile(conversationId);
+        return this.cancelChild(conversationId, after.parentConversationId);
       }
       this.db
         .prepare(
@@ -724,10 +752,15 @@ export class SessionService {
   }
 
   async cancelChild(conversationId: string, actorConversationId: string): Promise<ChildLink> {
-    const child = this.requestCancellation(conversationId, actorConversationId);
-    return child.status === 'cancelled' || child.status === 'completed'
-      ? child
-      : this.reconcile(conversationId);
+    this.requestCancellation(conversationId, actorConversationId);
+    const pending = this.descendantIds(conversationId).filter((id) => {
+      const child = this.getChild(id)!;
+      return (
+        child.cancellationRequested && child.status !== 'cancelled' && child.status !== 'completed'
+      );
+    });
+    await Promise.allSettled(pending.map((id) => this.reconcile(id)));
+    return this.getChild(conversationId)!;
   }
 
   submitResult(

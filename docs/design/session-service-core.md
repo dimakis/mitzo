@@ -20,8 +20,13 @@ callback immediately before provider dispatch. An uncertain prior start or
 expired start lease becomes `recovery_required` with persisted cancellation
 intent; elapsed time alone never authorizes another provider attempt. Late
 runtime attachment after cancellation is stopped again. `cancelChild` and
-`revokeHostGrant` persist revocation before stop/reconciliation. The typed
-result mailbox accepts writes only from the matching running generation.
+`revokeHostGrant` persist revocation before stop/reconciliation. Cancelling a
+child fences every descendant generation in the same transaction and attempts
+cleanup for each one independently. Unknown inspection of a running child
+persists cancellation and retries stop on reconciliation; a runtime-completed
+child with no persisted result remains `recovery_required` for operator review
+instead of appearing successfully complete. The typed result mailbox accepts
+writes only from the matching running generation.
 
 The current slice is a ledger and runtime interface. Host API wiring, scoped
 tool enforcement, provider-specific adapters, and startup outbox recovery are
