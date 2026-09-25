@@ -341,9 +341,13 @@ export interface SymposiumRecipientAttemptRecord {
   attemptNumber: number;
   idempotencyKey: string;
   claimToken: string | null;
+  dispatchedContent: string | null;
+  dispatchSeq: number | null;
   provenance: SymposiumProvenance | null;
   status: Exclude<SymposiumRecipientStatus, 'pending'>;
   providerThreadId: string | null;
+  providerTurnId: string | null;
+  acceptedAt: number | null;
   resultContent: string | null;
   costUsd: number | null;
   error: string | null;
@@ -357,6 +361,8 @@ export interface SymposiumDeliveryRecord {
   deliveryId: string;
   sessionId: string;
   sourceSeatId: string | null;
+  /** Durable originating message; null for unlinked/director-authored content. */
+  sourceMessageId?: string | null;
   recipientSeatIds: string[];
   originalContent: string;
   deliveredContent: string | null;

@@ -11,6 +11,7 @@ import {
   type SymposiumSeatExecution,
   type SymposiumSeatExecutionResult,
 } from '../symposium-orchestrator.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from '../symposium-perspectives.js';
 
 const config: SymposiumConfig = {
   version: 1,
@@ -700,6 +701,471 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('excludes dropped deliveries from queued input after reopening', () => {
+    admit('reviewer');
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'discard me',
+      idempotencyKey: 'drop-queue',
+    });
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toHaveLength(1);
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'drop',
+      idempotencyKey: 'drop',
+    });
+    store.close();
+    store = openStore();
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toEqual([]);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual(
+      [],
+    );
+  });
+
+  it('hides pending recipients of failed deliveries until explicit retry', async () => {
+    admit('builder');
+    admit('reviewer');
+    builder.execute = vi.fn(async () => {
+      throw new Error('first recipient failed');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'failed-queue',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-failed-queue',
+    });
+    const failed = await orchestrator.deliver(staged.deliveryId);
+    expect(failed.status).toBe('failed');
+    expect(failed.recipients.find((row) => row.seatId === 'reviewer')?.status).toBe('pending');
+    expect(reviewer.calls).toHaveLength(0);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toEqual([]);
+    store.close();
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual(
+      [],
+    );
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      idempotencyKey: 'retry-failed-queue',
+    });
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toHaveLength(2);
+  });
+
+  it('pages completed message anchors when a turn finishes after the cursor advances', () => {
+    store.append('chat', 'message_start', { messageId: 'slow' });
+    store.append('chat', 'block_start', { messageId: 'slow', blockId: 'text', blockType: 'text' });
+    store.append('chat', 'block_delta', {
+      messageId: 'slow',
+      blockId: 'text',
+      delta: 'finished later',
+    });
+    store.append('chat', 'user_message', { messageId: 'later-user', text: 'meanwhile' });
+    const page = getSymposiumPerspective(store, 'chat', { kind: 'all' }, { limit: 1 });
+    expect(page.items.map((item) => (item.kind === 'authored' ? item.messageId : null))).toEqual([
+      'later-user',
+    ]);
+    expect(page.nextSeq).not.toBeNull();
+    store.append('chat', 'message_end', { messageId: 'slow' });
+    store.close();
+    store = openStore();
+    const next = getSymposiumPerspective(
+      store,
+      'chat',
+      { kind: 'all' },
+      { afterSeq: page.nextSeq! },
+    );
+    expect(next.items).toEqual([
+      expect.objectContaining({ messageId: 'slow', content: 'finished later' }),
+    ]);
+    store.append('chat', 'message_end', { messageId: 'slow' });
+    const duplicatePage = getSymposiumPerspective(
+      store,
+      'chat',
+      { kind: 'all' },
+      {
+        afterSeq: next.items[0].eventSeq,
+      },
+    );
+    expect(duplicatePage.items).toEqual([]);
+  });
+
+  it('rejects completion that contradicts the accepted native thread', async () => {
+    admit('reviewer');
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
+      store.markSymposiumRecipientAccepted({
+        deliveryId: input.deliveryId,
+        seatId: 'reviewer',
+        claimToken: attempt.claimToken!,
+        providerThreadId: 'accepted-thread',
+        providerTurnId: 'accepted-turn',
+        acceptedAt: Date.now(),
+      });
+      return { providerThreadId: 'conflicting-thread', content: 'result', costUsd: 0 };
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'conflicting-completion',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-conflict',
+    });
+    const result = await orchestrator.deliver(staged.deliveryId);
+    expect(result.recipients[0].status).toBe('failed');
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
+      providerThreadId: 'accepted-thread',
+      providerTurnId: 'accepted-turn',
+    });
+    const attempt = store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0];
+    // The receipt must also survive a contradictory late result after claim release.
+    expect(() =>
+      store.completeSymposiumRecipient({
+        sessionId: 'chat',
+        deliveryId: staged.deliveryId,
+        seatId: 'reviewer',
+        bindingKey: 'irrelevant-after-claim-release',
+        providerThreadId: 'late-conflict',
+        configRevision: config.revision,
+        threadCreatedAt: Date.now(),
+        resultContent: 'late',
+        costUsd: 0,
+        updatedAt: Date.now(),
+        claimToken: attempt.claimToken!,
+      }),
+    ).toThrow(/acceptance receipt/);
+    store.close();
+    store = openStore();
+    expect(store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0]).toMatchObject({
+      providerThreadId: 'accepted-thread',
+      providerTurnId: 'accepted-turn',
+    });
+  });
+
+  it('retains exact provider turn acceptance even when recipient execution fails', async () => {
+    admit('reviewer');
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
+      expect(attempt.dispatchedContent).toBe('prompt');
+      expect(attempt.dispatchSeq).toBeGreaterThan(0);
+      expect(
+        getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+      ).toEqual([
+        expect.objectContaining({
+          kind: 'recipient-input',
+          receipt: 'uncertain',
+          content: 'prompt',
+        }),
+      ]);
+      expect(
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'turn-1',
+          acceptedAt: 1_700_000_000_001,
+        }),
+      ).toBe(true);
+      // Duplicate native receipt preserves the first host observation timestamp.
+      expect(
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'turn-1',
+          acceptedAt: 1_700_000_000_100,
+        }),
+      ).toBe(true);
+      expect(() =>
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'different-turn',
+          acceptedAt: 1_700_000_000_100,
+        }),
+      ).toThrow(/conflict/i);
+      throw new Error('provider failed after accepting input');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'accepted-fail',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-accepted-fail',
+    });
+    const failed = await orchestrator.deliver(staged.deliveryId);
+    expect(failed.recipients[0].status).toBe('failed');
+    store.close();
+    store = openStore();
+    const attempt = store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0];
+    expect(attempt).toMatchObject({
+      status: 'failed',
+      providerThreadId: 'thread-reviewer',
+      providerTurnId: 'turn-1',
+      acceptedAt: 1_700_000_000_001,
+    });
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'recipient-input',
+        content: 'prompt',
+        receipt: 'received',
+        acceptedAt: 1_700_000_000_001,
+      }),
+    ]);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'builder' }).items,
+    ).toEqual([]);
+    expect(
+      store.markSymposiumRecipientAccepted({
+        deliveryId: staged.deliveryId,
+        seatId: 'reviewer',
+        claimToken: 'wrong-claim',
+        providerThreadId: 'thread-reviewer',
+        providerTurnId: 'turn-1',
+        acceptedAt: 1_700_000_000_001,
+      }),
+    ).toBe(false);
+  });
+  it('projects and shares colliding provider IDs only with exact seat and generation identity', () => {
+    admit('builder');
+    admit('reviewer');
+    const identityFor = (seatIndex: number, membershipGeneration: number) => {
+      const seat = config.seats[seatIndex];
+      return {
+        seatId: seat.id,
+        configRevision: config.revision,
+        accountProfileRevision: seat.accountBinding!.profileRevision,
+        seatProfileRevision: seat.profileBinding!.profileRevision,
+        contextGrantRevision: seat.contextGrant!.revision,
+        authorityGrantRevision: seat.authorityGrant!.revision,
+        isolationDomainId: seat.isolationRequest!.trustDomainId,
+        isolationDomainRevision: seat.isolationRequest!.revision,
+        membershipGeneration,
+      };
+    };
+    const builderIdentity = identityFor(0, 1);
+    const reviewerIdentity = identityFor(1, 1);
+    const restoredIdentity = identityFor(0, 3);
+    // Interleaving includes the other seat's terminal before this seat's terminal.
+    for (const identity of [builderIdentity, reviewerIdentity]) {
+      store.appendSymposium('chat', 'message_start', { messageId: 'shared-id' }, identity);
+      store.appendSymposium(
+        'chat',
+        'block_start',
+        { messageId: 'shared-id', blockId: 'text', blockType: 'text' },
+        identity,
+      );
+      store.appendSymposium(
+        'chat',
+        'block_delta',
+        { messageId: 'shared-id', blockId: 'text', delta: identity.seatId + ' aside' },
+        identity,
+      );
+    }
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, reviewerIdentity);
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, builderIdentity);
+    store.appendSymposium('chat', 'message_start', { messageId: 'shared-id' }, restoredIdentity);
+    store.appendSymposium(
+      'chat',
+      'block_start',
+      { messageId: 'shared-id', blockId: 'text', blockType: 'text' },
+      restoredIdentity,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_delta',
+      { messageId: 'shared-id', blockId: 'text', delta: 'restored aside' },
+      restoredIdentity,
+    );
+    store.appendSymposium('chat', 'message_end', { messageId: 'shared-id' }, restoredIdentity);
+    expect(store.getSymposiumSourceMessage('chat', 'shared-id')).toBeUndefined();
+    expect(
+      store.getSymposiumSourceMessage('chat', 'shared-id', { seatId: 'builder' }),
+    ).toBeUndefined();
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'all' }).items.map((item) => item.content),
+    ).toEqual(['reviewer aside', 'builder aside', 'restored aside']);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items.map(
+        (item) => item.content,
+      ),
+    ).toEqual(['reviewer aside']);
+    const share = {
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      sourceMessageId: 'shared-id',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'restored aside',
+      idempotencyKey: 'share-collision',
+    };
+    expect(() => orchestrator.stageDelivery(share)).toThrow(/source message/i);
+    const delivery = orchestrator.stageDelivery({ ...share, sourceMembershipGeneration: 3 });
+    expect(delivery.sourceProvenance).toEqual(restoredIdentity);
+    expect(() => orchestrator.stageDelivery({ ...share, sourceMembershipGeneration: 1 })).toThrow(
+      /idempotency/i,
+    );
+    store.close();
+    store = openStore();
+    expect(
+      store.getSymposiumSourceMessage('chat', 'shared-id', {
+        seatId: 'builder',
+        membershipGeneration: 3,
+      })?.content,
+    ).toBe('restored aside');
+  });
+  it('pins a shared excerpt to a durable source message through disk reopen', () => {
+    admit('builder');
+    admit('reviewer');
+    const sourceProvenance = {
+      seatId: 'builder',
+      configRevision: 3,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 4,
+      authorityGrantRevision: 5,
+      isolationDomainId: 'symposium-shared',
+      isolationDomainRevision: 2,
+    };
+    store.appendSymposium(
+      'chat',
+      'message_start',
+      { messageId: 'builder-message' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_start',
+      { messageId: 'builder-message', blockId: 'b0', blockType: 'text' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_delta',
+      { messageId: 'builder-message', blockId: 'b0', delta: 'before selected excerpt after' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_end',
+      { messageId: 'builder-message', blockId: 'b0' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'message_end',
+      { messageId: 'builder-message' },
+      sourceProvenance,
+    );
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      seats: config.seats.map((seat) =>
+        seat.id === 'builder'
+          ? { ...seat, profileBinding: { profileId: 'builder', profileRevision: 'profile-2' } }
+          : seat,
+      ),
+    });
+    for (const seatId of ['builder', 'reviewer'] as const) {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        reason: 'current config',
+        idempotencyKey: `admit-${seatId}-revision-4`,
+      });
+    }
+    expect(store.getSymposiumSourceMessage('chat', 'builder-message')).toMatchObject({
+      messageId: 'builder-message',
+      seatId: 'builder',
+      content: 'before selected excerpt after',
+      provenance: sourceProvenance,
+    });
+    const delivery = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      sourceMessageId: 'builder-message',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'selected excerpt',
+      idempotencyKey: 'share-excerpt',
+    });
+    expect(delivery.sourceMessageId).toBe('builder-message');
+    expect(delivery.sourceProvenance).toEqual(sourceProvenance);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual([
+      expect.objectContaining({
+        deliveryId: delivery.deliveryId,
+        recipientSeatId: 'reviewer',
+        proposedContent: 'selected excerpt',
+      }),
+    ]);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'builder' })).toEqual(
+      [],
+    );
+    store.close();
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.sourceMessageId).toBe(
+      'builder-message',
+    );
+    expect(store.getSymposiumSourceMessage('chat', 'builder-message')?.content).toBe(
+      'before selected excerpt after',
+    );
+    expect(getSymposiumPerspective(store, 'chat', { kind: 'all' }).items).toEqual([
+      expect.objectContaining({
+        kind: 'authored',
+        messageId: 'builder-message',
+        seatId: 'builder',
+        content: 'before selected excerpt after',
+      }),
+    ]);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+    ).toEqual([]);
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        sourceMessageId: 'missing-message',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'not shared',
+        idempotencyKey: 'missing-source',
+      }),
+    ).toThrow(/source message/i);
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        sourceMessageId: 'builder-message',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'invented content',
+        idempotencyKey: 'invented-excerpt',
+      }),
+    ).toThrow(/excerpt/i);
+  });
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
     const implementerSeat = {
       ...config.seats[1],
