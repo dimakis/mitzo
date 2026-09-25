@@ -131,6 +131,31 @@ actual process shutdown and provider attachment are Phase 3 responsibilities. Th
 shared OpenShell boundary does not provide per-seat credential, artifact, or egress
 isolation, and revocation cannot retract data already seen.
 
+## Phase 4 attribution foundation
+
+New v2 seat events pin an immutable execution snapshot: stable seat ID and
+membership generation, display label and role, exact account binding/model/effort,
+profile binding, context and authority grant IDs/revisions, trust-domain revision,
+configuration revision, and capture time. Event append validates that snapshot
+against the admitted seat before accepting a new stream event. Existing unversioned
+v1 provenance remains readable as the fields originally stored; replay never fills
+unknown labels or account choices from today's configuration. The same stored
+snapshot survives reconnect-cursor and full-session event reads after a seat is
+renamed or its role changes.
+
+Recipient claims retain their stamped snapshot in the existing attempt ledger.
+When revocation fences a claim, a late provider result stays in the existing
+late-result audit ledger with that original snapshot and cost; it cannot revive
+the cancelled delivery. An active seat cannot change its label, role, or binding
+without first revoking membership; revocation cancels the claim. The event append
+boundary rejects any subsequent stream chunk under that stale generation, and the
+caller must retain the provider's late outcome in the audit ledger rather than
+silently presenting it as a live message. Historical attempts whose claim token
+predates this snapshot column remain unknown, never reconstructed from current
+configuration. This is protocol and persistence groundwork only. Client
+demultiplexing of simultaneous seat streams and attributed ChatView rendering are
+still required before Phase 4 is complete.
+
 Next, integrate provider execution and websocket controls (Phase 3), followed by
 seat-attributed rich rendering and controls in the existing ChatView (Phases 4–6).
 The old Phase 6 separate-session creation wording is superseded by add/remove seat

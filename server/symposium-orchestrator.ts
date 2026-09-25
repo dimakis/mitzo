@@ -325,6 +325,7 @@ export class SymposiumOrchestrator {
             config.version === 2
               ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)?.generation
               : undefined,
+            timestamp,
           )
         : null,
       cancellationReason: null,
@@ -504,6 +505,14 @@ export class SymposiumOrchestrator {
         break;
       }
       const bindingKey = seatBindingKey(seat);
+      const provenance = provenanceFor(
+        seat,
+        currentConfig.revision,
+        currentConfig.version === 2
+          ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+          : undefined,
+        this.now(),
+      );
       const claim = this.store.claimSymposiumRecipientExecution({
         sessionId: delivery.sessionId,
         deliveryId,
@@ -513,6 +522,7 @@ export class SymposiumOrchestrator {
         recipientIdempotencyKey: recipient.idempotencyKey,
         claimToken: this.claimIdFactory(),
         claimedAt: this.now(),
+        provenance,
       });
       if (!claim) break;
       const thread = claim.thread;
@@ -525,13 +535,7 @@ export class SymposiumOrchestrator {
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
           providerThreadId: thread?.providerThreadId,
-          provenance: provenanceFor(
-            seat,
-            currentConfig.revision,
-            currentConfig.version === 2
-              ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
-              : undefined,
-          ),
+          provenance,
           signal: abortController.signal,
         });
         const timestamp = this.now();
@@ -596,9 +600,10 @@ function provenanceFor(
   seat: SeatConfig,
   configRevision: number,
   membershipGeneration?: number,
+  capturedAt?: number,
 ): SymposiumProvenance {
   const active = requireActiveSeat(seat);
-  return {
+  const legacy = {
     seatId: seat.id,
     configRevision,
     accountProfileRevision: active.accountBinding.profileRevision,
@@ -608,6 +613,24 @@ function provenanceFor(
     isolationDomainId: active.isolationRequest.trustDomainId,
     isolationDomainRevision: active.isolationRequest.revision,
     ...(membershipGeneration !== undefined ? { membershipGeneration } : {}),
+  };
+  if (membershipGeneration === undefined) return legacy;
+  if (capturedAt === undefined) throw new Error('Symposium provenance capture time is required');
+  return {
+    ...legacy,
+    version: 2,
+    seatLabel: seat.name,
+    seatRole: seat.role,
+    capturedAt,
+    membershipGeneration,
+    accountBinding: active.accountBinding,
+    reasoningEffort: seat.reasoningEffort ?? null,
+    profileBinding: active.profileBinding,
+    contextGrant: { grantId: active.contextGrant.grantId, revision: active.contextGrant.revision },
+    authorityGrant: {
+      grantId: active.authorityGrant.grantId,
+      revision: active.authorityGrant.revision,
+    },
   };
 }
 

@@ -66,8 +66,8 @@ export const IsolationRequestSchema = z.strictObject({
   placement: z.enum(['reuse-compatible', 'dedicated']),
 });
 
-/** Immutable attribution stamped onto Symposium delivery events. */
-export const SymposiumProvenanceSchema = z.strictObject({
+/** Historical attribution. Fields absent in old rows remain unknown on replay. */
+const LegacySymposiumProvenanceSchema = z.strictObject({
   seatId: z.string().trim().min(1),
   configRevision: z.number().int().positive(),
   accountProfileRevision: z.string().trim().min(1),
@@ -78,6 +78,30 @@ export const SymposiumProvenanceSchema = z.strictObject({
   isolationDomainRevision: z.number().int().positive(),
   membershipGeneration: z.number().int().nonnegative().optional(),
 });
+
+/** Exact execution snapshot, stamped before dispatch and never read from current config on replay. */
+export const SymposiumProvenanceV2Schema = LegacySymposiumProvenanceSchema.extend({
+  version: z.literal(2),
+  seatLabel: z.string().trim().min(1),
+  seatRole: z.string().trim().min(1),
+  membershipGeneration: z.number().int().nonnegative(),
+  capturedAt: z.number().int().nonnegative(),
+  accountBinding: AccountBindingSchema,
+  reasoningEffort: z.string().trim().min(1).nullable(),
+  profileBinding: ProfileBindingSchema,
+  contextGrant: z.strictObject({
+    grantId: z.string().trim().min(1),
+    revision: z.number().int().positive(),
+  }),
+  authorityGrant: z.strictObject({
+    grantId: z.string().trim().min(1),
+    revision: z.number().int().positive(),
+  }),
+});
+export const SymposiumProvenanceSchema = z.union([
+  SymposiumProvenanceV2Schema,
+  LegacySymposiumProvenanceSchema,
+]);
 
 export const SeatConfigSchema = z
   .strictObject({
@@ -251,6 +275,7 @@ export type ContextGrant = z.infer<typeof ContextGrantSchema>;
 export type AuthorityGrant = z.infer<typeof AuthorityGrantSchema>;
 export type IsolationRequest = z.infer<typeof IsolationRequestSchema>;
 export type SymposiumProvenance = z.infer<typeof SymposiumProvenanceSchema>;
+export type SymposiumProvenanceV2 = z.infer<typeof SymposiumProvenanceV2Schema>;
 export type SeatConfig = z.infer<typeof SeatConfigSchema>;
 export type TurnRules = z.infer<typeof TurnRulesSchema>;
 export type SymposiumConfig = z.infer<typeof SymposiumConfigSchema>;
@@ -304,6 +329,8 @@ export interface SymposiumRecipientAttemptRecord {
   seatId: string;
   attemptNumber: number;
   idempotencyKey: string;
+  claimToken: string | null;
+  provenance: SymposiumProvenance | null;
   status: Exclude<SymposiumRecipientStatus, 'pending'>;
   providerThreadId: string | null;
   resultContent: string | null;
