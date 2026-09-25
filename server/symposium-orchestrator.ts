@@ -318,6 +318,17 @@ export class SymposiumOrchestrator {
 
     const deliveryId = this.idFactory();
     const timestamp = this.now();
+    const sourceMessage = input.sourceMessageId
+      ? this.store.getSymposiumSourceMessage(input.sessionId, input.sourceMessageId)
+      : undefined;
+    if (
+      input.sourceMessageId &&
+      (!sourceMessage ||
+        sourceMessage.seatId !== input.sourceSeatId ||
+        !sourceMessage.content.includes(input.originalContent))
+    ) {
+      throw new Error('Shared excerpt must match completed durable source message');
+    }
     return this.store.createSymposiumDelivery({
       deliveryId,
       sessionId: input.sessionId,
@@ -331,16 +342,19 @@ export class SymposiumOrchestrator {
       interventionReason: null,
       idempotencyKey: input.idempotencyKey,
       configRevision: config.revision,
-      sourceProvenance: sourceSeat
-        ? provenanceFor(
-            sourceSeat,
-            config.revision,
-            config.version === 2
-              ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)?.generation
-              : undefined,
-            timestamp,
-          )
-        : null,
+      sourceProvenance: sourceMessage
+        ? sourceMessage.provenance
+        : sourceSeat
+          ? provenanceFor(
+              sourceSeat,
+              config.revision,
+              config.version === 2
+                ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)
+                    ?.generation
+                : undefined,
+              timestamp,
+            )
+          : null,
       cancellationReason: null,
       cancellationIdempotencyKey: null,
       cancelledAt: null,

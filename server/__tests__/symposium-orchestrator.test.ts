@@ -10,6 +10,7 @@ import {
   type SymposiumSeatExecutor,
   type SymposiumSeatExecution,
 } from '../symposium-orchestrator.js';
+import { getSymposiumPerspective } from '../symposium-perspectives.js';
 
 const config: SymposiumConfig = {
   version: 1,
@@ -631,6 +632,16 @@ describe('SymposiumOrchestrator', () => {
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
       const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
       expect(attempt.dispatchedContent).toBe('prompt');
+      expect(attempt.dispatchSeq).toBeGreaterThan(0);
+      expect(
+        getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+      ).toEqual([
+        expect.objectContaining({
+          kind: 'recipient-input',
+          receipt: 'uncertain',
+          content: 'prompt',
+        }),
+      ]);
       expect(
         store.markSymposiumRecipientAccepted({
           deliveryId: input.deliveryId,
@@ -666,6 +677,19 @@ describe('SymposiumOrchestrator', () => {
       providerTurnId: 'turn-1',
       acceptedAt: 1_700_000_000_001,
     });
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'recipient-input',
+        content: 'prompt',
+        receipt: 'received',
+        acceptedAt: 1_700_000_000_001,
+      }),
+    ]);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'builder' }).items,
+    ).toEqual([]);
     expect(
       store.markSymposiumRecipientAccepted({
         deliveryId: staged.deliveryId,
@@ -720,6 +744,24 @@ describe('SymposiumOrchestrator', () => {
       { messageId: 'builder-message' },
       sourceProvenance,
     );
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      seats: config.seats.map((seat) =>
+        seat.id === 'builder'
+          ? { ...seat, profileBinding: { profileId: 'builder', profileRevision: 'profile-2' } }
+          : seat,
+      ),
+    });
+    for (const seatId of ['builder', 'reviewer'] as const) {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        reason: 'current config',
+        idempotencyKey: `admit-${seatId}-revision-4`,
+      });
+    }
     expect(store.getSymposiumSourceMessage('chat', 'builder-message')).toMatchObject({
       messageId: 'builder-message',
       seatId: 'builder',
@@ -735,6 +777,7 @@ describe('SymposiumOrchestrator', () => {
       idempotencyKey: 'share-excerpt',
     });
     expect(delivery.sourceMessageId).toBe('builder-message');
+    expect(delivery.sourceProvenance).toEqual(sourceProvenance);
     store.close();
     store = openStore();
     orchestrator = createOrchestrator();
@@ -744,6 +787,17 @@ describe('SymposiumOrchestrator', () => {
     expect(store.getSymposiumSourceMessage('chat', 'builder-message')?.content).toBe(
       'before selected excerpt after',
     );
+    expect(getSymposiumPerspective(store, 'chat', { kind: 'all' }).items).toEqual([
+      expect.objectContaining({
+        kind: 'authored',
+        messageId: 'builder-message',
+        seatId: 'builder',
+        content: 'before selected excerpt after',
+      }),
+    ]);
+    expect(
+      getSymposiumPerspective(store, 'chat', { kind: 'seat', seatId: 'reviewer' }).items,
+    ).toEqual([]);
     expect(() =>
       orchestrator.stageDelivery({
         sessionId: 'chat',
@@ -754,6 +808,16 @@ describe('SymposiumOrchestrator', () => {
         idempotencyKey: 'missing-source',
       }),
     ).toThrow(/source message/i);
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        sourceMessageId: 'builder-message',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'invented content',
+        idempotencyKey: 'invented-excerpt',
+      }),
+    ).toThrow(/excerpt/i);
   });
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
     const implementerSeat = {

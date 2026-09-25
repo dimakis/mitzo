@@ -862,6 +862,7 @@ export class EventStore {
           idempotency_key TEXT NOT NULL,
           claim_token TEXT,
           dispatched_content TEXT,
+          dispatch_seq INTEGER,
           symposium_provenance TEXT,
           status TEXT NOT NULL CHECK (status IN (
             'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
@@ -937,6 +938,9 @@ export class EventStore {
       }
       if (!attemptColumns.some((column) => column.name === 'dispatched_content')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatched_content TEXT');
+      }
+      if (!attemptColumns.some((column) => column.name === 'dispatch_seq')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatch_seq INTEGER');
       }
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
         ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
@@ -1556,6 +1560,25 @@ export class EventStore {
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
+  }
+
+  /** Bounded ordered anchors for audience-specific transcript projections. */
+  getSymposiumPerspectiveEvents(sessionId: string, afterSeq = 0, limit = 200): StoredEvent[] {
+    if (
+      !Number.isSafeInteger(afterSeq) ||
+      afterSeq < 0 ||
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 500
+    )
+      throw new Error('Invalid Symposium perspective page');
+    const rows = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq > ?
+         AND type IN ('message_start', 'user_message', 'symposium_delivery_dispatched')
+       ORDER BY seq LIMIT ?`,
+    ).all(sessionId, afterSeq, limit) as EventRow[];
+    return rows.map(rowToEvent);
   }
 
   /** Completed durable text that a user may explicitly select for a later delivery. */
@@ -2280,9 +2303,12 @@ export class EventStore {
         const source = config.seats.find((seat) => seat.id === record.sourceSeatId);
         if (
           !source ||
-          !record.sourceProvenance ||
-          !matchesSeatProvenance(config, source, record.sourceProvenance) ||
-          (config.version === 2 &&
+          (record.sourceMessageId == null &&
+            (!record.sourceProvenance ||
+              !matchesSeatProvenance(config, source, record.sourceProvenance))) ||
+          (record.sourceMessageId == null &&
+            config.version === 2 &&
+            record.sourceProvenance &&
             this.getLatestSymposiumMembership(record.sessionId, source.id)?.generation !==
               record.sourceProvenance.membershipGeneration)
         ) {
@@ -2291,7 +2317,12 @@ export class EventStore {
       }
       if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) {
         const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId);
-        if (!source || source.seatId !== record.sourceSeatId)
+        if (
+          !source ||
+          source.seatId !== record.sourceSeatId ||
+          !source.content.includes(record.originalContent) ||
+          JSON.stringify(source.provenance) !== JSON.stringify(record.sourceProvenance)
+        )
           throw new Error('Symposium delivery source message is not durable for its seat');
       }
       record.recipients.forEach((recipient, index) => {
@@ -2808,12 +2839,17 @@ export class EventStore {
         );
         return undefined;
       }
+      const dispatchSeq = this.append(input.sessionId, 'symposium_delivery_dispatched', {
+        deliveryId: input.deliveryId,
+        seatId: input.seatId,
+        claimToken: input.claimToken,
+      });
       this.db!.prepare(
         `INSERT INTO symposium_recipient_attempts (
           delivery_id, seat_id, attempt_number, idempotency_key, claim_token,
-          symposium_provenance, status, provider_thread_id, dispatched_content, started_at, updated_at
+          symposium_provenance, status, provider_thread_id, dispatched_content, dispatch_seq, started_at, updated_at
         )
-        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?, ?
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?, ?, ?
         FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
       ).run(
         input.deliveryId,
@@ -2823,6 +2859,7 @@ export class EventStore {
         JSON.stringify(input.provenance),
         thread?.providerThreadId ?? null,
         recipient.delivered_content,
+        dispatchSeq,
         input.claimedAt,
         input.claimedAt,
         input.deliveryId,
@@ -3118,6 +3155,15 @@ export class EventStore {
            WHERE delivery_id = ? ORDER BY seat_id, attempt_number`,
         ).all(deliveryId) as Record<string, unknown>[]);
     return rows.map(rowToSymposiumRecipientAttempt);
+  }
+
+  getSymposiumRecipientAttemptByClaimToken(
+    claimToken: string,
+  ): SymposiumRecipientAttemptRecord | undefined {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_recipient_attempts WHERE claim_token = ?',
+    ).get(claimToken) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumRecipientAttempt(row) : undefined;
   }
 
   /** Exact provider turn acceptance receipt; never changes recipient delivery status. */
@@ -3683,6 +3729,7 @@ function rowToSymposiumRecipientAttempt(
     idempotencyKey: row.idempotency_key as string,
     claimToken: (row.claim_token as string | null) ?? null,
     dispatchedContent: (row.dispatched_content as string | null) ?? null,
+    dispatchSeq: (row.dispatch_seq as number | null) ?? null,
     provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     status: row.status as SymposiumRecipientAttemptRecord['status'],
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
