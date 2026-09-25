@@ -953,6 +953,9 @@ describe('allowed cwd authorization', () => {
     vi.mocked(getRepoConfig).mockReturnValue({
       quickActions: [],
       allowedPaths,
+      venvPaths: [],
+      isolation: true,
+      runtimeSymlinks: [],
       roots: [
         { label: 'Main', path: TEST_REPO },
         { label: 'Tools', path: '/some/tools' },

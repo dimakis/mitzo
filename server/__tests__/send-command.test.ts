@@ -16,7 +16,7 @@ const message = {
 describe('durable send acceptance', () => {
   it('accepts without a stream and dispatches a lost-response retry only once', () => {
     const store = new EventStore(':memory:');
-    const dispatch = vi.fn();
+    const dispatch = vi.fn<() => void>();
     try {
       const first = acceptSendCommand(store, message, dispatch);
       const retry = acceptSendCommand(store, message, dispatch);
@@ -36,10 +36,10 @@ describe('durable send acceptance', () => {
   it('rejects reuse of a command ID for a different prompt', () => {
     const store = new EventStore(':memory:');
     try {
-      acceptSendCommand(store, message, vi.fn());
-      expect(() => acceptSendCommand(store, { ...message, prompt: 'different' }, vi.fn())).toThrow(
-        /different/i,
-      );
+      acceptSendCommand(store, message, vi.fn<() => void>());
+      expect(() =>
+        acceptSendCommand(store, { ...message, prompt: 'different' }, vi.fn<() => void>()),
+      ).toThrow(/different/i);
     } finally {
       store.close();
     }
@@ -48,10 +48,10 @@ describe('durable send acceptance', () => {
   it('rejects request changes beyond the prompt while preserving the original receipt', () => {
     const store = new EventStore(':memory:');
     try {
-      acceptSendCommand(store, { ...message, model: 'model-a' }, vi.fn());
-      expect(() => acceptSendCommand(store, { ...message, model: 'model-b' }, vi.fn())).toThrow(
-        'different request',
-      );
+      acceptSendCommand(store, { ...message, model: 'model-a' }, vi.fn<() => void>());
+      expect(() =>
+        acceptSendCommand(store, { ...message, model: 'model-b' }, vi.fn<() => void>()),
+      ).toThrow('different request');
       expect(store.getSendCommand(message.clientMsgId)?.payload).toEqual({});
     } finally {
       store.close();
@@ -62,7 +62,8 @@ describe('durable send acceptance', () => {
     const store = new EventStore(':memory:');
     try {
       expect(
-        acceptSendCommand(store, { ...message, sessionId: 'existing' }, vi.fn()).sessionId,
+        acceptSendCommand(store, { ...message, sessionId: 'existing' }, vi.fn<() => void>())
+          .sessionId,
       ).toBe('existing');
     } finally {
       store.close();
@@ -78,7 +79,7 @@ describe('durable send acceptance', () => {
         }),
       ).toThrow('cannot start');
       expect(store.getSendCommand(message.clientMsgId)?.error).toBe('cannot start');
-      expect(() => acceptSendCommand(store, message, vi.fn())).toThrow('cannot start');
+      expect(() => acceptSendCommand(store, message, vi.fn<() => void>())).toThrow('cannot start');
     } finally {
       store.close();
     }
@@ -89,7 +90,7 @@ describe('durable send acceptance', () => {
       const native = { ...message, prompt: '/skills' };
       const result = acceptSendCommand(store, native, () => false);
       expect(result.sessionId).toBeNull();
-      expect(acceptSendCommand(store, native, vi.fn())).toEqual(result);
+      expect(acceptSendCommand(store, native, vi.fn<() => void>())).toEqual(result);
     } finally {
       store.close();
     }
@@ -98,9 +99,9 @@ describe('durable send acceptance', () => {
   it('reports an interrupted acceptance after restart instead of silently suppressing it', () => {
     const store = new EventStore(':memory:');
     try {
-      acceptSendCommand(store, message, vi.fn());
+      acceptSendCommand(store, message, vi.fn<() => void>());
       store.recoverPendingSendCommands();
-      expect(() => acceptSendCommand(store, message, vi.fn())).toThrow(/restart/i);
+      expect(() => acceptSendCommand(store, message, vi.fn<() => void>())).toThrow(/restart/i);
     } finally {
       store.close();
     }
@@ -201,23 +202,27 @@ describe('durable send acceptance', () => {
     const store = new EventStore(path);
     try {
       store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
-      const first = acceptSendCommand(store, message, vi.fn());
+      const first = acceptSendCommand(store, message, vi.fn<() => void>());
       expect(first.sessionId).toBe('legacy-session');
       expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
         payload: {},
         requestFingerprint: expect.any(String),
       });
-      expect(acceptSendCommand(store, message, vi.fn())).toEqual(first);
+      expect(acceptSendCommand(store, message, vi.fn<() => void>())).toEqual(first);
     } finally {
       store.close();
     }
     const reopened = new EventStore(path);
     try {
-      expect(acceptSendCommand(reopened, message, vi.fn())).toMatchObject({
+      expect(acceptSendCommand(reopened, message, vi.fn<() => void>())).toMatchObject({
         sessionId: 'legacy-session',
       });
       expect(() =>
-        acceptSendCommand(reopened, { ...message, prompt: 'different legacy prompt' }, vi.fn()),
+        acceptSendCommand(
+          reopened,
+          { ...message, prompt: 'different legacy prompt' },
+          vi.fn<() => void>(),
+        ),
       ).toThrow('different request');
     } finally {
       reopened.close();
@@ -227,7 +232,7 @@ describe('durable send acceptance', () => {
 
   it('coalesces concurrent retries while adopting a legacy receipt', async () => {
     const store = new EventStore(':memory:');
-    const dispatch = vi.fn();
+    const dispatch = vi.fn<() => void>();
     try {
       store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
       const [first, second] = await Promise.all([
@@ -250,7 +255,11 @@ describe('durable send acceptance', () => {
     try {
       store.insertSendCommand(message.clientMsgId, 'legacy-session', message);
       expect(() =>
-        acceptSendCommand(store, { ...message, prompt: 'different legacy prompt' }, vi.fn()),
+        acceptSendCommand(
+          store,
+          { ...message, prompt: 'different legacy prompt' },
+          vi.fn<() => void>(),
+        ),
       ).toThrow('different request');
       expect(store.getSendCommand(message.clientMsgId)).toMatchObject({
         payload: message,
@@ -264,14 +273,14 @@ describe('durable send acceptance', () => {
   it('isolates receipt identity across client message IDs and target sessions', () => {
     const store = new EventStore(':memory:');
     try {
-      acceptSendCommand(store, { ...message, sessionId: 'session-a' }, vi.fn());
+      acceptSendCommand(store, { ...message, sessionId: 'session-a' }, vi.fn<() => void>());
       acceptSendCommand(
         store,
         { ...message, clientMsgId: 'other-client-message', sessionId: 'session-b' },
-        vi.fn(),
+        vi.fn<() => void>(),
       );
       expect(() =>
-        acceptSendCommand(store, { ...message, sessionId: 'session-b' }, vi.fn()),
+        acceptSendCommand(store, { ...message, sessionId: 'session-b' }, vi.fn<() => void>()),
       ).toThrow('different request');
     } finally {
       store.close();
@@ -305,7 +314,7 @@ describe('durable send acceptance', () => {
     const migrated = new EventStore(path);
     try {
       expect(migrated.getSendCommand(message.clientMsgId)?.requestFingerprint).toBeNull();
-      expect(acceptSendCommand(migrated, message, vi.fn())).toMatchObject({
+      expect(acceptSendCommand(migrated, message, vi.fn<() => void>())).toMatchObject({
         sessionId: 'legacy-session',
       });
     } finally {

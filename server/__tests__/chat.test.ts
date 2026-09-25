@@ -898,8 +898,8 @@ describe('closeout prompts echo to frontend', () => {
       mode: 'agent',
       sessionAllowList: new Set(),
       sessionId,
-      inputQueue: { push, close: vi.fn() },
     });
+    chat.registry.get(clientId)!.inputQueue = { push, close: vi.fn() };
 
     try {
       chat.closeSessionByUser(clientId);

@@ -34,3 +34,37 @@ export function hasExactGlobalSetting(
   key: string,
   value: string | number | boolean,
 ): boolean;
+
+export function validateReleaseIdentity(manifest: Record<string, unknown>): {
+  release: Record<string, unknown>;
+  cli: Record<string, unknown>;
+  supervisor: Record<string, unknown>;
+};
+
+export function validateReleaseTransport(
+  config: Record<string, string | undefined>,
+  manifest: Record<string, unknown>,
+): { tlsRequired: true; publicOrigin: string; webSocketOrigin: string };
+
+export function validateRollbackRecord(
+  manifest: Record<string, unknown>,
+  rollback: Record<string, unknown>,
+  stackLockSha256: string,
+): void;
+
+export function verifyBakedBrowserOrigin(origin: string, buildDir?: string): void;
+
+export function verifyReleaseTls(
+  config: Record<string, string | undefined>,
+  options?: { root?: string; now?: number; minimumValidityMs?: number },
+): { certPath: string; keyPath: string; certificate: import('node:crypto').X509Certificate };
+
+export function main(
+  argv?: string[],
+  inheritedEnv?: Record<string, string | undefined>,
+  options?: {
+    buildDir?: string;
+    root?: string;
+    runCommand?: (command: string, args: string[]) => string;
+  },
+): void;
