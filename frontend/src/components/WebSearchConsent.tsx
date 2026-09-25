@@ -12,6 +12,10 @@ const Consent = z.object({
 });
 type ConsentState = z.infer<typeof Consent>;
 
+// Allow 2 seconds for a newly switched Codex runtime to attach. Stop after
+// that so sessions from other providers do not keep polling this endpoint.
+const CONSENT_ATTACH_RETRY_DELAYS_MS = [0, 500, 1500] as const;
+
 export function WebSearchConsent({
   sessionId,
   mode,
@@ -44,7 +48,7 @@ export function WebSearchConsent({
     void (async () => {
       try {
         // The session switch can reach the UI before the Codex runtime is ready.
-        for (const delay of [0, 500, 1500]) {
+        for (const delay of CONSENT_ATTACH_RETRY_DELAYS_MS) {
           if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
           if (cancelled) return;
           const response = await apiFetch(

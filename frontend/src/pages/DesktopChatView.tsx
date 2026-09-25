@@ -45,7 +45,7 @@ export function DesktopChatView() {
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
-  const getConnectionId = useMitzoStore((s) => s.getConnectionId);
+  const connectionId = useMitzoStore((s) => s.getConnectionId());
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
@@ -267,7 +267,7 @@ export function DesktopChatView() {
             sessionId={activeSessionId}
             mode={mode}
             connected={connected}
-            connectionId={getConnectionId()}
+            connectionId={connectionId}
             running={messages.running}
           />
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (

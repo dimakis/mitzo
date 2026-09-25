@@ -559,6 +559,33 @@ describe('chat-rest-handler', () => {
     }
   });
 
+  it('allows Deny in Ask mode', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn(async () => ({
+      grant: 'denied' as const,
+      revision: 1,
+      updatedAt: 123,
+    }));
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'ask',
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'denied' });
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ ok: true, grant: 'denied', revision: 1 });
+      expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'denied');
+    } finally {
+      sessions.dispose();
+    }
+  });
+
   it('rechecks Ask mode when a queued mode change finishes before Allow', async () => {
     const sessions = new SessionRegistry();
     handlerContext.sessionRegistry = sessions;
