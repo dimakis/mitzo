@@ -448,6 +448,50 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(12);
   });
 
+  it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
+    const conn = new SseConnection(createConfig());
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 5);
+
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-2' });
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      delta: 'hello',
+    });
+    lastES()._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 6,
+      cursorValid: true,
+    });
+    expect(conn.getLastSeq('sess-1')).toBe(5);
+
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-3' });
+    lastES()._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 6,
+      delta: 'hello',
+    });
+    lastES()._emit('message', {
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 6,
+      cursorValid: true,
+    });
+
+    expect(listener.mock.calls.filter(([msg]) => msg.type === 'block_delta')).toHaveLength(1);
+    conn.acknowledgeReconnectSnapshot('sess-1', 6);
+    expect(conn.getLastSeq('sess-1')).toBe(6);
+  });
+
   // ─── Message sending (client → server) ─────────────────────────────────
 
   it('sends messages via POST with X-Connection-ID', () => {

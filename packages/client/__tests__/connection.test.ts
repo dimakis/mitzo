@@ -213,6 +213,47 @@ describe('MitzoConnection', () => {
   });
 
   describe('reconnect', () => {
+    it('does not deliver an applied replay delta twice after snapshot restore fails', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      const received: Record<string, unknown>[] = [];
+      conn.onMessage((msg) => received.push(msg));
+      conn.trackSeq('s1', 5);
+      const first = openWithHandshake(conn);
+      first.simulateClose();
+      vi.advanceTimersByTime(100);
+      const second = lastWs!;
+      second.simulateOpen();
+      second.simulateMessage({ type: 'welcome', connectionId: 'conn-2' });
+      second.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 6, delta: 'hello' });
+      second.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 6,
+        cursorValid: true,
+      });
+      // The bounded transcript request fails, so the snapshot is not acknowledged.
+      expect(conn.getLastSeq('s1')).toBe(5);
+
+      second.simulateClose();
+      vi.advanceTimersByTime(100);
+      const third = lastWs!;
+      third.simulateOpen();
+      third.simulateMessage({ type: 'welcome', connectionId: 'conn-3' });
+      third.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 6, delta: 'hello' });
+      third.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 's1',
+        cursor: 6,
+        cursorValid: true,
+      });
+
+      expect(received.filter((msg) => msg.type === 'block_delta')).toHaveLength(1);
+      conn.acknowledgeReconnectSnapshot('s1', 6);
+      expect(conn.getLastSeq('s1')).toBe(6);
+      vi.useRealTimers();
+    });
+
     it('reconnects after close and sends hello + reconnect with tracked sessions', () => {
       vi.useFakeTimers();
       const conn = createConnection();

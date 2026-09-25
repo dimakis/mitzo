@@ -52,6 +52,8 @@ export class SseConnection implements ChatConnection {
   private replayingSessions = new Set<string>();
   private replaySeenSeq = new Map<string, number>();
   private pendingSnapshots = new Map<string, { cursor: number; afterSeq: number }>();
+  /** Events applied while a transcript restore is unacknowledged. */
+  private unacknowledgedSeq = new Map<string, Set<number>>();
   private pendingSends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private authProbe: Promise<void> | null = null;
@@ -193,6 +195,7 @@ export class SseConnection implements ChatConnection {
     if (!pending || pending.cursor !== cursor) return;
     this.seqBySession.set(sessionId, Math.max(cursor, pending.afterSeq));
     this.pendingSnapshots.delete(sessionId);
+    this.unacknowledgedSeq.delete(sessionId);
   }
 
   clearSession(sessionId: string): void {
@@ -200,6 +203,7 @@ export class SseConnection implements ChatConnection {
     this.replayingSessions.delete(sessionId);
     this.replaySeenSeq.delete(sessionId);
     this.pendingSnapshots.delete(sessionId);
+    this.unacknowledgedSeq.delete(sessionId);
   }
 
   // Navigation discards stale controls, not submitted prompts. Scope prevents
@@ -340,6 +344,17 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
+      const sequencedSessionId =
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        typeof msg.sessionId === 'string'
+          ? msg.sessionId
+          : undefined;
+      const applied = sequencedSessionId
+        ? this.unacknowledgedSeq.get(sequencedSessionId)
+        : undefined;
+      const duplicate = applied?.has(msg.seq as number) ?? false;
+
       if (
         msg.type === 'session_reconnect_snapshot' &&
         typeof msg.sessionId === 'string' &&
@@ -354,25 +369,26 @@ export class SseConnection implements ChatConnection {
           cursor: msg.cursor,
           afterSeq: seen > msg.cursor ? seen : 0,
         });
-      } else if (
-        typeof msg.seq === 'number' &&
-        Number.isSafeInteger(msg.seq) &&
-        typeof msg.sessionId === 'string'
-      ) {
-        if (this.replayingSessions.has(msg.sessionId)) {
+      } else if (sequencedSessionId) {
+        if (this.replayingSessions.has(sequencedSessionId)) {
           this.replaySeenSeq.set(
-            msg.sessionId,
-            Math.max(this.replaySeenSeq.get(msg.sessionId) ?? 0, msg.seq),
+            sequencedSessionId,
+            Math.max(this.replaySeenSeq.get(sequencedSessionId) ?? 0, msg.seq as number),
           );
         } else {
-          const pending = this.pendingSnapshots.get(msg.sessionId);
-          if (pending) pending.afterSeq = Math.max(pending.afterSeq, msg.seq);
+          const pending = this.pendingSnapshots.get(sequencedSessionId);
+          if (pending) pending.afterSeq = Math.max(pending.afterSeq, msg.seq as number);
           else
-            this.seqBySession.set(msg.sessionId, Math.max(this.getLastSeq(msg.sessionId), msg.seq));
+            this.seqBySession.set(
+              sequencedSessionId,
+              Math.max(this.getLastSeq(sequencedSessionId), msg.seq as number),
+            );
         }
       }
 
+      if (duplicate) return;
       this.listener?.(msg);
+      if (applied && sequencedSessionId) applied.add(msg.seq as number);
     };
 
     es.onerror = () => {
@@ -444,6 +460,7 @@ export class SseConnection implements ChatConnection {
       this.replayingSessions.add(sessionId);
       this.replaySeenSeq.delete(sessionId);
       this.pendingSnapshots.delete(sessionId);
+      if (!this.unacknowledgedSeq.has(sessionId)) this.unacknowledgedSeq.set(sessionId, new Set());
     }
     const abort = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
