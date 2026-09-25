@@ -204,11 +204,14 @@ export function ChatArea({
         }),
       ),
     ];
-    return turns.sort((a, b) =>
-      a.startedSeq !== undefined && b.startedSeq !== undefined
-        ? a.startedSeq - b.startedSeq
-        : a.index - b.index,
-    );
+    // Keep unsequenced rows in their original slots while ordering every
+    // durable turn by start sequence. A mixed index/sequence comparator is
+    // nontransitive and can leave an earlier seat turn after a later one.
+    const sequenced = turns
+      .filter((turn) => turn.startedSeq !== undefined)
+      .sort((a, b) => a.startedSeq! - b.startedSeq! || a.index - b.index);
+    let nextSequenced = 0;
+    return turns.map((turn) => (turn.startedSeq === undefined ? turn : sequenced[nextSequenced++]));
   }, [groupedMessages, current, currentByMessage]);
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);

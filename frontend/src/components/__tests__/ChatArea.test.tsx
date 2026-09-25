@@ -227,6 +227,50 @@ describe('ChatArea', () => {
     expect(turns[1].textContent).toContain('Finished review');
   });
 
+  it('orders sequenced turns across an optimistic row without moving that row', () => {
+    const { container } = render(
+      <ChatArea
+        {...defaultProps}
+        messages={[
+          {
+            messageId: 'later',
+            startedSeq: 3,
+            role: 'assistant',
+            blocks: [{ blockId: 'later-text', blockType: 'text', content: 'Later turn' }],
+          },
+          {
+            messageId: 'optimistic',
+            role: 'user',
+            blocks: [{ blockId: 'draft', blockType: 'text', content: 'Optimistic prompt' }],
+          },
+        ]}
+        currentByMessage={{
+          seat: {
+            messageId: 'earlier',
+            startedSeq: 1,
+            blocks: new Map([
+              [
+                'earlier-text',
+                {
+                  blockId: 'earlier-text',
+                  blockType: 'text',
+                  content: 'Earlier seat turn',
+                  done: false,
+                },
+              ],
+            ]),
+            blockOrder: ['earlier-text'],
+          },
+        }}
+      />,
+    );
+    expect(
+      [
+        ...container.querySelectorAll('[data-testid="text-bubble"], [data-testid="user-bubble"]'),
+      ].map((node) => node.textContent),
+    ).toEqual(['Earlier seat turn', 'Optimistic prompt', 'Later turn']);
+  });
+
   it('keeps legacy seat history honest about unknown account and model', () => {
     const messages: FinishedMessage[] = [
       {
