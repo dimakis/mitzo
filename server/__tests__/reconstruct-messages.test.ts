@@ -323,6 +323,79 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
+  it('keeps reused parent block IDs scoped to their assistant turns', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 'first' }),
+      evt(4, 'subagent_block_start', { parentBlockId: 'b0', blockId: 'nested', blockType: 'text' }),
+      evt(5, 'subagent_block_delta', { parentBlockId: 'b0', blockId: 'nested', delta: 'earlier' }),
+      evt(6, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested' }),
+      evt(7, 'subagent_end', { parentBlockId: 'b0', summary: 'first done' }),
+      evt(8, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(9, 'message_end', { messageId: 'a1' }),
+      evt(10, 'message_start', { messageId: 'a2' }),
+      evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 'second' }),
+      evt(13, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      evt(14, 'subagent_block_delta', { parentBlockId: 'b0', blockId: 'nested', delta: 'current' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages[0].blocks[0].subagent).toMatchObject({
+      messageId: 'first',
+      summary: 'first done',
+      blocks: [{ content: 'earlier' }],
+    });
+    expect(restored.current?.blocks[0].subagent).toMatchObject({
+      messageId: 'second',
+      running: true,
+      blocks: [{ content: 'current' }],
+    });
+  });
+
+  it('keeps reused nested tool IDs and results within each parent turn', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 's1' }),
+      evt(4, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'tool_use',
+      }),
+      evt(5, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested', toolId: 'shared' }),
+      evt(6, 'subagent_tool_result', {
+        parentBlockId: 'b0',
+        toolId: 'shared',
+        result: 'old result',
+      }),
+      evt(7, 'subagent_end', { parentBlockId: 'b0' }),
+      evt(8, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(9, 'message_end', { messageId: 'a1' }),
+      evt(10, 'message_start', { messageId: 'a2' }),
+      evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 's2' }),
+      evt(13, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'tool_use',
+      }),
+      evt(14, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested', toolId: 'shared' }),
+      evt(15, 'subagent_tool_result', {
+        parentBlockId: 'b0',
+        toolId: 'shared',
+        result: 'new result',
+      }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages[0].blocks[0].subagent?.blocks[0].toolResult).toBe('old result');
+    expect(restored.current?.blocks[0].subagent?.blocks[0].toolResult).toBe('new result');
+  });
+
   it('restores the same partial turn after disk reopen and excludes events beyond the cursor', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mitzo-transcript-reopen-'));
     const path = join(dir, 'events.db');

@@ -3110,9 +3110,12 @@ export interface RestoredCurrentMessage {
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
 }
 
-/** Subagent events are keyed by their parent tool block, not assistant message ID. */
+/** Scope reused block IDs to the assistant turn that opened the parent tool. */
 function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   type NestedBlock = RestoredMessage['blocks'][number] & { done: boolean };
+  const key = (messageId: string, blockId: string) => JSON.stringify([messageId, blockId]);
+  const parentMessageByBlock = new Map<string, string>();
+  const activeStateByParent = new Map<string, string>();
   const states = new Map<
     string,
     {
@@ -3126,9 +3129,21 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   >();
   for (const event of events) {
     const p = event.payload;
+    if (
+      event.type === 'block_start' &&
+      typeof p.blockId === 'string' &&
+      typeof p.messageId === 'string'
+    ) {
+      parentMessageByBlock.set(p.blockId, p.messageId);
+      activeStateByParent.delete(p.blockId);
+    }
     const parentId = p.parentBlockId as string;
     if (event.type === 'subagent_start' && typeof p.subagentMessageId === 'string') {
-      states.set(parentId, {
+      const parentMessageId = parentMessageByBlock.get(parentId);
+      if (!parentMessageId) continue;
+      const scope = key(parentMessageId, parentId);
+      activeStateByParent.set(parentId, scope);
+      states.set(scope, {
         messageId: p.subagentMessageId,
         blocks: new Map(),
         order: [],
@@ -3136,7 +3151,7 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
       });
       continue;
     }
-    const state = states.get(parentId);
+    const state = states.get(activeStateByParent.get(parentId) ?? '');
     if (!state) continue;
     if (event.type === 'subagent_block_start' && typeof p.blockId === 'string') {
       state.blocks.set(p.blockId, {
@@ -3173,8 +3188,8 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
       if (p.usage && typeof p.usage === 'object') state.usage = p.usage as Record<string, number>;
     }
   }
-  return (block: RestoredMessage['blocks'][number], active: boolean) => {
-    const state = states.get(block.blockId);
+  return (messageId: string, block: RestoredMessage['blocks'][number], active: boolean) => {
+    const state = states.get(key(messageId, block.blockId));
     if (!state) return block;
     const blocks = state.order.map((id) => state.blocks.get(id)!);
     const subagent: RestoredSubagentState = {
@@ -3239,7 +3254,7 @@ export function replayEventsToTranscript(
   const attachSubagent = replaySubagents(events);
   const messages = replayEventsToMessages(closedEvents, initialPrompt).map((message) => ({
     ...message,
-    blocks: message.blocks.map((block) => attachSubagent(block, false)),
+    blocks: message.blocks.map((block) => attachSubagent(message.messageId, block, false)),
   }));
   const targetMessageId = openMessageId ?? terminalMessageId;
   if (!targetMessageId) return { messages, current: null };
@@ -3292,7 +3307,7 @@ export function replayEventsToTranscript(
   const withoutTarget = messages.filter((message) => message.messageId !== targetMessageId);
   const snapshotBlocks = blockOrder.map((id) => ({
     ...blocks.get(id)!,
-    ...attachSubagent(blocks.get(id)!, !!openMessageId),
+    ...attachSubagent(targetMessageId, blocks.get(id)!, !!openMessageId),
   }));
   if (terminalMessageId && !openMessageId) {
     if (snapshotBlocks.length > 0) {
