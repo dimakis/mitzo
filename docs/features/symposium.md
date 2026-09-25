@@ -203,3 +203,36 @@ These are persistence and admission services. Profile catalog UI, runtime-enforc
 attempt limits, recovery of uncertain native execution, and the complete automated
 review/fix loop still require integration. The tests use synthetic results and do
 not invoke models.
+
+## Concurrent directed dispatch
+
+V2 directed deliveries may execute independent admitted seats concurrently, bounded
+by the configured roster and existing durable turn reservations. Each seat still
+uses its exclusive execution claim and provider thread. V1 retains its sequential
+dispatch behavior. Results from already-running seats remain recorded if another
+recipient fails; failed turns still require explicit intervention before retry.
+
+Within one shared Symposium boundary, filesystem or tool write authority conflicts
+with other writers. The existing SQLite claim transaction refuses a second writer
+across orchestrator instances. Pending work returns to `ready` once no recipient
+is executing, so the host can drain approved work after the resource is released.
+Unconfirmed revocation cleanup also blocks new writers, including after a restart.
+This scheduling rule does not enforce a provider's tools: runtime admission must
+still enforce the declared authority. It adds no per-seat sandbox isolation.
+
+Resource reservations persist on the existing recipient attempt until its executor
+returns a completed result or confirms cancellation. Cancelling a delivery or
+marking it recovery-required does not release this reservation. A second host
+therefore cannot infer that a recovered writer has stopped. Failed multi-seat
+deliveries cannot be retried while any attempt still has unconfirmed cleanup.
+Executor cancellation must resolve only when further native operations are
+impossible; missing or failed cancellation retains the reservation for recovery.
+
+For historical failures with uncertain cleanup, the host calls
+`reconcileDeliveryCleanup` to stop the exact persisted attempts. Missing or failed
+cleanup keeps the reservation and returns `recovery_required`. Confirmed cleanup
+unblocks a separate explicit retry; reconciliation itself never dispatches work.
+A later successful attempt with the same idempotency identity settles its earlier
+historical failures during migration. Seat restoration includes membership
+generation in the provider-thread binding, so it cannot reuse a pre-suspension
+thread even when account and profile choices are unchanged.
