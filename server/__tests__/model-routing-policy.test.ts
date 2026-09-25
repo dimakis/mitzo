@@ -117,6 +117,8 @@ describe('role execution policy', () => {
       kind: 'selected',
       audit: {
         overrideSource: 'task',
+        policyPrimary: selection('planner', 'high'),
+        requested: selection('coder', 'medium'),
         actual: selection('coder', 'medium'),
         requestedMode: 'fallback',
         substitutionReason: 'Primary unavailable',
@@ -222,5 +224,45 @@ describe('role execution policy', () => {
         capabilities: () => ({ tools: true, context: true, route: false }),
       }),
     ).toMatchObject({ kind: 'decision_required', code: 'capability_unavailable' });
+  });
+  it('rejects incomplete or malformed runtime usage and substitution mode', () => {
+    const p = policy('architect', 'planner', 'high');
+    for (const usage of [
+      {},
+      { attempts: 0 },
+      { ...base.usage, costUsd: NaN },
+      { ...base.usage, attempts: -1 },
+      { ...base.usage, tokens: Infinity },
+    ]) {
+      expect(
+        resolveRoleExecution({ ...base, policy: p, usage: usage as typeof base.usage }),
+      ).toMatchObject({ kind: 'decision_required', code: 'invalid_policy' });
+    }
+    expect(
+      resolveRoleExecution({ ...base, policy: p, requestedMode: 'unapproved' as 'primary' }),
+    ).toMatchObject({ kind: 'decision_required', code: 'invalid_policy' });
+  });
+  it('compares canonical override fields independent of property order', () => {
+    const p = policy('architect', 'planner', 'high');
+    const result = resolveRoleExecution({
+      ...base,
+      policy: p,
+      overrides: {
+        seat: {
+          selection: { reasoningEffort: 'medium', model: 'coder', accountId: 'work' },
+          profileBinding: { profileRevision: 'p3', profileId: 'architect-profile' },
+          contextGrant: { revision: 2, grantId: 'g' },
+          authorityGrant: { revision: 3, grantId: 'a' },
+        },
+      },
+    });
+    expect(result).toMatchObject({
+      kind: 'selected',
+      audit: {
+        requested: selection('coder', 'medium'),
+        actual: selection('coder', 'medium'),
+        overrideSource: 'seat',
+      },
+    });
   });
 });

@@ -7,6 +7,7 @@ import {
   type AccountBinding,
 } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
+import { z } from 'zod';
 
 type Mode = 'primary' | 'fallback' | 'escalation';
 type Capability = { tools: boolean; context: boolean; route: boolean };
@@ -19,6 +20,15 @@ type Usage = {
   fallbacks: number;
   escalations: number;
 };
+const UsageSchema = z.strictObject({
+  attempts: z.number().int().nonnegative(),
+  tokens: z.number().int().nonnegative(),
+  costUsd: z.number().finite().nonnegative(),
+  replans: z.number().int().nonnegative(),
+  fallbacks: z.number().int().nonnegative(),
+  escalations: z.number().int().nonnegative(),
+});
+const ModeSchema = z.enum(['primary', 'fallback', 'escalation']);
 type Input = {
   policy: ExecutionPolicy;
   accountProfiles: Pick<AccountProfiles, 'catalog' | 'resolve' | 'validateModel'>;
@@ -45,6 +55,7 @@ type SelectionAudit = {
   policyId: string;
   policyRevision: string;
   profileBinding: ExecutionPolicy['profileBinding'];
+  policyPrimary: ExecutionSelection;
   requested: ExecutionSelection;
   actual: ExecutionSelection;
   requestedMode: Mode;
@@ -88,44 +99,53 @@ const decision = (code: DecisionCode): Decision => ({
   code,
   message: messages[code],
 });
-const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
-const safeCount = (n: number) => Number.isSafeInteger(n) && n >= 0;
+const sameSelection = (a: ExecutionSelection, b: ExecutionSelection): boolean =>
+  a.accountId === b.accountId && a.model === b.model && a.reasoningEffort === b.reasoningEffort;
+const sameGrant = (
+  a: ExecutionPolicy['contextGrant'],
+  b: ExecutionPolicy['contextGrant'],
+): boolean => a.grantId === b.grantId && a.revision === b.revision;
 
 /** Pure, fail-closed selection. Caller must persist the audit and atomically admit the work order. */
 export function resolveRoleExecution(input: Input): Decision | Selected {
   const parsed = ExecutionPolicySchema.safeParse(input.policy);
-  if (
-    !parsed.success ||
-    !Object.entries(input.usage).every(([key, value]) =>
-      key === 'costUsd' ? Number.isFinite(value) && value >= 0 : safeCount(value),
-    )
-  )
+  const usage = UsageSchema.safeParse(input.usage);
+  const requestedMode = ModeSchema.safeParse(input.requestedMode ?? 'primary');
+  if (!parsed.success || !usage.success || !requestedMode.success)
     return decision('invalid_policy');
   const policy = parsed.data;
-  let mode = input.requestedMode ?? 'primary';
+  let mode: Mode = requestedMode.data;
   const overrideEntries = (['seat', 'task', 'goal'] as const).map((source) => ({
     source,
     value: input.overrides?.[source],
   }));
-  for (const { value } of overrideEntries) {
-    if (value && !ExecutionOverrideSchema.safeParse(value).success)
-      return decision('invalid_policy');
-    if (value?.profileBinding && !same(value.profileBinding, policy.profileBinding))
+  const canonicalOverrides: typeof overrideEntries = [];
+  for (const { source, value } of overrideEntries) {
+    const canonical = value === undefined ? undefined : ExecutionOverrideSchema.safeParse(value);
+    if (canonical && !canonical.success) return decision('invalid_policy');
+    const normalized = canonical?.data;
+    canonicalOverrides.push({ source, value: normalized });
+    if (
+      normalized?.profileBinding &&
+      (normalized.profileBinding.profileId !== policy.profileBinding.profileId ||
+        normalized.profileBinding.profileRevision !== policy.profileBinding.profileRevision)
+    )
       return decision('profile_change');
-    if (value?.contextGrant && !same(value.contextGrant, policy.contextGrant))
+    if (normalized?.contextGrant && !sameGrant(normalized.contextGrant, policy.contextGrant))
       return decision('grant_change');
-    if (value?.authorityGrant && !same(value.authorityGrant, policy.authorityGrant))
+    if (normalized?.authorityGrant && !sameGrant(normalized.authorityGrant, policy.authorityGrant))
       return decision('grant_change');
-    if (value?.selection && value.selection.accountId !== policy.primary.accountId)
+    if (normalized?.selection && normalized.selection.accountId !== policy.primary.accountId)
       return decision('account_change');
   }
-  const effective = overrideEntries.find((entry) => entry.value?.selection);
-  const requested = policy.primary;
-  let actual: ExecutionSelection = effective?.value?.selection ?? requested;
+  const effective = canonicalOverrides.find((entry) => entry.value?.selection);
+  const policyPrimary = policy.primary;
+  const requested = effective?.value?.selection ?? policyPrimary;
+  let actual: ExecutionSelection = requested;
   let substitutionReason: string | null = null;
-  if (actual.accountId !== requested.accountId) return decision('account_change');
+  if (actual.accountId !== policyPrimary.accountId) return decision('account_change');
   const matchingAlternative = policy.alternatives.find((candidate) =>
-    same(
+    sameSelection(
       {
         accountId: candidate.accountId,
         model: candidate.model,
@@ -134,7 +154,7 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
       actual,
     ),
   );
-  if (effective && !same(actual, requested)) {
+  if (effective && !sameSelection(actual, policyPrimary)) {
     if (!matchingAlternative || (mode !== 'primary' && mode !== matchingAlternative.mode))
       return decision('substitution_unapproved');
     mode = matchingAlternative.mode;
@@ -149,14 +169,14 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
     };
     substitutionReason = candidate.reason;
   }
-  if (actual.accountId !== requested.accountId) return decision('account_change');
+  if (actual.accountId !== policyPrimary.accountId) return decision('account_change');
   if (
-    input.usage.attempts >= policy.limits.maxAttempts ||
-    input.usage.tokens >= policy.limits.maxTokens ||
-    input.usage.replans > policy.limits.maxReplans ||
-    (mode === 'fallback' && input.usage.fallbacks >= policy.limits.maxFallbacks) ||
-    (mode === 'escalation' && input.usage.escalations >= policy.limits.maxEscalations) ||
-    (policy.limits.maxCostUsd !== null && input.usage.costUsd >= policy.limits.maxCostUsd)
+    usage.data.attempts >= policy.limits.maxAttempts ||
+    usage.data.tokens >= policy.limits.maxTokens ||
+    usage.data.replans > policy.limits.maxReplans ||
+    (mode === 'fallback' && usage.data.fallbacks >= policy.limits.maxFallbacks) ||
+    (mode === 'escalation' && usage.data.escalations >= policy.limits.maxEscalations) ||
+    (policy.limits.maxCostUsd !== null && usage.data.costUsd >= policy.limits.maxCostUsd)
   )
     return decision('budget_exceeded');
 
@@ -214,7 +234,7 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
   if (
     price.kind === 'known' &&
     policy.limits.maxCostUsd !== null &&
-    input.usage.costUsd + (policy.limits.maxTokens * price.maxUsdPerMillionTokens) / 1_000_000 >
+    usage.data.costUsd + (policy.limits.maxTokens * price.maxUsdPerMillionTokens) / 1_000_000 >
       policy.limits.maxCostUsd
   ) {
     return decision('budget_exceeded');
@@ -224,6 +244,7 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
     policyId: policy.policyId,
     policyRevision: policy.revision,
     profileBinding: policy.profileBinding,
+    policyPrimary,
     requested,
     actual,
     requestedMode: mode,
