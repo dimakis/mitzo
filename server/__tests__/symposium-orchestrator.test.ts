@@ -524,6 +524,68 @@ describe('SymposiumOrchestrator', () => {
     ).toHaveLength(2);
   });
 
+  it('releases a revoked seat reservation after confirmed stop even if its response promise hangs', async () => {
+    const architect = await prepareConcurrentSeats(true);
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    architect.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      architect.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-architect', content: 'late', costUsd: 0 };
+    });
+    const first = readyFor(['architect'], 'stopped-seat');
+    const second = readyFor(['builder'], 'after-seat-stop');
+    const run = orchestrator.deliver(first);
+    try {
+      await vi.waitFor(() => expect(architect.calls).toHaveLength(1));
+      await orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId: 'architect',
+        action: 'suspend',
+        expectedGeneration: 1,
+        configRevision: 4,
+        actor: 'director',
+        reason: 'stop',
+        idempotencyKey: 'confirmed-stop',
+      });
+      expect(await orchestrator.deliver(second)).toMatchObject({ status: 'delivered' });
+    } finally {
+      release();
+      await run;
+    }
+  });
+
+  it('migrates historical failures followed by a completed idempotent attempt as settled', async () => {
+    await prepareConcurrentSeats(true);
+    let fail = true;
+    reviewer.execute = vi.fn(async () => {
+      if (fail) {
+        fail = false;
+        throw new Error('temporary');
+      }
+      return { providerThreadId: 'thread-reviewer', content: 'done', costUsd: 0 };
+    });
+    const id = readyFor(['reviewer'], 'historical-retry');
+    await orchestrator.deliver(id);
+    orchestrator.intervene({
+      deliveryId: id,
+      action: 'retry',
+      idempotencyKey: 'historical-retry-approved',
+    });
+    await orchestrator.deliver(id);
+    store.close();
+    const legacy = new Database(dbPath);
+    legacy.exec('ALTER TABLE symposium_recipient_attempts DROP COLUMN cleanup_confirmed');
+    legacy
+      .prepare('UPDATE symposium_recipient_attempts SET claim_token = NULL WHERE status = ?')
+      .run('failed');
+    legacy.close();
+    store = new EventStore(dbPath);
+    expect(store.getUnsettledSymposiumExecutions(id)).toEqual([]);
+  });
+
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
     const implementerSeat = {
       ...config.seats[1],

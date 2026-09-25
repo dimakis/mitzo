@@ -142,11 +142,14 @@ export class SymposiumOrchestrator {
       if (!this.reconcileProviders || (record.state !== 'active' && !this.stopSeat))
         throw new Error('Runtime cleanup interface unavailable');
       if (record.state !== 'active') {
+        const unsettled = this.store.getUnsettledSymposiumSeatExecutions(sessionId, seatId);
         await this.stopSeat!({
           sessionId,
           seatId,
           generation: record.generation,
         });
+        for (const attempt of unsettled)
+          this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
       }
       await this.reconcileProviders({
         sessionId,

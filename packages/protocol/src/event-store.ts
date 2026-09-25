@@ -932,9 +932,13 @@ export class EventStore {
         db.exec(
           'ALTER TABLE symposium_recipient_attempts ADD COLUMN cleanup_confirmed INTEGER NOT NULL DEFAULT 0',
         );
-        db.exec(
-          "UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1 WHERE status = 'delivered'",
-        );
+        db.exec(`UPDATE symposium_recipient_attempts AS prior SET cleanup_confirmed = 1
+          WHERE status = 'delivered' OR (status = 'failed' AND EXISTS (
+            SELECT 1 FROM symposium_recipient_attempts finished
+            WHERE finished.delivery_id = prior.delivery_id AND finished.seat_id = prior.seat_id
+              AND finished.idempotency_key = prior.idempotency_key AND finished.status = 'delivered'
+              AND finished.attempt_number > prior.attempt_number
+          ))`);
       }
       // Claims that were live when an older database is upgraded already have a durable
       // execution token. Bind that token to the matching attempt before revocation can
@@ -2483,6 +2487,22 @@ export class EventStore {
       ).all(deliveryId) as Array<{ seat_id: string; attempt_id: number; idempotency_key: string }>
     ).map((row) => ({
       seatId: row.seat_id,
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
+    }));
+  }
+
+  getUnsettledSymposiumSeatExecutions(
+    sessionId: string,
+    seatId: string,
+  ): Array<{ attemptId: number; idempotencyKey: string }> {
+    return (
+      this.db!.prepare(
+        `SELECT a.attempt_id, a.idempotency_key FROM symposium_recipient_attempts a
+      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+      WHERE d.session_id = ? AND a.seat_id = ? AND a.cleanup_confirmed = 0`,
+      ).all(sessionId, seatId) as Array<{ attempt_id: number; idempotency_key: string }>
+    ).map((row) => ({
       attemptId: row.attempt_id,
       idempotencyKey: row.idempotency_key,
     }));
