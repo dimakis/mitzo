@@ -17,7 +17,7 @@ cd "$(dirname "$0")/../frontend"
 
 if [[ "${1:-}" == "--sync" ]]; then
   echo "→ Syncing web assets to iOS project..."
-  npx cap sync ios
+  CAPACITOR_WEB_DIR=dist-ios npx cap sync ios
 else
   echo "→ Building frontend + syncing to iOS..."
   npm run build:ios
