@@ -80,7 +80,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
 
 export type MessagesAction =
   // v2 content events
-  | { type: 'MESSAGE_START'; messageId: string }
+  | { type: 'MESSAGE_START'; messageId: string; startedSeq?: number }
   | {
       type: 'BLOCK_START';
       messageId: string;
@@ -147,7 +147,7 @@ export type MessagesAction =
       };
     }
   // Reattach snapshot
-  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; blocks: FinishedBlock[] }
+  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
@@ -169,6 +169,7 @@ export type MessagesAction =
   | {
       type: 'USER_MESSAGE_RECEIVED';
       messageId: string;
+      startedSeq?: number;
       text: string;
       images?: string[];
       contextBlocks?: string[];
@@ -232,7 +233,30 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
   });
-  return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
+  return {
+    messageId: current.messageId,
+    role: 'assistant',
+    blocks,
+    timestamp: Date.now(),
+    ...(current.startedSeq !== undefined ? { startedSeq: current.startedSeq } : {}),
+  };
+}
+
+/** Insert a sequenced turn before later durable turns, preserving legacy array order. */
+function insertByStartedSeq(
+  messages: FinishedMessage[],
+  message: FinishedMessage,
+): FinishedMessage[] {
+  const index =
+    message.startedSeq === undefined
+      ? -1
+      : messages.findIndex(
+          (existing) =>
+            existing.startedSeq !== undefined && existing.startedSeq > message.startedSeq!,
+        );
+  const result = [...messages];
+  result.splice(index < 0 ? result.length : index, 0, message);
+  return result;
 }
 
 export function patchToolResult(
@@ -280,12 +304,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return state;
       }
       const base = state.current
-        ? { ...state, messages: [...state.messages, finishCurrent(state.current)] }
+        ? { ...state, messages: insertByStartedSeq(state.messages, finishCurrent(state.current)) }
         : state;
       return {
         ...base,
         current: {
           messageId: action.messageId,
+          ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
           blocks: new Map<string, StreamingBlock>(),
           blockOrder: [],
         },
@@ -357,7 +382,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return { ...state, current: null };
       }
       const finished = finishCurrent(state.current);
-      return { ...state, messages: [...state.messages, finished], current: null };
+      return { ...state, messages: insertByStartedSeq(state.messages, finished), current: null };
     }
 
     case 'SESSION_END': {
@@ -366,7 +391,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return {
           ...state,
           running: false,
-          messages: [...state.messages, finished],
+          messages: insertByStartedSeq(state.messages, finished),
           current: null,
         };
       }
@@ -375,10 +400,34 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
     case 'MESSAGE_SNAPSHOT': {
       const snapshotBlocks = action.blocks ?? [];
-      if (!Array.isArray(snapshotBlocks) || snapshotBlocks.length === 0) return state;
+      if (!Array.isArray(action.blocks)) return state;
       const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
       for (const b of snapshotBlocks) {
+        const nested = b.subagent as unknown as
+          | {
+              messageId: string;
+              running?: boolean;
+              blocks: Array<FinishedBlock & { done?: boolean }>;
+            }
+          | undefined;
+        const subagent: StreamingSubagentState | FinishedSubagentState | undefined =
+          nested?.running && Array.isArray(nested.blocks)
+            ? {
+                messageId: nested.messageId,
+                blocks: new Map(
+                  nested.blocks.map((block) => [
+                    block.blockId,
+                    {
+                      ...block,
+                      done: block.done ?? false,
+                    },
+                  ]),
+                ),
+                blockOrder: nested.blocks.map((block) => block.blockId),
+                running: true as const,
+              }
+            : b.subagent;
         blocks.set(b.blockId, {
           blockId: b.blockId,
           blockType: b.blockType as BlockType,
@@ -391,10 +440,19 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           toolResult: b.toolResult,
           toolResultImages: b.toolResultImages,
           toolError: b.toolError,
+          ...(subagent ? { subagent } : {}),
         });
         blockOrder.push(b.blockId);
       }
-      return { ...state, current: { messageId: action.messageId, blocks, blockOrder } };
+      return {
+        ...state,
+        current: {
+          messageId: action.messageId,
+          ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
+          blocks,
+          blockOrder,
+        },
+      };
     }
 
     case 'PERMISSION_REQUEST': {
@@ -510,9 +568,14 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
       if (!action.interrupted) {
-        const existingIds = new Set(state.messages.map((m) => m.messageId));
-        const hasNewMessages = valid.some((m) => !existingIds.has(m.messageId));
-        if (!hasNewMessages && state.messages.length > 0) {
+        const existingById = new Map(state.messages.map((m) => [m.messageId, m]));
+        const hasNewMessages = valid.some((m) => !existingById.has(m.messageId));
+        const hasNewSequence = valid.some(
+          (m) =>
+            m.startedSeq !== undefined &&
+            existingById.get(m.messageId)?.startedSeq !== m.startedSeq,
+        );
+        if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
           return state;
         }
       }
@@ -562,8 +625,22 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     }
 
     case 'USER_MESSAGE_RECEIVED': {
-      if (state.messages.some((m) => m.messageId === action.messageId)) {
-        return state;
+      const existingIndex = state.messages.findIndex((m) => m.messageId === action.messageId);
+      if (existingIndex !== -1) {
+        const existing = state.messages[existingIndex];
+        if (existing.role !== 'user') return state;
+        const startedSeq = action.startedSeq ?? existing.startedSeq;
+        const images = action.images ?? existing.images;
+        const contextBlocks = action.contextBlocks ?? existing.contextBlocks;
+        if (
+          startedSeq === existing.startedSeq &&
+          images === existing.images &&
+          contextBlocks === existing.contextBlocks
+        )
+          return state;
+        const messages = [...state.messages];
+        messages[existingIndex] = { ...existing, startedSeq, images, contextBlocks };
+        return { ...state, messages };
       }
       return {
         ...state,
@@ -571,6 +648,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           ...state.messages,
           {
             messageId: action.messageId,
+            ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
             role: 'user',
             timestamp: Date.now(),
             images: action.images,

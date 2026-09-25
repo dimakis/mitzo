@@ -5,7 +5,7 @@
  * Uses a TransportAdapter.fetch so it works in both browser and Theia.
  */
 
-import type { FinishedMessage, Session } from '@mitzo/protocol';
+import type { FinishedBlock, FinishedMessage, Session } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
 import type { InboxItem } from './slices/inbox.js';
@@ -32,6 +32,15 @@ export interface VersionInfo {
 export interface GitInfo {
   branch: string;
   worktrees: Array<{ path: string; branch: string }>;
+}
+
+export interface ReconnectTranscript {
+  messages: FinishedMessage[];
+  current: {
+    messageId: string;
+    startedSeq?: number;
+    blocks: Array<FinishedBlock & { done: boolean }>;
+  } | null;
 }
 
 export interface FileEntry {
@@ -118,6 +127,23 @@ export class MitzoApiClient {
       }),
     );
     return res.json();
+  }
+
+  async getReconnectTranscript(
+    sessionId: string,
+    throughSeq: number,
+  ): Promise<ReconnectTranscript> {
+    const res = await this.assertOk(
+      await this.fetch(`/api/sessions/${sessionId}/messages?throughSeq=${throughSeq}`, {
+        credentials: 'include',
+      }),
+    );
+    const body: unknown = await res.json();
+    // Old server releases returned an array at this endpoint.
+    if (Array.isArray(body)) return { messages: body as FinishedMessage[], current: null };
+    if (!body || typeof body !== 'object' || !Array.isArray((body as ReconnectTranscript).messages))
+      throw new Error('Invalid reconnect transcript');
+    return body as ReconnectTranscript;
   }
 
   async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {

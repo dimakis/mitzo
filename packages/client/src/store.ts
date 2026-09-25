@@ -188,6 +188,19 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
 }
 
 /** Merge an older HTTP snapshot with events received while it was in flight. */
+function mergeLiveWithDurable(
+  live: FinishedMessage | undefined,
+  durable: FinishedMessage,
+): FinishedMessage {
+  if (!live) return durable;
+  return {
+    ...live,
+    ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
+    images: live.images ?? durable.images,
+    contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+  };
+}
+
 function mergeHistory(
   state: MessagesState,
   history: FinishedMessage[],
@@ -206,7 +219,7 @@ function mergeHistory(
     )
       continue;
     seen.add(message.messageId);
-    merged.push(live.get(message.messageId) ?? message);
+    merged.push(mergeLiveWithDurable(live.get(message.messageId), message));
   }
   return messagesReducer(state, { type: 'RESTORE', messages: merged });
 }
@@ -226,7 +239,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
   let boundedRestore:
-    { sessionId: string; throughSeq: number; confirmedMessageIds: Set<string> } | undefined;
+    | {
+        sessionId: string;
+        throughSeq: number;
+        confirmedMessageIds: Set<string>;
+        liveActions: MessagesAction[];
+      }
+    | undefined;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
@@ -240,8 +259,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     recoveryInFlight = true;
     const request = ++historyRequest;
     const currentBoundedRestore =
-      replace && throughSeq !== undefined
-        ? { sessionId, throughSeq, confirmedMessageIds: new Set<string>() }
+      throughSeq !== undefined
+        ? {
+            sessionId,
+            throughSeq,
+            confirmedMessageIds: new Set<string>(),
+            liveActions: [] as MessagesAction[],
+          }
         : undefined;
     boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
@@ -253,19 +277,25 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const initialMessages = new Map(
       store.getState().messages.messages.map((m) => [m.messageId, m]),
     );
-    api
-      .getSessionMessages(sessionId, undefined, throughSeq)
-      .then((msgs) => {
+    const transcript =
+      throughSeq === undefined
+        ? api.getSessionMessages(sessionId).then((messages) => ({ messages, current: null }))
+        : api.getReconnectTranscript(sessionId, throughSeq);
+    transcript
+      .then(({ messages: msgs, current }) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
-          store.setState((s) => ({
-            messages: replace
+          store.setState((s) => {
+            const restored = replace
               ? {
                   ...s.messages,
                   messages: (() => {
                     const live = s.messages.messages.filter(
                       (m) =>
-                        initialMessages.get(m.messageId) !== m ||
+                        (initialMessages.get(m.messageId) !== m &&
+                          (throughSeq === undefined ||
+                            m.startedSeq === undefined ||
+                            m.startedSeq > throughSeq)) ||
                         pendingOptimisticMessageIds.has(m.messageId) ||
                         currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
@@ -278,7 +308,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                             s.messages.current === initialCurrent ||
                             m.messageId !== s.messages.current?.messageId,
                         )
-                        .map((m) => liveById.get(m.messageId) ?? m),
+                        .map((m) => mergeLiveWithDurable(liveById.get(m.messageId), m)),
                       ...live.filter((m) => !savedIds.has(m.messageId)),
                     ];
                   })(),
@@ -286,8 +316,40 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 }
               : msgs.length > 0
                 ? mergeHistory(s.messages, msgs, initialCurrent)
-                : s.messages,
-          }));
+                : s.messages;
+            const liveActions = currentBoundedRestore?.liveActions ?? [];
+            if (
+              throughSeq === undefined ||
+              (s.messages.current !== initialCurrent && liveActions.length === 0)
+            )
+              return { messages: restored };
+            // Rebuild live completed turns from the captured suffix so their
+            // order and blocks are applied once after the durable prefix.
+            const replayedIds = new Set(
+              liveActions.flatMap((action) =>
+                'messageId' in action && typeof action.messageId === 'string'
+                  ? [action.messageId]
+                  : [],
+              ),
+            );
+            const withoutStaleCurrent = {
+              ...restored,
+              messages: restored.messages.filter(
+                (message) =>
+                  message.messageId !== current?.messageId && !replayedIds.has(message.messageId),
+              ),
+              current: null,
+            };
+            const withSnapshot = current
+              ? messagesReducer(withoutStaleCurrent, {
+                  type: 'MESSAGE_SNAPSHOT',
+                  messageId: current.messageId,
+                  startedSeq: current.startedSeq,
+                  blocks: current.blocks,
+                })
+              : withoutStaleCurrent;
+            return { messages: liveActions.reduce(messagesReducer, withSnapshot) };
+          });
           onApplied?.();
         }
       })
@@ -950,15 +1012,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     for (const action of result.messagesActions) {
       if (action.type === 'USER_MESSAGE_RECEIVED')
         pendingOptimisticMessageIds.delete(action.messageId);
-      if (
+      const isPostCursorAction =
         boundedRestore &&
         eventSessionId === boundedRestore.sessionId &&
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
-        msg.seq > boundedRestore.throughSeq &&
-        action.type === 'USER_MESSAGE_RECEIVED'
-      ) {
-        boundedRestore.confirmedMessageIds.add(action.messageId);
+        msg.seq > boundedRestore.throughSeq;
+      if (isPostCursorAction) {
+        boundedRestore!.liveActions.push(action);
+        if (action.type === 'USER_MESSAGE_RECEIVED')
+          boundedRestore!.confirmedMessageIds.add(action.messageId);
       }
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),

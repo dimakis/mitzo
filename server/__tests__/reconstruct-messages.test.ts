@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { reconstructMessages, replayEventsToMessages } from '../chat.js';
+import { reconstructMessages, replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
 import type { RawSdkMessage } from '../chat.js';
 import type { StoredEvent } from '../event-store.js';
+import { EventStore } from '../event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('reconstructMessages', () => {
   it('returns empty array for empty input', () => {
@@ -148,6 +152,453 @@ describe('reconstructMessages', () => {
     const result = reconstructMessages(raw);
     const ids = result.flatMap((m) => m.blocks.map((b) => b.blockId));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('replayEventsToTranscript — bounded in-flight restore', () => {
+  function evt(seq: number, type: string, payload: Record<string, unknown>): StoredEvent {
+    return { seq, sessionId: 'sess-1', type, payload, createdAt: seq };
+  }
+
+  it('keeps open text, thinking and tool blocks typed and out of finished history', () => {
+    const events = [
+      evt(1, 'user_message', { messageId: 'u1', text: 'Inspect this' }),
+      evt(2, 'message_start', { messageId: 'a1' }),
+      evt(3, 'block_start', { messageId: 'a1', blockId: 'thinking', blockType: 'thinking' }),
+      evt(4, 'block_delta', { messageId: 'a1', blockId: 'thinking', delta: 'considering' }),
+      evt(5, 'block_end', { messageId: 'a1', blockId: 'thinking', blockType: 'thinking' }),
+      evt(6, 'block_start', {
+        messageId: 'a1',
+        blockId: 'tool',
+        blockType: 'tool_use',
+        toolName: 'Read',
+      }),
+      evt(7, 'tool_result', {
+        toolId: 'tool-1',
+        result: 'contents',
+        isError: false,
+        images: [{ id: 'image-1', mediaType: 'image/png' }],
+      }),
+      evt(8, 'block_end', {
+        messageId: 'a1',
+        blockId: 'tool',
+        blockType: 'tool_use',
+        toolName: 'Read',
+        toolId: 'tool-1',
+        input: 'file.ts',
+        rawInput: { file_path: 'file.ts' },
+      }),
+      evt(9, 'block_start', { messageId: 'a1', blockId: 'text', blockType: 'text' }),
+      evt(10, 'block_delta', { messageId: 'a1', blockId: 'text', delta: 'partial answer' }),
+    ];
+
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'u1' }],
+      current: {
+        messageId: 'a1',
+        blocks: [
+          { blockId: 'thinking', blockType: 'thinking', content: 'considering', done: true },
+          {
+            blockId: 'tool',
+            blockType: 'tool_use',
+            toolName: 'Read',
+            toolId: 'tool-1',
+            toolInput: 'file.ts',
+            rawInput: { file_path: 'file.ts' },
+            toolResult: 'contents',
+            toolResultImages: [{ id: 'image-1', mediaType: 'image/png' }],
+            done: true,
+          },
+          { blockId: 'text', blockType: 'text', content: 'partial answer', done: false },
+        ],
+      },
+    });
+  });
+
+  it('has no streaming current after message_end or session_end', () => {
+    const open = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'a1', blockId: 'b1', delta: 'partial' }),
+    ];
+    expect(
+      replayEventsToTranscript([...open, evt(4, 'message_end', { messageId: 'a1' })]).current,
+    ).toBeNull();
+    expect(replayEventsToTranscript([...open, evt(4, 'session_end', {})])).toMatchObject({
+      current: null,
+      messages: [{ messageId: 'a1', blocks: [{ blockId: 'b1', content: 'partial' }] }],
+    });
+  });
+
+  it('retains an earlier interrupted partial block after a later turn completes', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'interrupted' }),
+      evt(2, 'block_start', { messageId: 'interrupted', blockId: 'old', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'interrupted', blockId: 'old', delta: 'saved partial' }),
+      evt(4, 'session_end', {}),
+      evt(5, 'message_start', { messageId: 'later' }),
+      evt(6, 'block_start', { messageId: 'later', blockId: 'new', blockType: 'text' }),
+      evt(7, 'block_delta', { messageId: 'later', blockId: 'new', delta: 'complete' }),
+      evt(8, 'block_end', { messageId: 'later', blockId: 'new', blockType: 'text' }),
+      evt(9, 'message_end', { messageId: 'later' }),
+    ];
+
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      current: null,
+      messages: [
+        { messageId: 'interrupted', blocks: [{ blockId: 'old', content: 'saved partial' }] },
+        { messageId: 'later', blocks: [{ blockId: 'new', content: 'complete' }] },
+      ],
+    });
+  });
+
+  it('keeps a terminal partial assistant before a newer user follow-up', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'text', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'a1', blockId: 'text', delta: 'interrupted' }),
+      evt(4, 'session_end', {}),
+      evt(5, 'user_message', { messageId: 'u2', text: 'continue' }),
+    ];
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      current: null,
+      messages: [
+        { messageId: 'a1', blocks: [{ content: 'interrupted' }] },
+        { messageId: 'u2', role: 'user' },
+      ],
+    });
+  });
+
+  it.each([0, 1, 3])(
+    'keeps an interrupted assistant with %i finished blocks before a user sent before session_end',
+    (finishedCount) => {
+      const events = [
+        evt(1, 'message_start', { messageId: 'prior' }),
+        evt(2, 'block_start', { messageId: 'prior', blockId: 'prior-text', blockType: 'text' }),
+        evt(3, 'block_delta', { messageId: 'prior', blockId: 'prior-text', delta: 'earlier' }),
+        evt(4, 'block_end', { messageId: 'prior', blockId: 'prior-text', blockType: 'text' }),
+        evt(5, 'message_end', { messageId: 'prior' }),
+        evt(6, 'message_start', { messageId: 'interrupted' }),
+      ];
+      let seq = 7;
+      for (let i = 0; i < finishedCount; i++) {
+        events.push(
+          evt(seq++, 'block_start', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            blockType: 'text',
+          }),
+        );
+        events.push(
+          evt(seq++, 'block_delta', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            delta: `finished-${i}`,
+          }),
+        );
+        events.push(
+          evt(seq++, 'block_end', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            blockType: 'text',
+          }),
+        );
+      }
+      events.push(
+        evt(seq++, 'block_start', {
+          messageId: 'interrupted',
+          blockId: 'partial',
+          blockType: 'text',
+        }),
+      );
+      events.push(
+        evt(seq++, 'block_delta', {
+          messageId: 'interrupted',
+          blockId: 'partial',
+          delta: 'saved partial',
+        }),
+      );
+      events.push(evt(seq++, 'user_message', { messageId: 'followup', text: 'continue' }));
+      events.push(evt(seq, 'session_end', {}));
+
+      const transcript = replayEventsToTranscript(events);
+      expect(transcript.current).toBeNull();
+      expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+        'prior',
+        'interrupted',
+        'followup',
+      ]);
+      expect(transcript.messages[1].blocks.map(({ content }) => content)).toEqual([
+        ...Array.from({ length: finishedCount }, (_, i) => `finished-${i}`),
+        'saved partial',
+      ]);
+    },
+  );
+
+  it('keeps an interrupted assistant between earlier history and a user sent after session_end', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'prior' }),
+      evt(2, 'block_start', { messageId: 'prior', blockId: 'old', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'prior', blockId: 'old', delta: 'earlier' }),
+      evt(4, 'block_end', { messageId: 'prior', blockId: 'old', blockType: 'text' }),
+      evt(5, 'message_end', { messageId: 'prior' }),
+      evt(6, 'message_start', { messageId: 'interrupted' }),
+      evt(7, 'block_start', { messageId: 'interrupted', blockId: 'partial', blockType: 'text' }),
+      evt(8, 'block_delta', {
+        messageId: 'interrupted',
+        blockId: 'partial',
+        delta: 'saved partial',
+      }),
+      evt(9, 'session_end', {}),
+      evt(10, 'user_message', { messageId: 'followup', text: 'continue' }),
+    ];
+    const transcript = replayEventsToTranscript(events);
+    expect(transcript.current).toBeNull();
+    expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+      'prior',
+      'interrupted',
+      'followup',
+    ]);
+    expect(transcript.messages[1].blocks[0].content).toBe('saved partial');
+  });
+
+  it.each([undefined, 'initial question'])(
+    'applies late assistant deltas after a follow-up user with initialPrompt %s',
+    (initialPrompt) => {
+      const events = [
+        evt(1, 'user_message', { messageId: 'initial', text: 'initial question' }),
+        evt(2, 'message_start', { messageId: 'assistant' }),
+        evt(3, 'block_start', { messageId: 'assistant', blockId: 'partial', blockType: 'text' }),
+        evt(4, 'block_delta', { messageId: 'assistant', blockId: 'partial', delta: 'before ' }),
+        evt(5, 'user_message', { messageId: 'followup', text: 'interrupt' }),
+        evt(6, 'block_delta', { messageId: 'assistant', blockId: 'partial', delta: 'after' }),
+        evt(7, 'block_end', { messageId: 'assistant', blockId: 'partial', blockType: 'text' }),
+        evt(8, 'session_end', {}),
+      ];
+      const transcript = replayEventsToTranscript(events, initialPrompt);
+      expect(transcript.current).toBeNull();
+      expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+        'initial',
+        'assistant',
+        'followup',
+      ]);
+      expect(transcript.messages[1].blocks[0].content).toBe('before after');
+
+      const beforeTerminal = replayEventsToTranscript(events.slice(0, 5), initialPrompt);
+      expect(beforeTerminal.messages.map(({ messageId }) => messageId)).toEqual([
+        'initial',
+        'followup',
+      ]);
+      expect(beforeTerminal.current).toMatchObject({
+        messageId: 'assistant',
+        startedSeq: 2,
+        blocks: [{ content: 'before ', done: false }],
+      });
+      expect(beforeTerminal.messages[1]).toMatchObject({ messageId: 'followup', startedSeq: 5 });
+    },
+  );
+
+  it('hoists only the legacy first prompt, preserving a later user with the same text', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'assistant' }),
+      evt(2, 'user_message', { messageId: 'legacy-initial', text: 'repeat' }),
+      evt(3, 'block_start', { messageId: 'assistant', blockId: 'text', blockType: 'text' }),
+      evt(4, 'block_delta', { messageId: 'assistant', blockId: 'text', delta: 'response' }),
+      evt(5, 'message_end', { messageId: 'assistant' }),
+      evt(6, 'user_message', { messageId: 'later', text: 'repeat' }),
+    ];
+    const withMetadata = replayEventsToTranscript(events, 'repeat');
+    expect(withMetadata.messages.map(({ messageId }) => messageId)).toEqual([
+      'legacy-initial',
+      'assistant',
+      'later',
+    ]);
+    expect(withMetadata.messages[0].startedSeq).toBeUndefined();
+    expect(replayEventsToTranscript(events).messages.map(({ messageId }) => messageId)).toEqual([
+      'legacy-initial',
+      'assistant',
+      'later',
+    ]);
+  });
+
+  it('restores running and completed nested subagents inside a current turn', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', {
+        messageId: 'a1',
+        blockId: 'parent',
+        blockType: 'tool_use',
+        toolName: 'Agent',
+      }),
+      evt(3, 'subagent_start', { parentBlockId: 'parent', subagentMessageId: 's1' }),
+      evt(4, 'subagent_block_start', {
+        parentBlockId: 'parent',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      evt(5, 'subagent_block_delta', {
+        parentBlockId: 'parent',
+        blockId: 'nested',
+        delta: 'saved ',
+      }),
+    ];
+    expect(replayEventsToTranscript(events).current?.blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      running: true,
+      blocks: [{ blockId: 'nested', content: 'saved ', done: false }],
+    });
+    const completed = [
+      ...events,
+      evt(6, 'subagent_block_delta', { parentBlockId: 'parent', blockId: 'nested', delta: 'work' }),
+      evt(7, 'subagent_block_end', { parentBlockId: 'parent', blockId: 'nested' }),
+      evt(8, 'subagent_end', { parentBlockId: 'parent', summary: 'finished' }),
+    ];
+    expect(replayEventsToTranscript(completed).current?.blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      summary: 'finished',
+      blocks: [{ blockId: 'nested', content: 'saved work' }],
+    });
+    const finishedTurn = [
+      ...completed,
+      evt(9, 'block_end', {
+        messageId: 'a1',
+        blockId: 'parent',
+        blockType: 'tool_use',
+        toolName: 'Agent',
+      }),
+      evt(10, 'message_end', { messageId: 'a1' }),
+    ];
+    expect(replayEventsToTranscript(finishedTurn).messages[0].blocks[0].subagent).toMatchObject({
+      messageId: 's1',
+      summary: 'finished',
+      blocks: [{ blockId: 'nested', content: 'saved work' }],
+    });
+  });
+
+  it('keeps reused parent block IDs scoped to their assistant turns', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 'first' }),
+      evt(4, 'subagent_block_start', { parentBlockId: 'b0', blockId: 'nested', blockType: 'text' }),
+      evt(5, 'subagent_block_delta', { parentBlockId: 'b0', blockId: 'nested', delta: 'earlier' }),
+      evt(6, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested' }),
+      evt(7, 'subagent_end', { parentBlockId: 'b0', summary: 'first done' }),
+      evt(8, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(9, 'message_end', { messageId: 'a1' }),
+      evt(10, 'message_start', { messageId: 'a2' }),
+      evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 'second' }),
+      evt(13, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      evt(14, 'subagent_block_delta', { parentBlockId: 'b0', blockId: 'nested', delta: 'current' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages[0].blocks[0].subagent).toMatchObject({
+      messageId: 'first',
+      summary: 'first done',
+      blocks: [{ content: 'earlier' }],
+    });
+    expect(restored.current?.blocks[0].subagent).toMatchObject({
+      messageId: 'second',
+      running: true,
+      blocks: [{ content: 'current' }],
+    });
+  });
+
+  it('keeps reused nested tool IDs and results within each parent turn', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(3, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 's1' }),
+      evt(4, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'tool_use',
+      }),
+      evt(5, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested', toolId: 'shared' }),
+      evt(6, 'subagent_tool_result', {
+        parentBlockId: 'b0',
+        toolId: 'shared',
+        result: 'old result',
+      }),
+      evt(7, 'subagent_end', { parentBlockId: 'b0' }),
+      evt(8, 'block_end', { messageId: 'a1', blockId: 'b0', blockType: 'tool_use' }),
+      evt(9, 'message_end', { messageId: 'a1' }),
+      evt(10, 'message_start', { messageId: 'a2' }),
+      evt(11, 'block_start', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      evt(12, 'subagent_start', { parentBlockId: 'b0', subagentMessageId: 's2' }),
+      evt(13, 'subagent_block_start', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'tool_use',
+      }),
+      evt(14, 'subagent_block_end', { parentBlockId: 'b0', blockId: 'nested', toolId: 'shared' }),
+      evt(15, 'subagent_tool_result', {
+        parentBlockId: 'b0',
+        toolId: 'shared',
+        result: 'new result',
+      }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages[0].blocks[0].subagent?.blocks[0].toolResult).toBe('old result');
+    expect(restored.current?.blocks[0].subagent?.blocks[0].toolResult).toBe('new result');
+  });
+
+  it('restores the same partial turn after disk reopen and excludes events beyond the cursor', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-transcript-reopen-'));
+    const path = join(dir, 'events.db');
+    try {
+      const first = new EventStore(path);
+      first.upsertSession({ sessionId: 'sess-1' });
+      first.append('sess-1', 'message_start', { messageId: 'a1' });
+      first.append('sess-1', 'block_start', {
+        messageId: 'a1',
+        blockId: 'b1',
+        blockType: 'text',
+      });
+      const cursor = first.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'b1',
+        delta: 'before restart',
+      });
+      first.close();
+
+      const reopened = new EventStore(path);
+      try {
+        reopened.append('sess-1', 'block_delta', {
+          messageId: 'a1',
+          blockId: 'b1',
+          delta: ' after restart',
+        });
+        const oldBoundary = replayEventsToTranscript(
+          reopened.getSessionEventsThroughCursor('sess-1', cursor),
+        );
+        expect(oldBoundary.current?.blocks[0]).toMatchObject({
+          content: 'before restart',
+          done: false,
+        });
+
+        reopened.append('sess-1', 'block_end', {
+          messageId: 'a1',
+          blockId: 'b1',
+          blockType: 'text',
+        });
+        reopened.append('sess-1', 'message_end', { messageId: 'a1' });
+        const completed = replayEventsToTranscript(reopened.getSessionEvents('sess-1'));
+        expect(completed.current).toBeNull();
+        expect(completed.messages).toMatchObject([
+          { messageId: 'a1', blocks: [{ content: 'before restart after restart' }] },
+        ]);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

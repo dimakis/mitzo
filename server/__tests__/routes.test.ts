@@ -25,6 +25,7 @@ vi.mock('../chat.js', () => {
     }),
     reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
+    getReconnectTranscript: vi.fn().mockReturnValue({ messages: [], current: null }),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
@@ -559,12 +560,13 @@ describe('session routes', () => {
   });
 
   it('GET /api/sessions/:id/messages — bounds restore by a valid cursor', async () => {
-    const { getMessages } = await import('../chat.js');
+    const { getReconnectTranscript } = await import('../chat.js');
     const bounded = await request(app)
       .get('/api/sessions/s1/messages?throughSeq=42')
       .set('Cookie', authCookie);
     expect(bounded.status).toBe(200);
-    expect(getMessages).toHaveBeenCalledWith('s1', 42);
+    expect(bounded.body).toEqual({ messages: [], current: null });
+    expect(getReconnectTranscript).toHaveBeenCalledWith('s1', 42);
 
     const invalid = await request(app)
       .get('/api/sessions/s1/messages?throughSeq=9007199254740993')

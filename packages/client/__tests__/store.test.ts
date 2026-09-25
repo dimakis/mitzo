@@ -371,6 +371,514 @@ describe('newSession', () => {
 });
 
 describe('reconnect recovery', () => {
+  it('replays a late delta and terminal after a bounded cursor that already includes a follow-up user', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=5'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      cursorValid: true,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'assistant',
+      blockId: 'partial',
+      blockType: 'text',
+      delta: 'after',
+      seq: 6,
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-1', seq: 7 });
+    releaseRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [
+            {
+              messageId: 'initial',
+              role: 'user',
+              startedSeq: 1,
+              blocks: [{ blockId: 'u1', blockType: 'text', content: 'start' }],
+            },
+            {
+              messageId: 'followup',
+              role: 'user',
+              startedSeq: 5,
+              blocks: [{ blockId: 'u2', blockType: 'text', content: 'interrupt' }],
+            },
+          ],
+          current: {
+            messageId: 'assistant',
+            startedSeq: 2,
+            blocks: [{ blockId: 'partial', blockType: 'text', content: 'before ', done: false }],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.messages.map(({ messageId }) => messageId)).toEqual([
+      'initial',
+      'assistant',
+      'followup',
+    ]);
+    expect(store.getState().messages.messages[1].blocks[0].content).toBe('before after');
+  });
+
+  it('applies the same bounded streaming transcript through SSE', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [],
+                  current: {
+                    messageId: 'a1',
+                    blocks: [
+                      { blockId: 'b1', blockType: 'text', content: 'reopened', done: false },
+                    ],
+                  },
+                }
+              : [],
+          ),
+      }),
+    );
+    let welcome!: (event: MessageEvent) => void;
+    const source = {
+      readyState: 1,
+      addEventListener: vi.fn((type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'welcome') welcome = listener;
+      }),
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+    };
+    const store = createMitzoStore({
+      ...makeOptions(transport),
+      sseConfig: {
+        baseUrl: '',
+        fetch: vi.fn().mockResolvedValue({ ok: true }),
+        createEventSource: () => source as unknown as EventSource,
+      },
+    });
+    welcome(
+      new MessageEvent('welcome', {
+        data: JSON.stringify({ type: 'welcome', connectionId: 'c1' }),
+      }),
+    );
+    await store.getState().switchSession('sess-1');
+    source.onmessage?.(
+      new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'session_reconnect_snapshot',
+          sessionId: 'sess-1',
+          cursor: 7,
+          cursorValid: true,
+          state: 'running',
+        }),
+      }),
+    );
+
+    await vi.waitFor(() => expect(store.getState().messages.current?.messageId).toBe('a1'));
+    expect(store.getState().messages.current?.blocks.get('b1')?.content).toBe('reopened');
+  });
+
+  it('restores a typed in-flight turn without treating its blocks as finished history', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [{ messageId: 'u1', role: 'user', blocks: [] }],
+                  current: {
+                    messageId: 'a1',
+                    blocks: [
+                      {
+                        blockId: 'thinking',
+                        blockType: 'thinking',
+                        content: 'considering',
+                        done: true,
+                      },
+                      { blockId: 'text', blockType: 'text', content: 'partial', done: false },
+                    ],
+                  },
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: true,
+      state: 'running',
+    });
+
+    await vi.waitFor(() => expect(store.getState().messages.current?.messageId).toBe('a1'));
+    expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual(['u1']);
+    expect(store.getState().messages.current?.blocks.get('thinking')).toMatchObject({
+      content: 'considering',
+      done: true,
+    });
+    expect(store.getState().messages.current?.blocks.get('text')).toMatchObject({
+      content: 'partial',
+      done: false,
+    });
+  });
+
+  it('keeps newer live deltas when the bounded snapshot has the same message ID', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({ type: 'message_start', sessionId: 'sess-1', messageId: 'a1', seq: 8 });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b1',
+      blockType: 'text',
+      seq: 9,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b1',
+      delta: 'newer text',
+      seq: 10,
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: {
+            messageId: 'a1',
+            blocks: [{ blockId: 'b1', blockType: 'text', content: 'older', done: false }],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.current?.blocks.get('b1')?.content).toBe('newer text');
+  });
+
+  it('replays post-cursor live blocks over the durable partial prefix after a delayed restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    // The client has no block A yet: these actions are ignored by the live reducer.
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'a',
+      delta: ' suffix',
+      seq: 8,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b',
+      blockType: 'text',
+      seq: 9,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b',
+      delta: 'later block',
+      seq: 10,
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: {
+            messageId: 'a1',
+            blocks: [{ blockId: 'a', blockType: 'text', content: 'durable prefix', done: false }],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.current?.blocks.get('a')?.content).toBe(
+      'durable prefix suffix',
+    );
+    expect(store.getState().messages.current?.blocks.get('b')?.content).toBe('later block');
+    expect(store.getState().messages.current?.blockOrder).toEqual(['a', 'b']);
+  });
+
+  it('continues a nested subagent block from the bounded transcript', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [],
+                  current: {
+                    messageId: 'a1',
+                    blocks: [
+                      {
+                        blockId: 'parent',
+                        blockType: 'tool_use',
+                        content: '',
+                        done: false,
+                        subagent: {
+                          messageId: 's1',
+                          running: true,
+                          blocks: [
+                            {
+                              blockId: 'nested',
+                              blockType: 'text',
+                              content: 'saved ',
+                              done: false,
+                            },
+                          ],
+                        },
+                      },
+                    ],
+                  },
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: true,
+      state: 'running',
+    });
+    await vi.waitFor(() => expect(store.getState().messages.current?.messageId).toBe('a1'));
+    lastWs.simulateMessage({
+      type: 'subagent_block_delta',
+      sessionId: 'sess-1',
+      parentBlockId: 'parent',
+      blockId: 'nested',
+      delta: 'continued',
+      seq: 8,
+    });
+    const subagent = store.getState().messages.current?.blocks.get('parent')?.subagent;
+    expect(subagent && 'blockOrder' in subagent && subagent.blocks.get('nested')?.content).toBe(
+      'saved continued',
+    );
+  });
+
+  it('replays a later completed turn once after a delayed partial restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      seq: 8,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      blockId: 'new',
+      blockType: 'text',
+      seq: 9,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      blockId: 'new',
+      delta: 'new turn',
+      seq: 10,
+    });
+    lastWs.simulateMessage({
+      type: 'message_end',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      seq: 11,
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: {
+            messageId: 'earlier',
+            blocks: [
+              { blockId: 'old', blockType: 'text', content: 'earlier partial', done: false },
+            ],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(
+      store.getState().messages.messages.map((message) => ({
+        messageId: message.messageId,
+        content: message.blocks[0]?.content,
+      })),
+    ).toEqual([
+      { messageId: 'earlier', content: 'earlier partial' },
+      { messageId: 'later', content: 'new turn' },
+    ]);
+    expect(store.getState().messages.current).toBeNull();
+  });
+
+  it('does not restore a delayed bounded turn into a different selected session', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('/sess-1/messages?throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: true,
+      state: 'running',
+    });
+    await store.getState().switchSession('sess-2');
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: { messageId: 'wrong-session', blocks: [] },
+        }),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().sessions.active).toBe('sess-2');
+    expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.messages).toEqual([]);
+  });
+
+  it('clears a stale streaming turn when the durable boundary is terminal', async () => {
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [
+                    {
+                      messageId: 'a1',
+                      role: 'assistant',
+                      blocks: [{ blockId: 'b1', blockType: 'text', content: 'partial' }],
+                    },
+                  ],
+                  current: null,
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.getState().dispatchMessages({ type: 'MESSAGE_START', messageId: 'a1' });
+    store.getState().dispatchMessages({
+      type: 'BLOCK_START',
+      blockId: 'b1',
+      blockType: 'text',
+    });
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: true,
+      state: 'idle',
+    });
+
+    await vi.waitFor(() => expect(store.getState().messages.messages[0]?.messageId).toBe('a1'));
+    expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.running).toBe(false);
+  });
+
   it('re-fetches messages through the exact reconnect snapshot cursor', async () => {
     const transport = mockTransport();
     const msgs = [
@@ -560,7 +1068,10 @@ describe('reconnect recovery', () => {
       text: 'old prompt',
       seq: 6,
     });
-    expect(store.getState().messages.messages[1]).toBe(optimistic);
+    expect(store.getState().messages.messages[1]).toMatchObject({
+      ...optimistic,
+      startedSeq: 8,
+    });
     releaseRestore({
       ok: true,
       json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),
@@ -571,6 +1082,56 @@ describe('reconnect recovery', () => {
       'durable',
       optimistic.messageId,
     ]);
+  });
+
+  it('keeps the durable sequence when a bounded restore retains an optimistic user object', async () => {
+    const transport = mockTransport();
+    let promptId = '';
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [
+                    {
+                      messageId: promptId,
+                      role: 'user',
+                      startedSeq: 5,
+                      blocks: [{ blockId: 'saved', blockType: 'text', content: 'continue' }],
+                    },
+                  ],
+                  current: null,
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.getState().sendMessage('continue', {
+      images: [{ data: 'data', mediaType: 'image/png', preview: 'preview' }],
+      contextBlocks: ['constitution'],
+    });
+    const optimistic = store.getState().messages.messages[0];
+    promptId = optimistic.messageId;
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0]).toMatchObject({
+      messageId: promptId,
+      startedSeq: 5,
+      images: ['preview'],
+      contextBlocks: ['constitution'],
+      blocks: optimistic.blocks,
+    });
   });
 
   it('keeps a pending optimistic prompt until its echo arrives after bounded restore', async () => {
