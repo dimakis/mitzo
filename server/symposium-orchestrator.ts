@@ -14,6 +14,7 @@ import type { EventStore } from './event-store.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('symposium-orchestrator');
+const sharedReconciliationQueues = new WeakMap<EventStore, Map<string, Promise<void>>>();
 
 /** Narrow provider boundary. Phase 2 deliberately supplies only fakes.
  * Implementations must reconcile repeated idempotency keys to one provider turn.
@@ -62,6 +63,7 @@ export class SymposiumOrchestrator {
   private readonly retainedProviders: (sessionId: string) => string[];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
+  private readonly reconciliationQueues: Map<string, Promise<void>>;
 
   constructor(deps: SymposiumOrchestratorDeps) {
     this.store = deps.store;
@@ -72,6 +74,8 @@ export class SymposiumOrchestrator {
     this.stopSeat = deps.stopSeat;
     this.reconcileProviders = deps.reconcileProviders;
     this.retainedProviders = deps.retainedProviders ?? (() => []);
+    this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
+    sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
   }
 
   /** Persist revocation and fence dispatch before requesting runtime cleanup. */
@@ -93,6 +97,28 @@ export class SymposiumOrchestrator {
 
   /** Resume uncertain stop/provider reconciliation after a crash or failed cleanup. */
   async reconcileMembership(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const predecessor = this.reconciliationQueues.get(sessionId) ?? Promise.resolve();
+    const work = predecessor
+      .catch(() => {})
+      .then(() => this.reconcileMembershipNow(sessionId, seatId, generation));
+    const settled = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(sessionId, settled);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(sessionId) === settled)
+        this.reconciliationQueues.delete(sessionId);
+    }
+  }
+
+  private async reconcileMembershipNow(
     sessionId: string,
     seatId: string,
     generation: number,
@@ -128,6 +154,9 @@ export class SymposiumOrchestrator {
           this.retainedProviders(sessionId),
         ),
       });
+      if (this.store.getLatestSymposiumMembership(sessionId, seatId)?.generation !== generation) {
+        throw new Error('Symposium membership changed during provider reconciliation');
+      }
       return this.store.markSymposiumMembershipReconciled(
         sessionId,
         seatId,
@@ -588,6 +617,7 @@ function seatBindingKey(seat: SeatConfig): string {
     active.accountBinding.accountId,
     active.accountBinding.model,
     active.accountBinding.profileRevision,
+    seat.reasoningEffort ?? null,
     active.profileBinding.profileId,
     active.profileBinding.profileRevision,
     active.contextGrant.grantId,

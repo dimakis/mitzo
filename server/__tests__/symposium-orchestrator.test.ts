@@ -483,6 +483,137 @@ describe('SymposiumOrchestrator', () => {
     });
     expect((await orchestrator.deliver(staged.deliveryId)).status).toBe('delivered');
   });
+  it('frees a denied pending seat after confirmed removal without attaching its provider', async () => {
+    const implementer = { ...config.seats[1], id: 'implementer', role: 'implementer' };
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+      seats: [...config.seats, implementer],
+    });
+    const reconcileProviders = vi.fn(async () => {});
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat: async () => {},
+      reconcileProviders,
+    });
+    const move = (seatId: string, action: 'admit' | 'remove', expectedGeneration: number) =>
+      orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId,
+        action,
+        expectedGeneration,
+        configRevision: 4,
+        actor: 'director',
+        reason: action,
+        idempotencyKey: `${seatId}:${action}`,
+      });
+    await move('builder', 'admit', 0);
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'approve-builder',
+    });
+    await orchestrator.reconcileMembership('chat', 'builder', 1);
+    await move('reviewer', 'admit', 0);
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'refused',
+      idempotencyKey: 'deny-reviewer',
+    });
+    expect(store.getSymposiumRequiredProviders('chat')).toEqual(['openai-codex']);
+    expect(reconcileProviders).toHaveBeenCalledTimes(1);
+    expect((await move('reviewer', 'remove', 1)).reconciliation).toBe('confirmed');
+    expect(reconcileProviders).toHaveBeenLastCalledWith({
+      sessionId: 'chat',
+      requiredProviders: ['openai-codex'],
+    });
+    expect((await move('implementer', 'admit', 0)).state).toBe('active');
+    expect(store.getSymposiumMembershipHistory('chat', 'reviewer')).toMatchObject([
+      { reconciliation: 'pending' },
+      { reconciliation: 'confirmed' },
+    ]);
+  });
+  it('serializes a late admission reconcile ahead of revoked-seat cleanup', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    let release!: () => void;
+    let entered!: () => void;
+    const enteredPromise = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const providerCalls: string[][] = [];
+    const stopSeat = vi.fn(async () => {});
+    const reconcileProviders = async ({ requiredProviders }: { requiredProviders: string[] }) => {
+      providerCalls.push(requiredProviders);
+      if (requiredProviders.includes('anthropic-vertex')) {
+        entered();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      }
+    };
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat,
+      reconcileProviders,
+    });
+    for (const seatId of ['builder', 'reviewer']) {
+      await orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId,
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 4,
+        actor: 'director',
+        reason: 'start',
+        idempotencyKey: `member:${seatId}`,
+      });
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `provider:${seatId}`,
+      });
+      if (seatId === 'builder') await orchestrator.reconcileMembership('chat', seatId, 1);
+    }
+    const oldReconcile = orchestrator.reconcileMembership('chat', 'reviewer', 1);
+    await enteredPromise;
+    const revoker = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat,
+      reconcileProviders,
+    });
+    const revoke = revoker.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'pause',
+      idempotencyKey: 'pause-reviewer',
+    });
+    expect(store.getLatestSymposiumMembership('chat', 'reviewer')?.state).toBe('suspended');
+    expect(stopSeat).not.toHaveBeenCalled();
+    release();
+    expect((await oldReconcile).reconciliation).not.toBe('confirmed');
+    expect((await revoke).reconciliation).toBe('confirmed');
+    expect(providerCalls.at(-1)).toEqual(['openai-codex']);
+    expect(stopSeat).toHaveBeenCalledOnce();
+  });
   it('records explicit provider admission against one shared trust boundary', () => {
     const admission = admit('reviewer');
 
@@ -632,6 +763,42 @@ describe('SymposiumOrchestrator', () => {
 
     expect(reviewer.calls[1].providerThreadId).toBeUndefined();
     expect(store.getSymposiumSeatThreads('chat')).toHaveLength(2);
+  });
+
+  it('starts a new thread when reasoning effort changes without changing the account', async () => {
+    admit('builder');
+    admit('reviewer');
+    const send = async (key: string) => {
+      const staged = orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        recipientSeatIds: ['reviewer'],
+        originalContent: key,
+        idempotencyKey: `stage:${key}`,
+      });
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: `approve:${key}`,
+      });
+      await orchestrator.deliver(staged.deliveryId);
+    };
+    await send('first');
+    store.setSymposiumConfig('chat', {
+      ...config,
+      revision: 4,
+      seats: [config.seats[0], { ...config.seats[1], reasoningEffort: 'high' }],
+    });
+    for (const seatId of ['builder', 'reviewer']) {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `new:${seatId}`,
+      });
+    }
+    await send('second');
+    expect(reviewer.calls[1].providerThreadId).toBeUndefined();
   });
 
   it('fails closed when provider admission was refused or is missing', () => {

@@ -1772,7 +1772,10 @@ export class EventStore {
         const unresolved = this.db!.prepare(
           `SELECT 1 FROM symposium_membership m
           JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
-          WHERE m.session_id = ? AND r.status != 'confirmed' LIMIT 1`,
+          WHERE m.session_id = ? AND r.status != 'confirmed'
+            AND m.generation = (SELECT max(generation) FROM symposium_membership newer
+              WHERE newer.session_id = m.session_id AND newer.seat_id = m.seat_id)
+          LIMIT 1`,
         ).get(input.sessionId);
         if (unresolved)
           throw new Error('Symposium runtime reconciliation is required before admission');
@@ -1872,11 +1875,16 @@ export class EventStore {
     const config = this.getActiveSymposiumConfig(sessionId);
     const providers = new Set(retainedProviders);
     for (const seat of config.seats) {
-      if (
-        config.version === 2 &&
-        this.getLatestSymposiumMembership(sessionId, seat.id)?.state !== 'active'
-      )
-        continue;
+      if (config.version === 2) {
+        const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
+        const admission = this.getLatestSymposiumAdmission(sessionId, seat.id, config.revision);
+        if (
+          membership?.state !== 'active' ||
+          admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== membership.generation
+        )
+          continue;
+      }
       if (seat.accountBinding?.provider) providers.add(seat.accountBinding.provider);
     }
     return [...providers].sort();

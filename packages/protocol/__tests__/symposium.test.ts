@@ -412,6 +412,24 @@ describe('Symposium persistence', () => {
         occurredAt: 1,
       });
       store.markSymposiumMembershipReconciled('chat', seatId, 1, 'confirmed');
+      const seat = [...config.seats, third].find((candidate) => candidate.id === seatId)!;
+      store.recordSymposiumAdmission({
+        admissionId: `admission:${seatId}`,
+        sessionId: 'chat',
+        seatId,
+        membershipGeneration: 1,
+        decision: 'admitted',
+        reason: null,
+        idempotencyKey: `provider:${seatId}`,
+        configRevision: 1,
+        provider: seat.accountBinding!.provider,
+        accountId: seat.accountBinding!.accountId,
+        model: seat.model,
+        accountProfileRevision: seat.accountBinding!.profileRevision,
+        isolationDomainId: seat.isolationRequest!.trustDomainId,
+        isolationDomainRevision: seat.isolationRequest!.revision,
+        decidedAt: 1,
+      });
     }
     store.transitionSymposiumMembership({
       sessionId: 'chat',

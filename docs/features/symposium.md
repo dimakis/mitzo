@@ -114,7 +114,11 @@ interfaces to reconcile. The provider set is the union of admitted active seats 
 other authoritative retained grants supplied by the caller. A failed or missing
 cleanup interface leaves `recovery_required`; admission and dispatch stay blocked
 until `reconcileMembership` confirms that same generation. Restart does not turn a
-pending or uncertain row into operational success.
+pending or uncertain row into operational success. A refused pending seat can be
+removed and reconciled without erasing its refusal; only the latest generation
+blocks new admissions. Provider reconciliation is serialized per session for
+orchestrators sharing the same event store, so a late activation is followed by
+revocation cleanup rather than silently reopening the provider.
 
 Recipient snapshots and seat event provenance carry membership generation in v2.
 The execution claim transaction checks current configuration, binding, provider
