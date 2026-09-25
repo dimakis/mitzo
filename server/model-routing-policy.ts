@@ -144,7 +144,7 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
   let actual: ExecutionSelection = requested;
   let substitutionReason: string | null = null;
   if (actual.accountId !== policyPrimary.accountId) return decision('account_change');
-  const matchingAlternative = policy.alternatives.find((candidate) =>
+  const matchingAlternatives = policy.alternatives.filter((candidate) =>
     sameSelection(
       {
         accountId: candidate.accountId,
@@ -155,13 +155,17 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
     ),
   );
   if (effective && !sameSelection(actual, policyPrimary)) {
-    if (!matchingAlternative || (mode !== 'primary' && mode !== matchingAlternative.mode))
-      return decision('substitution_unapproved');
+    const allowed = matchingAlternatives.filter(
+      (candidate) => mode === 'primary' || candidate.mode === mode,
+    );
+    if (allowed.length !== 1) return decision('substitution_unapproved');
+    const matchingAlternative = allowed[0];
     mode = matchingAlternative.mode;
     substitutionReason = matchingAlternative.reason;
   } else if (mode !== 'primary') {
-    const candidate = policy.alternatives.find((alternative) => alternative.mode === mode);
-    if (!candidate) return decision('substitution_unapproved');
+    const candidates = policy.alternatives.filter((alternative) => alternative.mode === mode);
+    if (candidates.length !== 1) return decision('substitution_unapproved');
+    const candidate = candidates[0];
     actual = {
       accountId: candidate.accountId,
       model: candidate.model,
@@ -179,6 +183,12 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
     (policy.limits.maxCostUsd !== null && usage.data.costUsd >= policy.limits.maxCostUsd)
   )
     return decision('budget_exceeded');
+  const remainingBudget = {
+    maxAttempts: policy.limits.maxAttempts - usage.data.attempts,
+    maxTokens: policy.limits.maxTokens - usage.data.tokens,
+    maxCostUsd:
+      policy.limits.maxCostUsd === null ? null : policy.limits.maxCostUsd - usage.data.costUsd,
+  };
 
   let catalog: ReturnType<Input['accountProfiles']['catalog']>;
   try {
@@ -234,8 +244,8 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
   if (
     price.kind === 'known' &&
     policy.limits.maxCostUsd !== null &&
-    usage.data.costUsd + (policy.limits.maxTokens * price.maxUsdPerMillionTokens) / 1_000_000 >
-      policy.limits.maxCostUsd
+    (remainingBudget.maxTokens * price.maxUsdPerMillionTokens) / 1_000_000 >
+      remainingBudget.maxCostUsd!
   ) {
     return decision('budget_exceeded');
   }
@@ -265,11 +275,7 @@ export function resolveRoleExecution(input: Input): Decision | Selected {
       reasoningEffort: actual.reasoningEffort,
       contextGrant: policy.contextGrant,
       authorityGrant: policy.authorityGrant,
-      budget: {
-        maxAttempts: policy.limits.maxAttempts,
-        maxTokens: policy.limits.maxTokens,
-        maxCostUsd: policy.limits.maxCostUsd,
-      },
+      budget: remainingBudget,
     },
   };
 }

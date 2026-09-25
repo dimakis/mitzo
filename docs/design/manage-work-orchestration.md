@@ -67,6 +67,8 @@ escalation in the policy; it consumes that mode's bounded counter even when sele
 through an override. The audit retains both the policy primary and the explicit
 requested selection, plus the actual binding, substitution reason, profile revision,
 grants and policy revision. No model tier or account substitution is inferred.
+If one selection appears under both fallback and escalation, the requested mode must
+identify which authorization applies; an ambiguous inferred mode requires a decision.
 
 `resolveRoleExecution` checks the current `AccountProfiles` catalog and model/effort
 validation, then requires injected evidence for runtime route, tools and context
@@ -75,7 +77,9 @@ durable dispatch. Pricing is either a known upper-bound quote or explicitly unkn
 An unknown price never becomes zero; with a cost cap it requires the policy's
 explicit unknown-cost allowance, while token and attempt ceilings still apply.
 The resolver returns work-order-compatible account, effort, grant, budget and policy
-pins; the host must persist the audit and use O0's atomic dispatch/ownership fences
+pins. The work-order budget is the remaining attempts, tokens and cost allowance
+after prior usage, so another attempt cannot replenish the policy ceiling. The host
+must persist the audit and use O0's atomic dispatch/ownership fences
 before runtime execution. Live multi-seat provider routing and policy editing UI
 remain separate integration work.
 

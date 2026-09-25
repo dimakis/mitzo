@@ -191,6 +191,48 @@ describe('role execution policy', () => {
       }),
     ).toMatchObject({ kind: 'decision_required', code: 'budget_exceeded' });
   });
+  it('uses the requested mode when two alternatives select the same model', () => {
+    const p = policy('architect', 'planner', 'high');
+    const duplicate = {
+      ...p,
+      alternatives: [
+        ...p.alternatives,
+        {
+          mode: 'escalation' as const,
+          ...selection('coder', 'medium'),
+          reason: 'Explicit escalation',
+        },
+      ],
+      limits: { ...p.limits, maxEscalations: 1 },
+    };
+    const override = { seat: { selection: selection('coder', 'medium') } };
+    expect(
+      resolveRoleExecution({
+        ...base,
+        policy: duplicate,
+        requestedMode: 'escalation',
+        overrides: override,
+      }),
+    ).toMatchObject({
+      kind: 'selected',
+      audit: {
+        requestedMode: 'escalation',
+        substitutionReason: 'Explicit escalation',
+      },
+    });
+    expect(
+      resolveRoleExecution({
+        ...base,
+        policy: duplicate,
+        requestedMode: 'escalation',
+        overrides: override,
+        usage: { ...base.usage, escalations: 1 },
+      }),
+    ).toMatchObject({ kind: 'decision_required', code: 'budget_exceeded' });
+    expect(resolveRoleExecution({ ...base, policy: duplicate, overrides: override })).toMatchObject(
+      { kind: 'decision_required', code: 'substitution_unapproved' },
+    );
+  });
   it('enforces attempt, token and cost caps and treats unknown price explicitly', () => {
     const p = policy('architect', 'planner', 'high');
     expect(
@@ -215,6 +257,18 @@ describe('role execution policy', () => {
       pricing: () => ({ kind: 'unknown' as const }),
     });
     expect(allowed).toMatchObject({ kind: 'selected', audit: { price: { kind: 'unknown' } } });
+    const partial = resolveRoleExecution({
+      ...base,
+      policy: p,
+      usage: { ...base.usage, attempts: 1, tokens: 500, costUsd: 0.5 },
+      pricing: () => ({ kind: 'known' as const, maxUsdPerMillionTokens: 1000 }),
+    });
+    expect(partial).toMatchObject({
+      kind: 'selected',
+      workOrderPins: {
+        budget: { maxAttempts: 2, maxTokens: 500, maxCostUsd: 0.5 },
+      },
+    });
   });
   it('fails closed on missing runtime route capability', () => {
     expect(
