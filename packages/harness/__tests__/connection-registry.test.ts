@@ -341,6 +341,39 @@ describe('ConnectionRegistry', () => {
       expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(true);
       expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 8, 'new')).toBe(false);
     });
+
+    it('withholds live and periodic backlog until the snapshot offer is confirmed', async () => {
+      vi.useFakeTimers();
+      try {
+        const transport = mockTransport();
+        const store = mockEventStore([
+          { seq: 1, payload: { type: 'block_delta', delta: 'old' } },
+          { seq: 2, payload: { type: 'block_delta', delta: 'snapshot' } },
+          { seq: 3, payload: { type: 'block_delta', delta: 'new' } },
+        ]);
+        registry.setEventStore(store);
+        registry.register('conn-1', transport);
+        registry.watch('conn-1', 'sess-a');
+        registry.enableAppliedCursor('conn-1', 'sess-a', 0);
+        registry.offerSnapshot('conn-1', 'sess-a', 2, 'offer-1');
+        registry.broadcast('sess-a', { type: 'block_delta', seq: 3, delta: 'new' });
+        registry.startPeriodicSync();
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(transport.send).not.toHaveBeenCalled();
+        expect(store.getEventsAfter).not.toHaveBeenCalled();
+
+        expect(registry.ackAppliedSnapshot('conn-1', 'sess-a', 2, 'offer-1')).toBe(true);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(store.getEventsAfter).toHaveBeenCalledWith('sess-a', 2, 50);
+        expect(transport.send).toHaveBeenCalledTimes(1);
+        expect(transport.send).toHaveBeenCalledWith(
+          expect.objectContaining({ seq: 3, delta: 'new' }),
+        );
+      } finally {
+        registry.stopPeriodicSync();
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('periodic sync', () => {

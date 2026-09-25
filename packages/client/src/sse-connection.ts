@@ -34,6 +34,7 @@ export interface SseConnectionConfig {
 }
 
 const MAX_PENDING_SENDS = 100;
+const APPLIED_ACK_TIMEOUT_MS = 10_000;
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
@@ -245,16 +246,15 @@ export class SseConnection implements ChatConnection {
     const connectionId = this._connectionId;
     if (!connectionId) return;
     this.appliedAckChain = this.appliedAckChain
-      .then(() => {
+      .then(async () => {
         if (this._connectionId !== connectionId) return;
-        return this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
-          body: JSON.stringify(body),
-        });
+        const response = await this.postAppliedAck(endpoint, body, connectionId);
+        if (!response.ok) throw new Error('Applied event acknowledgement failed');
       })
       .catch(() => {
-        /* Reconnect advertises the locally applied cursor. */
+        // A failed ACK leaves the server cursor behind. Reconnect advertises
+        // the locally applied cursor and releases any later queued ACKs.
+        if (this._connectionId === connectionId) this.checkAndReconnect(true);
       });
   }
 
@@ -264,13 +264,10 @@ export class SseConnection implements ChatConnection {
     const pending = this.appliedAckChain
       .then(async () => {
         if (this._connectionId !== connectionId) return false;
-        const response = await this.config.fetch(
-          `${this.config.baseUrl}/api/chat/reconnect-snapshot-applied`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
-            body: JSON.stringify(body),
-          },
+        const response = await this.postAppliedAck(
+          'reconnect-snapshot-applied',
+          body,
+          connectionId,
         );
         if (!response.ok) return false;
         const result = (await response.json()) as { applied?: unknown };
@@ -279,6 +276,33 @@ export class SseConnection implements ChatConnection {
       .catch(() => false);
     this.appliedAckChain = pending;
     return pending;
+  }
+
+  private async postAppliedAck(
+    endpoint: string,
+    body: Record<string, unknown>,
+    connectionId: string,
+  ): Promise<Response> {
+    const abort = new AbortController();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.config.fetch(`${this.config.baseUrl}/api/chat/${endpoint}`, {
+          method: 'POST',
+          signal: abort.signal,
+          headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
+          body: JSON.stringify(body),
+        }),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => {
+            abort.abort();
+            reject(new Error('Applied acknowledgement timed out'));
+          }, APPLIED_ACK_TIMEOUT_MS);
+        }),
+      ]);
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
   }
 
   // Navigation discards stale controls, not submitted prompts. Scope prevents

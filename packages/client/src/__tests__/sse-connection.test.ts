@@ -174,6 +174,49 @@ describe('SseConnection', () => {
     },
   );
 
+  it('reconnects after an applied event ACK stalls and releases the next connection', async () => {
+    let stalledSignal: AbortSignal | undefined;
+    const fetch = vi.fn((url: RequestInfo | URL, init?: RequestInit) => {
+      if (
+        String(url).endsWith('/session-event-applied') &&
+        (init?.headers as Record<string, string>)?.['X-Connection-ID'] === 'conn-1'
+      ) {
+        stalledSignal = init?.signal ?? undefined;
+        return new Promise<Response>(() => {});
+      }
+      return Promise.resolve(Response.json({ applied: true }));
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.commitTranscriptCursor('sess-1', 5);
+    await vi.waitFor(() => expect(stalledSignal).toBeDefined());
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(stalledSignal?.aborted).toBe(true);
+    expect(lastES()).not.toBe(first);
+    lastES()._emit('welcome', { type: 'welcome', connectionId: 'conn-2' });
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/chat/reconnect'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Connection-ID': 'conn-2' }),
+        }),
+      ),
+    );
+    conn.commitTranscriptCursor('sess-1', 6);
+    await vi.waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/session-event-applied'),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'X-Connection-ID': 'conn-2' }),
+        }),
+      ),
+    );
+    conn.disconnect();
+  });
+
   it('drains buffered events only after the applied snapshot POST confirms the offer', async () => {
     let resolveAck!: (value: Response) => void;
     const fetch = vi.fn(

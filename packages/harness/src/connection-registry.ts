@@ -158,6 +158,9 @@ export class ConnectionRegistry {
     const seq = data.seq as number | undefined;
     const outgoing = this.decorateSequencedEvent(sessionId, data);
     for (const { connectionId, transport } of this.getConnectionsWatching(sessionId, true)) {
+      // The snapshot replaces this backlog. Resume durable delivery from its
+      // confirmed cursor once the client has applied it.
+      if (seq !== undefined && this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
       try {
         transport.send(outgoing);
         // Update cursor on successful delivery (if event has seq)
@@ -290,6 +293,7 @@ export class ConnectionRegistry {
         if (!connCursors) continue;
 
         for (const sessionId of conn.watchedSessions) {
+          if (this.snapshotOffers.get(connectionId)?.has(sessionId)) continue;
           // Skip ended sessions to avoid unnecessary EventStore queries
           if (
             this.eventStore.isSessionActive &&
