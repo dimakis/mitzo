@@ -433,7 +433,7 @@ export class SymposiumOrchestrator {
             for (const attempt of unsettled.filter(
               (attempt) => attempt.seatId === recipient.seatId,
             ))
-              this.store.confirmSymposiumExecutionCleanup(attempt.claimToken);
+              this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
           } catch (error) {
             log.warn('provider cancellation cleanup failed after durable cancellation', {
               deliveryId: input.deliveryId,
@@ -510,7 +510,11 @@ export class SymposiumOrchestrator {
         });
         return false;
       }
-      const bindingKey = seatBindingKey(seat);
+      const membershipGeneration =
+        currentConfig.version === 2
+          ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+          : undefined;
+      const bindingKey = seatBindingKey(seat, membershipGeneration);
       const provenance = provenanceFor(
         seat,
         currentConfig.revision,
@@ -664,7 +668,7 @@ function provenanceFor(
   };
 }
 
-function seatBindingKey(seat: SeatConfig): string {
+function seatBindingKey(seat: SeatConfig, membershipGeneration?: number): string {
   const active = requireActiveSeat(seat);
   return JSON.stringify([
     active.accountBinding.provider,
@@ -680,6 +684,7 @@ function seatBindingKey(seat: SeatConfig): string {
     active.authorityGrant.revision,
     active.isolationRequest.trustDomainId,
     active.isolationRequest.revision,
+    ...(membershipGeneration === undefined ? [] : [membershipGeneration]),
   ]);
 }
 

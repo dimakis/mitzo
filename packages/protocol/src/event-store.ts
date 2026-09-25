@@ -2465,17 +2465,26 @@ export class EventStore {
     ).run(claimToken);
   }
 
+  /** Confirmation is scoped to a captured attempt, including pre-token legacy rows. */
+  confirmSymposiumAttemptCleanup(attemptId: number, idempotencyKey: string): void {
+    this.db!.prepare(
+      `UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1
+      WHERE attempt_id = ? AND idempotency_key = ?`,
+    ).run(attemptId, idempotencyKey);
+  }
+
   getUnsettledSymposiumExecutions(
     deliveryId: string,
-  ): Array<{ seatId: string; claimToken: string }> {
+  ): Array<{ seatId: string; attemptId: number; idempotencyKey: string }> {
     return (
       this.db!.prepare(
-        `SELECT seat_id, claim_token FROM symposium_recipient_attempts
-      WHERE delivery_id = ? AND cleanup_confirmed = 0 AND claim_token IS NOT NULL`,
-      ).all(deliveryId) as Array<{ seat_id: string; claim_token: string }>
+        `SELECT seat_id, attempt_id, idempotency_key FROM symposium_recipient_attempts
+      WHERE delivery_id = ? AND cleanup_confirmed = 0`,
+      ).all(deliveryId) as Array<{ seat_id: string; attempt_id: number; idempotency_key: string }>
     ).map((row) => ({
       seatId: row.seat_id,
-      claimToken: row.claim_token,
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
     }));
   }
 

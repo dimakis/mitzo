@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import Database from 'better-sqlite3';
 import type { SymposiumConfig } from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
 import {
@@ -446,6 +447,81 @@ describe('SymposiumOrchestrator', () => {
       release();
       await run;
     }
+  });
+
+  it('can confirm cleanup of legacy attempts with no claim token without inventing provenance', async () => {
+    const architect = await prepareConcurrentSeats(true);
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'thread-builder', content: 'done', costUsd: 0 };
+    });
+    const first = readyFor(['builder'], 'legacy-cleanup');
+    const second = readyFor(['architect'], 'after-legacy-cleanup');
+    const run = orchestrator.deliver(first);
+    try {
+      await vi.waitFor(() => expect(builder.calls).toHaveLength(1));
+      const legacy = new Database(dbPath);
+      legacy
+        .prepare(
+          'UPDATE symposium_recipient_attempts SET claim_token = NULL, symposium_provenance = NULL WHERE delivery_id = ?',
+        )
+        .run(first);
+      legacy.close();
+      store.recoverSymposiumDeliveries(Date.now());
+      expect(await orchestrator.deliver(second)).toMatchObject({ status: 'ready' });
+      await orchestrator.cancel({ deliveryId: first, idempotencyKey: 'confirmed-legacy-stop' });
+      expect(await orchestrator.deliver(second)).toMatchObject({ status: 'delivered' });
+      expect(architect.calls).toHaveLength(1);
+    } finally {
+      release();
+      await run;
+    }
+  });
+
+  it('restores the same seat binding into a fresh provider thread after suspension', async () => {
+    await prepareConcurrentSeats();
+    const first = readyFor(['reviewer'], 'before-suspend');
+    expect(await orchestrator.deliver(first)).toMatchObject({ status: 'delivered' });
+    await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'suspend',
+      idempotencyKey: 'fresh-suspend',
+    });
+    await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'restore',
+      expectedGeneration: 2,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'restore',
+      idempotencyKey: 'fresh-restore',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'readmit-restored',
+    });
+    await orchestrator.reconcileMembership('chat', 'reviewer', 3);
+    expect(await orchestrator.deliver(readyFor(['reviewer'], 'after-restore'))).toMatchObject({
+      status: 'delivered',
+    });
+    expect(reviewer.calls).toHaveLength(2);
+    expect(reviewer.calls[1].providerThreadId).toBeUndefined();
+    expect(
+      store.getSymposiumSeatThreads('chat').filter((thread) => thread.seatId === 'reviewer'),
+    ).toHaveLength(2);
   });
 
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
