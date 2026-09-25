@@ -452,6 +452,20 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
   }
 
   if (action.type === 'MESSAGE_SNAPSHOT') {
+    const finished = state.messages.find((message) => message.messageId === action.messageId);
+    if (finished) {
+      return finished.symposiumProvenance &&
+        sameProvenance(finished.symposiumProvenance, provenance)
+        ? state
+        : refuseAttributedEvent(state);
+    }
+    if (
+      !current &&
+      Object.values(active).some(
+        (candidate) => candidate.symposiumProvenance?.seatId === provenance.seatId,
+      )
+    )
+      return refuseAttributedEvent(state);
     if (current?.symposiumProvenance && !sameProvenance(current.symposiumProvenance, provenance))
       return refuseAttributedEvent(state);
   } else if (!current) {

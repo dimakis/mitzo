@@ -199,4 +199,22 @@ describe('concurrent Symposium streams', () => {
     expect(restored.resyncRequired).toBe(false);
     expect(restored.currentByMessage).toEqual({});
   });
+
+  it('refuses a second same-seat snapshot while the first turn is active', () => {
+    const reviewer = provenance('reviewer');
+    const state = reduceWire(INITIAL_MESSAGES_STATE, {
+      type: 'message_start',
+      messageId: 'first',
+      seatId: 'reviewer',
+      symposiumProvenance: reviewer,
+    });
+    const next = messagesReducer(state, {
+      type: 'MESSAGE_SNAPSHOT',
+      messageId: 'second',
+      blocks: [],
+      symposiumProvenance: reviewer,
+    });
+    expect(next.resyncRequired).toBe(true);
+    expect(Object.keys(next.currentByMessage)).toEqual(['first']);
+  });
 });
