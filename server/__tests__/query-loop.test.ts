@@ -2334,8 +2334,12 @@ it('signals readiness on a real stream event while completion remains held until
     undefined,
     undefined,
     {
-      onProviderReady: () => calls.push('ready'),
-      onProviderResult: (outcome) => calls.push(outcome),
+      onProviderReady: () => {
+        calls.push('ready');
+      },
+      onProviderResult: (outcome) => {
+        calls.push(outcome);
+      },
     },
   ).then(() => {
     completed = true;
@@ -2365,7 +2369,9 @@ it('reports a pre-ready provider failure without exposing its raw error', async 
     undefined,
     undefined,
     {
-      onProviderFailure: (beforeReady) => failures.push(beforeReady),
+      onProviderFailure: (beforeReady) => {
+        failures.push(beforeReady);
+      },
     },
   );
 
@@ -2400,7 +2406,9 @@ it('reports result, failure, and clean EOF against the tagged provider execution
     undefined,
     undefined,
     {
-      onProviderResult: (outcome, token) => results.push({ outcome, token }),
+      onProviderResult: (outcome, token) => {
+        results.push({ outcome, token });
+      },
     },
   );
   expect(results).toEqual([{ outcome: 'completed', token: replacement }]);
@@ -2420,7 +2428,9 @@ it('reports result, failure, and clean EOF against the tagged provider execution
     undefined,
     undefined,
     {
-      onProviderFailure: (beforeReady, token) => failures.push({ beforeReady, token }),
+      onProviderFailure: (beforeReady, token) => {
+        failures.push({ beforeReady, token });
+      },
     },
   );
   expect(failures).toEqual([{ beforeReady: false, token: replacement }]);
@@ -2446,7 +2456,9 @@ it('resets terminal tracking when a replacement token reaches clean EOF', async 
     undefined,
     undefined,
     {
-      onProviderFailure: (_beforeReady, token) => failures.push(token),
+      onProviderFailure: (_beforeReady, token) => {
+        failures.push(token);
+      },
     },
   );
   expect(failures).toEqual([replacement]);
@@ -2493,8 +2505,9 @@ describe('provider result outcome classification', () => {
       {
         executionOwned: true,
         executionInputConsumptionSource: (consume) => consume(token),
-        onProviderFailure: (beforeReady, consumed) =>
-          failures.push({ beforeReady, token: consumed }),
+        onProviderFailure: (beforeReady, consumed) => {
+          failures.push({ beforeReady, token: consumed });
+        },
       },
     );
     expect(failures).toEqual([{ beforeReady: true, token }]);
@@ -2531,7 +2544,7 @@ describe('provider result outcome classification', () => {
       store.upsertSession({ sessionId });
 
       await runQueryLoop(
-        eventStream(events as Record<string, unknown>[]),
+        eventStream([...events]),
         'terminal-client',
         registry,
         new AbortController(),
@@ -2540,7 +2553,9 @@ describe('provider result outcome classification', () => {
 
       const projection = store
         .getSessionEvents(sessionId)
-        .findLast((event) => event.type === 'session_state_changed');
+        .slice()
+        .reverse()
+        .find((event) => event.type === 'session_state_changed');
       expect(projection?.payload).toMatchObject({ internalState: 'ENDED', reason: 'error' });
       store.close();
     }
@@ -2673,8 +2688,11 @@ describe('provider result outcome classification', () => {
       ),
     ).toBe(false);
     expect(
-      store.getSessionEvents(sessionId).findLast((event) => event.type === 'session_state_changed')
-        ?.payload,
+      store
+        .getSessionEvents(sessionId)
+        .slice()
+        .reverse()
+        .find((event) => event.type === 'session_state_changed')?.payload,
     ).toMatchObject({ internalState: 'ENDED', reason: 'stopped' });
     store.close();
   });

@@ -160,7 +160,8 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
-  const { loading, items, profiles, ack, done, star, create, refresh } = useTodoData(activeProfile);
+  const { loading, error, items, profiles, ack, done, star, create, refresh } =
+    useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -254,7 +255,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
         {loading && <p className="todo-empty">Loading...</p>}
 
-        {!loading && items.length === 0 && (
+        {!loading && error && (
+          <EmptyState icon="!" title={error} subtitle="Tap refresh to try again" />
+        )}
+
+        {!loading && !error && items.length === 0 && (
           <EmptyState
             icon={'\u2713'}
             title="No active items"

@@ -16,14 +16,14 @@ const replacementToken: ExecutionToken = {
 it('keeps a predecessor result on its token when the SDK pulls replacement input first', async () => {
   const input = new AsyncQueue<{
     executionToken: ExecutionToken;
-    message: { type: 'user'; message: { role: 'user'; content: string } };
+    message: { type: 'user'; parent_tool_use_id: null; message: { role: 'user'; content: string } };
   }>();
   const binding = makeProviderTurnBinding();
   const prompts = executionBoundSdkPrompt(input, binding)[Symbol.asyncIterator]();
 
   input.push({
     executionToken: oldToken,
-    message: { type: 'user', message: { role: 'user', content: 'old' } },
+    message: { type: 'user', parent_tool_use_id: null, message: { role: 'user', content: 'old' } },
   });
   await expect(prompts.next()).resolves.toMatchObject({ value: { message: { content: 'old' } } });
 
@@ -31,7 +31,11 @@ it('keeps a predecessor result on its token when the SDK pulls replacement input
   // previous result. The replacement pull must wait for that old boundary.
   input.push({
     executionToken: replacementToken,
-    message: { type: 'user', message: { role: 'user', content: 'replacement' } },
+    message: {
+      type: 'user',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'replacement' },
+    },
   });
   const replacementPull = prompts.next();
   let replacementPulled = false;
@@ -58,13 +62,17 @@ it('keeps a predecessor result on its token when the SDK pulls replacement input
 it('does not let an untagged legacy result inherit a queued FIFO token', async () => {
   const input = new AsyncQueue<{
     executionToken?: ExecutionToken;
-    message: { type: 'user'; message: { role: 'user'; content: string } };
+    message: { type: 'user'; parent_tool_use_id: null; message: { role: 'user'; content: string } };
   }>();
   const binding = makeProviderTurnBinding();
   const prompts = executionBoundSdkPrompt(input, binding)[Symbol.asyncIterator]();
 
   input.push({
-    message: { type: 'user', message: { role: 'user', content: 'legacy initial turn' } },
+    message: {
+      type: 'user',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'legacy initial turn' },
+    },
   });
   await expect(prompts.next()).resolves.toMatchObject({
     value: { message: { content: 'legacy initial turn' } },
@@ -72,7 +80,11 @@ it('does not let an untagged legacy result inherit a queued FIFO token', async (
 
   input.push({
     executionToken: replacementToken,
-    message: { type: 'user', message: { role: 'user', content: 'FIFO follow-up' } },
+    message: {
+      type: 'user',
+      parent_tool_use_id: null,
+      message: { role: 'user', content: 'FIFO follow-up' },
+    },
   });
   const followUpPull = prompts.next();
   let pulled = false;

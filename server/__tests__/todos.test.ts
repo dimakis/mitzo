@@ -83,13 +83,10 @@ describe('todo routes', () => {
     expect(res.status).toBe(401);
   });
 
-  it('GET /api/todos — returns empty when script not found', async () => {
+  it('GET /api/todos — returns service unavailable when script not found', async () => {
     const res = await request(app).get('/api/todos').set('Cookie', authCookie);
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('profiles');
-    expect(res.body).toHaveProperty('items');
-    expect(Array.isArray(res.body.profiles)).toBe(true);
-    expect(Array.isArray(res.body.items)).toBe(true);
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 
   it('GET /api/todos — accepts profile query param', async () => {
@@ -97,9 +94,8 @@ describe('todo routes', () => {
       .get('/api/todos')
       .query({ profile: 'centaur' })
       .set('Cookie', authCookie);
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('profiles');
-    expect(res.body).toHaveProperty('items');
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 
   it('POST /api/todos/:id/action — unauthenticated returns 401', async () => {
@@ -194,6 +190,50 @@ describe('todo routes', () => {
       .set('Cookie', authCookie);
     expect(res.status).toBe(500);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+describe('todo list execution', () => {
+  afterEach(() => {
+    try {
+      unlinkSync(TODO_SCRIPT);
+    } catch {
+      // ignore
+    }
+  });
+
+  it('GET /api/todos — accepts output larger than the Node default buffer', async () => {
+    const largeOutputScript = `
+import json
+item = {
+  "id": "large-item",
+  "summary": "x" * 1100000,
+  "profile": "work",
+  "urgency": 0.5,
+  "status": "active",
+  "ageDays": 0,
+  "sources": [],
+  "contextHints": {}
+}
+print(json.dumps({"profiles": ["work"], "items": [item]}))
+`;
+    writeFileSync(TODO_SCRIPT, largeOutputScript);
+
+    const res = await request(app).get('/api/todos').set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.profiles).toEqual(['work']);
+    expect(res.body.items).toHaveLength(1);
+    expect(res.body.items[0].summary).toHaveLength(1100000);
+  });
+
+  it('GET /api/todos — reports execution failures instead of an empty list', async () => {
+    writeFileSync(TODO_SCRIPT, 'raise RuntimeError("boom")\n');
+
+    const res = await request(app).get('/api/todos').set('Cookie', authCookie);
+
+    expect(res.status).toBe(502);
+    expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
 });
 

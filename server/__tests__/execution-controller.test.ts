@@ -80,15 +80,21 @@ describe('ExecutionController', () => {
     const order: string[] = [];
     controller.enqueueExecution(
       CLIENT_ID,
-      prepared('one', () => order.push('one')),
+      prepared('one', () => {
+        order.push('one');
+      }),
     );
     controller.enqueueExecution(
       CLIENT_ID,
-      prepared('two', () => order.push('two')),
+      prepared('two', () => {
+        order.push('two');
+      }),
     );
     controller.enqueueExecution(
       CLIENT_ID,
-      prepared('three', () => order.push('three')),
+      prepared('three', () => {
+        order.push('three');
+      }),
     );
 
     const first = await controller.activateNextExecution(CLIENT_ID);
@@ -202,7 +208,9 @@ describe('ExecutionController', () => {
       clientMsgId: 'atomic-echo-message',
       requestFingerprint: 'atomic-echo-fingerprint',
       userMessage: { messageId: 'atomic-echo-message', text: 'atomic echo' },
-      onAdmitted: () => order.push('accepted'),
+      onAdmitted: () => {
+        order.push('accepted');
+      },
     });
 
     await controller.activateNextExecution(CLIENT_ID);
@@ -265,7 +273,9 @@ describe('ExecutionController', () => {
     );
     controller.enqueueExecution(
       CLIENT_ID,
-      prepared('next', () => order.push('next')),
+      prepared('next', () => {
+        order.push('next');
+      }),
     );
 
     const activated = await controller.activateNextExecution(CLIENT_ID);
@@ -336,7 +346,7 @@ describe('ExecutionController', () => {
     expect(registry.get(CLIENT_ID)?.currentExecution).toEqual(first!.token);
 
     const finished = await controller.finishExecution(lease, first!.token!, 'completed');
-    expect(finished.transition.applied).toBe(true);
+    expect(finished.transition?.applied).toBe(true);
     expect(finished.next?.token).toMatchObject({ executionId: 'next', generation: 2 });
   });
 
@@ -664,9 +674,9 @@ describe('ExecutionController', () => {
     const failures = controller.failPendingExecutions(CLIENT_ID, 'runtime removed');
 
     expect(failures.map((failure) => failure.executionId)).toEqual(['first', 'second']);
-    expect(failures.map((failure) => failure.error.message)).toEqual([
-      'runtime removed',
-      'runtime removed',
+    expect(failures.map((failure) => failure.error)).toEqual([
+      new Error('runtime removed'),
+      new Error('runtime removed'),
     ]);
     expect(registry.get(CLIENT_ID)?.pendingExecutions).toEqual([]);
     expect(store.getSessionEvents(SESSION_ID)).toHaveLength(0);

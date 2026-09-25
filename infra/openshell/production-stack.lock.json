@@ -40,7 +40,7 @@
     "webSearch": "disabled"
   },
   "release": {
-    "mitzoSourceCommit": "7925ed3cfb116bf96c909d0bb0adb056e86c8641",
+    "mitzoSourceCommit": "909e3f86984df60a8d875dca440759a94c551127",
     "openshellCli": {
       "identity": "openshell",
       "path": "/opt/homebrew/bin/openshell",

@@ -384,7 +384,9 @@ it('stops an admitted pre-ready execution before removing its runtime', async ()
     expect(
       chat.eventStore
         .getSessionEvents(sessionId)
-        .findLast((event) => event.type === 'session_state_changed')?.payload,
+        .slice()
+        .reverse()
+        .find((event) => event.type === 'session_state_changed')?.payload,
     ).toMatchObject({ internalState: 'ENDED', reason: 'stopped' });
   } finally {
     chat.registry.dispose();

@@ -1778,9 +1778,10 @@ describe('handleInterruptV2', () => {
   });
 
   it('awaits a delayed active-runtime interrupt before reporting success', async () => {
-    let release!: (accepted: boolean) => void;
+    let release!: (outcome: Awaited<ReturnType<typeof interruptChat>>) => void;
     vi.mocked(interruptChat).mockImplementationOnce(
-      () => new Promise<boolean>((resolve) => (release = resolve)),
+      () =>
+        new Promise<Awaited<ReturnType<typeof interruptChat>>>((resolve) => (release = resolve)),
     );
     vi.mocked(isActive).mockReturnValue(true);
     const sessionReg = mockSessionRegistry();
@@ -1807,7 +1808,7 @@ describe('handleInterruptV2', () => {
     });
     await Promise.resolve();
     expect(settled).toBe(false);
-    release(true);
+    release({ kind: 'accepted' });
     await pending;
     vi.mocked(isActive).mockReturnValue(false);
   });
@@ -1855,7 +1856,7 @@ describe('handleInterruptV2', () => {
   });
 
   it('does not add a generic error when active interrupt is already safely reported', async () => {
-    vi.mocked(interruptChat).mockResolvedValueOnce(false);
+    vi.mocked(interruptChat).mockResolvedValueOnce({ kind: 'rejected_already_reported' });
     vi.mocked(isActive).mockReturnValue(true);
     const sessionReg = mockSessionRegistry();
     sessionReg.findBySessionId.mockReturnValue({
@@ -4521,6 +4522,7 @@ describe('handleSendV2 durable receipt failures', () => {
       vi.mocked(resolveSlashCommand).mockReturnValue({
         type: 'error',
         message: 'the changed skill registry is unavailable',
+        suggestions: [],
       });
       const retry = await handleSendV2('receipt-preflight', transport, message, ctx);
 

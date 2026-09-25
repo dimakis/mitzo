@@ -727,7 +727,7 @@ describe('interruptChat emits user_message via transport', () => {
     const oldTransport = mockTransport();
     const requesterTransport = mockTransport();
     const pushSpy = vi.fn();
-    const interruptSpy = vi.fn(() => {
+    const interruptSpy = vi.fn(async () => {
       const current = registry.get(CLIENT_ID)!;
       expect(current.transport).toBe(requesterTransport);
       expect(current.ownerConnectionId).toBe('requester');
