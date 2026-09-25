@@ -137,6 +137,9 @@ export function parseServerMessage(
     'subagent_tool_result',
     'subagent_end',
     'subagent_cancelled',
+    'progress_start',
+    'progress_update',
+    'progress_replace',
   ]);
   const envelope = msg as Record<string, unknown>;
   let provenance: import('@mitzo/protocol').SymposiumProvenance | undefined;
@@ -613,6 +616,7 @@ export function parseServerMessage(
         type: 'start',
         progressId: msg.progressId as string,
         messageId: msg.messageId as string,
+        ...(provenance ? { symposiumProvenance: provenance } : {}),
         sourceToolId: msg.sourceToolId as string | undefined,
         items: msg.items as ProgressItem[],
       };

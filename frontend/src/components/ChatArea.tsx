@@ -15,6 +15,7 @@ import type {
 } from '../types/chat';
 import type { ProgressBlock } from '@mitzo/protocol';
 import type { SymposiumProvenance } from '@mitzo/protocol';
+import { progressToolLookupKey } from '@mitzo/client';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 
 export type ChatAreaVoice = Pick<
@@ -37,7 +38,7 @@ export interface ChatAreaProps {
   ) => void;
   /** External ref for scroll container — caller can use for forceScrollToBottom */
   scrollRef?: React.RefObject<HTMLDivElement | null>;
-  /** Progress blocks indexed by toolId for rendering ProgressWidget on TodoWrite blocks */
+  /** Progress blocks indexed by toolId for ordinary turns or seat/message/tool for Symposium. */
   progressByToolId?: Record<string, ProgressBlock>;
   /** Voice capabilities for per-block read-aloud */
   voice?: ChatAreaVoice;
@@ -145,10 +146,23 @@ export function ChatArea({
     }
   }, [messages, current, currentByMessage, scrollRef]);
 
-  // Set of toolIds that have progress data (excluded from tool grouping).
-  const progressToolIds = useMemo(
-    () => new Set(Object.keys(progressByToolId ?? {})),
+  const progressFor = useCallback(
+    (messageId: string, provenance: SymposiumProvenance | undefined, toolId?: string) =>
+      toolId ? progressByToolId?.[progressToolLookupKey(messageId, toolId, provenance)] : undefined,
     [progressByToolId],
+  );
+  const progressToolIdsFor = useCallback(
+    (
+      messageId: string,
+      provenance: SymposiumProvenance | undefined,
+      blocks: Array<{ toolId?: string }>,
+    ) =>
+      new Set(
+        blocks
+          .filter((block) => progressFor(messageId, provenance, block.toolId))
+          .map((block) => block.toolId!),
+      ),
+    [progressFor],
   );
 
   // Group blocks per finished assistant turn for tool collapsing.
@@ -156,9 +170,15 @@ export function ChatArea({
     () =>
       messages.map((msg) => ({
         msg,
-        grouped: msg.role === 'assistant' ? groupBlocks(msg.blocks, progressToolIds) : null,
+        grouped:
+          msg.role === 'assistant'
+            ? groupBlocks(
+                msg.blocks,
+                progressToolIdsFor(msg.messageId, msg.symposiumProvenance, msg.blocks),
+              )
+            : null,
       })),
-    [messages, progressToolIds],
+    [messages, progressToolIdsFor],
   );
 
   const orderedTurns = useMemo(() => {
@@ -228,7 +248,14 @@ export function ChatArea({
                     const block = stream.blocks.get(blockId);
                     return block ? [block] : [];
                   }),
-                  progressToolIds,
+                  progressToolIdsFor(
+                    stream.messageId,
+                    stream.symposiumProvenance,
+                    stream.blockOrder.flatMap((blockId) => {
+                      const block = stream.blocks.get(blockId);
+                      return block ? [block] : [];
+                    }),
+                  ),
                 ).map((item) => {
                   if (item.type === 'tool-group')
                     return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
@@ -236,7 +263,11 @@ export function ChatArea({
                   if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking')
                     return <ThinkingBlock key={block.blockId} block={block} streaming />;
                   if (block.blockType === 'tool_use') {
-                    const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
+                    const progress = progressFor(
+                      stream.messageId,
+                      stream.symposiumProvenance,
+                      block.toolId,
+                    );
                     return progress ? (
                       <ProgressWidget key={block.blockId} items={progress.items} />
                     ) : (
@@ -291,7 +322,11 @@ export function ChatArea({
                   return <ThinkingBlock key={block.blockId} block={block} />;
                 }
                 if (block.blockType === 'tool_use') {
-                  const progress = block.toolId ? progressByToolId?.[block.toolId] : undefined;
+                  const progress = progressFor(
+                    msg.messageId,
+                    msg.symposiumProvenance,
+                    block.toolId,
+                  );
                   if (progress) {
                     return <ProgressWidget key={block.blockId} items={progress.items} />;
                   }

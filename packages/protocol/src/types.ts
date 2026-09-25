@@ -460,6 +460,8 @@ export interface ProgressBlock {
   progressId: string;
   items: ProgressItem[];
   sourceToolId?: string;
+  sourceMessageId?: string;
+  symposiumProvenance?: import('./symposium.js').SymposiumProvenance;
 }
 
 // --- Subagent nesting (nested agent execution visibility) ---

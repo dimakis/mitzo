@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import { ChatArea } from '../ChatArea';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
+import { progressToolLookupKey } from '@mitzo/client';
 
 // Mock child components to isolate ChatArea tests
 vi.mock('../MessageBubble', () => ({
@@ -33,7 +34,9 @@ vi.mock('../ToolGroup', () => ({
 }));
 
 vi.mock('../ProgressWidget', () => ({
-  ProgressWidget: () => <div data-testid="progress-widget" />,
+  ProgressWidget: ({ items }: { items: Array<{ title: string }> }) => (
+    <div data-testid="progress-widget">{items.map((item) => item.title).join(',')}</div>
+  ),
 }));
 
 vi.mock('../PermissionBanner', () => ({
@@ -198,6 +201,69 @@ describe('ChatArea', () => {
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
     expect(screen.getByText(/Reviewer seat.*account and model unknown/i)).toBeTruthy();
+  });
+
+  it('does not render another seat’s reused tool progress in concurrent turns', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'a',
+      seatProfileRevision: 'p',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+      membershipGeneration: 2,
+    });
+    const architect = provenance('architect');
+    const reviewer = provenance('reviewer');
+    const stream = (messageId: string, symposiumProvenance: ReturnType<typeof provenance>) => ({
+      messageId,
+      symposiumProvenance,
+      blocks: new Map<string, StreamingBlock>([
+        [
+          'b0',
+          {
+            blockId: 'b0',
+            blockType: 'tool_use',
+            toolId: 'todo',
+            toolName: 'TodoWrite',
+            content: '',
+            done: false,
+          },
+        ],
+      ]),
+      blockOrder: ['b0'],
+    });
+    const { container } = render(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{
+          'architect-turn': stream('architect-turn', architect),
+          'reviewer-turn': stream('reviewer-turn', reviewer),
+        }}
+        progressByToolId={{
+          todo: {
+            progressId: 'unscoped',
+            items: [{ id: 'wrong', title: 'Wrong seat', status: 'pending' }],
+          },
+          [progressToolLookupKey('architect-turn', 'todo', architect)]: {
+            progressId: 'architect-progress',
+            items: [{ id: 'a', title: 'Design', status: 'pending' }],
+          },
+          [progressToolLookupKey('reviewer-turn', 'todo', reviewer)]: {
+            progressId: 'reviewer-progress',
+            items: [{ id: 'r', title: 'Review', status: 'pending' }],
+          },
+        }}
+      />,
+    );
+    const turns = [...container.querySelectorAll('.msg-turn')];
+    expect(turns[0].textContent).toContain('Design');
+    expect(turns[0].textContent).not.toContain('Review');
+    expect(turns[1].textContent).toContain('Review');
+    expect(turns[1].textContent).not.toContain('Design');
+    expect(container.textContent).not.toContain('Wrong seat');
   });
 
   it('renders PermissionBanner when permission is present', () => {

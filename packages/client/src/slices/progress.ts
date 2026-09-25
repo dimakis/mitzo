@@ -5,7 +5,12 @@
  * The ProgressWidget reads from this slice to render inline progress.
  */
 
-import type { ProgressItem, ProgressItemStatus, ProgressBlock } from '@mitzo/protocol';
+import type {
+  ProgressItem,
+  ProgressItemStatus,
+  ProgressBlock,
+  SymposiumProvenance,
+} from '@mitzo/protocol';
 
 export type { ProgressItem, ProgressItemStatus, ProgressBlock };
 
@@ -21,6 +26,17 @@ export const INITIAL_PROGRESS_STATE: ProgressState = {
   toolIndex: {},
 };
 
+/** The same provider message/tool IDs may be reused in different seat streams. */
+export function progressToolLookupKey(
+  messageId: string,
+  toolId: string,
+  provenance?: SymposiumProvenance,
+): string {
+  return provenance
+    ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, messageId, toolId])}`
+    : toolId;
+}
+
 // ─── Update types ───────────────────────────────────────────────────────────
 
 export type ProgressUpdate =
@@ -28,6 +44,7 @@ export type ProgressUpdate =
       type: 'start';
       progressId: string;
       messageId: string;
+      symposiumProvenance?: SymposiumProvenance;
       sourceToolId?: string;
       items: ProgressItem[];
     }
@@ -53,10 +70,18 @@ export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate
         progressId: update.progressId,
         items: update.items,
         sourceToolId: update.sourceToolId,
+        ...(update.symposiumProvenance
+          ? {
+              sourceMessageId: update.messageId,
+              symposiumProvenance: update.symposiumProvenance,
+            }
+          : {}),
       };
       const toolIndex = { ...state.toolIndex };
       if (update.sourceToolId) {
-        toolIndex[update.sourceToolId] = update.progressId;
+        toolIndex[
+          progressToolLookupKey(update.messageId, update.sourceToolId, update.symposiumProvenance)
+        ] = update.progressId;
       }
       return {
         blocks: { ...state.blocks, [update.progressId]: block },
@@ -84,7 +109,15 @@ export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate
       if (!existing) return state;
       const toolIndex = { ...state.toolIndex };
       if (update.sourceToolId) {
-        toolIndex[update.sourceToolId] = update.progressId;
+        toolIndex[
+          existing.sourceMessageId
+            ? progressToolLookupKey(
+                existing.sourceMessageId,
+                update.sourceToolId,
+                existing.symposiumProvenance,
+              )
+            : update.sourceToolId
+        ] = update.progressId;
       }
       return {
         blocks: {
