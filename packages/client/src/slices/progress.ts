@@ -15,9 +15,9 @@ import type {
 export type { ProgressItem, ProgressItemStatus, ProgressBlock };
 
 export interface ProgressState {
-  /** Map from progressId to current progress block. */
+  /** Map from seat-scoped progress identity to current progress block. */
   blocks: Record<string, ProgressBlock>;
-  /** Map from sourceToolId to progressId (for ChatArea lookup). */
+  /** Map from source tool identity to block storage key (for ChatArea lookup). */
   toolIndex: Record<string, string>;
 }
 
@@ -37,6 +37,31 @@ export function progressToolLookupKey(
     : toolId;
 }
 
+function progressBlockKey(progressId: string, provenance?: SymposiumProvenance): string {
+  return provenance
+    ? `symposium:${JSON.stringify([provenance.seatId, provenance.membershipGeneration ?? null, progressId])}`
+    : progressId;
+}
+
+function resolveProgressBlockKey(
+  state: ProgressState,
+  update: {
+    progressId: string;
+    symposiumProvenance?: SymposiumProvenance;
+  },
+): string | undefined {
+  if (update.symposiumProvenance) {
+    const key = progressBlockKey(update.progressId, update.symposiumProvenance);
+    return state.blocks[key] ? key : undefined;
+  }
+  if (state.blocks[update.progressId]) return update.progressId;
+  // Older progress updates omit provenance. Apply only if their target is unique.
+  const matches = Object.keys(state.blocks).filter(
+    (key) => state.blocks[key].progressId === update.progressId,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 // ─── Update types ───────────────────────────────────────────────────────────
 
 export type ProgressUpdate =
@@ -51,12 +76,14 @@ export type ProgressUpdate =
   | {
       type: 'update';
       progressId: string;
+      symposiumProvenance?: SymposiumProvenance;
       itemId: string;
       status: ProgressItemStatus;
     }
   | {
       type: 'replace';
       progressId: string;
+      symposiumProvenance?: SymposiumProvenance;
       sourceToolId?: string;
       items: ProgressItem[];
     };
@@ -66,6 +93,7 @@ export type ProgressUpdate =
 export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate): ProgressState {
   switch (update.type) {
     case 'start': {
+      const blockKey = progressBlockKey(update.progressId, update.symposiumProvenance);
       const block: ProgressBlock = {
         progressId: update.progressId,
         items: update.items,
@@ -81,17 +109,18 @@ export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate
       if (update.sourceToolId) {
         toolIndex[
           progressToolLookupKey(update.messageId, update.sourceToolId, update.symposiumProvenance)
-        ] = update.progressId;
+        ] = blockKey;
       }
       return {
-        blocks: { ...state.blocks, [update.progressId]: block },
+        blocks: { ...state.blocks, [blockKey]: block },
         toolIndex,
       };
     }
 
     case 'update': {
-      const existing = state.blocks[update.progressId];
-      if (!existing) return state;
+      const blockKey = resolveProgressBlockKey(state, update);
+      const existing = blockKey ? state.blocks[blockKey] : undefined;
+      if (!blockKey || !existing) return state;
       const items = existing.items.map((item) =>
         item.id === update.itemId ? { ...item, status: update.status } : item,
       );
@@ -99,14 +128,15 @@ export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate
         ...state,
         blocks: {
           ...state.blocks,
-          [update.progressId]: { ...existing, items },
+          [blockKey]: { ...existing, items },
         },
       };
     }
 
     case 'replace': {
-      const existing = state.blocks[update.progressId];
-      if (!existing) return state;
+      const blockKey = resolveProgressBlockKey(state, update);
+      const existing = blockKey ? state.blocks[blockKey] : undefined;
+      if (!blockKey || !existing) return state;
       const toolIndex = { ...state.toolIndex };
       if (update.sourceToolId) {
         toolIndex[
@@ -117,12 +147,12 @@ export function applyProgressUpdate(state: ProgressState, update: ProgressUpdate
                 existing.symposiumProvenance,
               )
             : update.sourceToolId
-        ] = update.progressId;
+        ] = blockKey;
       }
       return {
         blocks: {
           ...state.blocks,
-          [update.progressId]: {
+          [blockKey]: {
             ...existing,
             items: update.items,
             sourceToolId: update.sourceToolId ?? existing.sourceToolId,

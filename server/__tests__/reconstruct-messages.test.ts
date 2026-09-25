@@ -290,6 +290,32 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     ]);
   });
 
+  it('refuses an attributed result with no matching tool block', () => {
+    const provenance = {
+      seatId: 'architect',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const events = [
+      {
+        ...evt(1, 'message_start', { messageId: 'a1' }),
+        seatId: 'architect',
+        symposiumProvenance: provenance,
+      },
+      {
+        ...evt(2, 'tool_result', { messageId: 'a1', toolId: 'missing', result: 'lost' }),
+        seatId: 'architect',
+        symposiumProvenance: provenance,
+      },
+    ];
+    expect(() => replayEventsToTranscript(events)).toThrow(/unmatched attributed tool result/i);
+  });
+
   it('scopes repeated tool IDs to separate blocks within one attributed turn', () => {
     const provenance = {
       seatId: 'architect',

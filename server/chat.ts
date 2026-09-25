@@ -1839,6 +1839,7 @@ function storeAndEchoIfNew(
     text,
     sessionId,
     seq,
+    prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
   };
@@ -3270,6 +3271,12 @@ function replaySingleEventsToTranscript(
     )
       activeMessageId = null;
   }
+  if (
+    [...pendingResults.values()].some((results) =>
+      results.some((result) => typeof result.messageId === 'string'),
+    )
+  )
+    throw new Error('Unmatched attributed tool result in stored transcript');
 
   // Legacy sessions persisted their first user prompt after message_start.
   // Keep that compatibility while ordering every subsequent event as stored.

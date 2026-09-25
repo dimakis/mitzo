@@ -626,6 +626,7 @@ export function parseServerMessage(
       result.progressUpdate = {
         type: 'update',
         progressId: msg.progressId as string,
+        ...(provenance ? { symposiumProvenance: provenance } : {}),
         itemId: msg.itemId as string,
         status: msg.status as ProgressItemStatus,
       };
@@ -635,6 +636,7 @@ export function parseServerMessage(
       result.progressUpdate = {
         type: 'replace',
         progressId: msg.progressId as string,
+        ...(provenance ? { symposiumProvenance: provenance } : {}),
         sourceToolId: msg.sourceToolId as string | undefined,
         items: msg.items as ProgressItem[],
       };

@@ -170,6 +170,10 @@ describe('sendToChat emits user_message via transport', () => {
       (m: Record<string, unknown>) => m.type === 'user_message',
     );
     expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0]).toMatchObject({
+      seq: expect.any(Number),
+      prevSessionSeq: expect.any(Number),
+    });
   });
 
   it('still pushes to inputQueue even when transport send happens', async () => {
