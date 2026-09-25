@@ -106,6 +106,100 @@ describe('ChatArea', () => {
     expect(screen.getByText('Streaming...')).toBeTruthy();
   });
 
+  it('renders concurrent seats in durable start order with immutable account and model labels', () => {
+    const reviewer = {
+      version: 2 as const,
+      seatId: 'reviewer',
+      seatLabel: 'Original Reviewer',
+      seatRole: 'reviewer',
+      configRevision: 1,
+      membershipGeneration: 1,
+      capturedAt: 1,
+      accountBinding: {
+        accountId: 'work-reviewer',
+        accountLabel: 'Work Reviewer',
+        provider: 'openai-codex' as const,
+        model: 'model-r',
+        profileRevision: 'a1',
+      },
+      reasoningEffort: 'high',
+      profileBinding: { profileId: 'profile-r', profileRevision: 'p1' },
+      contextGrant: { grantId: 'context-r', revision: 1 },
+      authorityGrant: { grantId: 'authority-r', revision: 1 },
+      accountProfileRevision: 'a1',
+      seatProfileRevision: 'p1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    };
+    const architect = {
+      ...reviewer,
+      seatId: 'architect',
+      seatLabel: 'Original Architect',
+      seatRole: 'architect',
+      accountBinding: {
+        ...reviewer.accountBinding,
+        accountId: 'work-architect',
+        accountLabel: 'Work Architect',
+        model: 'model-a',
+      },
+    };
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'reviewer-done',
+        startedSeq: 3,
+        role: 'assistant',
+        symposiumProvenance: reviewer,
+        blocks: [{ blockId: 'b0', blockType: 'text', content: 'Finished review' }],
+      },
+    ];
+    const currentByMessage = {
+      'architect-live': {
+        messageId: 'architect-live',
+        startedSeq: 2,
+        symposiumProvenance: architect,
+        blocks: new Map<string, StreamingBlock>([
+          ['b0', { blockId: 'b0', blockType: 'text', content: 'Live design', done: false }],
+        ]),
+        blockOrder: ['b0'],
+      },
+    };
+    const { container } = render(
+      <ChatArea {...defaultProps} messages={messages} currentByMessage={currentByMessage} />,
+    );
+    const turns = [...container.querySelectorAll('.msg-turn')];
+    expect(turns).toHaveLength(2);
+    expect(turns[0].textContent).toContain('Original Architect');
+    expect(turns[0].textContent).toContain('Work Architect');
+    expect(turns[0].textContent).toContain('model-a');
+    expect(turns[0].textContent).toContain('high');
+    expect(turns[1].textContent).toContain('Original Reviewer');
+    expect(turns[1].textContent).toContain('Finished review');
+  });
+
+  it('keeps legacy seat history honest about unknown account and model', () => {
+    const messages: FinishedMessage[] = [
+      {
+        messageId: 'legacy',
+        role: 'assistant',
+        symposiumProvenance: {
+          seatId: 'reviewer',
+          configRevision: 1,
+          accountProfileRevision: 'a1',
+          seatProfileRevision: 'p1',
+          contextGrantRevision: 1,
+          authorityGrantRevision: 1,
+          isolationDomainId: 'shared',
+          isolationDomainRevision: 1,
+        },
+        blocks: [{ blockId: 'b0', blockType: 'text', content: 'Historical review' }],
+      },
+    ];
+    render(<ChatArea {...defaultProps} messages={messages} />);
+    expect(screen.getByText(/Reviewer seat.*account and model unknown/i)).toBeTruthy();
+  });
+
   it('renders PermissionBanner when permission is present', () => {
     const permission = {
       permId: 'perm-1',
@@ -281,6 +375,39 @@ describe('ChatArea', () => {
       />,
     );
 
+    expect(el.scrollTop).toBe(600);
+  });
+
+  it('respects a reader who scrolled up while another seat streams', () => {
+    const scrollRef = { current: null as HTMLDivElement | null };
+    const stream = (content: string) => ({
+      messageId: 'seat-stream',
+      blocks: new Map<string, StreamingBlock>([
+        ['b0', { blockId: 'b0', blockType: 'text', content, done: false }],
+      ]),
+      blockOrder: ['b0'],
+    });
+    const { rerender } = render(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{ seat: stream('First line') }}
+        scrollRef={scrollRef}
+      />,
+    );
+    const el = scrollRef.current!;
+    Object.defineProperties(el, {
+      scrollHeight: { configurable: true, value: 2_000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    el.scrollTop = 600;
+    fireEvent.scroll(el);
+    rerender(
+      <ChatArea
+        {...defaultProps}
+        currentByMessage={{ seat: stream('First line\nMore') }}
+        scrollRef={scrollRef}
+      />,
+    );
     expect(el.scrollTop).toBe(600);
   });
 });

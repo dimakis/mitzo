@@ -1746,6 +1746,21 @@ textarea:focus {
   overscroll-behavior-y: contain;
 }
 
+.chat-seat-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+  color: var(--text-dim);
+  font-size: var(--text-xs);
+}
+
+.chat-seat-attribution span::before {
+  content: '·';
+  margin-right: 0.35rem;
+}
+
 /* ===== Message Bubbles ===== */
 
 .msg-bubble {
