@@ -1110,12 +1110,10 @@ describe('reconnect recovery', () => {
     );
     const store = createReadyStore(transport);
     await store.getState().switchSession('sess-1');
-    store
-      .getState()
-      .sendMessage('continue', {
-        images: [{ data: 'data', mediaType: 'image/png', preview: 'preview' }],
-        contextBlocks: ['constitution'],
-      });
+    store.getState().sendMessage('continue', {
+      images: [{ data: 'data', mediaType: 'image/png', preview: 'preview' }],
+      contextBlocks: ['constitution'],
+    });
     const optimistic = store.getState().messages.messages[0];
     promptId = optimistic.messageId;
     lastWs.simulateMessage({
