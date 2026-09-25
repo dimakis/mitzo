@@ -317,7 +317,7 @@ export class SessionService {
     };
   }
 
-  async revokeHostGrant(grantId: string, revision: number, actorSessionId: string): Promise<void> {
+  revokeHostGrant(grantId: string, revision: number, actorSessionId: string): Promise<void> {
     const children = this.db
       .transaction(() => {
         const row = this.db
@@ -334,26 +334,44 @@ export class SessionService {
         WHERE grant_id = ? AND revision = ? AND active = 1`,
           )
           .run(Date.now(), grantId, revision);
+        const now = Date.now();
+        this.db
+          .prepare(
+            `UPDATE child_allocations SET
+            status = CASE WHEN status = 'allocated' THEN 'cancelled' ELSE 'cancel_requested' END,
+            cancel_requested_at = ?, generation = generation + 1, updated_at = ?
+          WHERE json_extract(request_json,'$.grantId') = ?
+            AND json_extract(request_json,'$.grantRevision') = ?
+            AND status NOT IN ('completed','cancelled') AND cancel_requested_at IS NULL`,
+          )
+          .run(now, now, grantId, revision);
         return this.db
           .prepare(
-            `SELECT conversation_id,parent_conversation_id
+            `SELECT conversation_id
         FROM child_allocations WHERE json_extract(request_json,'$.grantId') = ?
-          AND json_extract(request_json,'$.grantRevision') = ?`,
+          AND json_extract(request_json,'$.grantRevision') = ?
+          AND cancel_requested_at IS NOT NULL AND status NOT IN ('cancelled','completed')`,
           )
-          .all(grantId, revision) as Array<{
-          conversation_id: string;
-          parent_conversation_id: string;
-        }>;
+          .all(grantId, revision) as Array<{ conversation_id: string }>;
       })
       .immediate();
-    for (const child of children) {
-      const cancelled = this.requestCancellation(
-        child.conversation_id,
-        child.parent_conversation_id,
-      );
-      if (cancelled.status !== 'cancelled' && cancelled.status !== 'completed')
-        await this.reconcile(child.conversation_id);
-    }
+    return Promise.allSettled(
+      children.map(async (child) => {
+        try {
+          await this.reconcile(child.conversation_id);
+        } catch {
+          const latest = this.getChild(child.conversation_id);
+          if (latest)
+            this.casStatus(
+              child.conversation_id,
+              latest.generation,
+              ['cancel_requested', 'starting', 'running'],
+              'recovery_required',
+              'required',
+            );
+        }
+      }),
+    ).then(() => undefined);
   }
 
   getChild(conversationId: string): ChildLink | null {
@@ -376,8 +394,6 @@ export class SessionService {
   createChild(request: ChildCreateRequest, authority: ChildAuthority): ChildLink {
     validateRequest(request);
     requireId(authority.parentConversationId, 'trusted parent');
-    if (request.parentConversationId !== authority.parentConversationId)
-      throw new Error('Parent authority mismatch');
     if (!authority.parentActive) throw new Error('Parent is not active');
     if (request.grantId !== authority.grantId || request.grantRevision !== authority.grantRevision)
       throw new Error('Grant denied');
@@ -434,6 +450,8 @@ export class SessionService {
           )
           .get(request.parentConversationId) as
           { depth: number; status: ChildStatus; request_json: string } | undefined;
+        if (!parentAllocation && request.parentConversationId !== authority.parentConversationId)
+          throw new Error('Parent authority mismatch');
         if (parentAllocation) {
           if (parentAllocation.status !== 'running') throw new Error('Parent is not active');
           const inherited = JSON.parse(parentAllocation.request_json) as ChildCreateRequest;

@@ -231,6 +231,62 @@ describe('SessionService', () => {
     expect(() => service.createChild(request('task-2'), authority())).toThrow(/grant|revoked/i);
   });
 
+  it('fences every child before any slow or failed runtime cleanup', async () => {
+    const grant = { ...authority(), grantId: 'grant-b', maxConcurrent: 2 };
+    currentAuthority = grant;
+    service.recordHostGrant(grant, 'auth-session-1');
+    const withGrant = (key: string) => rehash({ ...request(key), grantId: 'grant-b' });
+    const first = service.createChild(withGrant('task-1'), grant);
+    await service.reconcile(first.conversationId);
+    const second = service.createChild(withGrant('task-2'), grant);
+    await service.reconcile(second.conversationId);
+    service.close();
+    let releaseFirst!: () => void;
+    const firstStop = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    service = new SessionService(
+      dbPath,
+      {
+        ...runtime,
+        stop: async (id) => {
+          observed.push(`stop:${id}`);
+          if (id === first.conversationId) {
+            await firstStop;
+            throw new Error('private runtime failure');
+          }
+          return 'confirmed';
+        },
+      },
+      async () => currentAuthority,
+    );
+    const revoking = service.revokeHostGrant('grant-b', 1, 'auth-session-1');
+    await vi.waitFor(() => expect(observed).toContain(`stop:${second.conversationId}`));
+    expect(service.getChild(first.conversationId)?.cancellationRequested).toBe(true);
+    expect(service.getChild(second.conversationId)?.status).toBe('cancelled');
+    releaseFirst();
+    await revoking;
+    expect(service.getChild(first.conversationId)?.status).toBe('recovery_required');
+  });
+
+  it('admits bounded nested children only along the original grant lineage', async () => {
+    const first = service.createChild(request('task-1'), authority());
+    await service.reconcile(first.conversationId);
+    const grandchildInput = rehash({
+      ...request('task-2'),
+      parentConversationId: first.conversationId,
+    });
+    const grandchild = service.createChild(grandchildInput, authority());
+    expect(grandchild.depth).toBe(2);
+    await service.reconcile(grandchild.conversationId);
+    expect(() =>
+      service.createChild(
+        rehash({ ...request('task-3'), parentConversationId: grandchild.conversationId }),
+        authority(),
+      ),
+    ).toThrow(/depth/i);
+  });
+
   it('fences revoked authority between allocation and dispatch and rejects changed binding or scope', async () => {
     const child = service.createChild(request(), authority());
     currentAuthority = null;
