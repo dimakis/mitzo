@@ -5,6 +5,53 @@ import type { FinishedBlock, FinishedSubagentState, StreamingMessage } from '@mi
 
 const INITIAL = INITIAL_MESSAGES_STATE;
 
+describe('durable turn position across reconnect', () => {
+  it('keeps a live interrupted assistant before a newer user through late delta and session_end', () => {
+    let state = messagesReducer(INITIAL, {
+      type: 'RESTORE',
+      messages: [
+        {
+          messageId: 'initial',
+          role: 'user',
+          startedSeq: 1,
+          blocks: [{ blockId: 'u1', blockType: 'text', content: 'start' }],
+        },
+        {
+          messageId: 'followup',
+          role: 'user',
+          startedSeq: 5,
+          blocks: [{ blockId: 'u2', blockType: 'text', content: 'interrupt' }],
+        },
+      ],
+    });
+    state = messagesReducer(state, {
+      type: 'MESSAGE_SNAPSHOT',
+      messageId: 'assistant',
+      startedSeq: 2,
+      blocks: [{ blockId: 'partial', blockType: 'text', content: 'before ', done: false }],
+    });
+    state = messagesReducer(state, {
+      type: 'BLOCK_DELTA',
+      messageId: 'assistant',
+      blockId: 'partial',
+      blockType: 'text',
+      delta: 'after',
+    });
+    expect(state.current?.blocks.get('partial')?.content).toBe('before after');
+    state = messagesReducer(state, { type: 'SESSION_END' });
+    expect(state.current).toBeNull();
+    expect(state.messages.map(({ messageId }) => messageId)).toEqual([
+      'initial',
+      'assistant',
+      'followup',
+    ]);
+    expect(state.messages[1]).toMatchObject({
+      startedSeq: 2,
+      blocks: [{ content: 'before after' }],
+    });
+  });
+});
+
 // ─── MESSAGE_START ────────────────────────────────────────────────────────────
 
 describe('MESSAGE_START', () => {

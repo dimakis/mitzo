@@ -36,7 +36,11 @@ export interface GitInfo {
 
 export interface ReconnectTranscript {
   messages: FinishedMessage[];
-  current: { messageId: string; blocks: Array<FinishedBlock & { done: boolean }> } | null;
+  current: {
+    messageId: string;
+    startedSeq?: number;
+    blocks: Array<FinishedBlock & { done: boolean }>;
+  } | null;
 }
 
 export interface FileEntry {

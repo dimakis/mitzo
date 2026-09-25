@@ -80,7 +80,7 @@ export const INITIAL_MESSAGES_STATE: MessagesState = {
 
 export type MessagesAction =
   // v2 content events
-  | { type: 'MESSAGE_START'; messageId: string }
+  | { type: 'MESSAGE_START'; messageId: string; startedSeq?: number }
   | {
       type: 'BLOCK_START';
       messageId: string;
@@ -147,7 +147,7 @@ export type MessagesAction =
       };
     }
   // Reattach snapshot
-  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; blocks: FinishedBlock[] }
+  | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
@@ -169,6 +169,7 @@ export type MessagesAction =
   | {
       type: 'USER_MESSAGE_RECEIVED';
       messageId: string;
+      startedSeq?: number;
       text: string;
       images?: string[];
       contextBlocks?: string[];
@@ -232,7 +233,30 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
   });
-  return { messageId: current.messageId, role: 'assistant', blocks, timestamp: Date.now() };
+  return {
+    messageId: current.messageId,
+    role: 'assistant',
+    blocks,
+    timestamp: Date.now(),
+    ...(current.startedSeq !== undefined ? { startedSeq: current.startedSeq } : {}),
+  };
+}
+
+/** Insert a sequenced turn before later durable turns, preserving legacy array order. */
+function insertByStartedSeq(
+  messages: FinishedMessage[],
+  message: FinishedMessage,
+): FinishedMessage[] {
+  const index =
+    message.startedSeq === undefined
+      ? -1
+      : messages.findIndex(
+          (existing) =>
+            existing.startedSeq !== undefined && existing.startedSeq > message.startedSeq!,
+        );
+  const result = [...messages];
+  result.splice(index < 0 ? result.length : index, 0, message);
+  return result;
 }
 
 export function patchToolResult(
@@ -280,12 +304,13 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return state;
       }
       const base = state.current
-        ? { ...state, messages: [...state.messages, finishCurrent(state.current)] }
+        ? { ...state, messages: insertByStartedSeq(state.messages, finishCurrent(state.current)) }
         : state;
       return {
         ...base,
         current: {
           messageId: action.messageId,
+          ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
           blocks: new Map<string, StreamingBlock>(),
           blockOrder: [],
         },
@@ -357,7 +382,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return { ...state, current: null };
       }
       const finished = finishCurrent(state.current);
-      return { ...state, messages: [...state.messages, finished], current: null };
+      return { ...state, messages: insertByStartedSeq(state.messages, finished), current: null };
     }
 
     case 'SESSION_END': {
@@ -366,7 +391,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         return {
           ...state,
           running: false,
-          messages: [...state.messages, finished],
+          messages: insertByStartedSeq(state.messages, finished),
           current: null,
         };
       }
@@ -419,7 +444,15 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         });
         blockOrder.push(b.blockId);
       }
-      return { ...state, current: { messageId: action.messageId, blocks, blockOrder } };
+      return {
+        ...state,
+        current: {
+          messageId: action.messageId,
+          ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
+          blocks,
+          blockOrder,
+        },
+      };
     }
 
     case 'PERMISSION_REQUEST': {
@@ -596,6 +629,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
           ...state.messages,
           {
             messageId: action.messageId,
+            ...(action.startedSeq !== undefined ? { startedSeq: action.startedSeq } : {}),
             role: 'user',
             timestamp: Date.now(),
             images: action.images,

@@ -323,6 +323,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'MESSAGE_START',
         messageId: msg.messageId as string,
+        ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
+          ? { startedSeq: msg.seq }
+          : {}),
       });
       break;
 
@@ -385,6 +388,9 @@ export function parseServerMessage(
         result.messagesActions.push({
           type: 'MESSAGE_SNAPSHOT',
           messageId: msg.messageId as string,
+          ...(typeof msg.startedSeq === 'number' && Number.isSafeInteger(msg.startedSeq)
+            ? { startedSeq: msg.startedSeq }
+            : {}),
           blocks: msg.blocks as FinishedBlock[],
         });
       }
@@ -478,6 +484,9 @@ export function parseServerMessage(
       result.messagesActions.push({
         type: 'USER_MESSAGE_RECEIVED',
         messageId: msg.messageId as string,
+        ...(typeof msg.seq === 'number' && Number.isSafeInteger(msg.seq)
+          ? { startedSeq: msg.seq }
+          : {}),
         text: msg.text as string,
         images: Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
         contextBlocks: Array.isArray(msg.contextBlocks)

@@ -328,6 +328,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ? messagesReducer(withoutStaleCurrent, {
                   type: 'MESSAGE_SNAPSHOT',
                   messageId: current.messageId,
+                  startedSeq: current.startedSeq,
                   blocks: current.blocks,
                 })
               : withoutStaleCurrent;

@@ -158,6 +158,8 @@ export interface StreamingBlock {
 
 export interface StreamingMessage {
   messageId: string;
+  /** Durable message_start cursor, when known. */
+  startedSeq?: number;
   blocks: Map<string, StreamingBlock>;
   blockOrder: string[];
 }
@@ -180,6 +182,8 @@ export interface FinishedBlock {
 
 export interface FinishedMessage {
   messageId: string;
+  /** Durable user_message or message_start cursor, when known. */
+  startedSeq?: number;
   role: 'user' | 'assistant';
   blocks: FinishedBlock[];
   images?: string[];

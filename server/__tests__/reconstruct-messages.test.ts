@@ -269,6 +269,158 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
+  it.each([0, 1, 3])(
+    'keeps an interrupted assistant with %i finished blocks before a user sent before session_end',
+    (finishedCount) => {
+      const events = [
+        evt(1, 'message_start', { messageId: 'prior' }),
+        evt(2, 'block_start', { messageId: 'prior', blockId: 'prior-text', blockType: 'text' }),
+        evt(3, 'block_delta', { messageId: 'prior', blockId: 'prior-text', delta: 'earlier' }),
+        evt(4, 'block_end', { messageId: 'prior', blockId: 'prior-text', blockType: 'text' }),
+        evt(5, 'message_end', { messageId: 'prior' }),
+        evt(6, 'message_start', { messageId: 'interrupted' }),
+      ];
+      let seq = 7;
+      for (let i = 0; i < finishedCount; i++) {
+        events.push(
+          evt(seq++, 'block_start', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            blockType: 'text',
+          }),
+        );
+        events.push(
+          evt(seq++, 'block_delta', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            delta: `finished-${i}`,
+          }),
+        );
+        events.push(
+          evt(seq++, 'block_end', {
+            messageId: 'interrupted',
+            blockId: `done-${i}`,
+            blockType: 'text',
+          }),
+        );
+      }
+      events.push(
+        evt(seq++, 'block_start', {
+          messageId: 'interrupted',
+          blockId: 'partial',
+          blockType: 'text',
+        }),
+      );
+      events.push(
+        evt(seq++, 'block_delta', {
+          messageId: 'interrupted',
+          blockId: 'partial',
+          delta: 'saved partial',
+        }),
+      );
+      events.push(evt(seq++, 'user_message', { messageId: 'followup', text: 'continue' }));
+      events.push(evt(seq, 'session_end', {}));
+
+      const transcript = replayEventsToTranscript(events);
+      expect(transcript.current).toBeNull();
+      expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+        'prior',
+        'interrupted',
+        'followup',
+      ]);
+      expect(transcript.messages[1].blocks.map(({ content }) => content)).toEqual([
+        ...Array.from({ length: finishedCount }, (_, i) => `finished-${i}`),
+        'saved partial',
+      ]);
+    },
+  );
+
+  it('keeps an interrupted assistant between earlier history and a user sent after session_end', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'prior' }),
+      evt(2, 'block_start', { messageId: 'prior', blockId: 'old', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'prior', blockId: 'old', delta: 'earlier' }),
+      evt(4, 'block_end', { messageId: 'prior', blockId: 'old', blockType: 'text' }),
+      evt(5, 'message_end', { messageId: 'prior' }),
+      evt(6, 'message_start', { messageId: 'interrupted' }),
+      evt(7, 'block_start', { messageId: 'interrupted', blockId: 'partial', blockType: 'text' }),
+      evt(8, 'block_delta', {
+        messageId: 'interrupted',
+        blockId: 'partial',
+        delta: 'saved partial',
+      }),
+      evt(9, 'session_end', {}),
+      evt(10, 'user_message', { messageId: 'followup', text: 'continue' }),
+    ];
+    const transcript = replayEventsToTranscript(events);
+    expect(transcript.current).toBeNull();
+    expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+      'prior',
+      'interrupted',
+      'followup',
+    ]);
+    expect(transcript.messages[1].blocks[0].content).toBe('saved partial');
+  });
+
+  it.each([undefined, 'initial question'])(
+    'applies late assistant deltas after a follow-up user with initialPrompt %s',
+    (initialPrompt) => {
+      const events = [
+        evt(1, 'user_message', { messageId: 'initial', text: 'initial question' }),
+        evt(2, 'message_start', { messageId: 'assistant' }),
+        evt(3, 'block_start', { messageId: 'assistant', blockId: 'partial', blockType: 'text' }),
+        evt(4, 'block_delta', { messageId: 'assistant', blockId: 'partial', delta: 'before ' }),
+        evt(5, 'user_message', { messageId: 'followup', text: 'interrupt' }),
+        evt(6, 'block_delta', { messageId: 'assistant', blockId: 'partial', delta: 'after' }),
+        evt(7, 'block_end', { messageId: 'assistant', blockId: 'partial', blockType: 'text' }),
+        evt(8, 'session_end', {}),
+      ];
+      const transcript = replayEventsToTranscript(events, initialPrompt);
+      expect(transcript.current).toBeNull();
+      expect(transcript.messages.map(({ messageId }) => messageId)).toEqual([
+        'initial',
+        'assistant',
+        'followup',
+      ]);
+      expect(transcript.messages[1].blocks[0].content).toBe('before after');
+
+      const beforeTerminal = replayEventsToTranscript(events.slice(0, 5), initialPrompt);
+      expect(beforeTerminal.messages.map(({ messageId }) => messageId)).toEqual([
+        'initial',
+        'followup',
+      ]);
+      expect(beforeTerminal.current).toMatchObject({
+        messageId: 'assistant',
+        startedSeq: 2,
+        blocks: [{ content: 'before ', done: false }],
+      });
+      expect(beforeTerminal.messages[1]).toMatchObject({ messageId: 'followup', startedSeq: 5 });
+    },
+  );
+
+  it('hoists only the legacy first prompt, preserving a later user with the same text', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'assistant' }),
+      evt(2, 'user_message', { messageId: 'legacy-initial', text: 'repeat' }),
+      evt(3, 'block_start', { messageId: 'assistant', blockId: 'text', blockType: 'text' }),
+      evt(4, 'block_delta', { messageId: 'assistant', blockId: 'text', delta: 'response' }),
+      evt(5, 'message_end', { messageId: 'assistant' }),
+      evt(6, 'user_message', { messageId: 'later', text: 'repeat' }),
+    ];
+    const withMetadata = replayEventsToTranscript(events, 'repeat');
+    expect(withMetadata.messages.map(({ messageId }) => messageId)).toEqual([
+      'legacy-initial',
+      'assistant',
+      'later',
+    ]);
+    expect(withMetadata.messages[0].startedSeq).toBeUndefined();
+    expect(replayEventsToTranscript(events).messages.map(({ messageId }) => messageId)).toEqual([
+      'legacy-initial',
+      'assistant',
+      'later',
+    ]);
+  });
+
   it('restores running and completed nested subagents inside a current turn', () => {
     const events = [
       evt(1, 'message_start', { messageId: 'a1' }),

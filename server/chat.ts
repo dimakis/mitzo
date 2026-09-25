@@ -3080,6 +3080,7 @@ export interface RestoredMessage {
   messageId: string;
   role: string;
   timestamp?: number;
+  startedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   blocks: Array<{
@@ -3107,6 +3108,7 @@ export interface RestoredSubagentState {
 
 export interface RestoredCurrentMessage {
   messageId: string;
+  startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
 }
 
@@ -3208,123 +3210,181 @@ export function replayEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
-  // The finished-message replay only adds a block at block_end. A turn can
-  // instead stop at session_end with durable deltas but no block_end; retain
-  // those deltas even when a later turn supersedes the interrupted one.
-  const closedEvents: import('./event-store.js').StoredEvent[] = [];
-  const unfinishedBlocks = new Map<string, Record<string, unknown>>();
-  for (const event of events) {
-    if (event.type === 'message_start') unfinishedBlocks.clear();
-    if (event.type === 'block_start' && typeof event.payload.blockId === 'string')
-      unfinishedBlocks.set(event.payload.blockId, event.payload);
-    if (event.type === 'block_end') unfinishedBlocks.delete(event.payload.blockId as string);
-    if (event.type === 'message_end' || event.type === 'session_end') {
-      for (const block of unfinishedBlocks.values()) {
-        closedEvents.push({
-          ...event,
-          type: 'block_end',
-          payload: {
-            messageId: block.messageId,
-            blockId: block.blockId,
-            blockType: block.blockType,
-            ...(block.toolName ? { toolName: block.toolName } : {}),
-          },
-        });
-      }
-      unfinishedBlocks.clear();
-    }
-    closedEvents.push(event);
-  }
-  let openMessageId: string | undefined;
-  let terminalMessageId: string | undefined;
-  for (const event of events) {
-    if (event.type === 'message_start' && typeof event.payload.messageId === 'string') {
-      openMessageId = event.payload.messageId;
-      terminalMessageId = undefined;
-    } else if (event.type === 'message_end' && event.payload.messageId === openMessageId)
-      openMessageId = undefined;
-    else if (event.type === 'session_end' && openMessageId) {
-      terminalMessageId = openMessageId;
-      openMessageId = undefined;
-    } else if (event.type === 'user_message') {
-      terminalMessageId = undefined;
-    }
-  }
-
   const attachSubagent = replaySubagents(events);
-  const messages = replayEventsToMessages(closedEvents, initialPrompt).map((message) => ({
-    ...message,
-    blocks: message.blocks.map((block) => attachSubagent(message.messageId, block, false)),
-  }));
-  const targetMessageId = openMessageId ?? terminalMessageId;
-  if (!targetMessageId) return { messages, current: null };
-
-  const blocks = new Map<string, RestoredCurrentMessage['blocks'][number]>();
-  const blockOrder: string[] = [];
+  const messages: RestoredMessage[] = [];
+  type ReplayBlock = RestoredCurrentMessage['blocks'][number];
+  let turn: {
+    messageId: string;
+    timestamp: number;
+    startedSeq: number;
+    index: number;
+    blocks: Map<string, ReplayBlock>;
+  } | null = null;
   const toolResults = new Map<string, Record<string, unknown>>();
   for (const event of events) {
     if (event.type === 'tool_result' && typeof event.payload.toolId === 'string')
       toolResults.set(event.payload.toolId, event.payload);
   }
+
+  // Legacy sessions persisted their first user prompt after message_start.
+  // Keep that compatibility while ordering every subsequent event as stored.
+  let seenStart = false;
+  let seenEnd = false;
+  let seenUser = false;
+  let legacyInitial: (typeof events)[number] | undefined;
+  for (const event of events) {
+    if (event.type === 'user_message') {
+      if (!initialPrompt && seenStart && !seenEnd && !seenUser) legacyInitial = event;
+      seenUser = true;
+    }
+    if (event.type === 'message_start') seenStart = true;
+    if (event.type === 'message_end' || event.type === 'session_end') seenEnd = true;
+  }
+  const promptEvent = initialPrompt
+    ? events.find((event) => event.type === 'user_message' && event.payload.text === initialPrompt)
+    : legacyInitial;
+  const userMessage = (event: (typeof events)[number]): RestoredMessage => {
+    const payload = event.payload;
+    const messageId = payload.messageId as string;
+    return {
+      messageId,
+      role: 'user',
+      timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
+      startedSeq: event.seq,
+      images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
+      contextBlocks: Array.isArray(payload.contextBlocks)
+        ? (payload.contextBlocks as string[])
+        : undefined,
+      blocks: [
+        { blockId: `user-${messageId}`, blockType: 'text', content: payload.text as string },
+      ],
+    };
+  };
+  if (initialPrompt) {
+    const firstStart = events.findIndex((event) => event.type === 'message_start');
+    const hoistedPrompt =
+      promptEvent && firstStart >= 0 && firstStart < events.indexOf(promptEvent);
+    const prompt = promptEvent
+      ? userMessage(promptEvent)
+      : {
+          messageId: 'umsg-initial',
+          role: 'user',
+          blocks: [{ blockId: 'user-initial', blockType: 'text', content: initialPrompt }],
+        };
+    messages.push({
+      ...prompt,
+      ...(hoistedPrompt ? { startedSeq: undefined } : {}),
+      timestamp: events[0]?.createdAt,
+    });
+  } else if (legacyInitial) {
+    const hoisted = userMessage(legacyInitial);
+    delete hoisted.startedSeq;
+    messages.push(hoisted);
+  }
+
+  const materializeBlocks = (active: boolean) => {
+    if (!turn) return [];
+    return [...turn.blocks.values()].map((block) => {
+      const result = block.toolId ? toolResults.get(block.toolId) : undefined;
+      const restored = {
+        ...block,
+        ...(result && typeof result.result === 'string' ? { toolResult: result.result } : {}),
+        ...(result && typeof result.isError === 'boolean' ? { toolError: result.isError } : {}),
+        ...(result && Array.isArray(result.images)
+          ? { toolResultImages: result.images as Array<{ id: string; mediaType: string }> }
+          : {}),
+      };
+      return { ...block, ...attachSubagent(turn!.messageId, restored, active) };
+    });
+  };
+  const finishTurn = () => {
+    if (!turn) return;
+    const blocks = materializeBlocks(false).map(({ done: _done, ...block }) => block);
+    if (blocks.length > 0)
+      messages[turn.index] = {
+        messageId: turn.messageId,
+        role: 'assistant',
+        timestamp: turn.timestamp,
+        startedSeq: turn.startedSeq,
+        blocks,
+      };
+    else messages.splice(turn.index, 1);
+    turn = null;
+  };
+
   for (const event of events) {
     const payload = event.payload;
-    if (event.type === 'message_start' && payload.messageId === targetMessageId) {
-      blocks.clear();
-      blockOrder.length = 0;
-    } else if (payload.messageId === targetMessageId && event.type === 'block_start') {
-      if (typeof payload.blockId !== 'string' || typeof payload.blockType !== 'string') continue;
-      blocks.set(payload.blockId, {
-        blockId: payload.blockId,
-        blockType: payload.blockType,
-        content: '',
-        done: false,
-        ...(typeof payload.toolName === 'string' ? { toolName: payload.toolName } : {}),
-      });
-      if (!blockOrder.includes(payload.blockId)) blockOrder.push(payload.blockId);
-    } else if (payload.messageId === targetMessageId && event.type === 'block_delta') {
-      const block = blocks.get(payload.blockId as string);
-      if (block && typeof payload.delta === 'string') block.content += payload.delta;
-    } else if (payload.messageId === targetMessageId && event.type === 'block_end') {
-      const block = blocks.get(payload.blockId as string);
-      if (!block) continue;
-      block.done = true;
-      if (typeof payload.toolName === 'string') block.toolName = payload.toolName;
-      if (typeof payload.toolId === 'string') block.toolId = payload.toolId;
-      if (typeof payload.input === 'string') block.toolInput = payload.input;
-      if (payload.rawInput) block.rawInput = payload.rawInput;
+    switch (event.type) {
+      case 'user_message':
+        if (event === promptEvent) break;
+        messages.push(userMessage(event));
+        break;
+      case 'message_start':
+        finishTurn();
+        if (typeof payload.messageId === 'string') {
+          const timestamp = typeof payload.ts === 'number' ? payload.ts : event.createdAt;
+          turn = {
+            messageId: payload.messageId,
+            timestamp,
+            startedSeq: event.seq,
+            index: messages.length,
+            blocks: new Map(),
+          };
+          messages.push({
+            messageId: payload.messageId,
+            role: 'assistant',
+            timestamp,
+            startedSeq: event.seq,
+            blocks: [],
+          });
+        }
+        break;
+      case 'block_start':
+        if (
+          turn &&
+          payload.messageId === turn.messageId &&
+          typeof payload.blockId === 'string' &&
+          typeof payload.blockType === 'string'
+        )
+          turn.blocks.set(payload.blockId, {
+            blockId: payload.blockId,
+            blockType: payload.blockType,
+            content: '',
+            done: false,
+            ...(typeof payload.toolName === 'string' ? { toolName: payload.toolName } : {}),
+          });
+        break;
+      case 'block_delta': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (block && typeof payload.delta === 'string') block.content += payload.delta;
+        break;
+      }
+      case 'block_end': {
+        if (!turn || payload.messageId !== turn.messageId) break;
+        const block = turn.blocks.get(payload.blockId as string);
+        if (!block) break;
+        block.done = true;
+        if (typeof payload.toolName === 'string') block.toolName = payload.toolName;
+        if (typeof payload.toolId === 'string') block.toolId = payload.toolId;
+        if (typeof payload.input === 'string') block.toolInput = payload.input;
+        if (payload.rawInput) block.rawInput = payload.rawInput;
+        break;
+      }
+      case 'message_end':
+        if (turn && payload.messageId === turn.messageId) finishTurn();
+        break;
+      case 'session_end':
+        finishTurn();
+        break;
     }
   }
-
-  for (const block of blocks.values()) {
-    const result = block.toolId ? toolResults.get(block.toolId) : undefined;
-    if (!result) continue;
-    if (typeof result.result === 'string') block.toolResult = result.result;
-    if (typeof result.isError === 'boolean') block.toolError = result.isError;
-    if (Array.isArray(result.images))
-      block.toolResultImages = result.images as Array<{ id: string; mediaType: string }>;
-  }
-
-  const withoutTarget = messages.filter((message) => message.messageId !== targetMessageId);
-  const snapshotBlocks = blockOrder.map((id) => ({
-    ...blocks.get(id)!,
-    ...attachSubagent(targetMessageId, blocks.get(id)!, !!openMessageId),
-  }));
-  if (terminalMessageId && !openMessageId) {
-    if (snapshotBlocks.length > 0) {
-      const finished = {
-        messageId: terminalMessageId,
-        role: 'assistant',
-        blocks: snapshotBlocks.map(({ done: _done, ...block }) => block),
-      };
-      const targetIndex = messages.findIndex((message) => message.messageId === terminalMessageId);
-      if (targetIndex >= 0) withoutTarget.splice(targetIndex, 0, finished);
-      else withoutTarget.push(finished);
-    }
-    return { messages: withoutTarget, current: null };
-  }
+  if (turn) messages.splice(turn.index, 1);
   return {
-    messages: withoutTarget,
-    current: { messageId: targetMessageId, blocks: snapshotBlocks },
+    messages,
+    current: turn
+      ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
+      : null,
   };
 }
 

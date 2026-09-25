@@ -371,6 +371,71 @@ describe('newSession', () => {
 });
 
 describe('reconnect recovery', () => {
+  it('replays a late delta and terminal after a bounded cursor that already includes a follow-up user', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=5'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 5,
+      cursorValid: true,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'assistant',
+      blockId: 'partial',
+      blockType: 'text',
+      delta: 'after',
+      seq: 6,
+    });
+    lastWs.simulateMessage({ type: 'session_end', sessionId: 'sess-1', seq: 7 });
+    releaseRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [
+            {
+              messageId: 'initial',
+              role: 'user',
+              startedSeq: 1,
+              blocks: [{ blockId: 'u1', blockType: 'text', content: 'start' }],
+            },
+            {
+              messageId: 'followup',
+              role: 'user',
+              startedSeq: 5,
+              blocks: [{ blockId: 'u2', blockType: 'text', content: 'interrupt' }],
+            },
+          ],
+          current: {
+            messageId: 'assistant',
+            startedSeq: 2,
+            blocks: [{ blockId: 'partial', blockType: 'text', content: 'before ', done: false }],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.current).toBeNull();
+    expect(store.getState().messages.messages.map(({ messageId }) => messageId)).toEqual([
+      'initial',
+      'assistant',
+      'followup',
+    ]);
+    expect(store.getState().messages.messages[1].blocks[0].content).toBe('before after');
+  });
+
   it('applies the same bounded streaming transcript through SSE', async () => {
     const transport = mockTransport();
     (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
