@@ -3222,10 +3222,42 @@ function replaySingleEventsToTranscript(
     index: number;
     blocks: Map<string, ReplayBlock>;
   } | null = null;
+  // Tool IDs can be reused by later turns. Bind each result to the exact
+  // message/block occurrence in event order, including legacy results that
+  // omitted messageId while a turn was active.
   const toolResults = new Map<string, Record<string, unknown>>();
+  const pendingResults = new Map<string, Array<Record<string, unknown>>>();
+  const pendingBlocks = new Map<string, string[]>();
+  let activeMessageId: string | null = null;
   for (const event of events) {
-    if (event.type === 'tool_result' && typeof event.payload.toolId === 'string')
-      toolResults.set(event.payload.toolId, event.payload);
+    const p = event.payload;
+    if (event.type === 'message_start' && typeof p.messageId === 'string')
+      activeMessageId = p.messageId;
+    if (event.type === 'tool_result' && typeof p.toolId === 'string') {
+      const messageId = typeof p.messageId === 'string' ? p.messageId : activeMessageId;
+      if (!messageId) continue;
+      const key = JSON.stringify([messageId, p.toolId]);
+      const waiting = pendingBlocks.get(key);
+      if (waiting?.length) toolResults.set(JSON.stringify([messageId, waiting.shift()]), p);
+      else pendingResults.set(key, [...(pendingResults.get(key) ?? []), p]);
+    }
+    if (
+      event.type === 'block_end' &&
+      typeof p.messageId === 'string' &&
+      typeof p.blockId === 'string' &&
+      typeof p.toolId === 'string'
+    ) {
+      const key = JSON.stringify([p.messageId, p.toolId]);
+      const waiting = pendingResults.get(key);
+      if (waiting?.length)
+        toolResults.set(JSON.stringify([p.messageId, p.blockId]), waiting.shift()!);
+      else pendingBlocks.set(key, [...(pendingBlocks.get(key) ?? []), p.blockId]);
+    }
+    if (
+      (event.type === 'message_end' && p.messageId === activeMessageId) ||
+      event.type === 'session_end'
+    )
+      activeMessageId = null;
   }
 
   // Legacy sessions persisted their first user prompt after message_start.
@@ -3287,7 +3319,9 @@ function replaySingleEventsToTranscript(
   const materializeBlocks = (active: boolean) => {
     if (!turn) return [];
     return [...turn.blocks.values()].map((block) => {
-      const result = block.toolId ? toolResults.get(block.toolId) : undefined;
+      const result = block.toolId
+        ? toolResults.get(JSON.stringify([turn!.messageId, block.blockId]))
+        : undefined;
       const restored = {
         ...block,
         ...(result && typeof result.result === 'string' ? { toolResult: result.result } : {}),
@@ -3406,6 +3440,7 @@ export function replayEventsToTranscript(
     string,
     { messageId: string; snapshotKey: string; blockIds: Set<string> }
   >();
+  const completedBySeat = new Map<string, { messageId: string; snapshotKey: string }>();
   for (const event of events) {
     if (event.seatId === undefined && event.symposiumProvenance === undefined) {
       if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
@@ -3432,10 +3467,28 @@ export function replayEventsToTranscript(
         snapshotKey: key,
         blockIds: new Set(),
       });
+      completedBySeat.delete(parsed.data.seatId);
     } else if (event.type === 'message_end') {
-      if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
+      const completed = completedBySeat.get(parsed.data.seatId);
+      if (
+        !active &&
+        completed?.messageId === event.payload.messageId &&
+        completed?.snapshotKey === key
+      ) {
+        // A duplicate durable terminal is idempotent for this exact turn.
+      } else if (
+        !active ||
+        active.messageId !== event.payload.messageId ||
+        active.snapshotKey !== key
+      )
         throw new Error('Stored Symposium message_end mismatches active seat turn');
-      openBySeat.delete(parsed.data.seatId);
+      else {
+        completedBySeat.set(parsed.data.seatId, {
+          messageId: active.messageId,
+          snapshotKey: active.snapshotKey,
+        });
+        openBySeat.delete(parsed.data.seatId);
+      }
     } else if (event.type === 'session_end') {
       if (active && active.snapshotKey !== key)
         throw new Error('Stored Symposium terminal mismatches active seat snapshot');
