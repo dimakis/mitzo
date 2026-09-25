@@ -1,4 +1,4 @@
-# Manage work ownership and contract (O0)
+# Manage work ownership and role policy contracts (O0/O1)
 
 This contract separates one durable conversation from optional Telos intent, task-board
 execution, and ContexGin goal accounting. A standalone Symposium has a conversation
@@ -55,6 +55,34 @@ Recovery-required retries always need ambiguity confirmation, even if a later
 failure classification reports `ambiguous: false`. Work-result
 completion and criterion-level outcome verification are distinct records.
 
+## Role execution policy (O1)
+
+`ExecutionPolicySchema` versions each role policy independently. Its profile binding
+is separate from its explicit account, model and reasoning-effort selection. Goal,
+task and seat selection overrides resolve in that order of increasing precedence:
+seat wins over task, task over goal, and goal over the role default. Changed account,
+profile or grant references require an approved policy revision. A different model
+or effort on the same account is allowed only when listed as an explicit fallback or
+escalation in the policy; it consumes that mode's bounded counter even when selected
+through an override. The audit retains both the policy primary and the explicit
+requested selection, plus the actual binding, substitution reason, profile revision,
+grants and policy revision. No model tier or account substitution is inferred.
+If one selection appears under both fallback and escalation, the requested mode must
+identify which authorization applies; an ambiguous inferred mode requires a decision.
+
+`resolveRoleExecution` checks the current `AccountProfiles` catalog and model/effort
+validation, then requires injected evidence for runtime route, tools and context
+capability. These checks establish a **selection**, not a provider attachment or
+durable dispatch. Pricing is either a known upper-bound quote or explicitly unknown.
+An unknown price never becomes zero; with a cost cap it requires the policy's
+explicit unknown-cost allowance, while token and attempt ceilings still apply.
+The resolver returns work-order-compatible account, effort, grant, budget and policy
+pins. The work-order budget is the remaining attempts, tokens and cost allowance
+after prior usage, so another attempt cannot replenish the policy ceiling. The host
+must persist the audit and use O0's atomic dispatch/ownership fences
+before runtime execution. Live multi-seat provider routing and policy editing UI
+remain separate integration work.
+
 ## Handover
 
 The H1 manifest pins source and successor conversation IDs, exact package and input
@@ -82,7 +110,6 @@ turn reconciliation, not copied provider threads or approvals.
   fixes. A durable conversation/worker link and crash reconciliation still belong
   to O2; old UI changes are not an O0 dependency.
 
-O1 can build role routing against `WorkOrderSchema` and existing account/model
-discovery. O2 can build SessionService and durable dispatch against the O0 identity,
+O2 can build SessionService and durable dispatch against the O0 identity,
 attempt and handover contracts. Phase 3 Symposium runtime waits for Phase 2.5,
 O1/O2 and the separate runtime canaries. This document does not claim live execution.
