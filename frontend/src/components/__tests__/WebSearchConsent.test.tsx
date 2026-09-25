@@ -14,7 +14,7 @@ afterEach(() => {
 const response = (grant: string, revision: number) =>
   ({
     ok: true,
-    json: async () => ({ ok: true, grant, revision, updatedAt: null, owner: true }),
+    json: async () => ({ ok: true, grant, revision, updatedAt: null }),
   }) as Response;
 
 it('shows the explicit provider-hosted choice and updates the revision-bound grant', async () => {
@@ -85,12 +85,11 @@ it('keeps consent visible for a watcher without taking control', async () => {
         grant: 'unresolved',
         revision: 0,
         updatedAt: null,
-        owner: false,
       }),
     } as Response)
     .mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ ok: true, grant: 'allowed', revision: 1, updatedAt: 123, owner: false }),
+      json: async () => ({ ok: true, grant: 'allowed', revision: 1, updatedAt: 123 }),
     } as Response);
   render(
     <WebSearchConsent
@@ -105,6 +104,32 @@ it('keeps consent visible for a watcher without taking control', async () => {
   expect(screen.getByText(/applies to the conversation in all tabs/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: 'Allow for this conversation' }));
   await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+});
+
+it('denies access with the current revision', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('allowed', 4))
+    .mockResolvedValueOnce(response('denied', 5));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="watcher"
+      running={false}
+    />,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Web search permission: Allowed' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+  expect(vi.mocked(apiFetch)).toHaveBeenNthCalledWith(
+    2,
+    '/api/chat/web-search-consent',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ sessionId: 'session-1', expectedRevision: 4, grant: 'denied' }),
+    }),
+  );
 });
 
 it('shows the current consent during a running turn while keeping edits disabled', async () => {

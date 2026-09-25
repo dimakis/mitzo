@@ -455,7 +455,6 @@ describe('chat-rest-handler', () => {
         grant: 'unresolved',
         revision: 0,
         updatedAt: null,
-        owner: true,
       });
 
       const updated = await request(testApp)
@@ -521,14 +520,14 @@ describe('chat-rest-handler', () => {
         .get('/api/chat/web-search-consent/sess-1')
         .set('X-Connection-ID', watcher);
       expect(read.status).toBe(200);
-      expect(read.body.owner).toBe(false);
+      expect(read.body.grant).toBe('unresolved');
 
       const update = await request(testApp)
         .post('/api/chat/web-search-consent')
         .set('X-Connection-ID', watcher)
         .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
       expect(update.status).toBe(200);
-      expect(update.body.owner).toBe(false);
+      expect(sessions.get(`${CONNECTION_ID}:sess-1`)?.ownerConnectionId).toBeUndefined();
       expect(setWebSearchGrant).toHaveBeenCalledWith(0, 'allowed');
     } finally {
       sessions.dispose();
@@ -574,6 +573,29 @@ describe('chat-rest-handler', () => {
       (session as { mode: string }).mode = 'ask';
       return action();
     });
+    try {
+      const response = await request(testApp)
+        .post('/api/chat/web-search-consent')
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ sessionId: 'sess-1', expectedRevision: 0, grant: 'allowed' });
+      expect(response.status).toBe(409);
+      expect(setWebSearchGrant).not.toHaveBeenCalled();
+    } finally {
+      sessions.dispose();
+    }
+  });
+
+  it('rejects Allow while a restrictive Ask mode change is pending', async () => {
+    const sessions = new SessionRegistry();
+    handlerContext.sessionRegistry = sessions;
+    const setWebSearchGrant = vi.fn();
+    sessions.register(`${CONNECTION_ID}:sess-1`, {
+      sessionId: 'sess-1',
+      mode: 'agent',
+      pendingPermissionModes: new Map([[Symbol('pending Ask'), 'ask']]),
+      abortController: new AbortController(),
+      queryInstance: { setWebSearchGrant },
+    } as never);
     try {
       const response = await request(testApp)
         .post('/api/chat/web-search-consent')

@@ -9,7 +9,6 @@ const Consent = z.object({
   grant: z.enum(['unresolved', 'denied', 'allowed']),
   revision: z.number().int().nonnegative(),
   updatedAt: z.number().nullable(),
-  owner: z.boolean(),
 });
 type ConsentState = z.infer<typeof Consent>;
 
@@ -70,7 +69,7 @@ export function WebSearchConsent({
       cancelled = true;
       controller.abort();
     };
-  }, [sessionId, connected, connectionId, running, reload]);
+  }, [sessionId, connected, connectionId, reload]);
 
   async function update(grant: 'allowed' | 'denied') {
     if (!sessionId || !consent || saving || running || !connected || !connectionId) return;
@@ -135,7 +134,7 @@ export function WebSearchConsent({
               mode.
             </p>
           )}
-          {!consent.owner && <p>This setting applies to the conversation in all tabs.</p>}
+          <p>This setting applies to the conversation in all tabs.</p>
           <div className="web-search-consent-actions">
             <button
               type="button"

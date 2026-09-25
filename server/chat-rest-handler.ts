@@ -43,6 +43,7 @@ import {
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
+import { effectivePermissionMode } from '@mitzo/harness';
 import { createLogger } from './logger.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { z } from 'zod';
@@ -363,11 +364,7 @@ export function createChatRestRouter(
       res.status(404).json({ ok: false, error: 'Codex conversation not found' });
       return;
     }
-    res.json({
-      ok: true,
-      ...found.session.queryInstance.getWebSearchGrant(),
-      owner: ownerConnection === connectionId,
-    });
+    res.json({ ok: true, ...found.session.queryInstance.getWebSearchGrant() });
   });
 
   router.post('/web-search-consent', async (req, res) => {
@@ -392,7 +389,7 @@ export function createChatRestRouter(
       const updated = await serializeSessionPermissionChange(found.session, async () => {
         if (ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session !== found.session)
           throw new Error('Session changed during web-search consent update');
-        if (msg.grant === 'allowed' && found.session.mode === 'ask')
+        if (msg.grant === 'allowed' && effectivePermissionMode(found.session) === 'ask')
           throw new Error('Switch to Agent or Auto before allowing web search');
         const currentOwner = found.session.ownerConnectionId ?? getOwnerConnection(found.clientId);
         if (
@@ -402,12 +399,7 @@ export function createChatRestRouter(
           throw new Error('Connection no longer watches this conversation');
         return found.session.queryInstance!.setWebSearchGrant!(msg.expectedRevision, msg.grant);
       });
-      res.json({
-        ok: true,
-        ...updated,
-        owner:
-          (found.session.ownerConnectionId ?? getOwnerConnection(found.clientId)) === connectionId,
-      });
+      res.json({ ok: true, ...updated });
     } catch (error) {
       log.warn('web-search consent update rejected', {
         connectionId,

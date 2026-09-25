@@ -19,6 +19,7 @@ const accounts = JSON.parse(readFileSync(accountsFile, 'utf8'));
 const account = accounts.find((item) => item.id === accountId && item.provider === 'openai-codex');
 if (!account?.models?.some((item) => item.id === model) || !account.credentialRef)
   throw new Error('Luna model is not configured on the selected Codex account');
+// Pin the exact CLI build used to verify this live acceptance protocol.
 const version = spawnSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000 });
 if (version.status !== 0 || version.stdout.trim() !== 'codex-cli 0.153.4')
   throw new Error('Live acceptance requires codex-cli 0.153.4');
