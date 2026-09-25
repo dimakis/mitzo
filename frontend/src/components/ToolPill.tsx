@@ -4,9 +4,11 @@ import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat'
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
+import { artifactViewerUrl } from '../lib/file-paths';
 
 interface Props {
   block: ToolBlock;
+  sessionId?: string;
 }
 
 function RawInputDetail({
@@ -128,7 +130,7 @@ function ToolResult({
   );
 }
 
-export function ToolPill({ block }: Props) {
+export function ToolPill({ block, sessionId }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
@@ -139,11 +141,9 @@ export function ToolPill({ block }: Props) {
   const handlePopOut = useCallback(
     (filePath: string) => {
       const currentPath = location.pathname + location.search;
-      navigate(
-        `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-      );
+      navigate(artifactViewerUrl(filePath, currentPath, sessionId));
     },
-    [navigate, location],
+    [navigate, location, sessionId],
   );
 
   return (
@@ -182,6 +182,7 @@ export function ToolPill({ block }: Props) {
       {block.subagent && (
         <SubagentCard
           subagent={block.subagent}
+          sessionId={sessionId}
           description={block.rawInput?.type === 'agent' ? block.rawInput.description : undefined}
         />
       )}

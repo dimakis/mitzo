@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { registerPending, resolvePending, removePending, hasPending } from '../permissions.js';
+import {
+  registerPending,
+  resolvePending,
+  removePending,
+  hasPending,
+  getPendingSessionId,
+} from '../permissions.js';
 
 describe('permissions module', () => {
   const permId = 'test-perm-001';
@@ -16,6 +22,13 @@ describe('permissions module', () => {
   it('registerPending makes hasPending return true', () => {
     registerPending(permId, 'Bash', () => {}, toolInput);
     expect(hasPending(permId)).toBe(true);
+  });
+
+  it('returns the owning session only while an approval is pending', () => {
+    registerPending(permId, 'Bash', () => {}, toolInput, 'elevated', 'sess-1');
+    expect(getPendingSessionId(permId)).toBe('sess-1');
+    removePending(permId);
+    expect(getPendingSessionId(permId)).toBeUndefined();
   });
 
   it('resolvePending with "once" calls resolver with allow + user_temporary + updatedInput', () => {

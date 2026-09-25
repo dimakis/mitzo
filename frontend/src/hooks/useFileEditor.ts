@@ -1,7 +1,12 @@
 import { useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
-export function useFileEditor(content: string, filePath: string, onError: (msg: string) => void) {
+export function useFileEditor(
+  content: string,
+  filePath: string,
+  onError: (msg: string) => void,
+  sessionId?: string,
+) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -32,7 +37,7 @@ export function useFileEditor(content: string, filePath: string, onError: (msg: 
       const res = await apiFetch('/api/files/write', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: filePath, content: editContent }),
+        body: JSON.stringify({ path: filePath, content: editContent, sessionId }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Save failed' }));

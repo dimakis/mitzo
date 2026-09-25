@@ -2,6 +2,10 @@
 set -eu
 export PATH="/opt/mgmt-venv/bin:$PATH"
 /sandbox/initialize-mitzo-workspace /sandbox/workspaces/mgmt
+if [ "$(codex --version)" != "codex-cli 0.153.4" ]; then
+  echo "Unsupported Codex CLI version; expected 0.153.4" >&2
+  exit 1
+fi
 # Authentication is substituted only in the Authorization header. Keep JSON
 # uncompressed so the streaming guard can reject real credential identities
 # in conversation data without mistaking documentation examples for secrets.

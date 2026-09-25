@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { SessionTransport } from '../../packages/harness/src/session-transport.js';
 import { ConnectionRegistry } from '../../packages/harness/src/connection-registry.js';
 import { runQueryLoop } from '../query-loop.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 import { EventStore } from '../event-store.js';
 import type { Span as OTelSpan } from '@opentelemetry/api';
@@ -1772,6 +1773,83 @@ describe('runQueryLoop', () => {
       expect(sessionMeta!.outputTokens).toBe(0);
       expect(sessionMeta!.numTurns).toBe(0);
       expect(sessionMeta!.totalCostUsd).toBe(0);
+    });
+
+    it('persists completion usage when the stream ends before the SDK result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-completion-without-result';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+
+      await runQueryLoop(
+        eventStream([
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_start',
+              message: { id: 'msg-completion', usage: { input_tokens: 0, output_tokens: 0 } },
+            },
+          },
+          {
+            type: 'stream_event',
+            parent_tool_use_id: null,
+            event: {
+              type: 'message_delta',
+              usage: {
+                input_tokens: 1200,
+                output_tokens: 300,
+                cache_read_input_tokens: 400,
+                cache_creation_input_tokens: 100,
+              },
+            },
+          },
+        ]),
+        clientId,
+        registry,
+        abortController,
+        store,
+      );
+
+      expect(store.getSession(sessionId)).toMatchObject({
+        inputTokens: 1200,
+        outputTokens: 300,
+        cacheReadTokens: 400,
+        cacheCreationTokens: 100,
+        numTurns: 1,
+        state: 'ENDED',
+      });
+    });
+
+    it('persists one Codex turn when several renderer blocks end without a result', async () => {
+      const store = new EventStore(':memory:');
+      const sessionId = 'sess-codex-fallback';
+      registry.get(clientId)!.sessionId = sessionId;
+      store.upsertSession({ sessionId, cwd: '/tmp' });
+      const events: Record<string, unknown>[] = [];
+      const mapper = new CodexSessionEvents(sessionId, 'thread-codex', 'model', (event) =>
+        events.push(event),
+      );
+      mapper.notification('turn/started', {
+        threadId: 'thread-codex',
+        turn: { id: 'turn-1' },
+      });
+      mapper.notification('item/reasoning/summaryTextDelta', {
+        threadId: 'thread-codex',
+        itemId: 'reasoning-1',
+        summaryIndex: 0,
+        delta: 'Thinking',
+      });
+      mapper.notification('item/agentMessage/delta', {
+        threadId: 'thread-codex',
+        itemId: 'message-1',
+        delta: 'Answer',
+      });
+      mapper.toolStart('provider-tool-1', 'Read', { file_path: 'README.md' });
+
+      await runQueryLoop(eventStream(events), clientId, registry, abortController, store);
+
+      expect(store.getSession(sessionId)).toMatchObject({ numTurns: 1, state: 'ENDED' });
     });
 
     it('records fallback usage on external abort', async () => {

@@ -37,6 +37,7 @@ vi.mock('../skill-policy.js', () => ({
 
 vi.mock('../permissions.js', () => ({
   resolvePending: vi.fn(),
+  getPendingSessionId: vi.fn(),
   getPendingRequestsBySession: vi.fn().mockReturnValue([]),
   denyPendingBySession: vi.fn().mockReturnValue(0),
 }));
@@ -57,6 +58,7 @@ import { setSkillPolicy, clearSkillPolicy } from '../skill-policy.js';
 import { resolveSlashCommand } from '../slash-commands.js';
 import {
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
   resolvePending,
 } from '../permissions.js';
@@ -82,6 +84,7 @@ import {
   type V2HandlerContext,
 } from '../ws-handler-v2.js';
 import { NativeCommandRegistry } from '../native-commands.js';
+import { isAllowedPath } from '../app.js';
 
 function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -1516,6 +1519,45 @@ describe('handleStopV2', () => {
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
 
 describe('handlePermissionResponseV2', () => {
+  it('rejects the former owner after reconnect and lets the new owner approve', () => {
+    vi.mocked(getPendingSessionId).mockReturnValue('sess-1');
+    vi.mocked(resolvePending).mockReturnValue(true);
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'old-conn:sess-1',
+      session: { ownerConnectionId: 'new-conn' },
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    const oldTransport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', mockTransport());
+    const response = {
+      type: 'permission_response' as const,
+      permId: 'p1',
+      decision: 'once' as const,
+    };
+
+    expect(handlePermissionResponseV2('old-conn', response, ctx)).toBe(false);
+    expect(oldTransport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_response_rejected', permId: 'p1' }),
+    );
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(
+      handlePermissionResponseV2('new-conn', { ...response, sessionId: 'other-session' }, ctx),
+    ).toBe(false);
+    expect(resolvePending).not.toHaveBeenCalled();
+
+    expect(handlePermissionResponseV2('new-conn', { ...response, sessionId: 'sess-1' }, ctx)).toBe(
+      true,
+    );
+    expect(resolvePending).toHaveBeenCalledWith('p1', 'once', undefined, 'sess-1');
+    vi.mocked(getPendingSessionId).mockReset();
+    vi.mocked(resolvePending).mockReset();
+  });
+
   it('calls resolvePending with correct args', () => {
     const ctx = createContext();
     expect(() =>
@@ -1855,8 +1897,9 @@ describe('handleSendV2 routing', () => {
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValue({ type: 'passthrough' });
   });
 
-  it('validates cwd via isAllowedPath', () => {
+  it('does not pass a disallowed client cwd to startChat', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
+    vi.mocked(isAllowedPath).mockReturnValueOnce(false);
 
     const ctx = createContext();
     const transport = mockTransport();
@@ -1876,6 +1919,12 @@ describe('handleSendV2 routing', () => {
     );
 
     expect(startChat).toHaveBeenCalledTimes(1);
+    expect(startChat).toHaveBeenCalledWith(
+      transport,
+      expect.any(String),
+      'hi',
+      expect.objectContaining({ cwd: '/tmp/test-repo' }),
+    );
   });
 });
 
@@ -4150,6 +4199,40 @@ describe('handleSessionSuspend', () => {
 // ─── handleReconnect — suspend resume ───────────────────────────────────────
 
 describe('handleReconnect suspend resume', () => {
+  it('keeps a pending approval actionable when the app resumes on a new connection', () => {
+    const sessionReg = new SessionRegistry();
+    const oldTransport = mockTransport();
+    sessionReg.register('old-conn:sess-1', {
+      abortController: new AbortController(),
+      mode: 'agent',
+      ownerConnectionId: 'old-conn',
+      sessionAllowList: new Set(),
+      sessionId: 'sess-1',
+      transport: oldTransport,
+    });
+    sessionReg.suspend('old-conn:sess-1', 0);
+
+    const ctx = createContext({ sessionRegistry: sessionReg });
+    const transport = mockTransport();
+    ctx.connRegistry.register('old-conn', oldTransport);
+    ctx.connRegistry.register('new-conn', transport);
+    vi.mocked(getPendingRequestsBySession).mockReturnValueOnce([
+      { permId: 'pending-approval', toolName: 'Bash', toolInput: '{}', sessionId: 'sess-1' },
+    ]);
+    vi.mocked(denyPendingBySession).mockClear();
+
+    handleReconnect(
+      'new-conn',
+      { type: 'reconnect', sessions: [{ sessionId: 'sess-1', lastSeq: 0 }] },
+      ctx,
+    );
+
+    expect(denyPendingBySession).not.toHaveBeenCalled();
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({ type: 'permission_request', permId: 'pending-approval' }),
+    );
+  });
+
   it('takes over, reconciles, and resumes a real suspended session before durable replay', () => {
     const sessionReg = new SessionRegistry();
     const oldTransport = mockTransport();

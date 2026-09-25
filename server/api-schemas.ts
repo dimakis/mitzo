@@ -7,7 +7,38 @@ export const LoginBody = z.object({
 export const ConnectionReauthorizeBody = z
   .object({ passphrase: z.string().min(1).max(1024) })
   .strict();
-export const ConnectionCreateBody = z
+const ConnectionPublicFieldValue = z.union([
+  z.string().trim().min(1).max(2_048),
+  z.array(z.string().trim().min(1).max(2_048)).min(1).max(100),
+]);
+const boundedRecord = <T extends z.ZodTypeAny>(value: T, max: number) =>
+  z.record(z.string().regex(/^[a-z][A-Za-z0-9]*$/), value).superRefine((record, context) => {
+    if (Object.keys(record).length > max)
+      context.addIssue({ code: 'custom', message: `At most ${max} fields are allowed` });
+  });
+const ConnectionCredentials = boundedRecord(z.string().min(1).max(4096), 10);
+const GenericConnectionCreateBody = z
+  .object({
+    templateId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+    templateVersion: z.number().int().positive(),
+    label: z.string().trim().min(1).max(100),
+    fields: boundedRecord(ConnectionPublicFieldValue, 20),
+    credentials: ConnectionCredentials,
+    accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      value.templateId === 'custom-rest-readonly' &&
+      Object.prototype.hasOwnProperty.call(value.fields, 'dnsPin')
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['fields', 'dnsPin'],
+        message: 'DNS pins are gateway-derived and cannot be submitted',
+      });
+  });
+const LegacyJiraConnectionCreateBody = z
   .object({
     label: z.string().trim().min(1).max(100),
     email: z.string().email().max(320),
@@ -15,19 +46,35 @@ export const ConnectionCreateBody = z
     accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
   })
   .strict();
+/** The legacy branch is retained only while the Jira UI migrates in Phase 2. */
+export const ConnectionCreateBody = z.union([
+  GenericConnectionCreateBody,
+  LegacyJiraConnectionCreateBody,
+]);
 export const ConnectionRevisionBody = z
   .object({ revision: z.number().int().positive(), csrf: z.string().min(20).max(200) })
   .strict();
 export const ConnectionAssignmentsBody = ConnectionRevisionBody.extend({
   accountIds: z.array(z.string().regex(/^[A-Za-z0-9_-]+$/)).max(20),
 }).strict();
-export const ConnectionRotateBody = ConnectionRevisionBody.extend({
-  token: z.string().min(1).max(4096),
+export const ConnectionCapabilitiesBody = ConnectionRevisionBody.extend({
+  capabilityId: z.string().regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/),
+  capabilityVersion: z.number().int().positive(),
+  accountIds: z
+    .array(z.string().regex(/^[A-Za-z0-9_-]+$/))
+    .min(1)
+    .max(20),
+  status: z.enum(['active', 'revoked']),
 }).strict();
+export const ConnectionRotateBody = z.union([
+  ConnectionRevisionBody.extend({ credentials: ConnectionCredentials }).strict(),
+  ConnectionRevisionBody.extend({ token: z.string().min(1).max(4096) }).strict(),
+]);
 
 export const FileWriteBody = z.object({
   path: z.string().min(1),
   content: z.string(),
+  sessionId: z.string().min(1).optional(),
 });
 
 export const PermissionDecision = z.enum(['once', 'always', 'deny']);

@@ -88,11 +88,14 @@ describe('CORS middleware', () => {
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
-  it('handles OPTIONS preflight with 204', async () => {
-    const res = await request(app).options('/api/version').set('Origin', 'capacitor://localhost');
+  it('allows the capability route transport identity header in OPTIONS preflight', async () => {
+    const res = await request(app)
+      .options('/api/capability-operations')
+      .set('Origin', 'capacitor://localhost');
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBe('capacitor://localhost');
     expect(res.headers['access-control-allow-headers']).toContain('Authorization');
+    expect(res.headers['access-control-allow-headers']).toContain('X-Connection-ID');
     expect(res.headers['access-control-allow-methods']).toContain('POST');
   });
 

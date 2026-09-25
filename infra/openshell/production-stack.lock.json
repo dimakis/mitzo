@@ -9,10 +9,10 @@
     }
   },
   "runtime": {
-    "image": "localhost/mitzo-mgmt-runtime:release-387c13ed-20260911",
-    "digest": "sha256:8e5e6f59bb89e2238cf8763d6ab143762d27b2d23edd7c5a9bab6f9373bb3c07",
-    "mitzoSourceCommit": "387c13ed7245230b70eac12759d0aa8cc07f31d0",
-    "mgmtSourceCommit": "c1413c0091075f3d3552993cb1a5468747217e64",
+    "image": "localhost/mitzo-mgmt-runtime:release-36731bd-bf59b381-20260924",
+    "digest": "sha256:02bc7dcac0e1d76b5e019fbc7bbc0ab6684b86eaf71ccc33e087e750340749b4",
+    "mitzoSourceCommit": "36731bd7017032e55c5ca40ae1fade0b498a04c8",
+    "mgmtSourceCommit": "bf59b38188eb9cbfbceb3ddbf5d669fe212445d9",
     "baseImage": "ghcr.io/nvidia/openshell-community/sandboxes/base@sha256:aeef1c63f00e2913ea002ccb3aaf925f338b5c5d70e63576f0d95c16a138044e",
     "requiredBinaries": ["/usr/bin/codex", "/usr/bin/gws", "/usr/bin/gh"]
   },

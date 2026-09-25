@@ -39,6 +39,54 @@ it('persists a canonical conversation and immutable account/model binding before
   expect(statSync(path).mode & 0o777).toBe(0o600);
   s.close();
 });
+it('migrates existing conversations to unresolved search authority and persists grants atomically', () => {
+  const { path } = setup();
+  const legacy = new Database(path);
+  legacy.exec(`CREATE TABLE codex_conversations (
+    id TEXT PRIMARY KEY, binding TEXT NOT NULL, cwd TEXT NOT NULL, thread_id TEXT,
+    thread_generation INTEGER NOT NULL DEFAULT 0,
+    recovery INTEGER NOT NULL DEFAULT 0,
+    recovery_strategy TEXT NOT NULL DEFAULT 'resume');
+    CREATE TABLE codex_commands (
+      sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
+      id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
+      recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
+      retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
+      UNIQUE(conversation_id,id));
+    CREATE TABLE codex_tools (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
+      PRIMARY KEY(conversation_id,call_id),
+      FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));`);
+  legacy
+    .prepare('INSERT INTO codex_conversations(id,binding,cwd) VALUES (?,?,?)')
+    .run(
+      'legacy',
+      JSON.stringify([binding.accountId, binding.provider, binding.model, binding.profileRevision]),
+      '/workspace',
+    );
+  legacy.close();
+
+  const s = new CodexConversationStore(path);
+  expect(s.readWebSearchGrant('legacy', binding)).toEqual({
+    grant: 'unresolved',
+    revision: 0,
+    updatedAt: null,
+  });
+  expect(s.setWebSearchGrant('legacy', binding, 0, 'allowed', 123)).toEqual({
+    grant: 'allowed',
+    revision: 1,
+    updatedAt: 123,
+  });
+  expect(() => s.setWebSearchGrant('legacy', binding, 0, 'denied', 124)).toThrow('concurrently');
+  s.close();
+  const reopened = new CodexConversationStore(path);
+  expect(reopened.readWebSearchGrant('legacy', binding)).toEqual({
+    grant: 'allowed',
+    revision: 1,
+    updatedAt: 123,
+  });
+  reopened.close();
+});
 it('deduplicates queued prompts and preserves pending work through restart without replaying running work', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -197,6 +245,51 @@ it('tracks provider thread generations and their last known-good turn atomically
   ).toThrow('generation changed');
   s.acknowledgeRecovery('c', binding);
   expect(s.read('c', binding).recoveryStrategy).toBe('resume');
+  s.close();
+});
+it('records tool-surface revisions across provider thread generations', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  expect(s.read('c', binding).toolSurfaceRevision).toBe('tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+  );
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-1',
+    threadGeneration: 1,
+    toolSurfaceRevision: 'tools-v2',
+  });
+  s.close();
+});
+it('carries an unconsumed rollover context through provider recovery', () => {
+  const { path } = setup();
+  const s = new CodexConversationStore(path);
+  s.create('c', binding, '/workspace', 'tools-v1');
+  s.bindThread('c', binding, 'thread-0', 'tools-v1');
+  s.replaceThread(
+    'c',
+    binding,
+    'thread-0',
+    'thread-1',
+    'tool_surface_change',
+    undefined,
+    'tools-v2',
+    'prior conversation',
+  );
+  s.replaceThread('c', binding, 'thread-1', 'thread-2', 'provider_transport_failure');
+
+  expect(s.read('c', binding)).toMatchObject({
+    threadId: 'thread-2',
+    rolloverContext: 'prior conversation',
+  });
   s.close();
 });
 it('exposes raw queued, running, and recovery state for lifecycle protection', () => {

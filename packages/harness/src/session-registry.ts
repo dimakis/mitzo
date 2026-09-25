@@ -52,6 +52,20 @@ export interface ManagedSession {
   queryInstance?: {
     /** Apply the shared Mitzo mode to provider runtime controls, when required. */
     setPermissionMode?: (mode: MitzoMode) => Promise<void>;
+    /** Apply explicit conversation-scoped native web-search consent. */
+    setWebSearchGrant?: (
+      expectedRevision: number,
+      grant: 'allowed' | 'denied',
+    ) => Promise<{
+      grant: 'unresolved' | 'allowed' | 'denied';
+      revision: number;
+      updatedAt: number | null;
+    }>;
+    getWebSearchGrant?: () => {
+      grant: 'unresolved' | 'allowed' | 'denied';
+      revision: number;
+      updatedAt: number | null;
+    };
     interrupt: () => Promise<void>;
     close: () => void;
     stopTask: (taskId: string) => Promise<void>;

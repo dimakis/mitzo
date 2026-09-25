@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
 import { runQueryLoop } from '../query-loop.js';
+import { CodexSessionEvents } from '../codex-session-events.js';
 import type { SessionRegistry } from '../session-registry.js';
 
 /** Create a fake SessionTransport that records sent messages */
@@ -157,6 +158,92 @@ describe('token_update emission', () => {
     });
     // costUsd should not be present
     expect(last).not.toHaveProperty('costUsd');
+  });
+
+  it('shows OpenAI usage reported at response completion', async () => {
+    const events: Record<string, unknown>[] = [
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_start',
+          message: {
+            id: 'msg-openai',
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        },
+      },
+      {
+        type: 'stream_event',
+        parent_tool_use_id: null,
+        event: {
+          type: 'message_delta',
+          delta: { stop_reason: 'end_turn' },
+          usage: { input_tokens: 1200, output_tokens: 300 },
+        },
+      },
+      { type: 'assistant', message: { content: [] }, session_id: 'sess-openai' },
+      {
+        type: 'result',
+        session_id: 'sess-openai',
+        usage: { input_tokens: 1200, output_tokens: 300 },
+        num_turns: 1,
+      },
+    ];
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    const tokenUpdates = transport.sent.filter((message) => message.type === 'token_update');
+    expect(tokenUpdates).toContainEqual(
+      expect.objectContaining({ agentContext: 1200, turnIndex: 1 }),
+    );
+    expect(tokenUpdates.at(-1)).toMatchObject({
+      agentContext: 1200,
+      sessionTotal: 1500,
+      turnIndex: 1,
+    });
+  });
+
+  it('counts a Codex provider turn once across reasoning, text, and tool blocks', async () => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('sess-codex', 'thread-codex', 'model', (event) =>
+      events.push(event),
+    );
+    mapper.notification('turn/started', {
+      threadId: 'thread-codex',
+      turn: { id: 'turn-1' },
+    });
+    mapper.notification('item/reasoning/summaryTextDelta', {
+      threadId: 'thread-codex',
+      itemId: 'reasoning-1',
+      summaryIndex: 0,
+      delta: 'Thinking',
+    });
+    mapper.notification('item/agentMessage/delta', {
+      threadId: 'thread-codex',
+      itemId: 'message-1',
+      delta: 'Answer',
+    });
+    mapper.toolStart('provider-tool-1', 'Read', { file_path: 'README.md' });
+    mapper.notification('turn/completed', {
+      threadId: 'thread-codex',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+
+    await runQueryLoop(eventStream(events), clientId, registry, abortController);
+
+    expect(events.filter((event) => event.type === 'provider_turn_start')).toHaveLength(1);
+    expect(
+      events.filter(
+        (event) => (event.event as { type?: string } | undefined)?.type === 'message_start',
+      ),
+    ).toHaveLength(3);
+    expect(
+      transport.sent.filter((message) => message.type === 'token_update').at(-1),
+    ).toMatchObject({
+      turnIndex: 1,
+      numTurns: 1,
+    });
   });
 
   it('ignores sub-agent message_start for agent context', async () => {

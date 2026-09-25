@@ -1,4 +1,5 @@
 import { apiFetch } from './api-fetch';
+import { artifactApiUrl } from './file-paths';
 
 /** MIME types for common file extensions. Falls back to application/octet-stream. */
 function mimeFromExt(filename: string): string {
@@ -35,8 +36,11 @@ function filenameFromPath(filePath: string): string {
 }
 
 /** Download file bytes from the server. */
-async function fetchFileBlob(filePath: string): Promise<{ blob: Blob; filename: string }> {
-  const res = await apiFetch(`/api/files/download?path=${encodeURIComponent(filePath)}`);
+async function fetchFileBlob(
+  filePath: string,
+  sessionId?: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const res = await apiFetch(artifactApiUrl('download', filePath, sessionId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(body.error ?? `Download failed (${res.status})`);
@@ -61,8 +65,8 @@ function canNativeShare(filename: string, blob: Blob): boolean {
  *
  * Returns true if the share/download was initiated successfully.
  */
-export async function shareFile(filePath: string): Promise<boolean> {
-  const { blob, filename } = await fetchFileBlob(filePath);
+export async function shareFile(filePath: string, sessionId?: string): Promise<boolean> {
+  const { blob, filename } = await fetchFileBlob(filePath, sessionId);
 
   // Re-type the blob with a proper MIME if the server sent application/octet-stream
   const mime = blob.type === 'application/octet-stream' ? mimeFromExt(filename) : blob.type;

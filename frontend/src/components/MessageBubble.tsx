@@ -9,6 +9,8 @@ import {
   linkifyFilePaths,
   remarkNeutralizeMalformedFileLinks,
   FILE_SCHEME,
+  artifactViewerUrl,
+  relativeArtifactPath,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
@@ -89,9 +91,16 @@ interface TextBubbleProps {
   streaming?: boolean;
   timestamp?: number;
   readAloud?: ReadAloudProps;
+  artifactSessionId?: string;
 }
 
-export function TextBubble({ content, streaming = false, timestamp, readAloud }: TextBubbleProps) {
+export function TextBubble({
+  content,
+  streaming = false,
+  timestamp,
+  readAloud,
+  artifactSessionId,
+}: TextBubbleProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const processed = streaming ? content : linkifyFilePaths(content);
@@ -145,21 +154,27 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                 if (href?.startsWith(FILE_SCHEME)) {
                   const filePath = decodeFilePathUrl(href);
                   if (filePath && /\.mdx?$/i.test(filePath)) {
-                    return <MarkdownPreviewCard filePath={filePath} />;
+                    return (
+                      <MarkdownPreviewCard filePath={filePath} sessionId={artifactSessionId} />
+                    );
                   }
                   if (
                     filePath &&
                     findArtifactCapabilityByPath(filePath)?.artifact?.renderer === 'html'
                   ) {
-                    return <HtmlPreviewCard filePath={filePath} />;
+                    return <HtmlPreviewCard filePath={filePath} sessionId={artifactSessionId} />;
                   }
                 }
               }
               return <p>{children}</p>;
             },
             a: ({ href, children }) => {
-              if (href?.startsWith(FILE_SCHEME)) {
-                const filePath = decodeFilePathUrl(href);
+              const filePath = href?.startsWith(FILE_SCHEME)
+                ? decodeFilePathUrl(href)
+                : href
+                  ? relativeArtifactPath(href)
+                  : null;
+              if (href?.startsWith(FILE_SCHEME) || filePath) {
                 if (!filePath) {
                   return <span className="file-path-invalid">{children}</span>;
                 }
@@ -171,14 +186,16 @@ export function TextBubble({ content, streaming = false, timestamp, readAloud }:
                       data-file-path={filePath}
                       onClick={(e) => {
                         e.preventDefault();
-                        navigate(
-                          `/files?path=${encodeURIComponent(filePath)}&from=${encodeURIComponent(currentPath)}`,
-                        );
+                        navigate(artifactViewerUrl(filePath, currentPath, artifactSessionId));
                       }}
                     >
                       {children}
                     </a>
-                    <ShareButton filePath={filePath} className="file-path-share" />
+                    <ShareButton
+                      filePath={filePath}
+                      sessionId={artifactSessionId}
+                      className="file-path-share"
+                    />
                   </span>
                 );
               }

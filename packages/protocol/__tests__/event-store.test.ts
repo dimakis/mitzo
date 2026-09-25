@@ -475,6 +475,49 @@ describe('EventStore', () => {
     });
   });
 
+  describe('getRecentConversationText', () => {
+    it('returns only user and completed-assistant projection fields', () => {
+      store.append('sess-1', 'user_message', {
+        messageId: 'u1',
+        text: 'hello',
+        images: ['data:image/png;base64,secret-large-image'],
+      });
+      store.append('sess-1', 'message_start', { messageId: 'a1' });
+      store.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'answer',
+      });
+      store.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'thinking',
+        blockType: 'thinking',
+        delta: 'private reasoning',
+      });
+      store.append('sess-1', 'tool_result', {
+        messageId: 'a1',
+        result: 'secret tool output',
+      });
+      store.append('sess-1', 'message_end', { messageId: 'a1' });
+
+      const events = store.getRecentConversationText('sess-1');
+
+      expect(events).toEqual([
+        { seq: expect.any(Number), kind: 'user', messageId: 'u1', text: 'hello' },
+        {
+          seq: expect.any(Number),
+          kind: 'assistant_delta',
+          messageId: 'a1',
+          text: 'answer',
+        },
+        { seq: expect.any(Number), kind: 'assistant_end', messageId: 'a1', text: '' },
+      ]);
+      expect(JSON.stringify(events)).not.toContain('secret');
+      expect(JSON.stringify(events)).not.toContain('private reasoning');
+    });
+  });
+
   describe('upsertSession', () => {
     it('creates a new session row', () => {
       store.upsertSession({ sessionId: 'sess-1', summary: 'Test session' });

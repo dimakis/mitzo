@@ -13,8 +13,19 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'fs';
-import { join, dirname, resolve, extname, basename } from 'path';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'fs';
+import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
 import { execFileSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
@@ -60,6 +71,9 @@ import {
 import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
+import { createCapabilityOperationsRouter } from './connections/capabilities/router.js';
+import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import { getLiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import {
   setConnectionsRuntime as setActiveConnectionsRuntime,
   type ConnectionsRuntime,
@@ -206,7 +220,10 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-CSRF-Token');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+      );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -244,6 +261,7 @@ app.use(cookieParser());
 // is injected from index after explicit feature configuration; importing app
 // never creates a database or starts a gateway process.
 let connectionsRouter: express.Router | null = null;
+let capabilityOperationsRouter: express.Router | null = null;
 export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void {
   setActiveConnectionsRuntime(runtime);
   connectionsRouter = runtime
@@ -254,6 +272,51 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
         gateway: runtime.gateway,
         workspace: runtime.workspace,
         legacyProviders: runtime.legacyProviders,
+        capabilities: runtime.capabilities,
+      })
+    : null;
+  capabilityOperationsRouter = runtime
+    ? createCapabilityOperationsRouter({
+        service: runtime.capabilities,
+        resolveConversationBinding: (req, res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          const live = getLiveCapabilityConversationBinding(conversationId);
+          if (!accountId || !live || live.accountId !== accountId) return undefined;
+          return {
+            accountId,
+            connectionId: live.connectionId,
+            connectionRevision: live.connectionRevision,
+          };
+        },
+        resolveConversationReadBinding: (req, _res, authSessionId, conversationId) => {
+          const connectionId = req.header('x-connection-id');
+          if (!connectionId || !isTransportConnectionOwnedBy(connectionId, authSessionId))
+            return undefined;
+          const found = registry.findBySessionId(conversationId);
+          if (!found) return undefined;
+          const ownerConnection =
+            found.session?.ownerConnectionId ??
+            (found.clientId.includes(':')
+              ? found.clientId.slice(0, found.clientId.indexOf(':'))
+              : found.clientId);
+          if (ownerConnection !== connectionId) return undefined;
+          const accountId = eventStore.getSession(conversationId)?.accountBinding?.accountId;
+          return accountId ? { accountId } : undefined;
+        },
+        sessionId: (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+        approveForConversation: (conversationId) =>
+          capabilityApprovalForConversation(registry, conversationId),
       })
     : null;
 }
@@ -264,6 +327,11 @@ app.use('/api/connections', authMiddleware, (req, res, next) => {
         'Connections is not configured. Set MITZO_CONNECTIONS_ENABLED=1 with the reviewed OpenShell Jira profile before enabling it.',
     });
   return connectionsRouter(req, res, next);
+});
+app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
+  if (!capabilityOperationsRouter)
+    return res.status(503).json({ error: 'Capability operations are not configured.' });
+  return capabilityOperationsRouter(req, res, next);
 });
 app.use(express.json({ limit: '10mb' }));
 
@@ -1713,39 +1781,110 @@ app.get('/api/worktrees', (_req, res) => {
 const privatePathSnapshot = createCodexPathProtection(() =>
   loadAccountProfiles().privateCodexRoots(),
 );
-function createAllowedPathChecker() {
+const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
+
+function readPreviewFile(filePath: string): {
+  content?: string;
+  isFile: boolean;
+  tooLarge: boolean;
+} {
+  const fd = openSync(filePath, 'r');
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) return { isFile: false, tooLarge: false };
+    if (stat.size > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+
+    // Read at most one byte beyond the limit. Checking the descriptor while
+    // reading closes the stat/read race when an artifact is still being written.
+    const buffer = Buffer.allocUnsafe(MAX_PREVIEW_BYTES + 1);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const chunk = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (chunk === 0) break;
+      bytesRead += chunk;
+    }
+    if (bytesRead > MAX_PREVIEW_BYTES) return { isFile: true, tooLarge: true };
+    return {
+      content: buffer.toString('utf-8', 0, bytesRead),
+      isFile: true,
+      tooLarge: false,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function canonicalPath(filePath: string): string {
+  const full = resolve(filePath);
+  try {
+    return realpathSync(full);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    const parent = dirname(full);
+    return parent === full ? full : join(canonicalPath(parent), basename(full));
+  }
+}
+
+function containsPath(root: string, target: string): boolean {
+  const rel = relative(canonicalPath(root), canonicalPath(target));
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith(`..${sep}`));
+}
+
+/**
+ * A session id selects that session's recorded workspace for relative links and
+ * browsing. It never widens the configured path allow-list: cwd originates in a
+ * client message, so a persisted session record is not itself authorization.
+ */
+function sessionArtifactRoot(sessionId: string | undefined): string | null {
+  if (!sessionId) return null;
+  const cwd = eventStore.getSession(sessionId)?.cwd;
+  if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
+  return isConfiguredAllowedPath(cwd) ? cwd : null;
+}
+
+function resolveArtifactPath(filePath: string, sessionId: string | undefined): string {
+  if (isAbsolute(filePath)) return resolve(filePath);
+  return resolve(sessionArtifactRoot(sessionId) ?? BASE_REPO, filePath);
+}
+
+function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
+  const artifactRoot = sessionArtifactRoot(sessionId);
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
+      if (artifactRoot && containsPath(artifactRoot, filePath)) return true;
     } catch {
       return false;
     }
     return isConfiguredAllowedPath(filePath);
   };
 }
-export function isAllowedPath(filePath: string): boolean {
-  return createAllowedPathChecker()(filePath);
+export function isAllowedPath(filePath: string, sessionId?: string): boolean {
+  return createAllowedPathChecker(sessionId)(filePath);
 }
 function isConfiguredAllowedPath(filePath: string): boolean {
-  const resolved = resolve(filePath);
-  if (BASE_REPO && resolved.startsWith(resolve(BASE_REPO))) return true;
-  if (BASE_REPO && resolved.startsWith(resolve(`${BASE_REPO}-sessions`))) return true;
-  const config = getRepoConfig();
-  for (const repoPath of Object.values(config.repos)) {
-    if (resolved.startsWith(resolve(repoPath))) return true;
-    if (resolved.startsWith(resolve(`${repoPath}-sessions`))) return true;
+  try {
+    const roots = BASE_REPO ? [BASE_REPO, `${BASE_REPO}-sessions`] : [];
+    const config = getRepoConfig();
+    for (const repoPath of Object.values(config.repos)) {
+      roots.push(repoPath, `${repoPath}-sessions`);
+    }
+    roots.push(...config.allowedPaths);
+    return roots.some((root) => containsPath(root, filePath));
+  } catch {
+    return false;
   }
-  for (const extra of config.allowedPaths) {
-    if (resolved.startsWith(resolve(extra))) return true;
-  }
-  return false;
 }
 
-function resolveRoot(queryRoot: string | undefined, allowed = isAllowedPath): string {
-  if (!queryRoot) return BASE_REPO;
+function resolveRoot(
+  queryRoot: string | undefined,
+  allowed = isAllowedPath,
+  defaultRoot = BASE_REPO,
+): string {
+  if (!queryRoot) return defaultRoot;
   const resolved = resolve(queryRoot);
-  if (!allowed(resolved)) return BASE_REPO;
+  if (!allowed(resolved)) return defaultRoot;
   return resolved;
 }
 
@@ -1790,9 +1929,15 @@ app.get('/api/files/roots', (_req, res) => {
 });
 
 app.get('/api/files/list', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1828,9 +1973,15 @@ app.get('/api/files/list', (req, res) => {
 });
 
 app.get('/api/files', (req, res) => {
-  const allowed = createAllowedPathChecker();
-  const root = resolveRoot(req.query.root as string | undefined, allowed);
-  const dir = (req.query.dir as string) || root;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const allowed = createAllowedPathChecker(sessionId);
+  const root = resolveRoot(
+    req.query.root as string | undefined,
+    allowed,
+    sessionArtifactRoot(sessionId) ?? BASE_REPO,
+  );
+  const requestedDir = req.query.dir as string | undefined;
+  const dir = requestedDir ? resolveArtifactPath(requestedDir, sessionId) : root;
   if (!dir || !allowed(dir)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
@@ -1855,7 +2006,7 @@ app.get('/api/files', (req, res) => {
         if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-    res.json({ dir, entries });
+    res.json({ dir, root, entries });
   } catch (err: unknown) {
     log.error('failed to read directory', {
       dir,
@@ -1866,8 +2017,10 @@ app.get('/api/files', (req, res) => {
 });
 
 app.get('/api/files/read', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1876,9 +2029,17 @@ app.get('/api/files/read', (req, res) => {
     return;
   }
   try {
-    const content = readFileSync(filePath, 'utf-8');
+    const preview = readPreviewFile(filePath);
+    if (!preview.isFile) {
+      res.status(400).json({ error: 'Path is not a file' });
+      return;
+    }
+    if (preview.tooLarge) {
+      res.status(413).json({ error: 'File is too large to preview (5 MB maximum)' });
+      return;
+    }
     const ext = extname(filePath).toLowerCase();
-    res.json({ path: filePath, content, ext });
+    res.json({ path: filePath, content: preview.content, ext });
   } catch (err: unknown) {
     log.error('failed to read file', {
       path: filePath,
@@ -1902,8 +2063,10 @@ app.get('/api/images/:imageId', (req, res) => {
 });
 
 app.get('/api/files/download', (req, res) => {
-  const filePath = req.query.path as string;
-  if (!filePath || !isAllowedPath(filePath)) {
+  const requestedPath = req.query.path as string;
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const filePath = requestedPath ? resolveArtifactPath(requestedPath, sessionId) : '';
+  if (!filePath || !isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -1940,8 +2103,9 @@ app.put('/api/files/write', (req, res) => {
     res.status(400).json({ error: 'path and content are required' });
     return;
   }
-  const { path: filePath, content } = body.data;
-  if (!isAllowedPath(filePath)) {
+  const { path: requestedPath, content, sessionId } = body.data;
+  const filePath = resolveArtifactPath(requestedPath, sessionId);
+  if (!isAllowedPath(filePath, sessionId)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }

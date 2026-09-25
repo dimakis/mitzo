@@ -314,6 +314,10 @@ async function _runQueryLoopInner(
   let numCompactions = 0; // counts successful compaction events from SDK
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
   let cumulativeOutputTokens = 0; // accumulated output tokens (fresh per API call)
+  let activeTurnOutputTokens = 0; // latest output total reported for the active parent turn
+  let latestInputTokens = 0;
+  let latestCacheReadTokens = 0;
+  let latestCacheCreationTokens = 0;
   const sessionStartedAt = Date.now(); // wall-clock start for fallback duration
   const compactionFields = () => (numCompactions > 0 ? { numCompactions } : {});
 
@@ -573,6 +577,11 @@ async function _runQueryLoopInner(
               });
             }
           }
+        } else if (msg.type === 'provider_turn_start') {
+          // Codex renderer messages are blocks within a provider turn. Count the
+          // explicit turn start once, including when no renderable block arrives.
+          doneSent = false;
+          turnIndex++;
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
@@ -614,7 +623,7 @@ async function _runQueryLoopInner(
             cacheReadTokens: result.usage?.cache_read_input_tokens ?? 0,
             cacheCreationTokens: result.usage?.cache_creation_input_tokens ?? 0,
             totalCostUsd: result.total_cost_usd ?? 0,
-            numTurns: result.num_turns ?? 0,
+            numTurns: result.num_turns ?? turnIndex,
             durationMs: result.duration_ms ?? 0,
             durationApiMs: result.duration_api_ms ?? 0,
           };
@@ -873,16 +882,61 @@ async function _runQueryLoopInner(
             // conversation), so take the latest value instead of summing.
             // Output tokens are fresh per call, so accumulate them.
             const msgContext = msgInput + msgCacheRead + msgCacheCreation;
+            activeTurnOutputTokens = msgOutput;
             if (msgOutput > 0) cumulativeOutputTokens += msgOutput;
             if (msgContext > 0 || msgOutput > 0) {
               liveSessionTokens = msgContext + cumulativeOutputTokens;
             }
 
-            if (isParent && msgUsage) {
+            if (isParent) {
+              if (msgContext > 0) {
+                latestInputTokens = msgInput;
+                latestCacheReadTokens = msgCacheRead;
+                latestCacheCreationTokens = msgCacheCreation;
+              }
+              // A provider turn exists even when usage is reported only at completion.
+              // OpenAI Responses starts the stream with zero usage and supplies the
+              // authoritative counters in message_delta.
+              if (msg.renderer_only !== true) turnIndex++;
               const totalContext = msgInput + msgCacheRead + msgCacheCreation;
               if (totalContext > 0) {
                 agentContextTokens = totalContext;
-                turnIndex++;
+                emit({
+                  type: 'token_update',
+                  agentContext: agentContextTokens,
+                  contextCeiling: CONTEXT_CEILING_TOKENS,
+                  turnIndex,
+                  ...compactionFields(),
+                });
+              }
+            }
+          } else if (evt?.type === 'message_delta') {
+            const isParent =
+              msg.parent_tool_use_id === null || msg.parent_tool_use_id === undefined;
+            if (isParent) {
+              const usage = evt.usage as Record<string, number> | undefined;
+              const input = usage?.input_tokens ?? 0;
+              const cacheRead = usage?.cache_read_input_tokens ?? 0;
+              const cacheCreation = usage?.cache_creation_input_tokens ?? 0;
+              const output = usage?.output_tokens ?? 0;
+              const contextTokens = input + cacheRead + cacheCreation;
+
+              if (contextTokens > 0) {
+                latestInputTokens = input;
+                latestCacheReadTokens = cacheRead;
+                latestCacheCreationTokens = cacheCreation;
+              }
+
+              // Completion usage may repeat the output count seen at start, so only
+              // add the increase for this turn. This also preserves partial-session
+              // accounting if the terminal result never arrives.
+              if (output > activeTurnOutputTokens) {
+                cumulativeOutputTokens += output - activeTurnOutputTokens;
+                activeTurnOutputTokens = output;
+              }
+              if (contextTokens > 0) agentContextTokens = contextTokens;
+              if (contextTokens > 0 || output > 0) {
+                liveSessionTokens = agentContextTokens + cumulativeOutputTokens;
                 emit({
                   type: 'token_update',
                   agentContext: agentContextTokens,
@@ -1494,10 +1548,10 @@ async function _runQueryLoopInner(
       if (!doneSent && store && resolvedSessionId) {
         const fallbackDurationMs = Date.now() - sessionStartedAt;
         store.recordUsage(resolvedSessionId, {
-          inputTokens: 0, // per-type breakdown unavailable without SDK result
+          inputTokens: latestInputTokens,
           outputTokens: cumulativeOutputTokens,
-          cacheReadTokens: 0,
-          cacheCreationTokens: 0,
+          cacheReadTokens: latestCacheReadTokens,
+          cacheCreationTokens: latestCacheCreationTokens,
           totalCostUsd: finalSession?.cumulativeCostUsd ?? 0,
           numTurns: turnIndex,
           durationMs: fallbackDurationMs,
