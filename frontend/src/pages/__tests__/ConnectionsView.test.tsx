@@ -336,6 +336,47 @@ describe('ConnectionsView', () => {
       expect.objectContaining({ id: 'jira-1', revision: 2 }),
     );
   });
+  it('rotates a GitHub connection using its reviewed field metadata when the setup catalog fails', async () => {
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('Template catalog unavailable'),
+    );
+    vi.mocked(connections.getConnections).mockResolvedValue({
+      ...catalog,
+      connections: [
+        {
+          ...catalog.connections[0],
+          id: 'github-1',
+          templateId: 'github-readonly',
+          label: 'GitHub',
+          credentialFields: [
+            {
+              key: 'token',
+              label: 'Access token',
+              description: 'Gateway-owned token',
+              style: 'bearer-token',
+              secret: true,
+              required: true,
+            },
+          ],
+        },
+      ],
+    });
+    await render();
+    await reauthorize();
+    expect(button('Rotate credentials').disabled).toBe(false);
+    await act(async () => button('Rotate credentials').click());
+    act(() =>
+      fireEvent.change(input('Replacement Access token'), { target: { value: 'smoke-secret' } }),
+    );
+    await act(async () => button('Verify and rotate').click());
+    expect(connections.rotateConnection).toHaveBeenCalledWith({
+      id: 'github-1',
+      revision: 2,
+      credentials: { token: 'smoke-secret' },
+      csrf: 'c'.repeat(32),
+    });
+    expect(container.textContent).not.toContain('smoke-secret');
+  });
   it('renders and manages existing connections while template loading never resolves', async () => {
     vi.mocked(connections.getConnectionTemplates).mockReturnValue(new Promise(() => {}));
     await render();

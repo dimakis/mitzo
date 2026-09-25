@@ -49,6 +49,8 @@ Connections are optional and require the reviewed OpenShell gateway setup. Enabl
 
 Open **More → Connections** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
 
+If the service template catalog is temporarily unavailable, existing connections remain manageable. You can test, revoke, or rotate their credentials; new connection setup resumes when the catalog is available again. Credential rotation uses nonsecret form metadata returned with each existing connection, so it does not depend on loading the setup catalog.
+
 ## Architecture
 
 ```

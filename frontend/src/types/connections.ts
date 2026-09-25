@@ -5,6 +5,8 @@ export interface ManagedConnection {
   id: string;
   templateId: string;
   templateVersion: number;
+  /** Reviewed nonsecret form metadata, available even if the setup catalog fails. */
+  credentialFields?: ConnectionCredentialField[];
   label: string;
   status: ConnectionStatus;
   revision: number;
