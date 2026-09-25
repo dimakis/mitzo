@@ -97,6 +97,7 @@ export interface MitzoStoreState {
 
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
+  getConnectionId(): string | null;
   switchSession(id: string): Promise<void>;
   newSession(): void;
   sendMessage(text: string, opts?: SendMessageOptions): void;
@@ -398,6 +399,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     dispatchMessages(action: MessagesAction) {
       set((s) => ({ messages: messagesReducer(s.messages, action) }));
+    },
+
+    getConnectionId() {
+      return connection.getConnectionId();
     },
 
     async switchSession(id: string) {
@@ -884,6 +889,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   function wsListener(msg: Record<string, unknown>) {
     if (msg.type === '_auth_lost') {
+      store.setState((s) => ({
+        connection: { ...s.connection, status: 'disconnected', clientId: null },
+      }));
       if (typeof window !== 'undefined') window.dispatchEvent(new Event('mitzo:auth-lost'));
       return;
     }
@@ -1094,7 +1102,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (result.connectionUpdate) {
       store.setState((s) => ({
-        connection: { ...s.connection, ...result.connectionUpdate },
+        connection: {
+          ...s.connection,
+          ...result.connectionUpdate,
+          clientId:
+            msg.type === '_open'
+              ? connection.getConnectionId()
+              : msg.type === '_close'
+                ? null
+                : s.connection.clientId,
+        },
       }));
     }
 

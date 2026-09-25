@@ -36,6 +36,11 @@ vi.mock('../../hooks/useVoice', () => ({
   }),
 }));
 vi.mock('../../components/VoiceSettings', () => ({ VoiceSettings: () => null }));
+vi.mock('../../components/WebSearchConsent', () => ({
+  WebSearchConsent: ({ connectionId }: { connectionId: string | null }) => (
+    <span data-testid="web-search-connection">{connectionId ?? 'none'}</span>
+  ),
+}));
 vi.mock('../../components/ChatArea', () => ({
   ChatArea: ({ messages }: { messages: unknown[] }) => (
     <div data-testid="chat-message-count">Messages: {messages.length}</div>
@@ -49,6 +54,28 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+});
+
+it('updates web-search consent when the connection ID changes without a status change', () => {
+  const store = createTestStore();
+  store.setState({
+    connection: { ...store.getState().connection, status: 'connected', clientId: 'connection-one' },
+  });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-one');
+
+  act(() =>
+    store.setState({
+      connection: { ...store.getState().connection, clientId: 'connection-two' },
+    }),
+  );
+  expect(screen.getByTestId('web-search-connection').textContent).toBe('connection-two');
 });
 
 it('does not speak when an assistant response completes on mobile', async () => {

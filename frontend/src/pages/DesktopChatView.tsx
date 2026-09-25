@@ -2,6 +2,7 @@ import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
+import { WebSearchConsent } from '../components/WebSearchConsent';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { DesktopShell } from '../components/DesktopShell';
@@ -44,6 +45,7 @@ export function DesktopChatView() {
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
   const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
   const bootContext = useMitzoStore((s) => s.messages.bootContext);
@@ -260,6 +262,14 @@ export function DesktopChatView() {
               />
             </header>
           </WorkspaceControls>
+          <WebSearchConsent
+            key={activeSessionId ?? 'new'}
+            sessionId={activeSessionId}
+            mode={mode}
+            connected={connected}
+            connectionId={connectionId}
+            running={messages.running}
+          />
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
             <div role="status">Loading conversation…</div>
           )}

@@ -1381,6 +1381,19 @@ export interface ModeChangeResult {
 }
 const pendingModeChanges = new WeakMap<object, Promise<unknown>>();
 
+/** Share the live session's permission queue with web-search grant updates. */
+export function serializeSessionPermissionChange<T>(
+  session: object,
+  action: () => Promise<T>,
+): Promise<T> {
+  const previous = pendingModeChanges.get(session) ?? Promise.resolve();
+  const update = previous.then(action, action);
+  pendingModeChanges.set(session, update);
+  return update.finally(() => {
+    if (pendingModeChanges.get(session) === update) pendingModeChanges.delete(session);
+  });
+}
+
 export function handleSetModeV2(
   connectionId: string,
   msg: SetModeMsg,
@@ -1448,7 +1461,7 @@ export function handleSetModeV2(
   found.session.pendingPermissionModes ??= new Map();
   found.session.pendingPermissionModes.set(transition, msg.mode);
   const previous = pendingModeChanges.get(found.session) ?? Promise.resolve();
-  const update = previous.then(() =>
+  const run = () =>
     withSpanAsync(
       'ws.set_mode',
       { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId, 'ws.mode': msg.mode },
@@ -1537,8 +1550,8 @@ export function handleSetModeV2(
           return { ok: false, applied: false, persisted: false, code: 'provider', error: reason };
         }
       },
-    ),
-  );
+    );
+  const update = previous.then(run, run);
   pendingModeChanges.set(found.session, update);
   return update.then((result) => {
     found.session.pendingPermissionModes?.delete(transition);
