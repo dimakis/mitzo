@@ -213,6 +213,16 @@ describe('MitzoConnection', () => {
   });
 
   describe('reconnect', () => {
+    it('does not advance an unchained cursor when the reducer refuses the event', () => {
+      const conn = createConnection();
+      conn.onMessage((msg) => (msg.type === 'block_delta' ? false : true));
+      conn.trackSeq('s1', 2);
+      const ws = openWithHandshake(conn);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, delta: 'bad' });
+      expect(conn.getLastSeq('s1')).toBe(2);
+      expect(lastWs).not.toBe(ws);
+    });
+
     it('resyncs instead of acknowledging a refused snapshot offer', () => {
       const conn = createConnection();
       conn.onMessage((msg) => (msg.type === 'session_reconnect_snapshot' ? false : true));
@@ -257,6 +267,7 @@ describe('MitzoConnection', () => {
       staleMessage({
         data: JSON.stringify({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 }),
       });
+      staleMessage({ data: JSON.stringify({ type: 'block_delta', sessionId: 's1', seq: 10 }) });
       expect(conn.getLastSeq('s1')).toBe(5);
       expect(
         second.send.mock.calls

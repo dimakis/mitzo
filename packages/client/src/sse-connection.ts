@@ -447,7 +447,23 @@ export class SseConnection implements ChatConnection {
           cursor: msg.cursor,
           afterSeq: seen > msg.cursor ? seen : 0,
         });
-      } else if (sequencedSessionId) {
+      }
+
+      if (duplicate) return;
+      try {
+        if (this.listener?.(msg) === false) {
+          this.checkAndReconnect(true);
+          return;
+        }
+      } catch {
+        this.checkAndReconnect(true);
+        return;
+      }
+
+      // Legacy unchained envelopes retain their historical void-listener
+      // compatibility, but an explicit reducer refusal must not move any
+      // delivery or replay cursor.
+      if (sequencedSessionId) {
         if (this.replayingSessions.has(sequencedSessionId)) {
           this.replaySeenSeq.set(
             sequencedSessionId,
@@ -463,9 +479,6 @@ export class SseConnection implements ChatConnection {
             );
         }
       }
-
-      if (duplicate) return;
-      this.listener?.(msg);
       if (applied && sequencedSessionId) applied.add(msg.seq as number);
     };
 

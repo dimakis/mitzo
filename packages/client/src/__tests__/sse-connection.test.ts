@@ -472,6 +472,18 @@ describe('SseConnection', () => {
     );
   });
 
+  it('does not advance an unchained cursor when the reducer refuses the event', () => {
+    const conn = new SseConnection(createConfig());
+    conn.onMessage((msg) => (msg.type === 'block_delta' ? false : true));
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 2);
+    first._emit('message', { type: 'block_delta', sessionId: 'sess-1', seq: 9, delta: 'bad' });
+    expect(conn.getLastSeq('sess-1')).toBe(2);
+    expect(lastES()).not.toBe(first);
+  });
+
   it('cancels a predecessor-gap retry after explicit disconnect', () => {
     const conn = new SseConnection(createConfig());
     conn.onMessage(() => true);
