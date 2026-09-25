@@ -724,6 +724,43 @@ describe('SymposiumOrchestrator', () => {
     );
   });
 
+  it('hides pending recipients of failed deliveries until explicit retry', async () => {
+    admit('builder');
+    admit('reviewer');
+    builder.execute = vi.fn(async () => {
+      throw new Error('first recipient failed');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'failed-queue',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-failed-queue',
+    });
+    const failed = await orchestrator.deliver(staged.deliveryId);
+    expect(failed.status).toBe('failed');
+    expect(failed.recipients.find((row) => row.seatId === 'reviewer')?.status).toBe('pending');
+    expect(reviewer.calls).toHaveLength(0);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toEqual([]);
+    store.close();
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual(
+      [],
+    );
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'retry',
+      idempotencyKey: 'retry-failed-queue',
+    });
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'all' })).toHaveLength(2);
+  });
+
   it('pages completed message anchors when a turn finishes after the cursor advances', () => {
     store.append('chat', 'message_start', { messageId: 'slow' });
     store.append('chat', 'block_start', { messageId: 'slow', blockId: 'text', blockType: 'text' });

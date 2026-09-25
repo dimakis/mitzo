@@ -246,7 +246,8 @@ substitute for acceptance: an accepted input remains received even if the turn
 later fails or membership is revoked. A dispatched input without a receipt remains
 uncertain. Completion cannot replace a thread identity pinned by an acceptance
 receipt. Queued inputs are exposed separately and are never presented as received;
-dropped deliveries are excluded.
+only deliveries awaiting intervention, ready, or delivering appear in the queue.
+Failed deliveries require explicit retry before pending inputs reappear.
 
 Audience projections include each seat's own completed messages and only the
 inputs dispatched to it, with received/uncertain labels. All aggregates these

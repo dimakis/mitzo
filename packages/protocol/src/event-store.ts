@@ -2529,7 +2529,7 @@ export class EventStore {
     const rows = this.db!.prepare(
       `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
        JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
-       WHERE d.session_id = ? AND d.status != 'dropped'
+       WHERE d.session_id = ? AND d.status IN ('awaiting_intervention', 'ready', 'delivering')
          AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
        ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
     ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
