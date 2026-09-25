@@ -160,6 +160,187 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     return { seq, sessionId: 'sess-1', type, payload, createdAt: seq };
   }
 
+  it('restores interleaved seat turns with reused block IDs and immutable provenance', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, payload: Record<string, unknown>) => ({
+      ...evt(seq, type, payload),
+      seatId,
+      symposiumProvenance: provenance(seatId),
+    });
+    const events = [
+      seat(1, 'message_start', 'architect', { messageId: 'a1' }),
+      seat(2, 'block_start', 'architect', { messageId: 'a1', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'message_start', 'reviewer', { messageId: 'a2' }),
+      seat(4, 'block_start', 'reviewer', { messageId: 'a2', blockId: 'b0', blockType: 'text' }),
+      seat(5, 'block_delta', 'architect', { messageId: 'a1', blockId: 'b0', delta: 'design' }),
+      seat(6, 'block_delta', 'reviewer', { messageId: 'a2', blockId: 'b0', delta: 'review' }),
+      seat(7, 'message_end', 'architect', { messageId: 'a1' }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.messages).toMatchObject([
+      {
+        messageId: 'a1',
+        startedSeq: 1,
+        symposiumProvenance: { seatId: 'architect' },
+        blocks: [{ content: 'design' }],
+      },
+    ]);
+    expect(restored.currents).toMatchObject([
+      {
+        messageId: 'a2',
+        startedSeq: 3,
+        symposiumProvenance: { seatId: 'reviewer' },
+        blocks: [{ content: 'review', done: false }],
+      },
+    ]);
+    expect(restored.current).toBeNull();
+  });
+
+  it('keeps nested subagents under the correct seat when both use parent b0', () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, payload: Record<string, unknown>) => ({
+      ...evt(seq, type, payload),
+      seatId,
+      symposiumProvenance: provenance(seatId),
+    });
+    const events = [
+      seat(1, 'message_start', 'architect', { messageId: 'a1' }),
+      seat(2, 'block_start', 'architect', {
+        messageId: 'a1',
+        blockId: 'b0',
+        blockType: 'tool_use',
+      }),
+      seat(3, 'message_start', 'reviewer', { messageId: 'a2' }),
+      seat(4, 'block_start', 'reviewer', { messageId: 'a2', blockId: 'b0', blockType: 'tool_use' }),
+      seat(5, 'subagent_start', 'architect', { parentBlockId: 'b0', subagentMessageId: 's1' }),
+      seat(6, 'subagent_start', 'reviewer', { parentBlockId: 'b0', subagentMessageId: 's2' }),
+      seat(7, 'subagent_block_start', 'architect', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      seat(8, 'subagent_block_start', 'reviewer', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        blockType: 'text',
+      }),
+      seat(9, 'subagent_block_delta', 'architect', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        delta: 'design',
+      }),
+      seat(10, 'subagent_block_delta', 'reviewer', {
+        parentBlockId: 'b0',
+        blockId: 'nested',
+        delta: 'critique',
+      }),
+    ];
+    const restored = replayEventsToTranscript(events);
+    expect(restored.currents[0].blocks[0].subagent?.blocks[0].content).toBe('design');
+    expect(restored.currents[1].blocks[0].subagent?.blocks[0].content).toBe('critique');
+  });
+
+  it('refuses a mismatched stored seat provenance', () => {
+    const bad = {
+      ...evt(1, 'message_start', { messageId: 'a1' }),
+      seatId: 'reviewer',
+      symposiumProvenance: {
+        seatId: 'architect',
+        configRevision: 1,
+        accountProfileRevision: 'account-1',
+        seatProfileRevision: 'profile-1',
+        contextGrantRevision: 1,
+        authorityGrantRevision: 1,
+        isolationDomainId: 'domain-1',
+        isolationDomainRevision: 1,
+      },
+    };
+    expect(() => replayEventsToTranscript([bad])).toThrow(/seat/i);
+  });
+
+  it('refuses two open messages for the same seat', () => {
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const events = [
+      {
+        ...evt(1, 'message_start', { messageId: 'a1' }),
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      },
+      {
+        ...evt(2, 'message_start', { messageId: 'a2' }),
+        seatId: 'reviewer',
+        symposiumProvenance: provenance,
+      },
+    ];
+    expect(() => replayEventsToTranscript(events)).toThrow(/simultaneous|ambiguous/i);
+  });
+
+  it('keeps the original seat revision after later configuration changes', () => {
+    const provenance = (configRevision: number) => ({
+      seatId: 'reviewer',
+      configRevision,
+      accountProfileRevision: `account-${configRevision}`,
+      seatProfileRevision: `profile-${configRevision}`,
+      contextGrantRevision: configRevision,
+      authorityGrantRevision: configRevision,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (
+      seq: number,
+      type: string,
+      revision: number,
+      payload: Record<string, unknown>,
+    ) => ({
+      ...evt(seq, type, payload),
+      seatId: 'reviewer',
+      symposiumProvenance: provenance(revision),
+    });
+    const restored = replayEventsToTranscript([
+      seat(1, 'message_start', 1, { messageId: 'old' }),
+      seat(2, 'block_start', 1, { messageId: 'old', blockId: 'b0', blockType: 'text' }),
+      seat(3, 'block_delta', 1, { messageId: 'old', blockId: 'b0', delta: 'old answer' }),
+      seat(4, 'message_end', 1, { messageId: 'old' }),
+      seat(5, 'message_start', 2, { messageId: 'new' }),
+    ]);
+    expect(restored.messages[0].symposiumProvenance).toMatchObject({
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+    });
+    expect(restored.currents[0].symposiumProvenance).toMatchObject({
+      configRevision: 2,
+      accountProfileRevision: 'account-2',
+    });
+  });
+
   it('keeps open text, thinking and tool blocks typed and out of finished history', () => {
     const events = [
       evt(1, 'user_message', { messageId: 'u1', text: 'Inspect this' }),

@@ -159,8 +159,8 @@ import { createLogger } from './logger.js';
 import { withSpan, withSpanAsync } from './tracing.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import { admitCloseout, type CloseoutAdmission } from './closeout-admission.js';
-import type { ProviderAttemptToken } from '@mitzo/protocol';
-import { buildClientCapabilitiesPrompt } from '@mitzo/protocol';
+import type { ProviderAttemptToken, SymposiumProvenance } from '@mitzo/protocol';
+import { buildClientCapabilitiesPrompt, SymposiumProvenanceSchema } from '@mitzo/protocol';
 
 const log = createLogger('chat');
 
@@ -3078,6 +3078,7 @@ export async function discoverSession(
 
 export interface RestoredMessage {
   messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
   role: string;
   timestamp?: number;
   startedSeq?: number;
@@ -3108,6 +3109,7 @@ export interface RestoredSubagentState {
 
 export interface RestoredCurrentMessage {
   messageId: string;
+  symposiumProvenance?: SymposiumProvenance;
   startedSeq?: number;
   blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
 }
@@ -3206,7 +3208,7 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
 }
 
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
-export function replayEventsToTranscript(
+function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
@@ -3386,6 +3388,107 @@ export function replayEventsToTranscript(
       ? { messageId: turn.messageId, startedSeq: turn.startedSeq, blocks: materializeBlocks(true) }
       : null,
   };
+}
+
+/** Restore each immutable seat stream independently so reused block IDs cannot cross seats. */
+export function replayEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): {
+  messages: RestoredMessage[];
+  current: RestoredCurrentMessage | null;
+  currents: RestoredCurrentMessage[];
+} {
+  const ordinary: typeof events = [];
+  const bySnapshot = new Map<string, { events: typeof events; provenance: SymposiumProvenance }>();
+  const globalTerminals: typeof events = [];
+  const openBySeat = new Map<
+    string,
+    { messageId: string; snapshotKey: string; blockIds: Set<string> }
+  >();
+  for (const event of events) {
+    if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+      ordinary.push(event);
+      if (event.type === 'session_end') {
+        globalTerminals.push(event);
+        openBySeat.clear();
+      }
+      continue;
+    }
+    const parsed = SymposiumProvenanceSchema.safeParse(event.symposiumProvenance);
+    if (!parsed.success || event.seatId !== parsed.data.seatId)
+      throw new Error('Stored Symposium event has mismatched seat provenance');
+    // Schema parsing provides a stable field order for equivalent snapshots.
+    const key = JSON.stringify(parsed.data);
+    const active = openBySeat.get(parsed.data.seatId);
+    if (event.type === 'message_start') {
+      if (active) throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+      if (typeof event.payload.messageId !== 'string' || !event.payload.messageId)
+        throw new Error('Stored Symposium message_start has no message identity');
+      openBySeat.set(parsed.data.seatId, {
+        messageId: event.payload.messageId,
+        snapshotKey: key,
+        blockIds: new Set(),
+      });
+    } else if (event.type === 'message_end') {
+      if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
+        throw new Error('Stored Symposium message_end mismatches active seat turn');
+      openBySeat.delete(parsed.data.seatId);
+    } else if (event.type === 'session_end') {
+      if (active && active.snapshotKey !== key)
+        throw new Error('Stored Symposium terminal mismatches active seat snapshot');
+      openBySeat.delete(parsed.data.seatId);
+    } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
+      if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
+        throw new Error('Stored Symposium block mismatches active seat turn');
+      if (typeof event.payload.blockId !== 'string' || !event.payload.blockId)
+        throw new Error('Stored Symposium block has no identity');
+      if (event.type === 'block_start') active.blockIds.add(event.payload.blockId);
+      else if (!active.blockIds.has(event.payload.blockId))
+        throw new Error('Stored Symposium block has no matching start');
+    } else if (event.type.startsWith('subagent_')) {
+      if (
+        !active ||
+        active.snapshotKey !== key ||
+        typeof event.payload.parentBlockId !== 'string' ||
+        !active.blockIds.has(event.payload.parentBlockId)
+      )
+        throw new Error('Stored Symposium subagent mismatches active seat turn');
+    }
+    let stream = bySnapshot.get(key);
+    if (!stream) {
+      stream = { events: [], provenance: parsed.data };
+      bySnapshot.set(key, stream);
+    }
+    stream.events.push(event);
+  }
+
+  const base = replaySingleEventsToTranscript(ordinary, initialPrompt);
+  const messages = [...base.messages];
+  const currents: RestoredCurrentMessage[] = [];
+  const activeSeats = new Set<string>();
+  for (const { events: streamEvents, provenance } of bySnapshot.values()) {
+    const stream = replaySingleEventsToTranscript(
+      [...streamEvents, ...globalTerminals].sort((a, b) => a.seq - b.seq),
+    );
+    messages.push(
+      ...stream.messages.map((message) => ({ ...message, symposiumProvenance: provenance })),
+    );
+    if (!stream.current) continue;
+    if (activeSeats.has(provenance.seatId))
+      throw new Error('Ambiguous simultaneous Symposium turns for one seat');
+    activeSeats.add(provenance.seatId);
+    currents.push({ ...stream.current, symposiumProvenance: provenance });
+  }
+  messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  const ids = new Set<string>();
+  for (const message of [...messages, ...currents]) {
+    if (ids.has(message.messageId))
+      throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
+    ids.add(message.messageId);
+  }
+  return { messages, current: base.current, currents };
 }
 
 /**

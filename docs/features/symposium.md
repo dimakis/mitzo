@@ -166,14 +166,17 @@ rows show the seat ID with unknown account/model; current configuration never
 relabels history. Event replay, REST event reads, and periodic sync project
 seat attribution from durable event columns rather than payload fields.
 
-This is client and persistence groundwork, not completed live Phase 4. REST
-reconnection still needs a multiple-current transcript and the acknowledged
-transport must hold its cursor when the parser refuses an event. Provider runtime
-and directed-seat controls remain Phase 3 and later integration work.
+The bounded REST reconnect transcript returns every active attributed seat turn
+with its original provenance and start sequence, alongside the ordinary current
+turn. Replay isolates seat streams so reused block IDs cannot cross seats. The
+client applies all durable seat snapshots before captured post-cursor actions;
+an ambiguous or mismatched transcript fails recovery without replacing visible
+history or acknowledging the cursor. This remains client and persistence
+groundwork until the acknowledged transport and provider runtime are integrated.
+Directed-seat controls are later integration work.
 
 Next, integrate provider execution and websocket controls (Phase 3), complete
-multiple-current reconnect recovery and seat-attributed controls in the existing
-ChatView (Phases 4–6).
+seat-attributed controls in the existing ChatView (Phases 4–6).
 The old Phase 6 separate-session creation wording is superseded by add/remove seat
 within a chat. Review findings, delta review, profile catalog, context selection,
 and account/model selection need explicit coverage in those slices. Account/model

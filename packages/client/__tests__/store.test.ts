@@ -548,6 +548,131 @@ describe('reconnect recovery', () => {
     });
   });
 
+  it('restores two seat currents before replaying post-cursor events for each seat', async () => {
+    const provenance = (seatId: string) => ({
+      seatId,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    });
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('throughSeq=7')
+        ? new Promise((resolve) => {
+            resolveRestore = resolve;
+          })
+        : Promise.resolve({ ok: true, json: () => Promise.resolve([]) }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 8,
+      seatId: 'architect',
+      symposiumProvenance: provenance('architect'),
+      messageId: 'a1',
+      blockId: 'b0',
+      delta: ' suffix',
+    });
+    lastWs.simulateMessage({
+      type: 'session_end',
+      sessionId: 'sess-1',
+      seq: 9,
+      seatId: 'reviewer',
+      symposiumProvenance: provenance('reviewer'),
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: null,
+          currents: ['architect', 'reviewer'].map((seatId, index) => ({
+            messageId: `a${index + 1}`,
+            startedSeq: index + 1,
+            symposiumProvenance: provenance(seatId),
+            blocks: [{ blockId: 'b0', blockType: 'text', content: seatId, done: false }],
+          })),
+        }),
+    });
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.currentByMessage.a1.blocks.get('b0')?.content).toBe(
+      'architect suffix',
+    );
+    expect(store.getState().messages.currentByMessage.a2).toBeUndefined();
+    expect(store.getState().messages.messages).toMatchObject([
+      { messageId: 'a2', symposiumProvenance: { seatId: 'reviewer' } },
+    ]);
+    expect(store.getState().messages.resyncRequired).toBe(false);
+  });
+
+  it('keeps the existing transcript when bounded REST reports ambiguous seat currents', async () => {
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    };
+    const transport = mockTransport();
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [],
+                  current: null,
+                  currents: ['a1', 'a2'].map((messageId) => ({
+                    messageId,
+                    symposiumProvenance: provenance,
+                    blocks: [],
+                  })),
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.setState((state) => ({
+      messages: {
+        ...state.messages,
+        messages: [{ messageId: 'visible', role: 'assistant', blocks: [] }],
+      },
+    }));
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    await vi.waitFor(() => expect(store.getState().historyError).toMatch(/restore/i));
+    expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual([
+      'visible',
+    ]);
+    expect(store.getState().messages.currentByMessage).toEqual({});
+  });
+
   it('keeps newer live deltas when the bounded snapshot has the same message ID', async () => {
     const transport = mockTransport();
     let resolveRestore!: (value: unknown) => void;

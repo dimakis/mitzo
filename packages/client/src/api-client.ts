@@ -5,7 +5,8 @@
  * Uses a TransportAdapter.fetch so it works in both browser and Theia.
  */
 
-import type { FinishedBlock, FinishedMessage, Session } from '@mitzo/protocol';
+import { SymposiumProvenanceSchema } from '@mitzo/protocol';
+import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
 import type { InboxItem } from './slices/inbox.js';
@@ -41,6 +42,12 @@ export interface ReconnectTranscript {
     startedSeq?: number;
     blocks: Array<FinishedBlock & { done: boolean }>;
   } | null;
+  currents?: Array<{
+    messageId: string;
+    startedSeq?: number;
+    blocks: Array<FinishedBlock & { done: boolean }>;
+    symposiumProvenance: SymposiumProvenance;
+  }>;
 }
 
 export interface FileEntry {
@@ -140,10 +147,43 @@ export class MitzoApiClient {
     );
     const body: unknown = await res.json();
     // Old server releases returned an array at this endpoint.
-    if (Array.isArray(body)) return { messages: body as FinishedMessage[], current: null };
+    if (Array.isArray(body))
+      return { messages: body as FinishedMessage[], current: null, currents: [] };
     if (!body || typeof body !== 'object' || !Array.isArray((body as ReconnectTranscript).messages))
       throw new Error('Invalid reconnect transcript');
-    return body as ReconnectTranscript;
+    const transcript = body as ReconnectTranscript;
+    const currents = transcript.currents ?? [];
+    if (!Array.isArray(currents)) throw new Error('Invalid reconnect seat currents');
+    for (const message of transcript.messages) {
+      if (
+        !message ||
+        typeof message.messageId !== 'string' ||
+        !Array.isArray(message.blocks) ||
+        ('symposiumProvenance' in message &&
+          !SymposiumProvenanceSchema.safeParse(message.symposiumProvenance).success)
+      )
+        throw new Error('Invalid reconnect finished message');
+    }
+    const ids = new Set(transcript.messages.map((message) => message.messageId));
+    if (transcript.current) ids.add(transcript.current.messageId);
+    const seats = new Set<string>();
+    for (const current of currents) {
+      const provenance = SymposiumProvenanceSchema.safeParse(current.symposiumProvenance);
+      if (
+        !provenance.success ||
+        typeof current.messageId !== 'string' ||
+        !current.messageId ||
+        !Array.isArray(current.blocks) ||
+        (current.startedSeq !== undefined &&
+          (!Number.isSafeInteger(current.startedSeq) || current.startedSeq < 0)) ||
+        ids.has(current.messageId) ||
+        seats.has(provenance.data.seatId)
+      )
+        throw new Error('Invalid reconnect seat current');
+      ids.add(current.messageId);
+      seats.add(provenance.data.seatId);
+    }
+    return { ...transcript, currents };
   }
 
   async getSessionMeta(sessionId: string): Promise<SessionMetaResponse | null> {

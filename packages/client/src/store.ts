@@ -193,9 +193,11 @@ function mergeLiveWithDurable(
   durable: FinishedMessage,
 ): FinishedMessage {
   if (!live) return durable;
+  const { symposiumProvenance: _liveProvenance, ...liveContent } = live;
   return {
-    ...live,
+    ...liveContent,
     ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
+    ...(durable.symposiumProvenance ? { symposiumProvenance: durable.symposiumProvenance } : {}),
     images: live.images ?? durable.images,
     contextBlocks: live.contextBlocks ?? durable.contextBlocks,
   };
@@ -279,10 +281,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     );
     const transcript =
       throughSeq === undefined
-        ? api.getSessionMessages(sessionId).then((messages) => ({ messages, current: null }))
+        ? api
+            .getSessionMessages(sessionId)
+            .then((messages) => ({ messages, current: null, currents: [] }))
         : api.getReconnectTranscript(sessionId, throughSeq);
     transcript
-      .then(({ messages: msgs, current }) => {
+      .then(({ messages: msgs, current, currents = [] }) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           store.setState((s) => {
@@ -336,9 +340,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ...restored,
               messages: restored.messages.filter(
                 (message) =>
-                  message.messageId !== current?.messageId && !replayedIds.has(message.messageId),
+                  message.messageId !== current?.messageId &&
+                  !currents.some((seat) => seat.messageId === message.messageId) &&
+                  !replayedIds.has(message.messageId),
               ),
               current: null,
+              currentByMessage: {},
+              resyncRequired: false,
             };
             const withSnapshot = current
               ? messagesReducer(withoutStaleCurrent, {
@@ -348,7 +356,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   blocks: current.blocks,
                 })
               : withoutStaleCurrent;
-            return { messages: liveActions.reduce(messagesReducer, withSnapshot) };
+            const withSeatSnapshots = currents.reduce(
+              (state, seat) =>
+                messagesReducer(state, {
+                  type: 'MESSAGE_SNAPSHOT',
+                  messageId: seat.messageId,
+                  startedSeq: seat.startedSeq,
+                  blocks: seat.blocks,
+                  symposiumProvenance: seat.symposiumProvenance,
+                }),
+              withSnapshot,
+            );
+            const replayed = liveActions.reduce(messagesReducer, withSeatSnapshots);
+            if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
+            return { messages: replayed };
           });
           onApplied?.();
         }
