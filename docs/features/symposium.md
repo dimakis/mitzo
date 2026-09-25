@@ -236,3 +236,19 @@ A later successful attempt with the same idempotency identity settles its earlie
 historical failures during migration. Seat restoration includes membership
 generation in the provider-thread binding, so it cannot reuse a pre-suspension
 thread even when account and profile choices are unchanged.
+
+## Provider cost evidence
+
+The delivery and attempt ledgers preserve missing provider prices as unknown
+(`null`). An explicitly reported zero remains a known zero. Usage returns the
+known subtotal (`knownCostUsd`) and the count of attempts without price evidence
+(`unknownCostAttempts`); its total `costUsd` is unknown while any such attempt
+remains. A late result reconciles the exact original claim without reviving a
+cancelled delivery. Failed attempts and successful retries sharing the same
+provider idempotency identity count as one priced turn; host attempts still count
+individually toward the turn cap. Conflicting reported prices remain unresolved. Historical positive costs remain known during migration;
+historical zeros remain unknown because earlier code also used zero for omitted
+prices. Negative or nonfinite provider costs are rejected as billing evidence.
+
+This accounting does not enforce a native monetary budget. Budgeted native
+execution still requires trusted pricing and a reservation before dispatch.
