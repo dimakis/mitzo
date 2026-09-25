@@ -535,6 +535,144 @@ describe('reconnect recovery', () => {
     expect(store.getState().messages.current?.blocks.get('b1')?.content).toBe('newer text');
   });
 
+  it('replays post-cursor live blocks over the durable partial prefix after a delayed restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    // The client has no block A yet: these actions are ignored by the live reducer.
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'a',
+      delta: ' suffix',
+      seq: 8,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b',
+      blockType: 'text',
+      seq: 9,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'a1',
+      blockId: 'b',
+      delta: 'later block',
+      seq: 10,
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: {
+            messageId: 'a1',
+            blocks: [{ blockId: 'a', blockType: 'text', content: 'durable prefix', done: false }],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.current?.blocks.get('a')?.content).toBe(
+      'durable prefix suffix',
+    );
+    expect(store.getState().messages.current?.blocks.get('b')?.content).toBe('later block');
+    expect(store.getState().messages.current?.blockOrder).toEqual(['a', 'b']);
+  });
+
+  it('replays a later completed turn once after a delayed partial restore', async () => {
+    const transport = mockTransport();
+    let resolveRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'message_start',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      seq: 8,
+    });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      blockId: 'new',
+      blockType: 'text',
+      seq: 9,
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      blockId: 'new',
+      delta: 'new turn',
+      seq: 10,
+    });
+    lastWs.simulateMessage({
+      type: 'message_end',
+      sessionId: 'sess-1',
+      messageId: 'later',
+      seq: 11,
+    });
+    resolveRestore({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          messages: [],
+          current: {
+            messageId: 'earlier',
+            blocks: [
+              { blockId: 'old', blockType: 'text', content: 'earlier partial', done: false },
+            ],
+          },
+        }),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(
+      store.getState().messages.messages.map((message) => ({
+        messageId: message.messageId,
+        content: message.blocks[0]?.content,
+      })),
+    ).toEqual([
+      { messageId: 'earlier', content: 'earlier partial' },
+      { messageId: 'later', content: 'new turn' },
+    ]);
+    expect(store.getState().messages.current).toBeNull();
+  });
+
   it('does not restore a delayed bounded turn into a different selected session', async () => {
     const transport = mockTransport();
     let resolveRestore!: (value: unknown) => void;

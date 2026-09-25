@@ -230,6 +230,28 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     });
   });
 
+  it('retains an earlier interrupted partial block after a later turn completes', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'interrupted' }),
+      evt(2, 'block_start', { messageId: 'interrupted', blockId: 'old', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'interrupted', blockId: 'old', delta: 'saved partial' }),
+      evt(4, 'session_end', {}),
+      evt(5, 'message_start', { messageId: 'later' }),
+      evt(6, 'block_start', { messageId: 'later', blockId: 'new', blockType: 'text' }),
+      evt(7, 'block_delta', { messageId: 'later', blockId: 'new', delta: 'complete' }),
+      evt(8, 'block_end', { messageId: 'later', blockId: 'new', blockType: 'text' }),
+      evt(9, 'message_end', { messageId: 'later' }),
+    ];
+
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      current: null,
+      messages: [
+        { messageId: 'interrupted', blocks: [{ blockId: 'old', content: 'saved partial' }] },
+        { messageId: 'later', blocks: [{ blockId: 'new', content: 'complete' }] },
+      ],
+    });
+  });
+
   it('restores the same partial turn after disk reopen and excludes events beyond the cursor', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mitzo-transcript-reopen-'));
     const path = join(dir, 'events.db');

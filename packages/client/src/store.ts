@@ -226,7 +226,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
   let boundedRestore:
-    { sessionId: string; throughSeq: number; confirmedMessageIds: Set<string> } | undefined;
+    | {
+        sessionId: string;
+        throughSeq: number;
+        confirmedMessageIds: Set<string>;
+        liveActions: MessagesAction[];
+      }
+    | undefined;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
@@ -240,8 +246,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     recoveryInFlight = true;
     const request = ++historyRequest;
     const currentBoundedRestore =
-      replace && throughSeq !== undefined
-        ? { sessionId, throughSeq, confirmedMessageIds: new Set<string>() }
+      throughSeq !== undefined
+        ? {
+            sessionId,
+            throughSeq,
+            confirmedMessageIds: new Set<string>(),
+            liveActions: [] as MessagesAction[],
+          }
         : undefined;
     boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
@@ -290,24 +301,37 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               : msgs.length > 0
                 ? mergeHistory(s.messages, msgs, initialCurrent)
                 : s.messages;
-            if (throughSeq === undefined || s.messages.current !== initialCurrent)
+            const liveActions = currentBoundedRestore?.liveActions ?? [];
+            if (
+              throughSeq === undefined ||
+              (s.messages.current !== initialCurrent && liveActions.length === 0)
+            )
               return { messages: restored };
+            // Rebuild live completed turns from the captured suffix so their
+            // order and blocks are applied once after the durable prefix.
+            const replayedIds = new Set(
+              liveActions.flatMap((action) =>
+                'messageId' in action && typeof action.messageId === 'string'
+                  ? [action.messageId]
+                  : [],
+              ),
+            );
             const withoutStaleCurrent = {
               ...restored,
-              messages: current
-                ? restored.messages.filter((message) => message.messageId !== current.messageId)
-                : restored.messages,
+              messages: restored.messages.filter(
+                (message) =>
+                  message.messageId !== current?.messageId && !replayedIds.has(message.messageId),
+              ),
               current: null,
             };
-            return {
-              messages: current
-                ? messagesReducer(withoutStaleCurrent, {
-                    type: 'MESSAGE_SNAPSHOT',
-                    messageId: current.messageId,
-                    blocks: current.blocks,
-                  })
-                : withoutStaleCurrent,
-            };
+            const withSnapshot = current
+              ? messagesReducer(withoutStaleCurrent, {
+                  type: 'MESSAGE_SNAPSHOT',
+                  messageId: current.messageId,
+                  blocks: current.blocks,
+                })
+              : withoutStaleCurrent;
+            return { messages: liveActions.reduce(messagesReducer, withSnapshot) };
           });
           onApplied?.();
         }
@@ -971,15 +995,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     for (const action of result.messagesActions) {
       if (action.type === 'USER_MESSAGE_RECEIVED')
         pendingOptimisticMessageIds.delete(action.messageId);
-      if (
+      const isPostCursorAction =
         boundedRestore &&
         eventSessionId === boundedRestore.sessionId &&
         typeof msg.seq === 'number' &&
         Number.isSafeInteger(msg.seq) &&
-        msg.seq > boundedRestore.throughSeq &&
-        action.type === 'USER_MESSAGE_RECEIVED'
-      ) {
-        boundedRestore.confirmedMessageIds.add(action.messageId);
+        msg.seq > boundedRestore.throughSeq;
+      if (isPostCursorAction) {
+        boundedRestore!.liveActions.push(action);
+        if (action.type === 'USER_MESSAGE_RECEIVED')
+          boundedRestore!.confirmedMessageIds.add(action.messageId);
       }
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),

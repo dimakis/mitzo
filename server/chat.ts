@@ -3106,6 +3106,33 @@ export function replayEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
   initialPrompt?: string,
 ): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
+  // The finished-message replay only adds a block at block_end. A turn can
+  // instead stop at session_end with durable deltas but no block_end; retain
+  // those deltas even when a later turn supersedes the interrupted one.
+  const closedEvents: import('./event-store.js').StoredEvent[] = [];
+  const unfinishedBlocks = new Map<string, Record<string, unknown>>();
+  for (const event of events) {
+    if (event.type === 'message_start') unfinishedBlocks.clear();
+    if (event.type === 'block_start' && typeof event.payload.blockId === 'string')
+      unfinishedBlocks.set(event.payload.blockId, event.payload);
+    if (event.type === 'block_end') unfinishedBlocks.delete(event.payload.blockId as string);
+    if (event.type === 'message_end' || event.type === 'session_end') {
+      for (const block of unfinishedBlocks.values()) {
+        closedEvents.push({
+          ...event,
+          type: 'block_end',
+          payload: {
+            messageId: block.messageId,
+            blockId: block.blockId,
+            blockType: block.blockType,
+            ...(block.toolName ? { toolName: block.toolName } : {}),
+          },
+        });
+      }
+      unfinishedBlocks.clear();
+    }
+    closedEvents.push(event);
+  }
   let openMessageId: string | undefined;
   let terminalMessageId: string | undefined;
   for (const event of events) {
@@ -3120,7 +3147,7 @@ export function replayEventsToTranscript(
     }
   }
 
-  const messages = replayEventsToMessages(events, initialPrompt);
+  const messages = replayEventsToMessages(closedEvents, initialPrompt);
   const targetMessageId = openMessageId ?? terminalMessageId;
   if (!targetMessageId) return { messages, current: null };
 
