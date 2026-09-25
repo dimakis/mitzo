@@ -1,6 +1,58 @@
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
+/** Build an authenticated API URL scoped to the session that created an artifact. */
+export function artifactApiUrl(
+  endpoint: 'read' | 'download',
+  filePath: string,
+  sessionId?: string,
+): string {
+  const params = new URLSearchParams({ path: filePath });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/api/files/${endpoint}?${params.toString()}`;
+}
+
+/** Build the in-app file viewer URL without granting authority in the path itself. */
+export function artifactViewerUrl(filePath: string, from: string, sessionId?: string): string {
+  const params = new URLSearchParams({ path: filePath, from });
+  if (sessionId) params.set('sessionId', sessionId);
+  return `/files?${params.toString()}`;
+}
+
+/** A Markdown href that names a workspace file rather than a browser destination. */
+export function relativeArtifactPath(href: string): string | null {
+  if (href.startsWith('/') || href.startsWith('#') || href.startsWith('?')) return null;
+  if (/^[a-z][a-z\d+.-]*:/i.test(href)) return null;
+  try {
+    const path = decodeURIComponent(href.split(/[?#]/, 1)[0]);
+    const bareFile = !path.includes('/') && /^[^./][^/]*\.[a-z\d][a-z\d._-]*$/i.test(path);
+    return isFilePath(path) || bareFile ? path : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Resolve a Markdown artifact's link against the directory containing the file. */
+export function linkedArtifactPath(href: string, containingFile: string): string | null {
+  const relative = relativeArtifactPath(href);
+  if (!relative) return null;
+
+  const base = containingFile.slice(0, containingFile.lastIndexOf('/') + 1);
+  const joined = `${base}${relative}`;
+  const absolute = joined.startsWith('/');
+  const segments: string[] = [];
+  for (const segment of joined.split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') segments.pop();
+      else if (!absolute) segments.push('..');
+    } else {
+      segments.push(segment);
+    }
+  }
+  return `${absolute ? '/' : ''}${segments.join('/')}`;
+}
+
 /**
  * Decode an internal file URL without allowing malformed URI data to escape
  * into the React render path.

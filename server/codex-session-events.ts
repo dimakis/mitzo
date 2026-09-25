@@ -13,6 +13,7 @@ export class CodexSessionEvents {
     { text: string; closed: boolean; messageId: string; kind: 'text' | 'thinking' }
   >();
   private finishedTurns = new Set<string>();
+  private startedTurns = new Set<string>();
   private compacted = new Set<string>();
   private lastAnonymousCompaction?: string;
   private commandTools = new Map<string, string>();
@@ -59,8 +60,13 @@ export class CodexSessionEvents {
   private finalReasoningSuffix(rendered: string, summary: string) {
     return summary.startsWith(rendered) ? summary.slice(rendered.length) : '';
   }
-  private stream(event: StreamEvent) {
-    this.emit({ type: 'stream_event', event, parent_tool_use_id: null });
+  private stream(event: StreamEvent, rendererOnly = false) {
+    this.emit({
+      type: 'stream_event',
+      event,
+      parent_tool_use_id: null,
+      ...(rendererOnly ? { renderer_only: true } : {}),
+    });
   }
   private start(id: string, kind: 'text' | 'thinking' = 'text') {
     let item = this.texts.get(id);
@@ -69,15 +75,18 @@ export class CodexSessionEvents {
     this.flush();
     item = { text: '', closed: false, messageId: randomUUID(), kind };
     this.texts.set(id, item);
-    this.stream({
-      type: 'message_start',
-      message: {
-        id: item.messageId,
-        model: this.model,
-        role: 'assistant',
-        usage: { input_tokens: 0, output_tokens: 0 },
+    this.stream(
+      {
+        type: 'message_start',
+        message: {
+          id: item.messageId,
+          model: this.model,
+          role: 'assistant',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
       },
-    });
+      true,
+    );
     this.stream({
       type: 'content_block_start',
       index: 0,
@@ -142,6 +151,15 @@ export class CodexSessionEvents {
     if (!isCompactionNotification) this.lastAnonymousCompaction = undefined;
     if (method === 'turn/started') {
       this.turnFinished = false;
+      const turnId = object(params.turn).id;
+      if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
+        this.startedTurns.add(turnId);
+        this.emit({
+          type: 'provider_turn_start',
+          session_id: this.conversationId,
+          turn_id: turnId,
+        });
+      }
       return;
     }
     // Provider events may be delivered late. Never create renderer blocks after
@@ -363,15 +381,18 @@ export class CodexSessionEvents {
   toolStart(_providerCallId: string, name: string, input: ObjectValue): string {
     this.flush();
     const id = randomUUID();
-    this.stream({
-      type: 'message_start',
-      message: {
-        id: randomUUID(),
-        model: this.model,
-        role: 'assistant',
-        usage: { input_tokens: 0, output_tokens: 0 },
+    this.stream(
+      {
+        type: 'message_start',
+        message: {
+          id: randomUUID(),
+          model: this.model,
+          role: 'assistant',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
       },
-    });
+      true,
+    );
     this.stream({
       type: 'content_block_start',
       index: 0,

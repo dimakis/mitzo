@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
+import { artifactApiUrl } from '../lib/file-paths';
 
 interface DirEntry {
   name: string;
@@ -30,6 +31,7 @@ export interface FileNavState {
   ext: string;
   entries: DirEntry[];
   currentDir: string;
+  canGoUp: boolean;
   loading: boolean;
   error: string;
   gitInfo: GitInfo | null;
@@ -38,6 +40,7 @@ export interface FileNavState {
   isViewing: boolean;
   filePath: string;
   dirPath: string;
+  sessionId: string;
 }
 
 export function useFileNavigation(
@@ -47,17 +50,27 @@ export function useFileNavigation(
   const filePath = searchParams.get('path') || '';
   const dirPath = searchParams.get('dir') || '';
   const rootParam = searchParams.get('root') || '';
+  const sessionId = searchParams.get('sessionId') || '';
   const isViewing = !!filePath;
 
   const [content, setContent] = useState('');
   const [ext, setExt] = useState('');
   const [entries, setEntries] = useState<DirEntry[]>([]);
   const [currentDir, setCurrentDir] = useState('');
+  const [browserRoot, setBrowserRoot] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [roots, setRoots] = useState<FileRoot[]>([]);
-  const [activeRoot, setActiveRoot] = useState(rootParam);
+  // With session authority the server defaults to that session's workspace.
+  // Only an explicitly selected root should override it.
+  const activeRoot = rootParam || (sessionId ? '' : gitInfo?.repoPath || '');
+  const canGoUp = Boolean(
+    currentDir &&
+    browserRoot &&
+    currentDir !== browserRoot &&
+    currentDir.startsWith(`${browserRoot.replace(/\/$/, '')}/`),
+  );
 
   useEffect(() => {
     apiFetch('/api/git/info')
@@ -65,7 +78,6 @@ export function useFileNavigation(
       .then((data: GitInfo | null) => {
         if (data) {
           setGitInfo(data);
-          if (!activeRoot) setActiveRoot(data.repoPath);
         }
       })
       .catch(() => {
@@ -80,18 +92,23 @@ export function useFileNavigation(
       .catch(() => {
         // Network error loading roots — non-fatal
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     setLoading(true);
     setError('');
 
-    const rootQ = activeRoot ? `&root=${encodeURIComponent(activeRoot)}` : '';
+    const directoryParams = new URLSearchParams({ dir: dirPath });
+    if (activeRoot) directoryParams.set('root', activeRoot);
+    if (sessionId) directoryParams.set('sessionId', sessionId);
 
     if (isViewing) {
-      apiFetch(`/api/files/read?path=${encodeURIComponent(filePath)}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load file');
+      apiFetch(artifactApiUrl('read', filePath, sessionId || undefined))
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => null);
+            throw new Error(body?.error || 'Failed to load file');
+          }
           return r.json();
         })
         .then((data) => {
@@ -101,25 +118,35 @@ export function useFileNavigation(
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     } else {
-      apiFetch(`/api/files?dir=${encodeURIComponent(dirPath)}${rootQ}`)
-        .then((r) => {
-          if (!r.ok) throw new Error('Failed to load directory');
+      apiFetch(`/api/files?${directoryParams.toString()}`)
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => null);
+            throw new Error(body?.error || 'Failed to load directory');
+          }
           return r.json();
         })
         .then((data) => {
           setEntries(data.entries);
           setCurrentDir(data.dir);
+          setBrowserRoot(data.root);
         })
         .catch((err) => setError(err.message))
         .finally(() => setLoading(false));
     }
-  }, [filePath, dirPath, isViewing, activeRoot]);
+  }, [filePath, dirPath, isViewing, activeRoot, sessionId]);
+
+  function navigationParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (activeRoot) params.root = activeRoot;
+    if (sessionId) params.sessionId = sessionId;
+    return params;
+  }
 
   function openEntry(entry: DirEntry, dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     const full = currentDir ? `${currentDir}/${entry.name}` : entry.name;
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
+    const params = navigationParams();
     if (entry.isDir) {
       params.dir = full;
     } else {
@@ -130,10 +157,9 @@ export function useFileNavigation(
 
   function goUp(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
-    if (!currentDir) return;
+    if (!canGoUp) return;
     const parent = currentDir.replace(/\/[^/]+$/, '');
-    const params: Record<string, string> = {};
-    if (activeRoot) params.root = activeRoot;
+    const params = navigationParams();
     if (parent === currentDir) {
       setSearchParams(params);
     } else {
@@ -145,23 +171,23 @@ export function useFileNavigation(
   function handleBack(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
-      const parentDir = filePath.replace(/\/[^/]+$/, '');
-      const params: Record<string, string> = {};
-      if (activeRoot) params.root = activeRoot;
+      const lastSlash = filePath.lastIndexOf('/');
+      const parentDir = lastSlash < 0 ? '' : filePath.slice(0, lastSlash) || '/';
+      const params = navigationParams();
       if (parentDir) params.dir = parentDir;
       setSearchParams(params);
       setContent('');
       setExt('');
-    } else if (currentDir) {
+    } else if (canGoUp) {
       goUp(false);
     }
   }
 
   function handleRootChange(newRoot: string, dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
-    setActiveRoot(newRoot);
     const params: Record<string, string> = {};
     if (newRoot) params.root = newRoot;
+    if (sessionId) params.sessionId = sessionId;
     setSearchParams(params);
   }
 
@@ -170,6 +196,7 @@ export function useFileNavigation(
     ext,
     entries,
     currentDir,
+    canGoUp,
     loading,
     error,
     gitInfo,
@@ -178,6 +205,7 @@ export function useFileNavigation(
     isViewing,
     filePath,
     dirPath,
+    sessionId,
   };
 
   return {

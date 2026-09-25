@@ -209,6 +209,13 @@ export interface ProviderAttemptRecord {
   updatedAt: number;
 }
 
+export interface ConversationTextEvent {
+  seq: number;
+  kind: 'user' | 'assistant_delta' | 'assistant_end';
+  messageId: string;
+  text: string;
+}
+
 type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
@@ -330,6 +337,7 @@ export class EventStore {
     eventsAfter: Database.Statement;
     eventsAfterLimited: Database.Statement;
     sessionEvents: Database.Statement;
+    recentConversationText: Database.Statement;
     getSession: Database.Statement;
     listSessions: Database.Statement;
     listSessionsLimited: Database.Statement;
@@ -483,6 +491,21 @@ export class EventStore {
       ),
       sessionEvents: db.prepare(
         'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
+      ),
+      recentConversationText: db.prepare(
+        `SELECT seq,type,
+          json_extract(payload, '$.messageId') AS message_id,
+          CASE
+            WHEN type='user_message' THEN json_extract(payload, '$.text')
+            WHEN type='block_delta' THEN json_extract(payload, '$.delta')
+            ELSE ''
+          END AS text
+        FROM events
+        WHERE session_id=? AND (
+          type='user_message' OR type='message_end' OR
+          (type='block_delta' AND json_extract(payload, '$.blockType')='text')
+        )
+        ORDER BY seq DESC LIMIT ?`,
       ),
       getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
       listSessions: db.prepare(
@@ -1399,6 +1422,39 @@ export class EventStore {
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
+  }
+
+  /** Return only the bounded text projection needed to rebuild conversation
+   * continuity. Images, tool I/O, reasoning and arbitrary event payload fields
+   * never leave SQLite. Results are chronological. */
+  getRecentConversationText(sessionId: string, limit = 8192): ConversationTextEvent[] {
+    const rows = this.stmts.recentConversationText.all(sessionId, limit) as Array<{
+      seq: number;
+      type: 'user_message' | 'block_delta' | 'message_end';
+      message_id: string | null;
+      text: string | null;
+    }>;
+    const events: ConversationTextEvent[] = [];
+    for (const row of rows.reverse()) {
+      if (!row.message_id) continue;
+      if (row.type === 'user_message' && typeof row.text === 'string')
+        events.push({ seq: row.seq, kind: 'user', messageId: row.message_id, text: row.text });
+      else if (row.type === 'block_delta' && typeof row.text === 'string')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_delta',
+          messageId: row.message_id,
+          text: row.text,
+        });
+      if (row.type === 'message_end')
+        events.push({
+          seq: row.seq,
+          kind: 'assistant_end',
+          messageId: row.message_id,
+          text: '',
+        });
+    }
+    return events;
   }
 
   /** Persist a validated draft or activate Symposium on an existing session.

@@ -20,3 +20,5 @@ export function loadProductionConfig(
 ): Record<string, string | undefined>;
 
 export function verifyOpenAiHeaderAuthentication(profile: Record<string, unknown>): void;
+
+export function verifyPreparedSeed(seedPath: string, expectedCommit: string): void;

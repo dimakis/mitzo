@@ -6,12 +6,15 @@ import { ConnectionStore, RevisionConflictError } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
 import {
   ConnectionAssignmentsBody,
+  ConnectionCapabilitiesBody,
   ConnectionCreateBody,
   ConnectionReauthorizeBody,
   ConnectionRevisionBody,
   ConnectionRotateBody,
 } from './api-schemas.js';
 import { verifyPassphrase, type AuthSession } from './auth.js';
+import { connectionTemplateRegistry } from './connections/registry.js';
+import type { CapabilityService } from './connections/capabilities/service.js';
 
 const OWNER = 'operator',
   TTL = 5 * 60_000,
@@ -24,6 +27,7 @@ type PublicConnection = Pick<
   | 'templateVersion'
   | 'label'
   | 'endpoint'
+  | 'publicConfig'
   | 'status'
   | 'revision'
   | 'desiredAccountIds'
@@ -40,6 +44,7 @@ const publicConnection = (c: Connection): PublicConnection => {
     templateVersion,
     label,
     endpoint,
+    publicConfig,
     status,
     revision,
     desiredAccountIds,
@@ -55,6 +60,7 @@ const publicConnection = (c: Connection): PublicConnection => {
     templateVersion,
     label,
     endpoint,
+    publicConfig,
     status,
     revision,
     desiredAccountIds,
@@ -65,7 +71,7 @@ const publicConnection = (c: Connection): PublicConnection => {
     updatedAt,
   };
 };
-function session(res: express.Response): AuthSession | undefined {
+export function recentAuthorizationSession(res: express.Response): AuthSession | undefined {
   const value = res.locals.authSession as AuthSession | undefined;
   if (!value || value.expiresAt <= Date.now()) {
     res.status(401).json({ error: 'Browser authentication required' });
@@ -73,8 +79,8 @@ function session(res: express.Response): AuthSession | undefined {
   }
   return value;
 }
-function requireCapability(res: express.Response, csrf: string) {
-  const value = session(res);
+export function requireRecentConnectionAuthorization(res: express.Response, csrf: string) {
+  const value = recentAuthorizationSession(res);
   if (!value) return false;
   const capability = capabilities.get(value.id);
   if (!capability || capability.expiresAt <= Date.now() || capability.csrf !== csrf) {
@@ -84,7 +90,11 @@ function requireCapability(res: express.Response, csrf: string) {
   }
   return true;
 }
-function unsafe(req: express.Request, res: express.Response, next: express.NextFunction) {
+export function requireSameOriginJson(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
   const origin = req.header('origin');
   const allowed = new Set(
     (process.env.CORS_ALLOWED_ORIGINS ?? '')
@@ -122,6 +132,7 @@ export function createConnectionsRouter(options: {
   gateway: string;
   workspace: string;
   legacyProviders: () => Promise<Array<{ name: string; type: string }>>;
+  capabilities?: CapabilityService;
 }) {
   const router = express.Router();
   const limiter = (limit: number, message: string) =>
@@ -136,7 +147,7 @@ export function createConnectionsRouter(options: {
   const mutate = limiter(30, 'Too many connection requests, try again in a minute');
   router.use((_req, res, next) => {
     res.set('Cache-Control', 'no-store');
-    if (session(res)) next();
+    if (recentAuthorizationSession(res)) next();
   });
   router.get('/', async (_req, res) => {
     let legacy: Array<{ id: string; label: string; type: string; management: string }> = [];
@@ -157,121 +168,207 @@ export function createConnectionsRouter(options: {
       appliesTo: 'new conversations only',
     });
   });
+  router.get('/templates', (_req, res) => {
+    return res.json({
+      templates: connectionTemplateRegistry.providerTemplates().map((template) => ({
+        ...template,
+        available: options.service.supportsTemplate(template.id, template.version),
+      })),
+      capabilities: connectionTemplateRegistry.capabilityTemplates(),
+    });
+  });
   router.get('/:id/audit', (req, res) => {
     const c = options.store.get(connectionId(req));
     return !c || c.ownerId !== OWNER
       ? missing(res)
       : res.json({ audit: options.store.audit(c.id) });
   });
-  router.post('/reauthorize', reauthorize, unsafe, express.json({ limit: '2kb' }), (req, res) => {
-    const auth = session(res),
-      parsed = ConnectionReauthorizeBody.safeParse(req.body);
-    if (!auth || !parsed.success || !verifyPassphrase(parsed.data.passphrase))
-      return res.status(403).json({ error: 'Reauthorization failed' });
-    const now = Date.now();
-    for (const [id, item] of capabilities) if (item.expiresAt <= now) capabilities.delete(id);
-    while (capabilities.size >= MAX_CAPABILITIES)
-      capabilities.delete(capabilities.keys().next().value!);
-    const expiresAt = Math.min(auth.expiresAt, now + TTL),
-      csrf = randomUUID() + randomUUID();
-    capabilities.set(auth.id, { csrf, expiresAt });
-    return res.json({ csrf, expiresAt });
+  router.get('/:id/capabilities', (req, res) => {
+    const connection = options.store.get(connectionId(req));
+    if (!connection || connection.ownerId !== OWNER) return missing(res);
+    if (!options.capabilities)
+      return res.status(503).json({ error: 'Capabilities are not configured.' });
+    return res.json({ grants: options.capabilities.listGrants(connection.id) });
   });
-  router.post('/', mutate, unsafe, express.json({ limit: '8kb' }), async (req, res) => {
-    const parsed = ConnectionCreateBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid connection request' });
-    if (!requireCapability(res, req.header('x-csrf-token') ?? '')) return;
-    if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
-      return res.status(400).json({ error: 'Account is not eligible for managed Jira access' });
-    try {
-      const c = await options.service.createAndProvision(
-        {
-          ownerId: OWNER,
-          templateId: 'jira-readonly',
-          templateVersion: 1,
-          label: parsed.data.label,
-          endpoint: 'https://redhat.atlassian.net',
-          gatewayProviderName: `mitzo-conn-${randomUUID()}`,
-          gateway: options.gateway,
-          workspace: options.workspace,
-          submittedEmail: parsed.data.email,
-          desiredAccountIds: parsed.data.accountIds,
-        },
-        parsed.data.token,
-        AbortSignal.timeout(120_000),
-      );
-      return res.status(201).json({ connection: publicConnection(c) });
-    } catch {
-      return res.status(422).json({ error: 'Connection verification failed' });
-    }
-  });
-  router.post('/:id/test', mutate, unsafe, express.json({ limit: '2kb' }), async (req, res) => {
-    const parsed = ConnectionRevisionBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid test request' });
-    if (!requireCapability(res, parsed.data.csrf)) return;
-    const c = options.store.get(connectionId(req));
-    if (!c || c.ownerId !== OWNER) return missing(res);
-    try {
-      return res.json({
-        connection: publicConnection(
-          await options.service.test(c.id, parsed.data.revision, AbortSignal.timeout(120_000)),
-        ),
-      });
-    } catch (value) {
-      return error(res, value, 'Connection verification failed');
-    }
-  });
-  router.post('/:id/rotate', mutate, unsafe, express.json({ limit: '8kb' }), async (req, res) => {
-    const parsed = ConnectionRotateBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid rotation request' });
-    if (!requireCapability(res, parsed.data.csrf)) return;
-    const c = options.store.get(connectionId(req));
-    if (!c || c.ownerId !== OWNER) return missing(res);
-    try {
-      return res.json({
-        connection: publicConnection(
-          await options.service.rotate(
-            c.id,
-            parsed.data.revision,
-            parsed.data.token,
-            AbortSignal.timeout(120_000),
+  router.post(
+    '/reauthorize',
+    reauthorize,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    (req, res) => {
+      const auth = recentAuthorizationSession(res),
+        parsed = ConnectionReauthorizeBody.safeParse(req.body);
+      if (!auth || !parsed.success || !verifyPassphrase(parsed.data.passphrase))
+        return res.status(403).json({ error: 'Reauthorization failed' });
+      const now = Date.now();
+      for (const [id, item] of capabilities) if (item.expiresAt <= now) capabilities.delete(id);
+      while (capabilities.size >= MAX_CAPABILITIES)
+        capabilities.delete(capabilities.keys().next().value!);
+      const expiresAt = Math.min(auth.expiresAt, now + TTL),
+        csrf = randomUUID() + randomUUID();
+      capabilities.set(auth.id, { csrf, expiresAt });
+      return res.json({ csrf, expiresAt });
+    },
+  );
+  router.post(
+    '/',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '8kb' }),
+    async (req, res) => {
+      const parsed = ConnectionCreateBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid connection request' });
+      if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) return;
+      if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
+        return res.status(400).json({ error: 'Account is not eligible for managed access' });
+      try {
+        const generic =
+          'templateId' in parsed.data
+            ? parsed.data
+            : {
+                templateId: 'jira-readonly',
+                templateVersion: 1,
+                label: parsed.data.label,
+                fields: { email: parsed.data.email },
+                credentials: { token: parsed.data.token },
+                accountIds: parsed.data.accountIds,
+              };
+        const c = await options.service.createAndProvision(
+          {
+            ownerId: OWNER,
+            templateId: generic.templateId,
+            templateVersion: generic.templateVersion,
+            label: generic.label,
+            fields: generic.fields,
+            gateway: options.gateway,
+            workspace: options.workspace,
+            desiredAccountIds: generic.accountIds,
+          },
+          generic.credentials,
+          AbortSignal.timeout(120_000),
+        );
+        return res.status(201).json({ connection: publicConnection(c) });
+      } catch {
+        return res.status(422).json({ error: 'Connection verification failed' });
+      }
+    },
+  );
+  router.post(
+    '/:id/test',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    async (req, res) => {
+      const parsed = ConnectionRevisionBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid test request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const c = options.store.get(connectionId(req));
+      if (!c || c.ownerId !== OWNER) return missing(res);
+      try {
+        return res.json({
+          connection: publicConnection(
+            await options.service.test(c.id, parsed.data.revision, AbortSignal.timeout(120_000)),
           ),
-        ),
-      });
-    } catch (value) {
-      return error(res, value, 'Connection rotation failed');
-    }
-  });
-  router.post('/:id/retry', mutate, unsafe, express.json({ limit: '8kb' }), async (req, res) => {
-    const parsed = ConnectionRotateBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid retry request' });
-    if (!requireCapability(res, parsed.data.csrf)) return;
-    const c = options.store.get(connectionId(req));
-    if (!c || c.ownerId !== OWNER) return missing(res);
-    try {
-      return res.json({
-        connection: publicConnection(
-          await options.service.retry(
-            c.id,
-            parsed.data.revision,
-            parsed.data.token,
-            AbortSignal.timeout(120_000),
+        });
+      } catch (value) {
+        return error(res, value, 'Connection verification failed');
+      }
+    },
+  );
+  router.post(
+    '/:id/rotate',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '8kb' }),
+    async (req, res) => {
+      const parsed = ConnectionRotateBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid rotation request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const c = options.store.get(connectionId(req));
+      if (!c || c.ownerId !== OWNER) return missing(res);
+      try {
+        return res.json({
+          connection: publicConnection(
+            await options.service.rotate(
+              c.id,
+              parsed.data.revision,
+              'credentials' in parsed.data ? parsed.data.credentials : { token: parsed.data.token },
+              AbortSignal.timeout(120_000),
+            ),
           ),
-        ),
-      });
-    } catch (value) {
-      return error(res, value, 'Connection verification failed');
-    }
-  });
+        });
+      } catch (value) {
+        return error(res, value, 'Connection rotation failed');
+      }
+    },
+  );
+  router.post(
+    '/:id/retry',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '8kb' }),
+    async (req, res) => {
+      const parsed = ConnectionRotateBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid retry request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const c = options.store.get(connectionId(req));
+      if (!c || c.ownerId !== OWNER) return missing(res);
+      try {
+        return res.json({
+          connection: publicConnection(
+            await options.service.retry(
+              c.id,
+              parsed.data.revision,
+              'credentials' in parsed.data ? parsed.data.credentials : { token: parsed.data.token },
+              AbortSignal.timeout(120_000),
+            ),
+          ),
+        });
+      } catch (value) {
+        return error(res, value, 'Connection verification failed');
+      }
+    },
+  );
+  router.put(
+    '/:id/capabilities',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '4kb' }),
+    (req, res) => {
+      const parsed = ConnectionCapabilitiesBody.safeParse(req.body);
+      if (!parsed.success)
+        return res.status(400).json({ error: 'Invalid capability grant request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const connection = options.store.get(connectionId(req));
+      if (!connection || connection.ownerId !== OWNER) return missing(res);
+      if (connection.revision !== parsed.data.revision)
+        return res.status(409).json({ error: 'Connection changed; refresh and try again.' });
+      if (!options.capabilities)
+        return res.status(503).json({ error: 'Capabilities are not configured.' });
+      try {
+        const grant = options.capabilities.setGrant({
+          connectionId: connection.id,
+          connectionRevision: connection.revision,
+          capabilityId: parsed.data.capabilityId,
+          capabilityVersion: parsed.data.capabilityVersion,
+          accountIds: parsed.data.accountIds,
+          status: parsed.data.status,
+        });
+        return res.json({ grant });
+      } catch {
+        return res.status(422).json({ error: 'Capability grant is unavailable' });
+      }
+    },
+  );
   router.put(
     '/:id/assignments',
     mutate,
-    unsafe,
+    requireSameOriginJson,
     express.json({ limit: '4kb' }),
     async (req, res) => {
       const parsed = ConnectionAssignmentsBody.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: 'Invalid assignment request' });
-      if (!requireCapability(res, parsed.data.csrf)) return;
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
       const c = options.store.get(connectionId(req));
       if (!c || c.ownerId !== OWNER) return missing(res);
       if (parsed.data.accountIds.some((id) => !options.eligibleAccounts().includes(id)))
@@ -298,45 +395,57 @@ export function createConnectionsRouter(options: {
       }
     },
   );
-  router.post('/:id/revoke', mutate, unsafe, express.json({ limit: '2kb' }), async (req, res) => {
-    const parsed = ConnectionRevisionBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid revoke request' });
-    if (!requireCapability(res, parsed.data.csrf)) return;
-    const c = options.store.get(connectionId(req));
-    if (!c || c.ownerId !== OWNER) return missing(res);
-    try {
-      return res.json({
-        connection: publicConnection(
-          await options.service.revoke(
-            c.id,
-            parsed.data.revision,
-            OWNER,
-            AbortSignal.timeout(120_000),
+  router.post(
+    '/:id/revoke',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    async (req, res) => {
+      const parsed = ConnectionRevisionBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid revoke request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const c = options.store.get(connectionId(req));
+      if (!c || c.ownerId !== OWNER) return missing(res);
+      try {
+        return res.json({
+          connection: publicConnection(
+            await options.service.revoke(
+              c.id,
+              parsed.data.revision,
+              OWNER,
+              AbortSignal.timeout(120_000),
+            ),
           ),
-        ),
-      });
-    } catch (value) {
-      return error(res, value, 'Revocation is pending; retry later.');
-    }
-  });
-  router.delete('/:id', mutate, unsafe, express.json({ limit: '2kb' }), async (req, res) => {
-    const parsed = ConnectionRevisionBody.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'Invalid removal request' });
-    if (!requireCapability(res, parsed.data.csrf)) return;
-    const c = options.store.get(connectionId(req));
-    if (!c || c.ownerId !== OWNER || c.archivedAt) return missing(res);
-    try {
-      await options.service.archive(
-        c.id,
-        parsed.data.revision,
-        OWNER,
-        AbortSignal.timeout(120_000),
-      );
-      return res.status(204).end();
-    } catch (value) {
-      return error(res, value, 'Removal is pending; retry later.');
-    }
-  });
+        });
+      } catch (value) {
+        return error(res, value, 'Revocation is pending; retry later.');
+      }
+    },
+  );
+  router.delete(
+    '/:id',
+    mutate,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    async (req, res) => {
+      const parsed = ConnectionRevisionBody.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: 'Invalid removal request' });
+      if (!requireRecentConnectionAuthorization(res, parsed.data.csrf)) return;
+      const c = options.store.get(connectionId(req));
+      if (!c || c.ownerId !== OWNER || c.archivedAt) return missing(res);
+      try {
+        await options.service.archive(
+          c.id,
+          parsed.data.revision,
+          OWNER,
+          AbortSignal.timeout(120_000),
+        );
+        return res.status(204).end();
+      } catch (value) {
+        return error(res, value, 'Removal is pending; retry later.');
+      }
+    },
+  );
   // express.json() may expose parser details through a global error handler. Keep
   // connection bodies out of both responses and logs, including malformed secrets.
   router.use(

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CodexAppServerClient,
   CodexRequestError,
+  SUPPORTED_CODEX_CLI_VERSION,
+  assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
   codexEnvironment,
   openShellCodexProcessSpec,
@@ -28,6 +30,17 @@ function processStub() {
 
 afterEach(() => vi.useRealTimers());
 describe('Codex app-server transport', () => {
+  it('accepts only the reviewed Codex CLI contract version', () => {
+    expect(() =>
+      assertSupportedCodexCliVersion(`codex-cli ${SUPPORTED_CODEX_CLI_VERSION}\n`),
+    ).not.toThrow();
+    expect(() => assertSupportedCodexCliVersion('codex-cli 0.153.5\n')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+    expect(() => assertSupportedCodexCliVersion('unexpected output')).toThrow(
+      'Unsupported Codex CLI version',
+    );
+  });
   it('rejects shell metacharacters in the legacy remote command API', () => {
     const options = { sandboxName: 'mitzo-x', workdir: '/sandbox/workspaces/mgmt' };
     expect(() => openShellSshProcessSpec(options, '/sandbox/tool;$(touch /tmp/pwned)')).toThrow(

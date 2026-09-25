@@ -60,6 +60,7 @@ import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
   denyPendingBySession,
+  getPendingSessionId,
   getPendingRequestsBySession,
 } from './permissions.js';
 import {
@@ -321,7 +322,6 @@ export function handleReconnect(
             if (oldTransport?.isOpen())
               oldTransport.send({ type: 'session_takeover', sessionId: entry.sessionId });
             ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-            denyPendingBySession(entry.sessionId);
           }
 
           // The durable event replay below covers the same events buffered
@@ -594,8 +594,13 @@ export function handleSendV2(
           storedMeta,
           accountBinding,
         );
-        const rawCwd = msg.cwd || BASE_REPO;
-        const cwd = rawCwd && isAllowedPath(rawCwd) ? rawCwd : BASE_REPO;
+        const requestedCwd = msg.cwd;
+        const validatedCwd = requestedCwd
+          ? isAllowedPath(requestedCwd)
+            ? requestedCwd
+            : BASE_REPO
+          : undefined;
+        const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
         const paidReasoning =
@@ -945,7 +950,7 @@ export function handleSendV2(
           span.setAttribute('routing.decision', 'resume');
           startChat(transport, sessionClientId, prompt, {
             resume: sessionId,
-            cwd: msg.cwd,
+            cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
@@ -999,7 +1004,7 @@ export function handleSendV2(
           };
           startChat(transport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
-            cwd: msg.cwd,
+            cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
             accountId: msg.accountId,
@@ -1287,11 +1292,30 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      const pendingSessionId = getPendingSessionId(msg.permId);
+      if (pendingSessionId) {
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId);
+        const ownerConnection =
+          found?.session?.ownerConnectionId ??
+          (found ? getOwnerConnection(found.clientId) : undefined);
+        if (
+          ownerConnection !== connectionId ||
+          (msg.sessionId && msg.sessionId !== pendingSessionId)
+        ) {
+          sendPermissionResponseRejected(
+            ctx.connRegistry.get(connectionId)?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+      }
       const resolved = resolvePending(
         msg.permId,
         msg.decision ?? 'deny',
         msg.answers,
-        msg.sessionId,
+        msg.sessionId ?? pendingSessionId,
       );
       if (!resolved) {
         sendPermissionResponseRejected(

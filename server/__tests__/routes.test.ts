@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
+const SESSION_ARTIFACT_ROOT = join(`${TEST_REPO}-sessions`, 'artifact-session');
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -82,6 +83,15 @@ vi.mock('../chat.js', () => {
         },
       ]),
       getSession: vi.fn().mockImplementation((id: string) => {
+        if (id === 'artifact-session') {
+          return {
+            sessionId: id,
+            cwd: pjoin(`${repo}-sessions`, 'artifact-session'),
+          };
+        }
+        if (id === 'untrusted-artifact-session') {
+          return { sessionId: id, cwd: '/etc' };
+        }
         if (id === 's1') {
           return {
             sessionId: 's1',
@@ -168,8 +178,12 @@ Some body text here.
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
+  writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'subdir', 'nested.txt'), 'nested content');
+  mkdirSync(SESSION_ARTIFACT_ROOT, { recursive: true });
+  writeFileSync(join(SESSION_ARTIFACT_ROOT, 'session-report.md'), '# Session report');
+  symlinkSync('/etc', join(SESSION_ARTIFACT_ROOT, 'outside'));
   mkdirSync(join(INBOX_DIR, 'archive'), { recursive: true });
   mkdirSync(BRIEFINGS_DIR, { recursive: true });
   writeFileSync(join(INBOX_DIR, '20260403_154149_01_troubadour.md'), SAMPLE_INBOX_ITEM);
@@ -739,6 +753,15 @@ describe('file routes', () => {
     expect(res.body.ext).toBe('.txt');
   });
 
+  it('GET /api/files/read — rejects content beyond the bounded preview read', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: join(TEST_REPO, 'oversized.txt') })
+      .set('Cookie', authCookie);
+    expect(res.status).toBe(413);
+    expect(res.body.error).toContain('5 MB maximum');
+  });
+
   it('GET /api/files/read — disallowed path returns 403', async () => {
     const res = await request(app)
       .get('/api/files/read')
@@ -753,6 +776,47 @@ describe('file routes', () => {
       .query({ path: join(TEST_REPO, 'gone.txt') })
       .set('Cookie', authCookie);
     expect(res.status).toBe(404);
+  });
+
+  it('GET /api/files/read — reads a relative artifact from the originating session workspace', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: 'session-report.md', sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.path).toBe(join(SESSION_ARTIFACT_ROOT, 'session-report.md'));
+    expect(res.body.content).toBe('# Session report');
+  });
+
+  it('GET /api/files — browses the originating session workspace by default', async () => {
+    const res = await request(app)
+      .get('/api/files')
+      .query({ sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.dir).toBe(SESSION_ARTIFACT_ROOT);
+    expect(res.body.root).toBe(SESSION_ARTIFACT_ROOT);
+    expect(res.body.entries).toContainEqual({ name: 'session-report.md', isDir: false });
+  });
+
+  it('GET /api/files/read — does not trust an unconfigured cwd from session metadata', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: '/etc/passwd', sessionId: 'untrusted-artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(403);
+  });
+
+  it('GET /api/files/read — rejects symlinks that escape the session workspace', async () => {
+    const res = await request(app)
+      .get('/api/files/read')
+      .query({ path: 'outside/hosts', sessionId: 'artifact-session' })
+      .set('Cookie', authCookie);
+
+    expect(res.status).toBe(403);
   });
 
   it('PUT /api/files/write — writes file', async () => {

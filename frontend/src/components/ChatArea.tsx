@@ -22,6 +22,7 @@ export type ChatAreaVoice = Pick<
 >;
 
 export interface ChatAreaProps {
+  sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   running: boolean;
@@ -41,6 +42,7 @@ export interface ChatAreaProps {
 }
 
 export function ChatArea({
+  sessionId,
   messages,
   current,
   running,
@@ -53,6 +55,25 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  // Keep the reader's intent independently of the DOM height. By the time an
+  // effect runs for a streamed chunk, the new content is already in the DOM,
+  // so measuring then can incorrectly decide that a reader who scrolled up is
+  // still close enough to the bottom to follow.
+  const shouldFollowStreamRef = useRef(true);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const updateFollowState = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      shouldFollowStreamRef.current = distanceFromBottom <= SCROLL_NEAR_BOTTOM_PX;
+    };
+
+    updateFollowState();
+    el.addEventListener('scroll', updateFollowState, { passive: true });
+    return () => el.removeEventListener('scroll', updateFollowState);
+  }, [scrollRef]);
 
   // Track which block is currently being read aloud
   const [speakingBlockId, setSpeakingBlockId] = useState<string | null>(null);
@@ -85,18 +106,17 @@ export function ChatArea({
     const wasEmpty = prevMessageCount.current === 0;
     prevMessageCount.current = messages.length;
     if (wasEmpty && messages.length > 0) {
+      shouldFollowStreamRef.current = true;
       requestAnimationFrame(() => {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     }
   }, [messages, scrollRef]);
 
-  // Auto-scroll during streaming: follow new content if user is near the bottom
+  // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    if (distFromBottom <= SCROLL_NEAR_BOTTOM_PX) {
+    if (el && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
   }, [messages, current, scrollRef]);
@@ -177,7 +197,7 @@ export function ChatArea({
             <div key={msg.messageId} className="msg-turn">
               {(grouped ?? []).map((item, i) => {
                 if (item.type === 'tool-group') {
-                  return <ToolGroup key={item.key} tools={item.tools} />;
+                  return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
                 }
                 const block: FinishedBlock = item.block;
                 if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -188,7 +208,7 @@ export function ChatArea({
                   if (progress) {
                     return <ProgressWidget key={block.blockId} items={progress.items} />;
                   }
-                  return <ToolPill key={block.blockId} block={block} />;
+                  return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
                 }
                 const bid = block.blockId || `text-${i}`;
                 return (
@@ -196,6 +216,7 @@ export function ChatArea({
                     key={bid}
                     content={block.content ?? ''}
                     timestamp={msg.timestamp}
+                    artifactSessionId={sessionId}
                     readAloud={
                       voice?.ttsAvailable
                         ? {
@@ -223,7 +244,7 @@ export function ChatArea({
               progressToolIds,
             ).map((item) => {
               if (item.type === 'tool-group') {
-                return <ToolGroup key={item.key} tools={item.tools} />;
+                return <ToolGroup key={item.key} tools={item.tools} sessionId={sessionId} />;
               }
               const block = item.block;
               if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -234,9 +255,16 @@ export function ChatArea({
                 if (progress) {
                   return <ProgressWidget key={block.blockId} items={progress.items} />;
                 }
-                return <ToolPill key={block.blockId} block={block} />;
+                return <ToolPill key={block.blockId} block={block} sessionId={sessionId} />;
               }
-              return <TextBubble key={block.blockId} content={block.content ?? ''} streaming />;
+              return (
+                <TextBubble
+                  key={block.blockId}
+                  content={block.content ?? ''}
+                  streaming
+                  artifactSessionId={sessionId}
+                />
+              );
             })}
           </div>
         )}

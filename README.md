@@ -8,15 +8,17 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 ## Features
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
+- **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
 - **Slash-command skills** — `/simplify`, `/risk-scan`, `/pr-review`, `/person`, `/review-response`, `/land-pr`, `/pr-shepherd`. Type `/` to browse.
 - **Native deliberation** — `/deliberate <task>` runs an Opus/Gemini debate with durable command admission. Repeated delivery does not repeat provider calls. If an attempt ends with an uncertain outcome, review the conversation before explicitly starting another with `/deliberate --confirm-ambiguous <task>`; this may repeat provider work. `/deliberate` alone shows usage.
 - **Native fusion** — `/fuse <task>` runs a parallel panel, judge, and synthesis with durable admission; `/fuse --self <task>` uses two independent slots of the same model. Exact retries do not repeat provider work. Uncertain panel outcomes stop later phases; explicitly start another attempt with `/fuse --confirm-ambiguous <task>` (retain `--self` when applicable). Usage-only commands make no provider calls. See [fusion admission](docs/design/fusion-admission.md).
 - **Voice** — push-to-talk input (STT) and explicit per-message read-aloud (TTS) via [Yapper](https://github.com/dimakis/yapper). Graceful degradation when offline.
 - **MCP tools** — reads `~/.cursor/mcp.json`, passes servers to every session
-- **File browser** — view and edit repo files, switch between worktree roots
-- **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed renderer
+- **File browser** — view and edit repo files, generated session artifacts, and worktree roots; artifact links stay scoped to the session workspace that created them
+- **HTML artifacts** — preview and edit self-contained `.html` prototypes from Files or expandable chat links in a sandboxed, no-network renderer
 - **Task board** — recursive multi-session task orchestration with spec mode, completion summaries, and verification hooks
+- **Durable Telos capture** — agents can create approved outcomes in live Telos; OpenShell sessions execute the write through a trusted host tool so credentials and persistence stay outside the sandbox
 - **Worktree sandbox** — opt-in git worktree isolation per session, multi-repo support via `.mitzo.json`
 - **Session resilience** — phone sleeps, WS drops, session survives. Reattach on reconnect. Message snapshot recovery for iOS silent drops.
 - **Durable inactivity closeout** — automatic closeout is admitted once per detach episode before runtime dispatch. Exact retries and restart recovery never repeat paid provider work. See [closeout admission](docs/design/closeout-admission.md).
@@ -27,6 +29,7 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 - **Push notifications** — ntfy + Pushover (Apple Watch) when Claude needs approval
 - **Image attachments** — send photos/screenshots from your camera
 - **Session history** — resume past conversations, swipe to dismiss
+- **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
 
 ## Quick start
 
@@ -39,6 +42,12 @@ npm run build && npm start
 ```
 
 Access from your phone: install [Tailscale](https://tailscale.com/download) on server and phone, then open `http://<tailscale-ip>:3100`. No HTTPS needed — Tailscale encrypts via WireGuard.
+
+### Managed Connections
+
+Connections are optional and require the reviewed OpenShell gateway setup. Enable `MITZO_CONNECTIONS_ENABLED=1` and configure the provider probe policies from [`infra/openshell/production.env.example`](infra/openshell/production.env.example). The [Connections acceptance guide](docs/connections-live-acceptance.md) lists the gateway requirements and checks to run before enabling providers in production.
+
+Open **More → Connections** to choose a provider, enter its one-shot credential, review the exact scope, and assign eligible accounts. For GitHub, enter the repositories as `owner/repository` pairs and the allowed base branches. The GitHub sandbox provider remains read-only. Publishing a committed feature branch and creating or updating a pull request uses the separate `github.publish-pr` operation with an explicit approval. Set a controller-only `GH_TOKEN` or `GITHUB_TOKEN` to enable that operation; it is never injected into the sandbox. Custom REST is an advanced, bounded provider and remains unavailable until its reviewed gateway probe and DNS policy are configured.
 
 ## Architecture
 
@@ -166,6 +175,8 @@ Mitzo uses an npm workspace with three internal packages shared between server a
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
+For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
+
 **Key Hooks:**
 
 - `useChatMessages` — v2 protocol message reducer (MESSAGE_START/BLOCK_START/BLOCK_DELTA/BLOCK_END/TOOL_RESULT/MESSAGE_END/SESSION_END/MESSAGE_SNAPSHOT/RESTORE)
@@ -270,16 +281,27 @@ npm run lint         # eslint
 npm run format:check # prettier
 ```
 
-Production deploys use `./scripts/create-release.sh <ref>`. The command fetches
-current `origin/main`, requires the selected commit to contain it and to be
-published on a remote branch, creates a self-contained detached release clone, records full
-commit/tree/base provenance in `release.txt`, and only then builds and updates
-launchd. `scripts/deploy.sh` fails closed when those invariants are absent.
+Production artifacts are staged with
+`./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
+clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
+the immutable image and seed, updates the stack lock and environment example
+together, and runs focused tests. It never deploys; its generated diff is
+reviewed and merged first.
+
+Production deploys use `./scripts/create-release.sh origin/main`. The command
+fetches only current `origin/main`, refuses every other commit, creates a
+self-contained detached release clone, records full commit/tree/base provenance
+in `release.txt`, and only then builds and updates launchd. `scripts/deploy.sh`
+fails closed when those invariants are absent.
 For releases built from a clean automation checkout, set `MITZO_RUNTIME_ROOT`
 to the canonical installation that owns `.env` and `certs`; runtime material
 is never taken from the feature checkout. Paths for checked-in stack locks,
 policies, and provider profiles are rewritten to the immutable release so a
 copied environment cannot mix code from two deployment generations.
+When advancing the prepared MGMT seed, set `MITZO_RELEASE_SEED` to its `mgmt`
+directory. Release creation requires the sibling `baseline.json` and changes
+only the new release's copied `.env`, leaving the canonical runtime `.env`
+untouched.
 
 Pre-commit: husky + lint-staged + commitlint (conventional commits). The hook also runs [gitleaks](https://github.com/gitleaks/gitleaks) if installed, scanning staged changes for secrets. gitleaks is **optional** — the hook skips it gracefully when not found. Install via `brew install gitleaks` (macOS) or see the [gitleaks docs](https://github.com/gitleaks/gitleaks#installing).
 

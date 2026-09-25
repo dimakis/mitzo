@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,9 +9,17 @@ const mocks = vi.hoisted(() => ({
   mcpClose: vi.fn(),
   connect: vi.fn(),
   permissionHandler: vi.fn(),
+  assertPermissionModeChange: vi.fn(),
+  setWebSearchGrant: vi.fn(),
+  getWebSearchGrant: vi.fn(),
   store: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
+  useTls: false,
+}));
+vi.mock('../local-server-url.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../local-server-url.js')>()),
+  localServerUsesTls: () => mocks.useTls,
 }));
 vi.mock('../codex-conversation-store.js', () => ({
   CodexConversationStore: class {
@@ -29,6 +37,9 @@ vi.mock('../codex-conversation.js', () => ({
     }
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
+    assertPermissionModeChange = mocks.assertPermissionModeChange;
+    setWebSearchGrant = mocks.setWebSearchGrant;
+    getWebSearchGrant = mocks.getWebSearchGrant;
     close = mocks.close;
     send = mocks.send;
   },
@@ -43,6 +54,8 @@ vi.mock('@mitzo/harness', async (importOriginal) => ({
   buildPermissionHandler: () => mocks.permissionHandler,
 }));
 import {
+  capabilityIdempotencyKey,
+  managedJiraConnectionEnv,
   openCodexChat,
   publicCodexRuntimeError,
   selectedOpenShellAccountRoute,
@@ -51,6 +64,13 @@ import {
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
+import { setConnectionsRuntime } from '../connections-runtime.js';
+import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(
@@ -66,12 +86,53 @@ it('forwards only recognized sanitized Codex diagnostics', () => {
     'Codex turn failed. Inspect queued work before retrying.',
   );
 });
+it('scopes capability idempotency to the authoritative conversation identity', () => {
+  const binding = {
+    capabilityId: 'github.publish-pr',
+    capabilityVersion: 1,
+    connectionId: 'connection-1',
+    connectionRevision: 3,
+  };
+  const firstCall = { turnId: 'turn-1', callId: 'tool-call-1' };
+  const replayCall = { turnId: 'turn-1', callId: 'tool-call-after-reconnect' };
+  expect(capabilityIdempotencyKey('conversation-a', binding, firstCall, { value: 'one' })).not.toBe(
+    capabilityIdempotencyKey('conversation-b', binding, firstCall, { value: 'one' }),
+  );
+  expect(capabilityIdempotencyKey('conversation-a', binding, firstCall, { value: 'one' })).toBe(
+    capabilityIdempotencyKey('conversation-a', binding, replayCall, { value: 'one' }),
+  );
+  expect(capabilityIdempotencyKey('conversation-a', binding, firstCall, { value: 'one' })).not.toBe(
+    capabilityIdempotencyKey('conversation-a', binding, replayCall, { value: 'two' }),
+  );
+});
+it('builds managed Jira runtime context from versioned public configuration, not legacy email', () => {
+  const connection = {
+    templateId: 'jira-readonly',
+    templateVersion: 1,
+    publicConfig: { email: 'person@example.com' },
+    submittedEmail: 'legacy-invalid-value',
+  } as unknown as import('../connections-store.js').Connection;
+  expect(managedJiraConnectionEnv(connection)).toMatchObject({ JIRA_EMAIL: 'person@example.com' });
+  expect(() =>
+    managedJiraConnectionEnv({
+      ...connection,
+      publicConfig: { email: 'person@.' },
+    }),
+  ).toThrow('Unsupported managed Jira connection configuration');
+  expect(() => managedJiraConnectionEnv({ ...connection, templateVersion: 2 })).toThrow(
+    'Unsupported managed Jira connection configuration',
+  );
+});
 function options(abortController: AbortController) {
   return {
     session: { cwd: '/tmp', abortController },
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
-  } as Parameters<typeof openCodexChat>[0];
+    eventStore: {
+      getRecentConversationText: () => [],
+      getSession: () => undefined,
+    },
+  } as unknown as Parameters<typeof openCodexChat>[0];
 }
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
@@ -197,10 +258,17 @@ it('cleans each resource once across explicit close, runtime close and abort', a
 
 it('does not advertise unavailable host tools to an OpenShell runtime', async () => {
   vi.clearAllMocks();
+  vi.stubEnv('PORT', '3100');
   vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const session = options(new AbortController()).session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
   const chat = await openCodexChat({
-    ...options(new AbortController()),
+    ...options(session.abortController),
+    conversationId: 'conversation',
+    registry,
     systemPrompt: 'base prompt',
   });
   expect(mocks.conversationOptions?.systemPrompt).toContain(
@@ -208,10 +276,76 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
+  expect(mocks.conversationOptions?.tools).toEqual([
+    expect.objectContaining({ name: 'TelosCreateOutcome' }),
+  ]);
+  expect(mocks.conversationOptions?.systemPrompt).toContain(
+    'never use a sandbox-local todo script',
+  );
   expect(mocks.connect).not.toHaveBeenCalled();
   await expect(chat.setPermissionMode?.('agent')).resolves.toBeUndefined();
   await expect(chat.setPermissionMode?.('ask')).rejects.toThrow('Ask mode');
-  vi.unstubAllEnvs();
+
+  const input = {
+    summary: 'Persist sandbox outcomes in live Telos',
+    intent: 'Sandboxed agents create durable outcomes through the Mitzo host.',
+    rationale: 'Local sandbox writes disappear and currently look successful.',
+    acceptanceCriteria: ['The outcome is visible in the live Telos UI'],
+    milestones: ['Expose the trusted host tool'],
+    profile: 'manual',
+  };
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        created: true,
+        item: { id: 'telos-live', summary: input.summary },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ),
+  );
+  vi.stubGlobal('fetch', fetch);
+  const executeTool = mocks.conversationOptions?.executeTool as (
+    name: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+  ) => Promise<{ content: string; isError: boolean }>;
+
+  await expect(
+    executeTool('TelosCreateOutcome', input, new AbortController().signal),
+  ).resolves.toEqual({
+    content: JSON.stringify({
+      created: true,
+      id: 'telos-live',
+      title: input.summary,
+      path: '/todos/telos-live',
+    }),
+    isError: false,
+  });
+  expect(mocks.permissionHandler).toHaveBeenCalledWith(
+    'TelosCreateOutcome',
+    input,
+    expect.objectContaining({ forcePrompt: true }),
+  );
+  expect(fetch).toHaveBeenCalledWith(
+    'http://localhost:3100/api/internal/telos/outcomes',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
+    }),
+  );
+  mocks.useTls = true;
+  mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+  await executeTool('TelosCreateOutcome', input, new AbortController().signal);
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://localhost:3101/api/internal/telos/outcomes',
+    expect.objectContaining({
+      headers: expect.objectContaining({ 'X-Client-Id': 'client' }),
+    }),
+  );
+  mocks.useTls = false;
+  chat.close();
+  vi.unstubAllGlobals();
 });
 
 it('advertises reviewed per-chat provider grants to a managed OpenShell runtime', async () => {
@@ -280,6 +414,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       env: {},
     });
     expect(mocks.conversationOptions?.tools).toEqual([
+      expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
@@ -566,6 +701,195 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     compile.mockRestore();
     grant.mockRestore();
     hasAccess.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it('preserves image attachments while binding a trusted capability, forcing approval, and recovering on reconnect', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const capability = {
+    capabilityId: 'github.publish-pr',
+    capabilityVersion: 1,
+    connectionId: 'github-connection',
+    connectionRevision: 4,
+  };
+  const capabilityInput = {
+    connectionId: 'github-connection',
+    repositoryPath: '/workspace',
+    baseBranch: 'main',
+    title: 'T',
+    body: 'B',
+    draft: false,
+  } satisfies Readonly<Record<string, string | boolean>>;
+  const recoverPendingForConversation = vi.fn(async () => []);
+  const invoke = vi.fn(
+    async (
+      request: import('../connections/capabilities/types.js').CapabilityRequest,
+      signal: AbortSignal,
+      approve: import('../connections/capabilities/types.js').CapabilityApproval,
+    ) => {
+      // The production service validates unknown tool input before it becomes
+      // approval-card data. This session fixture supplies that already-typed
+      // capability input rather than bypassing the contract with a cast.
+      expect(request.input).toEqual(capabilityInput);
+      const approved = await approve(
+        {
+          capabilityId: capability.capabilityId,
+          capabilityVersion: capability.capabilityVersion,
+          connectionId: capability.connectionId,
+          operationId: 'operation-1',
+          input: capabilityInput,
+          forcePrompt: true,
+        },
+        signal,
+      );
+      return {
+        id: 'operation-1',
+        status: approved ? 'verification_pending' : 'denied',
+        result: null,
+      };
+    },
+  );
+  const managedConnection = {
+    id: 'github-connection',
+    revision: 4,
+    templateId: 'github-readonly',
+    templateVersion: 1,
+    gatewayProviderId: 'provider-id',
+    gatewayProviderName: 'provider-name',
+    publicConfig: {},
+  } as unknown as import('../connections-store.js').Connection;
+  const service = {
+    withAccountRuntimes: vi.fn(
+      async (
+        _account: string,
+        work: (connections: (typeof managedConnection)[]) => Promise<unknown>,
+      ) => work([managedConnection]),
+    ),
+    withAccountRuntime: vi.fn(
+      async (_account: string, work: (connection: typeof managedConnection) => Promise<unknown>) =>
+        work(managedConnection),
+    ),
+    onDemandForAccount: vi.fn(() => []),
+    verifyRuntimeSandbox: vi.fn(),
+  };
+  setConnectionsRuntime({
+    service,
+    capabilities: {
+      eligibleToolsForManagedConnection: vi.fn(() => [capability]),
+      recoverPendingForConversation,
+      invoke,
+    },
+  } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+  const abortController = new AbortController();
+  const base = options(abortController);
+  const session = base.session;
+  const registry = {
+    findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+  } as unknown as import('@mitzo/harness').SessionRegistry;
+  mocks.permissionHandler.mockResolvedValue({ behavior: 'allow' });
+  try {
+    const chat = await openCodexChat({
+      ...base,
+      session,
+      registry,
+      conversationId: 'capability-conversation',
+      messageId: 'message',
+      prompt: 'publish',
+      systemPrompt: 'base',
+      env: {},
+      images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }],
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'test-model',
+        profileRevision: '1',
+      },
+      profile: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        email: 'work@example.com',
+        planType: 'api',
+        model: 'test-model',
+        sandboxProvider: 'openai-work',
+      },
+    });
+    const tool = (mocks.conversationOptions?.tools as Array<{ name: string }>).find((item) =>
+      item.name.startsWith('Capability_github_publish_pr'),
+    );
+    expect(tool).toBeDefined();
+    expect(mocks.send).toHaveBeenCalledWith(
+      expect.objectContaining({ images: [{ data: 'cHJldmlldw==', mediaType: 'image/png' }] }),
+    );
+    expect(getLiveCapabilityConversationBinding('capability-conversation')).toMatchObject({
+      accountId: 'work',
+      connectionId: 'github-connection',
+      connectionRevision: 4,
+    });
+    expect(recoverPendingForConversation).toHaveBeenCalledWith(
+      'work',
+      'capability-conversation',
+      expect.any(AbortSignal),
+    );
+    const executeTool = mocks.conversationOptions?.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+    await expect(
+      executeTool(tool!.name, capabilityInput, new AbortController().signal, {
+        turnId: 'turn-1',
+        callId: 'call-1',
+      }),
+    ).resolves.toMatchObject({ isError: true });
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'work',
+        conversationId: 'capability-conversation',
+        connectionId: 'github-connection',
+      }),
+      expect.any(AbortSignal),
+      expect.anything(),
+    );
+    expect(mocks.permissionHandler).toHaveBeenCalledWith(
+      'ExecuteProviderCapability',
+      expect.any(Object),
+      expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+    );
+    const beforeReconnect = mocks.conversationOptions?.beforeReconnect as () => Promise<void>;
+    await beforeReconnect();
+    expect(recoverPendingForConversation).toHaveBeenCalledTimes(2);
+    expect(ensure).toHaveBeenCalled();
+    chat.close();
+    expect(getLiveCapabilityConversationBinding('capability-conversation')).toBeUndefined();
+  } finally {
+    setConnectionsRuntime(null);
     vi.unstubAllEnvs();
   }
 });

@@ -2,7 +2,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-MAIN_REF="${MITZO_MAIN_REF:-origin/main}"
+DEPLOY_REMOTE="${MITZO_DEPLOY_REMOTE:-origin}"
+MAIN_REF="${MITZO_MAIN_REF:-$DEPLOY_REMOTE/main}"
 MANIFEST="${MITZO_RELEASE_MANIFEST:-$REPO_ROOT/release.txt}"
 
 fail() {
@@ -12,6 +13,9 @@ fail() {
 
 git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 ||
   fail "production must deploy from a Git worktree"
+git -C "$REPO_ROOT" fetch --prune "$DEPLOY_REMOTE" \
+  "+refs/heads/*:refs/remotes/$DEPLOY_REMOTE/*" ||
+  fail "cannot refresh deployment remote $DEPLOY_REMOTE"
 
 HEAD_COMMIT="$(git -C "$REPO_ROOT" rev-parse HEAD)"
 MAIN_COMMIT="$(git -C "$REPO_ROOT" rev-parse --verify "$MAIN_REF")"
@@ -26,7 +30,10 @@ fi
 git -C "$REPO_ROOT" merge-base --is-ancestor "$MAIN_COMMIT" "$HEAD_COMMIT" ||
   fail "$HEAD_COMMIT does not contain current $MAIN_REF ($MAIN_COMMIT)"
 
-REMOTE_REFS="$(git -C "$REPO_ROOT" branch -r --contains "$HEAD_COMMIT" | sed 's/^[[:space:]]*//')"
+REMOTE_REFS="$(git -C "$REPO_ROOT" for-each-ref \
+  --format='%(refname:short) %(symref)' \
+  --contains "$HEAD_COMMIT" \
+  "refs/remotes/$DEPLOY_REMOTE" | awk 'NF == 1 { print $1 }')"
 [ -n "$REMOTE_REFS" ] || fail "$HEAD_COMMIT is not published on a remote branch"
 [ -f "$MANIFEST" ] || fail "release manifest is missing: $MANIFEST"
 

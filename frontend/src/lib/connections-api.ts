@@ -2,6 +2,7 @@ import { apiFetch } from './api-fetch';
 import type {
   ConnectionAuditEntry,
   ConnectionsCatalog,
+  ConnectionTemplateCatalog,
   ManagedConnection,
 } from '../types/connections';
 
@@ -26,15 +27,20 @@ function json(method: string, body: unknown, csrf?: string): RequestInit {
 export async function getConnections(): Promise<ConnectionsCatalog> {
   return bodyOrError<ConnectionsCatalog>(await apiFetch('/api/connections'));
 }
+export async function getConnectionTemplates(): Promise<ConnectionTemplateCatalog> {
+  return bodyOrError<ConnectionTemplateCatalog>(await apiFetch('/api/connections/templates'));
+}
 export async function reauthorize(passphrase: string): Promise<Reauthorization> {
   return bodyOrError<Reauthorization>(
     await apiFetch('/api/connections/reauthorize', json('POST', { passphrase })),
   );
 }
 export async function createConnection(input: {
+  templateId: string;
+  templateVersion: number;
   label: string;
-  email: string;
-  token: string;
+  fields: Record<string, string | string[]>;
+  credentials: Record<string, string>;
   accountIds: string[];
   csrf: string;
 }): Promise<ManagedConnection> {
@@ -48,7 +54,7 @@ export async function createConnection(input: {
 export async function retryConnection(input: {
   id: string;
   revision: number;
-  token: string;
+  credentials: Record<string, string>;
   csrf: string;
 }): Promise<ManagedConnection> {
   const { id, ...body } = input;
@@ -95,7 +101,7 @@ export async function testConnection(input: {
 export async function rotateConnection(input: {
   id: string;
   revision: number;
-  token: string;
+  credentials: Record<string, string>;
   csrf: string;
 }): Promise<ManagedConnection> {
   const { id, ...body } = input;
