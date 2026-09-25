@@ -2439,6 +2439,17 @@ export class EventStore {
     }).immediate();
   }
 
+  /** An occupied seat/resource leaves approved work queued, never retries failed work. */
+  requeueIdleSymposiumDelivery(deliveryId: string, updatedAt: number): void {
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+      WHERE delivery_id = ? AND status = 'delivering'
+        AND EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'pending')
+        AND NOT EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'executing')
+    `,
+    ).run(updatedAt, deliveryId, deliveryId, deliveryId);
+  }
+
   claimSymposiumRecipientExecution(input: {
     sessionId: string;
     deliveryId: string;
@@ -2543,6 +2554,37 @@ export class EventStore {
            WHERE delivery_id = ? AND status = 'delivering'`,
         ).run(input.claimedAt, input.deliveryId);
         return undefined;
+      }
+
+      // Claims are acquired in this IMMEDIATE transaction, including across host instances.
+      // Shared-boundary writers conflict even when they target different seat threads.
+      const activeConfig = this.getActiveSymposiumConfig(input.sessionId);
+      const candidate = activeConfig.seats.find((seat) => seat.id === input.seatId);
+      const writes = (seat: typeof candidate) =>
+        !seat?.authorityGrant ||
+        seat.authorityGrant.filesystem === 'write' ||
+        seat.authorityGrant.tools === 'write';
+      if (activeConfig.version === 2 && writes(candidate)) {
+        const claims = this.db!.prepare(
+          `SELECT seat_id FROM symposium_seat_execution_claims WHERE session_id = ?`,
+        ).all(input.sessionId) as Array<{ seat_id: string }>;
+        const uncertainCleanup = this.db!.prepare(
+          `SELECT 1 FROM symposium_membership m
+          JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+          WHERE m.session_id = ? AND r.status != 'confirmed'
+            AND m.generation = (SELECT MAX(latest.generation) FROM symposium_membership latest
+              WHERE latest.session_id = m.session_id AND latest.seat_id = m.seat_id)
+            AND m.state != 'active' LIMIT 1`,
+        ).get(input.sessionId);
+        if (
+          uncertainCleanup ||
+          claims.some((claim) =>
+            writes(activeConfig.seats.find((seat) => seat.id === claim.seat_id)),
+          )
+        ) {
+          this.requeueIdleSymposiumDelivery(input.deliveryId, input.claimedAt);
+          return undefined;
+        }
       }
 
       const inserted = this.db!.prepare(

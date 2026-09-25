@@ -175,3 +175,19 @@ not been closed or modified by this change.
 
 No runtime, UI, model calls, or production deployment are included in this first
 slice. The Telos parent and later phases remain unfinished.
+
+## Concurrent directed dispatch
+
+V2 directed deliveries may execute independent admitted seats concurrently, bounded
+by the configured roster and existing durable turn reservations. Each seat still
+uses its exclusive execution claim and provider thread. V1 retains its sequential
+dispatch behavior. Results from already-running seats remain recorded if another
+recipient fails; failed turns still require explicit intervention before retry.
+
+Within one shared Symposium boundary, filesystem or tool write authority conflicts
+with other writers. The existing SQLite claim transaction refuses a second writer
+across orchestrator instances. Pending work returns to `ready` once no recipient
+is executing, so the host can drain approved work after the resource is released.
+Unconfirmed revocation cleanup also blocks new writers, including after a restart.
+This scheduling rule does not enforce a provider's tools: runtime admission must
+still enforce the declared authority. It adds no per-seat sandbox isolation.

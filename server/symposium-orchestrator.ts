@@ -468,8 +468,8 @@ export class SymposiumOrchestrator {
     const abortController = new AbortController();
     this.abortControllers.set(deliveryId, abortController);
     delivery = this.store.getSymposiumDelivery(deliveryId)!;
-    for (const recipient of delivery.recipients) {
-      if (recipient.status !== 'pending') continue;
+    const executeRecipient = async (recipient: SymposiumDeliveryRecord['recipients'][number]) => {
+      if (recipient.status !== 'pending') return true;
       let currentConfig: SymposiumConfig;
       try {
         currentConfig = this.requireDirectedManualConfig(delivery.sessionId);
@@ -491,7 +491,7 @@ export class SymposiumOrchestrator {
           error: error instanceof Error ? error.message : String(error),
           updatedAt: this.now(),
         });
-        break;
+        return false;
       }
       const seat = currentConfig.seats.find((candidate) => candidate.id === recipient.seatId)!;
       const executor = this.executors[recipient.seatId];
@@ -502,7 +502,7 @@ export class SymposiumOrchestrator {
           error: `No executor was injected for Symposium seat ${recipient.seatId}`,
           updatedAt: this.now(),
         });
-        break;
+        return false;
       }
       const bindingKey = seatBindingKey(seat);
       const provenance = provenanceFor(
@@ -524,10 +524,10 @@ export class SymposiumOrchestrator {
         claimedAt: this.now(),
         provenance,
       });
-      if (!claim) break;
+      if (!claim) return false;
       const thread = claim.thread;
       try {
-        if (abortController.signal.aborted) return this.store.getSymposiumDelivery(deliveryId)!;
+        if (abortController.signal.aborted) return false;
         const result = await executor.execute({
           sessionId: delivery.sessionId,
           deliveryId,
@@ -539,7 +539,7 @@ export class SymposiumOrchestrator {
           signal: abortController.signal,
         });
         const timestamp = this.now();
-        delivery = this.store.completeSymposiumRecipient({
+        this.store.completeSymposiumRecipient({
           sessionId: delivery.sessionId,
           deliveryId,
           seatId: seat.id,
@@ -554,7 +554,7 @@ export class SymposiumOrchestrator {
         });
       } catch (error) {
         const latest = this.store.getSymposiumDelivery(deliveryId)!;
-        if (latest.status === 'cancelled' || abortController.signal.aborted) return latest;
+        if (latest.status === 'cancelled' || abortController.signal.aborted) return false;
         this.store.failSymposiumRecipient({
           deliveryId,
           seatId: seat.id,
@@ -562,9 +562,21 @@ export class SymposiumOrchestrator {
           updatedAt: this.now(),
           claimToken: claim.claimToken,
         });
-        break;
+        return false;
+      }
+      return true;
+    };
+    if (config.version === 2) {
+      const results = await Promise.allSettled(delivery.recipients.map(executeRecipient));
+      const rejected = results.find((result) => result.status === 'rejected');
+      if (rejected?.status === 'rejected') throw rejected.reason;
+      this.store.requeueIdleSymposiumDelivery(deliveryId, this.now());
+    } else {
+      for (const recipient of delivery.recipients) {
+        if (!(await executeRecipient(recipient))) break;
       }
     }
+
     return this.store.getSymposiumDelivery(deliveryId)!;
   }
 
