@@ -94,6 +94,30 @@ function open(path = ':memory:') {
 }
 
 describe('Symposium configuration contract', () => {
+  it('accepts version 2 with three stable, role-independent seats and a bounded cap', () => {
+    const third = {
+      ...config.seats[1],
+      id: 'implementer',
+      role: 'implementer',
+      name: 'Implementer',
+    };
+    const v2 = {
+      ...config,
+      version: 2,
+      activeSeatCap: 3,
+      anchorSeatId: 'builder',
+      seats: [config.seats[1], third, config.seats[0]],
+    };
+    expect(SymposiumConfigSchema.parse(v2)).toEqual(v2);
+    expect(
+      SymposiumConfigSchema.safeParse({
+        ...v2,
+        seats: [{ ...v2.seats[0], role: 'researcher' }, ...v2.seats.slice(1)],
+      }).success,
+    ).toBe(true);
+    expect(SymposiumConfigSchema.safeParse({ ...v2, activeSeatCap: 0 }).success).toBe(false);
+    expect(SymposiumConfigSchema.safeParse({ ...v2, activeSeatCap: 9 }).success).toBe(false);
+  });
   it('accepts two independently configured seats', () => {
     expect(SymposiumConfigSchema.parse(config)).toEqual(config);
   });
@@ -255,6 +279,157 @@ describe('Symposium configuration contract', () => {
 });
 
 describe('Symposium persistence', () => {
+  it('reserves active capacity atomically and retains suspended seat history', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const third = { ...config.seats[1], id: 'implementer', role: 'implementer' as const };
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+      seats: [config.seats[0], config.seats[1], third],
+    });
+    const transition = (
+      seatId: string,
+      action: 'admit' | 'suspend' | 'restore',
+      expectedGeneration: number,
+    ) =>
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId,
+        action,
+        expectedGeneration,
+        configRevision: 1,
+        actor: 'director',
+        reason: action,
+        idempotencyKey: `${seatId}:${action}:${expectedGeneration}`,
+        occurredAt: Date.now(),
+      });
+    expect(transition('builder', 'admit', 0)).toMatchObject({ generation: 1, state: 'active' });
+    store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'confirmed');
+    expect(transition('reviewer', 'admit', 0)).toMatchObject({ generation: 1, state: 'active' });
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'confirmed');
+    expect(() => transition('implementer', 'admit', 0)).toThrow(/cap/i);
+    expect(transition('reviewer', 'suspend', 1)).toMatchObject({
+      generation: 2,
+      state: 'suspended',
+      reconciliation: 'pending',
+    });
+    expect(() => transition('implementer', 'admit', 0)).toThrow(/reconcil/i);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 2, 'confirmed');
+    expect(transition('implementer', 'admit', 0)).toMatchObject({ state: 'active' });
+    store.markSymposiumMembershipReconciled('chat', 'implementer', 1, 'confirmed');
+    expect(() => transition('reviewer', 'restore', 2)).toThrow(/cap/i);
+    expect(
+      store.getSymposiumMembershipHistory('chat', 'reviewer').map((entry) => entry.state),
+    ).toEqual(['active', 'suspended']);
+  });
+  it('requires an explicit v2 upgrade and preserves the anchor and historical seat identities', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', config);
+    const v2 = {
+      ...config,
+      version: 2 as const,
+      revision: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+      seats: [...config.seats],
+    };
+    expect(() => store.setSymposiumConfig('chat', { ...v2, anchorSeatId: 'reviewer' })).toThrow(
+      /anchor|Seat 1/i,
+    );
+    store.setSymposiumConfig('chat', v2);
+    expect(store.getSymposiumMembershipHistory('chat')).toEqual([]);
+    expect(() => store.setSymposiumConfig('chat', { ...config, revision: 3 })).toThrow(
+      /downgrade/i,
+    );
+    expect(() =>
+      store.setSymposiumConfig('chat', { ...v2, revision: 3, seats: [config.seats[0]] }),
+    ).toThrow(/historical/i);
+  });
+  it('keeps an immutable transition under later retries and requires explicit recovery confirmation', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    const base = {
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit' as const,
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'first',
+      occurredAt: 1,
+    };
+    const first = store.transitionSymposiumMembership(base);
+    expect(first.reconciliation).toBe('pending');
+    store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'recovery_required');
+    expect(
+      store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'confirmed'),
+    ).toMatchObject({ reconciliation: 'confirmed' });
+    expect(store.transitionSymposiumMembership(base)).toMatchObject({
+      generation: 1,
+      action: 'admit',
+    });
+    expect(() => store.transitionSymposiumMembership({ ...base, actor: 'intruder' })).toThrow(
+      /idempotency/i,
+    );
+  });
+  it('keeps a provider needed by another admitted seat and retained grants', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const third = {
+      ...config.seats[1],
+      id: 'implementer',
+      role: 'implementer' as const,
+      accountBinding: { ...config.seats[1].accountBinding!, provider: 'openai-codex' as const },
+    };
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+      seats: [...config.seats, third],
+    });
+    for (const seatId of ['builder', 'reviewer', 'implementer']) {
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId,
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 1,
+        actor: 'director',
+        reason: 'start',
+        idempotencyKey: `admit:${seatId}`,
+        occurredAt: 1,
+      });
+      store.markSymposiumMembershipReconciled('chat', seatId, 1, 'confirmed');
+    }
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'handoff',
+      idempotencyKey: 'suspend:reviewer',
+      occurredAt: 2,
+    });
+    expect(store.getSymposiumRequiredProviders('chat', ['anthropic-vertex'])).toEqual([
+      'anthropic-vertex',
+      'openai-codex',
+    ]);
+    expect(store.getSymposiumRequiredProviders('chat')).toEqual(['openai-codex']);
+  });
   it('activates only when Seat 1 retains the existing session binding', () => {
     const store = open();
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });

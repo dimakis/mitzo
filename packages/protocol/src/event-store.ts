@@ -30,6 +30,9 @@ import type {
   SymposiumInterventionRecord,
   SymposiumProvenance,
   SymposiumSeatThreadRecord,
+  SymposiumMembershipRecord,
+  SymposiumMembershipAction,
+  SymposiumReconciliationStatus,
 } from './symposium.js';
 
 // Re-export types for consumer convenience
@@ -871,7 +874,48 @@ export class EventStore {
         );
         CREATE INDEX IF NOT EXISTS idx_symposium_recipient_attempts_delivery
           ON symposium_recipient_attempts (delivery_id, seat_id, attempt_number);
+        CREATE TABLE IF NOT EXISTS symposium_membership (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          state TEXT NOT NULL, action TEXT NOT NULL, config_revision INTEGER NOT NULL,
+          binding_key TEXT NOT NULL, actor TEXT NOT NULL, reason TEXT NOT NULL,
+          idempotency_key TEXT NOT NULL, occurred_at INTEGER NOT NULL,
+          replaces_seat_id TEXT, replaced_by_seat_id TEXT,
+          PRIMARY KEY(session_id, seat_id, generation), UNIQUE(session_id, idempotency_key)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_membership_reconciliation (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','confirmed','recovery_required')),
+          PRIMARY KEY(session_id, seat_id, generation),
+          FOREIGN KEY(session_id, seat_id, generation)
+            REFERENCES symposium_membership(session_id, seat_id, generation)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_one_replacement
+          ON symposium_membership(session_id,replaces_seat_id)
+          WHERE replaces_seat_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS symposium_late_results (
+          delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
+          provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
+          cost_usd REAL NOT NULL, observed_at INTEGER NOT NULL,
+          PRIMARY KEY(delivery_id,seat_id,claim_token),
+          FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
+        );
       `);
+      const recipientColumns = db
+        .prepare("PRAGMA table_info('symposium_delivery_recipients')")
+        .all() as Array<{ name: string }>;
+      if (!recipientColumns.some((column) => column.name === 'membership_generation')) {
+        db.exec(
+          'ALTER TABLE symposium_delivery_recipients ADD COLUMN membership_generation INTEGER NOT NULL DEFAULT 0',
+        );
+      }
+      const admissionColumns = db
+        .prepare("PRAGMA table_info('symposium_admissions')")
+        .all() as Array<{ name: string }>;
+      if (!admissionColumns.some((column) => column.name === 'membership_generation')) {
+        db.exec(
+          'ALTER TABLE symposium_admissions ADD COLUMN membership_generation INTEGER NOT NULL DEFAULT 0',
+        );
+      }
     })();
   }
 
@@ -1528,10 +1572,47 @@ export class EventStore {
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+      const previous = session.symposiumConfig
+        ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+        : null;
+      if (previous?.version === 2 && config.version === 1) {
+        throw new Error('Cannot downgrade Symposium membership configuration');
+      }
+      if (
+        previous?.version === 2 &&
+        config.version === 2 &&
+        previous.anchorSeatId !== config.anchorSeatId
+      ) {
+        throw new Error('Symposium anchor transfer requires a separate explicit operation');
+      }
+      if (previous) {
+        const newIds = new Set(config.seats.map((seat) => seat.id));
+        if (previous.seats.some((seat) => !newIds.has(seat.id))) {
+          throw new Error('Cannot erase historical Symposium seat identities');
+        }
+        if (previous.version === 2) {
+          for (const oldSeat of previous.seats) {
+            const current = config.seats.find((seat) => seat.id === oldSeat.id)!;
+            const membership = this.getLatestSymposiumMembership(sessionId, oldSeat.id);
+            if (
+              membership?.state === 'active' &&
+              JSON.stringify(oldSeat) !== JSON.stringify(current)
+            ) {
+              throw new Error(
+                'Active Symposium seat binding must be revoked before configuration change',
+              );
+            }
+          }
+        }
+      }
 
       if (config.state === 'active') {
         const sessionBinding = AccountBindingSchema.safeParse(session.accountBinding);
-        const primaryBinding = config.seats[0].accountBinding;
+        const anchorId = config.version === 2 ? config.anchorSeatId : config.seats[0].id;
+        if (previous?.version === 1 && config.version === 2 && anchorId !== previous.seats[0].id) {
+          throw new Error('Seat 1 must remain the Symposium anchor during v2 upgrade');
+        }
+        const primaryBinding = config.seats.find((seat) => seat.id === anchorId)?.accountBinding;
         if (
           !sessionBinding.success ||
           !primaryBinding ||
@@ -1576,6 +1657,240 @@ export class EventStore {
     return config;
   }
 
+  getSymposiumMembershipHistory(sessionId: string, seatId?: string): SymposiumMembershipRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND (? IS NULL OR m.seat_id = ?)
+      ORDER BY m.occurred_at, m.rowid`,
+    ).all(sessionId, seatId ?? null, seatId ?? null) as Record<string, unknown>[];
+    return rows.map(rowToSymposiumMembership);
+  }
+
+  getLatestSymposiumMembership(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumMembershipRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT m.*, r.status AS reconciliation,
+      (SELECT replacement.seat_id FROM symposium_membership replacement
+       WHERE replacement.session_id = m.session_id AND replacement.replaces_seat_id = m.seat_id
+       LIMIT 1) AS linked_replacement FROM symposium_membership m
+      JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+      WHERE m.session_id = ? AND m.seat_id = ? ORDER BY m.generation DESC LIMIT 1`,
+    ).get(sessionId, seatId) as Record<string, unknown> | undefined;
+    return row ? rowToSymposiumMembership(row) : undefined;
+  }
+
+  /** SQLite IMMEDIATE transaction makes generation and cap reservation one CAS. */
+  transitionSymposiumMembership(input: {
+    sessionId: string;
+    seatId: string;
+    action: SymposiumMembershipAction;
+    expectedGeneration: number;
+    configRevision: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+    occurredAt: number;
+    replacesSeatId?: string;
+  }): SymposiumMembershipRecord {
+    return this.db!.transaction(() => {
+      const duplicate = this.db!.prepare(
+        `SELECT m.*, r.status AS reconciliation FROM symposium_membership m
+        JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+        WHERE m.session_id = ? AND m.idempotency_key = ?`,
+      ).get(input.sessionId, input.idempotencyKey) as Record<string, unknown> | undefined;
+      if (duplicate) {
+        const prior = rowToSymposiumMembership(duplicate);
+        if (
+          prior.seatId !== input.seatId ||
+          prior.generation !== input.expectedGeneration + 1 ||
+          prior.action !== input.action ||
+          prior.configRevision !== input.configRevision ||
+          prior.actor !== input.actor ||
+          prior.reason !== input.reason ||
+          prior.replacesSeatId !== (input.replacesSeatId ?? null)
+        ) {
+          throw new Error('Symposium membership idempotency key was reused');
+        }
+        return prior;
+      }
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      if (config.version !== 2) throw new Error('Membership transitions require Symposium v2');
+      if (config.revision !== input.configRevision)
+        throw new Error('Symposium membership configuration revision is stale');
+      const seat = config.seats.find((candidate) => candidate.id === input.seatId);
+      if (!seat) throw new Error('Unknown Symposium seat');
+      const previous = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if ((previous?.generation ?? 0) !== input.expectedGeneration)
+        throw new Error('Symposium membership generation conflict');
+      const activating =
+        input.action === 'admit' || input.action === 'restore' || input.action === 'replace';
+      if ((input.action === 'replace') !== Boolean(input.replacesSeatId)) {
+        throw new Error('Symposium replacement requires a predecessor seat');
+      }
+      if (input.action === 'replace') {
+        if (input.replacesSeatId === input.seatId)
+          throw new Error('Replacement requires a new seat identity');
+        const replaced = this.getLatestSymposiumMembership(input.sessionId, input.replacesSeatId!);
+        if (
+          !replaced ||
+          replaced.state !== 'removed' ||
+          replaced.reconciliation !== 'confirmed' ||
+          replaced.replacedBySeatId
+        ) {
+          throw new Error('Replacement predecessor must be reconciled and inactive');
+        }
+      }
+      if (activating) {
+        if (
+          previous?.state === 'active' ||
+          (input.action === 'admit' && previous) ||
+          (input.action === 'restore') !== (previous?.state === 'suspended')
+        ) {
+          throw new Error('Symposium membership transition is invalid');
+        }
+        const unresolved = this.db!.prepare(
+          `SELECT 1 FROM symposium_membership m
+          JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+          WHERE m.session_id = ? AND r.status != 'confirmed' LIMIT 1`,
+        ).get(input.sessionId);
+        if (unresolved)
+          throw new Error('Symposium runtime reconciliation is required before admission');
+        const active = this.db!.prepare(
+          `SELECT count(*) AS n FROM symposium_membership m
+          WHERE m.session_id = ? AND m.generation = (SELECT max(generation) FROM symposium_membership
+          WHERE session_id = m.session_id AND seat_id = m.seat_id) AND m.state = 'active'`,
+        ).get(input.sessionId) as { n: number };
+        if (active.n >= config.activeSeatCap) throw new Error('Symposium active-seat cap exceeded');
+      } else {
+        if (previous?.state !== 'active')
+          throw new Error('Only active Symposium seats can be revoked');
+        if (seat.id === config.anchorSeatId)
+          throw new Error('Symposium anchor seat cannot be revoked');
+      }
+      const state = activating ? 'active' : input.action === 'suspend' ? 'suspended' : 'removed';
+      const generation = input.expectedGeneration + 1;
+      const bindingKey = JSON.stringify([
+        seat.accountBinding,
+        seat.profileBinding,
+        seat.reasoningEffort,
+        seat.contextGrant,
+        seat.authorityGrant,
+        seat.isolationRequest,
+      ]);
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,
+        config_revision,binding_key,actor,reason,idempotency_key,occurred_at,replaces_seat_id,replaced_by_seat_id)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        state,
+        input.action,
+        config.revision,
+        bindingKey,
+        input.actor,
+        input.reason,
+        input.idempotencyKey,
+        input.occurredAt,
+        input.replacesSeatId ?? null,
+        null,
+      );
+      this.db!.prepare(`INSERT INTO symposium_membership_reconciliation VALUES(?,?,?,?)`).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        'pending',
+      );
+      if (!activating) {
+        // Durable revocation wins over queued approvals and execution claims.
+        this.db!.prepare(
+          `UPDATE symposium_deliveries SET status = 'cancelled',
+          cancellation_reason = 'recipient seat revoked', cancelled_at = ?, updated_at = ?
+          WHERE session_id = ? AND status IN ('awaiting_intervention','ready','delivering')
+          AND delivery_id IN (SELECT delivery_id FROM symposium_delivery_recipients WHERE seat_id = ?
+            AND status IN ('pending','executing'))`,
+        ).run(input.occurredAt, input.occurredAt, input.sessionId, input.seatId);
+        this.db!.prepare(
+          `UPDATE symposium_delivery_recipients SET status = 'cancelled', error = 'seat revoked', updated_at = ?
+          WHERE seat_id = ? AND status IN ('pending','executing') AND delivery_id IN
+          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
+        ).run(input.occurredAt, input.seatId, input.sessionId);
+        this.db!.prepare(
+          `UPDATE symposium_recipient_attempts SET status = 'recovery_required',
+          error = 'seat revoked during execution', completed_at = ?, updated_at = ?
+          WHERE seat_id = ? AND status = 'executing' AND delivery_id IN
+          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
+        ).run(input.occurredAt, input.occurredAt, input.seatId, input.sessionId);
+        this.db!.prepare(
+          `DELETE FROM symposium_seat_execution_claims WHERE session_id = ? AND seat_id = ?`,
+        ).run(input.sessionId, input.seatId);
+      }
+      return this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
+    }).immediate();
+  }
+
+  markSymposiumMembershipReconciled(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    status: Extract<SymposiumReconciliationStatus, 'confirmed' | 'recovery_required'>,
+  ): SymposiumMembershipRecord {
+    const result = this.db!.prepare(
+      `UPDATE symposium_membership_reconciliation SET status = ?
+      WHERE session_id = ? AND seat_id = ? AND generation = ? AND status != 'confirmed'`,
+    ).run(status, sessionId, seatId, generation);
+    if (result.changes !== 1) throw new Error('Symposium membership reconciliation conflict');
+    return this.getLatestSymposiumMembership(sessionId, seatId)!;
+  }
+
+  getSymposiumRequiredProviders(
+    sessionId: string,
+    retainedProviders: readonly string[] = [],
+  ): string[] {
+    const config = this.getActiveSymposiumConfig(sessionId);
+    const providers = new Set(retainedProviders);
+    for (const seat of config.seats) {
+      if (
+        config.version === 2 &&
+        this.getLatestSymposiumMembership(sessionId, seat.id)?.state !== 'active'
+      )
+        continue;
+      if (seat.accountBinding?.provider) providers.add(seat.accountBinding.provider);
+    }
+    return [...providers].sort();
+  }
+
+  getSymposiumLateResults(deliveryId: string): Array<{
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    resultContent: string;
+    costUsd: number;
+    observedAt: number;
+  }> {
+    const rows = this.db!.prepare(
+      `SELECT * FROM symposium_late_results WHERE delivery_id = ?
+      ORDER BY observed_at, rowid`,
+    ).all(deliveryId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      deliveryId: row.delivery_id as string,
+      seatId: row.seat_id as string,
+      claimToken: row.claim_token as string,
+      providerThreadId: row.provider_thread_id as string,
+      resultContent: row.result_content as string,
+      costUsd: row.cost_usd as number,
+      observedAt: row.observed_at as number,
+    }));
+  }
+
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
     return this.db!.transaction(() => {
       const prior = this.db!.prepare(
@@ -1593,7 +1908,8 @@ export class EventStore {
           existing.model !== record.model ||
           existing.accountProfileRevision !== record.accountProfileRevision ||
           existing.isolationDomainId !== record.isolationDomainId ||
-          existing.isolationDomainRevision !== record.isolationDomainRevision
+          existing.isolationDomainRevision !== record.isolationDomainRevision ||
+          existing.membershipGeneration !== record.membershipGeneration
         ) {
           throw new Error('Symposium admission idempotency key was reused with different input');
         }
@@ -1601,6 +1917,16 @@ export class EventStore {
       }
       const config = this.getActiveSymposiumConfig(record.sessionId);
       const seat = config.seats.find((candidate) => candidate.id === record.seatId);
+      if (config.version === 2) {
+        const membership = this.getLatestSymposiumMembership(record.sessionId, record.seatId);
+        if (
+          membership?.state !== 'active' ||
+          membership.reconciliation !== 'confirmed' ||
+          membership.generation !== record.membershipGeneration
+        ) {
+          throw new Error('Symposium membership must be reconciled before provider admission');
+        }
+      }
       if (
         config.revision !== record.configRevision ||
         !seat?.accountBinding ||
@@ -1618,8 +1944,8 @@ export class EventStore {
         `INSERT INTO symposium_admissions (
           admission_id, session_id, seat_id, decision, reason, idempotency_key,
           config_revision, provider, account_id, model, account_profile_revision,
-          isolation_domain_id, isolation_domain_revision, decided_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          isolation_domain_id, isolation_domain_revision, decided_at, membership_generation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         record.admissionId,
         record.sessionId,
@@ -1635,6 +1961,7 @@ export class EventStore {
         record.isolationDomainId,
         record.isolationDomainRevision,
         record.decidedAt,
+        record.membershipGeneration ?? 0,
       );
       return record;
     }).immediate();
@@ -1747,7 +2074,11 @@ export class EventStore {
           recipient.authorityGrantId !== seat.authorityGrant?.grantId ||
           recipient.authorityGrantRevision !== seat.authorityGrant?.revision ||
           recipient.isolationDomainId !== seat.isolationRequest?.trustDomainId ||
-          recipient.isolationDomainRevision !== seat.isolationRequest?.revision
+          recipient.isolationDomainRevision !== seat.isolationRequest?.revision ||
+          (config.version === 2 &&
+            (this.getLatestSymposiumMembership(record.sessionId, seat.id)?.state !== 'active' ||
+              this.getLatestSymposiumMembership(record.sessionId, seat.id)?.generation !==
+                recipient.membershipGeneration))
         ) {
           throw new Error('Symposium recipient ledger snapshot does not match its active seat');
         }
@@ -1783,8 +2114,9 @@ export class EventStore {
           config_revision, account_profile_revision, seat_profile_revision,
           context_grant_id, context_grant_revision, authority_grant_id,
           authority_grant_revision, isolation_domain_id, isolation_domain_revision,
-          provider_thread_id, result_content, cost_usd, error, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider_thread_id, result_content, cost_usd, error, updated_at,
+          membership_generation
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       record.recipients.forEach((recipient, index) =>
         insertRecipient.run(
@@ -1807,6 +2139,7 @@ export class EventStore {
           recipient.costUsd,
           recipient.error,
           recipient.updatedAt,
+          recipient.membershipGeneration ?? 0,
         ),
       );
       return this.getSymposiumDelivery(record.deliveryId)!;
@@ -1997,7 +2330,8 @@ export class EventStore {
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
       const recipient = this.db!.prepare(
-        `SELECT r.status AS recipient_status, r.idempotency_key, d.status AS delivery_status,
+        `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
+          d.status AS delivery_status,
           d.session_id
          FROM symposium_delivery_recipients r
          JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
@@ -2006,6 +2340,7 @@ export class EventStore {
         | {
             recipient_status: string;
             idempotency_key: string;
+            membership_generation: number;
             delivery_status: string;
             session_id: string;
           }
@@ -2025,6 +2360,34 @@ export class EventStore {
         const config = this.getActiveSymposiumConfig(input.sessionId);
         if (config.revision !== input.expectedConfigRevision) {
           boundaryError = 'Delivery configuration revision is stale';
+        } else if (config.version === 2) {
+          const membership = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+          const seat = config.seats.find((candidate) => candidate.id === input.seatId);
+          const currentBinding = seat
+            ? JSON.stringify([
+                seat.accountBinding,
+                seat.profileBinding,
+                seat.reasoningEffort,
+                seat.contextGrant,
+                seat.authorityGrant,
+                seat.isolationRequest,
+              ])
+            : null;
+          const admission = this.getLatestSymposiumAdmission(
+            input.sessionId,
+            input.seatId,
+            config.revision,
+          );
+          if (
+            membership?.state !== 'active' ||
+            membership.reconciliation !== 'confirmed' ||
+            membership.generation !== recipient.membership_generation ||
+            membership.bindingKey !== currentBinding ||
+            admission?.decision !== 'admitted' ||
+            admission.membershipGeneration !== membership.generation
+          ) {
+            boundaryError = `Symposium membership generation for seat ${input.seatId} is stale`;
+          }
         } else {
           const admission = this.getLatestSymposiumAdmission(
             input.sessionId,
@@ -2148,7 +2511,28 @@ export class EventStore {
          WHERE session_id = ? AND seat_id = ? AND binding_key = ?
            AND delivery_id = ? AND claim_token = ?`,
       ).get(input.sessionId, input.seatId, input.bindingKey, input.deliveryId, input.claimToken);
-      if (!claim) return this.getSymposiumDelivery(input.deliveryId)!;
+      if (!claim) {
+        const recipient = this.db!.prepare(
+          `SELECT status FROM symposium_delivery_recipients
+          WHERE delivery_id = ? AND seat_id = ?`,
+        ).get(input.deliveryId, input.seatId) as { status: string } | undefined;
+        if (recipient?.status === 'cancelled' || recipient?.status === 'recovery_required') {
+          this.db!.prepare(
+            `INSERT OR IGNORE INTO symposium_late_results
+            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,observed_at)
+            VALUES(?,?,?,?,?,?,?)`,
+          ).run(
+            input.deliveryId,
+            input.seatId,
+            input.claimToken,
+            input.providerThreadId,
+            input.resultContent,
+            input.costUsd,
+            input.updatedAt,
+          );
+        }
+        return this.getSymposiumDelivery(input.deliveryId)!;
+      }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
           provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
@@ -2804,6 +3188,9 @@ function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissi
     admissionId: row.admission_id as string,
     sessionId: row.session_id as string,
     seatId: row.seat_id as string,
+    ...(Number(row.membership_generation) > 0
+      ? { membershipGeneration: Number(row.membership_generation) }
+      : {}),
     decision: row.decision as SymposiumAdmissionRecord['decision'],
     reason: (row.reason as string | null) ?? null,
     idempotencyKey: row.idempotency_key as string,
@@ -2818,10 +3205,35 @@ function rowToSymposiumAdmission(row: Record<string, unknown>): SymposiumAdmissi
   };
 }
 
+function rowToSymposiumMembership(row: Record<string, unknown>): SymposiumMembershipRecord {
+  return {
+    sessionId: row.session_id as string,
+    seatId: row.seat_id as string,
+    generation: row.generation as number,
+    state: row.state as SymposiumMembershipRecord['state'],
+    action: row.action as SymposiumMembershipAction,
+    configRevision: row.config_revision as number,
+    bindingKey: row.binding_key as string,
+    actor: row.actor as string,
+    reason: row.reason as string,
+    idempotencyKey: row.idempotency_key as string,
+    occurredAt: row.occurred_at as number,
+    reconciliation: row.reconciliation as SymposiumReconciliationStatus,
+    replacesSeatId: (row.replaces_seat_id as string | null) ?? null,
+    replacedBySeatId:
+      (row.linked_replacement as string | null) ??
+      (row.replaced_by_seat_id as string | null) ??
+      null,
+  };
+}
+
 function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliveryRecipient {
   return {
     deliveryId: row.delivery_id as string,
     seatId: row.seat_id as string,
+    ...(Number(row.membership_generation) > 0
+      ? { membershipGeneration: Number(row.membership_generation) }
+      : {}),
     status: row.status as SymposiumDeliveryRecipient['status'],
     idempotencyKey: row.idempotency_key as string,
     configRevision: row.config_revision as number,

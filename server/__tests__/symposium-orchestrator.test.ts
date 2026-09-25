@@ -177,6 +177,147 @@ afterEach(() => {
 });
 
 describe('SymposiumOrchestrator', () => {
+  it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
+    const implementerSeat = {
+      ...config.seats[1],
+      id: 'implementer',
+      role: 'implementer' as const,
+      name: 'Implementer',
+      accountBinding: { ...config.seats[1].accountBinding!, provider: 'openai-codex' as const },
+    };
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+      seats: [config.seats[1], implementerSeat, config.seats[0]],
+    });
+    const impl = new FakeExecutor();
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer, implementer: impl },
+      now: () => 123,
+      stopSeat: async () => {},
+      reconcileProviders: async () => {},
+    });
+    const move = (seatId: string, action: 'admit' | 'suspend', expectedGeneration: number) =>
+      orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId,
+        action,
+        expectedGeneration,
+        configRevision: 4,
+        actor: 'director',
+        reason: action,
+        idempotencyKey: `${seatId}:${action}`,
+      });
+    await move('builder', 'admit', 0);
+    await move('reviewer', 'admit', 0);
+    await move('implementer', 'admit', 0);
+    for (const seatId of ['builder', 'reviewer', 'implementer']) {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        reason: 'Approved',
+        idempotencyKey: `admit:${seatId}`,
+      });
+    }
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer', 'implementer'],
+      originalContent: 'Do work',
+      idempotencyKey: 'v2-work',
+    });
+    expect(staged.recipientSeatIds).toEqual(['reviewer', 'implementer']);
+    await move('reviewer', 'suspend', 1);
+    expect(() =>
+      orchestrator.intervene({
+        deliveryId: staged.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'late-approval',
+      }),
+    ).toThrow();
+    expect((await orchestrator.deliver(staged.deliveryId)).recipients[0].status).not.toBe(
+      'delivered',
+    );
+    expect(reviewer.calls).toHaveLength(0);
+  });
+  it('retains a late result as audit evidence without reviving a suspended recipient', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    let release!: (result: { providerThreadId: string; content: string; costUsd: number }) => void;
+    reviewer.execute = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      now: () => 123,
+      stopSeat: async () => {},
+      reconcileProviders: async () => {},
+    });
+    for (const seatId of ['builder', 'reviewer']) {
+      await orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId,
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 4,
+        actor: 'director',
+        reason: 'start',
+        idempotencyKey: `membership:${seatId}`,
+      });
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        reason: 'approved',
+        idempotencyKey: `admission:${seatId}`,
+      });
+    }
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'Review',
+      idempotencyKey: 'late-stage',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'late-approve',
+    });
+    const pending = orchestrator.deliver(staged.deliveryId);
+    await vi.waitFor(() => expect(reviewer.execute).toHaveBeenCalledOnce());
+    await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'pause',
+      idempotencyKey: 'suspend:reviewer',
+    });
+    release({ providerThreadId: 'late-thread', content: 'Late answer', costUsd: 0.7 });
+    await pending;
+    expect(store.getSymposiumDelivery(staged.deliveryId)?.status).toBe('cancelled');
+    expect(store.getSymposiumLateResults(staged.deliveryId)).toEqual([
+      expect.objectContaining({ seatId: 'reviewer', resultContent: 'Late answer', costUsd: 0.7 }),
+    ]);
+    expect(store.getSymposiumDelivery(staged.deliveryId)?.recipients[0].resultContent).toBeNull();
+  });
   it('records explicit provider admission against one shared trust boundary', () => {
     const admission = admit('reviewer');
 
