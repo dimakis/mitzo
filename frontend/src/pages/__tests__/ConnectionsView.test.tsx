@@ -21,6 +21,8 @@ vi.mock('../../lib/connections-api', () => ({
   deleteConnection: vi.fn(),
   retryConnection: vi.fn(),
   getConnectionAudit: vi.fn(),
+  getConnectionCapabilityGrants: vi.fn(),
+  setConnectionCapabilityGrant: vi.fn(),
 }));
 
 const catalog: ConnectionsCatalog = {
@@ -296,6 +298,7 @@ beforeEach(() => {
   vi.mocked(connections.createConnection).mockResolvedValue(catalog.connections[0]);
   vi.mocked(connections.testConnection).mockResolvedValue(catalog.connections[0]);
   vi.mocked(connections.deleteConnection).mockResolvedValue(undefined);
+  vi.mocked(connections.getConnectionCapabilityGrants).mockResolvedValue([]);
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -308,6 +311,104 @@ const render = async () => {
 };
 
 describe('ConnectionsView', () => {
+  it('grants and revokes a reviewed capability only after reauthorization', async () => {
+    const github = {
+      ...catalog.connections[0]!,
+      id: 'github-1',
+      templateId: 'github-readonly',
+      label: 'GitHub',
+      desiredAccountIds: ['work'],
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
+    };
+    vi.mocked(connections.getConnections).mockResolvedValue({ ...catalog, connections: [github] });
+    let active = false;
+    vi.mocked(connections.getConnectionCapabilityGrants).mockImplementation(async () =>
+      active
+        ? [
+            {
+              id: 'grant-1',
+              connectionId: github.id,
+              connectionRevision: github.revision,
+              capabilityId: 'github.publish-pr',
+              capabilityVersion: 1,
+              accountIds: ['work'],
+              status: 'active',
+            },
+          ]
+        : [],
+    );
+    vi.mocked(connections.setConnectionCapabilityGrant).mockImplementation(async (value) => {
+      active = value.status === 'active';
+      return {
+        id: 'grant-1',
+        connectionId: github.id,
+        connectionRevision: github.revision,
+        capabilityId: value.capabilityId,
+        capabilityVersion: value.capabilityVersion,
+        accountIds: value.accountIds,
+        status: value.status,
+      };
+    });
+    await render();
+    await act(async () => button('Manage capability grants').click());
+    expect(container.textContent).toContain('Publish pull request');
+    const profile = container.querySelector(
+      '.connections-capability input[type="checkbox"]',
+    ) as HTMLInputElement;
+    act(() => profile.click());
+    await act(async () => button('Save grant').click());
+    expect(connections.setConnectionCapabilityGrant).not.toHaveBeenCalled();
+    await reauthorize();
+    await act(async () => button('Save grant').click());
+    expect(connections.setConnectionCapabilityGrant).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'github-1',
+        revision: 2,
+        capabilityId: 'github.publish-pr',
+        capabilityVersion: 1,
+        accountIds: ['work'],
+        status: 'active',
+        csrf: 'c'.repeat(32),
+      }),
+    );
+    expect(container.textContent).toContain('Active for: work');
+    await act(async () => button('Revoke grant').click());
+    expect(connections.setConnectionCapabilityGrant).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        status: 'revoked',
+        accountIds: ['work'],
+      }),
+    );
+    expect(container.textContent).toContain('No active grant.');
+  });
+  it('keeps capability revocation available when the setup catalog fails', async () => {
+    const github = {
+      ...catalog.connections[0]!,
+      id: 'github-1',
+      templateId: 'github-readonly',
+      label: 'GitHub',
+      capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
+    };
+    vi.mocked(connections.getConnections).mockResolvedValue({ ...catalog, connections: [github] });
+    vi.mocked(connections.getConnectionTemplates).mockRejectedValue(
+      new Error('catalog unavailable'),
+    );
+    vi.mocked(connections.getConnectionCapabilityGrants).mockResolvedValue([
+      {
+        id: 'grant-1',
+        connectionId: github.id,
+        connectionRevision: github.revision,
+        capabilityId: 'github.publish-pr',
+        capabilityVersion: 1,
+        accountIds: ['work'],
+        status: 'active',
+      },
+    ]);
+    await render();
+    await act(async () => button('Manage capability grants').click());
+    expect(container.textContent).toContain('github.publish-pr v1');
+    expect(button('Revoke grant')).toBeTruthy();
+  });
   it('shows reviewed catalog cards with category, authentication, and risk summaries', async () => {
     await render();
     expect(container.textContent).toContain('Read-only sandbox egress');

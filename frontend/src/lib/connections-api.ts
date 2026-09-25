@@ -1,6 +1,7 @@
 import { apiFetch } from './api-fetch';
 import type {
   ConnectionAuditEntry,
+  ConnectionCapabilityGrant,
   ConnectionsCatalog,
   ConnectionTemplateCatalog,
   ManagedConnection,
@@ -145,4 +146,32 @@ export async function getConnectionAudit(id: string): Promise<ConnectionAuditEnt
       await apiFetch(`/api/connections/${encodeURIComponent(id)}/audit`),
     )
   ).audit;
+}
+export async function getConnectionCapabilityGrants(
+  id: string,
+): Promise<ConnectionCapabilityGrant[]> {
+  return (
+    await bodyOrError<{ grants: ConnectionCapabilityGrant[] }>(
+      await apiFetch(`/api/connections/${encodeURIComponent(id)}/capabilities`),
+    )
+  ).grants;
+}
+export async function setConnectionCapabilityGrant(input: {
+  id: string;
+  revision: number;
+  capabilityId: string;
+  capabilityVersion: number;
+  accountIds: string[];
+  status: 'active' | 'revoked';
+  csrf: string;
+}): Promise<ConnectionCapabilityGrant> {
+  const { id, ...body } = input;
+  return (
+    await bodyOrError<{ grant: ConnectionCapabilityGrant }>(
+      await apiFetch(
+        `/api/connections/${encodeURIComponent(id)}/capabilities`,
+        json('PUT', body, input.csrf),
+      ),
+    )
+  ).grant;
 }

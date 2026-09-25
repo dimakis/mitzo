@@ -299,6 +299,7 @@ describe('connections router', () => {
     expect(listed.body.connections[0].credentialFields).toEqual([
       expect.objectContaining({ key: 'token', secret: true, required: true }),
     ]);
+    expect(listed.body.connections[0].capabilityTemplates).toEqual([]);
     expect(JSON.stringify(listed.body)).not.toContain('SENTINEL_DO_NOT_LEAK');
     const templates = await request(app).get('/api/connections/templates').set('x-browser', 'yes');
     expect(templates.status).toBe(200);
