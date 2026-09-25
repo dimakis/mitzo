@@ -20,12 +20,12 @@
     "@mitzo/protocol": "*",
     "@opentelemetry/api": "^1.9.1",
     "pino": "^10.3.1",
-    "zod": "4.3.6"
+    "zod": "4.6.5"
   },
   "peerDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
-    "@anthropic-ai/sdk": "^0.124.0",
-    "@anthropic-ai/vertex-sdk": "^0.19.7"
+    "@anthropic-ai/claude-agent-sdk": "^0.3.278",
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@anthropic-ai/vertex-sdk": "^0.19.10"
   },
   "peerDependenciesMeta": {
     "@anthropic-ai/sdk": {
@@ -36,9 +36,9 @@
     }
   },
   "devDependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.141",
-    "@anthropic-ai/sdk": "^0.124.0",
-    "@anthropic-ai/vertex-sdk": "^0.19.7",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.278",
+    "@anthropic-ai/sdk": "^0.127.0",
+    "@anthropic-ai/vertex-sdk": "^0.19.10",
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@opentelemetry/sdk-trace-node": "^2.11.0",
     "typescript": "^5.6.0"
