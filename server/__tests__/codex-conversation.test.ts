@@ -7,6 +7,8 @@ import { CodexConversationStore } from '../codex-conversation-store.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError } from '../codex-app-server-client.js';
+import { tracer } from '../tracing.js';
+import type { Span } from '@opentelemetry/api';
 const cleanup: (() => void)[] = [];
 const binding = {
   accountId: 'personal',
@@ -16,7 +18,54 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 afterEach(() => {
+  vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
+});
+
+it.each([
+  ['completed', 'completed', 'none'],
+  ['interrupted', 'interrupted', 'none'],
+  ['failed', 'failed', 'provider'],
+] as const)(
+  'traces a subscription turn through %s exactly once',
+  async (_case, status, failure) => {
+    const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+    const start = vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+    const { c, callbacks } = await setup();
+    await c.send({ id: 'traced', prompt: 'private text must stay out of spans' });
+    expect(start).toHaveBeenCalledOnce();
+    expect(start.mock.calls[0][0]).toBe('codex.turn');
+    expect(span.end).not.toHaveBeenCalled();
+    const notification = {
+      threadId: 'provider-thread',
+      turn: {
+        id: 'turn-1',
+        status,
+        ...(status === 'failed' ? { error: { message: 'secret diagnostic' } } : {}),
+      },
+    };
+    callbacks.onNotification('turn/completed', notification);
+    callbacks.onNotification('turn/completed', notification);
+    expect(span.end).toHaveBeenCalledOnce();
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.route', 'chatgpt-subscription');
+    expect(span.setAttribute).toHaveBeenCalledWith('gen_ai.request.model', 'test-model');
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.turn.status', status);
+    expect(span.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', failure);
+    expect(JSON.stringify(span.setAttribute.mock.calls)).not.toContain('secret diagnostic');
+    c.close();
+    expect(span.end).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['transport', 'close'] as const)('ends a subscription span on %s loss', async (loss) => {
+  const span = { setAttribute: vi.fn(), setStatus: vi.fn(), end: vi.fn() };
+  vi.spyOn(tracer, 'startSpan').mockReturnValue(span as unknown as Span);
+  const { c, callbacks } = await setup();
+  await c.send({ id: 'traced', prompt: 'hello' });
+  if (loss === 'transport') callbacks.onClose(new Error('private transport detail'));
+  else c.close();
+  expect(span.end).toHaveBeenCalledOnce();
+  expect(span.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', loss);
 });
 async function setup(
   existingStore?: CodexConversationStore,
