@@ -33,7 +33,7 @@ export interface SymposiumSeatExecution {
 export interface SymposiumSeatExecutionResult {
   providerThreadId: string;
   content: string;
-  costUsd?: number;
+  costUsd?: number | null;
 }
 
 export interface SymposiumSeatExecutor {
@@ -399,7 +399,7 @@ export class SymposiumOrchestrator {
           isolationDomainRevision: active.isolationRequest.revision,
           providerThreadId: null,
           resultContent: null,
-          costUsd: 0,
+          costUsd: null,
           error: null,
           updatedAt: timestamp,
         };
@@ -629,7 +629,7 @@ export class SymposiumOrchestrator {
           configRevision: currentConfig.revision,
           threadCreatedAt: thread?.createdAt ?? timestamp,
           resultContent: result.content,
-          costUsd: result.costUsd ?? 0,
+          costUsd: result.costUsd ?? null,
           updatedAt: timestamp,
           claimToken: claim.claimToken,
         });

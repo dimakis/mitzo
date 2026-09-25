@@ -811,6 +811,7 @@ export class EventStore {
           provider_thread_id TEXT,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (delivery_id, seat_id),
@@ -872,6 +873,7 @@ export class EventStore {
           accepted_at INTEGER,
           result_content TEXT,
           cost_usd REAL NOT NULL DEFAULT 0,
+          cost_known INTEGER NOT NULL DEFAULT 0,
           error TEXT,
           started_at INTEGER NOT NULL,
           completed_at INTEGER,
@@ -902,7 +904,7 @@ export class EventStore {
         CREATE TABLE IF NOT EXISTS symposium_late_results (
           delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
           provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
-          cost_usd REAL NOT NULL, observed_at INTEGER NOT NULL,
+          cost_usd REAL NOT NULL, cost_known INTEGER NOT NULL DEFAULT 0, observed_at INTEGER NOT NULL,
           symposium_provenance TEXT,
           PRIMARY KEY(delivery_id,seat_id,claim_token),
           FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
@@ -913,6 +915,18 @@ export class EventStore {
         .all() as Array<{ name: string }>;
       if (!deliveryColumns.some((column) => column.name === 'source_message_id')) {
         db.exec('ALTER TABLE symposium_deliveries ADD COLUMN source_message_id TEXT');
+      }
+      for (const table of [
+        'symposium_delivery_recipients',
+        'symposium_recipient_attempts',
+        'symposium_late_results',
+      ]) {
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+        if (!columns.some((column) => column.name === 'cost_known')) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN cost_known INTEGER NOT NULL DEFAULT 0`);
+          // Legacy zeros could mean omitted provider cost. Preserve that uncertainty.
+          db.exec(`UPDATE ${table} SET cost_known = 1 WHERE cost_usd > 0`);
+        }
       }
       const recipientColumns = db
         .prepare("PRAGMA table_info('symposium_delivery_recipients')")
@@ -2115,7 +2129,7 @@ export class EventStore {
     claimToken: string;
     providerThreadId: string;
     resultContent: string;
-    costUsd: number;
+    costUsd: number | null;
     observedAt: number;
     provenance: SymposiumProvenance | null;
   }> {
@@ -2129,26 +2143,53 @@ export class EventStore {
       claimToken: row.claim_token as string,
       providerThreadId: row.provider_thread_id as string,
       resultContent: row.result_content as string,
-      costUsd: row.cost_usd as number,
+      costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
       observedAt: row.observed_at as number,
       provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     }));
   }
 
   /** Historical attempts and late results keep spending visible across seat changes. */
-  getSymposiumUsage(sessionId: string): { attempts: number; costUsd: number } {
-    const attempts = this.db!.prepare(
-      `SELECT count(*) AS attempts,
-      coalesce(sum(a.cost_usd),0) AS cost FROM symposium_recipient_attempts a
-      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
-      WHERE d.session_id = ?`,
-    ).get(sessionId) as { attempts: number; cost: number };
-    const late = this.db!.prepare(
-      `SELECT coalesce(sum(l.cost_usd),0) AS cost
-      FROM symposium_late_results l JOIN symposium_deliveries d ON d.delivery_id = l.delivery_id
-      WHERE d.session_id = ?`,
-    ).get(sessionId) as { cost: number };
-    return { attempts: attempts.attempts, costUsd: attempts.cost + late.cost };
+  getSymposiumUsage(sessionId: string): {
+    attempts: number;
+    costUsd: number | null;
+    knownCostUsd: number;
+    unknownCostAttempts: number;
+  } {
+    // Retries retain one provider idempotency identity even though each host
+    // dispatch has its own claim. Price that provider turn once, using evidence
+    // from any of its attempts or their exact-claim late results.
+    const usage = this.db!.prepare(
+      `WITH attempts AS (
+        SELECT a.* FROM symposium_recipient_attempts a
+        JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+        WHERE d.session_id = ?
+      ), evidence AS (
+        SELECT delivery_id, seat_id, idempotency_key, cost_known, cost_usd FROM attempts
+        UNION ALL
+        SELECT a.delivery_id, a.seat_id, a.idempotency_key, l.cost_known, l.cost_usd
+        FROM attempts a JOIN symposium_late_results l
+          ON l.delivery_id = a.delivery_id AND l.seat_id = a.seat_id
+          AND l.claim_token = a.claim_token
+      ), prices AS (
+        SELECT delivery_id, seat_id, idempotency_key,
+          count(DISTINCT CASE WHEN cost_known = 1 THEN cost_usd END) AS price_count,
+          max(CASE WHEN cost_known = 1 THEN cost_usd END) AS price
+        FROM evidence GROUP BY delivery_id, seat_id, idempotency_key
+      )
+      SELECT (SELECT count(*) FROM attempts) AS attempts,
+        coalesce(sum(CASE WHEN price_count = 1 THEN price ELSE 0 END), 0) AS cost,
+        coalesce(sum(CASE WHEN price_count != 1 THEN (
+          SELECT count(*) FROM attempts a WHERE a.delivery_id = prices.delivery_id
+            AND a.seat_id = prices.seat_id AND a.idempotency_key = prices.idempotency_key
+        ) ELSE 0 END), 0) AS unknown_cost FROM prices`,
+    ).get(sessionId) as { attempts: number; cost: number; unknown_cost: number };
+    return {
+      attempts: usage.attempts,
+      costUsd: usage.unknown_cost ? null : usage.cost,
+      knownCostUsd: usage.cost,
+      unknownCostAttempts: usage.unknown_cost,
+    };
   }
 
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
@@ -2406,8 +2447,8 @@ export class EventStore {
           context_grant_id, context_grant_revision, authority_grant_id,
           authority_grant_revision, isolation_domain_id, isolation_domain_revision,
           provider_thread_id, result_content, cost_usd, error, updated_at,
-          membership_generation
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          membership_generation, cost_known
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       record.recipients.forEach((recipient, index) =>
         insertRecipient.run(
@@ -2427,10 +2468,11 @@ export class EventStore {
           recipient.isolationDomainRevision,
           recipient.providerThreadId,
           recipient.resultContent,
-          recipient.costUsd,
+          recipient.costUsd ?? 0,
           recipient.error,
           recipient.updatedAt,
           recipient.membershipGeneration ?? 0,
+          recipient.costUsd === null ? 0 : 1,
         ),
       );
       return this.getSymposiumDelivery(record.deliveryId)!;
@@ -2928,10 +2970,13 @@ export class EventStore {
     configRevision: number;
     threadCreatedAt: number;
     resultContent: string;
-    costUsd: number;
+    costUsd: number | null;
     updatedAt: number;
     claimToken: string;
   }): SymposiumDeliveryRecord {
+    if (input.costUsd !== null && (!Number.isFinite(input.costUsd) || input.costUsd < 0)) {
+      throw new Error('Symposium provider cost must be finite and nonnegative, or unknown');
+    }
     return this.db!.transaction(() => {
       const delivery = this.db!.prepare(
         `SELECT session_id, config_revision FROM symposium_deliveries WHERE delivery_id = ?`,
@@ -2964,15 +3009,16 @@ export class EventStore {
         ) {
           this.db!.prepare(
             `INSERT OR IGNORE INTO symposium_late_results
-            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,observed_at,symposium_provenance)
-            VALUES(?,?,?,?,?,?,?,?)`,
+            (delivery_id,seat_id,claim_token,provider_thread_id,result_content,cost_usd,cost_known,observed_at,symposium_provenance)
+            VALUES(?,?,?,?,?,?,?,?,?)`,
           ).run(
             input.deliveryId,
             input.seatId,
             input.claimToken,
             input.providerThreadId,
             input.resultContent,
-            input.costUsd,
+            input.costUsd ?? 0,
+            input.costUsd === null ? 0 : 1,
             input.updatedAt,
             originalAttempt.symposium_provenance,
           );
@@ -2981,12 +3027,13 @@ export class EventStore {
       }
       const result = this.db!.prepare(
         `UPDATE symposium_delivery_recipients SET status = 'delivered',
-          provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL, updated_at = ?
+          provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL, updated_at = ?
          WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
       ).run(
         input.providerThreadId,
         input.resultContent,
-        input.costUsd,
+        input.costUsd ?? 0,
+        input.costUsd === null ? 0 : 1,
         input.updatedAt,
         input.deliveryId,
         input.seatId,
@@ -2994,13 +3041,14 @@ export class EventStore {
       if (result.changes === 1) {
         const attempt = this.db!.prepare(
           `UPDATE symposium_recipient_attempts SET status = 'delivered',
-            provider_thread_id = ?, result_content = ?, cost_usd = ?, error = NULL,
+            provider_thread_id = ?, result_content = ?, cost_usd = ?, cost_known = ?, error = NULL,
             completed_at = ?, updated_at = ?
            WHERE delivery_id = ? AND seat_id = ? AND status = 'executing'`,
         ).run(
           input.providerThreadId,
           input.resultContent,
-          input.costUsd,
+          input.costUsd ?? 0,
+          input.costUsd === null ? 0 : 1,
           input.updatedAt,
           input.updatedAt,
           input.deliveryId,
@@ -3759,7 +3807,7 @@ function rowToSymposiumRecipient(row: Record<string, unknown>): SymposiumDeliver
     isolationDomainRevision: row.isolation_domain_revision as number,
     providerThreadId: (row.provider_thread_id as string | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: (row.cost_usd as number) ?? 0,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     updatedAt: row.updated_at as number,
   };
@@ -3783,7 +3831,7 @@ function rowToSymposiumRecipientAttempt(
     providerTurnId: (row.provider_turn_id as string | null) ?? null,
     acceptedAt: (row.accepted_at as number | null) ?? null,
     resultContent: (row.result_content as string | null) ?? null,
-    costUsd: row.cost_usd as number,
+    costUsd: row.cost_known === 1 ? (row.cost_usd as number) : null,
     error: (row.error as string | null) ?? null,
     startedAt: row.started_at as number,
     completedAt: (row.completed_at as number | null) ?? null,
