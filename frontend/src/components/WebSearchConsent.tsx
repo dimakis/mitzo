@@ -33,6 +33,7 @@ export function WebSearchConsent({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [reload, setReload] = useState(0);
+  const canRefresh = !!consent || !!error;
 
   useEffect(() => {
     setConsent(null);
@@ -84,6 +85,20 @@ export function WebSearchConsent({
       controller.abort();
     };
   }, [sessionId, connected, connectionId, reload]);
+
+  useEffect(() => {
+    if (!sessionId || !connected || !connectionId || !canRefresh || saving) return;
+    const refresh = () => setReload((value) => value + 1);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
+    };
+  }, [sessionId, connected, connectionId, canRefresh, saving]);
 
   async function update(grant: 'allowed' | 'denied') {
     if (!sessionId || !consent || saving || running || !connected || !connectionId) return;

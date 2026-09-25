@@ -106,6 +106,48 @@ it('keeps consent visible for a watcher without taking control', async () => {
   await screen.findByRole('button', { name: 'Web search permission: Allowed' });
 });
 
+it('refreshes a grant changed in another tab when this window regains focus', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('allowed', 4))
+    .mockResolvedValueOnce(response('denied', 5));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="watcher"
+      running={false}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+
+  fireEvent.focus(window);
+
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('refreshes a grant changed in another tab when this page becomes visible', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response('denied', 5))
+    .mockResolvedValueOnce(response('allowed', 6));
+  render(
+    <WebSearchConsent
+      sessionId="session-1"
+      mode="agent"
+      connected
+      connectionId="watcher"
+      running={false}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Web search permission: Denied' });
+
+  fireEvent(document, new Event('visibilitychange'));
+
+  await screen.findByRole('button', { name: 'Web search permission: Allowed' });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
 it('denies access with the current revision', async () => {
   vi.mocked(apiFetch)
     .mockResolvedValueOnce(response('allowed', 4))
