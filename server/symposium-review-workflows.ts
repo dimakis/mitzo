@@ -79,6 +79,16 @@ const DismissalSchema = z.strictObject({
   reason: Id,
   evidenceRefs: z.array(Id).min(1),
 });
+const AttemptAdmissionSchema = z.strictObject({
+  workflowId: Id,
+  attemptId: Id,
+  kind: z.enum(['review', 'fix']),
+  actorSeatId: Id,
+  artifactRevision: Id,
+  artifactHash: Sha256,
+  maxTokens: z.number().int().positive(),
+  maxCostUsd: z.number().finite().nonnegative().nullable(),
+});
 
 type Create = z.infer<typeof CreateSchema>;
 type RoleAdmission = {
@@ -93,6 +103,7 @@ type Fix = z.infer<typeof FixSchema>;
 type Evidence = z.infer<typeof OutcomeEvidenceSchema>;
 type WorkResult = z.infer<typeof WorkResultSchema>;
 type Usage = z.infer<typeof UsageSchema>;
+type AttemptAdmission = z.infer<typeof AttemptAdmissionSchema>;
 type Finding = {
   fingerprint: string;
   criterion: string;
@@ -118,7 +129,8 @@ type DecisionCode =
   | 'review_failed'
   | 'stale_review'
   | 'missing_evidence'
-  | 'open_findings';
+  | 'open_findings'
+  | 'attempt_in_progress';
 type Workflow = Create & {
   artifactRevision: string;
   artifactHash: string;
@@ -129,6 +141,7 @@ type Workflow = Create & {
   tokensUsed: number;
   costUsd: number;
   attempts: Usage[];
+  reservations: Array<AttemptAdmission & { requestHash: string; settled: boolean }>;
   findings: Finding[];
   reviews: Array<{
     reviewId: string;
@@ -252,6 +265,7 @@ export class SymposiumReviewStore {
       tokensUsed: 0,
       costUsd: 0,
       attempts: [],
+      reservations: [],
       findings: [],
       reviews: [],
       authorizations: [],
@@ -308,10 +322,95 @@ export class SymposiumReviewStore {
       throw new Error('Stale artifact revision or hash');
   }
 
+  /** Admission is checked before dispatch so an exhausted budget cannot launch another call. */
+  admitAttempt(input: z.infer<typeof AttemptAdmissionSchema>):
+    | { kind: 'admitted'; attemptId: string; maxTokens: number; maxCostUsd: number | null }
+    | {
+        kind: 'already_admitted' | 'already_settled';
+        attemptId: string;
+        maxTokens: number;
+        maxCostUsd: number | null;
+      }
+    | { kind: 'decision_required'; code: DecisionCode } {
+    const parsed = AttemptAdmissionSchema.parse(input);
+    return this.db.transaction(() => {
+      const state = this.read(parsed.workflowId);
+      this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+      const requestHash = digest(parsed);
+      const existing = state.reservations.find((entry) => entry.attemptId === parsed.attemptId);
+      if (existing) {
+        if (existing.requestHash !== requestHash)
+          throw new Error('Attempt admission idempotency conflict');
+        return {
+          kind: existing.settled ? ('already_settled' as const) : ('already_admitted' as const),
+          attemptId: parsed.attemptId,
+          maxTokens: existing.maxTokens,
+          maxCostUsd: existing.maxCostUsd,
+        };
+      }
+      if (state.reservations.some((entry) => !entry.settled))
+        return { kind: 'decision_required' as const, code: 'attempt_in_progress' as const };
+      const stop = (code: DecisionCode) => {
+        state.status = 'decision_required' as const;
+        state.decisionCode = code;
+        this.write(state, 'attempt_admission_denied', { ...parsed, code });
+        return { kind: 'decision_required' as const, code };
+      };
+      if (state.decisionCode)
+        return { kind: 'decision_required' as const, code: state.decisionCode };
+      if (
+        state.tokensUsed >= state.limits.maxTokens ||
+        state.tokensUsed + parsed.maxTokens > state.limits.maxTokens
+      )
+        return stop('token_budget_exhausted');
+      if (state.limits.maxCostUsd !== null && parsed.maxCostUsd === null)
+        return stop('unknown_cost');
+      if (
+        state.limits.maxCostUsd !== null &&
+        parsed.maxCostUsd !== null &&
+        state.costUsd + parsed.maxCostUsd > state.limits.maxCostUsd
+      )
+        return stop('cost_budget_exhausted');
+      if (parsed.kind === 'review') {
+        if (parsed.actorSeatId !== state.reviewer.seatId)
+          throw new Error('Independently selected reviewer seat required');
+        if (state.reviewRounds >= state.limits.maxReviewRounds) return stop('rounds_exhausted');
+        if (state.status !== 'awaiting_review' && state.status !== 'awaiting_delta_review')
+          throw new Error('Review admission is not due');
+      } else {
+        if (parsed.actorSeatId !== state.implementer.seatId)
+          throw new Error('Controlled implementer selection required');
+        if (state.status !== 'awaiting_fix') throw new Error('Fix admission is not due');
+      }
+      if (state.attempts.some((attempt) => attempt.attemptId === parsed.attemptId))
+        throw new Error('Attempt already accounted');
+      state.reservations.push({ ...parsed, requestHash, settled: false });
+      this.write(state, 'attempt_admitted', parsed);
+      return {
+        kind: 'admitted' as const,
+        attemptId: parsed.attemptId,
+        maxTokens: parsed.maxTokens,
+        maxCostUsd: parsed.maxCostUsd,
+      };
+    })();
+  }
+
   private charge(state: Workflow, usage: Usage): void {
     if (state.attempts.some((attempt) => attempt.attemptId === usage.attemptId))
       throw new Error('Attempt already accounted');
+    const reservation = state.reservations.find((entry) => entry.attemptId === usage.attemptId);
+    if (!reservation || reservation.settled)
+      throw new Error('Pre-dispatch attempt reservation is required');
     state.attempts.push(usage);
+    reservation.settled = true;
+    if (
+      usage.tokens > reservation.maxTokens ||
+      (reservation.maxCostUsd !== null &&
+        usage.costUsd !== null &&
+        usage.costUsd > reservation.maxCostUsd)
+    )
+      state.decisionCode =
+        usage.tokens > reservation.maxTokens ? 'token_budget_exhausted' : 'cost_budget_exhausted';
     state.tokensUsed += usage.tokens;
     if (state.tokensUsed > state.limits.maxTokens) state.decisionCode = 'token_budget_exhausted';
     if (usage.costUsd === null && state.limits.maxCostUsd !== null)
@@ -345,6 +444,18 @@ export class SymposiumReviewStore {
         throw new Error('Delta review is not due');
       if (state.reviewRounds >= state.limits.maxReviewRounds)
         throw new Error('Review rounds exhausted');
+      if (
+        !state.reservations.some(
+          (entry) =>
+            !entry.settled &&
+            entry.attemptId === parsed.usage.attemptId &&
+            entry.kind === 'review' &&
+            entry.actorSeatId === parsed.reviewerSeatId &&
+            entry.artifactRevision === parsed.artifactRevision &&
+            entry.artifactHash === parsed.artifactHash,
+        )
+      )
+        throw new Error('Matching pre-dispatch review reservation is required');
       state.reviewRounds++;
       this.charge(state, parsed.usage);
       state.reviews.push({
@@ -451,6 +562,18 @@ export class SymposiumReviewStore {
         throw new Error('Fix must produce a new artifact revision and hash');
       if (parsed.result.attemptId !== parsed.usage.attemptId)
         throw new Error('Fix result and usage attempt mismatch');
+      if (
+        !state.reservations.some(
+          (entry) =>
+            !entry.settled &&
+            entry.attemptId === parsed.usage.attemptId &&
+            entry.kind === 'fix' &&
+            entry.actorSeatId === parsed.implementerSeatId &&
+            entry.artifactRevision === parsed.result.inputRevision &&
+            entry.artifactHash === parsed.result.inputHash,
+        )
+      )
+        throw new Error('Matching pre-dispatch fix reservation is required');
       const authorized = new Set(
         state.authorizations
           .filter(
@@ -487,8 +610,7 @@ export class SymposiumReviewStore {
       state.artifactRevision = parsed.artifactRevision;
       state.artifactHash = parsed.artifactHash;
       state.currentResultId = parsed.resultId;
-      state.status = 'awaiting_review';
-      state.decisionCode = undefined;
+      if (!state.decisionCode) state.status = 'awaiting_review';
       return this.write(state, 'artifact_advanced', parsed);
     })();
   }
@@ -515,6 +637,7 @@ export class SymposiumReviewStore {
         return state;
       }
       state.evidence.push({ item, artifactHash, source });
+      if (state.status === 'verified') state.status = 'awaiting_evidence';
       return this.write(state, 'evidence_recorded', { item, artifactHash, source });
     })();
   }
@@ -543,18 +666,22 @@ export class SymposiumReviewStore {
         return { kind: 'decision_required' as const, code: 'stale_review' as const };
       if (state.findings.some((finding) => finding.status === 'open'))
         return { kind: 'decision_required' as const, code: 'open_findings' as const };
-      const verified = state.acceptanceCriteria.every((criterion) =>
-        state.evidence.some(
+      const verified = state.acceptanceCriteria.every((criterion) => {
+        const current = state.evidence.filter(
           (entry) =>
             entry.source === 'host' &&
             entry.item.criterion === criterion &&
-            entry.item.verdict === 'verified' &&
-            entry.item.evidenceRefs.length > 0 &&
             entry.item.resultId === state.currentResultId &&
             entry.item.artifactRevision === state.artifactRevision &&
             entry.artifactHash === state.artifactHash,
-        ),
-      );
+        );
+        if (current.length === 0) return false;
+        const latestAt = Math.max(...current.map((entry) => entry.item.checkedAt));
+        const latest = current.filter((entry) => entry.item.checkedAt === latestAt);
+        return latest.every(
+          (entry) => entry.item.verdict === 'verified' && entry.item.evidenceRefs.length > 0,
+        );
+      });
       if (!verified)
         return { kind: 'decision_required' as const, code: 'missing_evidence' as const };
       state.status = 'verified';

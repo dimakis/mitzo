@@ -63,6 +63,46 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]) => {
+  const state = reviews.get(input.workflowId)!;
+  const existing = state.reservations.find((entry) => entry.attemptId === input.usage.attemptId);
+  const admission = reviews.admitAttempt({
+    workflowId: input.workflowId,
+    attemptId: input.usage.attemptId,
+    kind: 'review',
+    actorSeatId: input.reviewerSeatId,
+    artifactRevision: input.artifactRevision,
+    artifactHash: input.artifactHash,
+    maxTokens:
+      existing?.maxTokens ??
+      Math.max(1, Math.min(input.usage.tokens, state.limits.maxTokens - state.tokensUsed)),
+    maxCostUsd:
+      existing?.maxCostUsd ??
+      (input.usage.costUsd === null
+        ? null
+        : state.limits.maxCostUsd === null
+          ? input.usage.costUsd
+          : Math.min(input.usage.costUsd, state.limits.maxCostUsd - state.costUsd)),
+  });
+  if (admission.kind === 'decision_required')
+    throw new Error(`Review admission: ${admission.code}`);
+  return reviews.recordReview(input);
+};
+const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
+  const admission = reviews.admitAttempt({
+    workflowId: input.workflowId,
+    attemptId: input.usage.attemptId,
+    kind: 'fix',
+    actorSeatId: input.implementerSeatId,
+    artifactRevision: input.result.inputRevision,
+    artifactHash: input.result.inputHash,
+    maxTokens: Math.max(input.usage.tokens, 1),
+    maxCostUsd: input.usage.costUsd,
+  });
+  if (admission.kind === 'decision_required') throw new Error(`Fix admission: ${admission.code}`);
+  return reviews.recordFix(input);
+};
+
 describe('artifact-pinned Symposium review workflow', () => {
   it('admits coder and independent reviewer only from approved O1 role selections', () => {
     const accounts = new AccountProfiles([
@@ -167,9 +207,26 @@ describe('artifact-pinned Symposium review workflow', () => {
     });
   });
 
+  it('refuses a review receipt without its matching pre-dispatch reservation', () => {
+    reviews.create(create());
+    expect(() =>
+      reviews.recordReview({
+        workflowId: 'workflow-1',
+        reviewId: 'review-1',
+        reviewerSeatId: 'reviewer',
+        kind: 'full',
+        artifactRevision: 'commit-1',
+        artifactHash: hash('b'),
+        findings: [],
+        resolvedFingerprints: [],
+        usage: usage('reviewer-1'),
+      }),
+    ).toThrow(/reservation/i);
+  });
+
   it('deduplicates repeated findings, requires fix authority, and verifies only after delta and host evidence', () => {
     reviews.create(create());
-    const first = reviews.recordReview({
+    const first = recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-1',
       reviewerSeatId: 'reviewer',
@@ -194,7 +251,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       completedAt: 2,
     };
     expect(() =>
-      reviews.recordFix({
+      recordFix({
         workflowId: 'workflow-1',
         result: fix,
         implementerSeatId: 'coder',
@@ -212,7 +269,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reason: 'Fix finding',
     });
     expect(
-      reviews.recordFix({
+      recordFix({
         workflowId: 'workflow-1',
         result: fix,
         implementerSeatId: 'coder',
@@ -223,7 +280,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       status: 'awaiting_delta_review',
     });
     expect(() =>
-      reviews.recordReview({
+      recordReview({
         workflowId: 'workflow-1',
         reviewId: 'stale',
         reviewerSeatId: 'reviewer',
@@ -235,7 +292,7 @@ describe('artifact-pinned Symposium review workflow', () => {
         usage: usage('reviewer-stale'),
       }),
     ).toThrow(/stale|artifact/i);
-    reviews.recordReview({
+    recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-2',
       reviewerSeatId: 'reviewer',
@@ -293,7 +350,7 @@ describe('artifact-pinned Symposium review workflow', () => {
 
   it('invalidates old reviews and evidence when the input artifact changes', () => {
     reviews.create(create());
-    reviews.recordReview({
+    recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-1',
       reviewerSeatId: 'reviewer',
@@ -354,7 +411,7 @@ describe('artifact-pinned Symposium review workflow', () => {
 
   it('makes failed, exhausted, and unknown-cost reviews explicit decisions', () => {
     reviews.create(create({ limits: { maxReviewRounds: 1, maxTokens: 100, maxCostUsd: 0.2 } }));
-    const result = reviews.recordReview({
+    const result = recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-1',
       reviewerSeatId: 'reviewer',
@@ -371,7 +428,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       code: 'rounds_exhausted',
     });
     expect(() =>
-      reviews.recordReview({
+      recordReview({
         workflowId: 'workflow-1',
         reviewId: 'review-2',
         reviewerSeatId: 'reviewer',
@@ -386,18 +443,17 @@ describe('artifact-pinned Symposium review workflow', () => {
 
     reviews.create(create({ workflowId: 'workflow-unknown-cost' }));
     expect(
-      reviews.recordReview({
+      reviews.admitAttempt({
         workflowId: 'workflow-unknown-cost',
-        reviewId: 'review-unknown',
-        reviewerSeatId: 'reviewer',
-        kind: 'full',
+        attemptId: 'reviewer-unknown',
+        kind: 'review',
+        actorSeatId: 'reviewer',
         artifactRevision: 'commit-1',
         artifactHash: hash('b'),
-        findings: [],
-        resolvedFingerprints: [],
-        usage: usage('reviewer-unknown', 50, null),
+        maxTokens: 50,
+        maxCostUsd: null,
       }),
-    ).toMatchObject({ status: 'decision_required' });
+    ).toMatchObject({ kind: 'decision_required', code: 'unknown_cost' });
     expect(reviews.finalize('workflow-unknown-cost')).toMatchObject({
       kind: 'decision_required',
       code: 'unknown_cost',
@@ -405,7 +461,7 @@ describe('artifact-pinned Symposium review workflow', () => {
 
     reviews.create(create({ workflowId: 'workflow-failed' }));
     expect(
-      reviews.recordReview({
+      recordReview({
         workflowId: 'workflow-failed',
         reviewId: 'review-failed',
         reviewerSeatId: 'reviewer',
@@ -437,9 +493,9 @@ describe('artifact-pinned Symposium review workflow', () => {
       resolvedFingerprints: [],
       usage: usage('reviewer-1'),
     };
-    reviews.recordReview(input);
-    expect(reviews.recordReview(input)).toMatchObject({ reviewRounds: 1, tokensUsed: 50 });
-    expect(() => reviews.recordReview({ ...input, findings: [] })).toThrow(/idempotency/i);
+    recordReview(input);
+    expect(recordReview(input)).toMatchObject({ reviewRounds: 1, tokensUsed: 50 });
+    expect(() => recordReview({ ...input, findings: [] })).toThrow(/idempotency/i);
   });
 
   it('requires owner-controlled authority covering every open finding and audits dismissal', () => {
@@ -449,7 +505,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       summary: 'Missing timeout branch',
       location: 'server/feature.ts:20',
     };
-    const state = reviews.recordReview({
+    const state = recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-1',
       reviewerSeatId: 'reviewer',
@@ -484,7 +540,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       completedAt: 2,
     };
     expect(() =>
-      reviews.recordFix({
+      recordFix({
         workflowId: 'workflow-1',
         result: fix,
         implementerSeatId: 'coder',
@@ -504,7 +560,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reviews.get('workflow-1')?.findings.find((item) => item.fingerprint === secondKey),
     ).toMatchObject({ status: 'dismissed', disposition: { actor: 'owner' } });
     expect(
-      reviews.recordFix({
+      recordFix({
         workflowId: 'workflow-1',
         result: fix,
         implementerSeatId: 'coder',
@@ -528,12 +584,12 @@ describe('artifact-pinned Symposium review workflow', () => {
       resolvedFingerprints: [],
       usage: usage('reviewer-1', 50, 0.1),
     };
-    expect(reviews.recordReview(input)).toMatchObject({
+    expect(recordReview(input)).toMatchObject({
       status: 'decision_required',
       decisionCode: 'token_budget_exhausted',
       tokensUsed: 50,
     });
-    expect(reviews.recordReview(input)).toMatchObject({ tokensUsed: 50, reviewRounds: 1 });
+    expect(recordReview(input)).toMatchObject({ tokensUsed: 50, reviewRounds: 1 });
     reviews.create(
       create({
         workflowId: 'cost',
@@ -544,14 +600,14 @@ describe('artifact-pinned Symposium review workflow', () => {
         },
       }),
     );
-    expect(
-      reviews.recordReview({ ...input, workflowId: 'cost', usage: usage('cost-1') }),
-    ).toMatchObject({ decisionCode: 'cost_budget_exhausted' });
+    expect(recordReview({ ...input, workflowId: 'cost', usage: usage('cost-1') })).toMatchObject({
+      decisionCode: 'cost_budget_exhausted',
+    });
   });
 
   it('persists an ordered audit trail across reopening without duplicating a verified decision', () => {
     reviews.create(create());
-    reviews.recordReview({
+    recordReview({
       workflowId: 'workflow-1',
       reviewId: 'review-1',
       reviewerSeatId: 'reviewer',
@@ -583,9 +639,132 @@ describe('artifact-pinned Symposium review workflow', () => {
     expect(reviews.finalize('workflow-1').kind).toBe('verified');
     expect(reviews.history('workflow-1').map((event) => event.action)).toEqual([
       'created',
+      'attempt_admitted',
       'review_recorded',
       'evidence_recorded',
       'verified',
     ]);
+  });
+
+  it('does not clear an exhausted-budget decision when the artifact changes', () => {
+    reviews.create(create({ limits: { maxReviewRounds: 2, maxTokens: 40, maxCostUsd: 1 } }));
+    recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1', 50, 0.1),
+    });
+    const changed = reviews.advanceArtifact('workflow-1', {
+      ...implementation,
+      resultId: 'external-change',
+      attemptId: 'external-1',
+      inputRevision: 'commit-1',
+      inputHash: hash('b'),
+      artifactRevision: 'commit-2',
+      artifactHash: hash('c'),
+      completedAt: 3,
+    });
+    expect(changed).toMatchObject({
+      status: 'decision_required',
+      decisionCode: 'token_budget_exhausted',
+    });
+    expect(reviews.finalize('workflow-1')).toMatchObject({
+      kind: 'decision_required',
+      code: 'token_budget_exhausted',
+    });
+  });
+
+  it('refuses pre-dispatch review admission at an exact exhausted budget', () => {
+    reviews.create(create({ limits: { maxReviewRounds: 2, maxTokens: 50, maxCostUsd: 1 } }));
+    recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1', 50, 0.1),
+    });
+    expect(
+      reviews.admitAttempt({
+        workflowId: 'workflow-1',
+        attemptId: 'reviewer-2',
+        kind: 'review',
+        actorSeatId: 'reviewer',
+        artifactRevision: 'commit-1',
+        artifactHash: hash('b'),
+        maxTokens: 1,
+        maxCostUsd: 0.01,
+      }),
+    ).toMatchObject({ kind: 'decision_required', code: 'token_budget_exhausted' });
+  });
+
+  it('persists an idempotent reservation and refuses a second in-flight dispatch', () => {
+    reviews.create(create({ limits: { maxReviewRounds: 2, maxTokens: 50, maxCostUsd: 1 } }));
+    const request = {
+      workflowId: 'workflow-1',
+      attemptId: 'reviewer-1',
+      kind: 'review' as const,
+      actorSeatId: 'reviewer',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      maxTokens: 40,
+      maxCostUsd: 0.5,
+    };
+    expect(reviews.admitAttempt(request)).toMatchObject({ kind: 'admitted' });
+    reviews.close();
+    reviews = new SymposiumReviewStore(join(directory, 'events.db'));
+    expect(reviews.admitAttempt(request)).toMatchObject({ kind: 'already_admitted' });
+    expect(reviews.admitAttempt({ ...request, attemptId: 'reviewer-2' })).toMatchObject({
+      kind: 'decision_required',
+      code: 'attempt_in_progress',
+    });
+    expect(() => reviews.admitAttempt({ ...request, maxTokens: 20 })).toThrow(/idempotency/i);
+    expect(reviews.get('workflow-1')).toMatchObject({ status: 'awaiting_review' });
+  });
+
+  it('does not let older host verification defeat newer current-artifact failure', () => {
+    reviews.create(create());
+    recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1'),
+    });
+    const evidence = {
+      version: 1 as const,
+      resultId: 'implementation-1',
+      criterion: 'Criterion A',
+      artifactRevision: 'commit-1',
+      evidenceRefs: ['test-run:1'],
+    };
+    reviews.recordEvidence(
+      'workflow-1',
+      { ...evidence, evidenceId: 'pass', verdict: 'verified', checkedAt: 2 },
+      hash('b'),
+      'host',
+    );
+    reviews.recordEvidence(
+      'workflow-1',
+      { ...evidence, evidenceId: 'fail', verdict: 'failed', checkedAt: 3 },
+      hash('b'),
+      'host',
+    );
+    expect(reviews.finalize('workflow-1')).toMatchObject({
+      kind: 'decision_required',
+      code: 'missing_evidence',
+    });
   });
 });
