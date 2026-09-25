@@ -375,7 +375,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
 
     case 'MESSAGE_SNAPSHOT': {
       const snapshotBlocks = action.blocks ?? [];
-      if (!Array.isArray(snapshotBlocks) || snapshotBlocks.length === 0) return state;
+      if (!Array.isArray(action.blocks)) return state;
       const blocks = new Map<string, StreamingBlock>();
       const blockOrder: string[] = [];
       for (const b of snapshotBlocks) {

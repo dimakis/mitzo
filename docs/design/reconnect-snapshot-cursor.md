@@ -44,16 +44,27 @@ The permission queue is an in-process interaction snapshot: after server restart
 resolver remains to accept an old approval. Startup recovery must terminalize that execution rather
 than presenting an approval that could no longer be applied.
 
+## Typed in-flight transcript slice
+
+Bounded REST restore now returns `{ messages, current }`. `messages` contains completed turns;
+`current` contains the durable open assistant turn with ordered text, thinking, and tool blocks,
+including partial content, completion flags, tool input, and available tool results. The response
+is reconstructed solely from events through the requested cursor, including after a database
+reopen. A terminal `session_end` closes any partial turn into history so it cannot restore a stale
+streaming indicator. WebSocket and SSE snapshots use the same client reducer; a live event that
+updates the current turn while the REST request is in flight takes precedence over the older
+bounded response. The unbounded history endpoint retains its legacy array response.
+
 ## Remaining slices
 
-1. Complete the typed transcript snapshot for in-flight message blocks and eliminate any remaining
-   unbounded foreground or session-switch history fetches.
+1. Eliminate remaining unbounded foreground or session-switch history fetches.
 2. Acknowledge snapshot cursors to the server only after client application, and cover dropped,
    duplicated, and out-of-order live events with bounded replay recovery.
 3. Remove socket-presence and client-pending inference from restore decisions, then retire periodic
    replay as an authority (it may remain only as a delivery retry).
-4. Add disk-reopen integration coverage for active, requires-action, terminal, stale-cursor, and
-   interrupted-replay boundaries across REST, SSE, WebSocket, and the mobile reducer.
+4. Extend disk-reopen integration coverage from bounded partial/terminal transcripts to active,
+   requires-action, stale-cursor, and interrupted-replay boundaries across REST, SSE, WebSocket,
+   and the mobile reducer.
 
 Provider/account route migration, production deployment, and live model calls are outside this
 phase.

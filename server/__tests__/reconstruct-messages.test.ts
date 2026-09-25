@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { reconstructMessages, replayEventsToMessages } from '../chat.js';
+import { reconstructMessages, replayEventsToMessages, replayEventsToTranscript } from '../chat.js';
 import type { RawSdkMessage } from '../chat.js';
 import type { StoredEvent } from '../event-store.js';
+import { EventStore } from '../event-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 describe('reconstructMessages', () => {
   it('returns empty array for empty input', () => {
@@ -148,6 +152,135 @@ describe('reconstructMessages', () => {
     const result = reconstructMessages(raw);
     const ids = result.flatMap((m) => m.blocks.map((b) => b.blockId));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe('replayEventsToTranscript — bounded in-flight restore', () => {
+  function evt(seq: number, type: string, payload: Record<string, unknown>): StoredEvent {
+    return { seq, sessionId: 'sess-1', type, payload, createdAt: seq };
+  }
+
+  it('keeps open text, thinking and tool blocks typed and out of finished history', () => {
+    const events = [
+      evt(1, 'user_message', { messageId: 'u1', text: 'Inspect this' }),
+      evt(2, 'message_start', { messageId: 'a1' }),
+      evt(3, 'block_start', { messageId: 'a1', blockId: 'thinking', blockType: 'thinking' }),
+      evt(4, 'block_delta', { messageId: 'a1', blockId: 'thinking', delta: 'considering' }),
+      evt(5, 'block_end', { messageId: 'a1', blockId: 'thinking', blockType: 'thinking' }),
+      evt(6, 'block_start', {
+        messageId: 'a1',
+        blockId: 'tool',
+        blockType: 'tool_use',
+        toolName: 'Read',
+      }),
+      evt(7, 'tool_result', {
+        toolId: 'tool-1',
+        result: 'contents',
+        isError: false,
+        images: [{ id: 'image-1', mediaType: 'image/png' }],
+      }),
+      evt(8, 'block_end', {
+        messageId: 'a1',
+        blockId: 'tool',
+        blockType: 'tool_use',
+        toolName: 'Read',
+        toolId: 'tool-1',
+        input: 'file.ts',
+        rawInput: { file_path: 'file.ts' },
+      }),
+      evt(9, 'block_start', { messageId: 'a1', blockId: 'text', blockType: 'text' }),
+      evt(10, 'block_delta', { messageId: 'a1', blockId: 'text', delta: 'partial answer' }),
+    ];
+
+    expect(replayEventsToTranscript(events)).toMatchObject({
+      messages: [{ messageId: 'u1' }],
+      current: {
+        messageId: 'a1',
+        blocks: [
+          { blockId: 'thinking', blockType: 'thinking', content: 'considering', done: true },
+          {
+            blockId: 'tool',
+            blockType: 'tool_use',
+            toolName: 'Read',
+            toolId: 'tool-1',
+            toolInput: 'file.ts',
+            rawInput: { file_path: 'file.ts' },
+            toolResult: 'contents',
+            toolResultImages: [{ id: 'image-1', mediaType: 'image/png' }],
+            done: true,
+          },
+          { blockId: 'text', blockType: 'text', content: 'partial answer', done: false },
+        ],
+      },
+    });
+  });
+
+  it('has no streaming current after message_end or session_end', () => {
+    const open = [
+      evt(1, 'message_start', { messageId: 'a1' }),
+      evt(2, 'block_start', { messageId: 'a1', blockId: 'b1', blockType: 'text' }),
+      evt(3, 'block_delta', { messageId: 'a1', blockId: 'b1', delta: 'partial' }),
+    ];
+    expect(
+      replayEventsToTranscript([...open, evt(4, 'message_end', { messageId: 'a1' })]).current,
+    ).toBeNull();
+    expect(replayEventsToTranscript([...open, evt(4, 'session_end', {})])).toMatchObject({
+      current: null,
+      messages: [{ messageId: 'a1', blocks: [{ blockId: 'b1', content: 'partial' }] }],
+    });
+  });
+
+  it('restores the same partial turn after disk reopen and excludes events beyond the cursor', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-transcript-reopen-'));
+    const path = join(dir, 'events.db');
+    try {
+      const first = new EventStore(path);
+      first.upsertSession({ sessionId: 'sess-1' });
+      first.append('sess-1', 'message_start', { messageId: 'a1' });
+      first.append('sess-1', 'block_start', {
+        messageId: 'a1',
+        blockId: 'b1',
+        blockType: 'text',
+      });
+      const cursor = first.append('sess-1', 'block_delta', {
+        messageId: 'a1',
+        blockId: 'b1',
+        delta: 'before restart',
+      });
+      first.close();
+
+      const reopened = new EventStore(path);
+      try {
+        reopened.append('sess-1', 'block_delta', {
+          messageId: 'a1',
+          blockId: 'b1',
+          delta: ' after restart',
+        });
+        const oldBoundary = replayEventsToTranscript(
+          reopened.getSessionEventsThroughCursor('sess-1', cursor),
+        );
+        expect(oldBoundary.current?.blocks[0]).toMatchObject({
+          content: 'before restart',
+          done: false,
+        });
+
+        reopened.append('sess-1', 'block_end', {
+          messageId: 'a1',
+          blockId: 'b1',
+          blockType: 'text',
+        });
+        reopened.append('sess-1', 'message_end', { messageId: 'a1' });
+        const completed = replayEventsToTranscript(reopened.getSessionEvents('sess-1'));
+        expect(completed.current).toBeNull();
+        expect(completed.messages).toMatchObject([
+          { messageId: 'a1', blocks: [{ content: 'before restart after restart' }] },
+        ]);
+      } finally {
+        reopened.close();
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

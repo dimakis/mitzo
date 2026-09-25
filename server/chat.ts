@@ -3091,8 +3091,100 @@ export interface RestoredMessage {
     toolInput?: string;
     rawInput?: unknown;
     toolResult?: string;
+    toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
   }>;
+}
+
+export interface RestoredCurrentMessage {
+  messageId: string;
+  blocks: Array<RestoredMessage['blocks'][number] & { done: boolean }>;
+}
+
+/** Reconstruct the typed live turn from the same immutable event prefix as history. */
+export function replayEventsToTranscript(
+  events: import('./event-store.js').StoredEvent[],
+  initialPrompt?: string,
+): { messages: RestoredMessage[]; current: RestoredCurrentMessage | null } {
+  let openMessageId: string | undefined;
+  let terminalMessageId: string | undefined;
+  for (const event of events) {
+    if (event.type === 'message_start' && typeof event.payload.messageId === 'string') {
+      openMessageId = event.payload.messageId;
+      terminalMessageId = undefined;
+    } else if (event.type === 'message_end' && event.payload.messageId === openMessageId)
+      openMessageId = undefined;
+    else if (event.type === 'session_end' && openMessageId) {
+      terminalMessageId = openMessageId;
+      openMessageId = undefined;
+    }
+  }
+
+  const messages = replayEventsToMessages(events, initialPrompt);
+  const targetMessageId = openMessageId ?? terminalMessageId;
+  if (!targetMessageId) return { messages, current: null };
+
+  const blocks = new Map<string, RestoredCurrentMessage['blocks'][number]>();
+  const blockOrder: string[] = [];
+  const toolResults = new Map<string, Record<string, unknown>>();
+  for (const event of events) {
+    if (event.type === 'tool_result' && typeof event.payload.toolId === 'string')
+      toolResults.set(event.payload.toolId, event.payload);
+  }
+  for (const event of events) {
+    const payload = event.payload;
+    if (event.type === 'message_start' && payload.messageId === targetMessageId) {
+      blocks.clear();
+      blockOrder.length = 0;
+    } else if (payload.messageId === targetMessageId && event.type === 'block_start') {
+      if (typeof payload.blockId !== 'string' || typeof payload.blockType !== 'string') continue;
+      blocks.set(payload.blockId, {
+        blockId: payload.blockId,
+        blockType: payload.blockType,
+        content: '',
+        done: false,
+        ...(typeof payload.toolName === 'string' ? { toolName: payload.toolName } : {}),
+      });
+      if (!blockOrder.includes(payload.blockId)) blockOrder.push(payload.blockId);
+    } else if (payload.messageId === targetMessageId && event.type === 'block_delta') {
+      const block = blocks.get(payload.blockId as string);
+      if (block && typeof payload.delta === 'string') block.content += payload.delta;
+    } else if (payload.messageId === targetMessageId && event.type === 'block_end') {
+      const block = blocks.get(payload.blockId as string);
+      if (!block) continue;
+      block.done = true;
+      if (typeof payload.toolName === 'string') block.toolName = payload.toolName;
+      if (typeof payload.toolId === 'string') block.toolId = payload.toolId;
+      if (typeof payload.input === 'string') block.toolInput = payload.input;
+      if (payload.rawInput) block.rawInput = payload.rawInput;
+    }
+  }
+
+  for (const block of blocks.values()) {
+    const result = block.toolId ? toolResults.get(block.toolId) : undefined;
+    if (!result) continue;
+    if (typeof result.result === 'string') block.toolResult = result.result;
+    if (typeof result.isError === 'boolean') block.toolError = result.isError;
+    if (Array.isArray(result.images))
+      block.toolResultImages = result.images as Array<{ id: string; mediaType: string }>;
+  }
+
+  const withoutTarget = messages.filter((message) => message.messageId !== targetMessageId);
+  const snapshotBlocks = blockOrder.map((id) => blocks.get(id)!);
+  if (terminalMessageId && !openMessageId) {
+    if (snapshotBlocks.length > 0) {
+      withoutTarget.push({
+        messageId: terminalMessageId,
+        role: 'assistant',
+        blocks: snapshotBlocks.map(({ done: _done, ...block }) => block),
+      });
+    }
+    return { messages: withoutTarget, current: null };
+  }
+  return {
+    messages: withoutTarget,
+    current: { messageId: targetMessageId, blocks: snapshotBlocks },
+  };
 }
 
 /**
@@ -3304,6 +3396,13 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
     });
     return [];
   }
+}
+
+/** REST restore at the immutable reconnect boundary; never falls back to SDK history. */
+export function getReconnectTranscript(sessionId: string, throughSeq: number) {
+  const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
+  const session = eventStore.getSession(sessionId);
+  return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
 }
 
 // --- Legacy SDK JSONL reconstruction (fallback for pre-migration sessions) ---

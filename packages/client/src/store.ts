@@ -253,13 +253,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     const initialMessages = new Map(
       store.getState().messages.messages.map((m) => [m.messageId, m]),
     );
-    api
-      .getSessionMessages(sessionId, undefined, throughSeq)
-      .then((msgs) => {
+    const transcript =
+      throughSeq === undefined
+        ? api.getSessionMessages(sessionId).then((messages) => ({ messages, current: null }))
+        : api.getReconnectTranscript(sessionId, throughSeq);
+    transcript
+      .then(({ messages: msgs, current }) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
-          store.setState((s) => ({
-            messages: replace
+          store.setState((s) => {
+            const restored = replace
               ? {
                   ...s.messages,
                   messages: (() => {
@@ -286,8 +289,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 }
               : msgs.length > 0
                 ? mergeHistory(s.messages, msgs, initialCurrent)
-                : s.messages,
-          }));
+                : s.messages;
+            if (throughSeq === undefined || s.messages.current !== initialCurrent)
+              return { messages: restored };
+            const withoutStaleCurrent = {
+              ...restored,
+              messages: current
+                ? restored.messages.filter((message) => message.messageId !== current.messageId)
+                : restored.messages,
+              current: null,
+            };
+            return {
+              messages: current
+                ? messagesReducer(withoutStaleCurrent, {
+                    type: 'MESSAGE_SNAPSHOT',
+                    messageId: current.messageId,
+                    blocks: current.blocks,
+                  })
+                : withoutStaleCurrent,
+            };
+          });
           onApplied?.();
         }
       })
