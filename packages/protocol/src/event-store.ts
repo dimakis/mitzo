@@ -2444,6 +2444,29 @@ export class EventStore {
     return rows.map((row) => this.getSymposiumDelivery(row.delivery_id)!);
   }
 
+  /** Bounded pending recipient rows; a queue entry is not evidence of provider receipt. */
+  getQueuedSymposiumRecipients(
+    sessionId: string,
+    seatId?: string,
+    limit = 100,
+  ): Array<{ delivery: SymposiumDeliveryRecord; seatId: string }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw new Error('Invalid Symposium queue limit');
+    const rows = this.db!.prepare(
+      `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
+       JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
+       WHERE d.session_id = ? AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
+       ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
+    ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
+      delivery_id: string;
+      seat_id: string;
+    }>;
+    return rows.map((row) => ({
+      delivery: this.getSymposiumDelivery(row.delivery_id)!,
+      seatId: row.seat_id,
+    }));
+  }
+
   recordSymposiumIntervention(input: {
     deliveryId: string;
     action: SymposiumIntervention;

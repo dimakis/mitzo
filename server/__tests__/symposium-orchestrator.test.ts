@@ -10,7 +10,7 @@ import {
   type SymposiumSeatExecutor,
   type SymposiumSeatExecution,
 } from '../symposium-orchestrator.js';
-import { getSymposiumPerspective } from '../symposium-perspectives.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from '../symposium-perspectives.js';
 
 const config: SymposiumConfig = {
   version: 1,
@@ -778,6 +778,16 @@ describe('SymposiumOrchestrator', () => {
     });
     expect(delivery.sourceMessageId).toBe('builder-message');
     expect(delivery.sourceProvenance).toEqual(sourceProvenance);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'reviewer' })).toEqual([
+      expect.objectContaining({
+        deliveryId: delivery.deliveryId,
+        recipientSeatId: 'reviewer',
+        proposedContent: 'selected excerpt',
+      }),
+    ]);
+    expect(getSymposiumQueuedInputs(store, 'chat', { kind: 'seat', seatId: 'builder' })).toEqual(
+      [],
+    );
     store.close();
     store = openStore();
     orchestrator = createOrchestrator();

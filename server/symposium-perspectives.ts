@@ -28,6 +28,40 @@ export type SymposiumPerspectiveItem =
       providerTurnId: string | null;
     };
 
+export interface SymposiumQueuedInput {
+  deliveryId: string;
+  recipientSeatId: string;
+  sourceSeatId: string | null;
+  sourceMessageId: string | null;
+  proposedContent: string;
+  deliveryStatus: string;
+  createdAt: number;
+}
+
+/** Pending input is shown separately from the ordered received/uncertain transcript. */
+export function getSymposiumQueuedInputs(
+  store: EventStore,
+  sessionId: string,
+  perspective: SymposiumPerspective,
+  limit = 100,
+): SymposiumQueuedInput[] {
+  return store
+    .getQueuedSymposiumRecipients(
+      sessionId,
+      perspective.kind === 'seat' ? perspective.seatId : undefined,
+      limit,
+    )
+    .map(({ delivery, seatId }) => ({
+      deliveryId: delivery.deliveryId,
+      recipientSeatId: seatId,
+      sourceSeatId: delivery.sourceSeatId,
+      sourceMessageId: delivery.sourceMessageId ?? null,
+      proposedContent: delivery.deliveredContent ?? delivery.originalContent,
+      deliveryStatus: delivery.status,
+      createdAt: delivery.createdAt,
+    }));
+}
+
 /** A bounded event-page projection; only an exact provider acceptance proves received context. */
 export function getSymposiumPerspective(
   store: EventStore,
