@@ -224,6 +224,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
   let recoveryInFlight = false;
+  let boundedRestore:
+    { sessionId: string; throughSeq: number; confirmedMessageIds: Set<string> } | undefined;
   let awaitingSessionId = false;
   let awaitingModeHydration: string | undefined;
 
@@ -236,6 +238,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
     const request = ++historyRequest;
+    const currentBoundedRestore =
+      replace && throughSeq !== undefined
+        ? { sessionId, throughSeq, confirmedMessageIds: new Set<string>() }
+        : undefined;
+    boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
       historyAbort?.abort();
       historyAbort = undefined;
@@ -256,7 +263,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   ...s.messages,
                   messages: (() => {
                     const live = s.messages.messages.filter(
-                      (m) => initialMessages.get(m.messageId) !== m,
+                      (m) =>
+                        initialMessages.get(m.messageId) !== m ||
+                        currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
                     const liveById = new Map(live.map((m) => [m.messageId, m]));
                     const savedIds = new Set(msgs.map((m) => m.messageId));
@@ -288,6 +297,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           store.setState({ historyError: 'Could not restore this conversation. Please retry.' });
       })
       .finally(() => {
+        if (boundedRestore === currentBoundedRestore) boundedRestore = undefined;
         if (request === historyRequest) {
           recoveryInFlight = false;
           if (throughSeq !== undefined) store.setState({ historyLoading: false });
@@ -929,6 +939,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const action of result.messagesActions) {
+      if (
+        boundedRestore &&
+        eventSessionId === boundedRestore.sessionId &&
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        msg.seq > boundedRestore.throughSeq &&
+        action.type === 'USER_MESSAGE_RECEIVED'
+      ) {
+        boundedRestore.confirmedMessageIds.add(action.messageId);
+      }
       store.setState((s) => ({
         messages: messagesReducer(s.messages, action),
       }));

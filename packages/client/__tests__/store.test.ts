@@ -518,6 +518,61 @@ describe('reconnect recovery', () => {
     );
   });
 
+  it('keeps an optimistic prompt confirmed after the snapshot when its echo is deduplicated', async () => {
+    const transport = mockTransport();
+    let releaseRestore!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {
+      if (url.includes('throughSeq=7'))
+        return new Promise((resolve) => {
+          releaseRestore = resolve;
+        });
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store.getState().sendMessage('accepted prompt');
+    const optimistic = store.getState().messages.messages[0];
+    store.setState((s) => ({
+      messages: {
+        ...s.messages,
+        messages: [{ messageId: 'stale', role: 'user', blocks: [] }, optimistic],
+      },
+    }));
+
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'running',
+    });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'sess-1',
+      messageId: optimistic.messageId,
+      text: 'accepted prompt',
+      seq: 8,
+    });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'sess-1',
+      messageId: 'stale',
+      text: 'old prompt',
+      seq: 6,
+    });
+    expect(store.getState().messages.messages[1]).toBe(optimistic);
+    releaseRestore({
+      ok: true,
+      json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),
+    });
+
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+      'durable',
+      optimistic.messageId,
+    ]);
+  });
+
   it('keeps a newer live version when bounded history has the same message ID', async () => {
     const transport = mockTransport();
     let releaseRestore!: (value: unknown) => void;
