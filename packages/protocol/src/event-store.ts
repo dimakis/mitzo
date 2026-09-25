@@ -861,6 +861,7 @@ export class EventStore {
           attempt_number INTEGER NOT NULL,
           idempotency_key TEXT NOT NULL,
           claim_token TEXT,
+          dispatched_content TEXT,
           symposium_provenance TEXT,
           status TEXT NOT NULL CHECK (status IN (
             'executing', 'delivered', 'failed', 'cancelled', 'recovery_required'
@@ -934,6 +935,12 @@ export class EventStore {
       if (!attemptColumns.some((column) => column.name === 'claim_token')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN claim_token TEXT');
       }
+      if (!attemptColumns.some((column) => column.name === 'dispatched_content')) {
+        db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN dispatched_content TEXT');
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
+        ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
+        WHERE type IN ('message_start', 'user_message', 'message_end')`);
       if (!attemptColumns.some((column) => column.name === 'provider_turn_id')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN provider_turn_id TEXT');
       }
@@ -1549,6 +1556,80 @@ export class EventStore {
   getSessionEvents(sessionId: string): StoredEvent[] {
     const rows = this.stmts.sessionEvents.all(sessionId);
     return (rows as EventRow[]).map(rowToEvent);
+  }
+
+  /** Completed durable text that a user may explicitly select for a later delivery. */
+  getSymposiumSourceMessage(
+    sessionId: string,
+    messageId: string,
+  ):
+    | {
+        messageId: string;
+        seatId: string | null;
+        content: string;
+        provenance: SymposiumProvenance | null;
+      }
+    | undefined {
+    const starts = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type IN ('message_start', 'user_message')
+         AND json_extract(payload, '$.messageId') = ? ORDER BY seq`,
+    ).all(sessionId, messageId) as EventRow[];
+    if (starts.length !== 1) return undefined;
+    const start = rowToEvent(starts[0]);
+    if (start.type === 'user_message') {
+      const content = start.payload.text;
+      return typeof content === 'string'
+        ? {
+            messageId,
+            seatId: start.seatId ?? null,
+            content,
+            provenance: start.symposiumProvenance ?? null,
+          }
+        : undefined;
+    }
+    const end = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND type = 'message_end'
+         AND json_extract(payload, '$.messageId') = ? AND seq > ? ORDER BY seq LIMIT 1`,
+    ).get(sessionId, messageId, start.seq) as EventRow | undefined;
+    if (!end) return undefined;
+    if (
+      end.seat_id !== starts[0].seat_id ||
+      end.symposium_provenance !== starts[0].symposium_provenance
+    )
+      return undefined;
+    const events = this.db!.prepare(
+      `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
+       FROM events WHERE session_id = ? AND seq > ? AND seq < ? ORDER BY seq`,
+    ).all(sessionId, start.seq, end.seq) as EventRow[];
+    const textBlocks = new Set<string>();
+    let content = '';
+    for (const row of events) {
+      const event = rowToEvent(row);
+      if (
+        event.payload.messageId !== messageId ||
+        row.seat_id !== starts[0].seat_id ||
+        row.symposium_provenance !== starts[0].symposium_provenance
+      )
+        continue;
+      const blockId = event.payload.blockId;
+      if (typeof blockId !== 'string') continue;
+      if (event.type === 'block_start' && event.payload.blockType === 'text')
+        textBlocks.add(blockId);
+      if (
+        event.type === 'block_delta' &&
+        textBlocks.has(blockId) &&
+        typeof event.payload.delta === 'string'
+      )
+        content += event.payload.delta;
+    }
+    return {
+      messageId,
+      seatId: start.seatId ?? null,
+      content,
+      provenance: start.symposiumProvenance ?? null,
+    };
   }
 
   /** Read the immutable transcript prefix belonging to a reconnect boundary. */
@@ -2209,13 +2290,8 @@ export class EventStore {
         }
       }
       if (record.sourceMessageId !== undefined && record.sourceMessageId !== null) {
-        const source = this.getSessionEvents(record.sessionId).find(
-          (event) =>
-            (event.type === 'message_start' || event.type === 'user_message') &&
-            event.payload.messageId === record.sourceMessageId &&
-            (event.seatId ?? null) === record.sourceSeatId,
-        );
-        if (!source)
+        const source = this.getSymposiumSourceMessage(record.sessionId, record.sourceMessageId);
+        if (!source || source.seatId !== record.sourceSeatId)
           throw new Error('Symposium delivery source message is not durable for its seat');
       }
       record.recipients.forEach((recipient, index) => {
@@ -2561,7 +2637,7 @@ export class EventStore {
       const recipient = this.db!.prepare(
         `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
           d.status AS delivery_status,
-          d.session_id
+          d.session_id, d.delivered_content
          FROM symposium_delivery_recipients r
          JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
          WHERE r.delivery_id = ? AND r.seat_id = ?`,
@@ -2572,6 +2648,7 @@ export class EventStore {
             membership_generation: number;
             delivery_status: string;
             session_id: string;
+            delivered_content: string | null;
           }
         | undefined;
       if (
@@ -2579,6 +2656,7 @@ export class EventStore {
         recipient.session_id !== input.sessionId ||
         recipient.delivery_status !== 'delivering' ||
         recipient.recipient_status !== 'pending' ||
+        recipient.delivered_content === null ||
         recipient.idempotency_key !== input.recipientIdempotencyKey
       ) {
         return undefined;
@@ -2733,9 +2811,9 @@ export class EventStore {
       this.db!.prepare(
         `INSERT INTO symposium_recipient_attempts (
           delivery_id, seat_id, attempt_number, idempotency_key, claim_token,
-          symposium_provenance, status, provider_thread_id, started_at, updated_at
+          symposium_provenance, status, provider_thread_id, dispatched_content, started_at, updated_at
         )
-        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?
+        SELECT ?, ?, COALESCE(MAX(attempt_number), 0) + 1, ?, ?, ?, 'executing', ?, ?, ?, ?
         FROM symposium_recipient_attempts WHERE delivery_id = ? AND seat_id = ?`,
       ).run(
         input.deliveryId,
@@ -2744,6 +2822,7 @@ export class EventStore {
         input.claimToken,
         JSON.stringify(input.provenance),
         thread?.providerThreadId ?? null,
+        recipient.delivered_content,
         input.claimedAt,
         input.claimedAt,
         input.deliveryId,
@@ -3069,6 +3148,9 @@ export class EventStore {
           }
         | undefined;
       if (!row) return false;
+      if (row.provider_thread_id !== null && row.provider_thread_id !== input.providerThreadId) {
+        throw new Error('Provider acceptance thread conflicts with the claimed seat thread');
+      }
       if (row.accepted_at !== null) {
         if (
           row.provider_thread_id !== input.providerThreadId ||
@@ -3600,6 +3682,7 @@ function rowToSymposiumRecipientAttempt(
     attemptNumber: row.attempt_number as number,
     idempotencyKey: row.idempotency_key as string,
     claimToken: (row.claim_token as string | null) ?? null,
+    dispatchedContent: (row.dispatched_content as string | null) ?? null,
     provenance: parseSymposiumProvenance(row.symposium_provenance as string | null) ?? null,
     status: row.status as SymposiumRecipientAttemptRecord['status'],
     providerThreadId: (row.provider_thread_id as string | null) ?? null,

@@ -630,6 +630,7 @@ describe('SymposiumOrchestrator', () => {
     admit('reviewer');
     reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
       const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
+      expect(attempt.dispatchedContent).toBe('prompt');
       expect(
         store.markSymposiumRecipientAccepted({
           deliveryId: input.deliveryId,
@@ -695,6 +696,36 @@ describe('SymposiumOrchestrator', () => {
       { messageId: 'builder-message' },
       sourceProvenance,
     );
+    store.appendSymposium(
+      'chat',
+      'block_start',
+      { messageId: 'builder-message', blockId: 'b0', blockType: 'text' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_delta',
+      { messageId: 'builder-message', blockId: 'b0', delta: 'before selected excerpt after' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'block_end',
+      { messageId: 'builder-message', blockId: 'b0' },
+      sourceProvenance,
+    );
+    store.appendSymposium(
+      'chat',
+      'message_end',
+      { messageId: 'builder-message' },
+      sourceProvenance,
+    );
+    expect(store.getSymposiumSourceMessage('chat', 'builder-message')).toMatchObject({
+      messageId: 'builder-message',
+      seatId: 'builder',
+      content: 'before selected excerpt after',
+      provenance: sourceProvenance,
+    });
     const delivery = orchestrator.stageDelivery({
       sessionId: 'chat',
       sourceSeatId: 'builder',
@@ -709,6 +740,9 @@ describe('SymposiumOrchestrator', () => {
     orchestrator = createOrchestrator();
     expect(store.getSymposiumDelivery(delivery.deliveryId)?.sourceMessageId).toBe(
       'builder-message',
+    );
+    expect(store.getSymposiumSourceMessage('chat', 'builder-message')?.content).toBe(
+      'before selected excerpt after',
     );
     expect(() =>
       orchestrator.stageDelivery({

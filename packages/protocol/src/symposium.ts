@@ -341,6 +341,7 @@ export interface SymposiumRecipientAttemptRecord {
   attemptNumber: number;
   idempotencyKey: string;
   claimToken: string | null;
+  dispatchedContent: string | null;
   provenance: SymposiumProvenance | null;
   status: Exclude<SymposiumRecipientStatus, 'pending'>;
   providerThreadId: string | null;
