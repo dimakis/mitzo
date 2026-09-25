@@ -11,6 +11,7 @@ import type { Task } from './slices/tasks.js';
 import type { TodoItem } from './slices/todos.js';
 import type { InboxItem } from './slices/inbox.js';
 import type { CalendarEvent, SprintInfo } from './slices/calendar.js';
+import { messageIdentity } from './message-identity.js';
 import type { ContextBlockEntry, SkillMetadata } from './slices/config.js';
 
 // ─── Transport ───────────────────────────────────────────────────────────────
@@ -182,8 +183,12 @@ export class MitzoApiClient {
       )
         throw new Error('Invalid reconnect finished message');
     }
-    const ids = new Set(transcript.messages.map((message) => message.messageId));
-    if (transcript.current) ids.add(transcript.current.messageId);
+    const ids = new Set(
+      transcript.messages.map((message) =>
+        messageIdentity(message.messageId, message.symposiumProvenance),
+      ),
+    );
+    if (transcript.current) ids.add(messageIdentity(transcript.current.messageId));
     const seats = new Set<string>();
     for (const current of currents) {
       const provenance = SymposiumProvenanceSchema.safeParse(current.symposiumProvenance);
@@ -194,12 +199,18 @@ export class MitzoApiClient {
         !Array.isArray(current.blocks) ||
         (current.startedSeq !== undefined &&
           (!Number.isSafeInteger(current.startedSeq) || current.startedSeq < 0)) ||
-        ids.has(current.messageId) ||
-        seats.has(provenance.data.seatId)
+        ids.has(
+          messageIdentity(current.messageId, provenance.success ? provenance.data : undefined),
+        ) ||
+        seats.has(
+          JSON.stringify([provenance.data.seatId, provenance.data.membershipGeneration ?? null]),
+        )
       )
         throw new Error('Invalid reconnect seat current');
-      ids.add(current.messageId);
-      seats.add(provenance.data.seatId);
+      ids.add(messageIdentity(current.messageId, provenance.data));
+      seats.add(
+        JSON.stringify([provenance.data.seatId, provenance.data.membershipGeneration ?? null]),
+      );
     }
     if (
       transcript.cursor !== undefined &&

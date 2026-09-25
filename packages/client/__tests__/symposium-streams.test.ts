@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { messageIdentity } from '../src/message-identity.js';
 import { parseServerMessage } from '../src/protocol-parser.js';
 import { INITIAL_MESSAGES_STATE, messagesReducer } from '../src/slices/messages.js';
 
@@ -43,6 +44,65 @@ function reduceWire(state: typeof INITIAL_MESSAGES_STATE, event: Record<string, 
 }
 
 describe('concurrent Symposium streams', () => {
+  it('keeps colliding provider IDs separate across seats and generations', () => {
+    const first = provenance('architect', 1);
+    const second = provenance('reviewer', 1);
+    let state = INITIAL_MESSAGES_STATE;
+    for (const seat of [first, second]) {
+      state = messagesReducer(state, {
+        type: 'MESSAGE_START',
+        messageId: 'shared-id',
+        symposiumProvenance: seat,
+      });
+      state = messagesReducer(state, {
+        type: 'BLOCK_START',
+        messageId: 'shared-id',
+        blockId: 'b0',
+        blockType: 'text',
+        symposiumProvenance: seat,
+      });
+      state = messagesReducer(state, {
+        type: 'BLOCK_DELTA',
+        messageId: 'shared-id',
+        blockId: 'b0',
+        blockType: 'text',
+        delta: seat.seatId,
+        symposiumProvenance: seat,
+      });
+    }
+    expect(state.resyncRequired).toBe(false);
+    expect(
+      state.currentByMessage[messageIdentity('shared-id', first)].blocks.get('b0')?.content,
+    ).toBe('architect');
+    expect(
+      state.currentByMessage[messageIdentity('shared-id', second)].blocks.get('b0')?.content,
+    ).toBe('reviewer');
+    state = messagesReducer(state, {
+      type: 'MESSAGE_END',
+      messageId: 'shared-id',
+      symposiumProvenance: first,
+    });
+    expect(state.messages).toHaveLength(1);
+    expect(state.currentByMessage[messageIdentity('shared-id', second)]).toBeDefined();
+    state = messagesReducer(state, {
+      type: 'MESSAGE_END',
+      messageId: 'shared-id',
+      symposiumProvenance: second,
+    });
+    expect(state.messages.map((message) => message.symposiumProvenance?.seatId)).toEqual([
+      'architect',
+      'reviewer',
+    ]);
+    const third = provenance('architect', 2);
+    state = messagesReducer(state, {
+      type: 'MESSAGE_START',
+      messageId: 'shared-id',
+      symposiumProvenance: third,
+    });
+    expect(state.resyncRequired).toBe(false);
+    expect(state.currentByMessage[messageIdentity('shared-id', third)]).toBeDefined();
+  });
+
   it('keeps two seats with the same block IDs and nested subagent IDs independent', () => {
     let state = INITIAL_MESSAGES_STATE;
     state = messagesReducer(state, { type: 'SESSION_STATE_CHANGED', state: 'running' });
@@ -103,22 +163,29 @@ describe('concurrent Symposium streams', () => {
         event('tool_result', seat, { toolId: 'task-0', result: `${seat.seatId} result` }),
       );
     }
-    expect(state.currentByMessage['architect-msg'].blocks.get('b0')?.subagent).toMatchObject({
+    expect(
+      state.currentByMessage[messageIdentity('architect-msg', architect)].blocks.get('b0')
+        ?.subagent,
+    ).toMatchObject({
       blocks: new Map([['b1', expect.objectContaining({ content: 'architect' })]]),
     });
-    expect(state.currentByMessage['reviewer-msg'].blocks.get('b0')?.subagent).toMatchObject({
+    expect(
+      state.currentByMessage[messageIdentity('reviewer-msg', reviewer)].blocks.get('b0')?.subagent,
+    ).toMatchObject({
       blocks: new Map([['b1', expect.objectContaining({ content: 'reviewer' })]]),
     });
-    expect(state.currentByMessage['architect-msg'].blocks.get('b0')?.toolResult).toBe(
-      'architect result',
-    );
-    expect(state.currentByMessage['reviewer-msg'].blocks.get('b0')?.toolResult).toBe(
-      'reviewer result',
-    );
+    expect(
+      state.currentByMessage[messageIdentity('architect-msg', architect)].blocks.get('b0')
+        ?.toolResult,
+    ).toBe('architect result');
+    expect(
+      state.currentByMessage[messageIdentity('reviewer-msg', reviewer)].blocks.get('b0')
+        ?.toolResult,
+    ).toBe('reviewer result');
     state = reduceWire(state, event('session_end', architect, {}));
     expect(state.messages[0].symposiumProvenance).toEqual(architect);
-    expect(state.currentByMessage['architect-msg']).toBeUndefined();
-    expect(state.currentByMessage['reviewer-msg']).toBeDefined();
+    expect(state.currentByMessage[messageIdentity('architect-msg', architect)]).toBeUndefined();
+    expect(state.currentByMessage[messageIdentity('reviewer-msg', reviewer)]).toBeDefined();
     expect(state.running).toBe(true);
     state = reduceWire(
       state,
@@ -128,7 +195,8 @@ describe('concurrent Symposium streams', () => {
         delta: '-continued',
       }),
     );
-    const remaining = state.currentByMessage['reviewer-msg'].blocks.get('b0')?.subagent;
+    const remaining =
+      state.currentByMessage[messageIdentity('reviewer-msg', reviewer)].blocks.get('b0')?.subagent;
     expect(
       remaining && 'blocks' in remaining && remaining.blocks instanceof Map
         ? remaining.blocks.get('b1')?.content
@@ -240,8 +308,12 @@ describe('concurrent Symposium streams', () => {
       symposiumProvenance: provenance('reviewer', 2),
     });
     expect(stale.resyncRequired).toBe(true);
-    expect(stale.currentByMessage['m1'].blocks.get('b0')?.content).toBe('');
-    expect(stale.currentByMessage['m1'].symposiumProvenance).toEqual(original);
+    expect(stale.currentByMessage[messageIdentity('m1', original)].blocks.get('b0')?.content).toBe(
+      '',
+    );
+    expect(stale.currentByMessage[messageIdentity('m1', original)].symposiumProvenance).toEqual(
+      original,
+    );
     const relabel = messagesReducer(state, {
       type: 'BLOCK_DELTA',
       messageId: 'm1',
@@ -254,8 +326,12 @@ describe('concurrent Symposium streams', () => {
       },
     });
     expect(relabel.resyncRequired).toBe(true);
-    expect(relabel.currentByMessage['m1'].symposiumProvenance).toEqual(original);
-    expect(relabel.currentByMessage['m1'].blocks.get('b0')?.content).toBe('');
+    expect(relabel.currentByMessage[messageIdentity('m1', original)].symposiumProvenance).toEqual(
+      original,
+    );
+    expect(
+      relabel.currentByMessage[messageIdentity('m1', original)].blocks.get('b0')?.content,
+    ).toBe('');
     const restored = messagesReducer(stale, { type: 'RESTORE', messages: [] });
     expect(restored.resyncRequired).toBe(false);
     expect(restored.currentByMessage).toEqual({});
@@ -276,6 +352,6 @@ describe('concurrent Symposium streams', () => {
       symposiumProvenance: reviewer,
     });
     expect(next.resyncRequired).toBe(true);
-    expect(Object.keys(next.currentByMessage)).toEqual(['first']);
+    expect(Object.keys(next.currentByMessage)).toEqual([messageIdentity('first', reviewer)]);
   });
 });

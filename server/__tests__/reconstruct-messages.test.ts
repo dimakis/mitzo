@@ -482,6 +482,41 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     expect(() => replayEventsToTranscript(events)).toThrow(/simultaneous|ambiguous/i);
   });
 
+  it('restores colliding provider message IDs from distinct seat generations', () => {
+    const provenance = (seatId: string, membershipGeneration: number) => ({
+      seatId,
+      membershipGeneration,
+      configRevision: 1,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'domain-1',
+      isolationDomainRevision: 1,
+    });
+    const seat = (seq: number, type: string, seatId: string, generation: number) => ({
+      ...evt(seq, type, { messageId: 'shared-id' }),
+      seatId,
+      symposiumProvenance: provenance(seatId, generation),
+    });
+    const transcript = replayEventsToTranscript([
+      seat(1, 'message_start', 'architect', 1),
+      seat(2, 'message_start', 'reviewer', 1),
+      seat(3, 'message_end', 'architect', 1),
+      seat(4, 'message_start', 'architect', 2),
+    ]);
+    expect(
+      transcript.currents.map((current) => [
+        current.symposiumProvenance?.seatId,
+        current.symposiumProvenance?.membershipGeneration,
+        current.messageId,
+      ]),
+    ).toEqual([
+      ['reviewer', 1, 'shared-id'],
+      ['architect', 2, 'shared-id'],
+    ]);
+  });
+
   it('keeps the original seat revision after later configuration changes', () => {
     const provenance = (configRevision: number) => ({
       seatId: 'reviewer',

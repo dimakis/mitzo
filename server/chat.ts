@@ -3466,19 +3466,23 @@ export function replayEventsToTranscript(
       throw new Error('Stored Symposium event has mismatched seat provenance');
     // Schema parsing provides a stable field order for equivalent snapshots.
     const key = JSON.stringify(parsed.data);
-    const active = openBySeat.get(parsed.data.seatId);
+    const seatGeneration = JSON.stringify([
+      parsed.data.seatId,
+      parsed.data.membershipGeneration ?? null,
+    ]);
+    const active = openBySeat.get(seatGeneration);
     if (event.type === 'message_start') {
       if (active) throw new Error('Ambiguous simultaneous Symposium turns for one seat');
       if (typeof event.payload.messageId !== 'string' || !event.payload.messageId)
         throw new Error('Stored Symposium message_start has no message identity');
-      openBySeat.set(parsed.data.seatId, {
+      openBySeat.set(seatGeneration, {
         messageId: event.payload.messageId,
         snapshotKey: key,
         blockIds: new Set(),
       });
-      completedBySeat.delete(parsed.data.seatId);
+      completedBySeat.delete(seatGeneration);
     } else if (event.type === 'message_end') {
-      const completed = completedBySeat.get(parsed.data.seatId);
+      const completed = completedBySeat.get(seatGeneration);
       if (
         !active &&
         completed?.messageId === event.payload.messageId &&
@@ -3492,16 +3496,16 @@ export function replayEventsToTranscript(
       )
         throw new Error('Stored Symposium message_end mismatches active seat turn');
       else {
-        completedBySeat.set(parsed.data.seatId, {
+        completedBySeat.set(seatGeneration, {
           messageId: active.messageId,
           snapshotKey: active.snapshotKey,
         });
-        openBySeat.delete(parsed.data.seatId);
+        openBySeat.delete(seatGeneration);
       }
     } else if (event.type === 'session_end') {
       if (active && active.snapshotKey !== key)
         throw new Error('Stored Symposium terminal mismatches active seat snapshot');
-      openBySeat.delete(parsed.data.seatId);
+      openBySeat.delete(seatGeneration);
     } else if (['block_start', 'block_delta', 'block_end'].includes(event.type)) {
       if (!active || active.messageId !== event.payload.messageId || active.snapshotKey !== key)
         throw new Error('Stored Symposium block mismatches active seat turn');
@@ -3539,18 +3543,27 @@ export function replayEventsToTranscript(
       ...stream.messages.map((message) => ({ ...message, symposiumProvenance: provenance })),
     );
     if (!stream.current) continue;
-    if (activeSeats.has(provenance.seatId))
+    const seatGeneration = JSON.stringify([
+      provenance.seatId,
+      provenance.membershipGeneration ?? null,
+    ]);
+    if (activeSeats.has(seatGeneration))
       throw new Error('Ambiguous simultaneous Symposium turns for one seat');
-    activeSeats.add(provenance.seatId);
+    activeSeats.add(seatGeneration);
     currents.push({ ...stream.current, symposiumProvenance: provenance });
   }
   messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   const ids = new Set<string>();
   for (const message of [...messages, ...currents]) {
-    if (ids.has(message.messageId))
+    const id = JSON.stringify([
+      message.symposiumProvenance?.seatId ?? null,
+      message.symposiumProvenance?.membershipGeneration ?? null,
+      message.messageId,
+    ]);
+    if (ids.has(id))
       throw new Error('Ambiguous duplicate Symposium message identity in stored transcript');
-    ids.add(message.messageId);
+    ids.add(id);
   }
   return { messages, current: base.current, currents };
 }

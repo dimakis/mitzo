@@ -19,6 +19,7 @@ import type {
   ClientSessionState,
   SymposiumProvenance,
 } from '@mitzo/protocol';
+import { messageIdentity } from '../message-identity.js';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ export interface BootContextMeta {
 export interface MessagesState {
   messages: FinishedMessage[];
   current: StreamingMessage | null;
-  /** Simultaneous attributed seat turns, keyed by durable message ID. */
+  /** Simultaneous attributed seat turns, keyed by seat, generation, and provider message ID. */
   currentByMessage: Record<string, StreamingMessage>;
   /** A wire event could not be safely applied; transport must request a resync. */
   resyncRequired: boolean;
@@ -356,14 +357,17 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
   const provenance = action.symposiumProvenance!;
   const active = state.currentByMessage;
   const messageId = 'messageId' in action ? action.messageId : action.attributedMessageId;
+  const key = messageId ? messageIdentity(messageId, provenance) : undefined;
   if (action.type === 'MESSAGE_START') {
-    const prior = active[action.messageId];
+    const prior = active[key!];
     if (prior) {
       return prior.symposiumProvenance && sameProvenance(prior.symposiumProvenance, provenance)
         ? state
         : refuseAttributedEvent(state);
     }
-    const finished = state.messages.find((message) => message.messageId === action.messageId);
+    const finished = state.messages.find(
+      (message) => messageIdentity(message.messageId, message.symposiumProvenance) === key,
+    );
     if (finished) {
       return finished.symposiumProvenance &&
         sameProvenance(finished.symposiumProvenance, provenance)
@@ -372,7 +376,9 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
     }
     if (
       Object.values(active).some(
-        (current) => current.symposiumProvenance?.seatId === provenance.seatId,
+        (current) =>
+          current.symposiumProvenance?.seatId === provenance.seatId &&
+          current.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
       )
     ) {
       return refuseAttributedEvent(state);
@@ -381,7 +387,7 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
       ...state,
       currentByMessage: {
         ...active,
-        [action.messageId]: {
+        [key!]: {
           messageId: action.messageId,
           startedSeq: action.startedSeq,
           symposiumProvenance: provenance,
@@ -431,7 +437,7 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
 
   let current: StreamingMessage | undefined;
   if (messageId) {
-    current = active[messageId];
+    current = active[key!];
   } else if (action.type === 'TOOL_RESULT') {
     current = toolCurrent;
   } else if ('parentBlockId' in action) {
@@ -453,7 +459,9 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
   }
 
   if (action.type === 'MESSAGE_SNAPSHOT') {
-    const finished = state.messages.find((message) => message.messageId === action.messageId);
+    const finished = state.messages.find(
+      (message) => messageIdentity(message.messageId, message.symposiumProvenance) === key,
+    );
     if (finished) {
       return finished.symposiumProvenance &&
         sameProvenance(finished.symposiumProvenance, provenance)
@@ -463,7 +471,9 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
     if (
       !current &&
       Object.values(active).some(
-        (candidate) => candidate.symposiumProvenance?.seatId === provenance.seatId,
+        (candidate) =>
+          candidate.symposiumProvenance?.seatId === provenance.seatId &&
+          candidate.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
       )
     )
       return refuseAttributedEvent(state);
@@ -475,7 +485,7 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
       action.type === 'MESSAGE_END' &&
       state.messages.some(
         (message) =>
-          message.messageId === action.messageId &&
+          messageIdentity(message.messageId, message.symposiumProvenance) === key &&
           message.symposiumProvenance &&
           sameProvenance(message.symposiumProvenance, provenance),
       )
@@ -484,7 +494,9 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
     if (
       action.type === 'SESSION_END' &&
       !Object.values(active).some(
-        (candidate) => candidate.symposiumProvenance?.seatId === provenance.seatId,
+        (candidate) =>
+          candidate.symposiumProvenance?.seatId === provenance.seatId &&
+          candidate.symposiumProvenance.membershipGeneration === provenance.membershipGeneration,
       ) &&
       state.messages.some(
         (message) =>
@@ -505,12 +517,12 @@ function reduceAttributed(state: MessagesState, action: MessagesAction): Message
   const scoped = reduceLegacyMessages({ ...state, current: current ?? null }, action);
   const currentByMessage = { ...active };
   if (scoped.current) {
-    currentByMessage[scoped.current.messageId] = {
+    currentByMessage[messageIdentity(scoped.current.messageId, provenance)] = {
       ...scoped.current,
       symposiumProvenance: provenance,
     };
   } else if (current) {
-    delete currentByMessage[current.messageId];
+    delete currentByMessage[messageIdentity(current.messageId, provenance)];
   }
   return {
     ...scoped,
@@ -539,13 +551,23 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
   if (action.type === 'SESSION_END' && Object.keys(state.currentByMessage).length > 0) {
     let messages = next.messages;
     for (const current of Object.values(state.currentByMessage)) {
-      if (!messages.some((message) => message.messageId === current.messageId))
+      if (
+        !messages.some(
+          (message) =>
+            messageIdentity(message.messageId, message.symposiumProvenance) ===
+            messageIdentity(current.messageId, current.symposiumProvenance),
+        )
+      )
         messages = insertByStartedSeq(messages, finishCurrent(current));
     }
     return { ...next, messages, currentByMessage: {} };
   }
   if (action.type === 'RESTORE') {
-    const finishedIds = new Set(next.messages.map((message) => message.messageId));
+    const finishedIds = new Set(
+      next.messages.map((message) =>
+        messageIdentity(message.messageId, message.symposiumProvenance),
+      ),
+    );
     const currentByMessage = state.resyncRequired
       ? {}
       : Object.fromEntries(
@@ -560,7 +582,13 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
   switch (action.type) {
     case 'MESSAGE_START': {
       // Dedup: skip if this message was already restored (e.g. WS replay after RESTORE)
-      if (state.messages.some((m) => m.messageId === action.messageId)) {
+      if (
+        state.messages.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(action.messageId, action.symposiumProvenance),
+        )
+      ) {
         return state;
       }
       const base = state.current
@@ -638,7 +666,13 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
     case 'MESSAGE_END': {
       if (!state.current) return state;
       // Dedup: if this message was already restored, discard the streaming copy
-      if (state.messages.some((m) => m.messageId === state.current!.messageId)) {
+      if (
+        state.messages.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+        )
+      ) {
         return { ...state, current: null };
       }
       const finished = finishCurrent(state.current);
@@ -828,22 +862,31 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
       if (!action.interrupted) {
-        const existingById = new Map(state.messages.map((m) => [m.messageId, m]));
-        const hasNewMessages = valid.some((m) => !existingById.has(m.messageId));
+        const existingById = new Map(
+          state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
+        );
+        const hasNewMessages = valid.some(
+          (m) => !existingById.has(messageIdentity(m.messageId, m.symposiumProvenance)),
+        );
         const hasNewSequence = valid.some(
           (m) =>
             m.startedSeq !== undefined &&
-            existingById.get(m.messageId)?.startedSeq !== m.startedSeq,
+            existingById.get(messageIdentity(m.messageId, m.symposiumProvenance))?.startedSeq !==
+              m.startedSeq,
         );
         if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
           return state;
         }
       }
       if (action.interrupted) {
-        const restoredIds = new Set(valid.map((m) => m.messageId));
+        const restoredIds = new Set(
+          valid.map((m) => messageIdentity(m.messageId, m.symposiumProvenance)),
+        );
         const optimisticUserMsgs = state.messages.filter(
           (m) =>
-            m.role === 'user' && m.messageId.startsWith('user-') && !restoredIds.has(m.messageId),
+            m.role === 'user' &&
+            m.messageId.startsWith('user-') &&
+            !restoredIds.has(messageIdentity(m.messageId, m.symposiumProvenance)),
         );
         const notice: FinishedMessage = {
           messageId: `notice-${Date.now()}`,
@@ -874,13 +917,23 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         }
         merged.push(notice);
         const currentStale =
-          state.current && merged.some((m) => m.messageId === state.current!.messageId);
+          state.current &&
+          merged.some(
+            (m) =>
+              messageIdentity(m.messageId, m.symposiumProvenance) ===
+              messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+          );
         return { ...state, messages: merged, current: currentStale ? null : state.current };
       }
       // Clear current if the restored set already contains it (prevents
       // MESSAGE_END from re-inserting a message that RESTORE already has).
       const currentStale =
-        state.current && valid.some((m) => m.messageId === state.current!.messageId);
+        state.current &&
+        valid.some(
+          (m) =>
+            messageIdentity(m.messageId, m.symposiumProvenance) ===
+            messageIdentity(state.current!.messageId, state.current!.symposiumProvenance),
+        );
       return { ...state, messages: valid, current: currentStale ? null : state.current };
     }
 

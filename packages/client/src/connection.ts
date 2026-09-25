@@ -144,6 +144,10 @@ export class MitzoConnection {
     this.seqBySession.set(sessionId, seq);
   }
 
+  commitTranscriptCursor(sessionId: string, cursor: number): void {
+    this.appliedDelivery.commitTranscript(sessionId, cursor);
+  }
+
   getLastSeq(sessionId: string): number {
     return this.seqBySession.get(sessionId) ?? 0;
   }

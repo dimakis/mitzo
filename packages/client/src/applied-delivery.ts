@@ -59,6 +59,22 @@ export class AppliedDelivery {
     this.drain(sessionId, state);
   }
 
+  /** Commit a REST transcript only after its state has been installed. */
+  commitTranscript(sessionId: string, cursor: number): void {
+    const state = this.state(sessionId);
+    if (state.offer || state.waitingForSnapshot) return;
+    const committed = Math.max(cursor, this.options.getCursor(sessionId));
+    for (const [seq, event] of state.events) {
+      if (seq > committed) continue;
+      state.events.delete(seq);
+      state.bytes -= JSON.stringify(event).length;
+    }
+    this.options.setCursor(sessionId, committed);
+    if (committed > 0) this.options.ackEvent(sessionId, committed);
+    this.clearGapTimer(state);
+    this.drain(sessionId, state);
+  }
+
   offerSnapshot(sessionId: string, cursor: number, offerId: string, connectionId: string): void {
     const state = this.state(sessionId);
     this.clearGapTimer(state);

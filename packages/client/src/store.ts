@@ -47,6 +47,7 @@ import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
 import type { SseConnectionConfig } from './sse-connection.js';
 import type { ChatConnection } from './chat-connection.js';
+import { messageIdentity } from './message-identity.js';
 
 // ─── Store state ─────────────────────────────────────────────────────────────
 
@@ -193,7 +194,8 @@ function mergeLiveWithDurable(
   durable: FinishedMessage,
 ): FinishedMessage {
   if (!live) return durable;
-  const { symposiumProvenance: _liveProvenance, ...liveContent } = live;
+  const liveContent = { ...live };
+  delete liveContent.symposiumProvenance;
   return {
     ...liveContent,
     ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
@@ -208,7 +210,12 @@ function mergeHistory(
   history: FinishedMessage[],
   initialCurrent: MessagesState['current'],
 ): MessagesState {
-  const live = new Map(state.messages.map((message) => [message.messageId, message]));
+  const live = new Map(
+    state.messages.map((message) => [
+      messageIdentity(message.messageId, message.symposiumProvenance),
+      message,
+    ]),
+  );
   const updatedCurrent = state.current && state.current !== initialCurrent;
   const merged: FinishedMessage[] = [];
   const seen = new Set<string>();
@@ -216,12 +223,15 @@ function mergeHistory(
     if (!message || typeof message.messageId !== 'string' || !Array.isArray(message.blocks))
       continue;
     if (
-      seen.has(message.messageId) ||
-      (updatedCurrent && message.messageId === state.current!.messageId)
+      seen.has(messageIdentity(message.messageId, message.symposiumProvenance)) ||
+      (updatedCurrent &&
+        messageIdentity(message.messageId, message.symposiumProvenance) ===
+          messageIdentity(state.current!.messageId, state.current!.symposiumProvenance))
     )
       continue;
-    seen.add(message.messageId);
-    merged.push(mergeLiveWithDurable(live.get(message.messageId), message));
+    const key = messageIdentity(message.messageId, message.symposiumProvenance);
+    seen.add(key);
+    merged.push(mergeLiveWithDurable(live.get(key), message));
   }
   return messagesReducer(state, { type: 'RESTORE', messages: merged });
 }
@@ -245,7 +255,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessionId: string;
         throughSeq: number;
         confirmedMessageIds: Set<string>;
-        liveActions: MessagesAction[];
+        liveActions: Array<{ seq: number; action: MessagesAction }>;
       }
     | undefined;
   let openingHistory:
@@ -267,15 +277,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (recoveryInFlight && throughSeq === undefined) return;
     recoveryInFlight = true;
     const request = ++historyRequest;
-    const currentBoundedRestore =
-      throughSeq !== undefined
-        ? {
-            sessionId,
-            throughSeq,
-            confirmedMessageIds: new Set<string>(),
-            liveActions: [] as MessagesAction[],
-          }
-        : undefined;
+    const currentBoundedRestore = {
+      sessionId,
+      throughSeq: throughSeq ?? 0,
+      confirmedMessageIds: new Set<string>(),
+      liveActions: [] as Array<{ seq: number; action: MessagesAction }>,
+    };
     boundedRestore = currentBoundedRestore;
     if (throughSeq !== undefined) {
       historyAbort?.abort();
@@ -284,18 +291,19 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
     const initialCurrent = store.getState().messages.current;
     const initialMessages = new Map(
-      store.getState().messages.messages.map((m) => [m.messageId, m]),
+      store
+        .getState()
+        .messages.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
     );
     const transcript =
       throughSeq === undefined
-        ? api
-            .getSessionMessages(sessionId)
-            .then((messages) => ({ messages, current: null, currents: [] }))
+        ? api.getSessionTranscript(sessionId)
         : api.getReconnectTranscript(sessionId, throughSeq);
     transcript
-      .then(({ messages: msgs, current, currents = [] }) => {
+      .then(({ messages: msgs, current, currents = [], cursor }) => {
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
+          const appliedCursor = cursor ?? throughSeq;
           store.setState((s) => {
             const restored = replace
               ? {
@@ -303,24 +311,41 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   messages: (() => {
                     const live = s.messages.messages.filter(
                       (m) =>
-                        (initialMessages.get(m.messageId) !== m &&
+                        (initialMessages.get(
+                          messageIdentity(m.messageId, m.symposiumProvenance),
+                        ) !== m &&
                           (throughSeq === undefined ||
                             m.startedSeq === undefined ||
                             m.startedSeq > throughSeq)) ||
                         pendingOptimisticMessageIds.has(m.messageId) ||
                         currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
-                    const liveById = new Map(live.map((m) => [m.messageId, m]));
-                    const savedIds = new Set(msgs.map((m) => m.messageId));
+                    const liveById = new Map(
+                      live.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
+                    );
+                    const savedIds = new Set(
+                      msgs.map((m) => messageIdentity(m.messageId, m.symposiumProvenance)),
+                    );
                     return [
                       ...msgs
                         .filter(
                           (m) =>
                             s.messages.current === initialCurrent ||
-                            m.messageId !== s.messages.current?.messageId,
+                            messageIdentity(m.messageId, m.symposiumProvenance) !==
+                              messageIdentity(
+                                s.messages.current!.messageId,
+                                s.messages.current!.symposiumProvenance,
+                              ),
                         )
-                        .map((m) => mergeLiveWithDurable(liveById.get(m.messageId), m)),
-                      ...live.filter((m) => !savedIds.has(m.messageId)),
+                        .map((m) =>
+                          mergeLiveWithDurable(
+                            liveById.get(messageIdentity(m.messageId, m.symposiumProvenance)),
+                            m,
+                          ),
+                        ),
+                      ...live.filter(
+                        (m) => !savedIds.has(messageIdentity(m.messageId, m.symposiumProvenance)),
+                      ),
                     ];
                   })(),
                   current: s.messages.current !== initialCurrent ? s.messages.current : null,
@@ -328,9 +353,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               : msgs.length > 0
                 ? mergeHistory(s.messages, msgs, initialCurrent)
                 : s.messages;
-            const liveActions = currentBoundedRestore?.liveActions ?? [];
+            const liveActions = currentBoundedRestore.liveActions
+              .filter((item) => appliedCursor === undefined || item.seq > appliedCursor)
+              .map((item) => item.action);
             if (
-              throughSeq === undefined ||
+              appliedCursor === undefined ||
               (s.messages.current !== initialCurrent && liveActions.length === 0)
             )
               return { messages: restored };
@@ -339,7 +366,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             const replayedIds = new Set(
               liveActions.flatMap((action) =>
                 'messageId' in action && typeof action.messageId === 'string'
-                  ? [action.messageId]
+                  ? [messageIdentity(action.messageId, action.symposiumProvenance)]
                   : [],
               ),
             );
@@ -347,9 +374,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               ...restored,
               messages: restored.messages.filter(
                 (message) =>
-                  message.messageId !== current?.messageId &&
-                  !currents.some((seat) => seat.messageId === message.messageId) &&
-                  !replayedIds.has(message.messageId),
+                  messageIdentity(message.messageId, message.symposiumProvenance) !==
+                    (current ? messageIdentity(current.messageId) : undefined) &&
+                  !currents.some(
+                    (seat) =>
+                      messageIdentity(seat.messageId, seat.symposiumProvenance) ===
+                      messageIdentity(message.messageId, message.symposiumProvenance),
+                  ) &&
+                  !replayedIds.has(messageIdentity(message.messageId, message.symposiumProvenance)),
               ),
               current: null,
               currentByMessage: {},
@@ -378,6 +410,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (replayed.resyncRequired) throw new Error('Unsafe reconnect seat transcript');
             return { messages: replayed };
           });
+          if (throughSeq === undefined && cursor !== undefined)
+            connection.commitTranscriptCursor(sessionId, cursor);
           onApplied?.();
         }
       })
@@ -487,20 +521,27 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           const replayedIds = new Set(
             liveActions.flatMap((action) =>
               'messageId' in action && typeof action.messageId === 'string'
-                ? [action.messageId]
+                ? [messageIdentity(action.messageId, action.symposiumProvenance)]
                 : [],
             ),
           );
           const optimistic = get().messages.messages.filter(
             (message) =>
               pendingOptimisticMessageIds.has(message.messageId) &&
-              !msgs.some((saved) => saved.messageId === message.messageId) &&
-              !replayedIds.has(message.messageId),
+              !msgs.some(
+                (saved) =>
+                  messageIdentity(saved.messageId, saved.symposiumProvenance) ===
+                  messageIdentity(message.messageId, message.symposiumProvenance),
+              ) &&
+              !replayedIds.has(messageIdentity(message.messageId, message.symposiumProvenance)),
           );
-          let restored = messagesReducer(INITIAL_MESSAGES_STATE, {
-            type: 'RESTORE',
-            messages: [...msgs, ...optimistic],
-          });
+          let restored = messagesReducer(
+            { ...INITIAL_MESSAGES_STATE, running: get().messages.running },
+            {
+              type: 'RESTORE',
+              messages: [...msgs, ...optimistic],
+            },
+          );
           if (current)
             restored = messagesReducer(restored, {
               type: 'MESSAGE_SNAPSHOT',
@@ -518,7 +559,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             });
           restored = liveActions.reduce(messagesReducer, restored);
           if (restored.resyncRequired) throw new Error('Unsafe session-open transcript');
-          set({ messages: restored });
+          set((s) => ({ messages: { ...restored, running: s.messages.running } }));
+          connection.commitTranscriptCursor(id, cursor);
         }
       } catch {
         if (request === historyRequest && get().sessions.active === id)
@@ -1110,7 +1152,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         Number.isSafeInteger(msg.seq) &&
         msg.seq > boundedRestore.throughSeq;
       if (isPostCursorAction) {
-        boundedRestore!.liveActions.push(action);
+        boundedRestore!.liveActions.push({ seq: msg.seq as number, action });
         if (action.type === 'USER_MESSAGE_RECEIVED')
           boundedRestore!.confirmedMessageIds.add(action.messageId);
       }
