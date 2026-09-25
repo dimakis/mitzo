@@ -243,6 +243,7 @@ export class SymposiumOrchestrator {
   stageDelivery(input: {
     sessionId: string;
     sourceSeatId: string | null;
+    sourceMessageId?: string | null;
     recipientSeatIds: string[];
     originalContent: string;
     idempotencyKey: string;
@@ -256,6 +257,7 @@ export class SymposiumOrchestrator {
     if (prior) {
       if (
         prior.sourceSeatId !== input.sourceSeatId ||
+        (prior.sourceMessageId ?? null) !== (input.sourceMessageId ?? null) ||
         prior.originalContent !== input.originalContent ||
         !sameMembers(prior.recipientSeatIds, input.recipientSeatIds)
       ) {
@@ -320,6 +322,7 @@ export class SymposiumOrchestrator {
       deliveryId,
       sessionId: input.sessionId,
       sourceSeatId: input.sourceSeatId,
+      sourceMessageId: input.sourceMessageId ?? null,
       recipientSeatIds: recipients.map((seat) => seat.id),
       originalContent: input.originalContent,
       deliveredContent: null,

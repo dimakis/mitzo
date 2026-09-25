@@ -626,6 +626,101 @@ describe('SymposiumOrchestrator', () => {
     expect(reviewer.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('retains exact provider turn acceptance even when recipient execution fails', async () => {
+    admit('reviewer');
+    reviewer.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      const attempt = store.getSymposiumRecipientAttempts(input.deliveryId, 'reviewer')[0];
+      expect(
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'turn-1',
+          acceptedAt: 1_700_000_000_001,
+        }),
+      ).toBe(true);
+      throw new Error('provider failed after accepting input');
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'prompt',
+      idempotencyKey: 'accepted-fail',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-accepted-fail',
+    });
+    const failed = await orchestrator.deliver(staged.deliveryId);
+    expect(failed.recipients[0].status).toBe('failed');
+    store.close();
+    store = openStore();
+    const attempt = store.getSymposiumRecipientAttempts(staged.deliveryId, 'reviewer')[0];
+    expect(attempt).toMatchObject({
+      status: 'failed',
+      providerThreadId: 'thread-reviewer',
+      providerTurnId: 'turn-1',
+      acceptedAt: 1_700_000_000_001,
+    });
+    expect(
+      store.markSymposiumRecipientAccepted({
+        deliveryId: staged.deliveryId,
+        seatId: 'reviewer',
+        claimToken: 'wrong-claim',
+        providerThreadId: 'thread-reviewer',
+        providerTurnId: 'turn-1',
+        acceptedAt: 1_700_000_000_001,
+      }),
+    ).toBe(false);
+  });
+  it('pins a shared excerpt to a durable source message through disk reopen', () => {
+    admit('builder');
+    admit('reviewer');
+    const sourceProvenance = {
+      seatId: 'builder',
+      configRevision: 3,
+      accountProfileRevision: 'account-1',
+      seatProfileRevision: 'profile-1',
+      contextGrantRevision: 4,
+      authorityGrantRevision: 5,
+      isolationDomainId: 'symposium-shared',
+      isolationDomainRevision: 2,
+    };
+    store.appendSymposium(
+      'chat',
+      'message_start',
+      { messageId: 'builder-message' },
+      sourceProvenance,
+    );
+    const delivery = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: 'builder',
+      sourceMessageId: 'builder-message',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'selected excerpt',
+      idempotencyKey: 'share-excerpt',
+    });
+    expect(delivery.sourceMessageId).toBe('builder-message');
+    store.close();
+    store = openStore();
+    orchestrator = createOrchestrator();
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.sourceMessageId).toBe(
+      'builder-message',
+    );
+    expect(() =>
+      orchestrator.stageDelivery({
+        sessionId: 'chat',
+        sourceSeatId: 'builder',
+        sourceMessageId: 'missing-message',
+        recipientSeatIds: ['reviewer'],
+        originalContent: 'not shared',
+        idempotencyKey: 'missing-source',
+      }),
+    ).toThrow(/source message/i);
+  });
   it('routes three v2 seats by stable IDs and revokes queued approvals before dispatch', async () => {
     const implementerSeat = {
       ...config.seats[1],
