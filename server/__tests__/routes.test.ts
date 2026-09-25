@@ -26,14 +26,12 @@ vi.mock('../chat.js', () => {
     reconcileSessionsBackground: vi.fn(),
     getMessages: vi.fn().mockResolvedValue([{ messageId: 'm1', role: 'assistant', blocks: [] }]),
     getReconnectTranscript: vi.fn().mockReturnValue({ messages: [], current: null }),
-    getSessionTranscript: vi
-      .fn()
-      .mockResolvedValue({
-        messages: [],
-        current: null,
-        currents: [{ messageId: 'seat-active', blocks: [], symposiumProvenance: { seatId: 'a' } }],
-        cursor: 7,
-      }),
+    getSessionTranscript: vi.fn().mockResolvedValue({
+      messages: [],
+      current: null,
+      currents: [{ messageId: 'seat-active', blocks: [], symposiumProvenance: { seatId: 'a' } }],
+      cursor: 7,
+    }),
     renameSessionById: vi.fn().mockResolvedValue(undefined),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
