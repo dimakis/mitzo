@@ -3295,8 +3295,7 @@ export class EventStore {
       if (row.accepted_at !== null) {
         if (
           row.provider_thread_id !== input.providerThreadId ||
-          row.provider_turn_id !== input.providerTurnId ||
-          row.accepted_at !== input.acceptedAt
+          row.provider_turn_id !== input.providerTurnId
         )
           throw new Error('Provider acceptance receipt conflict');
         return true;

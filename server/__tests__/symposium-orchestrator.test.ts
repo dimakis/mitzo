@@ -726,6 +726,27 @@ describe('SymposiumOrchestrator', () => {
           acceptedAt: 1_700_000_000_001,
         }),
       ).toBe(true);
+      // Duplicate native receipt preserves the first host observation timestamp.
+      expect(
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'turn-1',
+          acceptedAt: 1_700_000_000_100,
+        }),
+      ).toBe(true);
+      expect(() =>
+        store.markSymposiumRecipientAccepted({
+          deliveryId: input.deliveryId,
+          seatId: 'reviewer',
+          claimToken: attempt.claimToken!,
+          providerThreadId: 'thread-reviewer',
+          providerTurnId: 'different-turn',
+          acceptedAt: 1_700_000_000_100,
+        }),
+      ).toThrow(/conflict/i);
       throw new Error('provider failed after accepting input');
     });
     const staged = orchestrator.stageDelivery({
