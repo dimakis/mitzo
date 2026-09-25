@@ -104,6 +104,78 @@ const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
 };
 
 describe('artifact-pinned Symposium review workflow', () => {
+  it('keeps a reserved artifact stable until its old receipt settles', () => {
+    reviews.create(create());
+    reviews.admitAttempt({
+      workflowId: 'workflow-1',
+      attemptId: 'reviewer-1',
+      kind: 'review',
+      actorSeatId: 'reviewer',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      maxTokens: 50,
+      maxCostUsd: 0.1,
+    });
+    const changed = {
+      ...implementation,
+      inputRevision: 'commit-1',
+      inputHash: hash('b'),
+      artifactRevision: 'commit-2',
+      artifactHash: hash('c'),
+    };
+    expect(() => reviews.advanceArtifact('workflow-1', changed)).toThrow(/in.flight|settle/i);
+    reviews.recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1'),
+    });
+    expect(reviews.advanceArtifact('workflow-1', changed)).toMatchObject({
+      artifactRevision: 'commit-2',
+      status: 'awaiting_review',
+    });
+  });
+
+  it('supersedes old open findings when an externally changed artifact gets a full review', () => {
+    reviews.create(create());
+    recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-1',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-1',
+      artifactHash: hash('b'),
+      findings: [finding],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-1'),
+    });
+    reviews.advanceArtifact('workflow-1', {
+      ...implementation,
+      inputRevision: 'commit-1',
+      inputHash: hash('b'),
+      artifactRevision: 'commit-2',
+      artifactHash: hash('c'),
+    });
+    const result = recordReview({
+      workflowId: 'workflow-1',
+      reviewId: 'review-2',
+      reviewerSeatId: 'reviewer',
+      kind: 'full',
+      artifactRevision: 'commit-2',
+      artifactHash: hash('c'),
+      findings: [],
+      resolvedFingerprints: [],
+      usage: usage('reviewer-2'),
+    });
+    expect(result.status).toBe('awaiting_evidence');
+    expect(result.findings[0].status).toBe('superseded');
+  });
+
   it('requires fix authority before reserving a native fix attempt', () => {
     reviews.create(create());
     recordReview({
@@ -323,6 +395,19 @@ describe('artifact-pinned Symposium review workflow', () => {
       artifactRevision: 'commit-2',
       status: 'awaiting_delta_review',
     });
+    const retryFix = {
+      workflowId: 'workflow-1',
+      result: fix,
+      implementerSeatId: 'coder',
+      usage: usage('implementer-2'),
+    };
+    expect(reviews.recordFix(retryFix)).toMatchObject({
+      artifactRevision: 'commit-2',
+      status: 'awaiting_delta_review',
+    });
+    expect(() => reviews.recordFix({ ...retryFix, usage: usage('implementer-2', 99) })).toThrow(
+      /idempotency/i,
+    );
     expect(() =>
       recordReview({
         workflowId: 'workflow-1',
@@ -802,7 +887,7 @@ describe('artifact-pinned Symposium review workflow', () => {
     );
     reviews.recordEvidence(
       'workflow-1',
-      { ...evidence, evidenceId: 'fail', verdict: 'failed', checkedAt: 3 },
+      { ...evidence, evidenceId: 'fail', verdict: 'failed', checkedAt: 1 },
       hash('b'),
       'host',
     );

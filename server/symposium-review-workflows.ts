@@ -110,7 +110,7 @@ type Finding = {
   summary: string;
   location: string;
   evidenceRefs: string[];
-  status: 'open' | 'fixed' | 'dismissed';
+  status: 'open' | 'fixed' | 'dismissed' | 'superseded';
   reviewIds: string[];
   disposition?: { actor: string; reason: string; evidenceRefs: string[] };
 };
@@ -142,6 +142,7 @@ type Workflow = Create & {
   costUsd: number;
   attempts: Usage[];
   reservations: Array<AttemptAdmission & { requestHash: string; settled: boolean }>;
+  fixes: Array<{ attemptId: string; requestHash: string }>;
   findings: Finding[];
   reviews: Array<{
     reviewId: string;
@@ -266,6 +267,7 @@ export class SymposiumReviewStore {
       costUsd: 0,
       attempts: [],
       reservations: [],
+      fixes: [],
       findings: [],
       reviews: [],
       authorizations: [],
@@ -553,6 +555,12 @@ export class SymposiumReviewStore {
     const parsed = FixSchema.parse(input);
     return this.db.transaction(() => {
       const state = this.read(parsed.workflowId);
+      const requestHash = digest(parsed);
+      const prior = state.fixes?.find((fix) => fix.attemptId === parsed.usage.attemptId);
+      if (prior) {
+        if (prior.requestHash !== requestHash) throw new Error('Fix idempotency conflict');
+        return state;
+      }
       if (state.status !== 'awaiting_fix') throw new Error('Fix is not due');
       if (parsed.implementerSeatId !== state.implementer.seatId)
         throw new Error('Controlled implementer selection required');
@@ -581,6 +589,7 @@ export class SymposiumReviewStore {
       state.artifactRevision = parsed.result.artifactRevision;
       state.artifactHash = parsed.result.artifactHash;
       state.currentResultId = parsed.result.resultId;
+      (state.fixes ??= []).push({ attemptId: parsed.usage.attemptId, requestHash });
       if (!state.decisionCode) state.status = 'awaiting_delta_review';
       return this.write(state, 'fix_recorded', parsed);
     })();
@@ -605,6 +614,8 @@ export class SymposiumReviewStore {
     const parsed = WorkResultSchema.parse(result);
     return this.db.transaction(() => {
       const state = this.read(workflowId);
+      if (state.reservations.some((reservation) => !reservation.settled))
+        throw new Error('In-flight attempt must settle before advancing the artifact');
       this.requireArtifact(state, parsed.inputRevision, parsed.inputHash);
       if (
         parsed.artifactRevision === state.artifactRevision ||
@@ -614,6 +625,8 @@ export class SymposiumReviewStore {
       state.artifactRevision = parsed.artifactRevision;
       state.artifactHash = parsed.artifactHash;
       state.currentResultId = parsed.resultId;
+      for (const finding of state.findings)
+        if (finding.status === 'open') finding.status = 'superseded';
       if (!state.decisionCode) state.status = 'awaiting_review';
       return this.write(state, 'artifact_advanced', parsed);
     })();
@@ -679,12 +692,8 @@ export class SymposiumReviewStore {
             entry.item.artifactRevision === state.artifactRevision &&
             entry.artifactHash === state.artifactHash,
         );
-        if (current.length === 0) return false;
-        const latestAt = Math.max(...current.map((entry) => entry.item.checkedAt));
-        const latest = current.filter((entry) => entry.item.checkedAt === latestAt);
-        return latest.every(
-          (entry) => entry.item.verdict === 'verified' && entry.item.evidenceRefs.length > 0,
-        );
+        const latest = current.at(-1);
+        return latest?.item.verdict === 'verified' && latest.item.evidenceRefs.length > 0;
       });
       if (!verified)
         return { kind: 'decision_required' as const, code: 'missing_evidence' as const };
