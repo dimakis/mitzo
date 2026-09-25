@@ -150,9 +150,12 @@ the cancelled delivery. An active seat cannot change its label, role, or binding
 without first revoking membership; revocation cancels the claim. The event append
 boundary rejects any subsequent stream chunk under that stale generation, and the
 caller must retain the provider's late outcome in the audit ledger rather than
-silently presenting it as a live message. Historical attempts whose claim token
-predates this snapshot column remain unknown, never reconstructed from current
-configuration. This is protocol and persistence groundwork only. Client
+silently presenting it as a live message. During upgrade, a still-live historical
+claim supplies its durable token to the matching executing attempt, so later
+revocation cannot erase the evidence needed to audit its result and cost. Its
+provenance stays unknown. A claim already revoked before upgrade has no provable
+token and is not reconstructed from current configuration. This is protocol and
+persistence groundwork only. Client
 demultiplexing of simultaneous seat streams and attributed ChatView rendering are
 still required before Phase 4 is complete.
 

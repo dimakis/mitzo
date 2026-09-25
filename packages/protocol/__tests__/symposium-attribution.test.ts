@@ -242,4 +242,72 @@ describe('immutable Symposium attribution', () => {
     );
     upgraded.close();
   });
+  it('backfills a live pre-upgrade claim before revocation so its late cost remains auditable', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'symposium-live-claim-upgrade-'));
+    dirs.push(dir);
+    const path = join(dir, 'events.db');
+    open(path).close();
+    stores.pop();
+    const raw = new Database(path);
+    raw.exec(`
+      INSERT INTO symposium_deliveries
+        (delivery_id,session_id,recipient_seat_ids,original_content,status,idempotency_key,
+         config_revision,created_at,updated_at)
+      VALUES ('old-delivery','chat','["reviewer"]','Review','delivering','old-delivery-key',1,1,1);
+      INSERT INTO symposium_delivery_recipients
+        (delivery_id,seat_id,recipient_order,status,idempotency_key,config_revision,
+         account_profile_revision,seat_profile_revision,context_grant_id,context_grant_revision,
+         authority_grant_id,authority_grant_revision,isolation_domain_id,isolation_domain_revision,
+         updated_at)
+      VALUES ('old-delivery','reviewer',0,'executing','old-recipient-key',1,
+              'a','p','c',1,'g',1,'shared',1,1);
+      INSERT INTO symposium_seat_execution_claims
+        (session_id,seat_id,binding_key,delivery_id,recipient_idempotency_key,claim_token,claimed_at)
+      VALUES ('chat','reviewer','old-binding','old-delivery','old-recipient-key','old-token',1);
+      INSERT INTO symposium_recipient_attempts
+        (delivery_id,seat_id,attempt_number,idempotency_key,status,cost_usd,started_at,updated_at)
+      VALUES ('old-delivery','reviewer',1,'old-recipient-key','executing',0,1,1);
+      DROP INDEX idx_symposium_attempt_claim_token;
+      ALTER TABLE symposium_recipient_attempts DROP COLUMN claim_token;
+      ALTER TABLE symposium_recipient_attempts DROP COLUMN symposium_provenance;
+      ALTER TABLE symposium_late_results DROP COLUMN symposium_provenance;
+    `);
+    raw.close();
+    const upgraded = open(path);
+    expect(upgraded.getSymposiumRecipientAttempts('old-delivery')[0]).toMatchObject({
+      claimToken: 'old-token',
+      provenance: null,
+    });
+    upgraded.cancelSymposiumDelivery({
+      deliveryId: 'old-delivery',
+      reason: 'seat revoked',
+      idempotencyKey: 'cancel-old',
+      cancelledAt: 2,
+    });
+    const complete = (claimToken: string) =>
+      upgraded.completeSymposiumRecipient({
+        sessionId: 'chat',
+        deliveryId: 'old-delivery',
+        seatId: 'reviewer',
+        bindingKey: 'old-binding',
+        providerThreadId: 'provider-thread',
+        configRevision: 1,
+        threadCreatedAt: 1,
+        resultContent: 'Late response',
+        costUsd: 0.7,
+        updatedAt: 3,
+        claimToken,
+      });
+    complete('forged-token');
+    expect(upgraded.getSymposiumLateResults('old-delivery')).toEqual([]);
+    complete('old-token');
+    expect(upgraded.getSymposiumLateResults('old-delivery')).toEqual([
+      expect.objectContaining({ claimToken: 'old-token', costUsd: 0.7, provenance: null }),
+    ]);
+    expect(upgraded.getSymposiumUsage('chat')).toMatchObject({ attempts: 1, costUsd: 0.7 });
+    expect(upgraded.getSymposiumDelivery('old-delivery')?.recipients[0]).toMatchObject({
+      status: 'cancelled',
+      resultContent: null,
+    });
+  });
 });

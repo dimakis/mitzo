@@ -928,6 +928,25 @@ export class EventStore {
       if (!attemptColumns.some((column) => column.name === 'symposium_provenance')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN symposium_provenance TEXT');
       }
+      // Claims that were live when an older database is upgraded already have a durable
+      // execution token. Bind that token to the matching attempt before revocation can
+      // delete the live claim; historical attribution remains unknown.
+      db.exec(`
+        UPDATE symposium_recipient_attempts AS attempt
+        SET claim_token = (
+          SELECT claim.claim_token FROM symposium_seat_execution_claims AS claim
+          WHERE claim.delivery_id = attempt.delivery_id
+            AND claim.seat_id = attempt.seat_id
+            AND claim.recipient_idempotency_key = attempt.idempotency_key
+        )
+        WHERE attempt.claim_token IS NULL AND attempt.status = 'executing'
+          AND EXISTS (
+            SELECT 1 FROM symposium_seat_execution_claims AS claim
+            WHERE claim.delivery_id = attempt.delivery_id
+              AND claim.seat_id = attempt.seat_id
+              AND claim.recipient_idempotency_key = attempt.idempotency_key
+          )
+      `);
       db.exec(
         'CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_attempt_claim_token ON symposium_recipient_attempts(claim_token) WHERE claim_token IS NOT NULL',
       );
