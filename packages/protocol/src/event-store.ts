@@ -928,6 +928,18 @@ export class EventStore {
       if (!attemptColumns.some((column) => column.name === 'symposium_provenance')) {
         db.exec('ALTER TABLE symposium_recipient_attempts ADD COLUMN symposium_provenance TEXT');
       }
+      if (!attemptColumns.some((column) => column.name === 'cleanup_confirmed')) {
+        db.exec(
+          'ALTER TABLE symposium_recipient_attempts ADD COLUMN cleanup_confirmed INTEGER NOT NULL DEFAULT 0',
+        );
+        db.exec(`UPDATE symposium_recipient_attempts AS prior SET cleanup_confirmed = 1
+          WHERE status = 'delivered' OR (status = 'failed' AND EXISTS (
+            SELECT 1 FROM symposium_recipient_attempts finished
+            WHERE finished.delivery_id = prior.delivery_id AND finished.seat_id = prior.seat_id
+              AND finished.idempotency_key = prior.idempotency_key AND finished.status = 'delivered'
+              AND finished.attempt_number > prior.attempt_number
+          ))`);
+      }
       // Claims that were live when an older database is upgraded already have a durable
       // execution token. Bind that token to the matching attempt before revocation can
       // delete the live claim; historical attribution remains unknown.
@@ -2341,6 +2353,16 @@ export class EventStore {
         if (status !== 'failed' && status !== 'recovery_required') {
           throw new Error('Only failed or recovery-required deliveries can be retried');
         }
+        const config = this.getActiveSymposiumConfig(delivery.sessionId);
+        if (
+          config?.version === 2 &&
+          this.db!.prepare(
+            `SELECT 1 FROM symposium_recipient_attempts
+          WHERE delivery_id = ? AND cleanup_confirmed = 0 LIMIT 1`,
+          ).get(input.deliveryId)
+        ) {
+          throw new Error('Recipient execution or cleanup must settle before retry');
+        }
         status = 'ready';
         this.db!.prepare(
           `UPDATE symposium_delivery_recipients
@@ -2450,6 +2472,64 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Host executor confirms its exact attempt can no longer issue native operations. */
+  confirmSymposiumExecutionCleanup(claimToken: string): void {
+    this.db!.prepare(
+      `UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1
+      WHERE claim_token = ?`,
+    ).run(claimToken);
+  }
+
+  /** Confirmation is scoped to a captured attempt, including pre-token legacy rows. */
+  confirmSymposiumAttemptCleanup(attemptId: number, idempotencyKey: string): void {
+    this.db!.prepare(
+      `UPDATE symposium_recipient_attempts SET cleanup_confirmed = 1
+      WHERE attempt_id = ? AND idempotency_key = ?`,
+    ).run(attemptId, idempotencyKey);
+  }
+
+  getUnsettledSymposiumExecutions(
+    deliveryId: string,
+  ): Array<{ seatId: string; attemptId: number; idempotencyKey: string }> {
+    return (
+      this.db!.prepare(
+        `SELECT seat_id, attempt_id, idempotency_key FROM symposium_recipient_attempts
+      WHERE delivery_id = ? AND cleanup_confirmed = 0`,
+      ).all(deliveryId) as Array<{ seat_id: string; attempt_id: number; idempotency_key: string }>
+    ).map((row) => ({
+      seatId: row.seat_id,
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
+    }));
+  }
+
+  getUnsettledSymposiumSeatExecutions(
+    sessionId: string,
+    seatId: string,
+  ): Array<{ attemptId: number; idempotencyKey: string }> {
+    return (
+      this.db!.prepare(
+        `SELECT a.attempt_id, a.idempotency_key FROM symposium_recipient_attempts a
+      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+      WHERE d.session_id = ? AND a.seat_id = ? AND a.cleanup_confirmed = 0`,
+      ).all(sessionId, seatId) as Array<{ attempt_id: number; idempotency_key: string }>
+    ).map((row) => ({
+      attemptId: row.attempt_id,
+      idempotencyKey: row.idempotency_key,
+    }));
+  }
+
+  /** An occupied seat/resource leaves approved work queued, never retries failed work. */
+  requeueIdleSymposiumDelivery(deliveryId: string, updatedAt: number): void {
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+      WHERE delivery_id = ? AND status = 'delivering'
+        AND EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'pending')
+        AND NOT EXISTS (SELECT 1 FROM symposium_delivery_recipients WHERE delivery_id = ? AND status = 'executing')
+    `,
+    ).run(updatedAt, deliveryId, deliveryId, deliveryId);
+  }
+
   claimSymposiumRecipientExecution(input: {
     sessionId: string;
     deliveryId: string;
@@ -2556,6 +2636,38 @@ export class EventStore {
         return undefined;
       }
 
+      // Claims are acquired in this IMMEDIATE transaction, including across host instances.
+      // Shared-boundary writers conflict even when they target different seat threads.
+      const activeConfig = this.getActiveSymposiumConfig(input.sessionId);
+      const candidate = activeConfig.seats.find((seat) => seat.id === input.seatId);
+      const writes = (seat: typeof candidate) =>
+        !seat?.authorityGrant ||
+        seat.authorityGrant.filesystem === 'write' ||
+        seat.authorityGrant.tools === 'write';
+      if (activeConfig.version === 2 && writes(candidate)) {
+        const claims = this.db!.prepare(
+          `SELECT a.seat_id FROM symposium_recipient_attempts a
+            JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+            WHERE d.session_id = ? AND a.cleanup_confirmed = 0`,
+        ).all(input.sessionId) as Array<{ seat_id: string }>;
+        const uncertainCleanup = this.db!.prepare(
+          `SELECT 1 FROM symposium_membership m
+          JOIN symposium_membership_reconciliation r USING(session_id,seat_id,generation)
+          WHERE m.session_id = ? AND r.status != 'confirmed'
+            AND m.generation = (SELECT MAX(latest.generation) FROM symposium_membership latest
+              WHERE latest.session_id = m.session_id AND latest.seat_id = m.seat_id)
+            AND m.state != 'active' LIMIT 1`,
+        ).get(input.sessionId);
+        if (
+          uncertainCleanup ||
+          claims.some((claim) =>
+            writes(activeConfig.seats.find((seat) => seat.id === claim.seat_id)),
+          )
+        ) {
+          return undefined;
+        }
+      }
+
       const inserted = this.db!.prepare(
         `INSERT OR IGNORE INTO symposium_seat_execution_claims (
           session_id, seat_id, binding_key, delivery_id,
@@ -2571,14 +2683,15 @@ export class EventStore {
         input.claimedAt,
       );
       if (inserted.changes !== 1) {
-        this.db!.prepare(
-          `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
+        if (activeConfig.version !== 2)
+          this.db!.prepare(
+            `UPDATE symposium_deliveries SET status = 'ready', updated_at = ?
            WHERE delivery_id = ? AND status = 'delivering'
              AND NOT EXISTS (
                SELECT 1 FROM symposium_delivery_recipients
                WHERE delivery_id = ? AND status = 'executing'
              )`,
-        ).run(input.claimedAt, input.deliveryId, input.deliveryId);
+          ).run(input.claimedAt, input.deliveryId, input.deliveryId);
         return undefined;
       }
 
