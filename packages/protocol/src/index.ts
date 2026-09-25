@@ -127,6 +127,12 @@ export {
 // StoredEvent, SessionMeta, and EventStoreLogger types are in './types.js' above.
 
 export { AccountProviderSchema, AccountBindingSchema } from './account-binding.js';
+export {
+  ExecutionSelectionSchema,
+  ExecutionPolicySchema,
+  ExecutionOverrideSchema,
+} from './execution-policy.js';
+export type { ExecutionSelection, ExecutionPolicy, ExecutionOverride } from './execution-policy.js';
 export type {
   AccountProvider,
   AccountBinding,
