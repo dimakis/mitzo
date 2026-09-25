@@ -566,6 +566,28 @@ npm run observability:down
 
 Requires podman (`brew install podman`) or Docker.
 
+### Upgrading Grafana
+
+This stack stores Grafana data in `.grafana-data`. Before starting Grafana 13.2 after upgrading from 12.4, stop Grafana and back up the entire directory, including its SQLite database:
+
+```bash
+docker compose stop grafana
+cp -a .grafana-data ../mitzo-grafana-data.backup
+```
+
+If the upgrade fails, stop Grafana, move the upgraded data aside, restore the backup, and set the image in `docker-compose.yml` back to the previous Grafana tag before restarting:
+
+```bash
+docker compose stop grafana
+mv .grafana-data ../mitzo-grafana-data.failed
+cp -a ../mitzo-grafana-data.backup .grafana-data
+docker compose up -d grafana
+```
+
+If Podman manages the stack, use `podman compose` instead of `docker compose` in these commands.
+
+Keep the backup until Grafana 13.2 is working as expected.
+
 ### Enable tracing
 
 Add to `.env`:
