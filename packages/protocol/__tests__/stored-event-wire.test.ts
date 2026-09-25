@@ -93,5 +93,14 @@ describe('stored Symposium event wire envelope', () => {
       seq: 12,
       startedSeq: 12,
     });
+    expect(
+      storedEventToClientMessage({
+        seq: 13,
+        sessionId: 'conversation',
+        type: 'user_message',
+        payload: { type: 'user_message', messageId: 'u1', startedSeq: 900 },
+        createdAt: 104,
+      }),
+    ).toMatchObject({ type: 'user_message', messageId: 'u1', startedSeq: 13 });
   });
 });

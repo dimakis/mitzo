@@ -33,7 +33,7 @@ export function storedEventToClientMessage(
       ? { sessionId: event.sessionId ?? _payloadSessionId }
       : {}),
     seq: event.seq,
-    ...(event.type === 'message_start'
+    ...(event.type === 'message_start' || event.type === 'user_message'
       ? { startedSeq: event.seq }
       : payloadStartedSeq !== undefined
         ? { startedSeq: payloadStartedSeq }
