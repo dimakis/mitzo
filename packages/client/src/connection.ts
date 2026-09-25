@@ -77,6 +77,7 @@ export class MitzoConnection {
   disconnect(): void {
     this.authCheckGeneration++;
     this.authCheckInFlight = false;
+    this.appliedDelivery.clearPending();
     this.stopHeartbeat();
     this.removeBrowserListeners();
     if (this.reconnectTimer) {
@@ -447,6 +448,7 @@ export class MitzoConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.appliedDelivery.clearPending();
     this.authCheckGeneration++;
     this.authCheckInFlight = false;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

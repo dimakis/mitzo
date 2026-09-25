@@ -490,6 +490,19 @@ describe('MitzoConnection', () => {
   });
 
   describe('disconnect', () => {
+    it('cancels a predecessor-gap retry after explicit disconnect', () => {
+      vi.useFakeTimers();
+      const conn = createConnection();
+      conn.onMessage(() => true);
+      conn.trackSeq('s1', 2);
+      const ws = openWithHandshake(conn);
+      ws.simulateMessage({ type: 'block_delta', sessionId: 's1', seq: 9, prevSessionSeq: 5 });
+      conn.disconnect();
+      vi.advanceTimersByTime(15_000);
+      expect(lastWs).toBe(ws);
+      vi.useRealTimers();
+    });
+
     it('closes the WS and clears reconnect timer', () => {
       vi.useFakeTimers();
       const conn = createConnection();

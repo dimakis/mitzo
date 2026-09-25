@@ -128,6 +128,7 @@ export class SseConnection implements ChatConnection {
 
   disconnect(): void {
     this.foregroundProbe?.cancel();
+    this.appliedDelivery.clearPending();
     this.outbox.stop();
     this.clearPendingSends();
     this.removeBrowserListeners();
@@ -500,6 +501,7 @@ export class SseConnection implements ChatConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.appliedDelivery.clearPending();
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;

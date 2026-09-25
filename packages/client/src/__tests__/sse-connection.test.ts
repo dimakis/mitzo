@@ -472,6 +472,24 @@ describe('SseConnection', () => {
     );
   });
 
+  it('cancels a predecessor-gap retry after explicit disconnect', () => {
+    const conn = new SseConnection(createConfig());
+    conn.onMessage(() => true);
+    conn.connect();
+    const first = lastES();
+    first._emit('welcome', { type: 'welcome', connectionId: 'conn-1' });
+    conn.trackSeq('sess-1', 2);
+    first._emit('message', {
+      type: 'block_delta',
+      sessionId: 'sess-1',
+      seq: 9,
+      prevSessionSeq: 5,
+    });
+    conn.disconnect();
+    vi.advanceTimersByTime(15_000);
+    expect(lastES()).toBe(first);
+  });
+
   it('resyncs instead of acknowledging a refused snapshot offer', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
     const conn = new SseConnection(createConfig({ fetch: mockFetch }));
