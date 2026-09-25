@@ -3408,6 +3408,8 @@ export function replayEventsToTranscript(
   >();
   for (const event of events) {
     if (event.seatId === undefined && event.symposiumProvenance === undefined) {
+      if ('seatId' in event.payload || 'symposiumProvenance' in event.payload)
+        throw new Error('Stored event has unverifiable Symposium attribution');
       ordinary.push(event);
       if (event.type === 'session_end') {
         globalTerminals.push(event);

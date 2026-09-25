@@ -277,6 +277,18 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     expect(() => replayEventsToTranscript([bad])).toThrow(/seat/i);
   });
 
+  it('refuses a payload-only seat claim without durable attribution', () => {
+    const ordinary = evt(1, 'message_start', { messageId: 'ordinary' });
+    expect(replayEventsToTranscript([ordinary]).current?.messageId).toBe('ordinary');
+    const unverifiable = evt(2, 'message_start', {
+      messageId: 'claimed-seat',
+      seatId: 'reviewer',
+    });
+    expect(() => replayEventsToTranscript([ordinary, unverifiable])).toThrow(
+      /unverifiable|attribution/i,
+    );
+  });
+
   it('refuses two open messages for the same seat', () => {
     const provenance = {
       seatId: 'reviewer',
