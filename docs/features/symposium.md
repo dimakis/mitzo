@@ -176,6 +176,34 @@ not been closed or modified by this change.
 No runtime, UI, model calls, or production deployment are included in this first
 slice. The Telos parent and later phases remain unfinished.
 
+## Portable profiles and artifact review services
+
+`SymposiumProfileStore` keeps immutable, owner-scoped profile revisions alongside
+the session database. Profiles contain role instructions, expected output,
+acceptance criteria, and a model-policy role. Export and import preserve the exact
+revision and content hash. Account bindings, credentials, context grants, and
+authority grants are excluded; importing a profile cannot grant runtime access.
+Saving uses revision compare-and-swap and durable idempotency keys.
+
+`SymposiumReviewStore` records a bounded review workflow for an exact artifact
+revision and hash. The coder and reviewer are independently selected through the
+existing execution-policy resolver. Structured findings have stable fingerprints,
+evidence references, and explicit fix or dismissal dispositions. A fix requires
+owner authority and produces a new artifact revision for delta review.
+
+Every review or fix requires a persisted attempt reservation before dispatch.
+Round, token, and cost ceilings block further admission; unknown cost under a
+monetary limit requires a decision. Repeating an admitted attempt identifier does
+not authorize another model call. Artifact edits preserve outstanding budget
+decisions. Completion requires current-artifact host evidence for every acceptance
+criterion; model agreement does not establish verification, and newer failed host
+evidence supersedes an earlier verified result.
+
+These are persistence and admission services. Profile catalog UI, runtime-enforced
+attempt limits, recovery of uncertain native execution, and the complete automated
+review/fix loop still require integration. The tests use synthetic results and do
+not invoke models.
+
 ## Concurrent directed dispatch
 
 V2 directed deliveries may execute independent admitted seats concurrently, bounded

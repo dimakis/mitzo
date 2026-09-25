@@ -45,6 +45,17 @@ export const ProfileBindingSchema = z.strictObject({
   profileRevision: z.string().trim().min(1),
 });
 
+/** Portable role guidance only. Runtime identity and grants remain session-scoped. */
+export const SymposiumProfileDefinitionSchema = z.strictObject({
+  name: z.string().trim().min(1),
+  role: z.enum(['planner', 'architect', 'coder', 'reviewer', 'research', 'synthesis']),
+  instructions: z.string().trim().min(1),
+  expectedOutput: z.string().trim().min(1),
+  acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
+  modelPolicyRole: z.string().trim().min(1),
+});
+export type SymposiumProfileDefinition = z.infer<typeof SymposiumProfileDefinitionSchema>;
+
 export const ContextGrantSchema = z.strictObject({
   grantId: z.string().trim().min(1),
   revision: z.number().int().positive(),
