@@ -320,7 +320,10 @@ describe('ConnectionsView', () => {
       desiredAccountIds: ['work'],
       capabilityTemplates: [{ id: 'github.publish-pr', version: 1 }],
     };
-    vi.mocked(connections.getConnections).mockResolvedValue({ ...catalog, connections: [github] });
+    vi.mocked(connections.getConnections).mockImplementation(async () => ({
+      ...catalog,
+      connections: [{ ...github, desiredAccountIds: [...github.desiredAccountIds] }],
+    }));
     let active = false;
     vi.mocked(connections.getConnectionCapabilityGrants).mockImplementation(async () =>
       active
@@ -359,6 +362,8 @@ describe('ConnectionsView', () => {
     await act(async () => button('Save grant').click());
     expect(connections.setConnectionCapabilityGrant).not.toHaveBeenCalled();
     await reauthorize();
+    expect(profile.checked).toBe(true);
+    expect(button('Save grant').disabled).toBe(false);
     await act(async () => button('Save grant').click());
     expect(connections.setConnectionCapabilityGrant).toHaveBeenCalledWith(
       expect.objectContaining({

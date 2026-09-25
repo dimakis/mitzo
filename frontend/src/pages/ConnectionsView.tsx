@@ -962,6 +962,9 @@ function CapabilityGrants({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const generation = useRef(0);
+  // A response refresh creates new arrays even when assignments did not change.
+  // Keep an in-progress grant selection through reauthorization in that case.
+  const assignmentKey = connection.desiredAccountIds.join('\u0000');
   const load = useCallback(async () => {
     const request = ++generation.current;
     setLoading(true);
@@ -970,6 +973,7 @@ function CapabilityGrants({
       const next = await getConnectionCapabilityGrants(connection.id);
       if (request !== generation.current) return;
       setGrants(next);
+      const assigned = new Set(assignmentKey ? assignmentKey.split('\u0000') : []);
       setSelected(
         Object.fromEntries(
           next
@@ -979,7 +983,7 @@ function CapabilityGrants({
             )
             .map((grant) => [
               templateKey({ id: grant.capabilityId, version: grant.capabilityVersion }),
-              grant.accountIds.filter((id) => connection.desiredAccountIds.includes(id)),
+              grant.accountIds.filter((id) => assigned.has(id)),
             ]),
         ),
       );
@@ -989,7 +993,7 @@ function CapabilityGrants({
     } finally {
       if (request === generation.current) setLoading(false);
     }
-  }, [connection.id, connection.revision, connection.desiredAccountIds]);
+  }, [connection.id, connection.revision, assignmentKey]);
   useEffect(() => {
     if (open) void load();
     return () => {
