@@ -212,10 +212,8 @@ describe('SymposiumOrchestrator', () => {
         reason: action,
         idempotencyKey: `${seatId}:${action}`,
       });
-    await move('builder', 'admit', 0);
-    await move('reviewer', 'admit', 0);
-    await move('implementer', 'admit', 0);
     for (const seatId of ['builder', 'reviewer', 'implementer']) {
+      await move(seatId, 'admit', 0);
       orchestrator.recordProviderAdmission({
         sessionId: 'chat',
         seatId,
@@ -223,6 +221,7 @@ describe('SymposiumOrchestrator', () => {
         reason: 'Approved',
         idempotencyKey: `admit:${seatId}`,
       });
+      await orchestrator.reconcileMembership('chat', seatId, 1);
     }
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -285,6 +284,7 @@ describe('SymposiumOrchestrator', () => {
         reason: 'approved',
         idempotencyKey: `admission:${seatId}`,
       });
+      await orchestrator.reconcileMembership('chat', seatId, 1);
     }
     const staged = orchestrator.stageDelivery({
       sessionId: 'chat',
@@ -317,6 +317,171 @@ describe('SymposiumOrchestrator', () => {
       expect.objectContaining({ seatId: 'reviewer', resultContent: 'Late answer', costUsd: 0.7 }),
     ]);
     expect(store.getSymposiumDelivery(staged.deliveryId)?.recipients[0].resultContent).toBeNull();
+    expect(store.getSymposiumUsage('chat')).toMatchObject({ attempts: 1, costUsd: 0.7 });
+  });
+  it('keeps uncertain admission blocked across restart until explicit reconciliation succeeds', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      reconcileProviders: async () => {
+        throw new Error('provider state unknown');
+      },
+    });
+    const uncertain = await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'admit-builder',
+    });
+    expect(uncertain.reconciliation).toBe('pending');
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'provider-builder',
+    });
+    expect((await orchestrator.reconcileMembership('chat', 'builder', 1)).reconciliation).toBe(
+      'recovery_required',
+    );
+    store.close();
+    store = new EventStore(dbPath);
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      reconcileProviders: async () => {},
+    });
+    expect((await orchestrator.reconcileMembership('chat', 'builder', 1)).reconciliation).toBe(
+      'confirmed',
+    );
+    expect(store.getLatestSymposiumAdmission('chat', 'builder', 4)?.membershipGeneration).toBe(1);
+  });
+  it('does not attach a provider before explicit current-generation approval', async () => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    const reconcileProviders = vi.fn(async () => {});
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      reconcileProviders,
+    });
+    const pending = await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'membership-builder',
+    });
+    expect(pending.reconciliation).toBe('pending');
+    expect(reconcileProviders).not.toHaveBeenCalled();
+    await expect(orchestrator.reconcileMembership('chat', 'builder', 1)).rejects.toThrow(
+      /admission/i,
+    );
+    expect(reconcileProviders).not.toHaveBeenCalled();
+    orchestrator.recordProviderAdmission({
+      sessionId: 'chat',
+      seatId: 'builder',
+      decision: 'refused',
+      idempotencyKey: 'refused-builder',
+    });
+    await expect(orchestrator.reconcileMembership('chat', 'builder', 1)).rejects.toThrow(
+      /admission/i,
+    );
+    expect(reconcileProviders).not.toHaveBeenCalled();
+  });
+  it('keeps the original anchor usable when a reviewer is lazily added at a new revision', async () => {
+    store.upsertSession({ sessionId: 'fresh', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('fresh', {
+      ...config,
+      version: 2,
+      revision: 1,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+      seats: [config.seats[0]],
+    });
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      reconcileProviders: async () => {},
+    });
+    await orchestrator.transitionMembership({
+      sessionId: 'fresh',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'builder-member',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'fresh',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'builder-admission-v1',
+    });
+    await orchestrator.reconcileMembership('fresh', 'builder', 1);
+    store.setSymposiumConfig('fresh', {
+      ...config,
+      version: 2,
+      revision: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    await orchestrator.transitionMembership({
+      sessionId: 'fresh',
+      seatId: 'reviewer',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 2,
+      actor: 'director',
+      reason: 'add reviewer',
+      idempotencyKey: 'reviewer-member',
+    });
+    orchestrator.recordProviderAdmission({
+      sessionId: 'fresh',
+      seatId: 'reviewer',
+      decision: 'admitted',
+      idempotencyKey: 'reviewer-admission',
+    });
+    await orchestrator.reconcileMembership('fresh', 'reviewer', 1);
+    orchestrator.recordProviderAdmission({
+      sessionId: 'fresh',
+      seatId: 'builder',
+      decision: 'admitted',
+      idempotencyKey: 'builder-admission-v2',
+    });
+    const staged = orchestrator.stageDelivery({
+      sessionId: 'fresh',
+      sourceSeatId: 'builder',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'Review this',
+      idempotencyKey: 'new-review',
+    });
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approved',
+    });
+    expect((await orchestrator.deliver(staged.deliveryId)).status).toBe('delivered');
   });
   it('records explicit provider admission against one shared trust boundary', () => {
     const admission = admit('reviewer');

@@ -1,12 +1,12 @@
 # Symposium implementation
 
-Telos parent: `6403fb22f9bb743c`. Phase 1: `f25ad2749b4a1504`.
+Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
 ## Product contract
 
-The 7 September discussion in **Design Mitzo symposium UX** is the current product
-source. Symposium adds a second seat to an existing chat. Both desktop and mobile
-use one conversation stream. Each prompt can target Seat 1, Seat 2, or both; the
+The 22 September Phase 2.5 decision supersedes the earlier two-seat limit.
+Symposium starts as one chat and can admit a bounded set of stable seats. Both desktop and mobile
+use one conversation stream. Each prompt can target explicit seat IDs; the
 director explicitly chooses which prior context is delivered. Pre-PR code and
 artifact review is the initial workflow. Profile, connection, model, and context
 or tool grants remain separate choices. Profiles can be drafted conversationally
@@ -15,6 +15,9 @@ and saved to a reusable catalog without credentials or session-specific grants.
 See also `../design/workspace-redesign/mitzo-redesign-launch-plan.md`.
 
 ## Foundation delivered by this change
+
+The following records the historical Phase 1 and 2 contract. Version 1 remains
+readable and executable until an explicit revisioned upgrade.
 
 - Exported a canonical validated account-binding schema using Mitzo's supported
   provider identities, rather than accepting arbitrary provider strings.
@@ -82,6 +85,47 @@ The orchestrator fails closed for draft/stale configurations, unadmitted provide
 unsupported scheduling modes, changed grants, and missing executors. Both seats
 remain inside the single Symposium trust domain established by Phase 1; this change
 does not introduce per-seat sandboxes or brokered federation.
+
+## Phase 2.5 membership foundation
+
+Version 2 configuration has a validated active-seat cap (1–8), a stable anchor seat
+ID, and role labels independent of array position, account, model, effort, profile,
+and grants. A session may begin with only its anchor and add seats later. Configured
+historical seats remain in the document after suspension or removal; only active
+membership consumes the cap. An upgrade preserves the original Seat 1 identity and
+account binding. A v2 configuration with membership history cannot be deactivated
+into ordinary chat, which would erase the identity context required to interpret
+its ledger. Existing v1 event and delivery rows are never rewritten.
+
+Membership transitions are append-only SQLite rows. An immediate transaction
+compares the expected per-seat generation, reserves capacity, and on revocation
+cancels queued, staged, approved, and executing recipients before returning. The
+anchor cannot be revoked without a separate transfer contract. Suspension can be
+restored only with a fresh generation and current provider admission. Removal is
+terminal for that seat identity; replacement creates a distinct seat linked to its
+removed predecessor. A changed account/profile/model/effort/grant/isolation binding
+uses a different thread key and cannot silently reuse the prior thread.
+
+An activation remains `pending` until a current-generation provider decision is
+recorded and the runtime reconciliation callback confirms the required provider
+set. Refusal or missing approval cannot attach a provider. On revocation, the
+orchestrator persists the fence first, then asks the injected stop and provider-set
+interfaces to reconcile. The provider set is the union of admitted active seats and
+other authoritative retained grants supplied by the caller. A failed or missing
+cleanup interface leaves `recovery_required`; admission and dispatch stay blocked
+until `reconcileMembership` confirms that same generation. Restart does not turn a
+pending or uncertain row into operational success.
+
+Recipient snapshots and seat event provenance carry membership generation in v2.
+The execution claim transaction checks current configuration, binding, provider
+admission, and generation. Revoked recipients cannot use stale approvals or retries.
+Late provider output is retained in a separate audit ledger with its cost and
+original recipient, while the cancelled delivery remains cancelled. The shared
+turn cap and historical attempt ledger are retained; usage includes late-result
+cost across suspension, replacement, and restoration. These tests use fake executors;
+actual process shutdown and provider attachment are Phase 3 responsibilities. The
+shared OpenShell boundary does not provide per-seat credential, artifact, or egress
+isolation, and revocation cannot retract data already seen.
 
 Next, integrate provider execution and websocket controls (Phase 3), followed by
 seat-attributed rich rendering and controls in the existing ChatView (Phases 4–6).

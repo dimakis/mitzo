@@ -1439,6 +1439,16 @@ export class EventStore {
       }
       const seat = config.seats.find((candidate) => candidate.id === provenance.seatId);
       if (!seat) throw new Error('Symposium provenance references an unknown seat');
+      if (config.version === 2) {
+        const membership = this.getLatestSymposiumMembership(sessionId, seat.id);
+        if (
+          membership?.state !== 'active' ||
+          membership.reconciliation !== 'confirmed' ||
+          membership.generation !== provenance.membershipGeneration
+        ) {
+          throw new Error('Symposium membership generation does not permit event attribution');
+        }
+      }
       if (
         provenance.configRevision !== config.revision ||
         provenance.accountProfileRevision !== seat.accountBinding?.profileRevision ||
@@ -1636,15 +1646,20 @@ export class EventStore {
   }
 
   deactivateSymposium(sessionId: string, expectedRevision: number): void {
-    const result = this.db!.prepare(
-      `UPDATE sessions SET
+    this.db!.transaction(() => {
+      const historical = this.db!.prepare(
+        `SELECT 1 FROM symposium_membership
+        WHERE session_id = ? LIMIT 1`,
+      ).get(sessionId);
+      if (historical) throw new Error('Cannot deactivate Symposium v2 with membership history');
+      const result = this.db!.prepare(
+        `UPDATE sessions SET
           session_type = 'chat', symposium_config = NULL,
           updated_at = unixepoch('now', 'subsec') * 1000
          WHERE session_id = ? AND session_type = 'symposium' AND symposium_revision = ?`,
-    ).run(sessionId, expectedRevision);
-    if (result.changes !== 1) {
-      throw new Error('Symposium deactivation revision conflict');
-    }
+      ).run(sessionId, expectedRevision);
+      if (result.changes !== 1) throw new Error('Symposium deactivation revision conflict');
+    }).immediate();
   }
 
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig {
@@ -1891,6 +1906,22 @@ export class EventStore {
     }));
   }
 
+  /** Historical attempts and late results keep spending visible across seat changes. */
+  getSymposiumUsage(sessionId: string): { attempts: number; costUsd: number } {
+    const attempts = this.db!.prepare(
+      `SELECT count(*) AS attempts,
+      coalesce(sum(a.cost_usd),0) AS cost FROM symposium_recipient_attempts a
+      JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
+      WHERE d.session_id = ?`,
+    ).get(sessionId) as { attempts: number; cost: number };
+    const late = this.db!.prepare(
+      `SELECT coalesce(sum(l.cost_usd),0) AS cost
+      FROM symposium_late_results l JOIN symposium_deliveries d ON d.delivery_id = l.delivery_id
+      WHERE d.session_id = ?`,
+    ).get(sessionId) as { cost: number };
+    return { attempts: attempts.attempts, costUsd: attempts.cost + late.cost };
+  }
+
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
     return this.db!.transaction(() => {
       const prior = this.db!.prepare(
@@ -1921,10 +1952,9 @@ export class EventStore {
         const membership = this.getLatestSymposiumMembership(record.sessionId, record.seatId);
         if (
           membership?.state !== 'active' ||
-          membership.reconciliation !== 'confirmed' ||
           membership.generation !== record.membershipGeneration
         ) {
-          throw new Error('Symposium membership must be reconciled before provider admission');
+          throw new Error('Symposium membership must be current before provider admission');
         }
       }
       if (
@@ -2054,7 +2084,10 @@ export class EventStore {
         if (
           !source ||
           !record.sourceProvenance ||
-          !matchesSeatProvenance(config, source, record.sourceProvenance)
+          !matchesSeatProvenance(config, source, record.sourceProvenance) ||
+          (config.version === 2 &&
+            this.getLatestSymposiumMembership(record.sessionId, source.id)?.generation !==
+              record.sourceProvenance.membershipGeneration)
         ) {
           throw new Error('Symposium delivery source provenance does not match its seat');
         }

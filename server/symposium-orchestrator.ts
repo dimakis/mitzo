@@ -87,39 +87,62 @@ export class SymposiumOrchestrator {
     replacesSeatId?: string;
   }): Promise<SymposiumMembershipRecord> {
     const record = this.store.transitionSymposiumMembership({ ...input, occurredAt: this.now() });
-    if (record.reconciliation !== 'pending') return record;
+    if (record.reconciliation === 'confirmed' || record.state === 'active') return record;
+    return this.reconcileMembership(input.sessionId, input.seatId, record.generation);
+  }
+
+  /** Resume uncertain stop/provider reconciliation after a crash or failed cleanup. */
+  async reconcileMembership(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): Promise<SymposiumMembershipRecord> {
+    const record = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    if (!record || record.generation !== generation)
+      throw new Error('Symposium membership generation is stale');
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active') {
+      const admission = this.store.getLatestSymposiumAdmission(
+        sessionId,
+        seatId,
+        this.store.getActiveSymposiumConfig(sessionId).revision,
+      );
+      if (admission?.decision !== 'admitted' || admission.membershipGeneration !== generation) {
+        throw new Error('Current-generation provider admission is required before reconciliation');
+      }
+    }
     try {
       if (!this.reconcileProviders || (record.state !== 'active' && !this.stopSeat))
         throw new Error('Runtime cleanup interface unavailable');
       if (record.state !== 'active') {
         await this.stopSeat!({
-          sessionId: input.sessionId,
-          seatId: input.seatId,
+          sessionId,
+          seatId,
           generation: record.generation,
         });
       }
       await this.reconcileProviders({
-        sessionId: input.sessionId,
+        sessionId,
         requiredProviders: this.store.getSymposiumRequiredProviders(
-          input.sessionId,
-          this.retainedProviders(input.sessionId),
+          sessionId,
+          this.retainedProviders(sessionId),
         ),
       });
       return this.store.markSymposiumMembershipReconciled(
-        input.sessionId,
-        input.seatId,
+        sessionId,
+        seatId,
         record.generation,
         'confirmed',
       );
     } catch (error) {
       log.warn('Symposium membership cleanup requires recovery', {
-        sessionId: input.sessionId,
-        seatId: input.seatId,
+        sessionId,
+        seatId,
         error: error instanceof Error ? error.message : String(error),
       });
       return this.store.markSymposiumMembershipReconciled(
-        input.sessionId,
-        input.seatId,
+        sessionId,
+        seatId,
         record.generation,
         'recovery_required',
       );
@@ -265,7 +288,15 @@ export class SymposiumOrchestrator {
       interventionReason: null,
       idempotencyKey: input.idempotencyKey,
       configRevision: config.revision,
-      sourceProvenance: sourceSeat ? provenanceFor(sourceSeat, config.revision) : null,
+      sourceProvenance: sourceSeat
+        ? provenanceFor(
+            sourceSeat,
+            config.revision,
+            config.version === 2
+              ? this.store.getLatestSymposiumMembership(input.sessionId, sourceSeat.id)?.generation
+              : undefined,
+          )
+        : null,
       cancellationReason: null,
       cancellationIdempotencyKey: null,
       cancelledAt: null,
@@ -464,7 +495,13 @@ export class SymposiumOrchestrator {
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
           providerThreadId: thread?.providerThreadId,
-          provenance: provenanceFor(seat, currentConfig.revision),
+          provenance: provenanceFor(
+            seat,
+            currentConfig.revision,
+            currentConfig.version === 2
+              ? this.store.getLatestSymposiumMembership(delivery.sessionId, seat.id)?.generation
+              : undefined,
+          ),
           signal: abortController.signal,
         });
         const timestamp = this.now();
@@ -525,7 +562,11 @@ function requireActiveSeat(seat: SeatConfig) {
   };
 }
 
-function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProvenance {
+function provenanceFor(
+  seat: SeatConfig,
+  configRevision: number,
+  membershipGeneration?: number,
+): SymposiumProvenance {
   const active = requireActiveSeat(seat);
   return {
     seatId: seat.id,
@@ -536,6 +577,7 @@ function provenanceFor(seat: SeatConfig, configRevision: number): SymposiumProve
     authorityGrantRevision: active.authorityGrant.revision,
     isolationDomainId: active.isolationRequest.trustDomainId,
     isolationDomainRevision: active.isolationRequest.revision,
+    ...(membershipGeneration !== undefined ? { membershipGeneration } : {}),
   };
 }
 

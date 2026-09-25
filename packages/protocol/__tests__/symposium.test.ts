@@ -430,6 +430,139 @@ describe('Symposium persistence', () => {
     ]);
     expect(store.getSymposiumRequiredProviders('chat')).toEqual(['openai-codex']);
   });
+  it('does not erase v2 membership history through chat deactivation', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'membership-builder',
+      occurredAt: 1,
+    });
+    expect(() => store.deactivateSymposium('chat', 1)).toThrow(/membership|v2/i);
+    expect(store.getSymposiumMembershipHistory('chat')).toHaveLength(1);
+  });
+  it('fences v2 event attribution on current membership generation', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+    });
+    const provenance = {
+      seatId: 'reviewer',
+      configRevision: 1,
+      accountProfileRevision: 'account-2',
+      seatProfileRevision: 'profile-2',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'work',
+      isolationDomainRevision: 1,
+      membershipGeneration: 1,
+    };
+    expect(() => store.appendSymposium('chat', 'message_start', {}, provenance)).toThrow(
+      /membership/i,
+    );
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'start',
+      idempotencyKey: 'reviewer-member',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'confirmed');
+    expect(store.appendSymposium('chat', 'message_start', {}, provenance)).toBeGreaterThan(0);
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 1,
+      actor: 'director',
+      reason: 'pause',
+      idempotencyKey: 'reviewer-pause',
+      occurredAt: 2,
+    });
+    expect(() => store.appendSymposium('chat', 'message_start', {}, provenance)).toThrow(
+      /membership/i,
+    );
+  });
+  it('suspends, replaces, and restores without changing historical identities', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const implementer = { ...config.seats[1], id: 'implementer', role: 'implementer' };
+    const replacement = { ...config.seats[1], id: 'replacement', role: 'reviewer' };
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 2,
+      seats: [...config.seats, implementer, replacement],
+    });
+    const move = (
+      seatId: string,
+      action: 'admit' | 'suspend' | 'restore' | 'remove' | 'replace',
+      expectedGeneration: number,
+      replacesSeatId?: string,
+    ) =>
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId,
+        action,
+        expectedGeneration,
+        configRevision: 1,
+        actor: 'director',
+        reason: action,
+        idempotencyKey: `${seatId}:${action}:${expectedGeneration}`,
+        occurredAt: expectedGeneration + 1,
+        replacesSeatId,
+      });
+    move('builder', 'admit', 0);
+    store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'confirmed');
+    move('reviewer', 'admit', 0);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'confirmed');
+    move('reviewer', 'suspend', 1);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 2, 'confirmed');
+    move('implementer', 'admit', 0);
+    store.markSymposiumMembershipReconciled('chat', 'implementer', 1, 'confirmed');
+    expect(() => move('reviewer', 'restore', 2)).toThrow(/cap/i);
+    move('implementer', 'suspend', 1);
+    store.markSymposiumMembershipReconciled('chat', 'implementer', 2, 'confirmed');
+    expect(move('reviewer', 'restore', 2)).toMatchObject({ generation: 3, state: 'active' });
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 3, 'confirmed');
+    move('reviewer', 'remove', 3);
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 4, 'confirmed');
+    expect(() => move('reviewer', 'restore', 4)).toThrow();
+    expect(move('replacement', 'replace', 0, 'reviewer')).toMatchObject({
+      seatId: 'replacement',
+      replacesSeatId: 'reviewer',
+      state: 'active',
+    });
+    expect(store.getLatestSymposiumMembership('chat', 'reviewer')?.replacedBySeatId).toBe(
+      'replacement',
+    );
+    expect(store.getSymposiumMembershipHistory('chat', 'reviewer').map((row) => row.state)).toEqual(
+      ['active', 'suspended', 'active', 'removed'],
+    );
+    expect(store.getLatestSymposiumMembership('chat', 'implementer')?.seatId).toBe('implementer');
+  });
   it('activates only when Seat 1 retains the existing session binding', () => {
     const store = open();
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
