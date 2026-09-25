@@ -188,6 +188,19 @@ function removeTaskFromTree(tasks: Task[], id: string): Task[] {
 }
 
 /** Merge an older HTTP snapshot with events received while it was in flight. */
+function mergeLiveWithDurable(
+  live: FinishedMessage | undefined,
+  durable: FinishedMessage,
+): FinishedMessage {
+  if (!live) return durable;
+  return {
+    ...live,
+    ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
+    images: live.images ?? durable.images,
+    contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+  };
+}
+
 function mergeHistory(
   state: MessagesState,
   history: FinishedMessage[],
@@ -206,7 +219,7 @@ function mergeHistory(
     )
       continue;
     seen.add(message.messageId);
-    merged.push(live.get(message.messageId) ?? message);
+    merged.push(mergeLiveWithDurable(live.get(message.messageId), message));
   }
   return messagesReducer(state, { type: 'RESTORE', messages: merged });
 }
@@ -279,7 +292,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                   messages: (() => {
                     const live = s.messages.messages.filter(
                       (m) =>
-                        initialMessages.get(m.messageId) !== m ||
+                        (initialMessages.get(m.messageId) !== m &&
+                          (throughSeq === undefined ||
+                            m.startedSeq === undefined ||
+                            m.startedSeq > throughSeq)) ||
                         pendingOptimisticMessageIds.has(m.messageId) ||
                         currentBoundedRestore?.confirmedMessageIds.has(m.messageId),
                     );
@@ -292,7 +308,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                             s.messages.current === initialCurrent ||
                             m.messageId !== s.messages.current?.messageId,
                         )
-                        .map((m) => liveById.get(m.messageId) ?? m),
+                        .map((m) => mergeLiveWithDurable(liveById.get(m.messageId), m)),
                       ...live.filter((m) => !savedIds.has(m.messageId)),
                     ];
                   })(),

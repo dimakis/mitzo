@@ -1068,7 +1068,10 @@ describe('reconnect recovery', () => {
       text: 'old prompt',
       seq: 6,
     });
-    expect(store.getState().messages.messages[1]).toBe(optimistic);
+    expect(store.getState().messages.messages[1]).toMatchObject({
+      ...optimistic,
+      startedSeq: 8,
+    });
     releaseRestore({
       ok: true,
       json: () => Promise.resolve([{ messageId: 'durable', role: 'user', blocks: [] }]),
@@ -1079,6 +1082,58 @@ describe('reconnect recovery', () => {
       'durable',
       optimistic.messageId,
     ]);
+  });
+
+  it('keeps the durable sequence when a bounded restore retains an optimistic user object', async () => {
+    const transport = mockTransport();
+    let promptId = '';
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve(
+            url.includes('throughSeq=7')
+              ? {
+                  messages: [
+                    {
+                      messageId: promptId,
+                      role: 'user',
+                      startedSeq: 5,
+                      blocks: [{ blockId: 'saved', blockType: 'text', content: 'continue' }],
+                    },
+                  ],
+                  current: null,
+                }
+              : [],
+          ),
+      }),
+    );
+    const store = createReadyStore(transport);
+    await store.getState().switchSession('sess-1');
+    store
+      .getState()
+      .sendMessage('continue', {
+        images: [{ data: 'data', mediaType: 'image/png', preview: 'preview' }],
+        contextBlocks: ['constitution'],
+      });
+    const optimistic = store.getState().messages.messages[0];
+    promptId = optimistic.messageId;
+    lastWs.simulateMessage({
+      type: 'session_reconnect_snapshot',
+      sessionId: 'sess-1',
+      cursor: 7,
+      cursorValid: false,
+      state: 'idle',
+    });
+    await vi.waitFor(() => expect(store.getState().historyLoading).toBe(false));
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0]).toMatchObject({
+      messageId: promptId,
+      startedSeq: 5,
+      images: ['preview'],
+      contextBlocks: ['constitution'],
+      blocks: optimistic.blocks,
+    });
   });
 
   it('keeps a pending optimistic prompt until its echo arrives after bounded restore', async () => {

@@ -568,9 +568,14 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
       );
       if (!action.interrupted) {
-        const existingIds = new Set(state.messages.map((m) => m.messageId));
-        const hasNewMessages = valid.some((m) => !existingIds.has(m.messageId));
-        if (!hasNewMessages && state.messages.length > 0) {
+        const existingById = new Map(state.messages.map((m) => [m.messageId, m]));
+        const hasNewMessages = valid.some((m) => !existingById.has(m.messageId));
+        const hasNewSequence = valid.some(
+          (m) =>
+            m.startedSeq !== undefined &&
+            existingById.get(m.messageId)?.startedSeq !== m.startedSeq,
+        );
+        if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
           return state;
         }
       }
@@ -620,8 +625,22 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
     }
 
     case 'USER_MESSAGE_RECEIVED': {
-      if (state.messages.some((m) => m.messageId === action.messageId)) {
-        return state;
+      const existingIndex = state.messages.findIndex((m) => m.messageId === action.messageId);
+      if (existingIndex !== -1) {
+        const existing = state.messages[existingIndex];
+        if (existing.role !== 'user') return state;
+        const startedSeq = action.startedSeq ?? existing.startedSeq;
+        const images = action.images ?? existing.images;
+        const contextBlocks = action.contextBlocks ?? existing.contextBlocks;
+        if (
+          startedSeq === existing.startedSeq &&
+          images === existing.images &&
+          contextBlocks === existing.contextBlocks
+        )
+          return state;
+        const messages = [...state.messages];
+        messages[existingIndex] = { ...existing, startedSeq, images, contextBlocks };
+        return { ...state, messages };
       }
       return {
         ...state,
