@@ -201,3 +201,14 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   expect(queued).toHaveLength(2);
   expect(queued[1]).toEqual(queued[0]);
 });
+
+it('renders outside chat stacking contexts so mobile navigation cannot cover its actions', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
+  );
+  const { container } = render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(container.contains(dialog)).toBe(false);
+  expect(dialog.parentElement?.parentElement).toBe(document.body);
+});

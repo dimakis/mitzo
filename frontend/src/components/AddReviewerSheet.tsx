@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { SymposiumConfig, ValidAccountBinding } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -44,15 +45,17 @@ export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
       >
         Add reviewer
       </button>
-      {visited && (
-        <ReviewerForm
-          key={`${sessionId}:${attempt}`}
-          open={open}
-          sessionId={sessionId}
-          onClose={() => setOpen(false)}
-          onAnother={() => setAttempt((value) => value + 1)}
-        />
-      )}
+      {visited &&
+        createPortal(
+          <ReviewerForm
+            key={`${sessionId}:${attempt}`}
+            open={open}
+            sessionId={sessionId}
+            onClose={() => setOpen(false)}
+            onAnother={() => setAttempt((value) => value + 1)}
+          />,
+          document.body,
+        )}
     </>
   );
 }
