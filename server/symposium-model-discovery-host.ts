@@ -63,14 +63,6 @@ function pin(path: string, digest: string, mode?: number) {
   )
     throw new Error('Discovery pin changed');
 }
-function rows(value: unknown, key: string): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (!value || typeof value !== 'object') throw new Error('Invalid inventory');
-  const envelope = value as Record<string, unknown>;
-  if (envelope.next_page_token || !Array.isArray(envelope[key]))
-    throw new Error('Incomplete inventory');
-  return envelope[key];
-}
 /** ESM host adapter. Caller must supply the retained owned-gateway attestation capability. */
 export function createDiscoveryHostOperations(
   config: DiscoveryConfig,
@@ -93,6 +85,33 @@ export function createDiscoveryHostOperations(
   const base = ['--gateway', config.gateway, '--workspace', config.workspace];
   const cli = (args: string[], timeout?: number) =>
     jsonCommand(options.cli, args, environment, timeout);
+  const inventory = async (args: string[], key: string): Promise<unknown[]> => {
+    const result: unknown[] = [];
+    const seen = new Set<string>();
+    let token = '';
+    for (let page = 0; page < 100; page++) {
+      const value = await cli([
+        ...args,
+        '--output',
+        'json',
+        '--page-size',
+        '100',
+        '--page-token',
+        token,
+      ]);
+      if (!value || typeof value !== 'object' || Array.isArray(value))
+        throw new Error('Invalid inventory');
+      const envelope = value as Record<string, unknown>;
+      if (!Array.isArray(envelope[key]) || typeof envelope.next_page_token !== 'string')
+        throw new Error('Incomplete inventory');
+      result.push(...envelope[key]);
+      token = envelope.next_page_token;
+      if (!token) return result;
+      if (seen.has(token)) throw new Error('Repeated inventory continuation');
+      seen.add(token);
+    }
+    throw new Error('Incomplete inventory page limit');
+  };
   const ssh = (name: string, args: string[]) =>
     openShellSshArgvProcessSpec(
       {
@@ -156,7 +175,7 @@ export function createDiscoveryHostOperations(
       await unlink(options.journal);
     },
     async list() {
-      return rows(await cli(['sandbox', ...base, 'list', '--output', 'json']), 'sandboxes');
+      return inventory(['sandbox', ...base, 'list'], 'sandboxes');
     },
     async create(receipt) {
       await cli(
@@ -193,16 +212,10 @@ export function createDiscoveryHostOperations(
       );
     },
     async attachedProviders(receipt) {
-      return rows(
-        await cli(['sandbox', ...base, 'provider', 'list', receipt.name, '--output', 'json']),
-        'providers',
-      );
+      return inventory(['sandbox', ...base, 'provider', 'list', receipt.name], 'providers');
     },
     async providerInventory() {
-      return rows(
-        await cli(['provider', ...base, 'list', '--output', 'json', '--page-size', '100']),
-        'providers',
-      );
+      return inventory(['provider', ...base, 'list'], 'providers');
     },
     async openClient(receipt) {
       const spec = ssh(receipt.name, [
