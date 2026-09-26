@@ -1,3 +1,7 @@
+import {
+  createSymposiumReviewPublicationPreflight,
+  type ReviewPublicationDependencies,
+} from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
 import {
   createSymposiumReviewRouter,
@@ -815,6 +819,8 @@ const symposiumSessionRuntimes = new Map<
 export interface SymposiumProductionHost {
   /** Optional until native hard budgets and durable review receipts are available. */
   reviewHost?: SymposiumInteractiveReviewHost;
+  /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
+  reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -991,6 +997,15 @@ app.use(
   operatorAuthMiddleware,
   createSymposiumReviewRouter({
     store: symposiumReviewStore,
+    getPublicationPreflight: (sessionId) =>
+      symposiumProductionHost?.reviewHost &&
+      symposiumProductionHost.reviewPublication &&
+      symposiumRuntimeForSession(sessionId)
+        ? createSymposiumReviewPublicationPreflight({
+            ...symposiumProductionHost.reviewPublication,
+            store: symposiumReviewStore,
+          })
+        : null,
     hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
     getHost: (sessionId) =>
       symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
