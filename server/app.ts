@@ -773,40 +773,37 @@ app.use(
   createSymposiumProfileRouter(symposiumProfileStore),
 );
 
-const symposiumHostGrants = new SymposiumHostGrants(
-  join(BASE_REPO || '.', '.mitzo', 'events.db'),
-  {
-    getConfig: (sessionId) => {
-      const raw = eventStore.getSession(sessionId)?.symposiumConfig;
-      return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
-    },
-    commitConfig: (sessionId, config, expectedRevision) =>
-      eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
-    getMembership: (sessionId, seatId) =>
-      eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
-    validateSelection: (seat) => {
-      if (!seat.accountBinding) throw new Error('Seat account binding is required');
-      loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
-    },
-    resolveProfile: (selection) =>
-      symposiumProfileStore.get('user', selection.profileId, selection.revision),
-    authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
-      const sessionSource = `session:${sessionId}`;
-      if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
-        throw new Error('Only this conversation context can be admitted');
-      const writable = seat.role === 'implementer' || seat.role === 'coder';
-      return {
-        classification: 'mixed' as const,
-        sourceRefs: [sessionSource],
-        authority: {
-          filesystem: writable ? ('write' as const) : ('read' as const),
-          tools: writable ? ('write' as const) : ('read' as const),
-          network: 'restricted' as const,
-        },
-      };
-    },
+const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mitzo', 'events.db'), {
+  getConfig: (sessionId) => {
+    const raw = eventStore.getSession(sessionId)?.symposiumConfig;
+    return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
   },
-);
+  commitConfig: (sessionId, config, expectedRevision) =>
+    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  getMembership: (sessionId, seatId) =>
+    eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
+  validateSelection: (seat) => {
+    if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+  },
+  resolveProfile: (selection) =>
+    symposiumProfileStore.get('user', selection.profileId, selection.revision),
+  authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
+    const sessionSource = `session:${sessionId}`;
+    if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+      throw new Error('Only this conversation context can be admitted');
+    const writable = seat.role === 'implementer' || seat.role === 'coder';
+    return {
+      classification: 'mixed' as const,
+      sourceRefs: [sessionSource],
+      authority: {
+        filesystem: writable ? ('write' as const) : ('read' as const),
+        tools: writable ? ('write' as const) : ('read' as const),
+        network: 'restricted' as const,
+      },
+    };
+  },
+});
 const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
 /** A verified runtime can be installed by the native transport integration. */
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = () => null;
