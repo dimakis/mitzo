@@ -30,12 +30,26 @@ const Start = z.strictObject({
     maxCostUsd: z.number().finite().nonnegative().nullable(),
   }),
 });
+const artifact = {
+  expectedArtifactRevision: Id,
+  expectedArtifactHash: z.string().regex(/^[a-f0-9]{64}$/),
+};
 const Action = z.discriminatedUnion('action', [
-  z.strictObject({ action: z.literal('review') }),
-  z.strictObject({ action: z.literal('fix'), findingFingerprints: z.array(Id).min(1), reason: Id }),
-  z.strictObject({ action: z.literal('recover'), attemptId: Id, kind: z.enum(['review', 'fix']) }),
-  z.strictObject({ action: z.literal('evidence'), evidenceId: Id }),
-  z.strictObject({ action: z.literal('review-record') }),
+  z.strictObject({ ...artifact, action: z.literal('review') }),
+  z.strictObject({
+    ...artifact,
+    action: z.literal('fix'),
+    findingFingerprints: z.array(Id).min(1),
+    reason: Id,
+  }),
+  z.strictObject({
+    ...artifact,
+    action: z.literal('recover'),
+    attemptId: Id,
+    kind: z.enum(['review', 'fix']),
+  }),
+  z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
+  z.strictObject({ ...artifact, action: z.literal('review-record') }),
 ]);
 export function createSymposiumReviewRouter(deps: {
   store: SymposiumReviewStore;
@@ -107,7 +121,14 @@ export function createSymposiumReviewRouter(deps: {
     const coordinator = new SymposiumReviewCoordinator(deps.store, host);
     const workflowId = req.params.workflowId;
     try {
-      coordinator.status(ctx, workflowId);
+      const inspected = coordinator.status(ctx, workflowId);
+      if (
+        inspected.artifactRevision !== input.data.expectedArtifactRevision ||
+        inspected.artifactHash !== input.data.expectedArtifactHash
+      ) {
+        res.status(409).json({ kind: 'decision_required', code: 'artifact_changed' });
+        return;
+      }
       if (!host) {
         res
           .status(409)

@@ -56,3 +56,14 @@ it('rejects caller fabricated findings and owner identities', async () => {
   ).toBe(400);
   expect((await request(app).get('/api/sessions/other/symposium/reviews')).status).toBe(404);
 });
+
+it('rejects actions without the artifact the user actually inspected', async () => {
+  const { app } = fixture('owner');
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/session/symposium/reviews/flow/actions')
+        .send({ action: 'review' })
+    ).status,
+  ).toBe(400);
+});

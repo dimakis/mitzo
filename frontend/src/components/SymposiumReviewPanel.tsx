@@ -5,6 +5,7 @@ type Workflow = {
   workflowId: string;
   status: string;
   artifactRevision: string;
+  artifactHash: string;
   reviewRounds: number;
   tokensUsed: number;
   costUsd: number;
@@ -62,7 +63,15 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       const response = await apiFetch(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          workflow
+            ? {
+                ...(body as Record<string, unknown>),
+                expectedArtifactRevision: workflow.artifactRevision,
+                expectedArtifactHash: workflow.artifactHash,
+              }
+            : body,
+        ),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
