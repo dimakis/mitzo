@@ -476,13 +476,15 @@ Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-rev
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
-Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Connect ChatGPT**
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Personal ChatGPT accounts**
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
 Settings → Security, request a code, then open OpenAI on the phone or computer.
 The running Mac host completes the connection; the UI shows verified account
-identity and supports cancel, status recovery, and explicit reconnect. This host
-has one personal account slot. After a host restart, sign in again. Connecting
-does not select a reviewer account/model or silently rebind an active seat.
+identity and supports cancel, status recovery, and explicit reconnect. Connections
+keeps multiple labeled personal account entries with separate Connect, Reconnect,
+and Disconnect controls. Saved identities remain after restart; accounts marked
+**Sign in required** need fresh authentication. Connecting does not select a
+reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
 
@@ -492,3 +494,7 @@ The [model-discovery acceptance helper](docs/operations/symposium-model-discover
 checks native subscription account type and model availability without inference.
 It requires a trusted owned-host attestation, pins its configuration and provider,
 and retains reconciliation evidence until gateway and physical cleanup agree.
+
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).

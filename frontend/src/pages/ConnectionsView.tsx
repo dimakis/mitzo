@@ -1,4 +1,4 @@
-import { SymposiumDeviceLogin } from '../components/SymposiumDeviceLogin';
+import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
@@ -304,7 +304,7 @@ export function ConnectionsView() {
         title="Connections"
         description={`Assignments apply to ${data.appliesTo}. Adding a connection never expands a retained conversation; removal and revocation reduce managed access immediately.`}
       />
-      <SymposiumDeviceLogin />
+      <SymposiumPersonalConnections />
       {message && (
         <p className="connections-notice" role="status">
           {message}
@@ -518,7 +518,7 @@ function PageState({ text, error, retry }: { text: string; error?: boolean; retr
   return (
     <main className="workspace-page">
       <WorkspacePageHeading title="Connections" />
-      <SymposiumDeviceLogin />
+      <SymposiumPersonalConnections />
       <p role={error ? 'alert' : undefined}>{text}</p>
       {retry && (
         <button className="workspace-primary" onClick={() => void retry()}>
@@ -543,7 +543,8 @@ function Reauthorization({
     <section className="today-section connections-card" aria-labelledby="reauthorize-heading">
       <h2 id="reauthorize-heading">Recent reauthorization</h2>
       <p className="workspace-muted">
-        Required before creating, testing, assigning, rotating, or revoking a managed connection.
+        Required before creating, testing, assigning, rotating, or revoking a managed external
+        connection. Personal ChatGPT sign-in uses the separate OpenAI flow above.
       </p>
       <label className="connections-field">
         Passphrase

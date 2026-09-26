@@ -7,6 +7,8 @@ import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
 } from './symposium-review-routes.js';
+
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -824,12 +826,19 @@ export interface SymposiumProductionHost {
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
-  beginDeviceLogin?: () => Promise<import('./symposium-device-login.js').DeviceLogin>;
-  beginLogin?: () => Promise<{
+  beginDeviceLogin?: (
+    selection?: ConnectionSelection,
+  ) => Promise<import('./symposium-device-login.js').DeviceLogin>;
+  beginLogin?: (selection?: ConnectionSelection) => Promise<{
     authorizationUrl: string;
     completed: Promise<unknown>;
     cancel(): void;
   }>;
+  personalConnections?: {
+    list(): PersonalConnection[];
+    create(label: string): PersonalConnection;
+    disconnect(id: string, revision: number): Promise<PersonalConnection>;
+  };
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
@@ -1710,6 +1719,55 @@ app.put('/api/accounts/:id/alias', (req, res) => {
 const subscriptionLogin = createSubscriptionLoginController(
   () => symposiumProductionHost,
   (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
+app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  res.json({ connections: service.list() });
+});
+app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  try {
+    if (typeof req.body?.label !== 'string') throw new Error();
+    res.status(201).json(service.create(req.body.label));
+  } catch {
+    res.status(400).json({
+      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
+    });
+  }
+});
+app.post(
+  '/api/symposium/personal/connections/:id/disconnect',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const service = symposiumProductionHost?.personalConnections;
+    if (!service) {
+      res.status(503).json({ error: 'Personal connections are unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    try {
+      res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
+    } catch {
+      res.status(409).json({
+        error:
+          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
+      });
+    }
+  },
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);

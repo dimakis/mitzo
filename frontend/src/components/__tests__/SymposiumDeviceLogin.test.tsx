@@ -195,3 +195,26 @@ it('recovers an allocating start for cancellation and ignores its late result', 
   expect(screen.getByText(/Sign-in cancelled/)).toBeTruthy();
   expect(screen.queryByText(pending.userCode)).toBeNull();
 });
+
+it('shows phone troubleshooting before requesting a code without promising a provider expiry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'idle' }));
+  render(<SymposiumDeviceLogin />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  await screen.findByRole('button', { name: 'Get sign-in code' });
+  expect(screen.getByText(/reopen the device sign-in page in the same browser/i)).toBeTruthy();
+  expect(screen.getByText(/Settings → Security/)).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  expect(screen.queryByText(/This Mac holds one/)).toBeNull();
+});
+
+it('does not display or cancel a different saved account receipt', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ ...pending, connectionId: 'other-slot' }));
+  render(<SymposiumDeviceLogin connectionId="selected-slot" expectedRevision={2} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  await screen.findByRole('alert');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/login/status?connectionId=selected-slot',
+  );
+  expect(screen.queryByText(pending.userCode)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+});

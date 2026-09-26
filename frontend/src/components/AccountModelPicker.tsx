@@ -1,4 +1,4 @@
-import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
+import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
@@ -81,6 +81,7 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [personalAccountsOpen, setPersonalAccountsOpen] = useState(false);
   const [legacyRequested, setLegacy] = useState(false);
   const legacy = scope === 'chat' && legacyRequested;
   const [fixedSession, setFixedSession] = useState(false);
@@ -235,10 +236,19 @@ export function AccountModelPicker({
   const subscriptionLogin =
     scope === 'symposium' ? (
       <>
-        <SymposiumDeviceLogin
+        <button
+          type="button"
           disabled={disabled}
-          onAccountsChanged={() => setAttempt((value) => value + 1)}
-        />
+          aria-expanded={personalAccountsOpen}
+          onClick={() => setPersonalAccountsOpen((open) => !open)}
+        >
+          Manage personal ChatGPT accounts
+        </button>
+        {personalAccountsOpen && (
+          <SymposiumPersonalConnections
+            onAccountsChanged={() => setAttempt((value) => value + 1)}
+          />
+        )}
         <details>
           <summary>Browser callback alternative</summary>
           <SymposiumSubscriptionLogin
