@@ -106,6 +106,20 @@ export function createSymposiumReviewRouter(deps: {
         .json({ error: error instanceof Error ? error.message : 'Review unavailable' });
     }
   });
+  router.get('/records/:recordId', (req, res) => {
+    const ctx = context((req.params as { id: string; recordId: string }).id);
+    res.set('Cache-Control', 'no-store');
+    try {
+      const record = deps.store.getReviewRecord(ctx.owner, ctx.sessionId, req.params.recordId);
+      if (!record) {
+        res.status(404).json({ error: 'Review record not found' });
+        return;
+      }
+      res.json(record);
+    } catch {
+      res.status(409).json({ error: 'Review record integrity check failed' });
+    }
+  });
   router.get('/:workflowId', (req, res) => {
     const ctx = context((req.params as { id: string; workflowId: string }).id);
     try {
@@ -146,7 +160,7 @@ export function createSymposiumReviewRouter(deps: {
       const action = input.data;
       let result: unknown;
       if (action.action === 'review-record') {
-        const finalized = coordinator.finalize(ctx, workflowId);
+        const finalized = coordinator.exportRecord(ctx, workflowId);
         if (finalized.kind !== 'verified') {
           res.status(409).json(finalized);
           return;
@@ -154,8 +168,6 @@ export function createSymposiumReviewRouter(deps: {
         // Export only. Publication is a separate explicit action; findings are untrusted data.
         result = {
           ...finalized,
-          workflow: coordinator.status(ctx, workflowId),
-          history: deps.store.history(workflowId),
           publication: 'not_created',
         };
       } else if (action.action === 'dismiss')
