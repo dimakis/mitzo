@@ -214,3 +214,71 @@ it('places browser callback login inside the selected saved account with its rev
     ),
   );
 });
+
+it('explicitly refreshes models for the displayed connected revision without choosing a model', async () => {
+  let finish!: (value: Response) => void;
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/refresh'))
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    return response({ connections: rows });
+  });
+  render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  const button = await screen.findByRole('button', { name: 'Refresh supported models' });
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  fireEvent.click(button);
+  await screen.findByText(/Checking supported models for Personal/);
+  expect((screen.getByRole('button', { name: 'Disconnect' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/connections/personal-a/models/refresh',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedRevision: 2 }) }),
+  );
+  finish(response({ status: 'complete', inference: false, modelCount: 11 }));
+  await screen.findByText(/11 supported models/);
+  expect(changed).toHaveBeenCalledOnce();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
+it.each(['pending', 'reconciliation_required'])(
+  'recovers persisted discovery %s without enabling conflicting account actions',
+  async (modelDiscovery) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        connections: [
+          {
+            ...rows[0],
+            modelDiscovery,
+            state: modelDiscovery === 'pending' ? 'connected' : 'recovery_required',
+          },
+          rows[1],
+        ],
+      }),
+    );
+    render(<SymposiumPersonalConnections />);
+    await screen.findByText('one@example.test');
+    expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByRole('button', { name: 'Refresh supported models' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  },
+);
+it('does not report success on failed or unconfirmed model discovery', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/models/refresh')
+        ? { status: 'reconciliation_required', inference: false }
+        : { connections: rows },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/cleanup could not be confirmed/);
+  expect(screen.queryByText(/supported models are ready/)).toBeNull();
+});
