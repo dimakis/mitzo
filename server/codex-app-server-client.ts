@@ -303,6 +303,7 @@ export class CodexAppServerClient {
   private initializing?: Promise<void>;
   private readonly maxFrameBytes: number;
   private readonly timeoutMs: number;
+  private readonly loginOnly: boolean;
 
   constructor(
     private child: RpcProcess,
@@ -310,9 +311,11 @@ export class CodexAppServerClient {
       timeoutMs?: number;
       maxFrameBytes?: number;
       lifecycle?: CodexLifecycleTransport;
+      loginOnly?: boolean;
     } = {},
   ) {
     this.lifecycle = options.lifecycle;
+    this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
     child.stdout.on('data', (chunk: Buffer) => this.receive(chunk));
@@ -389,8 +392,10 @@ export class CodexAppServerClient {
   request(method: string, params: JsonObject): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error('Codex connection closed'));
     if (!this.ready) return Promise.reject(new Error('Codex connection not initialized'));
-    const allowed = ['account/read', 'model/list'];
-    if (this.lifecycle)
+    const allowed = this.loginOnly
+      ? ['account/read', 'account/login/start', 'account/login/cancel']
+      : ['account/read', 'model/list'];
+    if (this.lifecycle && !this.loginOnly)
       allowed.push(
         'config/read',
         'thread/start',

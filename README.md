@@ -475,3 +475,5 @@ Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-rev
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) can authorize the same running Mitzo server from a phone using an upstream link and one-time code. Login remains explicit, isolated and mock-tested; restart requires fresh sign-in, and reconnect never silently rebinds active seats.

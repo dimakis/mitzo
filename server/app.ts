@@ -818,6 +818,7 @@ export interface SymposiumProductionHost {
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
+  beginDeviceLogin?: () => Promise<import('./symposium-device-login.js').DeviceLogin>;
   beginLogin?: () => Promise<{
     authorizationUrl: string;
     completed: Promise<unknown>;
@@ -1694,6 +1695,7 @@ app.put('/api/accounts/:id/alias', (req, res) => {
 const subscriptionLogin = createSubscriptionLoginController(() => symposiumProductionHost);
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
+app.post('/api/symposium/personal/login/cancel', operatorAuthMiddleware, subscriptionLogin.cancel);
 
 // Reads the dedicated host catalog (including its cached model discovery); no refresh or legacy fallback.
 app.get('/api/symposium/accounts', (_req, res) => {
