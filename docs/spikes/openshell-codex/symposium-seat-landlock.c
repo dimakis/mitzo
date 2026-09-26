@@ -69,6 +69,24 @@ static void allow_public_ca(int ruleset, const char *path) {
   close(fd);
 }
 
+/* The policy authorizes /usr/bin/codex, not an npm script's native child.
+ * Build-time validation pins the full ELF hash; startup refuses shim images. */
+static void require_native_codex(void) {
+  int fd = open("/usr/bin/codex", O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) die("canonical native Codex required");
+  struct stat info;
+  unsigned char header[20];
+  if (fstat(fd, &info) < 0 || !S_ISREG(info.st_mode) || info.st_uid != 0 ||
+      (info.st_mode & 0022) || !(info.st_mode & 0111) ||
+      read(fd, header, sizeof(header)) != (ssize_t)sizeof(header) ||
+      memcmp(header, "\177ELF\002\001", 6) != 0 ||
+      header[18] != 183 || header[19] != 0) {
+    fprintf(stderr, "reviewed canonical Linux arm64 Codex ELF required\n");
+    exit(1);
+  }
+  close(fd);
+}
+
 static int valid_home(const char *path) {
   const char *prefix = "/sandbox/.symposium-seats/";
   if (strncmp(path, prefix, strlen(prefix)) != 0) return 0;
@@ -87,6 +105,9 @@ int main(int argc, char **argv) {
     fprintf(stderr, "invalid Symposium seat scope\n");
     return 2;
   }
+  if (!strcmp(argv[4], "/usr/bin/codex") ||
+      !strcmp(argv[4], "/usr/local/bin/symposium-subscription-app-server"))
+    require_native_codex();
   int abi = syscall(__NR_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION);
   if (abi < 3) {
     fprintf(stderr, "Landlock ABI 3 or newer is required\n");

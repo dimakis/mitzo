@@ -120,6 +120,12 @@ access to that directory, private keys, or other `/run` content. The
 physical denial and the bounded fix. Existing runtime images must be rebuilt and
 reviewed before this source change can affect them.
 
+The disposable native-seat image now normalizes the reviewed Linux arm64 Codex
+0.153.4 package to a regular `/usr/bin/codex` ELF during its build. This aligns
+kernel executable identity with the existing exact-path network policy; it adds
+no binary grants. See the [canonical native image proof](docs/spikes/openshell-codex/CANONICAL-CODEX.md).
+The host device-login CLI version is separate and unchanged.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
