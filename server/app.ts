@@ -824,6 +824,7 @@ export interface SymposiumProductionHost {
     list(): PersonalConnection[];
     create(label: string): PersonalConnection;
     disconnect(id: string, revision: number): Promise<PersonalConnection>;
+    discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
   };
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
@@ -1725,6 +1726,47 @@ app.post(
         error:
           'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
       });
+    }
+  },
+);
+app.post(
+  '/api/symposium/personal/connections/:id/models/refresh',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const discover = symposiumProductionHost?.personalConnections?.discoverModels;
+    if (!discover) {
+      res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    const session = res.locals.authSession as AuthSession;
+    let current = true;
+    const unregister = registerAuthSession(session, () => {
+      current = false;
+    });
+    const assertOperator = () => {
+      if (!current || session.expiresAt <= Date.now()) throw new Error('Operator session expired');
+    };
+    try {
+      assertOperator();
+      const result = await discover(
+        String(req.params.id),
+        req.body.expectedRevision,
+        assertOperator,
+      );
+      assertOperator();
+      res.json(result);
+    } catch {
+      res.status(409).json({
+        error:
+          'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
+      });
+    } finally {
+      unregister();
     }
   },
 );

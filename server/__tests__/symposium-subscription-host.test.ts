@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import type { SubscriptionProvisioningHost } from '../symposium-subscription-provisioner.js';
 const mocked = vi.hoisted(() => ({
+  publish: vi.fn(),
   host: undefined as SubscriptionProvisioningHost | undefined,
   finish: undefined as ((value: unknown) => void) | undefined,
   fail: undefined as ((error: Error) => void) | undefined,
@@ -10,6 +11,14 @@ vi.mock('../symposium-subscription-provisioner.js', () => ({
   SymposiumSubscriptionProvisioner: class {
     constructor(host: SubscriptionProvisioningHost) {
       mocked.host = host;
+    }
+    captureDiscovery() {
+      return {
+        provider: { name: 'new-provider', id: 'provider-id' },
+        account: { email: 'e', planType: 'pro' },
+        assertCurrent: vi.fn(),
+        publishBinding: mocked.publish,
+      };
     }
     invalidate = vi.fn();
     verifyPrivateAuth = vi.fn();
@@ -226,4 +235,38 @@ it('rotates the account binding on explicit device reconnect and refuses an old 
       },
     } as never),
   ).toThrow('selection changed');
+});
+
+it('publishes discovered catalog under a fresh revision without rebinding a saved selection', async () => {
+  const f = fixture();
+  const adapter = createSymposiumSubscriptionHost(f.options, f.run);
+  const login = await adapter.beginLogin();
+  const binding = await mocked.host!.installProfile({
+    subject: 's',
+    accountId: 'real-account',
+    email: 'e',
+    planType: 'pro',
+    provider: 'new-provider',
+    providerId: 'provider-id',
+  });
+  mocked.finish!({ binding });
+  await login.completed;
+  const saved = { ...binding };
+  adapter.captureDiscovery().publish(
+    [
+      { id: 'gpt-5.6-luna', label: 'Luna' },
+      { id: 'another-model', label: 'Another' },
+    ],
+    7,
+  );
+  expect(adapter.currentProfiles.resolve('personal', saved.model).profileRevision).not.toBe(
+    saved.profileRevision,
+  );
+  expect(adapter.currentProfiles.resolve('personal', 'another-model').model).toBe('another-model');
+  expect(binding).toEqual(saved);
+  expect(mocked.publish).toHaveBeenCalledWith(
+    expect.objectContaining({
+      profileRevision: adapter.currentProfiles.resolve('personal', saved.model).profileRevision,
+    }),
+  );
 });

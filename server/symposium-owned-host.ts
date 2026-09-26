@@ -1,3 +1,9 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { runSymposiumModelDiscovery } from './symposium-model-discovery.js';
+import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
+import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
+import type { CatalogModel } from './model-catalog.js';
 import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
@@ -62,6 +68,17 @@ export async function createOwnedSymposiumHost(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
+  const policyStat = lstatSync(options.runtime.policy);
+  if (
+    !policyStat.isFile() ||
+    policyStat.isSymbolicLink() ||
+    policyStat.uid !== process.getuid?.() ||
+    policyStat.mode & 0o022
+  )
+    throw new Error('Owned discovery policy must remain under host custody');
+  const policyDigest = createHash('sha256')
+    .update(readFileSync(options.runtime.policy))
+    .digest('hex');
   const artifacts = new Map<
     string,
     { sessionId: string; volumeName: string; volumeGeneration: string }
@@ -189,6 +206,53 @@ export async function createOwnedSymposiumHost(
         seatProof,
       },
       join(options.gateway.stateParent, 'personal-connections.json'),
+      async (proof) => {
+        custody();
+        proof.assertCurrent();
+        const gatewayConfigPath = join(gateway.stateDirectory, 'gateway.toml');
+        const gatewayConfigDigest = createHash('sha256')
+          .update(readFileSync(gatewayConfigPath))
+          .digest('hex');
+        const config = {
+          cliSha256: options.gateway.cliSha256,
+          workloadImage: options.gateway.workloadImage,
+          policySha256: policyDigest,
+          podmanUrl: `unix://${options.gateway.podmanSocket}`,
+          gateway: gateway.gateway,
+          workspace: gateway.workspace,
+          provider: proof.provider,
+        };
+        const operations = createDiscoveryHostOperations(config, {
+          cli: gateway.cli,
+          podman: options.podman.executable,
+          policy: options.runtime.policy,
+          journal: join(gateway.stateDirectory, 'model-discovery.json'),
+          namespace: options.podman.sandboxNamespace,
+          environment: { ...gateway.managementEnvironment },
+          configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o600 }],
+          attestGateway: async () => {
+            custody();
+            proof.assertCurrent();
+          },
+        });
+        const guarded = guardDiscoveryOperations(
+          operations,
+          () => {
+            custody();
+            proof.assertCurrent();
+          },
+          proof.account,
+        );
+        let models: CatalogModel[] | undefined;
+        const result = await runSymposiumModelDiscovery(config, guarded, (catalog) => {
+          custody();
+          proof.assertCurrent();
+          models = catalog;
+        });
+        custody();
+        proof.assertCurrent();
+        return { result, models };
+      },
     );
     const artifactRequest = (
       sessionId: string,

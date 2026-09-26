@@ -456,3 +456,8 @@ and retains reconciliation evidence until gateway and physical cleanup agree.
 
 The no-inference discovery helper requires complete, bounded paginated sandbox and
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
+
+Owned native personal accounts expose an operator-only, revision-scoped model refresh
+endpoint. It performs account/model reads without inference, then publishes the catalog
+only after sandbox and physical cleanup. A new catalog revision requires explicit seat
+selection; interrupted discovery retains host recovery state.

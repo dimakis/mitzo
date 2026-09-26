@@ -83,8 +83,12 @@ export function createDiscoveryHostOperations(
   )
     throw new Error('Private management environment required');
   const base = ['--gateway', config.gateway, '--workspace', config.workspace];
-  const cli = (args: string[], timeout?: number) =>
-    jsonCommand(options.cli, args, environment, timeout);
+  const cli = async (args: string[], timeout?: number) => {
+    await options.attestGateway(config);
+    const result = await jsonCommand(options.cli, args, environment, timeout);
+    await options.attestGateway(config);
+    return result;
+  };
   const inventory = async (args: string[], key: string): Promise<unknown[]> => {
     const result: unknown[] = [];
     const seen = new Set<string>();
