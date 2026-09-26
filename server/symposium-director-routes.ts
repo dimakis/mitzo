@@ -211,6 +211,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+    if (!deps.getRuntime(sessionId)) {
+      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      return;
+    }
     try {
       const current = deps.store.getActiveSymposiumConfig(sessionId);
       if (current.version !== 2) throw new Error('Multi-seat configuration is required');
