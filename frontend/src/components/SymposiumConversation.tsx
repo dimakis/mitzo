@@ -101,11 +101,17 @@ export function SymposiumConversation({
   const [shareRecipients, setShareRecipients] = useState<string[]>([]);
   const [shareBusy, setShareBusy] = useState(false);
   const [seatSeed, setSeatSeed] = useState<SeatProfileSeed | null>(null);
-  const retryKey = useRef<{ fingerprint: string; key: string } | null>(null);
+  // Keep every uncertain request until its response is confirmed, including when
+  // the operator changes audiences or revisits an excerpt.
+  const retryKeys = useRef(new Map<string, string>());
+  const sessionEpoch = useRef(0);
   const base = sessionId ? `/api/sessions/${encodeURIComponent(sessionId)}/symposium` : '';
   const configRevision = status?.config?.revision;
 
   useEffect(() => {
+    sessionEpoch.current += 1;
+    setShare(null);
+    setShareBusy(false);
     setStatus(null);
     setPageFor('');
     setError('');
@@ -208,10 +214,11 @@ export function SymposiumConversation({
   const live = selected === 'all' ? chat.currentByMessage : liveForSeat(selected, chat);
   const current = selected === 'all' ? chat.current : null;
   const queue = useCallback(
-    async (recipientSeatIds: string[], content: string) => {
-      const fingerprint = JSON.stringify({ recipientSeatIds, content });
-      if (retryKey.current?.fingerprint !== fingerprint)
-        retryKey.current = { fingerprint, key: crypto.randomUUID() };
+    async (recipients: string[], content: string) => {
+      const recipientSeatIds = [...recipients].sort();
+      const fingerprint = JSON.stringify({ base, kind: 'delivery', recipientSeatIds, content });
+      const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
+      retryKeys.current.set(fingerprint, key);
       await readJson(`${base}/deliveries`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -219,10 +226,10 @@ export function SymposiumConversation({
           sourceSeatId: null,
           recipientSeatIds,
           originalContent: content,
-          idempotencyKey: retryKey.current.key,
+          idempotencyKey: key,
         }),
       });
-      retryKey.current = null;
+      if (retryKeys.current.get(fingerprint) === key) retryKeys.current.delete(fingerprint);
       return true;
     },
     [base],
@@ -235,28 +242,39 @@ export function SymposiumConversation({
       shareRecipients.length === 0
     )
       return;
+    const request = {
+      sourceMessageId: share.messageId,
+      sourceSeatId: share.seatId,
+      ...(share.provenance?.membershipGeneration !== undefined
+        ? { sourceMembershipGeneration: share.provenance.membershipGeneration }
+        : {}),
+      excerpt: excerpt.trim(),
+      recipientSeatIds: [...shareRecipients].sort(),
+    };
+    const fingerprint = JSON.stringify({ base, kind: 'excerpt', ...request });
+    const key = retryKeys.current.get(fingerprint) ?? crypto.randomUUID();
+    retryKeys.current.set(fingerprint, key);
+    const epoch = sessionEpoch.current;
     setShareBusy(true);
     try {
       await readJson(`${base}/share-excerpt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sourceMessageId: share.messageId,
-          sourceSeatId: share.seatId,
-          ...(share.provenance?.membershipGeneration !== undefined
-            ? { sourceMembershipGeneration: share.provenance.membershipGeneration }
-            : {}),
-          excerpt: excerpt.trim(),
-          recipientSeatIds: shareRecipients,
-          idempotencyKey: crypto.randomUUID(),
+          ...request,
+          idempotencyKey: key,
         }),
       });
-      setShare(null);
-      setError('');
+      if (retryKeys.current.get(fingerprint) === key) retryKeys.current.delete(fingerprint);
+      if (sessionEpoch.current === epoch) {
+        setShare(null);
+        setError('');
+      }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not share excerpt');
+      if (sessionEpoch.current === epoch)
+        setError(cause instanceof Error ? cause.message : 'Could not share excerpt');
     } finally {
-      setShareBusy(false);
+      if (sessionEpoch.current === epoch) setShareBusy(false);
     }
   }, [base, share, excerpt, shareRecipients]);
   const startShare = useCallback(

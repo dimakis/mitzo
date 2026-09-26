@@ -68,6 +68,11 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
   const selected = versions.find(
     (version) => version.profileId === value?.profileId && version.revision === value.revision,
   );
+  const isHistorical =
+    selected &&
+    versions.some(
+      (version) => version.profileId === selected.profileId && version.revision > selected.revision,
+    );
   const update = <K extends keyof SymposiumProfileDefinition>(
     key: K,
     field: SymposiumProfileDefinition[K],
@@ -89,7 +94,9 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
         }),
       );
       setVersions((current) => [
-        ...current.filter((row) => row.profileId !== saved.profileId),
+        ...current.filter(
+          (row) => row.profileId !== saved.profileId || row.revision !== saved.revision,
+        ),
         saved,
       ]);
       onChange({ profileId: saved.profileId, revision: saved.revision });
@@ -113,7 +120,9 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
         }),
       );
       setVersions((current) => [
-        ...current.filter((row) => row.profileId !== saved.profileId),
+        ...current.filter(
+          (row) => row.profileId !== saved.profileId || row.revision !== saved.revision,
+        ),
         saved,
       ]);
       onChange({ profileId: saved.profileId, revision: saved.revision });
@@ -155,7 +164,10 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
         >
           <option value="">Use seat guidance</option>
           {versions.map((version) => (
-            <option key={version.profileId} value={`${version.profileId}:${version.revision}`}>
+            <option
+              key={`${version.profileId}:${version.revision}`}
+              value={`${version.profileId}:${version.revision}`}
+            >
               {version.definition.name} · v{version.revision}
             </option>
           ))}
@@ -175,7 +187,7 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
       </button>
       <button
         type="button"
-        disabled={disabled || busy || !selected}
+        disabled={disabled || busy || !selected || isHistorical}
         onClick={() => {
           if (!selected) return;
           setProfileId(selected.profileId);
@@ -186,6 +198,7 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
       >
         Revise selected
       </button>
+      {isHistorical && <p>Select the latest revision to revise this profile.</p>}
       <button type="button" disabled={disabled || !value} onClick={exportVersion}>
         Export JSON
       </button>

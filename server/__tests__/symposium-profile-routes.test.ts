@@ -85,6 +85,20 @@ describe('owner-authenticated Symposium profile catalog', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({ profileId: 'reviewer', expectedRevision: 0, idempotencyKey: 'stale', definition });
     expect(conflict.status).toBe(409);
+    const second = await request(app)
+      .post(root)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        profileId: 'reviewer',
+        expectedRevision: 1,
+        idempotencyKey: 'revise',
+        definition: { ...definition, instructions: 'Review the revised code' },
+      });
+    expect(second.status).toBe(200);
+    expect((await request(app).get(root).set('Authorization', `Bearer ${token}`)).body).toEqual([
+      second.body,
+      first.body,
+    ]);
   });
   it('rejects runtime grants in portable definitions', async () => {
     const response = await request(app)
