@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AccountBindingSchema } from './account-binding.js';
+import { AccountBindingSchema, AccountProviderSchema } from './account-binding.js';
 
 export type SessionType = 'chat' | 'symposium';
 export type TurnMode = 'round-robin' | 'directed' | 'budgeted';
@@ -45,6 +45,41 @@ export const ProfileBindingSchema = z.strictObject({
   profileRevision: z.string().trim().min(1),
 });
 
+/** Advisory setup recipe. Sources must still be explicitly selected and granted per review.
+ * Skill/tool names are references, never executable instructions or permission grants.
+ */
+export const SymposiumProfileRecipeSchema = z.strictObject({
+  version: z.literal(1),
+  context: z.strictObject({
+    include: z
+      .array(z.enum(['task', 'diff', 'acceptance-criteria', 'artifacts', 'prior-findings']))
+      .max(5),
+    sources: z.array(z.enum(['workspace', 'contexgin'])).max(2),
+  }),
+  skillRefs: z
+    .array(
+      z
+        .string()
+        .trim()
+        .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/),
+    )
+    .max(20),
+  toolDefaults: z.strictObject({
+    mode: z.literal('read-only'),
+    preferredTools: z
+      .array(
+        z
+          .string()
+          .trim()
+          .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/),
+      )
+      .max(20),
+  }),
+  compatibleProviders: z.array(AccountProviderSchema).min(1).max(4),
+  reviewerTemplate: z.enum(['general', 'architecture', 'security', 'testability', 'editorial']),
+});
+export type SymposiumProfileRecipe = z.infer<typeof SymposiumProfileRecipeSchema>;
+
 /** Portable role guidance only. Runtime identity and grants remain session-scoped. */
 export const SymposiumProfileDefinitionSchema = z.strictObject({
   name: z.string().trim().min(1),
@@ -53,6 +88,7 @@ export const SymposiumProfileDefinitionSchema = z.strictObject({
   expectedOutput: z.string().trim().min(1),
   acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
   modelPolicyRole: z.string().trim().min(1),
+  recipe: SymposiumProfileRecipeSchema.optional(),
 });
 export type SymposiumProfileDefinition = z.infer<typeof SymposiumProfileDefinitionSchema>;
 

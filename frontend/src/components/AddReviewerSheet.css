@@ -1,0 +1,55 @@
+.reviewer-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: #0008;
+  display: flex;
+  justify-content: flex-end;
+}
+.reviewer-sheet {
+  width: min(36rem, 100%);
+  height: 100%;
+  overflow-y: auto;
+  padding: 1.25rem;
+  background: var(--bg-primary, #181a20);
+  color: var(--text-primary, #eee);
+  box-sizing: border-box;
+}
+.reviewer-sheet header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.reviewer-sheet label {
+  display: block;
+  margin-block: 0.8rem;
+}
+.reviewer-sheet textarea,
+.reviewer-sheet select,
+.reviewer-sheet input:not([type='checkbox']) {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.3rem;
+}
+.reviewer-sheet textarea {
+  min-height: 7rem;
+}
+.reviewer-sheet fieldset {
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.reviewer-sheet button {
+  min-height: 2.75rem;
+}
+@media (max-width: 600px) {
+  .reviewer-sheet-backdrop {
+    align-items: flex-end;
+  }
+  .reviewer-sheet {
+    height: 94%;
+    border-radius: 1rem 1rem 0 0;
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
+  }
+}

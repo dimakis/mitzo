@@ -91,9 +91,7 @@ export class SymposiumHostGrants {
       throw new Error('Symposium activation revision conflict');
     if (current.version !== 2 || current.state !== 'draft')
       throw new Error('Only a v2 draft can be activated');
-    const contextSourceRefs = z
-      .array(Id)
-      .parse(input.contextSourceRefs ?? [`session:${sessionId}`]);
+    const contextSourceRefs = z.array(Id).parse(input.contextSourceRefs ?? []);
     const profileSelections = z
       .record(Id, SymposiumProfileSelectionSchema)
       .parse(input.profileSelections ?? {});
@@ -170,7 +168,7 @@ export class SymposiumHostGrants {
       sessionId,
       actor,
       input.seat,
-      z.array(Id).parse(input.contextSourceRefs ?? [`session:${sessionId}`]),
+      z.array(Id).parse(input.contextSourceRefs ?? []),
       domain,
       input.profileSelection,
     );
@@ -243,6 +241,13 @@ export class SymposiumHostGrants {
     if (seat.profileBinding || seat.contextGrant || seat.authorityGrant || seat.isolationRequest)
       throw new Error('Draft cannot supply host grant or profile references');
     if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    if (
+      selected?.recipe &&
+      !selected.recipe.compatibleProviders.some(
+        (provider) => provider === seat.accountBinding!.provider,
+      )
+    )
+      throw new Error('Profile is not compatible with the selected provider');
     this.deps.validateSelection(seat);
     const authorization = Authorization.parse(
       this.deps.authorizeSeat({ sessionId, actor, seat: inputSeat, contextSourceRefs }),

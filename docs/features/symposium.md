@@ -393,3 +393,11 @@ an arbitrary full review record; publication needs an immutable record reference
 and attachment policy. Recheck the reviewed artifact at approval and dispatch,
 not only before requesting publication. No existing gate should be bypassed to
 make this missing integration appear complete.
+
+### Reusable reviewer recipes
+
+Mitzo owns immutable, owner-scoped profile revisions. New profile offers Code correctness reviewer, Security reviewer, Architecture critic, Testability reviewer, and Artifact/editorial critic starters. Edit the starter and save explicitly; templates do not create sessions or bind seats. Account selection remains **ask when seated**.
+
+An optional `recipe` version 1 travels with profile JSON exports/imports: suggested context categories and source kinds, skill references, read-only tool preferences, compatible providers and reviewer template. Profiles without recipes retain their original representation and hashes. Unknown recipe versions, credentials, machine paths and session authority fields are rejected. Skill/tool references do not install or enable capabilities. Provider compatibility constrains host grant issuance; it does not promise that an account/model is available.
+
+Recipes are setup guidance, not context grants. ContexGin is only an explicitly selected context source; the catalog never writes to ContexGin. Operators still select the concrete context package and account/model per review. Saving or importing a revision does not change active seats; use the existing explicit apply flow, which requires suspension before changing an active seat grant.

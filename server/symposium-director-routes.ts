@@ -1,3 +1,7 @@
+import {
+  buildSymposiumContextPackage,
+  SymposiumContextPackageSchema,
+} from './symposium-context-package.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -158,6 +162,73 @@ const CancelBody = z.strictObject({
 
 export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps): Router {
   const router = Router({ mergeParams: true });
+  // A null author is not visibility proof. Only delivered broadcasts to every
+  // active member at creation qualify; private/legacy authored turns fail closed.
+  const sharedTurns = (sessionId: string) => {
+    const history = deps.store.getSymposiumMembershipHistory(sessionId);
+    return deps.store
+      .getSymposiumDeliveries(sessionId)
+      .filter((delivery) => {
+        if (delivery.status !== 'delivered') return false;
+        const latest = new Map<string, (typeof history)[number]>();
+        for (const member of history) {
+          if (member.occurredAt > delivery.createdAt) continue;
+          const previous = latest.get(member.seatId);
+          if (!previous || previous.generation < member.generation)
+            latest.set(member.seatId, member);
+        }
+        const active = [...latest.values()].filter((member) => member.state === 'active');
+        return (
+          active.length > 1 &&
+          active.every((member) => delivery.recipientSeatIds.includes(member.seatId))
+        );
+      })
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((delivery) => ({
+        id: `delivery:${delivery.deliveryId}`,
+        content: delivery.deliveredContent ?? delivery.originalContent,
+        shareable: true,
+      }));
+  };
+  router.get('/context-turns', (req, res) => {
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    try {
+      res.json({ turns: sharedTurns(sessionId) });
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : 'Context unavailable' });
+    }
+  });
+  router.post('/context-package', (req, res) => {
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const parsed = SymposiumContextPackageSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Invalid context package' });
+      return;
+    }
+    try {
+      const turns = ['independent', 'summary'].includes(parsed.data.mode)
+        ? []
+        : sharedTurns(sessionId);
+      res.json({
+        content: buildSymposiumContextPackage(parsed.data, turns),
+        mode: parsed.data.mode,
+      });
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : 'Context unavailable' });
+    }
+  });
   router.get('/perspectives', (req, res) => {
     const parsed = PerspectiveQuery.safeParse(req.query);
     if (

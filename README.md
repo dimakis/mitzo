@@ -91,6 +91,25 @@ admission checks still apply. Retried creation requests reuse the same session.
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
 
+Use **Add reviewer** in an existing conversation to choose a saved profile,
+account/model, and an explicit review package (objective, acceptance criteria,
+repository instructions, relevant diff/source, tests, and selected decisions).
+Independent review is the default and includes no earlier conversation. Optional
+context choices are an operator-written summary, selected shared excerpts, or
+all proven shared excerpts. Only delivered broadcasts to every active member at
+creation are eligible; private asides, queued inputs, and legacy turns without
+audience proof are excluded. Edited deliveries contribute their delivered text.
+The package is queued for approval, never automatically dispatched. Context
+source grants default to empty; a reference does not itself load conversation
+history. Shared workspace access remains governed by the read-only host grant.
+
+Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
+but admission still requires the verified runtime. A partially completed setup
+remains visible in Director controls. Removing the last reviewer simplifies the
+composer while preserving durable membership history and isolated routing; it
+never switches the session back to ordinary execution. The development-only
+`ui-preview.html` includes read-only reviewer choices for visual checks.
+
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its
 JSON; older revisions remain selectable after later revisions are saved. Revise
@@ -431,3 +450,5 @@ MIT
 The Podman launch agent preserves the VM process group after `podman machine start` exits. Without `AbandonProcessGroup`, launchd terminates those child processes and OpenShell sandbox startup fails even though the start command reports success. After installation, verify `podman info` still succeeds once the launch agent has exited. Use the production `com.mitzo.server` launch agent as the sole supervisor for Mitzo; stop and remove legacy PM2 startup entries before handing over the listening port.
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
+
+Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
