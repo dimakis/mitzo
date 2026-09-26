@@ -47,3 +47,10 @@ Validation uses mocked OAuth/native endpoints and local private metadata files.
 It covers isolated slots, revision conflicts, code visibility, restart behavior,
 late completion, and cleanup refusal. It does not perform real inference or
 claim successful live multi-account runtime acceptance.
+
+Cleanup retries retain only in-memory acknowledgements of successful exact-provider
+refresh-material and provider deletion commands, under continuously verified
+gateway custody. A retry skips those acknowledged stages but repeats empty
+workspace and provider-absence checks. `NotFound`, lost custody, and other
+unacknowledged outcomes do not prove deletion and remain blocked for host
+recovery. These stage proofs are never restored from disk.

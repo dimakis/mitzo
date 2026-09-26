@@ -282,3 +282,62 @@ it('does not certify cleanup when a starting sandbox appears after provider dele
   expect(inventories).toBe(2);
   await expect(f.service.disconnect()).rejects.toThrow('cleanup');
 });
+
+it('retries verified cleanup after a late sandbox disappears without repeating acknowledged deletes', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let sandboxReads = 0;
+  let retry = false;
+  const deleted = new Set<string>();
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox')
+      return {
+        sandboxes: !retry && ++sandboxReads > 1 ? [{ name: 'late-seat', state: 'Creating' }] : [],
+        next_page_token: '',
+      };
+    if (args[1] === 'list') return { providers: [], next_page_token: '' };
+    const operation = args.slice(0, 3).join(' ');
+    if (deleted.has(operation)) throw new Error('NotFound: refresh record or provider is absent');
+    deleted.add(operation);
+    return undefined;
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  retry = true;
+  await expect(f.service.disconnect()).resolves.toBeUndefined();
+  expect(deleted.size).toBe(2);
+  expect(
+    f.host.run.mock.calls.filter(([args]) => args[1] === 'refresh' && args[2] === 'delete'),
+  ).toHaveLength(1);
+  expect(f.host.run.mock.calls.filter(([args]) => args[1] === 'delete')).toHaveLength(1);
+});
+it('retains acknowledged refresh deletion when provider deletion needs a retry', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let refreshDeleted = false;
+  let providerAttempts = 0;
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox') return { sandboxes: [], next_page_token: '' };
+    if (args[1] === 'list') return { providers: [], next_page_token: '' };
+    if (args[1] === 'refresh') {
+      if (refreshDeleted) throw new Error('NotFound');
+      refreshDeleted = true;
+      return;
+    }
+    if (args[1] === 'delete' && ++providerAttempts === 1)
+      throw new Error('Transient unacknowledged removal');
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  await expect(f.service.disconnect()).resolves.toBeUndefined();
+  expect(providerAttempts).toBe(2);
+});
+it('does not treat an unacknowledged NotFound as proof that refresh material was deleted', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox') return { sandboxes: [], next_page_token: '' };
+    throw new Error('NotFound');
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args[1] === 'delete')).toBe(false);
+});
