@@ -19,7 +19,9 @@ interactive binding must create that operation using the existing service flow.
 `mitzo-committed-tree-v1` is SHA256 over its name plus a NUL byte followed by the
 canonical JSON array of `{mode, oid, path}` entries, ordered by UTF-8 path bytes.
 Entries come from bounded `git ls-tree -r -z --full-tree <sourceOID>` through the
-OpenShell control transport and its Git-directory/workspace boundary checks. Blob
+Symposium-only read-only OpenShell transport and the unchanged publisher
+Git-directory boundary script. The existing reviewed publisher transport and its
+trust manifest remain unchanged. Blob
 object IDs bind committed content; paths and executable modes are included in the
 digest. This is a committed-tree manifest digest, not a working-directory checksum.
 Only regular blobs with modes 100644/100755 are supported. Symlinks, submodules,

@@ -272,3 +272,29 @@ it('rejects a dirty tree appearing after remote reads even when committed HEAD i
   });
   await expect(f.inspect()).rejects.toThrow('Git state changed after publication preflight');
 });
+
+it('keeps Symposium inspection separate from the unchanged publisher transport', async () => {
+  const { OpenShellSymposiumGitInspection } = await import('../symposium-review-git-inspection.js');
+  const control = vi
+    .fn<(args: readonly string[]) => Promise<string>>()
+    .mockResolvedValue(`100644 blob ${'a'.repeat(40)}\tfile.txt\0`);
+  const transport = new OpenShellSymposiumGitInspection(control, 'work');
+  expect(transport).not.toHaveProperty('exportBundle');
+  expect(transport).not.toHaveProperty('execute');
+  await transport.committedTree({
+    sandboxName: 'sandbox',
+    repositoryPath: '/sandbox/symposium-artifacts/repo',
+    sourceOid: 'b'.repeat(40),
+    signal: new AbortController().signal,
+  });
+  expect(control.mock.calls[0][0]).toContain('/sandbox/symposium-artifacts');
+  await expect(
+    transport.committedTree({
+      sandboxName: 'sandbox',
+      repositoryPath: '/sandbox/workspaces/work/repo',
+      sourceOid: 'b'.repeat(40),
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toThrow('Repository path is invalid');
+  expect(control).toHaveBeenCalledOnce();
+});

@@ -66,15 +66,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
   constructor(
     private readonly run: OpenShellControlRunner,
     private readonly workspace: string,
-    // Trusted constructor choice, never supplied by capability input.
-    private readonly repositoryRoot = `/sandbox/workspaces/${workspace}`,
-  ) {
-    if (
-      repositoryRoot !== `/sandbox/workspaces/${workspace}` &&
-      repositoryRoot !== '/sandbox/symposium-artifacts'
-    )
-      throw new Error('Unsupported Git repository boundary');
-  }
+  ) {}
   private async git(
     sandboxName: string,
     repositoryPath: string,
@@ -83,13 +75,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
     maxOutputBytes = 128 * 1024,
   ) {
     checked(sandboxName, safeSandbox, 'Sandbox identity is invalid');
-    if (this.repositoryRoot === '/sandbox/symposium-artifacts') {
-      if (
-        repositoryPath !== this.repositoryRoot &&
-        !repositoryPath.startsWith(this.repositoryRoot + '/')
-      )
-        throw new Error('Repository path is invalid');
-    } else checked(repositoryPath, safePath, 'Repository path is invalid');
+    checked(repositoryPath, safePath, 'Repository path is invalid');
     checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
     try {
       return await this.run(
@@ -108,7 +94,7 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
           '-c',
           githubGitBoundaryScript,
           'mitzo-github-git',
-          this.repositoryRoot,
+          `/sandbox/workspaces/${this.workspace}`,
           repositoryPath,
           ...args,
         ],
@@ -193,23 +179,6 @@ export class OpenShellGithubSandboxTransport implements GithubSandboxTransport {
       sourceBranchProtected: false,
       symlinkFree: true,
     };
-  }
-  /** A bounded NUL-delimited committed tree, read through the same Git boundary. */
-  async committedTree(input: {
-    sandboxName: string;
-    repositoryPath: string;
-    sourceOid: string;
-    signal: AbortSignal;
-  }): Promise<string> {
-    if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(input.sourceOid))
-      throw new Error('Source commit is invalid');
-    return this.git(
-      input.sandboxName,
-      input.repositoryPath,
-      ['ls-tree', '-r', '-z', '--full-tree', input.sourceOid],
-      input.signal,
-      1024 * 1024,
-    );
   }
   async exportBundle(input: {
     sandboxName: string;

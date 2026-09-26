@@ -12,14 +12,12 @@ import {
   createGithubPublishPrExecutor,
   type GithubHostPublisher,
 } from './connections/capabilities/github-publish-pr.js';
-import {
-  OpenShellGithubSandboxTransport,
-  type OpenShellControlRunner,
-} from './connections/capabilities/github-publish-pr-transport.js';
+import { type OpenShellControlRunner } from './connections/capabilities/github-publish-pr-transport.js';
 import type {
   CapabilityExecutionContext,
   CapabilityConnection,
 } from './connections/capabilities/types.js';
+import { OpenShellSymposiumGitInspection } from './symposium-review-git-inspection.js';
 import type { CapabilityOperationStore } from './connections/capabilities/operation-store.js';
 import {
   canonicalJson,
@@ -168,14 +166,10 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
       const reference = `Review record: ${record.recordId}\nSHA256: ${record.contentHash}`;
       if (typeof validated.body !== 'string' || !validated.body.endsWith(reference))
         throw new Error('PR body must include the exact review record reference');
-      const transport = new OpenShellGithubSandboxTransport(
-        deps.control,
-        deps.workspaceId,
-        SYMPOSIUM_ARTIFACT_TARGET,
-      );
+      const transport = new OpenShellSymposiumGitInspection(deps.control, deps.workspaceId);
       let inspectedSnapshot: string | undefined;
       const inspect = async (
-        request: Parameters<OpenShellGithubSandboxTransport['inspect']>[0],
+        request: Parameters<OpenShellSymposiumGitInspection['inspect']>[0],
       ) => {
         await check();
         const before = await transport.inspect(request);
