@@ -401,3 +401,25 @@ it('offers personal subscription setup only in the Symposium account catalog inc
   );
   expect(await screen.findByRole('button', { name: 'Connect personal subscription' })).toBeTruthy();
 });
+
+it('requires confirmation of the named account and model and invalidates it on changes', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      requireExplicitSelection
+      sessionId={null}
+      preferredModel=""
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText('Work Vertex');
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Other Vertex · Haiku' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+});
