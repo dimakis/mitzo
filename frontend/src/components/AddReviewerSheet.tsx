@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { SymposiumConfig, ValidAccountBinding } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
@@ -29,33 +30,59 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
   return result as T;
 }
 
-export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
+const ReviewerFlowContext = createContext<{ sessionId: string; open(): void } | null>(null);
+
+/** Owns the form above responsive screen wrappers so viewport changes preserve retries. */
+export function ReviewerSheetHost({
+  sessionId,
+  children,
+}: {
+  sessionId: string;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   const [attempt, setAttempt] = useState(0);
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => {
+    <ReviewerFlowContext.Provider
+      value={{
+        sessionId,
+        open: () => {
           setVisited(true);
           setOpen(true);
-        }}
-      >
-        Add reviewer
-      </button>
-      {visited && (
-        <ReviewerForm
-          key={`${sessionId}:${attempt}`}
-          open={open}
-          sessionId={sessionId}
-          onClose={() => setOpen(false)}
-          onAnother={() => setAttempt((value) => value + 1)}
-        />
-      )}
-    </>
+        },
+      }}
+    >
+      {children}
+      {visited &&
+        createPortal(
+          <ReviewerForm
+            key={`${sessionId}:${attempt}`}
+            open={open}
+            sessionId={sessionId}
+            onClose={() => setOpen(false)}
+            onAnother={() => setAttempt((value) => value + 1)}
+          />,
+          document.body,
+        )}
+    </ReviewerFlowContext.Provider>
   );
 }
+export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
+  const flow = useContext(ReviewerFlowContext);
+  if (!flow || flow.sessionId !== sessionId)
+    return (
+      <ReviewerSheetHost sessionId={sessionId}>
+        <AddReviewerSheet sessionId={sessionId} />
+      </ReviewerSheetHost>
+    );
+  return (
+    <button type="button" onClick={flow.open}>
+      Add reviewer
+    </button>
+  );
+}
+
 function ReviewerForm({
   sessionId,
   onClose,
@@ -230,6 +257,7 @@ function ReviewerForm({
           profileSelections: { ...current.initialProfileSelections, [seatId]: profile },
           ...boundary,
         });
+      await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
       current = await request<Status>(base);
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
       for (const id of [config.version === 2 ? config.anchorSeatId : config.seats[0].id, seatId]) {
