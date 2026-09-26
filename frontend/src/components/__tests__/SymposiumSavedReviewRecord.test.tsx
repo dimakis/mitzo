@@ -53,16 +53,14 @@ it.each(['denied', 'mismatched'])(
 it('reopens a copied app route after remount using authenticated configured API access', async () => {
   vi.stubEnv('VITE_API_BASE_URL', 'https://mitzo.example');
   localStorage.setItem('mitzo_auth_token', 'test-token');
-  const fetch = vi
-    .fn()
-    .mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        recordId: reference.id,
-        contentHash: reference.hash,
-        snapshot: { historySequence: 7 },
-      }),
-    });
+  const fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      recordId: reference.id,
+      contentHash: reference.hash,
+      snapshot: { historySequence: 7 },
+    }),
+  });
   vi.stubGlobal('fetch', fetch);
   const route = `/sessions/session/review-records/${reference.id}?hash=${reference.hash}`;
   const mount = () =>
