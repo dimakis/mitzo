@@ -1,3 +1,4 @@
+import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -280,6 +281,9 @@ export function DesktopChatView() {
           )}
           {!activeSessionId && !sessionId && <NewSymposium />}
           {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+          {activeSessionId && (
+            <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
+          )}
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation
             sessionId={activeSessionId}
