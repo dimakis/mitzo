@@ -33,3 +33,17 @@ it('provides deterministic three-seat and ordinary fallback fixtures', async () 
   ).json();
   expect(proposals).toHaveLength(1);
 });
+
+it('provides reviewer context choices and a saved profile without enabling writes', async () => {
+  const profiles = await (await window.fetch('/api/symposium/profiles')).json();
+  expect(profiles[0].definition.role).toBe('reviewer');
+  const context = await (
+    await window.fetch('/api/sessions/preview-1/symposium/context-turns')
+  ).json();
+  expect(context.turns[0].content).toContain('acceptance');
+  const mutation = await window.fetch('/api/sessions/preview-1/symposium/context-package', {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(mutation.status).toBe(405);
+});

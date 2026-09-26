@@ -44,3 +44,62 @@ it('does not read history for independent review or enable addition without expl
   fireEvent.click(screen.getByText('Choose account'));
   expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
 });
+
+it('adds a read-only reviewer with empty history grants and queues only the explicit package', async () => {
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'anchor',
+    seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const path = String(url);
+    if (path.endsWith('/symposium'))
+      return new Response(
+        JSON.stringify({
+          config,
+          runtimeAvailable: true,
+          seats: [{ seatId: 'anchor', membership: { state: 'active', generation: 1 } }],
+        }),
+      );
+    if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+    if (path.endsWith('/seats/revise'))
+      return new Response(JSON.stringify({ ...config, revision: 2 }));
+    expect(init?.method).toBe('POST');
+    return new Response(JSON.stringify({}));
+  });
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), {
+    target: { value: 'Review diff for acceptance criteria A; tests passed' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Reviewer added/);
+  const revise = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/seats/revise'))!;
+  expect(JSON.parse(String(revise[1]?.body))).toMatchObject({
+    role: 'reviewer',
+    contextSourceRefs: [],
+    accountId: 'a',
+    model: 'luna',
+    profileSelection: { profileId: 'review', revision: 1 },
+  });
+  const delivery = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).endsWith('/deliveries'))!;
+  expect(JSON.parse(String(delivery[1]?.body))).toMatchObject({
+    originalContent:
+      'Review request (read-only):\nReview diff for acceptance criteria A; tests passed',
+  });
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/dispatch'))).toBe(
+    false,
+  );
+});
