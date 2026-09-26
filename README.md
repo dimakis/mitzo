@@ -445,3 +445,8 @@ has one personal account slot. After a host restart, sign in again. Connecting
 does not select a reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
+
+The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
+checks native subscription account type and model availability without inference.
+It requires a trusted owned-host attestation, pins its configuration and provider,
+and retains reconciliation evidence until gateway and physical cleanup agree.
