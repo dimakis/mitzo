@@ -45,6 +45,30 @@ static void allow_path(int ruleset, const char *path, __u64 access, int director
   close(fd);
 }
 
+/* Supervisor public certificate files are mounted outside /etc. Grant only
+ * regular-file reads: no directory traversal grant, keys, writes or execution.
+ * Older/offline images without this optional mount keep their existing scope. */
+static void allow_public_ca(int ruleset, const char *path) {
+  int fd = open(path, O_PATH | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) {
+    if (errno == ENOENT) return;
+    die("public supervisor CA");
+  }
+  struct stat info;
+  if (fstat(fd, &info) < 0) die("public supervisor CA stat");
+  if (!S_ISREG(info.st_mode)) {
+    fprintf(stderr, "public supervisor CA must be a regular file\n");
+    exit(1);
+  }
+  struct landlock_path_beneath_attr rule = {
+      .allowed_access = LANDLOCK_ACCESS_FS_READ_FILE,
+      .parent_fd = fd,
+  };
+  if (syscall(__NR_landlock_add_rule, ruleset, LANDLOCK_RULE_PATH_BENEATH, &rule, 0) < 0)
+    die("public supervisor CA rule");
+  close(fd);
+}
+
 static int valid_home(const char *path) {
   const char *prefix = "/sandbox/.symposium-seats/";
   if (strncmp(path, prefix, strlen(prefix)) != 0) return 0;
@@ -94,6 +118,8 @@ int main(int argc, char **argv) {
   allow_path(fd, "/usr", READ_ACCESS | EXEC_ACCESS, 1);
   allow_path(fd, "/opt", READ_ACCESS | EXEC_ACCESS, 1);
   allow_path(fd, "/etc", READ_ACCESS, 1);
+  allow_public_ca(fd, "/run/openshell-supervisor-ca/material/ca.crt");
+  allow_public_ca(fd, "/run/openshell-supervisor-ca/material/ca-bundle.crt");
   allow_path(fd, "/dev/null", LANDLOCK_ACCESS_FS_READ_FILE | LANDLOCK_ACCESS_FS_WRITE_FILE, 0);
   allow_path(fd, "/dev/urandom", LANDLOCK_ACCESS_FS_READ_FILE, 0);
   allow_path(fd, argv[1], READ_ACCESS | WRITE_ACCESS | EXEC_ACCESS, 1);
