@@ -403,3 +403,27 @@ it('offers personal subscription setup only in the Symposium account catalog inc
     await screen.findByRole('button', { name: 'Manage personal ChatGPT accounts' }),
   ).toBeTruthy();
 });
+
+it('propagates later disabled state to an already open personal account manager', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      ({
+        ok: true,
+        json: async () => (url.endsWith('/connections') ? { connections: [] } : []),
+      }) as Response,
+  );
+  const props = {
+    scope: 'symposium' as const,
+    sessionId: null,
+    preferredModel: 'luna',
+    onChange: vi.fn(),
+  };
+  const { rerender } = render(<AccountModelPicker {...props} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  await screen.findByLabelText('Account label');
+  rerender(<AccountModelPicker {...props} disabled />);
+  expect((screen.getByLabelText('Account label') as HTMLInputElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole('button', { name: 'Add personal account' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});

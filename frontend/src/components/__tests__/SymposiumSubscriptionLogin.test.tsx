@@ -160,3 +160,43 @@ it.each(['idle', 'unknown', 'failed'])(
     ).toBe(false);
   },
 );
+
+it('submits the explicitly selected saved slot revision and scopes receipt recovery', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    init?.method === 'POST'
+      ? response({
+          attemptId: 'attempt',
+          authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+        })
+      : response({ state: 'idle' }),
+  );
+  render(
+    <SymposiumSubscriptionLogin
+      connectionId="personal-b"
+      expectedRevision={7}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login/status?connectionId=personal-b',
+      expect.anything(),
+    ),
+  );
+  fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login',
+      expect.objectContaining({
+        body: JSON.stringify({
+          callbackTransport: 'host-local',
+          connectionId: 'personal-b',
+          expectedRevision: 7,
+        }),
+      }),
+    ),
+  );
+});

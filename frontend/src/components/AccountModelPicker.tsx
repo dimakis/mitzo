@@ -1,7 +1,6 @@
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface AccountSelection {
@@ -244,17 +243,10 @@ export function AccountModelPicker({
         </button>
         {personalAccountsOpen && (
           <SymposiumPersonalConnections
+            disabled={disabled}
             onAccountsChanged={() => setAttempt((value) => value + 1)}
           />
         )}
-        <details>
-          <summary>Browser callback alternative</summary>
-          <SymposiumSubscriptionLogin
-            disabled={disabled}
-            onComplete={() => setAttempt((value) => value + 1)}
-            onCatalogRefresh={() => setAttempt((value) => value + 1)}
-          />
-        </details>
       </>
     ) : null;
   if (error)

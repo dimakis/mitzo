@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumPersonalConnections } from '../SymposiumPersonalConnections';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -136,4 +136,81 @@ it('refreshes recovered connecting state after cancellation so another slot can 
       }) as HTMLButtonElement
     ).disabled,
   ).toBe(false);
+});
+
+it('disables all manager mutations when its parent becomes disabled after opening', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ connections: rows }));
+  const { rerender } = render(<SymposiumPersonalConnections />);
+  await screen.findByText('one@example.test');
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Extra' } });
+  rerender(<SymposiumPersonalConnections disabled />);
+  expect(
+    (screen.getByRole('button', { name: 'Add personal account' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect((screen.getByRole('button', { name: 'Disconnect' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  expect((screen.getByLabelText('Account label') as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+it('clears a closed pending dialog lock after a refreshed terminal slot state', async () => {
+  let finished = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [{ ...rows[0], state: finished ? 'connected' : 'connecting' }, rows[1]] }
+        : { state: 'pending', attemptId: 'a', connectionId: 'personal-a', method: 'device-code' },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  finished = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await screen.findByText('Connected');
+  expect(
+    (
+      within(screen.getByRole('region', { name: 'Second account' })).getByRole('button', {
+        name: 'Connect',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+});
+
+it('places browser callback login inside the selected saved account with its reviewed revision', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: rows }
+        : init?.method === 'POST'
+          ? {
+              attemptId: 'callback',
+              authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+            }
+          : { state: 'idle' },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('two@example.test');
+  const second = within(screen.getByRole('region', { name: 'Second account' }));
+  fireEvent.click(second.getByText('Browser callback alternative for Second account'));
+  fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  await second.findByText('Where will you open the login browser?');
+  fireEvent.click(second.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(second.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(second.getByRole('button', { name: 'Start personal login' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login',
+      expect.objectContaining({
+        body: JSON.stringify({
+          callbackTransport: 'host-local',
+          connectionId: 'personal-b',
+          expectedRevision: 3,
+        }),
+      }),
+    ),
+  );
 });
