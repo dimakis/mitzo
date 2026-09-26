@@ -101,7 +101,7 @@ export function createDiscoveryHostOperations(
         workspace: config.workspace,
         cliEnvironment: environment,
         sandboxName: name,
-        workdir: '/sandbox/workspaces/discovery',
+        workdir: '/sandbox/workspaces/mgmt',
         gatewayInsecure: false,
       },
       args,
@@ -187,7 +187,7 @@ export function createDiscoveryHostOperations(
           '--',
           '/bin/sh',
           '-c',
-          'mkdir -p /sandbox/workspaces/discovery && exec sleep infinity',
+          'mkdir -p /sandbox/workspaces/mgmt && exec sleep infinity',
         ],
         45000,
       );
@@ -195,6 +195,12 @@ export function createDiscoveryHostOperations(
     async attachedProviders(receipt) {
       return rows(
         await cli(['sandbox', ...base, 'provider', 'list', receipt.name, '--output', 'json']),
+        'providers',
+      );
+    },
+    async providerInventory() {
+      return rows(
+        await cli(['provider', ...base, 'list', '--output', 'json', '--page-size', '100']),
         'providers',
       );
     },

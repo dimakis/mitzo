@@ -47,7 +47,10 @@ function fixture() {
       events.push('create');
       exists = true;
     }),
-    attachedProviders: async () => [{ name: 'personal', id: 'provider-1', type: 'codex' }],
+    attachedProviders: async () => [{ name: 'personal', type: 'codex' }],
+    providerInventory: async () => [
+      { name: 'personal', id: 'provider-1', type: 'codex', workspace: 'work' },
+    ],
     openClient: async () => ({
       initialize: async () => {},
       request: vi.fn(async (method) => {
@@ -116,7 +119,9 @@ it('does not claim cleanup complete until physical deletion is observed', async 
 });
 it('rejects a different provider before opening a read client and sanitizes errors', async () => {
   const f = fixture();
-  f.operations.attachedProviders = async () => [{ id: 'other', name: 'personal', type: 'codex' }];
+  f.operations.providerInventory = async () => [
+    { id: 'other', name: 'personal', type: 'codex', workspace: 'work' },
+  ];
   f.operations.openClient = vi.fn();
   expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
     status: 'failed',
@@ -164,3 +169,20 @@ it('does not delete a replacement with a different claim and retains reconciliat
   );
   expect(f.operations.delete).not.toHaveBeenCalled();
 });
+
+it.each(['other-workspace', 'duplicate', 'wrong-type'])(
+  'rejects global provider identity %s before launching',
+  async (kind) => {
+    const f = fixture();
+    const row = {
+      name: 'personal',
+      id: 'provider-1',
+      type: kind === 'wrong-type' ? 'openai' : 'codex',
+      workspace: kind === 'other-workspace' ? 'other' : 'work',
+    };
+    f.operations.providerInventory = async () => (kind === 'duplicate' ? [row, row] : [row]);
+    f.operations.openClient = vi.fn();
+    expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('failed');
+    expect(f.operations.openClient).not.toHaveBeenCalled();
+  },
+);

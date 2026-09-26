@@ -46,6 +46,7 @@ export interface DiscoveryOperations {
   list(): Promise<unknown>;
   create(receipt: DiscoveryReceipt, config: DiscoveryConfig): Promise<void>;
   attachedProviders(receipt: DiscoveryReceipt): Promise<unknown>;
+  providerInventory(): Promise<unknown>;
   openClient(receipt: DiscoveryReceipt): Promise<DiscoveryReadClient>;
   cancel(receipt: DiscoveryReceipt): Promise<void>;
   delete(receipt: DiscoveryReceipt): Promise<void>;
@@ -114,13 +115,25 @@ export async function runSymposiumModelDiscovery(
         await ops.wait();
       }
       if (!selected || selected.phase !== 'Ready') throw new Error('Not ready');
-      const providers = z
-        .array(z.object({ name: identifier, id: identifier, type: z.literal('codex') }))
+      const attached = z
+        .array(z.object({ name: identifier, type: z.literal('codex') }))
         .parse(await ops.attachedProviders(receipt));
+      if (attached.length !== 1 || attached[0].name !== config.provider.name)
+        throw new Error('Wrong attachment');
+      await verify();
+      const providers = z
+        .array(
+          z.object({ name: identifier, id: identifier, type: z.string(), workspace: identifier }),
+        )
+        .parse(await ops.providerInventory());
+      const selectedProviders = providers.filter(
+        (provider) => provider.name === config.provider.name,
+      );
       if (
-        providers.length !== 1 ||
-        providers[0].name !== config.provider.name ||
-        providers[0].id !== config.provider.id
+        selectedProviders.length !== 1 ||
+        selectedProviders[0].id !== config.provider.id ||
+        selectedProviders[0].type !== 'codex' ||
+        selectedProviders[0].workspace !== config.workspace
       )
         throw new Error('Wrong provider');
       await verify();
