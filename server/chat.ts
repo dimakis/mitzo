@@ -131,6 +131,14 @@ export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
 }
 
+/** Fan out an already durable Symposium event through both WS and SSE watchers. */
+export function broadcastDurableSymposiumEvent(
+  sessionId: string,
+  event: Record<string, unknown>,
+): void {
+  _connRegistry?.broadcast(sessionId, event);
+}
+
 type SessionChangeCallback = (
   clientId: string,
   event: 'start' | 'end' | 'turn_end' | 'user_message',

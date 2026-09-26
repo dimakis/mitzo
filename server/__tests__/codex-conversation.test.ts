@@ -67,6 +67,28 @@ it.each(['transport', 'close'] as const)('ends a subscription span on %s loss', 
   expect(span.end).toHaveBeenCalledOnce();
   expect(span.setAttribute).toHaveBeenCalledWith('mitzo.failure.category', loss);
 });
+
+it('reports a provider-accepted turn only after the exact turn/start response', async () => {
+  const onProviderAccepted = vi.fn();
+  const { c, requests } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    onProviderAccepted,
+  );
+  await c.send({ id: 'symposium-attempt', prompt: 'Approved seat excerpt only.' });
+  expect(requests.some(({ method }) => method === 'turn/start')).toBe(true);
+  expect(onProviderAccepted).toHaveBeenCalledOnce();
+  expect(onProviderAccepted).toHaveBeenCalledWith('symposium-attempt', 'provider-thread', 'turn-1');
+  c.close();
+});
 async function setup(
   existingStore?: CodexConversationStore,
   displayToolName?: (name: string) => string,
@@ -87,6 +109,12 @@ async function setup(
   ) => Promise<string | void>,
   onProviderDispatch?: (commandId: string) => void,
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void,
+  onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void,
+  onProviderTerminal?: (
+    commandId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -167,6 +195,8 @@ async function setup(
     prepareTurn,
     onProviderDispatch,
     onProviderComplete,
+    onProviderAccepted,
+    onProviderTerminal,
     loadConversationHistory: () => [
       { role: 'user', text: 'Keep the existing workstream.' },
       { role: 'assistant', text: 'The workstream is active.' },
@@ -327,9 +357,39 @@ it('reports the durable command boundary around provider dispatch', async () => 
   expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'completed');
 });
 
+it('reports exact native terminal proof only for a matching turn completion', async () => {
+  const terminal = vi.fn();
+  const { c, callbacks } = await setup(
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    terminal,
+  );
+  await c.send({ id: 'exact-command', prompt: 'check terminal' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'other-turn', status: 'completed' },
+  });
+  expect(terminal).not.toHaveBeenCalled();
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'interrupted' },
+  });
+  expect(terminal).toHaveBeenCalledExactlyOnceWith('exact-command', 'turn-1', 'interrupted');
+});
+
 it('marks a dispatched command ambiguous when its transport is lost', async () => {
   const onProviderDispatch = vi.fn();
   const onProviderComplete = vi.fn();
+  const onProviderTerminal = vi.fn();
   const { c, callbacks } = await setup(
     undefined,
     undefined,
@@ -341,6 +401,8 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
     undefined,
     onProviderDispatch,
     onProviderComplete,
+    undefined,
+    onProviderTerminal,
   );
 
   await c.send({ id: 'closeout-command', prompt: 'close safely' });
@@ -348,6 +410,7 @@ it('marks a dispatched command ambiguous when its transport is lost', async () =
 
   expect(onProviderDispatch).toHaveBeenCalledWith('closeout-command');
   expect(onProviderComplete).toHaveBeenCalledWith('closeout-command', 'failed');
+  expect(onProviderTerminal).not.toHaveBeenCalled();
   expect(c.queue()).toMatchObject([{ id: 'closeout-command', status: 'failed' }]);
   await expect(c.retryLatestFailed()).resolves.toBe('confirmation_required');
 });

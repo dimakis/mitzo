@@ -102,6 +102,34 @@ describe('explicit account binding', () => {
       new AccountProfiles([{ ...profile, credentialRef: '/other.json' }]).resume(binding),
     ).toThrow(/changed/i);
   });
+  it('pins an explicit Vertex sandbox provider without exporting host ADC material', () => {
+    const configured = {
+      ...profile,
+      sandboxProvider: 'vertex-work',
+      sandboxProviderId: 'vertex-provider-id',
+    };
+    const profiles = new AccountProfiles([configured]);
+    const binding = profiles.resolve('work', 'claude-sonnet-4-6');
+    expect(profiles.vertexSandboxRoute(binding)).toEqual({
+      provider: 'vertex-work',
+      providerId: 'vertex-provider-id',
+      projectId: 'work-project',
+      region: 'us-east5',
+      model: 'claude-sonnet-4-6',
+    });
+    expect(() => new AccountProfiles([profile]).vertexSandboxRoute(binding)).toThrow(/changed/i);
+    expect(() =>
+      new AccountProfiles([profile]).vertexSandboxRoute(
+        new AccountProfiles([profile]).resolve('work', 'claude-sonnet-4-6'),
+      ),
+    ).toThrow(/sandbox provider/i);
+    expect(JSON.stringify(profiles.catalog())).not.toContain('vertex-work');
+    expect(JSON.stringify(profiles.vertexSandboxRoute(binding))).not.toContain('credentials');
+    expect(() =>
+      new AccountProfiles([{ ...configured, sandboxProviderId: 'rotated' }]).resume(binding),
+    ).toThrow(/changed/i);
+    expect(() => new AccountProfiles([{ ...profile, sandboxProvider: 'vertex-work' }])).toThrow();
+  });
   it('constructs SDK environment with explicit credentials and removes alternate billing routes', () => {
     const profiles = new AccountProfiles([profile]);
     const binding = profiles.resolve('work', 'claude-sonnet-4-6');

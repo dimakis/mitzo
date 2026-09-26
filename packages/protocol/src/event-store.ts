@@ -2729,32 +2729,48 @@ export class EventStore {
 
   getUnsettledSymposiumExecutions(
     deliveryId: string,
-  ): Array<{ seatId: string; attemptId: number; idempotencyKey: string }> {
+  ): Array<{
+    seatId: string;
+    attemptId: number;
+    idempotencyKey: string;
+    claimToken: string | null;
+  }> {
     return (
       this.db!.prepare(
-        `SELECT seat_id, attempt_id, idempotency_key FROM symposium_recipient_attempts
+        `SELECT seat_id, attempt_id, idempotency_key, claim_token FROM symposium_recipient_attempts
       WHERE delivery_id = ? AND cleanup_confirmed = 0`,
-      ).all(deliveryId) as Array<{ seat_id: string; attempt_id: number; idempotency_key: string }>
+      ).all(deliveryId) as Array<{
+        seat_id: string;
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
     ).map((row) => ({
       seatId: row.seat_id,
       attemptId: row.attempt_id,
       idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
     }));
   }
 
   getUnsettledSymposiumSeatExecutions(
     sessionId: string,
     seatId: string,
-  ): Array<{ attemptId: number; idempotencyKey: string }> {
+  ): Array<{ attemptId: number; idempotencyKey: string; claimToken: string | null }> {
     return (
       this.db!.prepare(
-        `SELECT a.attempt_id, a.idempotency_key FROM symposium_recipient_attempts a
+        `SELECT a.attempt_id, a.idempotency_key, a.claim_token FROM symposium_recipient_attempts a
       JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
       WHERE d.session_id = ? AND a.seat_id = ? AND a.cleanup_confirmed = 0`,
-      ).all(sessionId, seatId) as Array<{ attempt_id: number; idempotency_key: string }>
+      ).all(sessionId, seatId) as Array<{
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
     ).map((row) => ({
       attemptId: row.attempt_id,
       idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
     }));
   }
 

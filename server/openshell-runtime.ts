@@ -133,7 +133,11 @@ class FileProviderPolicyState implements ProviderPolicyState {
     if (
       !Array.isArray(value.automatic) ||
       !Array.isArray(value.granted) ||
-      ![...value.automatic, ...value.granted].every(
+      !value.automatic.every(
+        (provider) =>
+          typeof provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(provider),
+      ) ||
+      !value.granted.every(
         (provider) => typeof provider === 'string' && isServiceProviderName(provider),
       )
     )
@@ -156,6 +160,10 @@ class FileProviderPolicyState implements ProviderPolicyState {
 
 export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
   account: OpenShellAccountRoute;
+  /** Explicit, inventory-pinned inference providers for a shared Symposium sandbox. */
+  accountProviderBindings?: readonly { name: string; type: string; id: string }[];
+  /** Synchronous durable membership/union revision fence supplied by the session owner. */
+  verifyAccountProviderUnion?: () => void;
   connectionAccountId?: string;
   enforceConnectionAttachments?: boolean;
   /**
@@ -340,6 +348,29 @@ export class OpenShellRuntimeManager {
       throw new Error(
         `OpenShell account provider cannot also be grantable: ${config.account.provider}`,
       );
+    if (config.accountProviderBindings) {
+      if (!config.verifyAccountProviderUnion)
+        throw new Error('Shared account provider union requires a durable membership fence');
+      if (config.account.kind !== 'api')
+        throw new Error('Shared account provider union requires independent API routes');
+      const names = config.accountProviderBindings.map((binding) =>
+        identifier(binding.name, 'account provider'),
+      );
+      if (new Set(names).size !== names.length || !names.includes(config.account.provider))
+        throw new Error('Shared account provider bindings must be distinct and include the owner');
+      if (
+        names.some(
+          (name) =>
+            config.serviceProviders.includes(name) ||
+            config.grantableServiceProviders.includes(name),
+        )
+      )
+        throw new Error('Account provider cannot also be a service provider');
+      for (const binding of config.accountProviderBindings) {
+        identifier(binding.type, 'account provider type');
+        if (!binding.id.trim()) throw new Error('Account provider ID is required');
+      }
+    }
     this.run = run ?? ((args, signal) => command(config.cli, args, signal));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
@@ -645,6 +676,27 @@ export class OpenShellRuntimeManager {
 
   private async verifyAccountProvider(signal: AbortSignal) {
     const account = this.config.account;
+    if (this.config.accountProviderBindings) {
+      const providers = ProviderList.parse(
+        JSON.parse(
+          await this.run(
+            ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
+            signal,
+          ),
+        ),
+      );
+      for (const binding of this.config.accountProviderBindings) {
+        const match = providers.find((provider) => provider.name === binding.name);
+        if (
+          !match ||
+          match.workspace !== this.config.workspace ||
+          match.type !== binding.type ||
+          match.id !== binding.id
+        )
+          throw new Error('OpenShell account provider inventory changed');
+      }
+      return;
+    }
     if (account.kind === 'api') return;
     const providers = ProviderList.parse(
       JSON.parse(
@@ -750,16 +802,19 @@ export class OpenShellRuntimeManager {
   }
 
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
+    this.config.verifyAccountProviderUnion?.();
     await this.verifyAccountProvider(signal);
+    this.config.verifyAccountProviderUnion?.();
     const accountProvider = this.config.account.provider;
     // The account provider is a separately-bound inference/account role. It
     // can happen to have a service-provider name (for example `github`), but
     // it is never part of the attachable service-provider policy.
     const automaticProviders = () => [
       ...new Set(
-        this.config.serviceProviders.filter(
-          (provider) => isServiceProviderName(provider) && provider !== accountProvider,
-        ),
+        [
+          ...this.config.serviceProviders.filter((provider) => isServiceProviderName(provider)),
+          ...(this.config.accountProviderBindings?.map((binding) => binding.name) ?? []),
+        ].filter((provider) => provider !== accountProvider),
       ),
     ];
     const policyFingerprint = providerPolicyFingerprint(automaticProviders());
@@ -835,6 +890,12 @@ export class OpenShellRuntimeManager {
       }
       for (const provider of this.config.serviceProviders)
         if (provider !== accountProvider) args.push('--provider', provider);
+      for (const binding of this.config.accountProviderBindings ?? [])
+        if (binding.name !== accountProvider) args.push('--provider', binding.name);
+      if (this.config.accountProviderBindings) {
+        this.config.verifyAccountProviderUnion?.();
+        this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
+      }
       try {
         await this.run(args, signal);
       } catch (error) {
@@ -851,6 +912,7 @@ export class OpenShellRuntimeManager {
     await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
+        this.config.verifyAccountProviderUnion?.();
         const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
         const previous =
@@ -882,18 +944,42 @@ export class OpenShellRuntimeManager {
           ? [...actual].filter(
               (provider) =>
                 provider !== accountProvider &&
-                isServiceProviderName(provider) &&
+                (isServiceProviderName(provider) || previous?.automatic.includes(provider)) &&
                 !desired.has(provider),
             )
           : [];
+        // Persist intended account attachments before an asynchronous attach.
+        // If membership changes mid-call, the next revision can identify and
+        // detach a stale attachment even when this operation returns unknown.
+        if (this.config.accountProviderBindings)
+          this.providerPolicyState.write(name, { automatic, granted });
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
-        this.providerPolicyState.write(name, { automatic, granted });
+        this.config.verifyAccountProviderUnion?.();
+        if (!this.config.accountProviderBindings)
+          this.providerPolicyState.write(name, { automatic, granted });
       });
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+    if (this.config.accountProviderBindings) {
+      const actual = new Set(
+        parseProviderAttachments(
+          await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
+          name,
+        ),
+      );
+      const policy = this.providerPolicyState.read(name);
+      const expected = new Set([
+        accountProvider,
+        ...automaticProviders(),
+        ...(policy?.granted ?? []),
+      ]);
+      if (actual.size !== expected.size || [...expected].some((provider) => !actual.has(provider)))
+        throw new Error('Shared Symposium provider attachments are not confirmed');
+      this.config.verifyAccountProviderUnion?.();
+    }
     return {
       sandboxName: name,
       ...(sandbox.id ? { sandboxId: sandbox.id } : {}),

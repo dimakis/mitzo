@@ -95,6 +95,7 @@ class FakeExecutor implements SymposiumSeatExecutor {
   calls: SymposiumSeatExecution[] = [];
   cancellations: string[] = [];
   cancellationThreadIds: Array<string | undefined> = [];
+  cancellationClaimTokens: Array<string | undefined> = [];
   private threadCount = 0;
   private results = new Map<
     string,
@@ -117,9 +118,10 @@ class FakeExecutor implements SymposiumSeatExecutor {
     return result;
   }
 
-  async cancel(input: { providerThreadId?: string; idempotencyKey: string }) {
+  async cancel(input: { providerThreadId?: string; idempotencyKey: string; claimToken?: string }) {
     this.cancellations.push(input.idempotencyKey);
     this.cancellationThreadIds.push(input.providerThreadId);
+    this.cancellationClaimTokens.push(input.claimToken);
   }
 }
 
@@ -2209,6 +2211,7 @@ describe('SymposiumOrchestrator', () => {
 
     expect(reviewer.calls[1].providerThreadId).toBe('thread-reviewer');
     expect(reviewer.cancellationThreadIds).toEqual(['thread-reviewer']);
+    expect(reviewer.cancellationClaimTokens).toEqual([reviewer.calls[1].claimToken]);
   });
 
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
@@ -2721,6 +2724,10 @@ describe('SymposiumOrchestrator', () => {
     });
 
     expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+    for (const call of [...builder.calls, ...reviewer.calls]) {
+      expect(call.claimToken).toEqual(expect.any(String));
+      expect(call.claimToken.length).toBeGreaterThan(0);
+    }
     expect(store.getSymposiumSeatThreads('chat')).toEqual([
       expect.objectContaining({ seatId: 'builder', providerThreadId: 'thread-1' }),
       expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-1' }),

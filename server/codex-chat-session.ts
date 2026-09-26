@@ -189,6 +189,10 @@ function store() {
   }
   return privateStore;
 }
+/** Reuse the private native command ledger for session-scoped Symposium threads. */
+export function getCodexConversationStore(): CodexConversationStore {
+  return store();
+}
 export function getCodexRuntime(session: ManagedSession) {
   return runtimes.get(session);
 }

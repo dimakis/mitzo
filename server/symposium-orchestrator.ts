@@ -25,6 +25,8 @@ export interface SymposiumSeatExecution {
   seat: SeatConfig;
   content: string;
   idempotencyKey: string;
+  /** Exact durable attempt claim; native acceptance and cancellation must use this token. */
+  claimToken: string;
   providerThreadId?: string;
   provenance: SymposiumProvenance;
   signal: AbortSignal;
@@ -57,6 +59,8 @@ export interface SymposiumOrchestratorDeps {
   stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
+  /** Host-only verification, recorded after the durable generation exists. */
+  admitSeat?: (input: { sessionId: string; seatId: string; generation: number }) => void;
 }
 
 export class SymposiumOrchestrator {
@@ -68,6 +72,7 @@ export class SymposiumOrchestrator {
   private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
   private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
   private readonly retainedProviders: (sessionId: string) => string[];
+  private readonly admitSeat?: SymposiumOrchestratorDeps['admitSeat'];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly reconciliationQueues: Map<string, Promise<void>>;
@@ -81,6 +86,7 @@ export class SymposiumOrchestrator {
     this.stopSeat = deps.stopSeat;
     this.reconcileProviders = deps.reconcileProviders;
     this.retainedProviders = deps.retainedProviders ?? (() => []);
+    this.admitSeat = deps.admitSeat;
     this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
     sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
   }
@@ -98,7 +104,24 @@ export class SymposiumOrchestrator {
     replacesSeatId?: string;
   }): Promise<SymposiumMembershipRecord> {
     const record = this.store.transitionSymposiumMembership({ ...input, occurredAt: this.now() });
-    if (record.reconciliation === 'confirmed' || record.state === 'active') return record;
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active' && !this.admitSeat) return record;
+    if (record.state === 'active' && this.admitSeat) {
+      try {
+        this.admitSeat({
+          sessionId: input.sessionId,
+          seatId: input.seatId,
+          generation: record.generation,
+        });
+      } catch {
+        return this.store.markSymposiumMembershipReconciled(
+          input.sessionId,
+          input.seatId,
+          record.generation,
+          'recovery_required',
+        );
+      }
+    }
     return this.reconcileMembership(input.sessionId, input.seatId, record.generation);
   }
 
@@ -468,6 +491,7 @@ export class SymposiumOrchestrator {
             providerThreadId: recipient?.providerThreadId ?? undefined,
             idempotencyKey: attempt.idempotencyKey,
             attemptId: attempt.attemptId,
+            claimToken: attempt.claimToken ?? undefined,
           });
           this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
         } catch (error) {
@@ -504,6 +528,7 @@ export class SymposiumOrchestrator {
           providerThreadId: recipient?.providerThreadId ?? undefined,
           idempotencyKey: attempt.idempotencyKey,
           attemptId: attempt.attemptId,
+          claimToken: attempt.claimToken ?? undefined,
         });
         this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
       }),
@@ -614,6 +639,7 @@ export class SymposiumOrchestrator {
           seat,
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
+          claimToken: claim.claimToken,
           providerThreadId: thread?.providerThreadId,
           provenance,
           signal: abortController.signal,
