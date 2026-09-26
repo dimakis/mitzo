@@ -169,9 +169,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       )}
       {loaded && available && workflows.length > 0 && !newReview && (
         <button
-          disabled={
-            busy || workflows.some((item) => item.reservations.some((attempt) => !attempt.settled))
-          }
+          disabled={busy}
           onClick={() => {
             setNewReview(true);
             setSelected([]);
