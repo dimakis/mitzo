@@ -1,3 +1,4 @@
+import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
 import {
@@ -23,6 +24,7 @@ export interface SymposiumNativeSeat {
 
 export interface SymposiumOpenShellSeatExecutorDeps {
   facts: SymposiumDispatchFacts;
+  attemptRegistry?: SymposiumAttemptRegistry;
   profiles: AccountProfiles;
   currentProfiles?: () => AccountProfiles;
   hostGrants: SymposiumHostGrantVerifier;
@@ -46,6 +48,7 @@ export interface SymposiumOpenShellSeatExecutorDeps {
     acceptedAt: number;
   }): boolean;
   recordEvent?: (execution: SymposiumSeatExecution, event: Record<string, unknown>) => void;
+  /** Trusted factory: when a registry is supplied, all native launches must use it. */
   openNative(input: {
     sandbox: { sandboxName: string; workdir: string };
     route: SymposiumSeatRoute;
@@ -58,12 +61,23 @@ export interface SymposiumOpenShellSeatExecutorDeps {
 export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
   private attempts = new Map<
     string,
-    { native: SymposiumNativeSeat; execution: SymposiumSeatExecution }
+    { native?: SymposiumNativeSeat; execution: SymposiumSeatExecution; opening: boolean }
   >();
 
   constructor(private deps: SymposiumOpenShellSeatExecutorDeps) {}
 
+  prepare(input: { sessionId: string; claimToken: string }) {
+    this.deps.attemptRegistry?.prepare(input);
+  }
+
   async execute(input: SymposiumSeatExecution) {
+    this.prepare(input);
+    const attempt: {
+      native?: SymposiumNativeSeat;
+      execution: SymposiumSeatExecution;
+      opening: boolean;
+    } = { execution: input, opening: false };
+    this.attempts.set(input.claimToken, attempt);
     const admission = () =>
       admitSymposiumSeatDispatch(
         this.deps.facts,
@@ -81,13 +95,18 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       throw new Error('Reviewer native read-only policy is not verified on this sandbox');
     const sandbox = await this.deps.owner.ensure(input.sessionId, input.seat.id, input.signal);
     route = admission();
+    if (this.attempts.get(input.claimToken) !== attempt || input.signal.aborted)
+      throw new Error('Symposium native attempt was cancelled before initialization');
+    attempt.opening = true;
     const native = await this.deps.openNative({
       sandbox,
       route,
       execution: input,
       onEvent: this.deps.recordEvent ? (event) => this.deps.recordEvent!(input, event) : undefined,
     });
-    this.attempts.set(input.claimToken, { native, execution: input });
+    attempt.native = native;
+    if (this.attempts.get(input.claimToken) !== attempt || input.signal.aborted)
+      throw new Error('Symposium native attempt was cancelled during initialization');
     // If admission changed during native initialization, orchestrator cleanup
     // can now target the created process by its exact durable claim.
     admission();
@@ -121,10 +140,17 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
 
   async cancel(input: { claimToken?: string }) {
     const token = input.claimToken;
-    const active = token && this.attempts.get(token);
-    if (!active) throw new Error('Symposium native attempt cleanup is unknown');
-    await active.native.cancel();
-    this.deps.recordEvent?.(active.execution, { type: 'symposium_attempt_released' });
+    if (!token) throw new Error('Symposium native attempt cleanup is unknown');
+    const active = this.attempts.get(token);
+    if (active?.native) {
+      await active.native.cancel();
+      await this.deps.attemptRegistry?.recover(token);
+    } else if (this.deps.attemptRegistry) {
+      await this.deps.attemptRegistry.recover(token);
+    } else if (!active || active.opening) {
+      throw new Error('Symposium native attempt cleanup is unknown');
+    }
+    if (active) this.deps.recordEvent?.(active.execution, { type: 'symposium_attempt_released' });
     this.attempts.delete(token);
   }
 }

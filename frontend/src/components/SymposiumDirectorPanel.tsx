@@ -193,6 +193,21 @@ function SeatModelEditor({
 
 export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
+  // Keep visibility across navigation, but isolate all roster, form, and request state.
+  return (
+    <SessionDirectorPanel key={sessionId} sessionId={sessionId} open={open} setOpen={setOpen} />
+  );
+}
+
+function SessionDirectorPanel({
+  sessionId,
+  open,
+  setOpen,
+}: {
+  sessionId: string;
+  open: boolean;
+  setOpen: (value: (current: boolean) => boolean) => void;
+}) {
   const [status, setStatus] = useState<DirectorStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -211,21 +226,25 @@ export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
   const [boundaryAcknowledged, setBoundaryAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState('');
   const pendingKeys = useRef(new Map<string, string>());
+  const refreshGeneration = useRef(0);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGeneration.current;
     setLoading(true);
     try {
       const next = await readJson<DirectorStatus>(base);
+      if (generation !== refreshGeneration.current) return;
       setStatus(next);
       setSelected((current) =>
         current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
       );
       setError('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Director status unavailable');
+      if (generation === refreshGeneration.current)
+        setError(cause instanceof Error ? cause.message : 'Director status unavailable');
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current) setLoading(false);
     }
   }, [base]);
 
@@ -235,6 +254,9 @@ export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
     setProfileSelections({});
     pendingKeys.current.clear();
     if (open) void refresh();
+    return () => {
+      refreshGeneration.current += 1;
+    };
   }, [sessionId, open, refresh]);
 
   async function mutate(path: string, payload: Record<string, unknown>, method = 'POST') {
@@ -467,6 +489,9 @@ export function SymposiumDirectorPanel({ sessionId }: { sessionId: string }) {
       </button>
       {open && (
         <div className="symposium-director-panel">
+          <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
+            Refresh director status
+          </button>
           {loading && <p role="status">Loading Symposium…</p>}
           {error && (
             <p role="alert">

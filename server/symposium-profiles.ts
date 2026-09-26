@@ -100,11 +100,8 @@ export class SymposiumProfileStore {
     const rows = this.db
       .prepare(
         `SELECT profile_id, revision, definition, content_hash
-      FROM symposium_profile_versions AS version
-      WHERE owner = ? AND revision = (
-        SELECT MAX(revision) FROM symposium_profile_versions AS latest
-        WHERE latest.owner = version.owner AND latest.profile_id = version.profile_id
-      ) ORDER BY profile_id`,
+      FROM symposium_profile_versions
+      WHERE owner = ? ORDER BY profile_id, revision DESC`,
       )
       .all(owner) as VersionRow[];
     return rows.map(fromRow);

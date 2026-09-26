@@ -383,6 +383,99 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByText('Ordinary send')).toBeNull();
   });
 
+  it('retains independent uncertain audience requests and releases only confirmed keys', async () => {
+    const bodies: { idempotencyKey: string; recipientSeatIds: string[] }[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/deliveries') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length <= 2) throw new Error('Response lost');
+        return json({});
+      }
+      return json(
+        String(url).includes('/profile-proposals')
+          ? []
+          : String(url).includes('/perspectives')
+            ? page
+            : status,
+      );
+    });
+    render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+    const send = async (seat: string) => {
+      fireEvent.click(await screen.findByRole('tab', { name: seat }));
+      fireEvent.change(screen.getByRole('textbox', { name: `Message for ${seat}` }), {
+        target: { value: 'Hello' },
+      });
+      const button = screen.getByRole('button', { name: 'Queue for approval' });
+      await waitFor(() => expect(button.hasAttribute('disabled')).toBe(false));
+      fireEvent.click(button);
+    };
+    await send('Architect');
+    await screen.findByText('Response lost');
+    await send('Reviewer');
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    await send('Architect');
+    await waitFor(() => expect(bodies).toHaveLength(3));
+    expect(bodies[2].idempotencyKey).toBe(bodies[0].idempotencyKey);
+    expect(bodies[1].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    await send('Reviewer');
+    await waitFor(() => expect(bodies).toHaveLength(4));
+    expect(bodies[3].idempotencyKey).toBe(bodies[1].idempotencyKey);
+    await send('Architect');
+    await waitFor(() => expect(bodies).toHaveLength(5));
+    expect(bodies[4].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+  });
+
+  it('retains excerpt keys across edits, clears confirmed keys, and isolates sessions', async () => {
+    const bodies: { idempotencyKey: string; excerpt: string }[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).endsWith('/share-excerpt') && init?.method === 'POST') {
+        bodies.push(JSON.parse(String(init.body)));
+        if (bodies.length <= 2) throw new Error('Response lost');
+        return json({});
+      }
+      return json(
+        String(url).includes('/profile-proposals')
+          ? []
+          : String(url).includes('/perspectives')
+            ? page
+            : { ...status, sessionId: String(url).includes('/other/') ? 'other' : 'session' },
+      );
+    });
+    const view = render(
+      <SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />,
+    );
+    const openShare = async () => {
+      fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Share excerpt' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Reviewer' }));
+    };
+    const send = async (excerpt: string, count: number) => {
+      fireEvent.change(screen.getByRole('textbox', { name: 'Excerpt to share' }), {
+        target: { value: excerpt },
+      });
+      const button = screen.getByRole('button', { name: 'Queue excerpt for approval' });
+      await waitFor(() => expect(button.hasAttribute('disabled')).toBe(false));
+      fireEvent.click(button);
+      await waitFor(() => expect(bodies).toHaveLength(count));
+    };
+    await openShare();
+    await send('Plan', 1);
+    await send('Plan'.slice(0, 2), 2);
+    await send('Plan', 3);
+    expect(bodies[2].idempotencyKey).toBe(bodies[0].idempotencyKey);
+    expect(bodies[1].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Excerpt to share' })).toBeNull(),
+    );
+    await openShare();
+    await send('Plan', 4);
+    expect(bodies[3].idempotencyKey).not.toBe(bodies[0].idempotencyKey);
+    view.rerender(<SymposiumConversation sessionId="other" chat={chat} ordinaryComposer={null} />);
+    await openShare();
+    await send('Pl', 5);
+    expect(bodies[4].idempotencyKey).not.toBe(bodies[1].idempotencyKey);
+  });
+
   it('shares the selected seat source with its membership generation', async () => {
     const versionedPage = {
       ...page,

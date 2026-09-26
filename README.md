@@ -72,6 +72,41 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
+### Symposium director and portable profiles
+
+The mobile and desktop ChatViews include **Director controls** for the Symposium
+roster and directed-delivery approval. Use **Refresh director status** to load
+newly queued deliveries while the panel is open. The conversation view offers
+an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
+messages require approval before dispatch. Uncertain retries retain the original
+request key for each audience and excerpt.
+
+Portable profiles save immutable revisions of guidance, expected output, and
+acceptance criteria. Select an exact revision for a seat, or export/import its
+JSON; older revisions remain selectable after later revisions are saved. Revise
+the latest version to create a new one. Conversational profile proposals require
+operator review before saving. Profiles do not carry account credentials or
+execution authority; those are bound separately by host-issued grants.
+
+This is the director and profile foundation. The default server has no Symposium
+provider runtime: activation and grant reissue fail closed until a trusted runtime
+is installed. These controls do not enable production native seat execution.
+
+### Symposium native execution contracts
+
+Native seat adapters route Codex and Claude through OpenShell and bind streamed
+events and provider-confirmed receipts to an exact delivery claim. A private
+host attempt registry records setup before launch and retains uncertain native
+attempts across restart. Cleanup releases a claim only after proving it never
+launched or confirming that its exact controller has stopped. Pending provider
+detaches also survive reconciliation failure until attachments are verified.
+
+The review coordinator validates membership, recipient claims, profile revisions,
+and grants before dispatch and result acceptance. These are guarded execution
+contracts with mocked integration coverage. The default application still has no
+Symposium runtime; production reviewer and Claude admission require further host
+attestation and live acceptance. Environment settings alone do not enable them.
+
 ### Packages (`packages/`) — npm workspace
 
 Mitzo uses an npm workspace with three internal packages shared between server and frontend:

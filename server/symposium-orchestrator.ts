@@ -39,6 +39,8 @@ export interface SymposiumSeatExecutionResult {
 }
 
 export interface SymposiumSeatExecutor {
+  /** Persist exact prelaunch identity synchronously before the execution claim is committed. */
+  prepare?(input: { sessionId: string; claimToken: string }): void;
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
   /** Target the exact supplied attempt identity, never a newer retry on the same thread.
    * Resolve only after that attempt can no longer execute tools or native writes. */
@@ -618,6 +620,20 @@ export class SymposiumOrchestrator {
           : undefined,
         this.now(),
       );
+      const claimToken = this.claimIdFactory();
+      try {
+        executor.prepare?.({ sessionId: delivery.sessionId, claimToken });
+      } catch (error) {
+        this.store.failSymposiumRecipient({
+          deliveryId,
+          seatId: recipient.seatId,
+          error: error instanceof Error ? error.message : String(error),
+          updatedAt: this.now(),
+        });
+        return false;
+      }
+      // Preparation precedes the durable claim: a crash before execute() is
+      // recoverable. A lost claim race leaves only a harmless, unlaunched preparation.
       const claim = this.store.claimSymposiumRecipientExecution({
         sessionId: delivery.sessionId,
         deliveryId,
@@ -625,14 +641,15 @@ export class SymposiumOrchestrator {
         expectedConfigRevision: currentConfig.revision,
         bindingKey,
         recipientIdempotencyKey: recipient.idempotencyKey,
-        claimToken: this.claimIdFactory(),
+        claimToken,
         claimedAt: this.now(),
         provenance,
       });
       if (!claim) return false;
       const thread = claim.thread;
       try {
-        if (abortController.signal.aborted) return false;
+        if (abortController.signal.aborted)
+          throw new Error('Symposium execution was cancelled before dispatch');
         const result = await executor.execute({
           sessionId: delivery.sessionId,
           deliveryId,

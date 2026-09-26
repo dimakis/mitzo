@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +27,8 @@ import {
   type SymposiumDispatchFacts,
 } from '../symposium-seat-runtime.js';
 import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
+import { SymposiumAttemptRegistry } from '../symposium-attempt-registry.js';
+import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { SymposiumOpenShellSeatExecutor } from '../symposium-openshell-seat-executor.js';
 import {
   createOpenAiCodexSeat,
@@ -346,7 +348,136 @@ function seatSandboxRegistry() {
   };
 }
 
+const registryDirectories: string[] = [];
+afterEach(() => {
+  for (const directory of registryDirectories.splice(0))
+    rmSync(directory, { recursive: true, force: true });
+});
+function registryDirectory() {
+  const directory = mkdtempSync(join(tmpdir(), 'symposium-executor-'));
+  registryDirectories.push(directory);
+  return directory;
+}
+
 describe('last native Symposium dispatch fence', () => {
+  it.each(['admission', 'setup', 'initialization'])(
+    'confirms a never-launched claim after %s failure, including host restart',
+    async (failure) => {
+      const work = fixture();
+      const directory = registryDirectory();
+      const host = initializeSymposiumNativeHost(directory);
+      const deps = {
+        facts: work.facts,
+        profiles,
+        attemptRegistry: host.registry,
+        hostGrants: {
+          verifySeat: () => {
+            if (failure === 'admission') throw new Error('Setup failed');
+          },
+        },
+        owner: {
+          ensure: async () => {
+            if (failure === 'setup') throw new Error('Setup failed');
+            return { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' };
+          },
+          readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        },
+        recordAccepted: () => true,
+        openNative: vi.fn(async () => {
+          throw new Error('Setup failed');
+        }),
+      };
+      await expect(new SymposiumOpenShellSeatExecutor(deps).execute(work.input)).rejects.toThrow(
+        'Setup failed',
+      );
+      host.registry.close();
+      const restarted = initializeSymposiumNativeHost(directory);
+      expect(restarted.quarantinedClaims).toEqual([]);
+      const executor = new SymposiumOpenShellSeatExecutor({
+        ...deps,
+        attemptRegistry: restarted.registry,
+      });
+      await expect(executor.cancel({ claimToken: work.input.claimToken })).resolves.toBeUndefined();
+      expect(() =>
+        restarted.registry.reserve({
+          claimToken: work.input.claimToken,
+          sessionId: work.input.sessionId,
+          sandbox: { sandboxName: 'shared', workdir: '/work' },
+        }),
+      ).toThrow(/closed/);
+      await expect(executor.cancel({ claimToken: 'unknown' })).rejects.toThrow(/unavailable/);
+      restarted.registry.close();
+    },
+  );
+
+  it('recovers a launched claim after restart only with exact controller cleanup proof', async () => {
+    const work = fixture();
+    const directory = registryDirectory();
+    const host = initializeSymposiumNativeHost(directory);
+    const sandbox = { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' };
+    host.registry.prepare(work.input);
+    // reserve is the durable pre-side-effect boundary; a crash here is uncertain.
+    host.registry.reserve({ ...work.input, sandbox });
+    host.registry.close();
+    const restarted = initializeSymposiumNativeHost(directory);
+    expect(restarted.quarantinedClaims).toEqual([work.input.claimToken]);
+    expect(restarted.registry.get(work.input.claimToken)?.state).toBe('uncertain');
+    restarted.registry.close();
+    const confirm = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Observer unavailable'))
+      .mockResolvedValueOnce(undefined);
+    const registry = new SymposiumAttemptRegistry(join(directory, 'claims.db'), {
+      launch: vi.fn(),
+      confirm,
+    });
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      attemptRegistry: registry,
+      owner: { ensure: vi.fn(), readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+      recordAccepted: () => true,
+      openNative: vi.fn(),
+    });
+    await expect(executor.cancel({ claimToken: work.input.claimToken })).rejects.toThrow(
+      /quarantined/,
+    );
+    expect(() => registry.assertSandboxAvailable(sandbox.sandboxName)).toThrow(/quarantined/);
+    await expect(executor.cancel({ claimToken: work.input.claimToken })).resolves.toBeUndefined();
+    expect(confirm).toHaveBeenCalledWith(sandbox, work.input.claimToken);
+    expect(() => registry.assertSandboxAvailable(sandbox.sandboxName)).not.toThrow();
+    registry.close();
+  });
+
+  it('prevents setup from launching after a concurrent prelaunch cancellation', async () => {
+    const work = fixture();
+    const host = initializeSymposiumNativeHost(registryDirectory());
+    let finish!: (value: { sandboxName: string; workdir: string }) => void;
+    const openNative = vi.fn();
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      attemptRegistry: host.registry,
+      owner: {
+        ensure: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => true,
+      openNative,
+    });
+    const running = executor.execute(work.input);
+    await executor.cancel({ claimToken: work.input.claimToken });
+    finish({ sandboxName: 'shared', workdir: '/work' });
+    await expect(running).rejects.toThrow(/cancelled/);
+    expect(openNative).not.toHaveBeenCalled();
+    host.registry.close();
+  });
+
   it('re-probes the exact host and provider immediately before native dispatch', async () => {
     const work = fixture();
     let available = true;
