@@ -457,3 +457,4 @@ Browser callback alternatives are scoped to a saved personal account and its cur
 Connections offers **Refresh supported models** for a connected personal account.
 The action uses that displayed account revision, reports pending cleanup or host recovery,
 and leaves model choice and active-seat rebinding explicit.
+Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.

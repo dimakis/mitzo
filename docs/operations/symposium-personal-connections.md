@@ -73,3 +73,9 @@ account catalog and instructs the user to choose the account/model explicitly. F
 malformed and interrupted responses do not claim a new catalog is ready. The local
 preview simulates only the exact supported POST and revision; it makes no upstream
 request or real sandbox operation.
+A retained host coordinator serializes sandbox creation with credential cleanup.
+Creation revalidates its seat binding after acquiring the fence and durably marks
+the external operation before dispatch. Rejection or host loss leaves a persistent
+uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
+for in-flight creation and refuses uncertain outcomes. Interrupted login rows
+without a live adapter also remain blocked even when account metadata is absent.
