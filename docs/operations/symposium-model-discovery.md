@@ -22,8 +22,11 @@ The helper does not start or replace the gateway.
 The adapter inherits no process environment. Only PATH and private HOME/XDG
 roots are accepted. It verifies file ownership, modes, digests and private
 journal/environment directories before operations; it creates the sandbox with
-`--no-auto-providers` and checks that exactly the pinned codex provider is attached.
-The read-only client runs through the owned attempt controller. No credentials,
+`--no-auto-providers`. Attachment rows prove a sole codex provider name/type; a
+separate global provider inventory proves its exact ID, name, type and workspace.
+Incomplete/paginated inventory fails closed. The read-only client runs through
+the owned attempt controller in its fixed `/sandbox/workspaces/mgmt` directory;
+this temporary workspace contains no artifact data. No credentials,
 account email, raw provider error, command stderr or raw model response is emitted.
 The returned summary contains a bounded status, model count and syntactically
 bounded Luna model IDs. This is discovery evidence, not inference acceptance.

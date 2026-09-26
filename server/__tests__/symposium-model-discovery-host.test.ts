@@ -114,3 +114,18 @@ it('keeps physical cleanup incomplete for a supervisor identified by the exact s
     }),
   ).toBe(false);
 });
+
+it('creates the reviewed controller workspace rather than an unrelated discovery directory', async () => {
+  const { config, options } = fixture();
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  const ops = createDiscoveryHostOperations(config, options);
+  await ops.create(
+    { name: `md-${'a'.repeat(16)}`, claim: 'b'.repeat(64), configHash: 'c'.repeat(64) },
+    config,
+  );
+  const args = vi.mocked(execFile).mock.calls[0][1] as string[];
+  expect(args.at(-1)).toBe('mkdir -p /sandbox/workspaces/mgmt && exec sleep infinity');
+  expect(args).toContain('--no-auto-providers');
+});
