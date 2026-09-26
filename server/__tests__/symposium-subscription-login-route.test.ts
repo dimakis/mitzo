@@ -330,15 +330,13 @@ it('returns only verified display identity from an already completed device star
 it('binds code receipts to a selected slot and requires its revision', async () => {
   const { createSubscriptionLoginController } =
     await import('../symposium-subscription-login-route.js');
-  const beginDeviceLogin = vi
-    .fn()
-    .mockResolvedValue({
-      verificationUrl: 'https://auth.openai.com/codex/device',
-      userCode: 'ABCD-1234',
-      expiresAt: Date.now() + 60000,
-      completed: new Promise(() => {}),
-      cancel: vi.fn(),
-    });
+  const beginDeviceLogin = vi.fn().mockResolvedValue({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 60000,
+    completed: new Promise(() => {}),
+    cancel: vi.fn(),
+  });
   const controller = createSubscriptionLoginController(() => ({ beginDeviceLogin }));
   const app = express();
   app.use(express.json());

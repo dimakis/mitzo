@@ -163,12 +163,10 @@ export function createSubscriptionLoginController(
         row.revision !== selection.expectedRevision ||
         ['connecting', 'disconnecting', 'recovery_required'].includes(row.state)
       ) {
-        res
-          .status(409)
-          .json({
-            error: 'Connection changed or requires cleanup. Refresh its status before retry.',
-            ...(row?.state === 'recovery_required' ? { retryBlocked: true } : {}),
-          });
+        res.status(409).json({
+          error: 'Connection changed or requires cleanup. Refresh its status before retry.',
+          ...(row?.state === 'recovery_required' ? { retryBlocked: true } : {}),
+        });
         return;
       }
     }

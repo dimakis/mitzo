@@ -1699,12 +1699,9 @@ app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, re
     if (typeof req.body?.label !== 'string') throw new Error();
     res.status(201).json(service.create(req.body.label));
   } catch {
-    res
-      .status(400)
-      .json({
-        error:
-          'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
-      });
+    res.status(400).json({
+      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
+    });
   }
 });
 app.post(
@@ -1724,12 +1721,10 @@ app.post(
     try {
       res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
     } catch {
-      res
-        .status(409)
-        .json({
-          error:
-            'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
-        });
+      res.status(409).json({
+        error:
+          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
+      });
     }
   },
 );
