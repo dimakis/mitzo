@@ -1016,3 +1016,12 @@ describe('ConnectionsView', () => {
     expect(styles).toContain('.connections-template');
   });
 });
+
+it('offers ChatGPT setup from Connections without a conversation', async () => {
+  await act(async () => root.render(<ConnectionsView />));
+  expect(
+    Array.from(container.querySelectorAll('button')).some(
+      (item) => item.textContent === 'Connect ChatGPT',
+    ),
+  ).toBe(true);
+});

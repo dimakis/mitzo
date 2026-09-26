@@ -435,3 +435,11 @@ The OpenAI Responses route uses bearer authentication in the Authorization heade
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
+
+Personal ChatGPT device sign-in is available from **Connections → Connect ChatGPT**
+and Symposium reviewer setup. Enable device-code authentication in ChatGPT
+Settings → Security, request a code, then open OpenAI on the phone or computer.
+The running Mac host completes the connection; the UI shows verified account
+identity and supports cancel, status recovery, and explicit reconnect. This host
+has one personal account slot. After a host restart, sign in again. Connecting
+does not select a reviewer account/model or silently rebind an active seat.

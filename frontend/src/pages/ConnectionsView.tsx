@@ -1,3 +1,4 @@
+import { SymposiumDeviceLogin } from '../components/SymposiumDeviceLogin';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import {
@@ -303,6 +304,7 @@ export function ConnectionsView() {
         title="Connections"
         description={`Assignments apply to ${data.appliesTo}. Adding a connection never expands a retained conversation; removal and revocation reduce managed access immediately.`}
       />
+      <SymposiumDeviceLogin />
       {message && (
         <p className="connections-notice" role="status">
           {message}
@@ -516,6 +518,7 @@ function PageState({ text, error, retry }: { text: string; error?: boolean; retr
   return (
     <main className="workspace-page">
       <WorkspacePageHeading title="Connections" />
+      <SymposiumDeviceLogin />
       <p role={error ? 'alert' : undefined}>{text}</p>
       {retry && (
         <button className="workspace-primary" onClick={() => void retry()}>
