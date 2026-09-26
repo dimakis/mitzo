@@ -207,6 +207,15 @@ export class SymposiumReviewStore {
     return row ? (JSON.parse(row.state) as Workflow) : null;
   }
 
+  list(owner: string, sessionId: string): Workflow[] {
+    const rows = this.db
+      .prepare('SELECT state FROM symposium_review_workflows WHERE owner = ?')
+      .all(owner) as Array<{ state: string }>;
+    return rows
+      .map((row) => JSON.parse(row.state) as Workflow)
+      .filter((state) => state.sessionId === sessionId);
+  }
+
   history(workflowId: string): Array<{ sequence: number; action: string; detail: unknown }> {
     this.read(workflowId);
     const rows = this.db

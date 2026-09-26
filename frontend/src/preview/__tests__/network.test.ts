@@ -1,6 +1,11 @@
 // @vitest-environment jsdom
-import { expect, it } from 'vitest';
-import '../network';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+const upstreamFetch = vi.fn(() => Promise.reject(new Error('Unexpected network call')));
+beforeAll(async () => {
+  vi.stubGlobal('fetch', upstreamFetch);
+  await import('../network');
+});
+afterAll(() => vi.unstubAllGlobals());
 
 it('returns an array for the desktop inbox consumer on a fresh preview load', async () => {
   const response = await window.fetch('/api/inbox');
@@ -56,4 +61,26 @@ it('provides a model catalog for the dedicated Symposium account picker', async 
     label: 'Preview account',
     models: [{ id: 'preview-model', label: 'Preview model' }],
   });
+});
+
+it('serves findings, delta and unavailable review panels entirely from preview data', async () => {
+  const findings = await (await window.fetch('/api/sessions/preview-1/symposium/reviews')).json();
+  expect(findings.available).toBe(true);
+  expect(findings.workflows[0]).toMatchObject({ status: 'awaiting_fix' });
+  expect(findings.workflows[0].findings[0].status).toBe('open');
+  const delta = await (await window.fetch('/api/sessions/preview-3/symposium/reviews')).json();
+  expect(delta.workflows[0]).toMatchObject({
+    status: 'awaiting_delta_review',
+    artifactRevision: 'preview-commit-b34',
+  });
+  const unavailable = await (
+    await window.fetch('/api/sessions/preview-2/symposium/reviews')
+  ).json();
+  expect(unavailable).toEqual({ available: false, workflows: [] });
+  const denied = await window.fetch(
+    '/api/sessions/preview-1/symposium/reviews/preview-review/actions',
+    { method: 'POST', body: JSON.stringify({ action: 'fix' }) },
+  );
+  expect(denied.status).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
 });

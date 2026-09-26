@@ -145,14 +145,21 @@ events and closure after failure or cancellation; live broadcasting is optional.
 Persisted native events retain their claim identity so confirmed restart cleanup
 can close the exact unfinished transcript without inventing a successful result.
 
-The review coordinator validates membership, recipient claims, profile revisions,
-and grants before dispatch and result acceptance. Review content comes from the
-trusted host's completed attempt and must match its receipt and artifact identity.
-Interactive callers select the recorded result but cannot supply its findings.
-These are guarded execution
-contracts with mocked integration coverage. The default application still has no
-Symposium runtime; production reviewer and Claude admission require further host
-attestation and live acceptance. Environment settings alone do not enable them.
+Both chat views now offer **Open review findings**. The application persists
+review workflows and history, requires explicit artifact-bound fix or dismissal
+decisions, and requests delta review after a fix. A verified current revision can
+produce a PR review record; this action does **not** create or publish a PR.
+Interactive callers cannot submit fabricated findings, usage, or verification:
+the coordinator reads those facts from completed trusted host receipts.
+
+This interface is wired into the application, but native review/fix execution
+remains unavailable until a trusted adapter supplies enforced token budgets,
+terminal usage, structured results, and artifact-bound verification. The panel
+reports the missing capability rather than falling back to ordinary chat. Mocked
+integration coverage establishes the workflow boundaries, not live production
+readiness. Reviewer and Claude admission still require independent host attestation
+and live acceptance; environment settings alone do not enable them. See the
+[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
