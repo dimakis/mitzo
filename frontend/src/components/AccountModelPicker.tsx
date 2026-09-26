@@ -234,6 +234,7 @@ export function AccountModelPicker({
       <SymposiumSubscriptionLogin
         disabled={disabled}
         onComplete={() => setAttempt((value) => value + 1)}
+        onCatalogRefresh={() => setAttempt((value) => value + 1)}
       />
     ) : null;
   if (error)

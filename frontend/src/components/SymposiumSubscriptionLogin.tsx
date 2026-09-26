@@ -14,11 +14,14 @@ const statusSchema = z.object({
 
 export function SymposiumSubscriptionLogin({
   onComplete,
+  onCatalogRefresh,
   disabled = false,
 }: {
   onComplete(): void;
+  onCatalogRefresh?(): void;
   disabled?: boolean;
 }) {
+  const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [open, setOpen] = useState(false);
   const [transport, setTransport] = useState('');
   const [ready, setReady] = useState(false);
@@ -31,6 +34,8 @@ export function SymposiumSubscriptionLogin({
   const [error, setError] = useState('');
   const complete = useRef(onComplete);
   complete.current = onComplete;
+  const refreshCatalog = useRef(onCatalogRefresh);
+  refreshCatalog.current = onCatalogRefresh;
 
   useEffect(() => {
     if (!open) return;
@@ -50,6 +55,8 @@ export function SymposiumSubscriptionLogin({
           setError('');
         } else if (status.state === 'completed') {
           setState('previous-completed');
+          setError('');
+          refreshCatalog.current?.();
         } else if (status.state === 'failed') {
           setError(
             'Previous login failed or expired. Prepare the callback setup before starting again.',
@@ -57,16 +64,18 @@ export function SymposiumSubscriptionLogin({
         }
       })
       .catch(() => {
-        if (live && requestVersion.current === version)
+        if (live && requestVersion.current === version) {
+          setState('recovery-error');
           setError(
-            'Could not recover a login receipt. Check the host before starting another login.',
+            'Could not recover a login receipt. Retry status before starting another login.',
           );
+        }
       });
     return () => {
       live = false;
       controller.abort();
     };
-  }, [open]);
+  }, [open, recoveryAttempt]);
 
   useEffect(() => {
     if (!receipt || state !== 'pending') return;
@@ -172,7 +181,15 @@ export function SymposiumSubscriptionLogin({
         A phone cannot complete this localhost callback. Use a browser on the Mitzo server or an
         SSH-capable computer. After login, your phone can use the account in Mitzo.
       </p>
-      <fieldset disabled={disabled || busy || state === 'pending' || state === 'status-error'}>
+      <fieldset
+        disabled={
+          disabled ||
+          busy ||
+          state === 'pending' ||
+          state === 'status-error' ||
+          state === 'recovery-error'
+        }
+      >
         <legend>Where will you open the login browser?</legend>
         <label>
           <input
@@ -264,12 +281,14 @@ export function SymposiumSubscriptionLogin({
         </p>
       )}
       {error && <p role="alert">{error}</p>}
-      {state === 'status-error' && (
+      {(state === 'status-error' || state === 'recovery-error') && (
         <button
           type="button"
           onClick={() => {
             setError('');
-            setState('pending');
+            if (state === 'recovery-error') {
+              setRecoveryAttempt((value) => value + 1);
+            } else setState('pending');
           }}
         >
           Retry status
