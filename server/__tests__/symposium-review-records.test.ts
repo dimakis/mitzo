@@ -151,7 +151,7 @@ it('requires the trusted current artifact gate even when the stored workflow is 
   });
   const host = {
     currentArtifact: () => ({ revision: 'changed', hash: 'c'.repeat(64) }),
-  } as import('../symposium-review-coordinator.js').SymposiumReviewHost;
+  } as unknown as import('../symposium-review-coordinator.js').SymposiumReviewHost;
   expect(new SymposiumReviewCoordinator(store, host).exportRecord(scope, 'flow')).toMatchObject({
     kind: 'decision_required',
     code: 'artifact_changed',
@@ -187,7 +187,7 @@ it('exposes only authenticated same-session records and rechecks the current art
         available
           ? ({
               currentArtifact: () => ({ revision: 'commit', hash: currentHash }),
-            } as import('../symposium-review-routes.js').SymposiumInteractiveReviewHost)
+            } as unknown as import('../symposium-review-routes.js').SymposiumInteractiveReviewHost)
           : null,
     }),
   );

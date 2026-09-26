@@ -107,7 +107,7 @@ export function createSymposiumReviewRouter(deps: {
     }
   });
   router.get('/records/:recordId', (req, res) => {
-    const ctx = context((req.params as { id: string }).id);
+    const ctx = context((req.params as { id: string; recordId: string }).id);
     res.set('Cache-Control', 'no-store');
     try {
       const record = deps.store.getReviewRecord(ctx.owner, ctx.sessionId, req.params.recordId);
