@@ -340,15 +340,23 @@ it('fails closed for unavailable Symposium catalog and retries only that catalog
       onChange={onChange}
     />,
   );
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Symposium account catalog unavailable',
-  );
+  expect(
+    await screen.findByText('Symposium account catalog unavailable. Retry to continue.'),
+  ).toBeTruthy();
   expect(screen.queryByText('Use legacy server account')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
-  expect(vi.mocked(apiFetch).mock.calls.every(([url]) => url === '/api/symposium/accounts')).toBe(
-    true,
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([url]) => url === '/api/symposium/accounts'),
+    ).toHaveLength(2),
   );
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.every(([url]) =>
+        ['/api/symposium/accounts', '/api/symposium/personal/connections'].includes(url),
+      ),
+  ).toBe(true);
   expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
 });
 
@@ -399,5 +407,6 @@ it('offers personal subscription setup only in the Symposium account catalog inc
       onChange={vi.fn()}
     />,
   );
-  expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeTruthy();
+  expect(await screen.findByLabelText('Saved account for sign-in')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Connect ChatGPT' })).toBeNull();
 });

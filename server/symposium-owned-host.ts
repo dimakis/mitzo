@@ -4,6 +4,7 @@ import { runSymposiumModelDiscovery } from './symposium-model-discovery.js';
 import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
 import type { CatalogModel } from './model-catalog.js';
+import { SymposiumWorkspaceLifecycle } from './symposium-workspace-lifecycle.js';
 import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
@@ -198,12 +199,17 @@ export async function createOwnedSymposiumHost(
       runtimeConfig: { ...runtimeConfig, cliContract: 'v0.1' },
       verifyGatewayCustody: custody,
     });
+    const workspaceLifecycle = new SymposiumWorkspaceLifecycle(
+      join(options.gateway.stateParent, 'sandbox-creation-fence.json'),
+      custody,
+    );
     subscription = createPersonalSubscriptionHost(
       {
         ...options.personal,
         workProfiles: preparedWork,
         gateway,
         seatProof,
+        runCredentialCleanup: (operation) => workspaceLifecycle.cleanup(operation),
       },
       join(options.gateway.stateParent, 'personal-connections.json'),
       async (proof) => {
@@ -339,6 +345,7 @@ export async function createOwnedSymposiumHost(
       artifactRequest,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: subscription.assertPrivateAuth,
+      runSandboxCreation: workspaceLifecycle.create,
       personalConnections: subscription.personalConnections,
       beginLogin: (selection?: ConnectionSelection) =>
         startLogin(false, selection) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,

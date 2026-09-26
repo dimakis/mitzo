@@ -10,16 +10,23 @@ const receiptSchema = z.object({
 const statusSchema = z.object({
   state: z.enum(['idle', 'pending', 'completed', 'failed', 'unknown']),
   attemptId: z.string().optional(),
+  connectionId: z.string().optional(),
 });
 
 export function SymposiumSubscriptionLogin({
   onComplete,
   onCatalogRefresh,
   disabled = false,
+  connectionId,
+  expectedRevision,
+  onPendingChange,
 }: {
   onComplete(): void;
   onCatalogRefresh?(): void;
   disabled?: boolean;
+  connectionId?: string;
+  expectedRevision?: number;
+  onPendingChange?(pending: boolean): void;
 }) {
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [open, setOpen] = useState(false);
@@ -32,6 +39,14 @@ export function SymposiumSubscriptionLogin({
   const requestVersion = useRef(0);
   const [state, setState] = useState('idle');
   const [error, setError] = useState('');
+  const pendingChanged = useRef(onPendingChange);
+  pendingChanged.current = onPendingChange;
+  useEffect(() => {
+    pendingChanged.current?.(busy || state === 'pending' || state === 'status-error');
+  }, [busy, state]);
+  useEffect(() => {
+    setReady(false);
+  }, [connectionId, expectedRevision]);
   const complete = useRef(onComplete);
   complete.current = onComplete;
   const refreshCatalog = useRef(onCatalogRefresh);
@@ -42,10 +57,15 @@ export function SymposiumSubscriptionLogin({
     const version = requestVersion.current;
     const controller = new AbortController();
     let live = true;
-    void apiFetch('/api/symposium/personal/login/status', { signal: controller.signal })
+    void apiFetch(
+      `/api/symposium/personal/login/status${connectionId ? `?connectionId=${encodeURIComponent(connectionId)}` : ''}`,
+      { signal: controller.signal },
+    )
       .then(async (response) => {
         if (!response.ok) throw new Error('Status unavailable');
         const status = statusSchema.parse(await response.json());
+        if (connectionId && status.attemptId && status.connectionId !== connectionId)
+          throw new Error('Mismatched connection receipt');
         if (!live || requestVersion.current !== version) return;
         if (status.state === 'pending' && status.attemptId) {
           setReceipt((current) =>
@@ -87,7 +107,7 @@ export function SymposiumSubscriptionLogin({
       live = false;
       controller.abort();
     };
-  }, [open, recoveryAttempt]);
+  }, [open, recoveryAttempt, connectionId]);
 
   useEffect(() => {
     if (!receipt || state !== 'pending') return;
@@ -97,7 +117,7 @@ export function SymposiumSubscriptionLogin({
     const poll = async () => {
       try {
         const response = await apiFetch(
-          `/api/symposium/personal/login/status?attemptId=${encodeURIComponent(receipt.attemptId)}`,
+          `/api/symposium/personal/login/status?attemptId=${encodeURIComponent(receipt.attemptId)}${connectionId ? `&connectionId=${encodeURIComponent(connectionId)}` : ''}`,
           { signal: controller.signal },
         );
         if (!response.ok)
@@ -105,6 +125,8 @@ export function SymposiumSubscriptionLogin({
             'Could not check login. Keep the callback browser open and retry status.',
           );
         const status = statusSchema.parse(await response.json());
+        if (connectionId && status.attemptId && status.connectionId !== connectionId)
+          throw new Error('Mismatched connection receipt');
         if (!live) return;
         if (status.state === 'pending' && status.attemptId === receipt.attemptId) {
           timer = setTimeout(() => void poll(), 2000);
@@ -136,10 +158,17 @@ export function SymposiumSubscriptionLogin({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [receipt, state]);
+  }, [receipt, state, connectionId]);
 
   const start = async () => {
-    if (!ready || !transport || busy) return;
+    if (
+      disabled ||
+      !ready ||
+      !transport ||
+      busy ||
+      (connectionId && (!Number.isSafeInteger(expectedRevision) || Number(expectedRevision) < 1))
+    )
+      return;
     requestVersion.current += 1;
     setBusy(true);
     setError('');
@@ -148,7 +177,10 @@ export function SymposiumSubscriptionLogin({
       const response = await apiFetch('/api/symposium/personal/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callbackTransport: transport }),
+        body: JSON.stringify({
+          callbackTransport: transport,
+          ...(connectionId ? { connectionId, expectedRevision } : {}),
+        }),
       });
       if (!response.ok)
         throw new Error(
@@ -206,7 +238,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name="callback-transport"
+            name={`callback-transport-${connectionId ?? 'legacy'}`}
             checked={transport === 'host-local'}
             onChange={() => {
               setTransport('host-local');
@@ -218,7 +250,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name="callback-transport"
+            name={`callback-transport-${connectionId ?? 'legacy'}`}
             checked={transport === 'ssh-forwarded'}
             onChange={() => {
               setTransport('ssh-forwarded');
