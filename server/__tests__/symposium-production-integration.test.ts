@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { AccountBindingSchema, type SymposiumConfig } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  storedEventToClientMessage,
+  type SymposiumConfig,
+} from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import { AccountProfiles } from '../account-profiles.js';
@@ -642,6 +646,17 @@ describe('production Symposium route to native runtime', () => {
         .getSessionEvents('symposium')
         .some((event) => event.payload.messageId === 'wrong-identity'),
     ).toBe(false);
+    const terminalUsage = store
+      .getSessionEvents('symposium')
+      .find((event) => event.type === 'provider_turn_end' && event.payload.isError === false)!;
+    expect(terminalUsage.payload.usage_status).toBe('unknown');
+    expect(terminalUsage.payload).not.toHaveProperty('usage');
+    expect(storedEventToClientMessage(terminalUsage)).toMatchObject({
+      type: 'provider_turn_end',
+      usage_status: 'unknown',
+      seatId: 'builder',
+    });
+    expect(storedEventToClientMessage(terminalUsage)).not.toHaveProperty('usage');
     for (const content of ['Fail before accepted', 'Fail after accepted']) {
       const failed = runtime.orchestrator.stageDelivery({
         sessionId: 'symposium',
