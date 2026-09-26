@@ -132,3 +132,28 @@ it('attaches only a host evidence reference before preparing the current review 
     ),
   );
 });
+
+it('shows a durable scoped record reference without claiming a PR was created', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = { ...symposiumReviewPreviewResponses.findings.workflows[0], status: 'verified' };
+  const recordId = `review-${'c'.repeat(64)}`;
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    response(
+      init?.method === 'POST'
+        ? {
+            kind: 'verified',
+            publication: 'not_created',
+            record: { recordId, contentHash: 'c'.repeat(64), snapshot: { historySequence: 5 } },
+          }
+        : { available: true, workflows: [workflow] },
+    ),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Prepare PR review record' }));
+  const link = await screen.findByRole('link', { name: 'Open saved review record' });
+  expect(link.getAttribute('href')).toBe(
+    `/api/sessions/session/symposium/reviews/records/${recordId}`,
+  );
+  expect(screen.getByText(/No PR has been created/)).toBeTruthy();
+});

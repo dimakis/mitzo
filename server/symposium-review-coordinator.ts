@@ -339,6 +339,22 @@ export class SymposiumReviewCoordinator {
     return this.store.recordEvidence(workflowId, evidence, state.artifactHash, 'host');
   }
 
+  exportRecord(context: ReviewContext, workflowId: string) {
+    const finalized = this.finalize(context, workflowId);
+    if (finalized.kind !== 'verified') return finalized;
+    const record = this.store.exportVerifiedRecord({
+      ...context,
+      workflowId,
+      artifactRevision: finalized.artifactRevision,
+      artifactHash: finalized.artifactHash,
+    });
+    // The immutable snapshot remains historical if the host artifact changes;
+    // never present that change as a current verified export.
+    if (!this.current(context, this.scoped(context, workflowId)))
+      return decision('artifact_changed');
+    return { ...finalized, record };
+  }
+
   finalize(context: ReviewContext, workflowId: string) {
     const state = this.scoped(context, workflowId);
     if (!this.host) return decision('trusted_review_host_unavailable');

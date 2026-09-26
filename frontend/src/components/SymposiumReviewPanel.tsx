@@ -50,6 +50,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [tokens, setTokens] = useState(10000);
   const [rounds, setRounds] = useState(2);
   const [record, setRecord] = useState('');
+  const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
   const [evidenceId, setEvidenceId] = useState('');
   const reload = useCallback(
     async (signal?: AbortSignal) => {
@@ -79,6 +80,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
     setBusy(true);
     setError('');
     setRecord('');
+    setRecordReference(null);
     try {
       const response = await apiFetch(path, {
         method: 'POST',
@@ -95,7 +97,14 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
-      if (result.publication === 'not_created') setRecord(JSON.stringify(result, null, 2));
+      if (result.publication === 'not_created') {
+        setRecord(JSON.stringify(result.record, null, 2));
+        if (
+          /^review-[a-f0-9]{64}$/.test(result.record?.recordId) &&
+          /^[a-f0-9]{64}$/.test(result.record?.contentHash)
+        )
+          setRecordReference({ id: result.record.recordId, hash: result.record.contentHash });
+      }
       setSelected([]);
       setReason('');
       await reload();
@@ -319,7 +328,19 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         <label>
           Current revision review record
           <textarea readOnly value={record} />
-          <span>Copy this record into an explicitly created PR. No PR has been created.</span>
+          {recordReference && (
+            <>
+              <a
+                href={`${base}/records/${encodeURIComponent(recordReference.id)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open saved review record
+              </a>
+              <span>SHA-256: {recordReference.hash}</span>
+            </>
+          )}
+          <span>This immutable record requires your Mitzo login. No PR has been created.</span>
         </label>
       )}
       <button
