@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
-import { expect, it } from 'vitest';
-import '../network';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+const upstreamFetch = vi.fn(() => Promise.reject(new Error('Unexpected network call')));
+beforeAll(async () => {
+  vi.stubGlobal('fetch', upstreamFetch);
+  await import('../network');
+});
+afterAll(() => {
+  expect(upstreamFetch).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
 
 it('returns an array for the desktop inbox consumer on a fresh preview load', async () => {
   const response = await window.fetch('/api/inbox');
