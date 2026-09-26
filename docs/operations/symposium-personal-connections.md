@@ -9,7 +9,10 @@ silently moved to the replacement account.
 
 `GET /api/symposium/personal/connections` lists rows. `POST` on the same path
 accepts `{label}` (1–120 characters) and creates a disconnected row. Login accepts
-`{method:"device-code",connectionId,expectedRevision}`. Login status accepts
+`{method:"device-code",connectionId,expectedRevision}`. Both slot identity and
+revision are required, including the configured default slot and legacy callback
+login on a multi-slot host. The server never fills in a fresh revision for an
+omitted selection. Login status accepts
 `connectionId` and optional `attemptId`; receipts for another slot or authenticated
 operator session never disclose its code. Disconnect accepts `{expectedRevision}`
 at `POST /api/symposium/personal/connections/:id/disconnect`. All routes require
@@ -54,3 +57,10 @@ gateway custody. A retry skips those acknowledged stages but repeats empty
 workspace and provider-absence checks. `NotFound`, lost custody, and other
 unacknowledged outcomes do not prove deletion and remain blocked for host
 recovery. These stage proofs are never restored from disk.
+
+A retained host coordinator serializes sandbox creation with credential cleanup.
+Creation revalidates its seat binding after acquiring the fence and durably marks
+the external operation before dispatch. Rejection or host loss leaves a persistent
+uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
+for in-flight creation and refuses uncertain outcomes. Interrupted login rows
+without a live adapter also remain blocked even when account metadata is absent.

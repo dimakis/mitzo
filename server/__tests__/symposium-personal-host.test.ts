@@ -141,3 +141,18 @@ it('cancelling a just-completed login removes its admitted provider instead of l
   expect(host.personalConnections.list()[0].state).toBe('disconnected');
   expect(host.currentProfiles.catalog()).toEqual([]);
 });
+
+it('cannot implicitly reconnect the default slot through direct host entrypoints', async () => {
+  const host = fixture();
+  const row = host.personalConnections.list()[0];
+  const login = await host.beginDeviceLogin({
+    connectionId: row.id,
+    expectedRevision: row.revision,
+  });
+  state.adapters.get(row.id)!.complete();
+  await login.completed;
+  await expect(host.beginDeviceLogin()).rejects.toThrow('explicit');
+  await expect(host.beginLogin()).rejects.toThrow('explicit');
+  expect(state.adapters.get(row.id)!.disconnect).not.toHaveBeenCalled();
+  expect(host.personalConnections.list()[0].state).toBe('connected');
+});

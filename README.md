@@ -514,3 +514,7 @@ authorization does not. See [personal connection lifecycle](docs/operations/symp
 
 The no-inference discovery helper requires complete, bounded paginated sandbox and
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
+
+Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
+
+Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.

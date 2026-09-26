@@ -1003,7 +1003,13 @@ describe('last native Symposium dispatch fence', () => {
     expect(first.bindings).toEqual([{ name: 'openai-work', type: 'openai', id: 'openai-object' }]);
     expect(second.bindings).toEqual(first.bindings);
     const configurations: Array<{ accountProviderBindings?: readonly { name: string }[] }> = [];
+    let creationFenceEntries = 0;
     const owner = new SymposiumPerSeatSandboxOwner({
+      runSandboxCreation: async (verify, operation) => {
+        verify();
+        creationFenceEntries++;
+        return operation();
+      },
       sessionId: 'symposium',
       facts,
       profiles,
@@ -1043,6 +1049,7 @@ describe('last native Symposium dispatch fence', () => {
       owner.ensure('symposium', 'reviewer', new AbortController().signal),
       owner.ensure('symposium', 'builder', new AbortController().signal),
     ]);
+    expect(creationFenceEntries).toBe(2);
     expect(a.sandboxName).not.toBe(b.sandboxName);
     expect(configurations.map((value) => value.accountProviderBindings)).toEqual([
       first.bindings,

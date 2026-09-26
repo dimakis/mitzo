@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
 import './SymposiumPersonalConnections.css';
 
@@ -31,7 +32,9 @@ const stateLabels: Record<Connection['state'], string> = {
 
 export function SymposiumPersonalConnections({
   onAccountsChanged,
+  disabled = false,
 }: {
+  disabled?: boolean;
   onAccountsChanged?(): void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
@@ -40,6 +43,7 @@ export function SymposiumPersonalConnections({
   const [message, setMessage] = useState('');
   const [label, setLabel] = useState('');
   const [busy, setBusy] = useState(false);
+  const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
   const refresh = useCallback(async () => {
@@ -52,6 +56,14 @@ export function SymposiumPersonalConnections({
         .parse(await response.json());
       if (request !== version.current) return;
       setConnections(body.connections);
+      setActiveId((current) =>
+        current &&
+        body.connections.some(
+          (row) => row.id === current && ['connecting', 'disconnecting'].includes(row.state),
+        )
+          ? current
+          : null,
+      );
       setLoaded(true);
       setError('');
     } catch {
@@ -66,6 +78,7 @@ export function SymposiumPersonalConnections({
     };
   }, [refresh]);
   async function mutate(path: string, body: unknown, success: string) {
+    if (disabled) return;
     setBusy(true);
     setMessage('');
     try {
@@ -105,7 +118,7 @@ export function SymposiumPersonalConnections({
       {error && (
         <>
           <p role="alert">{error}</p>
-          <button type="button" onClick={() => void refresh()}>
+          <button type="button" disabled={disabled} onClick={() => void refresh()}>
             Retry personal accounts
           </button>
         </>
@@ -142,7 +155,13 @@ export function SymposiumPersonalConnections({
                     ? 'Continue sign-in'
                     : 'Connect'
               }
-              disabled={busy || !!error || (!!pendingId && pendingId !== connection.id)}
+              disabled={
+                disabled ||
+                busy ||
+                !!error ||
+                callbackId === connection.id ||
+                (!!pendingId && pendingId !== connection.id)
+              }
               onPendingChange={(pending) => {
                 setActiveId((current) =>
                   pending ? connection.id : current === connection.id ? null : current,
@@ -155,10 +174,33 @@ export function SymposiumPersonalConnections({
               }}
             />
           )}
+          {!['recovery_required', 'disconnecting'].includes(connection.state) && (
+            <details>
+              <summary>Browser callback alternative for {connection.label}</summary>
+              <SymposiumSubscriptionLogin
+                connectionId={connection.id}
+                expectedRevision={connection.revision}
+                disabled={
+                  disabled || busy || !!error || (!!pendingId && pendingId !== connection.id)
+                }
+                onPendingChange={(pending) => {
+                  setCallbackId(pending ? connection.id : null);
+                  setActiveId((current) =>
+                    pending ? connection.id : current === connection.id ? null : current,
+                  );
+                }}
+                onComplete={() => {
+                  void refresh();
+                  onAccountsChanged?.();
+                }}
+                onCatalogRefresh={() => void refresh()}
+              />
+            </details>
+          )}
           {connection.state === 'connected' && (
             <button
               type="button"
-              disabled={busy || !!error || !!pendingId}
+              disabled={disabled || busy || !!error || !!pendingId}
               onClick={() =>
                 void mutate(
                   `${endpoint}/${encodeURIComponent(connection.id)}/disconnect`,
@@ -187,17 +229,18 @@ export function SymposiumPersonalConnections({
         <label>
           Account label
           <input
+            disabled={disabled}
             value={label}
             maxLength={120}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="For example, Personal or Research"
           />
         </label>
-        <button disabled={!loaded || busy || !!error || !label.trim()} type="submit">
+        <button disabled={disabled || !loaded || busy || !!error || !label.trim()} type="submit">
           Add personal account
         </button>
       </form>
-      <button type="button" disabled={busy} onClick={() => void refresh()}>
+      <button type="button" disabled={disabled || busy} onClick={() => void refresh()}>
         Refresh personal accounts
       </button>
       {pendingId && <p>Finish or cancel the pending sign-in before connecting another account.</p>}

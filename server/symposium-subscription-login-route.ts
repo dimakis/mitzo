@@ -113,10 +113,13 @@ export function createSubscriptionLoginController(
       res.status(403).json({ error: 'Interactive operator authentication is required.' });
       return;
     }
+    const host = getHost();
     const connectionId: unknown = req.body?.connectionId;
     const expectedRevision: unknown = req.body?.expectedRevision;
     if (
-      connectionId !== undefined &&
+      (connectionId !== undefined ||
+        expectedRevision !== undefined ||
+        host?.personalConnections !== undefined) &&
       (typeof connectionId !== 'string' ||
         !/^[A-Za-z0-9_-]{1,100}$/.test(connectionId) ||
         !Number.isSafeInteger(expectedRevision) ||
@@ -155,7 +158,7 @@ export function createSubscriptionLoginController(
       });
       return;
     }
-    const catalog = getHost()?.personalConnections;
+    const catalog = host?.personalConnections;
     if (selection && catalog) {
       const row = catalog.list().find((row) => row.id === selection.connectionId);
       if (
@@ -186,7 +189,6 @@ export function createSubscriptionLoginController(
     owner = authenticatedOwner;
     cancelLogin = undefined;
     try {
-      const host = getHost();
       if (device ? !host?.beginDeviceLogin : !host?.beginLogin) throw new Error('Unavailable');
       const login = device
         ? await host!.beginDeviceLogin!(selection)

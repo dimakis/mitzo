@@ -8,6 +8,7 @@ import {
   type SymposiumInteractiveReviewHost,
 } from './symposium-review-routes.js';
 
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
@@ -826,6 +827,8 @@ export interface SymposiumProductionHost {
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
+
+  runSandboxCreation?: SandboxCreationFence;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -922,6 +925,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       attemptRegistry: host.attemptRegistry,
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
+      runSandboxCreation: host.runSandboxCreation,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
       ...(host.verifySubscriptionPrivateAuth
         ? {

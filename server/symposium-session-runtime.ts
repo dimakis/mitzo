@@ -1,3 +1,4 @@
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
@@ -298,6 +299,7 @@ export function snapshotSymposiumProviderUnion(
 }
 
 export interface SymposiumSharedSandboxOwnerDeps {
+  runSandboxCreation?: SandboxCreationFence;
   sessionId: string;
   facts: SymposiumDispatchFacts;
   profiles: AccountProfiles;
@@ -728,7 +730,20 @@ export class SymposiumPerSeatSandboxOwner {
           generation: snapshot.generation,
           runtimeId: snapshot.runtimeId,
         });
-        const sandbox = await manager.ensure(snapshot.runtimeId, signal);
+        const create = async () => {
+          const created = await manager.ensure(snapshot.runtimeId, signal);
+          if (!created.sandboxId)
+            throw new Error('OpenShell seat sandbox has no physical identity');
+          return created;
+        };
+        const verifyBeforeCreate = () => {
+          signal.throwIfAborted();
+          verifySeatCapability();
+          snapshot.verify();
+        };
+        const sandbox = this.deps.runSandboxCreation
+          ? await this.deps.runSandboxCreation(verifyBeforeCreate, create)
+          : await create();
         if (!sandbox.sandboxId) throw new Error('OpenShell seat sandbox has no physical identity');
         if (lease) {
           // A custom manager must attest the mount too. Duplicate attestation is
