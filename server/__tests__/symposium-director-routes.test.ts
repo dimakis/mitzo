@@ -53,6 +53,7 @@ function fixture(runtimeAvailable = false) {
         : null,
     ),
     getActiveSymposiumConfig: vi.fn(() => config),
+    getSymposiumInitialProfileSelections: vi.fn(() => ({})),
     getSymposiumMembershipHistory: vi.fn(() => [membership]),
     getSymposiumAdmissions: vi.fn(() => []),
     getSymposiumDeliveries: vi.fn(() => []),
@@ -738,4 +739,50 @@ describe('Symposium director routes', () => {
       idempotencyKey: 'cancel-1',
     });
   });
+});
+
+it('refuses converting an active ordinary conversation into a draft', async () => {
+  const { app, store } = fixture();
+  store.getSession.mockReturnValue({
+    sessionId: 'chat',
+    symposiumConfig: null,
+    isActive: true,
+    accountBinding: {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'openai',
+      model: 'gpt-5.6-luna',
+      profileRevision: 'revision',
+    },
+  } as never);
+  const response = await request(app).post('/api/sessions/chat/symposium/draft').send({});
+  expect(response.status).toBe(409);
+  expect(response.body.error).toContain('Stop the ordinary conversation');
+  expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+});
+
+it('refuses initial /config conversion while ordinary execution is active', async () => {
+  const { app, store } = fixture();
+  store.getSession.mockReturnValue({
+    sessionId: 'chat',
+    symposiumConfig: null,
+    symposiumRevision: 0,
+    isActive: true,
+  } as never);
+  const response = await request(app)
+    .put('/api/sessions/chat/symposium/config')
+    .send({
+      expectedRevision: 0,
+      config: {
+        ...config,
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: config.seats[0].id,
+        activeSeatCap: 3,
+      },
+    });
+  expect(response.status).toBe(409);
+  expect(response.body.error).toContain('Stop the ordinary conversation');
+  expect(store.setSymposiumConfig).not.toHaveBeenCalled();
 });

@@ -1,3 +1,4 @@
+import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
@@ -277,6 +278,7 @@ export function DesktopChatView() {
               </button>
             </div>
           )}
+          {!activeSessionId && !sessionId && <NewSymposium />}
           {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation

@@ -150,6 +150,10 @@ export function createChatRestRouter(
   router.post('/send', async (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);
     if (!msg) return;
+    if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+      res.status(409).json({ ok: false, error: 'Use Symposium directed prompts for this session' });
+      return;
+    }
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
@@ -286,6 +290,10 @@ export function createChatRestRouter(
     if (!transport) return;
     const msg = validateBody(V2InterruptMessage, req.body, res);
     if (!msg) return;
+    if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+      res.status(409).json({ ok: false, error: 'Use Symposium directed prompts for this session' });
+      return;
+    }
     try {
       await handleInterruptV2(connectionId, transport, msg, ctx, {
         awaitStartupAdmission: true,

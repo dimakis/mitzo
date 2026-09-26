@@ -617,6 +617,8 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig)
+          throw new Error('Use Symposium directed prompts for this session');
         if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
         let resolveStartupAdmission: (() => void) | undefined;
         let rejectStartupAdmission: ((error: unknown) => void) | undefined;
@@ -1134,6 +1136,12 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
+      if (ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
+        const error = new Error('Use Symposium directed prompts for this session');
+        transport.send({ type: 'error', sessionId: msg.sessionId, error: error.message });
+        if (delivery?.awaitStartupAdmission) throw error;
+        return;
+      }
       if (
         cancelDeliberation(ctx.eventStore, msg.sessionId) ||
         cancelFusion(ctx.eventStore, msg.sessionId)

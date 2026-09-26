@@ -81,6 +81,16 @@ an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
 messages require approval before dispatch. Uncertain retries retain the original
 request key for each audience and excerpt.
 
+Start a fresh session with **New Symposium** from either ChatView, without first
+sending an ordinary chat prompt. Select the dedicated Symposium account/model,
+a supported coder or reviewer role, and an exact saved profile revision; the
+profile picker also supports creating or importing a profile. **Create Symposium
+draft** allocates only durable session and roster metadata. Review the draft and
+acknowledge its boundary in Director controls before activation; all production
+admission checks still apply. Retried creation requests reuse the same session.
+Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
+converting an existing ordinary conversation requires stopping it first.
+
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its
 JSON; older revisions remain selectable after later revisions are saved. Revise

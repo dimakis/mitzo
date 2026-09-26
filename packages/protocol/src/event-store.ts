@@ -481,6 +481,27 @@ export class EventStore {
     );
   }
 
+  private ordinaryStartups = new Map<string, number>();
+
+  /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
+  reserveOrdinaryStartup(sessionIds: string[]): () => void {
+    const ids = [...new Set(sessionIds)];
+    for (const id of ids)
+      if (this.getSession(id)?.symposiumConfig)
+        throw new Error('Use Symposium directed prompts for this session');
+    for (const id of ids) this.ordinaryStartups.set(id, (this.ordinaryStartups.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of ids) {
+        const remaining = (this.ordinaryStartups.get(id) ?? 1) - 1;
+        if (remaining) this.ordinaryStartups.set(id, remaining);
+        else this.ordinaryStartups.delete(id);
+      }
+    };
+  }
+
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;
     const db = new Database(dbPath);
@@ -759,6 +780,12 @@ export class EventStore {
         db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
       }
       db.exec(`
+        CREATE TABLE IF NOT EXISTS symposium_session_allocations (
+          idempotency_key TEXT PRIMARY KEY,
+          request_fingerprint TEXT NOT NULL,
+          session_id TEXT NOT NULL UNIQUE,
+          profile_selections TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS symposium_admissions (
           admission_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
@@ -1922,6 +1949,67 @@ export class EventStore {
    * Activation is fail-closed: Seat 1 must retain the session's durable account
    * binding and configuration revisions must move forward.
    */
+  getSymposiumSessionAllocation(idempotencyKey: string, fingerprint: string): string | null {
+    const row = this.db!.prepare(
+      'SELECT session_id, request_fingerprint FROM symposium_session_allocations WHERE idempotency_key = ?',
+    ).get(idempotencyKey) as { session_id: string; request_fingerprint: string } | undefined;
+    if (!row) return null;
+    if (row.request_fingerprint !== fingerprint)
+      throw new Error('Symposium creation idempotency conflict');
+    if (!this.getSession(row.session_id)?.symposiumConfig)
+      throw new Error('Previously allocated Symposium is unavailable');
+    return row.session_id;
+  }
+
+  getSymposiumInitialProfileSelections(
+    sessionId: string,
+  ): Record<string, { profileId: string; revision: number }> {
+    const row = this.db!.prepare(
+      'SELECT profile_selections FROM symposium_session_allocations WHERE session_id = ?',
+    ).get(sessionId) as { profile_selections: string } | undefined;
+    return row ? JSON.parse(row.profile_selections) : {};
+  }
+
+  /** Allocate an idle draft and retry receipt together; this never starts a provider runtime. */
+  createSymposiumSession(input: {
+    idempotencyKey: string;
+    fingerprint: string;
+    sessionId: string;
+    summary: string;
+    binding: AccountBinding;
+    config: unknown;
+    profileSelections: Record<string, { profileId: string; revision: number }>;
+  }): { sessionId: string; created: boolean } {
+    const config = SymposiumConfigSchema.parse(input.config);
+    if (config.version !== 2 || config.state !== 'draft' || config.revision !== 1)
+      throw new Error('New Symposium requires an initial v2 draft');
+    return this.db!.transaction(() => {
+      const retry = this.getSymposiumSessionAllocation(input.idempotencyKey, input.fingerprint);
+      if (retry) return { sessionId: retry, created: false };
+      if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
+      const binding = AccountBindingSchema.parse(input.binding);
+      const anchor = config.seats.find((seat) => seat.id === config.anchorSeatId);
+      if (!anchor?.accountBinding || !sameBinding(anchor.accountBinding, binding))
+        throw new Error('Symposium anchor must match its selected account');
+      this.upsertSession({
+        sessionId: input.sessionId,
+        summary: input.summary,
+        accountBinding: binding,
+        isActive: false,
+      });
+      this.setSymposiumConfig(input.sessionId, config, 0);
+      this.db!.prepare(
+        'INSERT INTO symposium_session_allocations (idempotency_key, request_fingerprint, session_id, profile_selections) VALUES (?, ?, ?, ?)',
+      ).run(
+        input.idempotencyKey,
+        input.fingerprint,
+        input.sessionId,
+        JSON.stringify(input.profileSelections),
+      );
+      return { sessionId: input.sessionId, created: true };
+    }).immediate();
+  }
+
   setSymposiumConfig(
     sessionId: string,
     input: unknown,
@@ -1931,6 +2019,8 @@ export class EventStore {
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+      if (!session.symposiumConfig && this.ordinaryStartups.has(sessionId))
+        throw new Error('Ordinary startup must finish or stop before Symposium conversion');
       if (expectedRevision !== undefined && (session.symposiumRevision ?? 0) !== expectedRevision) {
         throw new Error('Symposium configuration revision conflict');
       }
