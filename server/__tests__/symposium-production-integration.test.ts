@@ -725,18 +725,29 @@ describe('production Symposium route to native runtime', () => {
         codexStore: {} as never,
         resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
         runtimeConfig,
+        perSeatSandboxVerified: true,
         readOnlyEnforced: { openaiApi: false, claudeVertex: false },
         recordAccepted: (receipt) => store.markSymposiumRecipientAccepted(receipt),
         broadcastEvent: broadcast,
         managerFactory: () => ({
-          ensure: async () => ({ sandboxName: 'shared', workdir: runtimeConfig.workdir }),
+          ensure: async () => ({
+            sandboxName: 'seat-builder',
+            sandboxId: 'physical-builder',
+            workdir: runtimeConfig.workdir,
+          }),
+          inspect: async (_runtimeId, physicalId) => ({ id: physicalId, phase: 'Ready' }),
+          inspectReserved: async () => ({
+            name: 'seat-builder',
+            id: 'physical-builder',
+            phase: 'Ready',
+          }),
         }),
         openNative: async ({ execution, onEvent }) => ({
           run: async (_input, callbacks) => {
             callbacks.beforeDispatch();
             registry.reserve({
               ...execution,
-              sandbox: { sandboxName: 'shared', workdir: runtimeConfig.workdir },
+              sandbox: { sandboxName: 'seat-builder', workdir: runtimeConfig.workdir },
             });
             callbacks.accepted('thread-1', 'turn-restart');
             onEvent?.({
