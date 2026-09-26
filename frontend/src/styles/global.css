@@ -7116,3 +7116,247 @@ textarea,
 option {
   font-family: var(--ui-font);
 }
+
+.symposium-perspective-tabs {
+  display: flex;
+  gap: 0.25rem;
+  overflow-x: auto;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.symposium-perspective-tabs [role='tab'] {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  color: var(--text-dim);
+  background: transparent;
+  cursor: pointer;
+}
+
+.symposium-perspective-tabs [role='tab'][aria-selected='true'] {
+  border-color: var(--border);
+  color: var(--text);
+  background: var(--surface);
+  font-weight: 600;
+}
+
+.symposium-perspectives,
+.symposium-perspectives [role='tabpanel'] {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.symposium-boundary-note {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+}
+
+.symposium-context-card,
+.symposium-queued-inputs,
+.symposium-share-preview {
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+  overflow-wrap: anywhere;
+}
+
+.symposium-context-card {
+  background: var(--surface);
+}
+
+.symposium-context-card p,
+.symposium-queued-inputs p {
+  margin: 0.35rem 0 0;
+  white-space: pre-wrap;
+}
+
+.symposium-context-card small {
+  display: block;
+  color: var(--text-dim);
+}
+
+.symposium-queued-inputs,
+.symposium-share-preview {
+  margin: 0.4rem 0.75rem;
+  max-height: 25dvh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.symposium-share-preview textarea,
+.symposium-audience-composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.symposium-share-preview label {
+  display: inline-flex;
+  align-items: center;
+  margin: 0.4rem 0.8rem 0.4rem 0;
+  gap: 0.25rem;
+}
+
+.symposium-audience-composer {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem 0.75rem calc(0.55rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.symposium-audience-composer button,
+.symposium-share-preview button,
+.symposium-share-action {
+  min-height: 2.5rem;
+}
+
+.symposium-director {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.75rem;
+  color: var(--text);
+}
+
+.symposium-director-panel {
+  display: grid;
+  gap: 0.75rem;
+  max-height: min(65dvh, 40rem);
+  overflow-y: auto;
+  padding: 0.75rem 0;
+}
+
+.symposium-director-panel p {
+  margin: 0;
+}
+
+.symposium-director-panel label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: 0.5rem;
+}
+
+.symposium-director-panel textarea,
+.symposium-director-panel input:not([type='checkbox']) {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.35rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.symposium-roster,
+.symposium-director-panel ul {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.symposium-roster li,
+.symposium-director-panel li {
+  line-height: 1.6;
+}
+
+.symposium-roster button,
+.symposium-director-panel li button {
+  margin-left: 0.35rem;
+}
+
+.symposium-seat-selection {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+}
+
+.symposium-new-seat {
+  display: grid;
+  gap: 0.45rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.symposium-new-seat h3 {
+  margin: 0;
+}
+
+.symposium-director-panel fieldset {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  min-width: 0;
+}
+
+.symposium-profile-proposals {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  max-height: min(45dvh, 30rem);
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.symposium-profile-proposal {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.symposium-profile-proposal > p,
+.symposium-profile-proposal > [role='alert'] {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.symposium-profile-proposal label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.symposium-profile-proposal input,
+.symposium-profile-proposal select,
+.symposium-profile-proposal textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.symposium-profile-proposal textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.symposium-profile-proposal button {
+  min-height: 2.5rem;
+}
+
+@media (max-width: 520px) {
+  .symposium-profile-proposal {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

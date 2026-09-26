@@ -23,11 +23,24 @@ export type ChatAreaVoice = Pick<
   'ttsAvailable' | 'speak' | 'stopSpeaking' | 'speaking'
 >;
 
+export interface SymposiumContextItem {
+  eventSeq: number;
+  deliveryId: string;
+  attemptId: number;
+  recipientSeatId: string;
+  sourceSeatId: string | null;
+  sourceMessageId: string | null;
+  content: string;
+  receipt: 'received' | 'uncertain';
+}
+
 export interface ChatAreaProps {
   sessionId?: string;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
+  contextItems?: SymposiumContextItem[];
+  onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
   running: boolean;
   permission: PermissionRequest | null;
   onPermissionRespond: (
@@ -76,6 +89,8 @@ export function ChatArea({
   messages,
   current,
   currentByMessage = {},
+  contextItems = [],
+  onShareMessage,
   running,
   permission,
   onPermissionRespond,
@@ -203,16 +218,21 @@ export function ChatArea({
           index: groupedMessages.length + index,
         }),
       ),
+      ...contextItems.map((value, index) => ({
+        kind: 'context' as const,
+        value,
+        startedSeq: value.eventSeq,
+        index:
+          groupedMessages.length + Object.keys(currentByMessage).length + (current ? 1 : 0) + index,
+      })),
     ];
-    // Keep unsequenced rows in their original slots while ordering every
-    // durable turn by start sequence. A mixed index/sequence comparator is
-    // nontransitive and can leave an earlier seat turn after a later one.
+    // Keep unsequenced optimistic rows in place while sorting durable turns.
     const sequenced = turns
       .filter((turn) => turn.startedSeq !== undefined)
       .sort((a, b) => a.startedSeq! - b.startedSeq! || a.index - b.index);
     let nextSequenced = 0;
     return turns.map((turn) => (turn.startedSeq === undefined ? turn : sequenced[nextSequenced++]));
-  }, [groupedMessages, current, currentByMessage]);
+  }, [groupedMessages, current, currentByMessage, contextItems]);
 
   const touchStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -244,9 +264,29 @@ export function ChatArea({
         {messages.length === 0 &&
           !current &&
           Object.keys(currentByMessage).length === 0 &&
+          contextItems.length === 0 &&
           !running && <p className="chat-empty">Send a message to start</p>}
 
         {orderedTurns.map((turn) => {
+          if (turn.kind === 'context') {
+            const item = turn.value;
+            return (
+              <article
+                key={`context:${item.deliveryId}:${item.attemptId}`}
+                className="msg-turn symposium-context-card"
+              >
+                <strong>
+                  {item.receipt === 'received'
+                    ? `Received context: ${item.sourceSeatId ?? 'you'} to ${item.recipientSeatId}`
+                    : `Dispatch uncertain for ${item.recipientSeatId}`}
+                </strong>
+                {item.sourceMessageId && (
+                  <small>Excerpt from {item.sourceSeatId ?? 'your message'}</small>
+                )}
+                <p>{item.content}</p>
+              </article>
+            );
+          }
           if (turn.kind === 'streaming') {
             const stream = turn.value;
             return (
@@ -363,6 +403,15 @@ export function ChatArea({
                   />
                 );
               })}
+              {onShareMessage && (
+                <button
+                  type="button"
+                  className="symposium-share-action"
+                  onClick={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+                >
+                  Share excerpt
+                </button>
+              )}
             </div>
           );
         })}

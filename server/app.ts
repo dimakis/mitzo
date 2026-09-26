@@ -1,4 +1,13 @@
 import { AccountAliases } from './account-aliases.js';
+import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
+import { SymposiumProfileStore } from './symposium-profiles.js';
+import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
+import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
+import { SymposiumOrchestrator } from './symposium-orchestrator.js';
+import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { SymposiumHostGrants } from './symposium-host-grants.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import {
   readCodexQueue,
   getCodexRuntime,
@@ -745,6 +754,95 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+const symposiumProfileStore = new SymposiumProfileStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const symposiumProfileProposalStore = new SymposiumProfileProposalStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/symposium/profile-proposals',
+  operatorAuthMiddleware,
+  createSymposiumProfileProposalRouter(symposiumProfileProposalStore, (sessionId) =>
+    Boolean(eventStore.getSession(sessionId)),
+  ),
+);
+app.use(
+  '/api/symposium/profiles',
+  operatorAuthMiddleware,
+  createSymposiumProfileRouter(symposiumProfileStore),
+);
+
+const symposiumHostGrants = new SymposiumHostGrants(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+  {
+    getConfig: (sessionId) => {
+      const raw = eventStore.getSession(sessionId)?.symposiumConfig;
+      return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
+    },
+    commitConfig: (sessionId, config, expectedRevision) =>
+      eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+    getMembership: (sessionId, seatId) =>
+      eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
+    validateSelection: (seat) => {
+      if (!seat.accountBinding) throw new Error('Seat account binding is required');
+      loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+    },
+    resolveProfile: (selection) =>
+      symposiumProfileStore.get('user', selection.profileId, selection.revision),
+    authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
+      const sessionSource = `session:${sessionId}`;
+      if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+        throw new Error('Only this conversation context can be admitted');
+      const writable = seat.role === 'implementer' || seat.role === 'coder';
+      return {
+        classification: 'mixed' as const,
+        sourceRefs: [sessionSource],
+        authority: {
+          filesystem: writable ? ('write' as const) : ('read' as const),
+          tools: writable ? ('write' as const) : ('read' as const),
+          network: 'restricted' as const,
+        },
+      };
+    },
+  },
+);
+const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
+/** A verified runtime can be installed by the native transport integration. */
+let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = () => null;
+export function setSymposiumDirectorRuntimeFactory(
+  factory: (sessionId: string) => SymposiumOrchestrator | null,
+): void {
+  symposiumRuntimeForSession = factory;
+}
+app.use(
+  '/api/sessions/:id/symposium',
+  operatorAuthMiddleware,
+  createSymposiumDirectorRouter({
+    store: eventStore,
+    getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
+    getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
+    profileBindingEnforced: true,
+    validateSelection: (seat) => {
+      if (seat.accountBinding)
+        loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+    },
+    validateActiveConfig: (sessionId, config) =>
+      symposiumHostGrants.validateActiveConfig(sessionId, config),
+    activateDraft: (input) => symposiumHostGrants.activate(input),
+    reviseSeat: (input) => symposiumHostGrants.reviseSeat(input),
+    getPerspective: (sessionId, perspective, options) =>
+      getSymposiumPerspective(eventStore, sessionId, perspective, options),
+    getQueuedInputs: (sessionId, perspective) =>
+      getSymposiumQueuedInputs(eventStore, sessionId, perspective),
+    resolveSelection: (accountId, model, reasoningEffort) => {
+      const profiles = loadAccountProfiles();
+      const binding = profiles.resolve(accountId, model);
+      profiles.validateModel(binding, model, reasoningEffort);
+      return AccountBindingSchema.parse(binding);
+    },
+  }),
+);
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {

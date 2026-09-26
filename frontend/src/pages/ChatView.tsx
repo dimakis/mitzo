@@ -5,7 +5,8 @@ import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
-import { ChatArea } from '../components/ChatArea';
+import { SymposiumConversation } from '../components/SymposiumConversation';
+import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
@@ -351,57 +352,65 @@ export function ChatView() {
           </button>
         </div>
       )}
-      <ChatArea
-        sessionId={sessionId || activeSessionId || undefined}
-        messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-        current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-        currentByMessage={
-          sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage
+      {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+      <SymposiumConversation
+        sessionId={activeSessionId}
+        chat={{
+          sessionId: sessionId || activeSessionId || undefined,
+          messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
+          current: sessionId && sessionId !== activeSessionId ? null : messages.current,
+          currentByMessage:
+            sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
+          running: messages.running,
+          permission: messages.permission,
+          onPermissionRespond: handlePermission,
+          scrollRef,
+          progressByToolId,
+          voice,
+        }}
+        ordinaryComposer={
+          <>
+            {pausedLaunch && (
+              <div role="status" className="chat-account-bar">
+                <p>Launch paused. Select an account before sending.</p>
+                <p>{pausedLaunch.prompt}</p>
+                <button
+                  disabled={!accountSelection || messages.running}
+                  onClick={() => {
+                    setPendingSession(pausedLaunch);
+                    setPausedLaunch(null);
+                  }}
+                >
+                  Send launch prompt
+                </button>
+                <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
+              </div>
+            )}
+            <CodexQueueStatus sessionId={activeSessionId} />
+            <ChatInput
+              onSend={handleSend}
+              onStop={handleStop}
+              onInterrupt={handleInterrupt}
+              running={messages.running}
+              initialText={initialPrompt}
+              sendDisabledReason={
+                !activeSessionId && !accountSelection
+                  ? 'Select an account before sending.'
+                  : undefined
+              }
+              voice={voice}
+              branch={messages.branch || undefined}
+              isWorktree={messages.isWorktree}
+              wtId={messages.wtId || undefined}
+              sessionId={activeSessionId ?? undefined}
+              tokenState={tokens}
+              messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+              current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+              bootContext={bootContext}
+              sessionContext={sessionContext}
+            />
+          </>
         }
-        running={messages.running}
-        permission={messages.permission}
-        onPermissionRespond={handlePermission}
-        scrollRef={scrollRef}
-        progressByToolId={progressByToolId}
-        voice={voice}
-      />
-
-      {pausedLaunch && (
-        <div role="status" className="chat-account-bar">
-          <p>Launch paused. Select an account before sending.</p>
-          <p>{pausedLaunch.prompt}</p>
-          <button
-            disabled={!accountSelection || messages.running}
-            onClick={() => {
-              setPendingSession(pausedLaunch);
-              setPausedLaunch(null);
-            }}
-          >
-            Send launch prompt
-          </button>
-          <button onClick={() => setPausedLaunch(null)}>Dismiss launch</button>
-        </div>
-      )}
-      <CodexQueueStatus sessionId={activeSessionId} />
-      <ChatInput
-        onSend={handleSend}
-        onStop={handleStop}
-        onInterrupt={handleInterrupt}
-        running={messages.running}
-        initialText={initialPrompt}
-        sendDisabledReason={
-          !activeSessionId && !accountSelection ? 'Select an account before sending.' : undefined
-        }
-        voice={voice}
-        branch={messages.branch || undefined}
-        isWorktree={messages.isWorktree}
-        wtId={messages.wtId || undefined}
-        sessionId={activeSessionId ?? undefined}
-        tokenState={tokens}
-        messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-        current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-        bootContext={bootContext}
-        sessionContext={sessionContext}
       />
     </div>
   );
