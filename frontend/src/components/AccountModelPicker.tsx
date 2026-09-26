@@ -57,8 +57,10 @@ export function AccountModelPicker({
   onUnavailable,
   disabled = false,
   scope = 'chat',
+  requireExplicitSelection = false,
 }: {
   scope?: 'chat' | 'symposium';
+  requireExplicitSelection?: boolean;
   disabled?: boolean;
   sessionId: string | null;
   preferredModel: string;
@@ -171,13 +173,13 @@ export function AccountModelPicker({
               account,
             );
             setSelection(next);
-            callbacks.current.onChange(next);
+            callbacks.current.onChange(requireExplicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
               : { model: preferredModel };
             setFixedSession(true);
-            callbacks.current.onChange(next);
+            callbacks.current.onChange(requireExplicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding
@@ -213,7 +215,7 @@ export function AccountModelPicker({
             first,
           );
           setSelection(selected);
-          callbacks.current.onChange(selected);
+          callbacks.current.onChange(requireExplicitSelection ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -227,7 +229,7 @@ export function AccountModelPicker({
     };
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, attempt, legacy, scope]);
+  }, [sessionId, attempt, legacy, scope, requireExplicitSelection]);
   if (error)
     return (
       <>
@@ -284,7 +286,7 @@ export function AccountModelPicker({
               nextAccount,
             );
             setSelection(next);
-            onChange(next);
+            onChange(requireExplicitSelection ? null : next);
           }}
         >
           {accounts.map((a) => (
@@ -363,7 +365,7 @@ export function AccountModelPicker({
             account,
           );
           setSelection(next);
-          onChange(next);
+          onChange(requireExplicitSelection ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -387,7 +389,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(next);
+            onChange(requireExplicitSelection ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -402,6 +404,12 @@ export function AccountModelPicker({
       )}
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
+      )}
+      {requireExplicitSelection && (
+        <button type="button" disabled={disabled} onClick={() => onChange(selection)}>
+          Use {account.label} ·{' '}
+          {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
+        </button>
       )}
       {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>

@@ -198,6 +198,9 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   expect(screen.getByLabelText('Review package')).toBeDisabled();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer added/);
   const writes = vi.mocked(apiFetch).mock.calls;
@@ -218,4 +221,40 @@ it('renders outside chat stacking contexts so mobile navigation cannot cover its
   const dialog = await screen.findByRole('dialog');
   expect(container.contains(dialog)).toBe(false);
   expect(dialog.parentElement?.parentElement).toBe(document.body);
+});
+
+it('refreshes unavailable runtime on reopen while preserving reviewer choices', async () => {
+  let available = false;
+  vi.mocked(apiFetch).mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          config: {
+            version: 2,
+            seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+            anchorSeatId: 'anchor',
+          },
+          seats: [],
+          runtimeAvailable: available,
+        }),
+      ),
+  );
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), {
+    target: { value: 'Review current diff' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await screen.findByText('Verified provider runtime is unavailable. Your choices remain here.');
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  available = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  expect(screen.getByLabelText('Review package')).toHaveValue('Review current diff');
+  expect(apiFetch).toHaveBeenCalledTimes(2);
 });
