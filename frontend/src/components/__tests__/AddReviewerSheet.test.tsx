@@ -92,6 +92,13 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
     model: 'luna',
     profileSelection: { profileId: 'review', revision: 1 },
   });
+  const refreshIndex = vi
+    .mocked(apiFetch)
+    .mock.calls.findIndex(([url]) => String(url).endsWith('/admissions/refresh'));
+  expect(refreshIndex).toBeGreaterThan(-1);
+  expect(refreshIndex).toBeLessThan(
+    vi.mocked(apiFetch).mock.calls.findIndex(([url]) => String(url).endsWith('/deliveries')),
+  );
   const delivery = vi
     .mocked(apiFetch)
     .mock.calls.find(([url]) => String(url).endsWith('/deliveries'))!;
@@ -200,4 +207,15 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
     .map(([, init]) => JSON.parse(String(init?.body)));
   expect(queued).toHaveLength(2);
   expect(queued[1]).toEqual(queued[0]);
+});
+
+it('renders outside chat stacking contexts so mobile navigation cannot cover its actions', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
+  );
+  const { container } = render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  const dialog = await screen.findByRole('dialog');
+  expect(container.contains(dialog)).toBe(false);
+  expect(dialog.parentElement?.parentElement).toBe(document.body);
 });

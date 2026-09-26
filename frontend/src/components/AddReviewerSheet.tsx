@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { useEffect, useRef, useState } from 'react';
 import type { SymposiumConfig, ValidAccountBinding } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -44,15 +45,17 @@ export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
       >
         Add reviewer
       </button>
-      {visited && (
-        <ReviewerForm
-          key={`${sessionId}:${attempt}`}
-          open={open}
-          sessionId={sessionId}
-          onClose={() => setOpen(false)}
-          onAnother={() => setAttempt((value) => value + 1)}
-        />
-      )}
+      {visited &&
+        createPortal(
+          <ReviewerForm
+            key={`${sessionId}:${attempt}`}
+            open={open}
+            sessionId={sessionId}
+            onClose={() => setOpen(false)}
+            onAnother={() => setAttempt((value) => value + 1)}
+          />,
+          document.body,
+        )}
     </>
   );
 }
@@ -230,6 +233,7 @@ function ReviewerForm({
           profileSelections: { ...current.initialProfileSelections, [seatId]: profile },
           ...boundary,
         });
+      await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
       current = await request<Status>(base);
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
       for (const id of [config.version === 2 ? config.anchorSeatId : config.seats[0].id, seatId]) {
