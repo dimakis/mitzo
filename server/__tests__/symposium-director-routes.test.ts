@@ -249,7 +249,7 @@ describe('Symposium director routes', () => {
     expect(store.setSymposiumConfig).not.toHaveBeenCalled();
   });
   it('reissues a nonactive seat from server-resolved selection without client grant claims', async () => {
-    const { app, store, resolveSelection, reviseSeat } = fixture();
+    const { app, store, resolveSelection, reviseSeat } = fixture(true);
     const bound = {
       ...config,
       seats: config.seats.map((seat) => ({
@@ -315,6 +315,30 @@ describe('Symposium director routes', () => {
     );
     expect(reviseSeat.mock.calls[0]?.[0]).not.toHaveProperty('seat.profileSelection');
   });
+  it.each(['reviewer', 'new-seat'])(
+    'does not mint or reissue %s grants without a runtime',
+    async (seatId) => {
+      const { app, store, resolveSelection, reviseSeat } = fixture();
+      const before = JSON.stringify(store.getActiveSymposiumConfig());
+      const response = await request(app).post('/api/sessions/chat/symposium/seats/revise').send({
+        expectedRevision: 4,
+        seatId,
+        name: 'Reviewer',
+        role: 'reviewer',
+        systemPrompt: 'Review only',
+        color: '#557733',
+        accountId: 'claude-work',
+        model: 'claude-sonnet',
+        sharedBoundaryAcknowledged: true,
+      });
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBe('Symposium provider runtime is unavailable');
+      expect(resolveSelection).not.toHaveBeenCalled();
+      expect(reviseSeat).not.toHaveBeenCalled();
+      expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+      expect(JSON.stringify(store.getActiveSymposiumConfig())).toBe(before);
+    },
+  );
   it('resolves a seat account binding server-side without exposing credentials', async () => {
     const { app, resolveSelection } = fixture();
     const response = await request(app)
