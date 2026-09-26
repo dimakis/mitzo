@@ -26,6 +26,22 @@ vi.mock('../symposium-subscription-provisioner.js', () => ({
     },
   }),
 }));
+vi.mock('../symposium-device-login.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../symposium-device-login.js')>()),
+  beginDeviceLogin: async () => ({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 60000,
+    completed: new Promise((resolve, reject) => {
+      mocked.finish = resolve;
+      mocked.fail = reject;
+    }),
+    cancel: async () => {
+      mocked.fail!(new Error('cancelled'));
+    },
+  }),
+}));
+import { DeviceLoginCleanupError } from '../symposium-device-login.js';
 import { createSymposiumSubscriptionHost } from '../symposium-subscription-host.js';
 function fixture() {
   const gateway = {
@@ -164,4 +180,50 @@ describe('subscription host adapter', () => {
       'private OpenShell CLI environment',
     );
   });
+});
+
+it('preserves the cleanup quarantine marker across device host completion', async () => {
+  const f = fixture();
+  const adapter = createSymposiumSubscriptionHost(f.options, f.run);
+  const login = await adapter.beginDeviceLogin();
+  mocked.fail!(new DeviceLoginCleanupError());
+  await expect(login.completed).rejects.toBeInstanceOf(DeviceLoginCleanupError);
+  expect(adapter.currentProfiles.catalog()).toEqual([]);
+});
+it('rotates the account binding on explicit device reconnect and refuses an old seat binding', async () => {
+  const f = fixture();
+  const adapter = createSymposiumSubscriptionHost(f.options, f.run);
+  const first = await adapter.beginDeviceLogin();
+  const prior = await mocked.host!.installProfile({
+    subject: 's',
+    accountId: 'personal-id',
+    email: 'e',
+    planType: 'pro',
+    provider: 'provider-one',
+    providerId: 'id-one',
+  });
+  mocked.finish!({ binding: prior });
+  await first.completed;
+  const second = await adapter.beginDeviceLogin();
+  const next = await mocked.host!.installProfile({
+    subject: 's',
+    accountId: 'personal-id',
+    email: 'e',
+    planType: 'pro',
+    provider: 'provider-two',
+    providerId: 'id-two',
+  });
+  mocked.finish!({ binding: next });
+  await second.completed;
+  expect(next.profileRevision).not.toBe(prior.profileRevision);
+  expect(() =>
+    adapter.assertPrivateAuth({
+      execution: { seat: { accountBinding: prior } },
+      route: {
+        kind: 'chatgpt-subscription-native',
+        model: prior.model,
+        profile: { model: prior.model },
+      },
+    } as never),
+  ).toThrow('selection changed');
 });
