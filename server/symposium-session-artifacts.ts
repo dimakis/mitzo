@@ -149,11 +149,14 @@ export class SymposiumSessionArtifacts {
         } catch (error) {
           // A completed inspection contradicting the recorded identity differs
           // from a transport outage: only actual evidence invalidates readiness.
-          this.db
-            .prepare(
-              "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state='ready'",
-            )
-            .run(sessionId);
+          // Evidence collected while creation was unsettled cannot revoke a
+          // newer ready transition made by another ledger instance.
+          if (row.state === 'ready')
+            this.db
+              .prepare(
+                "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state='ready'",
+              )
+              .run(sessionId);
           throw error;
         }
         return ready();

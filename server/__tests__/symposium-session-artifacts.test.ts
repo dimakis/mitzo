@@ -168,3 +168,39 @@ it('keeps ready mappings during transport inspection failures for cleanup', asyn
   expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
   expect(f.store.getReady('session')).toEqual(ready);
 });
+it('does not revoke newly ready mapping using a delayed creating-state inspection', async () => {
+  const f = fixture();
+  let finishCreate!: () => void;
+  let finishInspect!: (value: null) => void;
+  const creating = new Promise<void>((resolve) => {
+    finishCreate = resolve;
+  });
+  f.host.create.mockImplementationOnce(async (name, labels) => {
+    await creating;
+    f.volumes.set(name, { name, labels, driver: 'local', options: {} });
+  });
+  const first = f.store.ensure('session');
+  await vi.waitFor(() => expect(f.host.create).toHaveBeenCalledOnce());
+  f.host.inspect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishInspect = resolve;
+      }),
+  );
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  const delayed = other.ensure('session');
+  finishCreate();
+  expect(await first).toEqual({ state: 'ready' });
+  const mapping = f.store.getReady('session');
+  expect(mapping).not.toBeNull();
+  finishInspect(null);
+  expect(await delayed).toEqual({ state: 'recovery_required' });
+  expect(f.store.getReady('session')).toEqual(mapping);
+});
