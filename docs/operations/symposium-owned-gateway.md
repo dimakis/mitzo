@@ -186,3 +186,11 @@ port 1455, the route returns HTTP 503 with a port diagnostic; resolve the confli
 and retry. Do not copy callback URLs, authorization codes, or tokens into logs or
 chat. This workflow does not require any gateway patch or alternate provider
 redirect URI.
+
+### In-app personal account setup
+
+The Symposium account picker offers **Connect personal subscription**, including when its catalog is empty. The operator selects the browser location and confirms the callback setup is ready before **Start personal login** can allocate OAuth. SSH instructions and the phone limitation are shown in the same view. The link accepts only the official HTTPS `auth.openai.com/oauth/authorize` endpoint and opens only on an explicit click.
+
+`GET /api/symposium/personal/login/status?attemptId=…` is operator-authenticated and `no-store`. It returns only an ephemeral receipt ID and `pending`, `completed`, or `failed`; missing or superseded receipts return `unknown`. Server restart clears receipts and cannot imply login success from a stale account catalog. A single pending attempt blocks duplicate starts. Provider failure details, credentials, authorization URLs and codes are excluded from status responses.
+
+The view polls that receipt, offers a status retry on network failure, and refreshes the account catalog only after a matching completed receipt. Account/model selection still uses the existing explicit seating flow. These UI and receipt paths have mocked coverage; they do not establish live subscription acceptance.

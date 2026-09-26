@@ -1,0 +1,48 @@
+.symposium-subscription-login {
+  display: grid;
+  gap: 0.6rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.75rem;
+  box-sizing: border-box;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 8px;
+}
+.symposium-subscription-login p,
+.symposium-subscription-login h4 {
+  margin: 0;
+}
+.symposium-subscription-login fieldset {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+.symposium-subscription-login fieldset label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.5rem;
+  min-height: 2rem;
+}
+.symposium-subscription-login fieldset input {
+  flex: 0 0 1rem;
+  width: 1rem;
+  min-width: 1rem;
+  margin: 0;
+}
+.symposium-subscription-login pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+}
+.symposium-subscription-login p {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+.symposium-subscription-login button,
+.symposium-subscription-login a {
+  min-height: 2.4rem;
+}
