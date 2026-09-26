@@ -13,7 +13,7 @@ it('explains unavailable native receipts without offering an unsafe workflow lau
   vi.mocked(apiFetch).mockResolvedValue(response({ available: false, workflows: [] }));
   render(<SymposiumReviewPanel sessionId="session" />);
   expect(
-    await screen.findByText(/Native review receipts and enforced budgets are not available/),
+    await screen.findByText(/Automated review is not available for this workspace yet/),
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Start review' })).toBeNull();
 });
@@ -104,7 +104,7 @@ it('loads review history only after the user opens the chat entry', async () => 
   render(<SymposiumReviewEntry sessionId="session" />);
   expect(apiFetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open review findings' }));
-  expect(await screen.findByText(/Native review receipts/)).toBeTruthy();
+  expect(await screen.findByText(/Automated review is not available/)).toBeTruthy();
 });
 
 it('attaches only a host evidence reference before preparing the current review record', async () => {
@@ -131,4 +131,34 @@ it('attaches only a host evidence reference before preparing the current review 
       expect.objectContaining({ body: expect.stringContaining('"evidenceId":"test-run-42"') }),
     ),
   );
+});
+
+it('shows only explicitly reported severity and leaves legacy findings unlabeled', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = symposiumReviewPreviewResponses.findings.workflows[0];
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: false,
+      workflows: [
+        {
+          ...workflow,
+          findings: [
+            { ...workflow.findings[0], severity: 'high' },
+            {
+              ...workflow.findings[0],
+              fingerprint: 'legacy',
+              summary: 'Legacy finding',
+              severity: undefined,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText('Severity: high')).toBeTruthy();
+  expect(screen.getAllByText(/Severity:/)).toHaveLength(1);
+  expect(screen.getByText(/Legacy finding/)).toBeTruthy();
+  expect(screen.getByText(/Saved review history remains readable/)).toBeTruthy();
 });

@@ -12,6 +12,7 @@ type Workflow = {
   costUsd: number;
   findings: Array<{
     fingerprint: string;
+    severity?: 'critical' | 'high' | 'medium' | 'low';
     summary: string;
     location: string;
     criterion: string;
@@ -115,8 +116,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       {!loaded && !error && <p>Loading review history…</p>}
       {loaded && !available && (
         <p>
-          Native review receipts and enforced budgets are not available. Review and fix execution
-          remain disabled until the trusted runtime is connected.
+          Automated review is not available for this workspace yet. Saved review history remains
+          readable. You can inspect earlier findings here or continue reviewing the changes
+          manually.
         </p>
       )}
       {workflow && (
@@ -149,6 +151,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
                     {finding.summary} ({finding.status})
                   </span>
                 </label>
+                {finding.severity && (
+                  <p className="symposium-review-severity">Severity: {finding.severity}</p>
+                )}
                 <p>
                   {finding.location} · {finding.criterion}
                 </p>

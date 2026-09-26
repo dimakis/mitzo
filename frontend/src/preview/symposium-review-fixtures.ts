@@ -11,6 +11,7 @@ const workflow = {
     {
       fingerprint: 'b'.repeat(64),
       summary: 'Preserve the selected connection after reconnect',
+      severity: 'high',
       location: 'frontend/src/session.ts:42',
       criterion: 'Account selection survives reconnect',
       evidenceRefs: ['mock-diff:42', 'mock-test:reconnect'],

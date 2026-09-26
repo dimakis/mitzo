@@ -37,6 +37,7 @@ const UsageSchema = z.strictObject({
   costUsd: z.number().finite().nonnegative().nullable(),
 });
 const FindingInputSchema = z.strictObject({
+  severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
   criterion: Id,
   summary: Id,
   location: Id,
@@ -106,6 +107,7 @@ type WorkResult = z.infer<typeof WorkResultSchema>;
 type Usage = z.infer<typeof UsageSchema>;
 type AttemptAdmission = z.infer<typeof AttemptAdmissionSchema>;
 type Finding = {
+  severity?: z.infer<typeof FindingInputSchema>['severity'];
   fingerprint: string;
   criterion: string;
   summary: string;
@@ -496,6 +498,8 @@ export class SymposiumReviewStore {
           const found = state.findings.find((item) => item.fingerprint === key);
           if (found) {
             found.status = 'open';
+            // Missing severity means unreported, not a downgrade or an inferred default.
+            if (candidate.severity !== undefined) found.severity = candidate.severity;
             found.reviewIds.push(parsed.reviewId);
             found.evidenceRefs = [...new Set([...found.evidenceRefs, ...candidate.evidenceRefs])];
           } else
