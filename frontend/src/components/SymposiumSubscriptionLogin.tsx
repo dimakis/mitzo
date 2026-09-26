@@ -58,8 +58,20 @@ export function SymposiumSubscriptionLogin({
           setError('');
           refreshCatalog.current?.();
         } else if (status.state === 'failed') {
+          setState('failed');
+          setReceipt(null);
+          setReady(false);
           setError(
             'Previous login failed or expired. Prepare the callback setup before starting again.',
+          );
+        } else {
+          setState('idle');
+          setReceipt(null);
+          setReady(false);
+          setError(
+            status.state === 'unknown'
+              ? 'No active login receipt remains. Prepare the callback setup to start again.'
+              : '',
           );
         }
       })

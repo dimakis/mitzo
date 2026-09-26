@@ -142,3 +142,21 @@ it('retries initial receipt recovery in place and resumes pending polling', asyn
   );
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
+
+it.each(['idle', 'unknown', 'failed'])(
+  'unlocks setup when recovery retry returns %s',
+  async (state) => {
+    vi.mocked(apiFetch)
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(response({ state }));
+    render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Retry status' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry status' })).toBeNull());
+    fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+    fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+    expect(
+      (screen.getByRole('button', { name: 'Start personal login' }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  },
+);
