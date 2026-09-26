@@ -5071,3 +5071,45 @@ describe('resumed session permission authority', () => {
     );
   });
 });
+
+describe('Symposium ordinary transport fence', () => {
+  it('rejects send and interrupt before ordinary account lookup or any runtime operation', async () => {
+    const ctx = createContext();
+    vi.mocked(ctx.eventStore.getSession).mockReturnValue({ symposiumConfig: '{}' } as never);
+    const transport = mockTransport();
+    const starts = vi.mocked(startChat).mock.calls.length;
+    const sends = vi.mocked(sendToChat).mock.calls.length;
+    const interrupts = vi.mocked(interruptChat).mock.calls.length;
+    await handleSendV2(
+      'connection',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'symposium',
+        clientMsgId: 'blocked',
+        prompt: 'hello',
+        accountId: 'absent',
+      },
+      ctx,
+    );
+    await handleInterruptV2(
+      'connection',
+      transport,
+      {
+        type: 'interrupt',
+        sessionId: 'symposium',
+        clientMsgId: 'blocked-interrupt',
+        prompt: 'hello',
+      },
+      ctx,
+    );
+    expect(transport.sent.filter((event) => event.type === 'error')).toHaveLength(2);
+    expect(
+      transport.sent.every((event) => String(event.error).includes('Symposium directed prompts')),
+    ).toBe(true);
+    expect(startChat).toHaveBeenCalledTimes(starts);
+    expect(sendToChat).toHaveBeenCalledTimes(sends);
+    expect(interruptChat).toHaveBeenCalledTimes(interrupts);
+    expect(ctx.sessionRegistry.findBySessionId).not.toHaveBeenCalled();
+  });
+});

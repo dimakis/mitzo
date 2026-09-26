@@ -367,3 +367,19 @@ it('does not offer legacy accounts for an empty Symposium catalog', async () => 
   expect(screen.queryByText('Use legacy server account')).toBeNull();
   expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
 });
+
+it('shows per-seat account ownership for Symposium without returning an ordinary model selection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      sessionType: 'symposium',
+      accountBinding: { accountId: 'owned', model: 'gpt-5.6-luna' },
+    }),
+  } as Response);
+  const onChange = vi.fn();
+  render(<AccountModelPicker sessionId="symposium" preferredModel="" onChange={onChange} />);
+  await screen.findByText('Accounts and models are selected per seat in Director controls.');
+  expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole('combobox')).toBeNull();
+});

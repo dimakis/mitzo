@@ -22,6 +22,7 @@ interface DirectorStatus {
   seats: DirectorSeat[];
   runtimeAvailable: boolean;
   profileBindingEnforced?: boolean;
+  initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   reservedSeats: number;
   capacityRemaining: number;
   deliveries: SymposiumDeliveryRecord[];
@@ -237,6 +238,7 @@ function SessionDirectorPanel({
       const next = await readJson<DirectorStatus>(base);
       if (generation !== refreshGeneration.current) return;
       setStatus(next);
+      setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
       setSelected((current) =>
         current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
       );

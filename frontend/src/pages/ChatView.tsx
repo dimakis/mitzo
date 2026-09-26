@@ -1,3 +1,4 @@
+import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -352,6 +353,7 @@ export function ChatView() {
           </button>
         </div>
       )}
+      {!activeSessionId && !sessionId && <NewSymposium />}
       {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
       <SymposiumConversation
         sessionId={activeSessionId}

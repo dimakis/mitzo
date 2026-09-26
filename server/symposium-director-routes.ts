@@ -28,6 +28,7 @@ type DirectorStore = Pick<
   | 'getSymposiumDelivery'
   | 'getSymposiumSourceMessage'
   | 'setSymposiumConfig'
+  | 'getSymposiumInitialProfileSelections'
 >;
 
 export interface SymposiumDirectorRouteDeps {
@@ -38,6 +39,7 @@ export interface SymposiumDirectorRouteDeps {
   getSafetyOrchestrator(sessionId: string): SymposiumOrchestrator;
   validateSelection(seat: SeatConfig): void;
   profileBindingEnforced?: boolean;
+  hasOrdinaryRuntime?: (sessionId: string) => boolean;
   /** Must verify grant references against host-held authority, never client claims. */
   validateActiveConfig(sessionId: string, config: z.infer<typeof SymposiumConfigSchema>): void;
   activateDraft(input: {
@@ -327,6 +329,16 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(409).json({ error: 'Symposium is already configured' });
       return;
     }
+    if (
+      session.isActive ||
+      (session.executionPhase && session.executionPhase !== 'TERMINAL') ||
+      deps.hasOrdinaryRuntime?.(sessionId)
+    ) {
+      res
+        .status(409)
+        .json({ error: 'Stop the ordinary conversation before creating a Symposium draft' });
+      return;
+    }
     const binding = AccountBindingSchema.safeParse(session.accountBinding);
     if (!binding.success) {
       res.status(409).json({ error: 'Session account binding is unavailable' });
@@ -435,6 +447,8 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         config.version === 2 ? config.activeSeatCap - reservedSeats : 2 - reservedSeats,
       runtimeAvailable,
       profileBindingEnforced: deps.profileBindingEnforced === true,
+      initialProfileSelections:
+        config.state === 'draft' ? deps.store.getSymposiumInitialProfileSelections(sessionId) : {},
       admissions,
       deliveries,
       sharedBoundary: config.seats[0]?.isolationRequest ?? null,

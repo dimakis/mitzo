@@ -142,6 +142,11 @@ export function AccountModelPicker({
           );
         const data = await response.json();
         if (disposed) return;
+        if (sessionId && data.sessionType === 'symposium') {
+          setBindingLabel('Accounts and models are selected per seat in Director controls.');
+          setFixedSession(true);
+          return;
+        }
         if (sessionId) {
           const modelSelection = z
             .object({

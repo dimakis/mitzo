@@ -214,6 +214,20 @@ describe('chat-rest-handler', () => {
 
   // ─── POST /api/chat/send ────────────────────────────────────────────────
 
+  it('rejects ordinary REST send and interrupt to Symposium before dispatch', async () => {
+    vi.spyOn(eventStore, 'getSession').mockReturnValue({ symposiumConfig: '{}' } as never);
+    for (const type of ['send', 'interrupt']) {
+      const response = await request(testApp)
+        .post(`/api/chat/${type}`)
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send({ type, sessionId: 'symposium', clientMsgId: `blocked-${type}`, prompt: 'hello' });
+      expect(response.status).toBe(409);
+      expect(response.body.error).toContain('Symposium directed prompts');
+    }
+    expect(handleSendV2).not.toHaveBeenCalled();
+    expect(handleInterruptV2).not.toHaveBeenCalled();
+  });
+
   it('POST /send calls handleSendV2 and returns 202', async () => {
     const res = await request(testApp)
       .post('/api/chat/send')

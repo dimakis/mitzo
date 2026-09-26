@@ -1,3 +1,4 @@
+import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginHandler } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
@@ -963,6 +964,15 @@ export function setSymposiumDirectorRuntimeFactory(
   symposiumRuntimeForSession = factory;
 }
 app.use(
+  '/api/symposium/sessions',
+  operatorAuthMiddleware,
+  createSymposiumSessionRouter({
+    store: eventStore,
+    profiles: symposiumProfileStore,
+    currentAccounts: symposiumAccountProfiles,
+  }),
+);
+app.use(
   '/api/sessions/:id/symposium',
   operatorAuthMiddleware,
   createSymposiumDirectorRouter({
@@ -970,6 +980,10 @@ app.use(
     getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
     getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
     profileBindingEnforced: true,
+    hasOrdinaryRuntime: (sessionId) => {
+      const found = registry.findBySessionId(sessionId);
+      return Boolean(found && registry.isActive(found.clientId));
+    },
     validateSelection: (seat) => {
       if (seat.accountBinding)
         symposiumAccountProfiles().validateModel(
@@ -1861,9 +1875,12 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
+  const symposiumConfigured = Boolean(meta.symposiumConfig);
   const codexBacked =
-    meta.accountBinding?.provider === 'openai-codex' ||
-    (meta.accountBinding?.provider === 'openai' && !!meta.cwd?.startsWith('/sandbox/workspaces/'));
+    !symposiumConfigured &&
+    (meta.accountBinding?.provider === 'openai-codex' ||
+      (meta.accountBinding?.provider === 'openai' &&
+        !!meta.cwd?.startsWith('/sandbox/workspaces/')));
   const codexQueue =
     codexBacked && meta.accountBinding
       ? readCodexQueue(
@@ -1884,7 +1901,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
         }>;
       }
     | undefined;
-  if (meta.accountBinding) {
+  if (meta.accountBinding && !symposiumConfigured) {
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -1908,6 +1925,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,

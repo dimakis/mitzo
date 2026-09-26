@@ -1409,6 +1409,43 @@ describe('account catalog routes', () => {
     const res = await request(app).get('/api/sessions/bound/meta').set('Cookie', authCookie);
     expect(res.body.accountBinding).toEqual(binding);
   });
+  it('serves Symposium metadata without ordinary account discovery or queue recovery', async () => {
+    const accounts = await import('../account-profiles.js');
+    const load = vi.spyOn(accounts, 'loadAccountProfiles').mockImplementation(() => {
+      throw new Error('ordinary catalog must not load');
+    });
+    const refresh = vi.spyOn(accounts.AccountProfiles.prototype, 'refresh');
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      symposiumConfig: '{}',
+      sessionType: 'symposium',
+      accountBinding: {
+        accountId: 'personal',
+        accountLabel: 'Personal',
+        provider: 'openai-codex',
+        model: 'gpt-5.6-luna',
+        profileRevision: 'owned-revision',
+      },
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const res = await request(app)
+        .get('/api/sessions/symposium/meta?refresh=1')
+        .set('Cookie', authCookie);
+      expect(res.status).toBe(200);
+      expect(res.body.sessionType).toBe('symposium');
+      expect(res.body.modelSelection).toBeUndefined();
+      expect(res.body.codexQueue).toBeUndefined();
+      expect(load).not.toHaveBeenCalled();
+      expect(refresh).not.toHaveBeenCalled();
+    } finally {
+      load.mockRestore();
+      refresh.mockRestore();
+    }
+  });
   it('restores a persisted picker selection for every configured account provider', async () => {
     const file = join(TEST_REPO, 'picker-profiles.json');
     writeFileSync(

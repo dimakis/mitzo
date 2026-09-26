@@ -759,6 +759,12 @@ export class EventStore {
         db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
       }
       db.exec(`
+        CREATE TABLE IF NOT EXISTS symposium_session_allocations (
+          idempotency_key TEXT PRIMARY KEY,
+          request_fingerprint TEXT NOT NULL,
+          session_id TEXT NOT NULL UNIQUE,
+          profile_selections TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS symposium_admissions (
           admission_id TEXT PRIMARY KEY,
           session_id TEXT NOT NULL,
@@ -1922,6 +1928,67 @@ export class EventStore {
    * Activation is fail-closed: Seat 1 must retain the session's durable account
    * binding and configuration revisions must move forward.
    */
+  getSymposiumSessionAllocation(idempotencyKey: string, fingerprint: string): string | null {
+    const row = this.db!.prepare(
+      'SELECT session_id, request_fingerprint FROM symposium_session_allocations WHERE idempotency_key = ?',
+    ).get(idempotencyKey) as { session_id: string; request_fingerprint: string } | undefined;
+    if (!row) return null;
+    if (row.request_fingerprint !== fingerprint)
+      throw new Error('Symposium creation idempotency conflict');
+    if (!this.getSession(row.session_id)?.symposiumConfig)
+      throw new Error('Previously allocated Symposium is unavailable');
+    return row.session_id;
+  }
+
+  getSymposiumInitialProfileSelections(
+    sessionId: string,
+  ): Record<string, { profileId: string; revision: number }> {
+    const row = this.db!.prepare(
+      'SELECT profile_selections FROM symposium_session_allocations WHERE session_id = ?',
+    ).get(sessionId) as { profile_selections: string } | undefined;
+    return row ? JSON.parse(row.profile_selections) : {};
+  }
+
+  /** Allocate an idle draft and retry receipt together; this never starts a provider runtime. */
+  createSymposiumSession(input: {
+    idempotencyKey: string;
+    fingerprint: string;
+    sessionId: string;
+    summary: string;
+    binding: AccountBinding;
+    config: unknown;
+    profileSelections: Record<string, { profileId: string; revision: number }>;
+  }): { sessionId: string; created: boolean } {
+    const config = SymposiumConfigSchema.parse(input.config);
+    if (config.version !== 2 || config.state !== 'draft' || config.revision !== 1)
+      throw new Error('New Symposium requires an initial v2 draft');
+    return this.db!.transaction(() => {
+      const retry = this.getSymposiumSessionAllocation(input.idempotencyKey, input.fingerprint);
+      if (retry) return { sessionId: retry, created: false };
+      if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
+      const binding = AccountBindingSchema.parse(input.binding);
+      const anchor = config.seats.find((seat) => seat.id === config.anchorSeatId);
+      if (!anchor?.accountBinding || !sameBinding(anchor.accountBinding, binding))
+        throw new Error('Symposium anchor must match its selected account');
+      this.upsertSession({
+        sessionId: input.sessionId,
+        summary: input.summary,
+        accountBinding: binding,
+        isActive: false,
+      });
+      this.setSymposiumConfig(input.sessionId, config, 0);
+      this.db!.prepare(
+        'INSERT INTO symposium_session_allocations (idempotency_key, request_fingerprint, session_id, profile_selections) VALUES (?, ?, ?, ?)',
+      ).run(
+        input.idempotencyKey,
+        input.fingerprint,
+        input.sessionId,
+        JSON.stringify(input.profileSelections),
+      );
+      return { sessionId: input.sessionId, created: true };
+    }).immediate();
+  }
+
   setSymposiumConfig(
     sessionId: string,
     input: unknown,

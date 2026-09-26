@@ -311,3 +311,57 @@ it.each(['cold', 'zombie-downgrade', 'zombie-aba', 'zombie-unchanged'] as const)
     }
   },
 );
+
+it('fences all ordinary startup and active-runtime entrypoints for Symposium sessions', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-symposium-fence-'));
+  vi.stubEnv('REPO_PATH', root);
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  vi.mocked(query).mockClear();
+  chat.eventStore.upsertSession({ sessionId: 'symposium' });
+  chat.eventStore.setSymposiumConfig(
+    'symposium',
+    {
+      version: 2,
+      revision: 1,
+      state: 'draft',
+      anchorSeatId: 'primary',
+      activeSeatCap: 3,
+      seats: [
+        {
+          id: 'primary',
+          name: 'Builder',
+          role: 'coder',
+          model: 'gpt-5.6-luna',
+          systemPrompt: 'Build',
+          color: '#335577',
+        },
+      ],
+      turnRules: { mode: 'directed', maxTurns: 8 },
+      interceptMode: 'manual',
+    },
+    0,
+  );
+  const transport = { send: vi.fn(), isOpen: () => true };
+  try {
+    for (const options of [{ resume: 'symposium' }, { initialSessionId: 'symposium' }])
+      await expect(chat.startChat(transport, 'fenced', 'hello', options)).rejects.toThrow(
+        'Symposium directed prompts',
+      );
+    const get = vi.spyOn(chat.registry, 'get').mockReturnValue({ sessionId: 'symposium' } as never);
+    await expect(chat.sendToChat('fenced', 'hello')).rejects.toThrow('Symposium directed prompts');
+    await expect(chat.interruptChat('fenced', 'hello')).rejects.toThrow(
+      'Symposium directed prompts',
+    );
+    get.mockRestore();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+    expect(chat.eventStore.getSessionEvents('symposium')).toEqual([]);
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
