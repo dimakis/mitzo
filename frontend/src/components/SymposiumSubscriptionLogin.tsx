@@ -23,11 +23,50 @@ export function SymposiumSubscriptionLogin({
   const [transport, setTransport] = useState('');
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [receipt, setReceipt] = useState<z.infer<typeof receiptSchema> | null>(null);
+  const [receipt, setReceipt] = useState<{ attemptId: string; authorizationUrl?: string } | null>(
+    null,
+  );
+  const requestVersion = useRef(0);
   const [state, setState] = useState('idle');
   const [error, setError] = useState('');
   const complete = useRef(onComplete);
   complete.current = onComplete;
+
+  useEffect(() => {
+    if (!open) return;
+    const version = requestVersion.current;
+    const controller = new AbortController();
+    let live = true;
+    void apiFetch('/api/symposium/personal/login/status', { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Status unavailable');
+        const status = statusSchema.parse(await response.json());
+        if (!live || requestVersion.current !== version) return;
+        if (status.state === 'pending' && status.attemptId) {
+          setReceipt((current) =>
+            current?.attemptId === status.attemptId ? current : { attemptId: status.attemptId! },
+          );
+          setState('pending');
+          setError('');
+        } else if (status.state === 'completed') {
+          setState('previous-completed');
+        } else if (status.state === 'failed') {
+          setError(
+            'Previous login failed or expired. Prepare the callback setup before starting again.',
+          );
+        }
+      })
+      .catch(() => {
+        if (live && requestVersion.current === version)
+          setError(
+            'Could not recover a login receipt. Check the host before starting another login.',
+          );
+      });
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!receipt || state !== 'pending') return;
@@ -80,6 +119,7 @@ export function SymposiumSubscriptionLogin({
 
   const start = async () => {
     if (!ready || !transport || busy) return;
+    requestVersion.current += 1;
     setBusy(true);
     setError('');
     setReceipt(null);
@@ -192,19 +232,31 @@ export function SymposiumSubscriptionLogin({
       </fieldset>
       {receipt && (
         <>
-          <a
-            href={receipt.authorizationUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            referrerPolicy="no-referrer"
-          >
-            Open official OpenAI login
-          </a>
+          {receipt.authorizationUrl ? (
+            <a
+              href={receipt.authorizationUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              referrerPolicy="no-referrer"
+            >
+              Open official OpenAI login
+            </a>
+          ) : (
+            <p>
+              Continue in the already-open login browser. The authorization address is not stored.
+              If that browser is unavailable, wait for the attempt to expire before starting again.
+            </p>
+          )}
           <p role="status">
             Waiting for login. Open this link only on the prepared browser computer and complete
             within ten minutes. Do not share callback URLs or codes.
           </p>
         </>
+      )}
+      {state === 'previous-completed' && (
+        <p>
+          Previous login completed. Check the account catalog; this is not a new login confirmation.
+        </p>
       )}
       {state === 'completed' && (
         <p role="status">

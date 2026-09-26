@@ -21,7 +21,7 @@ it('requires an explicit ready callback transport and only exposes the official 
   );
   render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
   fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
-  expect(apiFetch).not.toHaveBeenCalled();
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   expect(
     (screen.getByRole('button', { name: 'Start personal login' }) as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -85,3 +85,30 @@ it.each(['completed', 'failed', 'unknown'])(
     }
   },
 );
+
+it('recovers a pending receipt after remount without persisting or exposing an auth URL', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'pending', attemptId: 'existing' }));
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await screen.findByText(/Continue in the already-open login browser/);
+  expect(screen.queryByRole('link')).toBeNull();
+  expect(
+    (screen.getByRole('button', { name: 'Start personal login' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login/status?attemptId=existing',
+      expect.any(Object),
+    ),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
+
+it('does not count a historical completed receipt as completion of a new login', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'completed', attemptId: 'old' }));
+  const onComplete = vi.fn();
+  render(<SymposiumSubscriptionLogin onComplete={onComplete} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await screen.findByText(/Previous login completed/);
+  expect(onComplete).not.toHaveBeenCalled();
+});
