@@ -2,6 +2,7 @@ import {
   assertSymposiumAttestedProvider,
   type SymposiumProviderCapability,
 } from './symposium-production-gate.js';
+import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CodexConversationStore } from './codex-conversation-store.js';
@@ -844,7 +845,10 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   store: EventStore;
   codexStore: CodexConversationStore;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
+  /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
+  /** Publish the default durable sink's client events to live session subscribers. */
+  broadcastEvent?: (sessionId: string, event: Record<string, unknown>) => void;
   /** Trusted host registry; required by the real Claude controller launch path. */
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Must come from image/controller attestation; no default launcher is inferred. */
@@ -862,6 +866,11 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 
 /** Host-held factory. Callers must supply durable grants, exact receipts, and verified policy. */
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {
+  const defaultEvents = deps.recordEvent
+    ? undefined
+    : new SymposiumNativeEventSink(deps.store, deps.broadcastEvent ?? (() => {}));
+  const recordEvent: NonNullable<SymposiumOpenShellSeatExecutorDeps['recordEvent']> =
+    deps.recordEvent ?? ((execution, event) => defaultEvents!.record(execution, event));
   const owner = new SymposiumPerSeatSandboxOwner({
     ...deps,
     facts: deps.store,
@@ -882,7 +891,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           owner,
           verifyHostCapability: deps.verifyHostCapability,
           recordAccepted: deps.recordAccepted,
-          recordEvent: deps.recordEvent,
+          recordEvent,
           openNative:
             deps.openNative ??
             ((input) =>
