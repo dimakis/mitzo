@@ -320,6 +320,33 @@ export class CodexConversationStore {
       return generation;
     })();
   }
+  /** Host-owned lineage only; a thread ID supplied by a provider is insufficient. */
+  assertToolSurfaceReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex thread migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations
+      WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'tool_surface_change' || !row.parent_thread_id)
+        throw new Error('Codex thread migration lineage is not a tool refresh');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex thread migration predecessor is unavailable');
+  }
+
   clearRolloverContext(id: string, b: AccountBinding, expectedThreadId: string) {
     this.read(id, b);
     this.db
