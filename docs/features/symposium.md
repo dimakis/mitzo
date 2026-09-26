@@ -6,7 +6,11 @@ Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
 The director, directed conversation UI, portable profiles, conversational profile
 proposals, native attempt transport, and review coordinator are implemented in
-source. The production factory requires both an installed host capability and a
+source. The application now mounts durable review routes and a findings panel, but
+the native review/fix workflow is **not production-enabled**: the trusted review
+host adapter, enforced native token budgets, and bound result/evidence receipts
+are still missing. The panel states this explicitly and cannot dispatch through
+an ordinary chat fallback. The production factory requires both an installed host capability and a
 verified OpenShell attestation; environment configuration alone cannot activate a
 draft or mint its runtime grants.
 
@@ -37,7 +41,8 @@ See also `../design/workspace-redesign/mitzo-redesign-launch-plan.md`.
 ## Foundation delivered by this change
 
 The following records the historical Phase 1 and 2 contract. Version 1 remains
-readable and executable until an explicit revisioned upgrade.
+readable for migration and historical replay. These archived activation and runtime
+claims are not the current production contract.
 
 - Exported a canonical validated account-binding schema using Mitzo's supported
   provider identities, rather than accepting arbitrary provider strings.
@@ -47,8 +52,9 @@ readable and executable until an explicit revisioned upgrade.
 - Draft configuration permits lazy reviewer setup without authority. Active
   configuration requires complete bindings and grants for both seats.
 - Typed activation retains the existing session binding as Seat 1 and requires
-  monotonically increasing configuration revisions. Deactivation returns the same
-  session to ordinary chat without losing history.
+  monotonically increasing configuration revisions. The original proposal described
+  deactivation returning to ordinary chat; this is superseded. Current Symposium
+  sessions retain identity and provenance and never fall back to an ordinary runtime.
 - Exported immutable delivery provenance fields for later orchestration and replay:
   configuration, account/profile, context/authority, and isolation-domain revisions.
 - Additive SQLite migration for session type/configuration and event seat identity.
@@ -336,3 +342,44 @@ prices. Negative or nonfinite provider costs are rejected as billing evidence.
 
 This accounting does not enforce a native monetary budget. Budgeted native
 execution still requires trusted pricing and a reservation before dispatch.
+
+## Integrated review surface and remaining native gate
+
+The same-session findings panel uses `/api/sessions/:id/symposium/reviews`.
+Authenticated interactive actions bind to the artifact revision and hash the user
+inspected. Workflows and ordered history persist in the application events database;
+reloading retrieves scoped history, and an interrupted request can reconcile an
+already completed attempt from its host receipt without dispatching it again.
+
+The mocked trusted-adapter lifecycle covers a full review, explicit selected-finding
+fix authorization, a changed artifact, delta review, current host verification, and
+preparation of a PR review record containing the revision, findings, decisions, and
+history. Findings are untrusted content: they neither grant write authority nor
+create a PR. A reasoned dismissal records its human actor and evidence references.
+Preparing a record does **not** publish a PR. Automated PR creation and attachment
+are not implemented by this slice; publication requires a separate explicit action.
+
+The optional server-bootstrap `SymposiumProductionHost.reviewHost` capability is
+only exposed when the existing production runtime gate also succeeds. No HTTP
+endpoint installs it. Current bootstrap deliberately supplies no adapter because
+these native contracts are still absent:
+
+- Native execution currently returns provider thread, text, and optional cost, not
+  complete host-attested token totals or an enforced hard token ceiling.
+- The native attempt registry tracks transport/process cleanup; cleanup confirmation
+  is not a terminal provider usage or structured review receipt.
+- A trusted collector must bind `WorkResult`, structured findings, final usage, and
+  verification evidence to the same completed native attempt, enforcement ID,
+  session, seat, and artifact revision/hash. Request bodies cannot supply those facts.
+- The reviewer requires attested read-only tool and filesystem grants. The current
+  production gate allows OpenAI implementer/coder seats only; it must not be widened
+  merely to make the review UI executable.
+- Dispatch must enforce remaining round/token/cost budgets before provider work,
+  preserve one upstream OpenShell sandbox per seat generation, and retain uncertain
+  attempts for receipt-based recovery. Estimated budgets do not satisfy enforcement.
+
+The source and mocked tests establish application wiring and boundary behavior,
+not a live native workflow or production readiness. The canonical product decision
+is [Design Mitzo symposium UX](codex://threads/01a07b9b-63ca-7771-96f4-6dbeb03f1c48),
+reconciled in the workspace redesign launch plan. A future adapter must meet these
+contracts rather than weakening the coordinator or reusing an ordinary runtime.
