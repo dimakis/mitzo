@@ -51,6 +51,7 @@ export interface OpenAiCodexSeatInput {
   /** Exact argv from a host-verified image capability; absent means no real launch. */
   verifiedControllerCommand?: readonly string[];
   createConversation?: (options: CodexConversationOptions) => NativeCodexConversation;
+  loadConversationHistory?: CodexConversationOptions['loadConversationHistory'];
   onEvent?: (event: Record<string, unknown>) => void;
   /** Fake conversation hook for no-model controller-proof tests only. */
   testConfirmStopped?: () => Promise<void>;
@@ -95,7 +96,7 @@ export async function createCodexNativeSeat(
   if (!binding) throw new Error('Codex native seat lacks account binding');
   let callbacks:
     | {
-        beforeDispatch(): void;
+        beforeDispatch(providerThreadId?: string): void;
         accepted(providerThreadId: string, providerTurnId: string): void;
       }
     | undefined;
@@ -116,6 +117,7 @@ export async function createCodexNativeSeat(
     profile: auth.profile,
     storedBinding: binding,
     store: input.store,
+    loadConversationHistory: input.loadConversationHistory,
     systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
       .filter(Boolean)
       .join('\n\n'),
@@ -170,7 +172,7 @@ export async function createCodexNativeSeat(
     onProviderDispatch: (commandId) => {
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
       auth.beforeDispatch?.();
-      callbacks?.beforeDispatch();
+      callbacks?.beforeDispatch(conversation.getThreadId());
       dispatched = true;
     },
     onProviderAccepted: (commandId, providerThreadId, providerTurnId) => {
@@ -207,11 +209,35 @@ export async function createCodexNativeSeat(
     await closeAndConfirm(conversation);
     throw new Error('Codex seat did not establish a provider thread');
   }
+  let migratedFrom: string | undefined;
   if (execution.providerThreadId && execution.providerThreadId !== providerThreadId) {
-    await closeAndConfirm(conversation);
-    throw new Error('Codex seat resumed a different provider thread');
+    try {
+      input.store.assertToolSurfaceReplacement(
+        symposiumSeatRuntimeId(execution),
+        binding,
+        execution.providerThreadId,
+        providerThreadId,
+      );
+      migratedFrom = execution.providerThreadId;
+    } catch (error) {
+      await closeAndConfirm(conversation);
+      throw new Error('Codex seat resumed a different provider thread without verified migration', {
+        cause: error,
+      });
+    }
   }
   return {
+    verifyThreadMigration(previous, next) {
+      if (previous !== migratedFrom || next !== providerThreadId)
+        throw new Error('Codex seat thread migration identity changed');
+      // Revalidate before dispatch while the one-shot continuity fragment is durable.
+      input.store.assertToolSurfaceReplacement(
+        symposiumSeatRuntimeId(execution),
+        binding,
+        previous,
+        next,
+      );
+    },
     async run(currentExecution, currentCallbacks) {
       if (currentExecution.claimToken !== execution.claimToken)
         throw new Error('Codex native attempt identity changed');

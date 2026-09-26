@@ -14,11 +14,13 @@ import {
 } from './symposium-seat-runtime.js';
 
 export interface SymposiumNativeSeat {
+  /** Trusted adapter checks durable same-seat lineage and retained continuity. */
+  verifyThreadMigration?(previous: string, next: string): void;
   run(
     input: SymposiumSeatExecution,
     callbacks: {
       /** Called immediately before native provider dispatch, after all async setup. */
-      beforeDispatch(): void;
+      beforeDispatch(providerThreadId?: string): void;
       /** Only a provider-confirmed turn ID is an accepted receipt. */
       accepted(providerThreadId: string, providerTurnId: string): void;
     },
@@ -44,6 +46,7 @@ export interface SymposiumOpenShellSeatExecutorDeps {
     ): Promise<ControlledAttemptSandbox>;
     readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean; chatgptSubscription?: boolean };
   };
+  migrateThread?(claimToken: string, previous: string, next: string): void;
   recordAccepted(input: {
     deliveryId: string;
     seatId: string;
@@ -119,8 +122,9 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     // If admission changed during native initialization, orchestrator cleanup
     // can now target the created process by its exact durable claim.
     admission();
+    let approvedThread: string | undefined;
     const result = await native.run(input, {
-      beforeDispatch: () => {
+      beforeDispatch: (providerThreadId) => {
         const current = admission();
         if (JSON.stringify(current) !== JSON.stringify(route))
           throw new Error('Symposium account provider changed before native turn');
@@ -136,8 +140,27 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
                   ? 'openai'
                   : 'google-vertex-ai',
           });
+        if (
+          input.providerThreadId &&
+          providerThreadId &&
+          providerThreadId !== input.providerThreadId
+        ) {
+          if (!native.verifyThreadMigration)
+            throw new Error('Symposium native thread migration is unavailable');
+          native.verifyThreadMigration(input.providerThreadId, providerThreadId);
+          if (!this.deps.migrateThread)
+            throw new Error('Symposium durable thread migration is unavailable');
+          this.deps.migrateThread(input.claimToken, input.providerThreadId, providerThreadId);
+          approvedThread = providerThreadId;
+        }
       },
       accepted: (providerThreadId, providerTurnId) => {
+        if (
+          input.providerThreadId &&
+          providerThreadId !== input.providerThreadId &&
+          providerThreadId !== approvedThread
+        )
+          throw new Error('Symposium unapproved provider thread receipt');
         const recorded = this.deps.recordAccepted({
           deliveryId: input.deliveryId,
           seatId: input.seat.id,
@@ -150,7 +173,11 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
         this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
       },
     });
-    if (input.providerThreadId && result.providerThreadId !== input.providerThreadId)
+    if (
+      input.providerThreadId &&
+      result.providerThreadId !== input.providerThreadId &&
+      result.providerThreadId !== approvedThread
+    )
       throw new Error('Symposium native thread identity changed');
     this.deps.recordEvent?.(input, { type: 'symposium_attempt_released' });
     this.attempts.delete(input.claimToken);

@@ -924,6 +924,39 @@ export class SymposiumPerSeatSandboxOwner {
   }
 }
 
+/** Only completed text delivered to this exact seat grant and generation may cross into a replacement thread. */
+export function symposiumSeatRolloverHistory(
+  store: Pick<EventStore, 'getSymposiumDeliveries' | 'getSymposiumRecipientAttempts'>,
+  execution: import('./symposium-orchestrator.js').SymposiumSeatExecution,
+) {
+  const identity = (value: Record<string, unknown>) => {
+    const rest = { ...value };
+    delete rest.capturedAt;
+    delete rest.configRevision;
+    return JSON.stringify(rest);
+  };
+  const expected = identity(execution.provenance as unknown as Record<string, unknown>);
+  return store
+    .getSymposiumDeliveries(execution.sessionId)
+    .flatMap((delivery) =>
+      store.getSymposiumRecipientAttempts(delivery.deliveryId, execution.seat.id),
+    )
+    .filter(
+      (attempt) =>
+        attempt.status === 'delivered' &&
+        attempt.provenance &&
+        identity(attempt.provenance as unknown as Record<string, unknown>) === expected &&
+        attempt.dispatchedContent !== null &&
+        attempt.resultContent !== null,
+    )
+    .sort((a, b) => a.attemptId - b.attemptId)
+    .slice(-20)
+    .flatMap((attempt) => [
+      { role: 'user' as const, text: attempt.dispatchedContent! },
+      { role: 'assistant' as const, text: attempt.resultContent! },
+    ]);
+}
+
 export interface SymposiumSessionRuntimeDeps extends Omit<
   SymposiumSharedSandboxOwnerDeps,
   'facts'
@@ -977,6 +1010,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           owner,
           verifyHostCapability: deps.verifyHostCapability,
           recordAccepted: deps.recordAccepted,
+          migrateThread: (claim, previous, next) =>
+            deps.store.migrateSymposiumSeatThread(claim, previous, next),
           recordEvent,
           releaseAttempt: (claimToken) => defaultEvents.release(claimToken),
           openNative:
@@ -1013,10 +1048,13 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     },
                   })
                 : undefined;
+              const loadConversationHistory = () =>
+                symposiumSeatRolloverHistory(deps.store, input.execution);
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
                     ...input,
                     store: deps.codexStore,
+                    loadConversationHistory,
                     profileTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
@@ -1025,6 +1063,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   ? createChatGptSubscriptionSeat({
                       ...input,
                       store: deps.codexStore,
+                      loadConversationHistory,
                       profileTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,

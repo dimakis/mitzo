@@ -3401,6 +3401,42 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Host-only CAS after verified native lineage, before a provider turn can start. */
+  migrateSymposiumSeatThread(claimToken: string, previous: string, next: string): void {
+    if (!next || next === previous) throw new Error('Invalid Symposium thread migration');
+    this.db!.transaction(() => {
+      const claim = this.db!.prepare(
+        `SELECT c.* FROM symposium_seat_execution_claims c
+        JOIN symposium_recipient_attempts a ON a.claim_token=c.claim_token
+        WHERE c.claim_token=? AND a.status='executing' AND a.accepted_at IS NULL`,
+      ).get(claimToken) as
+        | { session_id: string; seat_id: string; binding_key: string; delivery_id: string }
+        | undefined;
+      if (!claim) throw new Error('Symposium thread migration claim is no longer current');
+      const changed = this.db!.prepare(
+        `UPDATE symposium_seat_threads SET provider_thread_id=?,updated_at=?
+        WHERE session_id=? AND seat_id=? AND binding_key=? AND provider_thread_id=?`,
+      ).run(next, Date.now(), claim.session_id, claim.seat_id, claim.binding_key, previous);
+      if (changed.changes !== 1) throw new Error('Symposium thread migration predecessor changed');
+      const attempt = this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET provider_thread_id=?
+        WHERE claim_token=? AND status='executing' AND accepted_at IS NULL AND provider_thread_id=?`,
+      ).run(next, claimToken, previous);
+      if (attempt.changes !== 1) throw new Error('Symposium migration attempt predecessor changed');
+      this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET provider_thread_id=?
+        WHERE delivery_id=? AND seat_id=? AND status='executing' AND provider_thread_id=?`,
+      ).run(next, claim.delivery_id, claim.seat_id, previous);
+      this.append(claim.session_id, 'symposium_thread_migrated', {
+        seatId: claim.seat_id,
+        deliveryId: claim.delivery_id,
+        claimToken,
+        previousThreadId: previous,
+        providerThreadId: next,
+      });
+    })();
+  }
+
   completeSymposiumRecipient(input: {
     sessionId: string;
     deliveryId: string;
