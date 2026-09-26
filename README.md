@@ -463,3 +463,5 @@ only after sandbox and physical cleanup. A new catalog revision requires explici
 selection; interrupted discovery retains host recovery state.
 
 Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+Discovery journal ownership is exclusive across host adapters; interrupted owners
+retain a recovery lock, and SSH cleanup terminates its proxy process group.

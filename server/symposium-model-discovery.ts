@@ -2,11 +2,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { readCodexModels, type CatalogModel } from './model-catalog.js';
 
-const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/);
+const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
 const configSchema = z
   .object({
     cliSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    workloadImage: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    workloadImage: z.string().regex(/^(?:[A-Za-z0-9][A-Za-z0-9._:/-]*@)?sha256:[a-f0-9]{64}$/),
     policySha256: z.string().regex(/^[a-f0-9]{64}$/),
     podmanUrl: z.string().regex(/^unix:\/\/\/[^\0]+$/),
     gateway: identifier,
@@ -39,6 +39,7 @@ export interface DiscoveryReadClient {
 }
 /** Trusted host adapters only; never supplied by an HTTP caller or sandbox. */
 export interface DiscoveryOperations {
+  withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
   persistReceipt(receipt: DiscoveryReceipt, exclusive: boolean): Promise<void>;
@@ -59,6 +60,17 @@ export type DiscoveryResult =
 
 /** Account and model metadata only. No thread/turn API, inference, or automatic retry. */
 export async function runSymposiumModelDiscovery(
+  input: DiscoveryConfig,
+  ops: DiscoveryOperations,
+  onCatalog?: (models: CatalogModel[]) => void,
+): Promise<DiscoveryResult> {
+  try {
+    return await ops.withExclusiveAttempt(() => runExclusiveDiscovery(input, ops, onCatalog));
+  } catch {
+    return { status: 'reconciliation_required', inference: false };
+  }
+}
+async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,

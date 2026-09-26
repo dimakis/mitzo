@@ -18,6 +18,7 @@ function fixture() {
     provider: { name: 'personal', id: 'provider-1' },
   };
   const operations: DiscoveryOperations = {
+    withExclusiveAttempt: async (operation) => operation(),
     verifyCustody: vi.fn(async () => {}),
     readReceipt: async () => receipt,
     persistReceipt: async (value, exclusive) => {
@@ -202,4 +203,27 @@ it('publishes a catalog only after both cleanup planes and journal completion', 
   const forbidden = vi.fn();
   await runSymposiumModelDiscovery(blocked.config, blocked.operations, forbidden);
   expect(forbidden).not.toHaveBeenCalled();
+});
+
+it('does not inspect or reconcile a journal held by another active attempt', async () => {
+  const f = fixture();
+  f.operations.withExclusiveAttempt = async () => {
+    throw new Error('busy');
+  };
+  f.operations.readReceipt = vi.fn();
+  f.operations.cancel = vi.fn();
+  f.operations.clearReceipt = vi.fn();
+  expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe(
+    'reconciliation_required',
+  );
+  expect(f.operations.readReceipt).not.toHaveBeenCalled();
+  expect(f.operations.cancel).not.toHaveBeenCalled();
+  expect(f.operations.clearReceipt).not.toHaveBeenCalled();
+});
+
+it('accepts owned-host dotted identifiers and repository-pinned workload images', async () => {
+  const f = fixture();
+  f.config.gateway = 'owned.gateway';
+  f.config.workloadImage = `registry.example.test/team/runtime@sha256:${'b'.repeat(64)}`;
+  expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
 });
