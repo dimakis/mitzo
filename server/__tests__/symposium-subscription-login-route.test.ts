@@ -127,3 +127,202 @@ it('sanitizes failed completions and prevents a stale receipt from reporting a n
     (await request(app).get('/status').query({ attemptId: first.body.attemptId })).body,
   ).toEqual({ state: 'unknown' });
 });
+
+it('recovers device instructions only for the owner and strips them on completion', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  let finish!: () => void;
+  const completed = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const controller = createSubscriptionLoginController(
+    () => ({
+      beginDeviceLogin: async () => ({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed,
+        cancel: async () => {},
+      }),
+    }),
+    (req) => req.header('x-owner') ?? 'one',
+  );
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  const start = await request(app).post('/login').send({ method: 'device-code' });
+  expect(start.status).toBe(200);
+  expect(start.body).not.toHaveProperty('callbackUrl');
+  expect((await request(app).get('/status')).body.userCode).toBe('ABCD-1234');
+  expect((await request(app).get('/status').set('x-owner', 'two')).body).toEqual({
+    state: 'unknown',
+  });
+  expect(
+    (
+      await request(app)
+        .post('/cancel')
+        .set('x-owner', 'two')
+        .send({ attemptId: start.body.attemptId })
+    ).body,
+  ).toEqual({ state: 'unknown' });
+  finish();
+  const status = await request(app).get('/status');
+  expect(status.body.state).toBe('completed');
+  expect(status.body).not.toHaveProperty('userCode');
+  expect(status.body).not.toHaveProperty('verificationUrl');
+});
+
+it('waits for allocation and physical cancellation before allowing another device attempt', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  let allocate!: (value: unknown) => void;
+  let reaped!: () => void;
+  const cleanup = new Promise<void>((resolve) => {
+    reaped = resolve;
+  });
+  const cancel = vi.fn(() => cleanup);
+  const beginDeviceLogin = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        allocate = resolve;
+      }),
+  );
+  const controller = createSubscriptionLoginController(() => ({
+    beginDeviceLogin: beginDeviceLogin as never,
+  }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  const starting = request(app)
+    .post('/login')
+    .send({ method: 'device-code' })
+    .then((response) => response);
+  await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
+  const pending = (await request(app).get('/status')).body;
+  const cancelling = request(app)
+    .post('/cancel')
+    .send({ attemptId: pending.attemptId })
+    .then((response) => response);
+  await vi.waitFor(async () =>
+    expect((await request(app).get('/status')).body.state).toBe('cancelled'),
+  );
+  expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
+  allocate({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 60000,
+    completed: Promise.resolve(),
+    cancel,
+  });
+  expect((await starting).body).not.toHaveProperty('userCode');
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
+  reaped();
+  expect((await cancelling).body.state).toBe('cancelled');
+  expect((await request(app).get('/status')).body.state).toBe('cancelled');
+});
+
+it('quarantines unconfirmed cancellation and expires receipts without claiming success', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const beginDeviceLogin = vi.fn(async () => ({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 1000,
+    completed: new Promise(() => {}),
+    cancel: async () => {
+      throw new Error('private failure');
+    },
+  }));
+  const controller = createSubscriptionLoginController(() => ({ beginDeviceLogin }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  const start = await request(app).post('/login').send({ method: 'device-code' });
+  const cancelled = await request(app).post('/cancel').send({ attemptId: start.body.attemptId });
+  expect(cancelled.body.state).toBe('unknown');
+  expect(JSON.stringify(cancelled.body)).not.toMatch(/private|ABCD/);
+  expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
+  expect(beginDeviceLogin).toHaveBeenCalledOnce();
+});
+
+it('expires a device allocation before its handle is available without exposing a late code', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  let allocate!: (value: unknown) => void;
+  const cancel = vi.fn(async () => {});
+  const beginDeviceLogin = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        allocate = resolve;
+      }),
+  );
+  const controller = createSubscriptionLoginController(() => ({
+    beginDeviceLogin: beginDeviceLogin as never,
+  }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  const starting = request(app)
+    .post('/login')
+    .send({ method: 'device-code' })
+    .then((response) => response);
+  await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
+  const pending = (await request(app).get('/status')).body;
+  const now = vi.spyOn(Date, 'now').mockReturnValue(pending.expiresAt + 1);
+  try {
+    const status = request(app)
+      .get('/status')
+      .then((response) => response);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    allocate({
+      verificationUrl: 'https://auth.openai.com/codex/device',
+      userCode: 'ABCD-1234',
+      expiresAt: Date.now() + 60000,
+      completed: Promise.resolve(),
+      cancel,
+    });
+    expect((await starting).body).not.toHaveProperty('userCode');
+    expect((await status).body.state).toBe('expired');
+    expect(cancel).toHaveBeenCalledOnce();
+  } finally {
+    now.mockRestore();
+  }
+});
+
+it('returns only verified display identity from an already completed device start', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const controller = createSubscriptionLoginController(() => ({
+    beginDeviceLogin: async () => ({
+      verificationUrl: 'https://auth.openai.com/codex/device',
+      userCode: 'ABCD-1234',
+      expiresAt: Date.now() + 60000,
+      cancel: async () => {},
+      completed: Promise.resolve({
+        email: 'verified@example.invalid',
+        planType: 'pro',
+        binding: { accountLabel: 'Personal' },
+        access_token: 'secret-never-export',
+      }),
+    }),
+  }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  await request(app).post('/login').send({ method: 'device-code' });
+  const status = await request(app).get('/status');
+  expect(status.body).toMatchObject({
+    state: 'completed',
+    account: { email: 'verified@example.invalid', planType: 'pro', label: 'Personal' },
+  });
+  expect(JSON.stringify(status.body)).not.toMatch(/secret|ABCD|access_token/);
+});

@@ -436,7 +436,7 @@ Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-rev
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
 
-Personal ChatGPT device sign-in is available from **Connections → Connect ChatGPT**
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Connect ChatGPT**
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
 Settings → Security, request a code, then open OpenAI on the phone or computer.
 The running Mac host completes the connection; the UI shows verified account

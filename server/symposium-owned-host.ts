@@ -1,3 +1,4 @@
+import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -86,8 +87,13 @@ export async function createOwnedSymposiumHost(
   let subscription: ReturnType<typeof createSymposiumSubscriptionHost> | undefined;
   let stopped = false;
   let loginStarting = false;
+  let loginQuarantined = false;
   let login:
-    | Awaited<ReturnType<ReturnType<typeof createSymposiumSubscriptionHost>['beginLogin']>>
+    | Awaited<
+        ReturnType<
+          ReturnType<typeof createSymposiumSubscriptionHost>['beginLogin' | 'beginDeviceLogin']
+        >
+      >
     | undefined;
   const custody = () => {
     if (stopped) throw new Error('Owned Symposium host stopped');
@@ -221,6 +227,39 @@ export async function createOwnedSymposiumHost(
             : 'writer',
       };
     };
+    const startLogin = async (device: boolean) => {
+      custody();
+      if (loginQuarantined || login || loginStarting)
+        throw new Error('Subscription login is already pending');
+      loginStarting = true;
+      let pending: Awaited<
+        ReturnType<NonNullable<typeof subscription>['beginLogin' | 'beginDeviceLogin']>
+      >;
+      try {
+        pending = await (device ? subscription!.beginDeviceLogin() : subscription!.beginLogin());
+      } catch (error) {
+        if (error instanceof DeviceLoginCleanupError) loginQuarantined = true;
+        throw error;
+      } finally {
+        loginStarting = false;
+      }
+      if (stopped) {
+        void pending.completed.catch(() => undefined);
+        await pending.cancel();
+        throw new Error('Owned Symposium host stopped');
+      }
+      login = pending;
+      void pending.completed.then(
+        () => {
+          if (login === pending) login = undefined;
+        },
+        (error) => {
+          if (error instanceof DeviceLoginCleanupError) loginQuarantined = true;
+          if (login === pending) login = undefined;
+        },
+      );
+      return pending;
+    };
     return {
       gateway,
       runtimeConfig,
@@ -232,37 +271,18 @@ export async function createOwnedSymposiumHost(
       artifactRequest,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: subscription.assertPrivateAuth,
-      async beginLogin() {
-        custody();
-        if (login || loginStarting) throw new Error('Subscription login is already pending');
-        loginStarting = true;
-        let pending: Awaited<ReturnType<NonNullable<typeof subscription>['beginLogin']>>;
-        try {
-          pending = await subscription!.beginLogin();
-        } finally {
-          loginStarting = false;
-        }
-        if (stopped) {
-          void pending.completed.catch(() => undefined);
-          pending.cancel();
-          throw new Error('Owned Symposium host stopped');
-        }
-        login = pending;
-        void pending.completed.then(
-          () => {
-            if (login === pending) login = undefined;
-          },
-          () => {
-            if (login === pending) login = undefined;
-          },
-        );
-        return pending;
-      },
+      beginLogin: () =>
+        startLogin(false) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
+      beginDeviceLogin: () =>
+        startLogin(true) as ReturnType<NonNullable<typeof subscription>['beginDeviceLogin']>,
+
       stop() {
         if (stopped) return;
         stopped = true;
         try {
-          login?.cancel();
+          void Promise.resolve(login?.cancel()).catch(() => {
+            loginQuarantined = true;
+          });
           subscription!.invalidate();
           for (const claim of native!.registry.pending())
             native!.registry.markUncertain(claim.claimToken);

@@ -408,3 +408,21 @@ it('rejects native Symposium command through the generic Codex launcher', () => 
     }),
   ).toThrow('isolated Symposium controller');
 });
+
+it('permits only login/account RPCs in a dedicated login process even with a lifecycle observer', async () => {
+  const { child, sent, reply } = processStub();
+  const client = new CodexAppServerClient(child, {
+    loginOnly: true,
+    lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(), onClose: vi.fn() },
+  });
+  const ready = client.initialize();
+  reply({ id: sent[0].id, result: {} });
+  await ready;
+  for (const method of ['turn/start', 'thread/start', 'model/list', 'account/logout'])
+    await expect(client.request(method, {})).rejects.toThrow();
+  expect(sent).toHaveLength(2);
+  const login = client.request('account/login/start', { type: 'chatgptDeviceCode' });
+  reply({ id: sent.at(-1)!.id, result: { type: 'chatgptDeviceCode' } });
+  await expect(login).resolves.toMatchObject({ type: 'chatgptDeviceCode' });
+  client.close();
+});
