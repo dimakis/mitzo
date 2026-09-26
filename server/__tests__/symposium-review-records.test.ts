@@ -234,3 +234,53 @@ it('uses canonical key ordering and refuses oversized exports', async () => {
   store.finalize('flow');
   expect(() => store.exportVerifiedRecord(scope)).toThrow(/size limit/i);
 });
+
+it('requires re-verification after artifact changes and preserves the old record', () => {
+  verified();
+  const first = store.exportVerifiedRecord(scope);
+  const next = {
+    ...store.get('flow')!.implementation,
+    resultId: 'result2',
+    attemptId: 'build2',
+    inputRevision: 'commit',
+    inputHash: scope.artifactHash,
+    artifactRevision: 'commit2',
+    artifactHash: 'c'.repeat(64),
+  };
+  store.advanceArtifact('flow', next);
+  const newScope = { ...scope, artifactRevision: 'commit2', artifactHash: next.artifactHash };
+  expect(() => store.exportVerifiedRecord(newScope)).toThrow(/verified/i);
+  store.admitAttempt({
+    workflowId: 'flow',
+    attemptId: 'review2',
+    enforcementId: 'cap2',
+    kind: 'review',
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit2',
+    artifactHash: next.artifactHash,
+    maxTokens: 10,
+    maxCostUsd: 0.1,
+  });
+  store.recordReview({
+    workflowId: 'flow',
+    reviewId: 'review2',
+    reviewerSeatId: 'reviewer',
+    kind: 'full',
+    artifactRevision: 'commit2',
+    artifactHash: next.artifactHash,
+    findings: [],
+    resolvedFingerprints: [],
+    usage: { attemptId: 'review2', tokens: 1, costUsd: 0.01 },
+  });
+  store.recordEvidence(
+    'flow',
+    { ...evidence, evidenceId: 'check2', resultId: 'result2', artifactRevision: 'commit2' },
+    next.artifactHash,
+    'host',
+  );
+  store.finalize('flow');
+  const second = store.exportVerifiedRecord(newScope);
+  expect(second.recordId).not.toBe(first.recordId);
+  expect(second.snapshot.workflow.currentResultId).toBe('result2');
+  expect(store.getReviewRecord('owner', 'session', first.recordId)).toEqual(first);
+});
