@@ -7,11 +7,20 @@ import { SymposiumDirectorPanel } from '../SymposiumDirectorPanel';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../AccountModelPicker', () => ({
-  AccountModelPicker: ({ onChange }: { onChange: (value: unknown) => void }) => (
-    <button type="button" onClick={() => onChange({ accountId: 'openai-work', model: 'gpt' })}>
-      Select OpenAI model
-    </button>
-  ),
+  AccountModelPicker: ({
+    onChange,
+    scope,
+  }: {
+    onChange: (value: unknown) => void;
+    scope: string;
+  }) => {
+    expect(scope).toBe('symposium');
+    return (
+      <button type="button" onClick={() => onChange({ accountId: 'openai-work', model: 'gpt' })}>
+        Select OpenAI model
+      </button>
+    );
+  },
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
   SymposiumProfilePicker: ({ onChange }: { onChange: (value: unknown) => void }) => (

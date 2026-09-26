@@ -1,3 +1,7 @@
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
@@ -92,6 +96,7 @@ export interface OpenShellCodexOptions {
   workspace?: string;
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
   connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
 }
@@ -170,7 +175,9 @@ function openShellSshProcessSpecTrusted(
   const workdir = posix.resolve(options.workdir);
   if (workdir === '/sandbox/workspaces' || !workdir.startsWith('/sandbox/workspaces/'))
     throw new Error('OpenShell workdir must be inside /sandbox/workspaces');
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = options.cliEnvironment
+    ? validateOpenShellCliEnvironment(options.cliEnvironment)
+    : {};
   for (const key of [
     'PATH',
     'HOME',
@@ -182,7 +189,7 @@ function openShellSshProcessSpecTrusted(
     'OPENSHELL_GATEWAY_INSECURE',
     'OPENSHELL_WORKSPACE',
   ]) {
-    if (base[key]) env[key] = base[key]!;
+    if (!options.cliEnvironment && base[key]) env[key] = base[key]!;
   }
   const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
   const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';

@@ -1,3 +1,7 @@
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { createHash } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
@@ -14,6 +18,7 @@ export interface ControlledAttemptSandbox {
   workspace?: string;
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
 }
 
 /** Persist only reviewed non-secret transport routing, never ambient defaults. */
@@ -37,6 +42,9 @@ export function controlledAttemptRoute(sandbox: ControlledAttemptSandbox) {
     workspace: sandbox.workspace,
     ...(sandbox.gatewayEndpoint === undefined ? {} : { gatewayEndpoint: sandbox.gatewayEndpoint }),
     gatewayInsecure: sandbox.gatewayInsecure,
+    ...(sandbox.cliEnvironment === undefined
+      ? {}
+      : { cliEnvironment: validateOpenShellCliEnvironment(sandbox.cliEnvironment) }),
   };
   if (sandbox.gatewayEndpoint !== undefined && !sandbox.gatewayEndpoint)
     throw new Error('Native attempt gateway endpoint is invalid');

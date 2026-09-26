@@ -51,7 +51,10 @@ export function resolveSymposiumSubscriptionRoute(
 }
 
 export async function createChatGptSubscriptionSeat(
-  input: OpenAiCodexSeatInput & { verifyPrivateAuth: VerifySymposiumSubscriptionAuth },
+  input: OpenAiCodexSeatInput & {
+    verifyPrivateAuth: VerifySymposiumSubscriptionAuth;
+    assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
+  },
 ) {
   if (input.route.kind !== 'chatgpt-subscription-native')
     throw new Error('ChatGPT native seat requires a subscription route');
@@ -81,6 +84,8 @@ export async function createChatGptSubscriptionSeat(
     throw new Error('ChatGPT native seat cannot use host, workspace, API or brokered credentials');
   if (typeof input.verifyPrivateAuth !== 'function')
     throw new Error('Private ChatGPT credential custody is not verified');
+  if (!input.createConversation && typeof input.assertSubscriptionDispatch !== 'function')
+    throw new Error('Private ChatGPT dispatch authorization is unavailable');
   await input.verifyPrivateAuth(input);
   input.execution.signal.throwIfAborted();
   return createCodexNativeSeat(input, {
@@ -88,6 +93,7 @@ export async function createChatGptSubscriptionSeat(
     modelProvider: 'openai',
     runtimeConfig: { forced_login_method: 'chatgpt' },
     assertCommand: assertSubscriptionControllerCommand,
+    beforeDispatch: () => input.assertSubscriptionDispatch?.(input),
     verifyBinding: async (client, stored) => {
       await input.verifyPrivateAuth(input);
       if (
@@ -116,6 +122,8 @@ export async function createChatGptSubscriptionSeat(
         (input.route.effort !== null && !selected.reasoningEfforts?.includes(input.route.effort))
       )
         throw new Error('Selected ChatGPT model or reasoning effort is unavailable');
+      await input.verifyPrivateAuth(input);
+      input.execution.signal.throwIfAborted();
       return binding;
     },
   });

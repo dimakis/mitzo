@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { ArtifactHostEvidence } from './symposium-artifact-host.js';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 
 type PodmanCommand = (args: readonly string[]) => Promise<unknown>;
 
@@ -56,6 +57,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     private readonly workspaceId: string,
     private readonly sandboxNamespace: string,
     private readonly run: PodmanCommand = localPodmanCommand,
+    private readonly ownedGateway?: OwnedSymposiumGateway,
   ) {
     if (!identifier.test(workspaceId) || !identifier.test(sandboxNamespace))
       throw new Error('Invalid expected OpenShell workspace or namespace');
@@ -69,7 +71,9 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
       !config.podman
     )
       throw new Error('Selected OpenShell gateway differs from artifact lease');
-    throw new Error('Selected gateway effective Podman admission config is not host-attested');
+    if (!this.ownedGateway)
+      throw new Error('Selected gateway effective Podman admission config is not host-attested');
+    await this.ownedGateway.verifyGateway(request, config);
   }
 
   async verifyMount(

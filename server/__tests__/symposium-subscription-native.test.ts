@@ -139,8 +139,59 @@ describe('native personal subscription seat (mocked only)', () => {
     expect(options.modelProvider).toBe('openai');
     expect(options.runtimeConfig?.forced_login_method).toBe('chatgpt');
     expect(callbacks.accepted).toHaveBeenCalledWith('thread-personal', 'turn-personal');
-    expect(input.verifyPrivateAuth).toHaveBeenCalledTimes(3);
+    expect(input.verifyPrivateAuth).toHaveBeenCalledTimes(5);
     expect(stopped).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks authorization after asynchronous model discovery', async () => {
+    const input = await fixture();
+    const original = input.rpc.request.getMockImplementation()!;
+    input.rpc.request.mockImplementation(async (method: string) => {
+      const value = await original(method);
+      if (method === 'model/list')
+        input.verifyPrivateAuth.mockRejectedValue(new Error('Authorization revoked'));
+      return value;
+    });
+    await expect(
+      createChatGptSubscriptionSeat({
+        ...input,
+        createConversation: (opts) => ({
+          initialize: async () => {
+            await opts.verifyBinding!(input.rpc, input.execution.seat.accountBinding);
+          },
+          getThreadId: () => undefined,
+          send: vi.fn(),
+          interrupt: vi.fn(),
+          close: vi.fn(),
+        }),
+      }),
+    ).rejects.toThrow('Authorization revoked');
+  });
+
+  it('checks synchronous authorization immediately before provider dispatch', async () => {
+    const input = await fixture();
+    let options!: CodexConversationOptions;
+    let revoked = false;
+    const assertSubscriptionDispatch = vi.fn(() => {
+      if (revoked) throw new Error('Authorization revoked');
+    });
+    await createChatGptSubscriptionSeat({
+      ...input,
+      assertSubscriptionDispatch,
+      createConversation: (opts) => {
+        options = opts;
+        return {
+          initialize: async () => undefined,
+          getThreadId: () => 'thread-personal',
+          send: vi.fn(),
+          interrupt: vi.fn(),
+          close: vi.fn(),
+        };
+      },
+    });
+    revoked = true;
+    expect(() => options.onProviderDispatch!('claim')).toThrow('Authorization revoked');
+    expect(assertSubscriptionDispatch).toHaveBeenCalledOnce();
   });
 
   it('rejects an API login before any native dispatch', async () => {

@@ -32,6 +32,28 @@ function fakeProcess() {
 }
 
 describe('claim-bound native controller transport', () => {
+  it('uses only the explicit private management environment, with no host credentials', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'must-not-leak');
+    vi.stubEnv('XDG_CONFIG_HOME', '/wrong-gateway');
+    const cliEnvironment = {
+      HOME: '/private/host',
+      XDG_CONFIG_HOME: '/private/config',
+      PATH: '/usr/bin:/bin',
+    };
+    const mockSpawn = vi.fn(() => fakeProcess()) as unknown as typeof spawn;
+    launchControlledAttempt({ ...sandbox, cliEnvironment }, claim, 'read', ['/bin/cat'], mockSpawn);
+    expect(vi.mocked(mockSpawn).mock.calls[0][2]?.env).toEqual(cliEnvironment);
+    expect(controlledAttemptRoute({ ...sandbox, cliEnvironment }).cliEnvironment).toEqual(
+      cliEnvironment,
+    );
+    expect(() =>
+      controlledAttemptRoute({
+        ...sandbox,
+        cliEnvironment: { ...cliEnvironment, OPENAI_API_KEY: 'secret' } as typeof cliEnvironment,
+      }),
+    ).toThrow(/environment/);
+  });
+
   it('pins run and cancel to the same digest without putting routed text in argv', () => {
     const run = controlledAttemptArgv('run', claim, 'read', [
       '/usr/bin/env',

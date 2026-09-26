@@ -311,3 +311,59 @@ it('refreshes on request while preserving the selected account and thinking leve
     reasoningEffort: 'high',
   });
 });
+
+it('loads only the configured Symposium account catalog without legacy alias controls', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText('Work Vertex');
+  expect(apiFetch).toHaveBeenCalledWith('/api/symposium/accounts', expect.anything());
+  expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('fails closed for unavailable Symposium catalog and retries only that catalog', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: false, status: 503 } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  expect((await screen.findByRole('alert')).textContent).toContain(
+    'Symposium account catalog unavailable',
+  );
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(apiFetch).mock.calls.every(([url]) => url === '/api/symposium/accounts')).toBe(
+    true,
+  );
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+});
+
+it('does not offer legacy accounts for an empty Symposium catalog', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText('No Symposium account profiles configured.');
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+});

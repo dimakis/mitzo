@@ -1,3 +1,4 @@
+import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import 'dotenv/config';
 import dns from 'node:dns';
@@ -53,6 +54,8 @@ import {
 import { createLogger } from './logger.js';
 import {
   app,
+  installSymposiumProductionHost,
+  getSymposiumBootstrapDependencies,
   sseRegistry,
   chatSseRegistry,
   setUpdateBroadcast,
@@ -135,6 +138,9 @@ if (symposiumNativeHost?.quarantinedClaims.length)
   });
 
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
+const BIND_HOST = process.env.MITZO_BIND_HOST;
+if (BIND_HOST !== undefined && !['127.0.0.1', '::1'].includes(BIND_HOST))
+  throw new Error('MITZO_BIND_HOST must be an explicit loopback address');
 
 /**
  * Connections is intentionally opt-in.  The disabled route remains visible as
@@ -1298,6 +1304,8 @@ const skillWatcher = new SkillWatcher(
 );
 setSkillWatcher(skillWatcher);
 
+let ownedSymposiumHost: Awaited<ReturnType<typeof bootstrapConfiguredSymposiumHost>> | undefined;
+
 async function shutdown(signal: string) {
   log.info(`${signal} received — shutting down gracefully`);
   setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
@@ -1306,6 +1314,7 @@ async function shutdown(signal: string) {
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   openShellLifecycle?.store.close();
   symposiumNativeHost?.registry.close();
+  ownedSymposiumHost?.stop();
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();
@@ -1325,23 +1334,40 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 
 import { checkPort } from './port-check.js';
 
-checkPort(PORT).then((inUse) => {
+checkPort(PORT).then(async (inUse) => {
   if (inUse) {
     log.error(`Port ${PORT} already in use. Another Mitzo instance may be running.`);
     log.error('Kill it or set a different PORT in .env.');
     process.exit(1);
   }
 
+  const symposiumConfig = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
+  if (symposiumConfig) {
+    try {
+      ownedSymposiumHost = await bootstrapConfiguredSymposiumHost(
+        symposiumConfig,
+        getSymposiumBootstrapDependencies(),
+      );
+      installSymposiumProductionHost(ownedSymposiumHost);
+    } catch {
+      ownedSymposiumHost?.stop();
+      log.error(
+        'Owned Symposium startup failed. Check its private config, pinned profiles, and dedicated gateway setup.',
+      );
+      process.exit(1);
+    }
+  }
+
   // Plain HTTP listener for watchOS (can't trust self-signed TLS certs)
   if (USE_TLS) {
     const httpServer = createServer(app);
     const HTTP_PORT = PORT + 1;
-    httpServer.listen(HTTP_PORT, () => {
+    httpServer.listen(HTTP_PORT, BIND_HOST, () => {
       log.info(`HTTP listener for watchOS on http://localhost:${HTTP_PORT}`);
     });
   }
 
-  server.listen(PORT, () => {
+  server.listen(PORT, BIND_HOST, () => {
     const protocol = USE_TLS ? 'https' : 'http';
     log.info(`Chat Agent running on ${protocol}://localhost:${PORT}${USE_TLS ? ' (TLS)' : ''}`);
 
