@@ -6,12 +6,37 @@ import {
 } from './symposium-review-fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
+let deviceState = 'idle';
 window.fetch = async (input, init) => {
   const url = new URL(
     typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     location.origin,
   );
   if (!url.pathname.startsWith('/api/')) return nativeFetch(input, init);
+  if (url.pathname.startsWith('/api/symposium/personal/login')) {
+    if (url.pathname.endsWith('/cancel')) deviceState = 'cancelled';
+    else if (init?.method === 'POST') deviceState = 'pending';
+    return Response.json(
+      deviceState === 'pending'
+        ? {
+            state: deviceState,
+            attemptId: 'preview-device',
+            method: 'device-code',
+            verificationUrl: 'https://auth.openai.com/codex/device',
+            userCode: 'DEMO-CODE',
+            expiresAt: Date.now() + 600000,
+          }
+        : { state: deviceState },
+    );
+  }
+  if (url.pathname === '/api/connections')
+    return Response.json({
+      connections: [],
+      legacy: [],
+      eligibleAccounts: [],
+      appliesTo: 'new conversations only',
+    });
+  if (url.pathname === '/api/connections/templates') return Response.json({ templates: [] });
   if (init?.method && init.method !== 'GET')
     return Response.json({ error: 'Preview is read-only' }, { status: 405 });
   if (/^\/api\/sessions\/[^/]+\/symposium\/reviews$/.test(url.pathname)) {
