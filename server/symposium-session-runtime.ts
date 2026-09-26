@@ -18,6 +18,12 @@ import {
 } from './symposium-artifact-lease.js';
 import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import {
+  createSymposiumNativeProfileTools,
+  assertSymposiumProfileAttemptCurrent,
+} from './symposium-native-profile-tools.js';
+import type { SymposiumProfileStore } from './symposium-profiles.js';
+import type { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createOpenAiCodexSeat } from './symposium-codex-native.js';
 import {
   assertSubscriptionControllerCommand,
@@ -37,9 +43,10 @@ import {
   type OpenShellAccountRoute,
   type OpenShellRuntimeConfig,
 } from './openshell-runtime.js';
-import type {
-  SymposiumDispatchFacts,
-  SymposiumHostGrantVerifier,
+import {
+  admitSymposiumSeatDispatch,
+  type SymposiumDispatchFacts,
+  type SymposiumHostGrantVerifier,
 } from './symposium-seat-runtime.js';
 
 export interface SymposiumPhysicalProviderIdentity {
@@ -917,12 +924,47 @@ export class SymposiumPerSeatSandboxOwner {
   }
 }
 
+/** Only completed text delivered to this exact seat grant and generation may cross into a replacement thread. */
+export function symposiumSeatRolloverHistory(
+  store: Pick<EventStore, 'getSymposiumDeliveries' | 'getSymposiumRecipientAttempts'>,
+  execution: import('./symposium-orchestrator.js').SymposiumSeatExecution,
+) {
+  const identity = (value: Record<string, unknown>) => {
+    const rest = { ...value };
+    delete rest.capturedAt;
+    delete rest.configRevision;
+    return JSON.stringify(rest);
+  };
+  const expected = identity(execution.provenance as unknown as Record<string, unknown>);
+  return store
+    .getSymposiumDeliveries(execution.sessionId)
+    .flatMap((delivery) =>
+      store.getSymposiumRecipientAttempts(delivery.deliveryId, execution.seat.id),
+    )
+    .filter(
+      (attempt) =>
+        attempt.status === 'delivered' &&
+        attempt.provenance &&
+        identity(attempt.provenance as unknown as Record<string, unknown>) === expected &&
+        attempt.dispatchedContent !== null &&
+        attempt.resultContent !== null,
+    )
+    .sort((a, b) => a.attemptId - b.attemptId)
+    .slice(-20)
+    .flatMap((attempt) => [
+      { role: 'user' as const, text: attempt.dispatchedContent! },
+      { role: 'assistant' as const, text: attempt.resultContent! },
+    ]);
+}
+
 export interface SymposiumSessionRuntimeDeps extends Omit<
   SymposiumSharedSandboxOwnerDeps,
   'facts'
 > {
   store: EventStore;
   codexStore: CodexConversationStore;
+  profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
+  profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
@@ -968,15 +1010,52 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           owner,
           verifyHostCapability: deps.verifyHostCapability,
           recordAccepted: deps.recordAccepted,
+          migrateThread: (claim, previous, next) =>
+            deps.store.migrateSymposiumSeatThread(claim, previous, next),
           recordEvent,
           releaseAttempt: (claimToken) => defaultEvents.release(claimToken),
           openNative:
             deps.openNative ??
-            ((input) =>
-              input.route.kind === 'openai-api'
+            ((input) => {
+              const profileTools = deps.profileProposalStore
+                ? createSymposiumNativeProfileTools({
+                    store: deps.profileProposalStore,
+                    catalogStore: deps.profileCatalogStore,
+                    owner: 'user',
+                    execution: input.execution,
+                    verifyCurrent: () => {
+                      const capability = deps.verifyHostCapability?.();
+                      assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
+                      const current = admitSymposiumSeatDispatch(
+                        deps.store,
+                        deps.currentProfiles?.() ?? deps.profiles,
+                        input.execution,
+                        deps.hostGrants,
+                      );
+                      if (JSON.stringify(current) !== JSON.stringify(input.route))
+                        throw new Error('Symposium seat route changed before profile proposal');
+                      if (capability)
+                        assertSymposiumAttestedProvider(capability, {
+                          name: current.provider,
+                          id: current.providerId,
+                          type:
+                            current.kind === 'chatgpt-subscription-native'
+                              ? 'codex'
+                              : current.kind === 'openai-api'
+                                ? 'openai'
+                                : 'google-vertex-ai',
+                        });
+                    },
+                  })
+                : undefined;
+              const loadConversationHistory = () =>
+                symposiumSeatRolloverHistory(deps.store, input.execution);
+              return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
                     ...input,
                     store: deps.codexStore,
+                    loadConversationHistory,
+                    profileTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
                   })
@@ -984,6 +1063,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   ? createChatGptSubscriptionSeat({
                       ...input,
                       store: deps.codexStore,
+                      loadConversationHistory,
+                      profileTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
@@ -993,7 +1074,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       ...input,
                       route: input.route,
                       attemptRegistry: deps.attemptRegistry,
-                    })),
+                    });
+            }),
         });
         cache.set(seatId, executor);
       }

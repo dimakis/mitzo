@@ -92,6 +92,17 @@ This is the director and profile foundation. The default server has no Symposium
 provider runtime: activation and grant reissue fail closed until a trusted runtime
 is installed. These controls do not enable production native seat execution.
 
+Native OpenAI API and personal ChatGPT seats can read Mitzo's saved portable
+profile catalog and draft profile updates with session tools. Drafts are persisted
+in the session's review queue; only an explicit user **Save** creates an immutable
+catalog revision, with revision conflict checks. Rebinding a seat remains a
+separate director action. These tools recheck the current seat, durable attempt,
+account route, and host grants before each call. Reviewer seats may propose
+portable guidance for review but cannot save profiles or mutate shared artifacts.
+Claude's native tool path remains unavailable pending its independent evidence
+gate. Mitzo owns profile authoring and version history; ContexGin remains a
+context source, with explicit imports rather than implicit write-back.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed

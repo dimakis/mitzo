@@ -9,6 +9,7 @@ import type { CodexConversationStore, CodexCommandInput } from './codex-conversa
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumNativeSeat } from './symposium-openshell-seat-executor.js';
 import { symposiumSeatRuntimeId, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
+import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
 import { symposiumSeatSystemPrompt } from './symposium-seat-prompt.js';
 
 interface NativeCodexConversation {
@@ -45,10 +46,12 @@ export interface OpenAiCodexSeatInput {
   route: SymposiumSeatRoute;
   execution: SymposiumSeatExecution;
   store: CodexConversationStore;
+  profileTools?: SymposiumNativeProfileTools;
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Exact argv from a host-verified image capability; absent means no real launch. */
   verifiedControllerCommand?: readonly string[];
   createConversation?: (options: CodexConversationOptions) => NativeCodexConversation;
+  loadConversationHistory?: CodexConversationOptions['loadConversationHistory'];
   onEvent?: (event: Record<string, unknown>) => void;
   /** Fake conversation hook for no-model controller-proof tests only. */
   testConfirmStopped?: () => Promise<void>;
@@ -93,7 +96,7 @@ export async function createCodexNativeSeat(
   if (!binding) throw new Error('Codex native seat lacks account binding');
   let callbacks:
     | {
-        beforeDispatch(): void;
+        beforeDispatch(providerThreadId?: string): void;
         accepted(providerThreadId: string, providerTurnId: string): void;
       }
     | undefined;
@@ -114,8 +117,11 @@ export async function createCodexNativeSeat(
     profile: auth.profile,
     storedBinding: binding,
     store: input.store,
-    systemPrompt: symposiumSeatSystemPrompt(execution.seat),
-    tools: [],
+    loadConversationHistory: input.loadConversationHistory,
+    systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
+      .filter(Boolean)
+      .join('\n\n'),
+    tools: input.profileTools?.tools ?? [],
     createClient: (lifecycle) => {
       if (!input.attemptRegistry || !input.verifiedControllerCommand)
         throw new Error('Verified Codex native controller capability is unavailable');
@@ -143,10 +149,12 @@ export async function createCodexNativeSeat(
         }
       }
     },
-    executeTool: async () => ({
-      content: 'Symposium native host tools are unavailable',
-      isError: true,
-    }),
+    executeTool:
+      input.profileTools?.executeTool ??
+      (async () => ({
+        content: 'Symposium native host tools are unavailable',
+        isError: true,
+      })),
     validateModel: (model, effort) => {
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');
@@ -164,7 +172,7 @@ export async function createCodexNativeSeat(
     onProviderDispatch: (commandId) => {
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
       auth.beforeDispatch?.();
-      callbacks?.beforeDispatch();
+      callbacks?.beforeDispatch(conversation.getThreadId());
       dispatched = true;
     },
     onProviderAccepted: (commandId, providerThreadId, providerTurnId) => {
@@ -201,11 +209,35 @@ export async function createCodexNativeSeat(
     await closeAndConfirm(conversation);
     throw new Error('Codex seat did not establish a provider thread');
   }
+  let migratedFrom: string | undefined;
   if (execution.providerThreadId && execution.providerThreadId !== providerThreadId) {
-    await closeAndConfirm(conversation);
-    throw new Error('Codex seat resumed a different provider thread');
+    try {
+      input.store.assertToolSurfaceReplacement(
+        symposiumSeatRuntimeId(execution),
+        binding,
+        execution.providerThreadId,
+        providerThreadId,
+      );
+      migratedFrom = execution.providerThreadId;
+    } catch (error) {
+      await closeAndConfirm(conversation);
+      throw new Error('Codex seat resumed a different provider thread without verified migration', {
+        cause: error,
+      });
+    }
   }
   return {
+    verifyThreadMigration(previous, next) {
+      if (previous !== migratedFrom || next !== providerThreadId)
+        throw new Error('Codex seat thread migration identity changed');
+      // Revalidate before dispatch while the one-shot continuity fragment is durable.
+      input.store.assertToolSurfaceReplacement(
+        symposiumSeatRuntimeId(execution),
+        binding,
+        previous,
+        next,
+      );
+    },
     async run(currentExecution, currentCallbacks) {
       if (currentExecution.claimToken !== execution.claimToken)
         throw new Error('Codex native attempt identity changed');
