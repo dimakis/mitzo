@@ -15,6 +15,6 @@ export function listenOnLoopback(listener: RequestListener): Promise<Server> {
 
 export function closeTestServer(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
-    server.close((error) => error ? reject(error) : resolve());
+    server.close((error) => (error ? reject(error) : resolve()));
   });
 }
