@@ -1,5 +1,5 @@
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
-import { createSubscriptionLoginHandler } from './symposium-subscription-login-route.js';
+import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
@@ -1666,11 +1666,9 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
-app.post(
-  '/api/symposium/personal/login',
-  operatorAuthMiddleware,
-  createSubscriptionLoginHandler(() => symposiumProductionHost),
-);
+const subscriptionLogin = createSubscriptionLoginController(() => symposiumProductionHost);
+app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
+app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
 
 // Reads the dedicated host catalog (including its cached model discovery); no refresh or legacy fallback.
 app.get('/api/symposium/accounts', (_req, res) => {
