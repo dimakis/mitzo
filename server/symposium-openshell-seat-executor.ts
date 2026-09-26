@@ -51,6 +51,8 @@ export interface SymposiumOpenShellSeatExecutorDeps {
     providerTurnId: string;
     acceptedAt: number;
   }): boolean;
+  /** Called only after exact native cleanup, including recovery without process-local state. */
+  releaseAttempt?: (claimToken: string) => void;
   recordEvent?: (execution: SymposiumSeatExecution, event: Record<string, unknown>) => void;
   /** Trusted factory: when a registry is supplied, all native launches must use it. */
   openNative(input: {
@@ -160,6 +162,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       throw new Error('Symposium native attempt cleanup is unknown');
     }
     if (active) this.deps.recordEvent?.(active.execution, { type: 'symposium_attempt_released' });
+    this.deps.releaseAttempt?.(token);
     this.attempts.delete(token);
   }
 }

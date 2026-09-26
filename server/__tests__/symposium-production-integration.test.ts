@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
@@ -13,6 +13,7 @@ import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
 import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
 import { SymposiumNativeEventSink } from '../symposium-native-event-sink.js';
 import { getSymposiumPerspective, getSymposiumQueuedInputs } from '../symposium-perspectives.js';
+import { SymposiumAttemptRegistry } from '../symposium-attempt-registry.js';
 import { symposiumSeatSystemPrompt } from '../symposium-seat-prompt.js';
 
 const profiles = new AccountProfiles([
@@ -697,6 +698,175 @@ describe('production Symposium route to native runtime', () => {
     store.close();
   });
 
+  it('closes only the recovered claim transcript after reopening both durable stores', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-restart-transcript-'));
+    chmodSync(root, 0o700);
+    roots.push(root);
+    const path = join(root, 'events.db');
+    const claimsPath = join(root, 'claims.db');
+    let store = new EventStore(path);
+    const confirm = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('remote still running'))
+      .mockResolvedValue(undefined);
+    const transport = { launch: vi.fn() as never, confirm };
+    let registry = new SymposiumAttemptRegistry(claimsPath, transport);
+    store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+    store.setSymposiumConfig('symposium', config);
+    let dispatched: SymposiumSeatExecution | undefined;
+    const broadcast = vi.fn();
+    const makeRuntime = () =>
+      createSymposiumSessionRuntime({
+        sessionId: 'symposium',
+        store,
+        profiles,
+        attemptRegistry: registry,
+        hostGrants: { verifySeat: vi.fn() },
+        codexStore: {} as never,
+        resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+        runtimeConfig,
+        readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+        recordAccepted: (receipt) => store.markSymposiumRecipientAccepted(receipt),
+        broadcastEvent: broadcast,
+        managerFactory: () => ({
+          ensure: async () => ({ sandboxName: 'shared', workdir: runtimeConfig.workdir }),
+        }),
+        openNative: async ({ execution, onEvent }) => ({
+          run: async (_input, callbacks) => {
+            callbacks.beforeDispatch();
+            registry.reserve({
+              ...execution,
+              sandbox: { sandboxName: 'shared', workdir: runtimeConfig.workdir },
+            });
+            callbacks.accepted('thread-1', 'turn-restart');
+            onEvent?.({
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'restart-message' } },
+            });
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'tool_use', id: 'restart-tool', name: 'Read', input: {} },
+              },
+            });
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'input_json_delta', partial_json: '{"path":"README.md"}' },
+              },
+            });
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_start',
+                index: 1,
+                content_block: { type: 'text', text: 'Partial' },
+              },
+            });
+            dispatched = execution;
+            return new Promise(() => {});
+          },
+          cancel: async () => {
+            throw new Error('Old in-memory native must not be used');
+          },
+        }),
+      });
+    const runtime = makeRuntime();
+    await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Approved',
+      idempotencyKey: 'admit-restart',
+    });
+    const delivery = runtime.orchestrator.stageDelivery({
+      sessionId: 'symposium',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'Hold',
+      idempotencyKey: 'stage-restart',
+    });
+    runtime.orchestrator.intervene({
+      deliveryId: delivery.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve-restart',
+    });
+    void runtime.orchestrator.deliver(delivery.deliveryId);
+    await vi.waitFor(() => expect(dispatched).toBeDefined());
+    const execution = dispatched!;
+    store.appendSymposium(
+      'symposium',
+      'message_start',
+      { messageId: 'different-claim', nativeClaimToken: 'another-claim' },
+      execution.provenance,
+    );
+    store.close();
+    registry.close();
+    store = new EventStore(path);
+    registry = new SymposiumAttemptRegistry(claimsPath, transport);
+    const restarted = makeRuntime();
+    const cancel = () =>
+      restarted.orchestrator.cancel({
+        deliveryId: delivery.deliveryId,
+        reason: 'stop',
+        idempotencyKey: 'cancel-restart',
+      });
+    await cancel();
+    expect(
+      store.getSessionEvents('symposium').filter((event) => event.type === 'message_end'),
+    ).toHaveLength(0);
+    // A previous cleanup may have persisted one block end before the host died.
+    store.appendSymposium(
+      'symposium',
+      'block_end',
+      {
+        messageId: 'restart-message',
+        blockId: 'restart-message:1',
+        blockType: 'text',
+        nativeClaimToken: execution.claimToken,
+      },
+      execution.provenance,
+    );
+    // Recovery must use the accepted historical snapshot, not today's configuration.
+    store.setSymposiumConfig('symposium', { ...config, revision: 2 });
+    await cancel();
+    const endings = store
+      .getSessionEvents('symposium')
+      .filter((event) => ['block_end', 'message_end'].includes(event.type));
+    expect(endings.map((event) => event.type)).toEqual(['block_end', 'block_end', 'message_end']);
+    expect(endings[1].payload).toMatchObject({
+      nativeClaimToken: execution.claimToken,
+      messageId: 'restart-message',
+      blockId: 'restart-message:0',
+      toolId: 'restart-tool',
+      toolName: 'Read',
+      input: '{"path":"README.md"}',
+      rawInput: { path: 'README.md' },
+    });
+    expect(
+      endings.every(
+        (event) =>
+          JSON.stringify(event.symposiumProvenance) === JSON.stringify(execution.provenance),
+      ),
+    ).toBe(true);
+    expect(
+      store.getSessionEvents('symposium').some((event) => event.type === 'provider_turn_end'),
+    ).toBe(false);
+    const count = store.getSessionEvents('symposium').length;
+    await cancel();
+    expect(store.getSessionEvents('symposium')).toHaveLength(count);
+    expect(store.getUnsettledSymposiumExecutions(delivery.deliveryId)).toEqual([]);
+    store.close();
+    registry.close();
+  });
+
   it.each(['count', 'bytes'])(
     'bounds pre-acceptance buffering by %s and discards overflowed output',
     (limit) => {
@@ -721,6 +891,7 @@ describe('production Symposium route to native runtime', () => {
           getSymposiumRecipientAttemptByClaimToken: () => attempt,
           getSymposiumDelivery: () => ({ sessionId: 'symposium' }),
           appendSymposium: append,
+          closeSymposiumAttemptTranscript: () => [],
         } as unknown as EventStore,
         broadcast,
       );

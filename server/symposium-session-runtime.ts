@@ -866,9 +866,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 
 /** Host-held factory. Callers must supply durable grants, exact receipts, and verified policy. */
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {
-  const defaultEvents = deps.recordEvent
-    ? undefined
-    : new SymposiumNativeEventSink(deps.store, deps.broadcastEvent ?? (() => {}));
+  const defaultEvents = new SymposiumNativeEventSink(deps.store, deps.broadcastEvent ?? (() => {}));
   const recordEvent: NonNullable<SymposiumOpenShellSeatExecutorDeps['recordEvent']> =
     deps.recordEvent ?? ((execution, event) => defaultEvents!.record(execution, event));
   const owner = new SymposiumPerSeatSandboxOwner({
@@ -892,6 +890,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           verifyHostCapability: deps.verifyHostCapability,
           recordAccepted: deps.recordAccepted,
           recordEvent,
+          releaseAttempt: (claimToken) => defaultEvents.release(claimToken),
           openNative:
             deps.openNative ??
             ((input) =>

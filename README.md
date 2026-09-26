@@ -102,6 +102,8 @@ launched or confirming that its exact controller has stopped. Pending provider
 detaches also survive reconciliation failure until attachments are verified.
 The runtime supplies durable transcript recording by default, including early
 events and closure after failure or cancellation; live broadcasting is optional.
+Persisted native events retain their claim identity so confirmed restart cleanup
+can close the exact unfinished transcript without inventing a successful result.
 
 The review coordinator validates membership, recipient claims, profile revisions,
 and grants before dispatch and result acceptance. Review content comes from the

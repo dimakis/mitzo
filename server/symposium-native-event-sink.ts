@@ -26,7 +26,6 @@ interface AttemptStream {
   terminal: boolean;
   pending: Json[];
   pendingBytes: number;
-  closeTurn?: () => void;
   cleanupTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -50,8 +49,14 @@ export class SymposiumNativeEventSink {
       pendingBytes: 0,
     };
     // Confirmed cleanup closes transcript structure, not a fabricated provider result.
-    stream.closeTurn?.();
-    stream.closeTurn = undefined;
+    for (const event of this.store.closeSymposiumAttemptTranscript(claimToken))
+      this.broadcast(
+        event.sessionId,
+        storedEventToClientMessage({
+          ...event,
+          prevSessionSeq: this.store.getSessionPredecessorSeq(event.sessionId, event.seq),
+        }),
+      );
     this.pendingBytes -= stream.pendingBytes;
     stream.pending = [];
     stream.pendingBytes = 0;
@@ -123,7 +128,7 @@ export class SymposiumNativeEventSink {
       const seq = this.store.appendSymposium(
         execution.sessionId,
         type,
-        payload,
+        { ...payload, nativeClaimToken: claim },
         execution.provenance,
       );
       this.broadcast(
@@ -167,7 +172,6 @@ export class SymposiumNativeEventSink {
       append('message_end', { messageId: turn.messageId });
       stream!.turn = undefined;
     };
-    stream.closeTurn = closeTurn;
 
     if (native.type === 'stream_event') {
       const event = object(native.event);
@@ -216,18 +220,19 @@ export class SymposiumNativeEventSink {
         turn.seenBlocks.add(blockId);
         if (toolId)
           stream.toolOwners.set(toolId, [...(stream.toolOwners.get(toolId) ?? []), turn.messageId]);
+        if (blockType === 'tool_use' && block.input !== undefined)
+          entry.input = typeof block.input === 'string' ? block.input : JSON.stringify(block.input);
         append('block_start', {
           messageId: turn.messageId,
           blockId,
           blockType,
           ...(toolId ? { toolId } : {}),
           ...(toolName ? { toolName } : {}),
+          ...toolInput(entry),
         });
         const initial = block.text ?? block.thinking;
         if (typeof initial === 'string' && initial)
           append('block_delta', { messageId: turn.messageId, blockId, delta: initial });
-        if (blockType === 'tool_use' && block.input !== undefined)
-          entry.input = typeof block.input === 'string' ? block.input : JSON.stringify(block.input);
       } else if (event.type === 'content_block_delta') {
         const block = turn.blocks.get(index as number);
         const delta = object(event.delta);
@@ -236,6 +241,15 @@ export class SymposiumNativeEventSink {
           if (delta.type === 'input_json_delta') {
             block.input = block.streamedInput ? block.input + text : text;
             block.streamedInput = true;
+            // Preserve the exact tool input snapshot durably while maintaining
+            // the same live/replay event sequence. Empty delta adds no text.
+            append('block_delta', {
+              messageId: turn.messageId,
+              blockId: block.blockId,
+              blockType: block.blockType,
+              delta: '',
+              input: block.input,
+            });
           } else
             append('block_delta', {
               messageId: turn.messageId,
