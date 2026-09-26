@@ -98,7 +98,8 @@ export class SymposiumAttemptRegistry {
       input.sandbox.gateway ||
       input.sandbox.workspace ||
       input.sandbox.gatewayEndpoint !== undefined ||
-      input.sandbox.gatewayInsecure !== undefined
+      input.sandbox.gatewayInsecure !== undefined ||
+      input.sandbox.cliEnvironment !== undefined
         ? JSON.stringify(controlledAttemptRoute(input.sandbox))
         : null;
     this.db.transaction(() => {

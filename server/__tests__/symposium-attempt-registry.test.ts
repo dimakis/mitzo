@@ -117,6 +117,11 @@ describe('durable native attempt registry', () => {
       gateway: 'personal',
       workspace: 'personal-only',
       gatewayEndpoint: 'https://127.0.0.1:8443',
+      cliEnvironment: {
+        HOME: '/private/host',
+        XDG_CONFIG_HOME: '/private/config',
+        PATH: '/usr/bin:/bin',
+      },
       gatewayInsecure: false,
     };
     const first = new SymposiumAttemptRegistry(path);

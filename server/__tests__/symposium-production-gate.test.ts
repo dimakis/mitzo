@@ -124,16 +124,20 @@ describe('Symposium production gate', () => {
         workspace: 'symposium',
       }),
     ).not.toThrow();
-    expect(invoke).toHaveBeenCalledWith(config.cli, [
-      'gateway',
-      'info',
-      '--gateway',
-      'private-gateway',
-      '--workspace',
-      'symposium',
-      '--output',
-      'json',
-    ]);
+    expect(invoke).toHaveBeenCalledWith(
+      config.cli,
+      [
+        'gateway',
+        'info',
+        '--gateway',
+        'private-gateway',
+        '--workspace',
+        'symposium',
+        '--output',
+        'json',
+      ],
+      undefined,
+    );
     expect(physical.verifyProviderProfile).toHaveBeenCalledWith(
       'openai',
       sha('profile'),

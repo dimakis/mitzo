@@ -1,3 +1,4 @@
+import { createSubscriptionLoginHandler } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
@@ -14,20 +15,24 @@ import {
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
-import { loadAccountProfiles } from './account-profiles.js';
+import { loadAccountProfiles, type AccountProfiles } from './account-profiles.js';
 import { SymposiumOrchestrator } from './symposium-orchestrator.js';
 import {
   createOpenShellProviderIdentityResolver,
   createSymposiumSessionRuntime,
 } from './symposium-session-runtime.js';
 import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
-import { openShellRuntimeConfig } from './openshell-runtime.js';
+import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 import {
   readSymposiumProductionAttestation,
   verifySymposiumProductionGate,
   type SymposiumProductionPhysicalProof,
 } from './symposium-production-gate.js';
 import { SYMPOSIUM_CODEX_CONTROLLER_COMMAND } from './symposium-codex-native.js';
+import {
+  SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+  type VerifySymposiumSubscriptionAuth,
+} from './symposium-subscription-native.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
@@ -801,7 +806,18 @@ const symposiumSessionRuntimes = new Map<
     runtimeFingerprint: string;
   }
 >();
-interface SymposiumProductionHost {
+export interface SymposiumProductionHost {
+  /** Dedicated upstream routing; never inherit the legacy chat gateway. */
+  runtimeConfig: OpenShellRuntimeConfig;
+  attestationPath: string;
+  beginLogin?: () => Promise<{
+    authorizationUrl: string;
+    completed: Promise<unknown>;
+    cancel(): void;
+  }>;
+  currentProfiles: () => AccountProfiles;
+  verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
+  assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   physical: SymposiumProductionPhysicalProof;
   attemptRegistry: SymposiumAttemptRegistry;
   artifactLeaseHost: SqliteArtifactLeaseHost;
@@ -818,10 +834,11 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   sessionId,
 ) => {
   if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
-  const baseConfig = openShellRuntimeConfig(process.env);
-  if (!baseConfig) return null;
-  const attestationPath = process.env.MITZO_SYMPOSIUM_OPENSHELL_ATTESTATION;
-  if (!attestationPath || !symposiumProductionHost) return null;
+  const host = symposiumProductionHost;
+  if (!host) return null;
+  const baseConfig = host.runtimeConfig;
+  const attestationPath = host.attestationPath;
+  if (!attestationPath) return null;
   let verified: ReturnType<typeof verifySymposiumProductionGate>;
   let attestationIdentity: string | undefined;
   const verifyHostCapability = () => {
@@ -841,6 +858,11 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   };
   try {
     verified = verifyHostCapability();
+    if (
+      verified.allowedAccountProviders.has('openai-codex') &&
+      (!host.verifySubscriptionPrivateAuth || !host.assertSubscriptionDispatch)
+    )
+      return null;
   } catch {
     return null;
   }
@@ -858,8 +880,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
     runtime = createSymposiumSessionRuntime({
       sessionId,
       store: eventStore,
-      profiles: loadAccountProfiles(),
-      currentProfiles: loadAccountProfiles,
+      profiles: host.currentProfiles(),
+      currentProfiles: host.currentProfiles,
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
@@ -868,12 +890,23 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       allowedSeatRoles: verified.allowedRoles,
       allowedAccountProviders: verified.allowedAccountProviders,
       verifyHostCapability,
-      attemptRegistry: symposiumProductionHost.attemptRegistry,
-      artifactLeaseHost: symposiumProductionHost.artifactLeaseHost,
-      artifactRequest: symposiumProductionHost.artifactRequest,
+      attemptRegistry: host.attemptRegistry,
+      artifactLeaseHost: host.artifactLeaseHost,
+      artifactRequest: host.artifactRequest,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
-      // No native reviewer or Claude wrapper is verified yet.
-      readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+      ...(host.verifySubscriptionPrivateAuth
+        ? {
+            verifiedSubscriptionControllerCommand: SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
+            verifySubscriptionPrivateAuth: host.verifySubscriptionPrivateAuth,
+            assertSubscriptionDispatch: host.assertSubscriptionDispatch,
+          }
+        : {}),
+      // Claude remains unavailable until its independent native evidence gate.
+      readOnlyEnforced: {
+        openaiApi: verified.readOnlyEnforced,
+        chatgptSubscription: verified.readOnlyEnforced,
+        claudeVertex: false,
+      },
       recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
       recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
     }).orchestrator;
@@ -882,6 +915,10 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   return runtime;
 };
 const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
+function symposiumAccountProfiles(): AccountProfiles {
+  if (!symposiumProductionHost) throw new Error('Symposium account catalog is unavailable');
+  return symposiumProductionHost.currentProfiles();
+}
 const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mitzo', 'events.db'), {
   getConfig: (sessionId) => {
     const raw = eventStore.getSession(sessionId)?.symposiumConfig;
@@ -893,7 +930,7 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
   validateSelection: (seat) => {
     if (!seat.accountBinding) throw new Error('Seat account binding is required');
-    loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+    symposiumAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
   },
   resolveProfile: (selection) =>
     symposiumProfileStore.get('user', selection.profileId, selection.revision),
@@ -913,6 +950,10 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     };
   },
 });
+export function getSymposiumBootstrapDependencies() {
+  return { facts: eventStore, hostGrants: symposiumHostGrants };
+}
+
 /** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */
 export function setSymposiumDirectorRuntimeFactory(
   factory: (sessionId: string) => SymposiumOrchestrator | null,
@@ -929,7 +970,11 @@ app.use(
     profileBindingEnforced: true,
     validateSelection: (seat) => {
       if (seat.accountBinding)
-        loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+        symposiumAccountProfiles().validateModel(
+          seat.accountBinding,
+          seat.model,
+          seat.reasoningEffort,
+        );
     },
     validateActiveConfig: (sessionId, config) =>
       symposiumHostGrants.validateActiveConfig(sessionId, config),
@@ -940,7 +985,7 @@ app.use(
     getQueuedInputs: (sessionId, perspective) =>
       getSymposiumQueuedInputs(eventStore, sessionId, perspective),
     resolveSelection: (accountId, model, reasoningEffort) => {
-      const profiles = loadAccountProfiles();
+      const profiles = symposiumAccountProfiles();
       const binding = profiles.resolve(accountId, model);
       profiles.validateModel(binding, model, reasoningEffort);
       return AccountBindingSchema.parse(binding);
@@ -1602,6 +1647,22 @@ app.put('/api/accounts/:id/alias', (req, res) => {
     res
       .status(400)
       .json({ error: 'Cannot save alias. Use at most 80 characters and check storage.' });
+  }
+});
+
+app.post(
+  '/api/symposium/personal/login',
+  operatorAuthMiddleware,
+  createSubscriptionLoginHandler(() => symposiumProductionHost),
+);
+
+// Uses configured native models only; no host discovery or legacy catalog fallback.
+app.get('/api/symposium/accounts', (_req, res) => {
+  try {
+    if (!symposiumProductionHost) throw new Error('Symposium host is unavailable');
+    res.json(symposiumProductionHost.currentProfiles().catalog());
+  } catch {
+    res.status(503).json({ error: 'Symposium account catalog unavailable.' });
   }
 });
 

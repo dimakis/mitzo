@@ -148,6 +148,7 @@ function SeatModelEditor({
   return (
     <div className="symposium-seat-selection">
       <AccountModelPicker
+        scope="symposium"
         sessionId={null}
         preferredModel={seat.seat.model}
         onChange={setSelection}
@@ -690,6 +691,7 @@ function SessionDirectorPanel({
                     </select>
                   </label>
                   <AccountModelPicker
+                    scope="symposium"
                     sessionId={null}
                     preferredModel={status.config.seats[0]?.model ?? ''}
                     onChange={setNewSeatSelection}

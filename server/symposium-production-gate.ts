@@ -1,3 +1,7 @@
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
@@ -13,7 +17,7 @@ const Sha256 = z.string().regex(/^[a-f0-9]{64}$/);
  * contract needs independent /usr/local/bin/claude, Vertex Haiku profile,
  * negative isolation, and host proof before widening admission.
  */
-const Attestation = z
+const LegacyAttestation = z
   .object({
     contract: z.literal('openshell-v0.1-openai-seat'),
     cliVersion: z.string().regex(/^0\.1\.[0-9]+(?:[-+][A-Za-z0-9.+-]+)?$/),
@@ -46,10 +50,93 @@ const Attestation = z
   })
   .strict();
 
+/** Only this exact upstream development build and reviewed native artifacts have
+ * passed the owned-gateway transport, authentication and filesystem canaries. */
+export const TESTED_SYMPOSIUM_NATIVE_BUILD = {
+  version: '0.0.117-dev.292+g854b2370b',
+  cliSha256: '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8',
+  gatewaySha256: '281a4873ec62ddb384db2b495a324d5a899e27944500c309191195463cd2422e',
+  image: 'sha256:c621f4a66281689c9d4c2692ca7234ba61cd154f58c3df003a193f58375bb63d',
+  imageDigest: 'd00a366614f1926d7159a5290818418b041167295ba2e93692ce47a38e06448f',
+  sandboxRuntimeImage: 'sha256:ea1fa3016afc3029d5cef331a92f3fb1383f03799221aec920248d06f4aba1dd',
+  supervisorImage: 'sha256:8df2e97c2b25b75031b4c00cb49e4cd487ba2384ebe7d884a0aa12095be20937',
+  nativeArtifacts: {
+    '/usr/bin/codex': '61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70',
+    '/usr/local/bin/symposium-attempt-controller':
+      'd9f995cd0871ca63be4efa3c5d5760094af9c07496e1acf5d838acf8b55f2209',
+    '/usr/local/bin/symposium-seat-landlock':
+      'bf31950c31eafab27d54ddd3662e450769811ea906687616217d743d3134c96d',
+    '/usr/local/bin/symposium-subscription-app-server':
+      'ffb14857502305d354143e475ad8b417aa733857254b6d3e34b66023e444adfb',
+  },
+} as const;
+const reviewed = TESTED_SYMPOSIUM_NATIVE_BUILD;
+const OwnedAttestation = LegacyAttestation.extend({
+  contract: z.literal('openshell-v0.1-owned-native-seats'),
+  cliVersion: z.literal(reviewed.version),
+  cliSha256: z.literal(reviewed.cliSha256),
+  gatewayVersion: z.literal(reviewed.version),
+  gatewaySha256: z.literal(reviewed.gatewaySha256),
+  gatewayEndpoint: z.string().url(),
+  image: z.literal(reviewed.image),
+  imageDigest: z.literal(reviewed.imageDigest),
+  controllerSha256: z.literal(reviewed.nativeArtifacts['/usr/bin/codex']),
+  sandboxRuntimeImage: z.literal(reviewed.sandboxRuntimeImage),
+  supervisorImage: z.literal(reviewed.supervisorImage),
+  nativeArtifacts: z
+    .object({
+      '/usr/bin/codex': z.literal(reviewed.nativeArtifacts['/usr/bin/codex']),
+      '/usr/local/bin/symposium-attempt-controller': z.literal(
+        reviewed.nativeArtifacts['/usr/local/bin/symposium-attempt-controller'],
+      ),
+      '/usr/local/bin/symposium-seat-landlock': z.literal(
+        reviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
+      ),
+      '/usr/local/bin/symposium-subscription-app-server': z.literal(
+        reviewed.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server'],
+      ),
+    })
+    .strict(),
+  providerInstances: z
+    .array(
+      z
+        .object({
+          name: z.string().min(1),
+          id: z.string().min(1),
+          type: z.enum(['openai', 'codex']),
+          profileName: z.string().min(1),
+        })
+        .strict(),
+    )
+    .min(1),
+  artifactVolume: z.object({ driver: z.literal('podman'), name: z.string().min(1) }).strict(),
+  allowedRoles: z.array(z.enum(['implementer', 'coder', 'reviewer'])).min(1),
+  allowedAccountProviders: z.array(z.enum(['openai', 'openai-codex'])).min(1),
+}).strict();
+const Attestation = z.discriminatedUnion('contract', [LegacyAttestation, OwnedAttestation]);
 export type SymposiumProductionAttestation = z.infer<typeof Attestation>;
+export interface SymposiumOwnedNativeHostBinding {
+  cli: string;
+  cliEnvironment: OpenShellCliEnvironment;
+  cliSha256: string;
+  gatewaySha256: string;
+  gateway: string;
+  workspace: string;
+  gatewayEndpoint: string;
+  image: string;
+  sandboxRuntimeImage: string;
+  supervisorImage: string;
+}
 
 /** These checks must inspect the selected host/gateway/driver, never sandbox output. */
 export interface SymposiumProductionPhysicalProof {
+  /** Mandatory for owned-native contracts; unavailable evidence is never inferred. */
+  verifyOwnedNativeHost?(binding: SymposiumOwnedNativeHostBinding): void;
+  verifyNativeArtifacts?(
+    image: string,
+    imageDigest: string,
+    artifacts: Readonly<Record<string, string>>,
+  ): void;
   verifyImageAndController(
     image: string,
     imageDigest: string,
@@ -96,9 +183,10 @@ export function assertSymposiumAttestedProvider(
     throw new Error('Seat provider profile is outside the host attestation');
 }
 
-type RunCli = (cli: string, args: string[]) => string;
-const runCli: RunCli = (cli, args) => {
+type RunCli = (cli: string, args: string[], cliEnvironment?: OpenShellCliEnvironment) => string;
+const runCli: RunCli = (cli, args, cliEnvironment) => {
   const result = spawnSync(cli, args, {
+    ...(cliEnvironment ? { env: validateOpenShellCliEnvironment(cliEnvironment) } : {}),
     encoding: 'utf8',
     timeout: 15_000,
     maxBuffer: 1024 * 1024,
@@ -152,14 +240,57 @@ export function verifySymposiumProductionGate(
   invoke: RunCli = runCli,
 ): {
   runtimeConfig: OpenShellRuntimeConfig;
-  allowedRoles: ReadonlySet<'implementer' | 'coder'>;
-  allowedAccountProviders: ReadonlySet<'openai'>;
+  allowedRoles: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
+  allowedAccountProviders: ReadonlySet<'openai' | 'openai-codex'>;
+  readOnlyEnforced: boolean;
   attestedProviderProfiles: ReadonlySet<string>;
   attestedProviderInstances: SymposiumProviderCapability['attestedProviderInstances'];
 } {
-  if (attestation.allowedAccountProviders?.some((provider: string) => provider === 'openai-codex'))
+  if (
+    attestation.contract !== 'openshell-v0.1-owned-native-seats' &&
+    attestation.allowedAccountProviders?.some((provider: string) => provider === 'openai-codex')
+  )
     throw new Error('Personal ChatGPT subscription production evidence is unavailable');
   const expected = Attestation.parse(attestation);
+  const owned = expected.contract === 'openshell-v0.1-owned-native-seats';
+  let ownedBinding: SymposiumOwnedNativeHostBinding | undefined;
+  if (owned) {
+    if (
+      !physical?.verifyOwnedNativeHost ||
+      !physical.verifyNativeArtifacts ||
+      !legacyConfig.cliEnvironment
+    )
+      throw new Error('Owned native host and artifact proof is unavailable');
+    if (legacyConfig.gatewayEndpoint)
+      throw new Error('Owned native host requires its private named gateway route');
+    if (
+      new Set(expected.allowedRoles).size !== expected.allowedRoles.length ||
+      new Set(expected.allowedAccountProviders).size !== expected.allowedAccountProviders.length
+    )
+      throw new Error('Owned native admission lists must be unique');
+    for (const provider of expected.allowedAccountProviders) {
+      const type = provider === 'openai-codex' ? 'codex' : 'openai';
+      if (
+        !expected.providerInstances.some(
+          (instance) => instance.type === type && instance.profileName === type,
+        )
+      )
+        throw new Error('Owned native account provider lacks an attested instance');
+    }
+    ownedBinding = {
+      cli: legacyConfig.cli,
+      cliEnvironment: validateOpenShellCliEnvironment(legacyConfig.cliEnvironment),
+      cliSha256: expected.cliSha256,
+      gatewaySha256: expected.gatewaySha256,
+      gateway: expected.gateway,
+      workspace: expected.workspace,
+      gatewayEndpoint: expected.gatewayEndpoint,
+      image: expected.image,
+      sandboxRuntimeImage: expected.sandboxRuntimeImage,
+      supervisorImage: expected.supervisorImage,
+    };
+    physical.verifyOwnedNativeHost(ownedBinding);
+  }
   const profileNames = expected.providerProfiles.map((profile) => profile.name);
   if (new Set(profileNames).size !== profileNames.length)
     throw new Error('Symposium attested provider profile names must be unique');
@@ -196,22 +327,18 @@ export function verifySymposiumProductionGate(
     digestSymposiumSeedTree(legacyConfig.seed) !== expected.seedTreeSha256
   )
     throw new Error('Symposium policy or seed digest changed');
-  const version = invoke(legacyConfig.cli, ['--version']);
+  const version = invoke(legacyConfig.cli, ['--version'], legacyConfig.cliEnvironment);
   if (version !== `openshell ${expected.cliVersion}`)
     throw new Error('OpenShell CLI version changed');
   const target = legacyConfig.gatewayEndpoint
     ? ['--gateway-endpoint', legacyConfig.gatewayEndpoint]
     : ['--gateway', legacyConfig.gateway];
   const gateway = JSON.parse(
-    invoke(legacyConfig.cli, [
-      'gateway',
-      'info',
-      ...target,
-      '--workspace',
-      legacyConfig.workspace,
-      '--output',
-      'json',
-    ]),
+    invoke(
+      legacyConfig.cli,
+      ['gateway', 'info', ...target, '--workspace', legacyConfig.workspace, '--output', 'json'],
+      legacyConfig.cliEnvironment,
+    ),
   );
   if (
     !gateway ||
@@ -219,6 +346,7 @@ export function verifySymposiumProductionGate(
     gateway.version !== expected.gatewayVersion ||
     gateway.status !== 'healthy' ||
     (legacyConfig.gatewayEndpoint && gateway.server !== legacyConfig.gatewayEndpoint) ||
+    (owned && gateway.server !== expected.gatewayEndpoint) ||
     !Array.isArray(gateway.compute_drivers) ||
     !gateway.compute_drivers.some(
       (driver: { name?: string; capabilities?: { driver_version?: string } }) =>
@@ -233,6 +361,8 @@ export function verifySymposiumProductionGate(
     expected.controllerPath,
     expected.controllerSha256,
   );
+  if (owned)
+    physical.verifyNativeArtifacts!(expected.image, expected.imageDigest, expected.nativeArtifacts);
   for (const profile of expected.providerProfiles)
     physical.verifyProviderProfile(profile.name, profile.sha256, expected.workspace);
   for (const instance of expected.providerInstances)
@@ -253,7 +383,9 @@ export function verifySymposiumProductionGate(
     expected.artifactVolume.name,
     expected.workspace,
   );
+  if (ownedBinding) physical.verifyOwnedNativeHost!(ownedBinding);
   return {
+    readOnlyEnforced: owned,
     runtimeConfig: { ...legacyConfig, cliContract: 'v0.1' },
     allowedRoles: new Set(expected.allowedRoles),
     allowedAccountProviders: new Set(expected.allowedAccountProviders),

@@ -1,3 +1,7 @@
+import {
+  validateOpenShellCliEnvironment,
+  type OpenShellCliEnvironment,
+} from './openshell-cli-environment.js';
 import { parseProviderAttachments } from './connections-gateway.js';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
@@ -83,6 +87,7 @@ export interface OpenShellRuntime {
   workspace: string;
   gatewayEndpoint?: string;
   gatewayInsecure: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
 }
 
 export interface OpenShellRuntimeConfig {
@@ -106,6 +111,7 @@ export interface OpenShellRuntimeConfig {
   gateway: string;
   gatewayEndpoint?: string;
   gatewayInsecure: boolean;
+  cliEnvironment?: OpenShellCliEnvironment;
   createDetached: boolean;
   sandboxIdLength: number;
   workdir: string;
@@ -249,17 +255,24 @@ export type ServiceProviderAccess =
 
 type Run = (args: readonly string[], signal: AbortSignal) => Promise<string>;
 
-function command(binary: string, args: readonly string[], signal: AbortSignal): Promise<string> {
+function command(
+  binary: string,
+  args: readonly string[],
+  signal: AbortSignal,
+  cliEnvironment?: OpenShellCliEnvironment,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       binary,
       [...args],
       {
-        env: Object.fromEntries(
-          ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
-            process.env[key] ? [[key, process.env[key]!]] : [],
-          ),
-        ),
+        env: cliEnvironment
+          ? validateOpenShellCliEnvironment(cliEnvironment)
+          : Object.fromEntries(
+              ['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL'].flatMap((key) =>
+                process.env[key] ? [[key, process.env[key]!]] : [],
+              ),
+            ),
         signal,
         timeout: 120_000,
         maxBuffer: 1024 * 1024,
@@ -439,7 +452,7 @@ export class OpenShellRuntimeManager {
         if (!binding.id.trim()) throw new Error('Account provider ID is required');
       }
     }
-    this.run = run ?? ((args, signal) => command(config.cli, args, signal));
+    this.run = run ?? ((args, signal) => command(config.cli, args, signal, config.cliEnvironment));
     this.runSsh = runSsh ?? ((args, signal) => command('ssh', args, signal));
   }
 
@@ -1248,6 +1261,7 @@ export class OpenShellRuntimeManager {
       workspace: this.config.workspace,
       ...(this.config.gatewayEndpoint ? { gatewayEndpoint: this.config.gatewayEndpoint } : {}),
       gatewayInsecure: this.config.gatewayInsecure,
+      ...(this.config.cliEnvironment ? { cliEnvironment: this.config.cliEnvironment } : {}),
     };
   }
 

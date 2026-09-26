@@ -51,18 +51,21 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
 }
 
 export function AccountModelPicker({
-  sessionId,
+  sessionId: requestedSessionId,
   preferredModel,
   onChange,
   onUnavailable,
   disabled = false,
+  scope = 'chat',
 }: {
+  scope?: 'chat' | 'symposium';
   disabled?: boolean;
   sessionId: string | null;
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
   onUnavailable?: () => void;
 }) {
+  const sessionId = scope === 'chat' ? requestedSessionId : null;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const selectionRef = useRef(selection);
@@ -74,7 +77,8 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [legacy, setLegacy] = useState(false);
+  const [legacyRequested, setLegacy] = useState(false);
+  const legacy = scope === 'chat' && legacyRequested;
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const callbacks = useRef({ onChange, onUnavailable });
@@ -91,12 +95,15 @@ export function AccountModelPicker({
     setSelection(null);
     setEmpty(false);
     callbacks.current.onChange(null);
-    const baseUrl = sessionId
-      ? `/api/sessions/${encodeURIComponent(sessionId)}/meta`
-      : legacy
-        ? '/api/models'
-        : '/api/accounts';
-    const url = baseUrl + (attempt ? '?refresh=1' : '');
+    const baseUrl =
+      scope === 'symposium'
+        ? '/api/symposium/accounts'
+        : sessionId
+          ? `/api/sessions/${encodeURIComponent(sessionId)}/meta`
+          : legacy
+            ? '/api/models'
+            : '/api/accounts';
+    const url = baseUrl + (attempt && scope === 'chat' ? '?refresh=1' : '');
     const controller = new AbortController();
     async function fetchMetadata() {
       const retryDelays = [100, 200, 400];
@@ -127,7 +134,12 @@ export function AccountModelPicker({
           }
           return;
         }
-        if (!response.ok) throw new Error('Account information unavailable. Retry to continue.');
+        if (!response.ok)
+          throw new Error(
+            scope === 'symposium'
+              ? 'Symposium account catalog unavailable. Retry to continue.'
+              : 'Account information unavailable. Retry to continue.',
+          );
         const data = await response.json();
         if (disposed) return;
         if (sessionId) {
@@ -210,7 +222,7 @@ export function AccountModelPicker({
     };
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, attempt, legacy]);
+  }, [sessionId, attempt, legacy, scope]);
   if (error)
     return (
       <>
@@ -218,7 +230,7 @@ export function AccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
-        {!sessionId && !legacy && (
+        {scope === 'chat' && !sessionId && !legacy && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>
@@ -232,10 +244,16 @@ export function AccountModelPicker({
   if (empty)
     return (
       <>
-        <span>No account profiles configured.</span>
-        <button disabled={disabled} onClick={() => setLegacy(true)}>
-          Use legacy server account
-        </button>
+        <span>
+          {scope === 'symposium'
+            ? 'No Symposium account profiles configured.'
+            : 'No account profiles configured.'}
+        </span>
+        {scope === 'chat' && (
+          <button disabled={disabled} onClick={() => setLegacy(true)}>
+            Use legacy server account
+          </button>
+        )}
       </>
     );
   if (!selection) return <span>Loading accounts…</span>;
@@ -271,7 +289,7 @@ export function AccountModelPicker({
           ))}
         </select>
       )}
-      {!legacy && (
+      {scope === 'chat' && !legacy && (
         <button
           disabled={disabled}
           aria-label="Edit account alias"
@@ -380,7 +398,7 @@ export function AccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {!legacy && (
+      {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
           Refresh models
         </button>

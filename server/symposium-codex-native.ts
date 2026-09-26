@@ -84,6 +84,7 @@ export async function createCodexNativeSeat(
   input: OpenAiCodexSeatInput,
   auth: Pick<CodexConversationOptions, 'profile' | 'modelProvider' | 'verifyBinding'> & {
     assertCommand(command: readonly string[]): void;
+    beforeDispatch?(): void;
     runtimeConfig?: Record<string, unknown>;
   },
 ): Promise<SymposiumNativeSeat> {
@@ -162,6 +163,7 @@ export async function createCodexNativeSeat(
     verifyBinding: auth.verifyBinding,
     onProviderDispatch: (commandId) => {
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
+      auth.beforeDispatch?.();
       callbacks?.beforeDispatch();
       dispatched = true;
     },

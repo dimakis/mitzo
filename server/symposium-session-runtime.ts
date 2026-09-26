@@ -1,3 +1,4 @@
+import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
   type SymposiumProviderCapability,
@@ -57,7 +58,13 @@ export type SymposiumProviderIdentityResolver = (
 export function createOpenShellProviderIdentityResolver(
   config: Pick<
     OpenShellRuntimeConfig,
-    'cli' | 'gateway' | 'gatewayEndpoint' | 'gatewayInsecure' | 'workspace' | 'cliContract'
+    | 'cli'
+    | 'gateway'
+    | 'gatewayEndpoint'
+    | 'gatewayInsecure'
+    | 'workspace'
+    | 'cliContract'
+    | 'cliEnvironment'
   >,
   run?: (args: readonly string[]) => string,
   spawn: typeof spawnSync = spawnSync,
@@ -82,6 +89,9 @@ export function createOpenShellProviderIdentityResolver(
     run ??
     ((argv: readonly string[]) => {
       const result = spawn(config.cli, [...argv], {
+        ...(config.cliEnvironment
+          ? { env: validateOpenShellCliEnvironment(config.cliEnvironment) }
+          : {}),
         encoding: 'utf8',
         timeout: 15_000,
         maxBuffer: 1_000_000,
@@ -289,6 +299,7 @@ export interface SymposiumSharedSandboxOwnerDeps {
   verifyHostCapability?: () => SymposiumProviderCapability;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
+  assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   managerFactory?: (config: BoundOpenShellRuntimeConfig) => {
     ensure(
       sessionId: string,
@@ -554,6 +565,9 @@ export class SymposiumPerSeatSandboxOwner {
       workspace: this.deps.runtimeConfig.workspace,
       gatewayEndpoint: this.deps.runtimeConfig.gatewayEndpoint,
       gatewayInsecure: this.deps.runtimeConfig.gatewayInsecure,
+      ...(this.deps.runtimeConfig.cliEnvironment
+        ? { cliEnvironment: this.deps.runtimeConfig.cliEnvironment }
+        : {}),
     };
     if (sessionId !== this.deps.sessionId)
       throw new Error('Seat sandbox owner belongs to another Symposium session');
@@ -922,7 +936,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
   /** Roles certified by the host capability gate. A production gate supplies this explicitly. */
-  allowedSeatRoles?: ReadonlySet<'implementer' | 'coder'>;
+  allowedSeatRoles?: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
   allowedAccountProviders?: ReadonlySet<'openai' | 'anthropic-vertex' | 'openai-codex'>;
   /** Re-probe selected host capability before every provider mutation/admission. */
   artifactRequest?: (sessionId: string, seatId: string, generation: number) => ArtifactLeaseRequest;
@@ -973,6 +987,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
+                      assertSubscriptionDispatch: deps.assertSubscriptionDispatch,
                     })
                   : createClaudeVertexSeat({
                       ...input,
@@ -999,7 +1014,10 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       const capability = deps.verifyHostCapability?.();
       const seat = config.seats.find((candidate) => candidate.id === seatId);
       if (!seat) throw new Error('Symposium seat is no longer configured');
-      if (deps.allowedSeatRoles && !deps.allowedSeatRoles.has(seat.role as 'implementer' | 'coder'))
+      if (
+        deps.allowedSeatRoles &&
+        !deps.allowedSeatRoles.has(seat.role as 'implementer' | 'coder' | 'reviewer')
+      )
         throw new Error('Symposium seat role is outside the verified native capability');
       const membership = deps.store.getLatestSymposiumMembership(sessionId, seatId);
       if (membership?.generation !== generation || membership.state !== 'active')
@@ -1062,7 +1080,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       );
       if (
         deps.allowedSeatRoles &&
-        active.some((seat) => !deps.allowedSeatRoles!.has(seat.role as 'implementer' | 'coder'))
+        active.some(
+          (seat) => !deps.allowedSeatRoles!.has(seat.role as 'implementer' | 'coder' | 'reviewer'),
+        )
       )
         throw new Error('Symposium seat role is outside the verified native capability');
       if (
