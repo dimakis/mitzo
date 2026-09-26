@@ -111,7 +111,7 @@ export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undef
 }
 
 interface ClaudeProcess extends EventEmitter {
-  stdin: { end(data: string): void };
+  stdin: EventEmitter & { end(data: string): void };
   stdout: EventEmitter;
   stderr: EventEmitter;
   kill(signal?: NodeJS.Signals): unknown;
@@ -222,6 +222,9 @@ export async function createClaudeVertexSeat(
             }
           });
           process.on('error', fail);
+          // The SSH relay may close its pipe before consuming the prompt. Keep
+          // this listener after settlement too, so late pipe errors stay handled.
+          process.stdin.on('error', fail);
           process.on('close', async (code: number | null) => {
             if (settled) return;
             if (code !== 0 || !result?.success || !threadId || !accepted) return fail();
@@ -238,7 +241,11 @@ export async function createClaudeVertexSeat(
               ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
             });
           });
-          process.stdin.end(execution.content);
+          try {
+            process.stdin.end(execution.content);
+          } catch {
+            fail();
+          }
         },
       );
     },

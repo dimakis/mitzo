@@ -319,6 +319,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       if (!executor) {
         executor = new SymposiumOpenShellSeatExecutor({
           facts: deps.store,
+          attemptRegistry: deps.attemptRegistry,
           profiles: deps.profiles,
           currentProfiles: deps.currentProfiles,
           hostGrants: deps.hostGrants,

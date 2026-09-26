@@ -51,8 +51,29 @@ describe('durable native attempt registry', () => {
     registry.close();
   });
 
+  it('cannot treat a transport launch failure as a never-launched preparation', async () => {
+    const confirm = vi.fn().mockRejectedValue(new Error('No exact proof'));
+    const registry = new SymposiumAttemptRegistry(registryPath(), {
+      launch: vi.fn(() => {
+        throw new Error('Launch response lost');
+      }),
+      confirm,
+    });
+    registry.prepare(claim);
+    expect(() =>
+      registry.launch({ ...claim, access: 'read', command: ['/usr/bin/test-controller'] }),
+    ).toThrow(/quarantined/);
+    await expect(registry.recover(claim.claimToken)).rejects.toThrow(/quarantined/);
+    expect(confirm).toHaveBeenCalledWith(sandbox, claim.claimToken);
+    expect(registry.get(claim.claimToken)?.state).toBe('uncertain');
+    registry.close();
+  });
+
   it('refuses a registry outside a private host directory', () => {
-    expect(() => new SymposiumAttemptRegistry('/private/tmp/public-claims.db')).toThrow(
+    const dir = mkdtempSync(join(tmpdir(), 'symposium-public-attempt-'));
+    dirs.push(dir);
+    chmodSync(dir, 0o755);
+    expect(() => new SymposiumAttemptRegistry(join(dir, 'claims.db'))).toThrow(
       /private host directory/,
     );
   });

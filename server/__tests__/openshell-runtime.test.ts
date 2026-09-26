@@ -186,6 +186,95 @@ describe('OpenShell runtime lifecycle', () => {
       run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
     ).toBe(true);
   });
+  it.each(['failure', 'unconfirmed'] as const)(
+    'retries an obsolete account detach after %s across manager restart',
+    async (failureMode) => {
+      let created = false;
+      const attached = new Set<string>();
+      let failDetach = true;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider' && args.includes('list'))
+          return JSON.stringify([
+            { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+            {
+              name: 'vertex-work',
+              type: 'google-vertex-ai',
+              id: 'vertex-provider-id',
+              workspace: 'mitzo',
+            },
+          ]);
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready();
+        }
+        if (args.includes('create')) {
+          created = true;
+          args.forEach((value, index) => {
+            if (args[index - 1] === '--provider') attached.add(value);
+          });
+          return '{}';
+        }
+        if (args.includes('attach')) attached.add(args.at(-1)!);
+        if (args.includes('detach')) {
+          if (failDetach) {
+            if (failureMode === 'failure') throw new Error('gateway temporarily unavailable');
+          } else attached.delete(args.at(-1)!);
+        }
+        if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+          return providerList(sandboxNameForConversation('conversation'), [...attached]);
+        return '{}';
+      });
+      const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+      const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+      const signal = new AbortController().signal;
+      await new OpenShellRuntimeManager(
+        { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      await new OpenShellRuntimeManager(
+        {
+          ...config,
+          verifyAccountProviderUnion: () => {},
+          accountProviderBindings: [owner, vertex],
+        },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work', 'vertex-work']);
+      const reducedConfig = {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [owner],
+      };
+      await expect(
+        new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal),
+      ).rejects.toThrow(
+        failureMode === 'failure' ? /reconciliation failed/ : /attachments are not confirmed/,
+      );
+      const policyPath = join(
+        privateRoot,
+        'openshell-provider-policy',
+        `${sandboxNameForConversation('conversation')}.json`,
+      );
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+        pendingDetach: ['vertex-work'],
+      });
+      expect(attached.has('vertex-work')).toBe(true);
+      failDetach = false;
+      // A fresh manager must recover using the durable file, not process-local history.
+      await new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+      });
+      expect(
+        run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
+      ).toBe(true);
+    },
+  );
   it('cannot confirm a stale union after a delayed attach and lets the new revision clean it up', async () => {
     let created = false;
     let revision = 1;

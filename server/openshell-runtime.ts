@@ -113,6 +113,8 @@ function providerPolicyFingerprint(serviceProviders: string[]) {
 interface ProviderPolicyRecord {
   automatic: string[];
   granted: string[];
+  /** Previously managed attachments awaiting confirmed removal; never approval to attach. */
+  pendingDetach?: string[];
 }
 interface ProviderPolicyState {
   read(sandboxName: string): ProviderPolicyRecord | undefined;
@@ -139,10 +141,20 @@ class FileProviderPolicyState implements ProviderPolicyState {
       ) ||
       !value.granted.every(
         (provider) => typeof provider === 'string' && isServiceProviderName(provider),
-      )
+      ) ||
+      (value.pendingDetach !== undefined &&
+        (!Array.isArray(value.pendingDetach) ||
+          !value.pendingDetach.every(
+            (provider) =>
+              typeof provider === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(provider),
+          )))
     )
       throw new Error('OpenShell provider policy state is invalid');
-    return { automatic: [...new Set(value.automatic)], granted: [...new Set(value.granted)] };
+    return {
+      automatic: [...new Set(value.automatic)],
+      granted: [...new Set(value.granted)],
+      ...(value.pendingDetach ? { pendingDetach: [...new Set(value.pendingDetach)] } : {}),
+    };
   }
 
   write(sandboxName: string, record: ProviderPolicyRecord) {
@@ -915,7 +927,7 @@ export class OpenShellRuntimeManager {
         this.config.verifyAccountProviderUnion?.();
         const automatic = automaticProviders();
         const persisted = retained ? this.providerPolicyState.read(name) : undefined;
-        const previous =
+        const previous: ProviderPolicyRecord | undefined =
           persisted ??
           (retained && sandbox.labels?.[PROVIDER_POLICY_LABEL] === policyFingerprint
             ? { automatic, granted: [] }
@@ -944,7 +956,9 @@ export class OpenShellRuntimeManager {
           ? [...actual].filter(
               (provider) =>
                 provider !== accountProvider &&
-                (isServiceProviderName(provider) || previous?.automatic.includes(provider)) &&
+                (isServiceProviderName(provider) ||
+                  previous?.automatic.includes(provider) ||
+                  previous?.pendingDetach?.includes(provider)) &&
                 !desired.has(provider),
             )
           : [];
@@ -952,34 +966,36 @@ export class OpenShellRuntimeManager {
         // If membership changes mid-call, the next revision can identify and
         // detach a stale attachment even when this operation returns unknown.
         if (this.config.accountProviderBindings)
-          this.providerPolicyState.write(name, { automatic, granted });
+          this.providerPolicyState.write(name, {
+            automatic,
+            granted,
+            ...(detach.length ? { pendingDetach: detach } : {}),
+          });
         await this.reconcileServiceProviders(name, owner, attach, detach, signal);
         this.config.verifyAccountProviderUnion?.();
-        if (!this.config.accountProviderBindings)
-          this.providerPolicyState.write(name, { automatic, granted });
+        if (this.config.accountProviderBindings) {
+          const confirmed = new Set(
+            parseProviderAttachments(
+              await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
+              name,
+            ),
+          );
+          const expected = new Set([accountProvider, ...desired]);
+          if (
+            confirmed.size !== expected.size ||
+            [...expected].some((provider) => !confirmed.has(provider))
+          )
+            throw new Error('Shared Symposium provider attachments are not confirmed');
+          this.config.verifyAccountProviderUnion?.();
+        }
+        // Clear removal history only after the physical attachment set is confirmed.
+        this.providerPolicyState.write(name, { automatic, granted });
       });
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
-    if (this.config.accountProviderBindings) {
-      const actual = new Set(
-        parseProviderAttachments(
-          await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-          name,
-        ),
-      );
-      const policy = this.providerPolicyState.read(name);
-      const expected = new Set([
-        accountProvider,
-        ...automaticProviders(),
-        ...(policy?.granted ?? []),
-      ]);
-      if (actual.size !== expected.size || [...expected].some((provider) => !actual.has(provider)))
-        throw new Error('Shared Symposium provider attachments are not confirmed');
-      this.config.verifyAccountProviderUnion?.();
-    }
     return {
       sandboxName: name,
       ...(sandbox.id ? { sandboxId: sandbox.id } : {}),
@@ -1037,6 +1053,7 @@ export class OpenShellRuntimeManager {
           ),
         ],
         granted: [...new Set([...(previous?.granted ?? []), provider])],
+        ...(previous?.pendingDetach ? { pendingDetach: previous.pendingDetach } : {}),
       });
       try {
         await this.run(
@@ -1075,6 +1092,7 @@ export class OpenShellRuntimeManager {
       this.providerPolicyState.write(runtime.sandboxName, {
         automatic: previous?.automatic ?? [],
         granted: (previous?.granted ?? []).filter((granted) => granted !== provider),
+        ...(previous?.pendingDetach ? { pendingDetach: previous.pendingDetach } : {}),
       });
       try {
         await this.run(

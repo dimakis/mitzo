@@ -53,13 +53,38 @@ export class SymposiumAttemptRegistry {
       updated_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS symposium_native_attempts_sandbox
-      ON symposium_native_attempts(sandbox_name, state);`);
+      ON symposium_native_attempts(sandbox_name, state);
+    CREATE TABLE IF NOT EXISTS symposium_native_preparations (
+      claim_token TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0, 1))
+    );`);
+  }
+
+  /** Registered before asynchronous setup. Every native launch must pass reserve(). */
+  prepare(input: { claimToken: string; sessionId: string }) {
+    if (!input.claimToken || !input.sessionId) throw new Error('Invalid native attempt identity');
+    this.db.transaction(() => {
+      if (this.get(input.claimToken)) throw new Error('Native attempt claim already exists');
+      this.db
+        .prepare(
+          'INSERT INTO symposium_native_preparations (claim_token, session_id) VALUES (?, ?)',
+        )
+        .run(input.claimToken, input.sessionId);
+    })();
   }
 
   reserve(input: { claimToken: string; sessionId: string; sandbox: ControlledAttemptSandbox }) {
     if (!input.claimToken || !input.sessionId || !input.sandbox.sandboxName)
       throw new Error('Invalid native attempt identity');
     this.db.transaction(() => {
+      const preparation = this.db
+        .prepare(
+          'SELECT session_id AS sessionId, closed FROM symposium_native_preparations WHERE claim_token = ?',
+        )
+        .get(input.claimToken) as { sessionId: string; closed: number } | undefined;
+      if (preparation && (preparation.closed || preparation.sessionId !== input.sessionId))
+        throw new Error('Native attempt preparation is closed or belongs to another session');
       this.assertSandboxAvailable(input.sandbox.sandboxName);
       const now = Date.now();
       this.db
@@ -76,6 +101,10 @@ export class SymposiumAttemptRegistry {
           now,
           now,
         );
+      // Commit the unknown process state before any transport side effect.
+      this.db
+        .prepare('DELETE FROM symposium_native_preparations WHERE claim_token = ?')
+        .run(input.claimToken);
     })();
   }
 
@@ -155,8 +184,18 @@ export class SymposiumAttemptRegistry {
     claimToken: string,
     confirm: typeof confirmControlledAttemptStopped = this.transport.confirm,
   ): Promise<void> {
-    const row = this.get(claimToken);
-    if (!row) throw new Error('Native attempt claim is unavailable');
+    const row = this.db.transaction(() => {
+      const launched = this.get(claimToken);
+      if (launched) return launched;
+      // Closing and launch reservation serialize in the same database. A late
+      // setup continuation can never launch after this proof is issued.
+      const result = this.db
+        .prepare('UPDATE symposium_native_preparations SET closed = 1 WHERE claim_token = ?')
+        .run(claimToken);
+      if (result.changes !== 1) throw new Error('Native attempt claim is unavailable');
+      return undefined;
+    })();
+    if (!row) return;
     if (row.state === 'confirmed') return;
     try {
       await confirm({ sandboxName: row.sandboxName, workdir: row.workdir }, claimToken);

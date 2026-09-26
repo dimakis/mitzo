@@ -111,6 +111,51 @@ describe('Claude fixture over claim controller and durable registry', () => {
     registry.close();
   });
 
+  it.each(['async pipe error', 'synchronous end error'] as const)(
+    'quarantines %s until exact cancellation proves cleanup',
+    async (failure) => {
+      const confirm = vi.fn().mockResolvedValue(undefined) as SymposiumAttemptTransport['confirm'];
+      const { child, registry } = harness(confirm);
+      const pipeError = Object.assign(new Error('write EPIPE'), { code: 'EPIPE' });
+      if (failure === 'async pipe error') {
+        vi.spyOn(child.stdin, '_write').mockImplementation((_chunk, _encoding, callback) => {
+          callback(pipeError);
+        });
+      } else {
+        vi.spyOn(child.stdin, 'end').mockImplementation(() => {
+          throw pipeError;
+        });
+      }
+      try {
+        const native = await createClaudeVertexSeat({
+          sandbox,
+          route,
+          execution,
+          attemptRegistry: registry,
+        });
+        const accepted = vi.fn();
+        const run = native.run(execution, { beforeDispatch: vi.fn(), accepted });
+        await expect(run).rejects.toThrow(/uncertain outcome/);
+        expect(accepted).not.toHaveBeenCalled();
+        expect(registry.get(execution.claimToken)?.state).toBe('uncertain');
+        expect(confirm).not.toHaveBeenCalled();
+        expect(() => registry.assertSandboxAvailable(sandbox.sandboxName)).toThrow(/quarantined/);
+        // Process closure cannot turn a failed prompt write into success.
+        child.emit('close', 0);
+        expect(registry.get(execution.claimToken)?.state).toBe('uncertain');
+        // Repeated or delayed stream errors must remain handled after rejection.
+        expect(() => child.stdin.emit('error', pipeError)).not.toThrow();
+        await native.cancel();
+        expect(confirm).toHaveBeenCalledWith(sandbox, execution.claimToken);
+        expect(registry.get(execution.claimToken)?.state).toBe('confirmed');
+        expect(() => child.stdin.emit('error', pipeError)).not.toThrow();
+        expect(registry.get(execution.claimToken)?.state).toBe('confirmed');
+      } finally {
+        registry.close();
+      }
+    },
+  );
+
   it('cancels the exact claim and does not mistake transport closure for a result', async () => {
     const confirm = vi.fn().mockResolvedValue(undefined) as SymposiumAttemptTransport['confirm'];
     const { child, registry } = harness(confirm);
