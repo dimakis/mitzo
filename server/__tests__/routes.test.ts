@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
-import type { Express } from 'express';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
@@ -157,7 +158,7 @@ import { readCodexQueue } from '../codex-chat-session.js';
 import { resolvePending } from '../permissions.js';
 
 const overviewBroadcast = vi.fn();
-let app: Express;
+let app: Server;
 let authCookie: string;
 let authSessionId: string;
 let setOpenShellLifecycleService: typeof import('../app.js').setOpenShellLifecycleService;
@@ -201,7 +202,7 @@ beforeAll(async () => {
   process.env.NTFY_AUTH_TOKEN = 'test-ntfy-token';
 
   const mod = await import('../app.js');
-  app = mod.app;
+  app = await listenOnLoopback(mod.app);
   setOpenShellLifecycleService = mod.setOpenShellLifecycleService;
   mod.setOverviewEmitter({
     scheduleBroadcast: overviewBroadcast,
@@ -212,6 +213,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  if (app) await closeTestServer(app);
   const { releaseTransportConnection } = await import('../transport-auth-ownership.js');
   releaseTransportConnection('conn-abc', authSessionId);
   releaseTransportConnection('conn-other', authSessionId);
