@@ -1,7 +1,7 @@
 .reviewer-sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1100;
   background: #0008;
   display: flex;
   justify-content: flex-end;
@@ -31,6 +31,25 @@
   width: 100%;
   box-sizing: border-box;
   margin-top: 0.3rem;
+}
+.reviewer-sheet .chat-model-select {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 2.75rem;
+  font-size: 1rem;
+}
+.reviewer-sheet label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.reviewer-sheet input[type='checkbox'] {
+  display: inline-block;
+  flex: 0 0 1.1rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.15rem 0 0;
 }
 .reviewer-sheet textarea {
   min-height: 7rem;
