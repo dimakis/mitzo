@@ -37,3 +37,9 @@ The view checks the returned record ID and content hash against the selected
 immutable reference; the server continues to enforce owner/session scope and
 stored-content integrity. Failed or mismatched reads show an error and retry,
 never a substituted record or unauthenticated browser navigation.
+
+Each prepared record also exposes a permanent app route at
+`/sessions/:sessionId/review-records/:recordId?hash=:contentHash`. This copyable
+link reloads the authenticated record independently of the review panel's state,
+including after a refresh. The URL contains identity and integrity metadata, not
+credentials; opening it still requires the owning Mitzo login.
