@@ -24,7 +24,7 @@ Git-directory boundary script. The existing reviewed publisher transport and its
 trust manifest remain unchanged. Blob
 object IDs bind committed content; paths and executable modes are included in the
 digest. This is a committed-tree manifest digest, not a working-directory checksum.
-Only regular blobs with modes 100644/100755 are supported. Symlinks, submodules,
+Empty committed trees have the canonical empty-array digest. Only regular blobs with modes 100644/100755 are supported. Symlinks, submodules,
 invalid UTF-8, control characters, duplicate/escaping paths and oversized manifests
 fail closed. Existing opaque review hashes are not converted or assumed compatible.
 
@@ -33,8 +33,10 @@ match this digest. A native record producer must deliberately implement this
 identity contract before its records can pass. Git state is inspected before and
 after digest collection, and again after remote policy/PR reads. Current review
 history, builder selection, membership generation, capability operation/input,
-connection revision/grant, volume labels, driver configuration and existing writer
-lease are rechecked. The lease is not acquired or released by this adapter.
+connection revision/grant, current seat-scoped connection attachment to the exact
+builder sandbox and gateway provider, volume labels, driver configuration and existing writer
+lease are rechecked. An existing durable approval card and its hash must match the
+new preflight exactly; a preview cannot replace a pending approval. The lease is not acquired or released by this adapter.
 
 These repeated checks produce an inspection preview, not a lasting lock or approval.
 An existing writer lease alone does not freeze the builder's process. Publication
