@@ -279,6 +279,7 @@ function SessionDirectorPanel({
         body: JSON.stringify({ ...payload, idempotencyKey }),
       });
       pendingKeys.current.delete(fingerprint);
+      window.dispatchEvent(new Event('symposium-roster-changed'));
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Director action failed');

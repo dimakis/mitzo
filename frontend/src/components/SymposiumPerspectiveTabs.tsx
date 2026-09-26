@@ -7,11 +7,13 @@ export function SymposiumPerspectiveTabs({
   selected,
   onSelect,
   children,
+  compact = false,
 }: {
   seats: { id: string; name: string }[];
   selected: SymposiumPerspective;
   onSelect: (next: SymposiumPerspective) => void;
   children?: ReactNode;
+  compact?: boolean;
 }) {
   const options = [{ id: 'all', name: 'All' }, ...seats];
   const gesture = useRef<{ x: number; y: number } | null>(null);
@@ -54,6 +56,7 @@ export function SymposiumPerspectiveTabs({
     if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
     chooseOffset(dx < 0 ? 1 : -1);
   }
+  if (compact) return <div className="symposium-perspectives">{children}</div>;
   return (
     <div className="symposium-perspectives" onTouchStart={onStart} onTouchEnd={onEnd}>
       <div
