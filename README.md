@@ -136,10 +136,12 @@ name, ID and type to its reviewed profile; the host must verify that association
 in the selected workspace. Missing instance mappings or physical proof fail closed.
 The first supported attestation scope is OpenAI
 writer roles. Claude via Vertex and reviewer admission remain closed pending their
-live acceptance checks. ChatGPT subscription accounts (`openai-codex`), including
-personal subscriptions available elsewhere in Mitzo, do not yet have a Symposium
-seat route. The local Podman adapter cannot yet attest effective gateway admission
-configuration. See the
+live acceptance checks. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
+uses upstream Codex provider attachments and a private native authentication bootstrap.
+It rejects the older private-gateway OAuth binding and host login imports, and keeps
+subscription production admission closed pending independent account, credential
+isolation and live acceptance evidence. The local Podman adapter cannot yet attest
+effective gateway admission configuration. See the
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.

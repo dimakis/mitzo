@@ -357,13 +357,20 @@ interface Options {
 export function selectedOpenShellAccountRoute(
   options: Pick<Options, 'binding' | 'model' | 'profile'>,
 ): OpenShellAccountRoute {
+  if (options.profile.nativeAuth)
+    throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
+  if (
+    options.profile.planType !== 'api' &&
+    options.profile.sandboxProviderType !== 'openai-codex-oauth'
+  )
+    throw new Error('ChatGPT compatibility provider binding is unavailable');
   const model = options.model ?? options.binding.model;
   const provider = options.profile.sandboxProvider!;
   if (options.profile.planType === 'api') return { kind: 'api', provider, model };
   return {
     kind: 'chatgpt-subscription',
     provider,
-    providerType: options.profile.sandboxProviderType!,
+    providerType: 'openai-codex-oauth',
     providerId: options.profile.sandboxProviderId!,
     grantId: options.profile.sandboxGrantId!,
     model,
@@ -385,6 +392,8 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
+  if (options.profile.nativeAuth)
+    throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   if (service && openShellRuntimeConfig(process.env))
     // On-demand connections are supplied only as grant candidates. They are

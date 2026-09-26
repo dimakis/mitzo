@@ -779,3 +779,69 @@ it.each(['anthropic-vertex', 'google-vertex'])(
     expect(isPrivateCodexPath(credentialRef)).toBe(true);
   },
 );
+
+describe('native personal ChatGPT selection', () => {
+  const native = {
+    id: 'personal-native',
+    label: 'Personal ChatGPT',
+    provider: 'openai-codex',
+    nativeAuth: 'sandbox-chatgpt',
+    email: 'personal@example.test',
+    planType: 'plus',
+    sandboxProvider: 'codex-personal',
+    sandboxProviderId: 'codex-object',
+    sandboxProviderType: 'codex',
+    models: [{ id: 'luna', label: 'Luna' }],
+  };
+
+  it('pins the selected personal account and model without exposing auth metadata', () => {
+    const profiles = new AccountProfiles([native], { codexEnabled: true });
+    const binding = profiles.resolve(native.id, 'luna');
+    expect(binding).toMatchObject({
+      accountId: native.id,
+      provider: 'openai-codex',
+      model: 'luna',
+    });
+    expect(profiles.codexProfile(binding)).toMatchObject({
+      nativeAuth: 'sandbox-chatgpt',
+      sandboxProviderType: 'codex',
+      sandboxProviderId: 'codex-object',
+    });
+    expect(profiles.privateCodexRoots()).toEqual([]);
+    const catalog = profiles.catalog();
+    expect(catalog[0]).toMatchObject({ id: native.id, billing: 'chatgpt-subscription' });
+    expect(JSON.stringify(catalog)).not.toContain('codex-object');
+    expect(() => profiles.resolve('work', 'luna')).toThrow('Account is unavailable');
+    expect(() => profiles.resolve(native.id, 'unknown')).toThrow('Model is unavailable');
+    const rotated = new AccountProfiles([{ ...native, sandboxProviderId: 'rotated' }], {
+      codexEnabled: true,
+    });
+    expect(() => rotated.resume(binding)).toThrow('configuration changed');
+  });
+
+  it.each([
+    { credentialRef: '/host/login' },
+    { sandboxGrantId: 'compat-grant' },
+    { workspaceId: 'work-org' },
+    { planType: 'api' },
+    { sandboxProviderType: 'openai-codex-oauth' },
+    { sandboxProviderId: undefined },
+    { nativeAuth: undefined },
+  ])('rejects ambiguous or non-personal native routing %j', (change) => {
+    expect(() => new AccountProfiles([{ ...native, ...change }], { codexEnabled: true })).toThrow(
+      'Invalid account profiles',
+    );
+  });
+
+  it('never performs host or compatibility discovery for a native seat', async () => {
+    brokerDiscovery.hostLaunch.mockClear();
+    brokerDiscovery.launch.mockClear();
+    brokerDiscovery.ensure.mockClear();
+    const profiles = new AccountProfiles([native], { codexEnabled: true });
+    await profiles.refresh(true);
+    expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+    expect(brokerDiscovery.launch).not.toHaveBeenCalled();
+    expect(brokerDiscovery.ensure).not.toHaveBeenCalled();
+    expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  });
+});

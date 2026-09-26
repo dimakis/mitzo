@@ -47,6 +47,7 @@ const CodexProfile = z
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
     provider: z.literal('openai-codex'),
+    nativeAuth: z.literal('sandbox-chatgpt').optional(),
     credentialRef: z.string().refine(isAbsolute).optional(),
     email: z.string().min(1),
     planType: z.string().min(1),
@@ -55,12 +56,34 @@ const CodexProfile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
-    sandboxProviderType: z.literal('openai-codex-oauth').optional(),
+    sandboxProviderType: z.enum(['openai-codex-oauth', 'codex']).optional(),
     sandboxProviderId: z.string().min(1).max(128).optional(),
     sandboxGrantId: z.string().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
   })
   .superRefine((profile, context) => {
+    if (profile.nativeAuth) {
+      if (
+        !profile.sandboxProvider ||
+        !profile.sandboxProviderId ||
+        profile.sandboxProviderType !== 'codex' ||
+        profile.credentialRef ||
+        profile.sandboxGrantId ||
+        profile.workspaceId ||
+        profile.planType.toLowerCase() === 'api'
+      )
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message:
+            'Native personal ChatGPT requires an isolated Codex provider without host or compatibility credentials',
+        });
+      return;
+    }
+    if (profile.sandboxProviderType === 'codex')
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Codex provider requires explicit native sandbox authentication',
+      });
     const brokerFields = [
       profile.sandboxProviderType,
       profile.sandboxProviderId,
@@ -301,7 +324,7 @@ export class AccountProfiles {
       throw new Error('OpenShell runtime configuration is required for brokered model discovery');
     if (
       !profile.sandboxProvider ||
-      !profile.sandboxProviderType ||
+      profile.sandboxProviderType !== 'openai-codex-oauth' ||
       !profile.sandboxProviderId ||
       !profile.sandboxGrantId
     )
@@ -337,6 +360,8 @@ export class AccountProfiles {
   private async discoverCodexModels(
     profile: Extract<z.infer<typeof Profile>, { provider: 'openai-codex' }>,
   ) {
+    if (profile.nativeAuth)
+      throw new Error('Native ChatGPT model discovery requires the isolated Symposium runtime');
     const deadline = new AbortController();
     const timeout = setTimeout(
       () => deadline.abort(),
@@ -408,6 +433,7 @@ export class AccountProfiles {
                 profile.sandboxProviderType,
                 profile.sandboxProviderId,
                 profile.sandboxGrantId,
+                ...(profile.nativeAuth ? [profile.nativeAuth] : []),
               ]
             : profile.provider === 'openai'
               ? [
@@ -492,6 +518,7 @@ export class AccountProfiles {
     return {
       accountId: profile.id,
       accountLabel: profile.label,
+      ...(profile.nativeAuth ? { nativeAuth: profile.nativeAuth } : {}),
       credentialRef: profile.credentialRef,
       email: profile.email,
       planType: profile.planType,

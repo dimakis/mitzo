@@ -1,3 +1,4 @@
+import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import { createHash } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
@@ -149,7 +150,7 @@ interface ClaudeProcess extends EventEmitter {
 }
 
 export interface ClaudeVertexSeatInput {
-  sandbox: { sandboxName: string; workdir: string };
+  sandbox: ControlledAttemptSandbox;
   route: ClaudeRoute;
   execution: SymposiumSeatExecution;
   attemptRegistry?: SymposiumAttemptRegistry;

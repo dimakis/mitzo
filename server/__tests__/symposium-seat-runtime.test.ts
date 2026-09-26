@@ -379,7 +379,14 @@ describe('last native Symposium dispatch fence', () => {
         owner: {
           ensure: async () => {
             if (failure === 'setup') throw new Error('Setup failed');
-            return { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' };
+            return {
+              sandboxName: 'shared',
+              workdir: '/sandbox/workspaces/mgmt',
+              cli: 'openshell',
+              gateway: 'test-gateway',
+              workspace: 'test-workspace',
+              gatewayInsecure: false,
+            };
           },
           readOnlyEnforced: { openaiApi: true, claudeVertex: false },
         },
@@ -415,7 +422,14 @@ describe('last native Symposium dispatch fence', () => {
     const work = fixture();
     const directory = registryDirectory();
     const host = initializeSymposiumNativeHost(directory);
-    const sandbox = { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' };
+    const sandbox = {
+      sandboxName: 'shared',
+      workdir: '/sandbox/workspaces/mgmt',
+      cli: 'openshell',
+      gateway: 'test-gateway',
+      workspace: 'test-workspace',
+      gatewayInsecure: false,
+    };
     host.registry.prepare(work.input);
     // reserve is the durable pre-side-effect boundary; a crash here is uncertain.
     host.registry.reserve({ ...work.input, sandbox });
@@ -493,7 +507,14 @@ describe('last native Symposium dispatch fence', () => {
       hostGrants,
       verifyHostCapability,
       owner: {
-        ensure: async () => ({ sandboxName: 'seat', workdir: '/sandbox/workspaces/mgmt' }),
+        ensure: async () => ({
+          sandboxName: 'seat',
+          workdir: '/sandbox/workspaces/mgmt',
+          cli: 'openshell',
+          gateway: 'test-gateway',
+          workspace: 'test-workspace',
+          gatewayInsecure: false,
+        }),
         readOnlyEnforced: { openaiApi: true, claudeVertex: false },
       },
       recordAccepted: vi.fn(() => true),
@@ -532,7 +553,14 @@ describe('last native Symposium dispatch fence', () => {
       profiles,
       hostGrants: { verifySeat },
       owner: {
-        ensure: async () => ({ sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' }),
+        ensure: async () => ({
+          sandboxName: 'shared',
+          workdir: '/sandbox/workspaces/mgmt',
+          cli: 'openshell',
+          gateway: 'test-gateway',
+          workspace: 'test-workspace',
+          gatewayInsecure: false,
+        }),
         readOnlyEnforced: { openaiApi: true, claudeVertex: false },
       },
       recordAccepted: (input) => {
@@ -575,7 +603,14 @@ describe('last native Symposium dispatch fence', () => {
     const sent: Array<Record<string, unknown>> = [];
     const controllerProof = vi.fn().mockResolvedValue(undefined);
     const native = await createOpenAiCodexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
       execution: profiled,
       store: {} as never,
@@ -636,7 +671,14 @@ describe('last native Symposium dispatch fence', () => {
     const work = fixture();
     await expect(
       createOpenAiCodexSeat({
-        sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+        sandbox: {
+          sandboxName: 'shared',
+          workdir: '/sandbox/workspaces/mgmt',
+          cli: 'openshell',
+          gateway: 'test-gateway',
+          workspace: 'test-workspace',
+          gatewayInsecure: false,
+        },
         route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
         execution: work.input,
         store: {} as never,
@@ -659,7 +701,14 @@ describe('last native Symposium dispatch fence', () => {
     let terminal: (id: string, turn: string, status: 'interrupted') => void = () => undefined;
     const controllerProof = vi.fn().mockResolvedValue(undefined);
     const native = await createOpenAiCodexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
       execution: work.input,
       store: {} as never,
@@ -701,7 +750,14 @@ describe('last native Symposium dispatch fence', () => {
   it('keeps Codex cleanup unconfirmed when the controller observer loses its marker', async () => {
     const work = fixture();
     const native = await createOpenAiCodexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
       execution: work.input,
       store: {} as never,
@@ -1528,7 +1584,14 @@ describe('last native Symposium dispatch fence', () => {
             config.verifyAccountProviderUnion?.();
             await new Promise((resolve) => setTimeout(resolve, 5));
             inFlight -= 1;
-            return { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' };
+            return {
+              sandboxName: 'shared',
+              workdir: '/sandbox/workspaces/mgmt',
+              cli: 'openshell',
+              gateway: 'test-gateway',
+              workspace: 'test-workspace',
+              gatewayInsecure: false,
+            };
           },
         };
       },
@@ -2293,5 +2356,170 @@ describe('per-seat artifact admission', () => {
       state.host.close();
       rmSync(state.root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('mixed personal subscription and work seat isolation', () => {
+  it('pins three distinct native providers and blocks personal creation without private auth evidence', async () => {
+    const personal = new AccountProfiles(
+      [
+        {
+          id: 'personal',
+          label: 'Personal',
+          provider: 'openai-codex',
+          nativeAuth: 'sandbox-chatgpt',
+          email: 'personal@example.test',
+          planType: 'plus',
+          sandboxProvider: 'codex-personal',
+          sandboxProviderId: 'codex-object',
+          sandboxProviderType: 'codex',
+          models: [{ id: 'luna', label: 'Luna' }],
+        },
+      ],
+      { codexEnabled: true },
+    );
+    const selectedProfiles = {
+      resume: (binding: typeof seat.accountBinding) =>
+        (binding.accountId === 'personal' ? personal : profiles).resume(binding),
+      apiProfile: profiles.apiProfile.bind(profiles),
+      vertexSandboxRoute: profiles.vertexSandboxRoute.bind(profiles),
+      codexProfile: personal.codexProfile.bind(personal),
+    } as AccountProfiles;
+    const seats = [
+      seat,
+      {
+        ...seat,
+        id: 'claude',
+        model: 'claude-test',
+        accountBinding: AccountBindingSchema.parse(profiles.resolve('work-vertex', 'claude-test')),
+      },
+      {
+        ...seat,
+        id: 'personal',
+        model: 'luna',
+        accountBinding: AccountBindingSchema.parse(personal.resolve('personal', 'luna')),
+      },
+    ];
+    const facts: SymposiumDispatchFacts = {
+      ...fixture().facts,
+      getActiveSymposiumConfig: () => ({ ...config, seats }),
+      getLatestSymposiumMembership: (_sessionId, seatId) => ({ ...membership, seatId }),
+      getLatestSymposiumAdmission: (_sessionId, seatId) => {
+        const binding = seats.find((candidate) => candidate.id === seatId)!.accountBinding;
+        return {
+          ...admission,
+          seatId,
+          provider: binding.provider,
+          accountId: binding.accountId,
+          model: binding.model,
+          accountProfileRevision: binding.profileRevision,
+        };
+      },
+    };
+    const identities = (name: string, id: string) => ({
+      name,
+      id,
+      workspace: 'default',
+      type:
+        name === 'codex-personal'
+          ? 'codex'
+          : name === 'vertex-work'
+            ? 'google-vertex-ai'
+            : 'openai',
+    });
+    const snapshots = seats.map((selected) =>
+      snapshotSymposiumSeatProvider(
+        'symposium',
+        selected.id,
+        facts,
+        selectedProfiles,
+        hostGrants,
+        identities,
+        'default',
+      ),
+    );
+    expect(new Set(snapshots.map((snapshot) => snapshot.runtimeId)).size).toBe(3);
+    expect(snapshots.map((snapshot) => snapshot.bindings)).toEqual([
+      [{ name: 'openai-work', id: 'openai-object', type: 'openai' }],
+      [{ name: 'vertex-work', id: 'vertex-object', type: 'google-vertex-ai' }],
+      [{ name: 'codex-personal', id: 'codex-object', type: 'codex' }],
+    ]);
+    expect(snapshots[2].account).toEqual({
+      kind: 'chatgpt-subscription-native',
+      provider: 'codex-personal',
+      providerId: 'codex-object',
+      providerType: 'codex',
+      model: 'luna',
+    });
+    const configurations: BoundOpenShellRuntimeConfig[] = [];
+    const managerFactory = vi.fn((configuration: BoundOpenShellRuntimeConfig) => {
+      configurations.push(configuration);
+      return {
+        ensure: async (runtimeId: string) => ({
+          sandboxName: runtimeId,
+          sandboxId: `id:${runtimeId}`,
+          workdir: '/sandbox/workspaces/mgmt',
+        }),
+      };
+    });
+    const deps = {
+      sessionId: 'symposium',
+      facts,
+      profiles: selectedProfiles,
+      hostGrants,
+      seatSandboxRegistry: seatSandboxRegistry(),
+      resolveProviderIdentity: identities,
+      runtimeConfig: {
+        cli: 'openshell',
+        cliContract: 'v0.1' as const,
+        image: 'image',
+        policy: '/policy',
+        seed: '/seed',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        workspace: 'default',
+        gateway: 'openshell',
+        gatewayInsecure: false,
+        createDetached: true,
+        sandboxIdLength: 13,
+        workdir: '/sandbox/workspaces/mgmt',
+        webSearch: 'disabled' as const,
+      },
+      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      perSeatSandboxVerified: true,
+      managerFactory,
+    };
+    await expect(
+      new SymposiumPerSeatSandboxOwner(deps).ensure(
+        'symposium',
+        'personal',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('private credential proof are unavailable');
+    expect(managerFactory).not.toHaveBeenCalled();
+    const owner = new SymposiumPerSeatSandboxOwner({
+      ...deps,
+      verifiedSubscriptionControllerCommand: ['/usr/local/bin/symposium-subscription-app-server'],
+      verifySubscriptionPrivateAuth: async () => {},
+    });
+    const sandboxes = await Promise.all(
+      seats.map((selected) => owner.ensure('symposium', selected.id, new AbortController().signal)),
+    );
+    expect(new Set(sandboxes.map((sandbox) => sandbox.sandboxName)).size).toBe(3);
+    expect(configurations.map((configuration) => configuration.accountProviderBindings)).toEqual(
+      snapshots.map((snapshot) => snapshot.bindings),
+    );
+    expect(configurations[2].account.kind).toBe('chatgpt-subscription-native');
+    expect(() =>
+      snapshotSymposiumSeatProvider(
+        'symposium',
+        'personal',
+        facts,
+        selectedProfiles,
+        hostGrants,
+        (name, id) => ({ name, id, type: 'openai-codex-oauth', workspace: 'default' }),
+        'default',
+      ),
+    ).toThrow('physical provider type');
   });
 });

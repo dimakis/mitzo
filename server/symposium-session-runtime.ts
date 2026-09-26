@@ -19,6 +19,12 @@ import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import { createOpenAiCodexSeat } from './symposium-codex-native.js';
 import {
+  assertSubscriptionControllerCommand,
+  createChatGptSubscriptionSeat,
+  resolveSymposiumSubscriptionRoute,
+  type VerifySymposiumSubscriptionAuth,
+} from './symposium-subscription-native.js';
+import {
   SymposiumOpenShellSeatExecutor,
   type SymposiumOpenShellSeatExecutorDeps,
 } from './symposium-openshell-seat-executor.js';
@@ -158,6 +164,7 @@ export function snapshotSymposiumProviderUnion(
       id: string;
       type: string;
       model: string;
+      account: OpenShellAccountRoute;
     }> = [];
     for (const seat of config.seats) {
       const membership = facts.getLatestSymposiumMembership(sessionId, seat.id);
@@ -180,16 +187,30 @@ export function snapshotSymposiumProviderUnion(
       currentProfiles.resume(binding);
       let name: string;
       let id: string;
+      let account: OpenShellAccountRoute;
       if (binding.provider === 'openai') {
         const route = currentProfiles.apiProfile(binding);
         if (!route.sandboxProvider || !route.sandboxProviderId)
           throw new Error('OpenAI seat lacks physical provider binding');
         name = route.sandboxProvider;
         id = route.sandboxProviderId;
+        account = { kind: 'api', provider: name, model: binding.model };
+      } else if (binding.provider === 'openai-codex') {
+        const { profile: route } = resolveSymposiumSubscriptionRoute(currentProfiles, binding);
+        name = route.sandboxProvider!;
+        id = route.sandboxProviderId!;
+        account = {
+          kind: 'chatgpt-subscription-native',
+          provider: name,
+          providerId: id,
+          providerType: 'codex',
+          model: binding.model,
+        };
       } else if (binding.provider === 'anthropic-vertex') {
         const route = currentProfiles.vertexSandboxRoute(binding);
         name = route.provider;
         id = route.providerId;
+        account = { kind: 'api', provider: name, model: binding.model };
       } else {
         throw new Error('Shared native runtime does not support this account provider');
       }
@@ -201,7 +222,12 @@ export function snapshotSymposiumProviderUnion(
         !physical.type
       )
         throw new Error('OpenShell physical provider identity changed');
-      const expectedType = binding.provider === 'anthropic-vertex' ? 'google-vertex-ai' : 'openai';
+      const expectedType =
+        binding.provider === 'anthropic-vertex'
+          ? 'google-vertex-ai'
+          : binding.provider === 'openai-codex'
+            ? 'codex'
+            : 'openai';
       if (physical.type !== expectedType)
         throw new Error('OpenShell physical provider type does not match Symposium account');
       admitted.push({
@@ -214,6 +240,7 @@ export function snapshotSymposiumProviderUnion(
         id,
         type: physical.type,
         model: binding.model,
+        account,
       });
     }
     const anchor = admitted.find((entry) => entry.seatId === config.anchorSeatId);
@@ -229,7 +256,7 @@ export function snapshotSymposiumProviderUnion(
       (entry, index, all) => all.findIndex((candidate) => candidate.name === entry.name) === index,
     );
     return {
-      owner: { kind: 'api' as const, provider: anchor.name, model: anchor.model },
+      owner: anchor.account,
       bindings: ordered.map(({ name, type, id }) => ({ name, type, id })),
       logicalProviders: [...new Set(admitted.map((entry) => entry.provider))].sort(),
       seatCount: admitted.length,
@@ -258,8 +285,10 @@ export interface SymposiumSharedSandboxOwnerDeps {
   hostGrants: SymposiumHostGrantVerifier;
   resolveProviderIdentity: SymposiumProviderIdentityResolver;
   runtimeConfig: OpenShellRuntimeConfig;
-  readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
+  readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean; chatgptSubscription?: boolean };
   verifyHostCapability?: () => SymposiumProviderCapability;
+  verifiedSubscriptionControllerCommand?: readonly string[];
+  verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   managerFactory?: (config: BoundOpenShellRuntimeConfig) => {
     ensure(
       sessionId: string,
@@ -280,6 +309,22 @@ export interface SymposiumSharedSandboxOwnerDeps {
   };
 }
 
+function assertNativeSubscriptionCapability(
+  deps: Pick<
+    SymposiumSharedSandboxOwnerDeps,
+    'verifiedSubscriptionControllerCommand' | 'verifySubscriptionPrivateAuth'
+  >,
+): void {
+  if (
+    !deps.verifiedSubscriptionControllerCommand ||
+    typeof deps.verifySubscriptionPrivateAuth !== 'function'
+  )
+    throw new Error(
+      'Personal ChatGPT native launcher and private credential proof are unavailable',
+    );
+  assertSubscriptionControllerCommand(deps.verifiedSubscriptionControllerCommand);
+}
+
 type SeatSandboxRegistry = Pick<
   EventStore,
   | 'claimSymposiumSeatLifecycle'
@@ -296,7 +341,11 @@ type SeatSandboxRegistry = Pick<
 
 /** One owner serializes all seat/provider mutations for the shared session sandbox. */
 export class SymposiumSharedSandboxOwner {
-  readonly readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
+  readonly readOnlyEnforced: {
+    openaiApi: boolean;
+    claudeVertex: boolean;
+    chatgptSubscription?: boolean;
+  };
   private tail: Promise<void> = Promise.resolve();
 
   constructor(private deps: SymposiumSharedSandboxOwnerDeps) {
@@ -323,6 +372,8 @@ export class SymposiumSharedSandboxOwner {
         this.deps.resolveProviderIdentity,
         this.deps.runtimeConfig.workspace,
       );
+      if (snapshot.logicalProviders.includes('openai-codex'))
+        throw new Error('Personal ChatGPT requires an isolated per-seat sandbox');
       if (snapshot.logicalProviders.includes('anthropic-vertex'))
         throw new Error(
           'Private Claude seat state isolation is not verified in the shared sandbox',
@@ -426,7 +477,11 @@ export function snapshotSymposiumSeatProvider(
 
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
 export class SymposiumPerSeatSandboxOwner {
-  readonly readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
+  readonly readOnlyEnforced: {
+    openaiApi: boolean;
+    claudeVertex: boolean;
+    chatgptSubscription?: boolean;
+  };
   private tails = new Map<string, Promise<void>>();
 
   private async withDurableSeatFence<T>(
@@ -493,6 +548,13 @@ export class SymposiumPerSeatSandboxOwner {
   }
 
   ensure(sessionId: string, seatId: string, signal: AbortSignal) {
+    const transportRoute = {
+      cli: this.deps.runtimeConfig.cli,
+      gateway: this.deps.runtimeConfig.gateway,
+      workspace: this.deps.runtimeConfig.workspace,
+      gatewayEndpoint: this.deps.runtimeConfig.gatewayEndpoint,
+      gatewayInsecure: this.deps.runtimeConfig.gatewayInsecure,
+    };
     if (sessionId !== this.deps.sessionId)
       throw new Error('Seat sandbox owner belongs to another Symposium session');
     if (!this.deps.perSeatSandboxVerified)
@@ -511,6 +573,8 @@ export class SymposiumPerSeatSandboxOwner {
           this.deps.runtimeConfig.workspace,
           'reconciling',
         );
+        if (snapshot.account.kind === 'chatgpt-subscription-native')
+          assertNativeSubscriptionCapability(this.deps);
         const binding = snapshot.bindings[0];
         const verifySeatCapability = () => {
           const capability = this.deps.verifyHostCapability?.();
@@ -614,6 +678,7 @@ export class SymposiumPerSeatSandboxOwner {
           }
           snapshot.verify();
           return {
+            ...transportRoute,
             sandboxName: reservation.sandboxName,
             sandboxId: reservation.physicalId,
             workdir: this.deps.runtimeConfig.workdir,
@@ -672,7 +737,7 @@ export class SymposiumPerSeatSandboxOwner {
         // A revocation during gateway creation leaves the exact physical ID
         // retained in the registry for the waiting stop operation.
         snapshot.verify();
-        return sandbox;
+        return { ...sandbox, ...transportRoute };
       }),
     );
     const tail = work.then(
@@ -858,7 +923,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   perSeatSandboxVerified?: boolean;
   /** Roles certified by the host capability gate. A production gate supplies this explicitly. */
   allowedSeatRoles?: ReadonlySet<'implementer' | 'coder'>;
-  allowedAccountProviders?: ReadonlySet<'openai' | 'anthropic-vertex'>;
+  allowedAccountProviders?: ReadonlySet<'openai' | 'anthropic-vertex' | 'openai-codex'>;
   /** Re-probe selected host capability before every provider mutation/admission. */
   artifactRequest?: (sessionId: string, seatId: string, generation: number) => ArtifactLeaseRequest;
   artifactLeaseHost?: SqliteArtifactLeaseHost;
@@ -901,11 +966,19 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
                   })
-                : createClaudeVertexSeat({
-                    ...input,
-                    route: input.route,
-                    attemptRegistry: deps.attemptRegistry,
-                  })),
+                : input.route.kind === 'chatgpt-subscription-native'
+                  ? createChatGptSubscriptionSeat({
+                      ...input,
+                      store: deps.codexStore,
+                      attemptRegistry: deps.attemptRegistry,
+                      verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
+                      verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
+                    })
+                  : createClaudeVertexSeat({
+                      ...input,
+                      route: input.route,
+                      attemptRegistry: deps.attemptRegistry,
+                    })),
         });
         cache.set(seatId, executor);
       }
@@ -933,11 +1006,14 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         throw new Error('Symposium membership changed before admission');
       deps.hostGrants.verifySeat({ sessionId, seat, membershipGeneration: generation });
       const binding = seat.accountBinding;
-      if (!binding || !['openai', 'anthropic-vertex'].includes(binding.provider))
+      if (!binding || !['openai', 'anthropic-vertex', 'openai-codex'].includes(binding.provider))
         throw new Error('Symposium native account provider is unsupported');
+      if (binding.provider === 'openai-codex') assertNativeSubscriptionCapability(deps);
       if (
         deps.allowedAccountProviders &&
-        !deps.allowedAccountProviders.has(binding.provider as 'openai' | 'anthropic-vertex')
+        !deps.allowedAccountProviders.has(
+          binding.provider as 'openai' | 'anthropic-vertex' | 'openai-codex',
+        )
       )
         throw new Error('Symposium account provider is outside the verified native capability');
       if (
@@ -946,7 +1022,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           seat.authorityGrant?.tools !== 'write') &&
         !(binding.provider === 'openai'
           ? deps.readOnlyEnforced.openaiApi
-          : deps.readOnlyEnforced.claudeVertex)
+          : binding.provider === 'openai-codex'
+            ? deps.readOnlyEnforced.chatgptSubscription
+            : deps.readOnlyEnforced.claudeVertex)
       )
         throw new Error('Reviewer native read-only policy is not verified');
       const snapshot = snapshotSymposiumSeatProvider(
@@ -993,7 +1071,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           (seat) =>
             !seat.accountBinding ||
             !deps.allowedAccountProviders!.has(
-              seat.accountBinding.provider as 'openai' | 'anthropic-vertex',
+              seat.accountBinding.provider as 'openai' | 'anthropic-vertex' | 'openai-codex',
             ),
         )
       )

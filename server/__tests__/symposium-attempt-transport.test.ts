@@ -1,17 +1,26 @@
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { spawn } from 'node:child_process';
 import {
   confirmControlledAttemptStopped,
   controlledAttemptArgv,
+  controlledAttemptRoute,
   controllerClaimDigest,
   launchControlledAttempt,
   verifyControllerProof,
 } from '../symposium-attempt-transport.js';
 
-const sandbox = { sandboxName: 'symposium', workdir: '/sandbox/workspaces/mgmt' };
+const sandbox = {
+  sandboxName: 'symposium',
+  workdir: '/sandbox/workspaces/mgmt',
+  cli: 'openshell',
+  gateway: 'test-gateway',
+  workspace: 'test-workspace',
+  gatewayInsecure: false,
+};
 const claim = 'durable-claim';
+afterEach(() => vi.unstubAllEnvs());
 
 function fakeProcess() {
   const child = Object.assign(new EventEmitter(), {
@@ -90,5 +99,75 @@ describe('claim-bound native controller transport', () => {
     );
     child.emit('close', 0);
     await expect(pending).resolves.toBeUndefined();
+  });
+  it.each([undefined, 'https://127.0.0.1:8443'])(
+    'pins launch and cancel routing despite conflicting ambient settings (%s)',
+    async (gatewayEndpoint) => {
+      for (const key of [
+        'OPENSHELL_GATEWAY',
+        'OPENSHELL_GATEWAY_ENDPOINT',
+        'OPENSHELL_GATEWAY_INSECURE',
+        'OPENSHELL_WORKSPACE',
+      ])
+        vi.stubEnv(key, 'wrong-ambient-value');
+      const selected = {
+        ...sandbox,
+        cli: '/opt/openshell',
+        gateway: 'personal',
+        workspace: 'personal-only',
+        gatewayEndpoint,
+        gatewayInsecure: false,
+      };
+      const launchChild = fakeProcess();
+      const launched = vi.fn(() => launchChild) as unknown as typeof spawn;
+      launchControlledAttempt(selected, claim, 'write', ['/usr/bin/codex'], launched);
+      const cancelChild = fakeProcess();
+      const cancelled = vi.fn(() => cancelChild) as unknown as typeof spawn;
+      const completion = confirmControlledAttemptStopped(selected, claim, cancelled);
+      cancelChild.stdout.write(
+        JSON.stringify({
+          claim: controllerClaimDigest(claim),
+          terminal: true,
+          exit_code: 0,
+          signal: 0,
+        }),
+      );
+      cancelChild.emit('close', 0);
+      await completion;
+      for (const invocation of [
+        vi.mocked(launched).mock.calls[0],
+        vi.mocked(cancelled).mock.calls[0],
+      ]) {
+        const [, args, options] = invocation;
+        const command = args!.join(' ');
+        expect(command).toContain('/opt/openshell ssh-proxy');
+        expect(command).toContain('--workspace personal-only');
+        expect(command).toContain(
+          gatewayEndpoint ? `--server '${gatewayEndpoint}'` : '--gateway-name personal',
+        );
+        expect(command).not.toContain('--gateway-insecure');
+        expect(JSON.stringify(options?.env)).not.toContain('wrong-ambient-value');
+      }
+    },
+  );
+
+  it('refuses missing or malformed routing before spawning', () => {
+    const spawnProcess = vi.fn() as unknown as typeof spawn;
+    expect(() =>
+      launchControlledAttempt(
+        { sandboxName: 'legacy', workdir: sandbox.workdir },
+        claim,
+        'write',
+        ['/usr/bin/codex'],
+        spawnProcess,
+      ),
+    ).toThrow('route is unavailable');
+    expect(() => controlledAttemptRoute({ ...sandbox, gatewayInsecure: true })).toThrow(
+      'explicit endpoint',
+    );
+    expect(() => controlledAttemptRoute({ ...sandbox, gateway: 42 } as never)).toThrow(
+      'route is unavailable',
+    );
+    expect(spawnProcess).not.toHaveBeenCalled();
   });
 });
