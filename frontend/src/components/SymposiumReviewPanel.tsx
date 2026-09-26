@@ -1,3 +1,4 @@
+import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
 import { useCallback, useEffect, useState } from 'react';
@@ -55,6 +56,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [tokens, setTokens] = useState(10000);
   const [rounds, setRounds] = useState(2);
   const [record, setRecord] = useState('');
+  const [savedRecordOpen, setSavedRecordOpen] = useState(false);
   const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
   const [evidenceId, setEvidenceId] = useState('');
   const reload = useCallback(
@@ -85,6 +87,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   async function action(path: string, body: unknown) {
     setBusy(true);
     setError('');
+    setSavedRecordOpen(false);
     setRecord('');
     setRecordReference(null);
     try {
@@ -379,18 +382,25 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           <textarea readOnly value={record} />
           {recordReference && (
             <>
-              <a
-                href={`${base}/records/${encodeURIComponent(recordReference.id)}`}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                aria-expanded={savedRecordOpen}
+                onClick={() => setSavedRecordOpen((open) => !open)}
               >
-                Open saved review record
-              </a>
+                {savedRecordOpen ? 'Close saved review record' : 'Open saved review record'}
+              </button>
               <span>SHA-256: {recordReference.hash}</span>
             </>
           )}
           <span>This immutable record requires your Mitzo login. No PR has been created.</span>
         </label>
+      )}
+      {record && recordReference && savedRecordOpen && (
+        <SymposiumSavedReviewRecord
+          key={recordReference.id}
+          url={`${base}/records/${encodeURIComponent(recordReference.id)}`}
+          reference={recordReference}
+        />
       )}
       <button
         disabled={busy}
