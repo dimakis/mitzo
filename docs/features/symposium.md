@@ -2,6 +2,26 @@
 
 Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 
+## Current source status (26 September 2026)
+
+The director, directed conversation UI, portable profiles, conversational profile
+proposals, native attempt transport, and review coordinator are implemented in
+source. The production factory requires both an installed host capability and a
+verified OpenShell attestation; environment configuration alone cannot activate a
+draft or mint its runtime grants.
+
+The OpenShell 0.1 path gives each seat generation its own durable sandbox identity.
+Lifecycle fences, artifact leases, and physical deletion evidence keep uncertain
+creation or cleanup quarantined. Host capability and the exact physical provider
+are checked again at admission and dispatch. The first production gate permits
+only attested OpenAI implementer/coder seats. Claude Vertex and reviewer read-only
+enforcement remain experimental and unavailable through that gate.
+
+The split rehearsal uses mocked providers. It does not establish live model,
+gateway, IAM, or production readiness. The sections below retain the historical
+phase contracts; their shared-sandbox descriptions are superseded for the current
+production path by the per-seat gate described here.
+
 ## Product contract
 
 The 22 September Phase 2.5 decision supersedes the earlier two-seat limit.
@@ -195,9 +215,22 @@ not been closed or modified by this change.
 
 The original foundation slice did not include runtime or UI integration. The
 current implementation includes concurrent transcript rendering and acknowledged
-reconnect transport. Shared provider execution, director controls, and reusable
-review workflows remain unfinished. No live model acceptance or production
+reconnect transport. Shared provider execution and reusable review workflows
+remain unfinished. No live model acceptance or production
 deployment has been performed for these changes; the Telos parent remains open.
+
+## Phase 5 director API foundation
+
+The authenticated session-scoped director status endpoint reports configured
+seats, reserved capacity, latest membership and provider admission separately.
+It marks a seat admitted only when its current membership generation has a
+confirmed reconciliation and matching provider admission from an available
+runtime. Membership revocation remains available if the runtime is missing:
+the durable generation fence is written first and cleanup is reported as
+`recovery_required`. Admission and restoration refuse an unavailable runtime
+and require explicit acknowledgement of the shared boundary. A session-scoped
+runtime factory is an integration seam; configuration alone never confirms a
+provider or grants access.
 
 ## Portable profiles and artifact review services
 

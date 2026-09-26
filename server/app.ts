@@ -4,13 +4,10 @@ import { SymposiumProfileStore } from './symposium-profiles.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
-import { SymposiumOrchestrator } from './symposium-orchestrator.js';
-import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
-import { SymposiumHostGrants } from './symposium-host-grants.js';
-import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import {
   readCodexQueue,
   getCodexRuntime,
+  getCodexConversationStore,
   waitForCodexRuntimeBySessionId,
   readCodexQueueOverview,
   cancelCodexQueuedCommand,
@@ -18,6 +15,25 @@ import {
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
 import { loadAccountProfiles } from './account-profiles.js';
+import { SymposiumOrchestrator } from './symposium-orchestrator.js';
+import {
+  createOpenShellProviderIdentityResolver,
+  createSymposiumSessionRuntime,
+} from './symposium-session-runtime.js';
+import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
+import { openShellRuntimeConfig } from './openshell-runtime.js';
+import {
+  readSymposiumProductionAttestation,
+  verifySymposiumProductionGate,
+  type SymposiumProductionPhysicalProof,
+} from './symposium-production-gate.js';
+import { SYMPOSIUM_CODEX_CONTROLLER_COMMAND } from './symposium-codex-native.js';
+import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
+import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { SymposiumHostGrants } from './symposium-host-grants.js';
+import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import express from 'express';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
@@ -70,6 +86,7 @@ import {
   getRepoConfig,
   isIsolationEnabled,
   eventStore,
+  broadcastDurableSymposiumEvent,
   registry,
   generateWtId,
 } from './chat.js';
@@ -773,43 +790,130 @@ app.use(
   createSymposiumProfileRouter(symposiumProfileStore),
 );
 
-const symposiumHostGrants = new SymposiumHostGrants(
-  join(BASE_REPO || '.', '.mitzo', 'events.db'),
-  {
-    getConfig: (sessionId) => {
-      const raw = eventStore.getSession(sessionId)?.symposiumConfig;
-      return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
-    },
-    commitConfig: (sessionId, config, expectedRevision) =>
-      eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
-    getMembership: (sessionId, seatId) =>
-      eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
-    validateSelection: (seat) => {
-      if (!seat.accountBinding) throw new Error('Seat account binding is required');
-      loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
-    },
-    resolveProfile: (selection) =>
-      symposiumProfileStore.get('user', selection.profileId, selection.revision),
-    authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
-      const sessionSource = `session:${sessionId}`;
-      if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
-        throw new Error('Only this conversation context can be admitted');
-      const writable = seat.role === 'implementer' || seat.role === 'coder';
-      return {
-        classification: 'mixed' as const,
-        sourceRefs: [sessionSource],
-        authority: {
-          filesystem: writable ? ('write' as const) : ('read' as const),
-          tools: writable ? ('write' as const) : ('read' as const),
-          network: 'restricted' as const,
-        },
-      };
-    },
-  },
+const symposiumNativeEvents = new SymposiumNativeEventSink(
+  eventStore,
+  broadcastDurableSymposiumEvent,
 );
+const symposiumSessionRuntimes = new Map<
+  string,
+  {
+    orchestrator: SymposiumOrchestrator;
+    runtimeFingerprint: string;
+  }
+>();
+interface SymposiumProductionHost {
+  physical: SymposiumProductionPhysicalProof;
+  attemptRegistry: SymposiumAttemptRegistry;
+  artifactLeaseHost: SqliteArtifactLeaseHost;
+  artifactRequest(sessionId: string, seatId: string, generation: number): ArtifactLeaseRequest;
+}
+let symposiumProductionHost: SymposiumProductionHost | undefined;
+/** Trusted server bootstrap only. No request handler accepts or supplies this capability. */
+export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
+  if (symposiumProductionHost || symposiumSessionRuntimes.size)
+    throw new Error('Symposium production host must be installed once before runtime creation');
+  symposiumProductionHost = host;
+}
+let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
+  sessionId,
+) => {
+  if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
+  const baseConfig = openShellRuntimeConfig(process.env);
+  if (!baseConfig) return null;
+  const attestationPath = process.env.MITZO_SYMPOSIUM_OPENSHELL_ATTESTATION;
+  if (!attestationPath || !symposiumProductionHost) return null;
+  let verified: ReturnType<typeof verifySymposiumProductionGate>;
+  let attestationIdentity: string | undefined;
+  const verifyHostCapability = () => {
+    if (!attestationPath || !symposiumProductionHost)
+      throw new Error('Symposium production host or attestation is unavailable');
+    const attestation = readSymposiumProductionAttestation(attestationPath);
+    const identity = JSON.stringify(attestation);
+    if (attestationIdentity && identity !== attestationIdentity)
+      throw new Error('Symposium production attestation changed during session');
+    const result = verifySymposiumProductionGate(
+      baseConfig,
+      attestation,
+      symposiumProductionHost.physical,
+    );
+    attestationIdentity = identity;
+    return result;
+  };
+  try {
+    verified = verifyHostCapability();
+  } catch {
+    return null;
+  }
+  const runtimeConfig = verified.runtimeConfig;
+  const runtimeFingerprint = JSON.stringify({
+    runtimeConfig,
+    allowedRoles: [...verified.allowedRoles].sort(),
+    allowedAccountProviders: [...verified.allowedAccountProviders].sort(),
+    attestationIdentity,
+  });
+  const cached = symposiumSessionRuntimes.get(sessionId);
+  if (cached && cached.runtimeFingerprint !== runtimeFingerprint) return null;
+  let runtime = cached?.orchestrator;
+  if (!runtime) {
+    runtime = createSymposiumSessionRuntime({
+      sessionId,
+      store: eventStore,
+      profiles: loadAccountProfiles(),
+      currentProfiles: loadAccountProfiles,
+      hostGrants: symposiumHostGrants,
+      codexStore: getCodexConversationStore(),
+      resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: verified.allowedRoles,
+      allowedAccountProviders: verified.allowedAccountProviders,
+      verifyHostCapability,
+      attemptRegistry: symposiumProductionHost.attemptRegistry,
+      artifactLeaseHost: symposiumProductionHost.artifactLeaseHost,
+      artifactRequest: symposiumProductionHost.artifactRequest,
+      verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
+      // No native reviewer or Claude wrapper is verified yet.
+      readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+      recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
+      recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
+    }).orchestrator;
+    symposiumSessionRuntimes.set(sessionId, { orchestrator: runtime, runtimeFingerprint });
+  }
+  return runtime;
+};
 const symposiumSafetyOrchestrator = new SymposiumOrchestrator({ store: eventStore, executors: {} });
-/** A verified runtime can be installed by the native transport integration. */
-let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = () => null;
+const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mitzo', 'events.db'), {
+  getConfig: (sessionId) => {
+    const raw = eventStore.getSession(sessionId)?.symposiumConfig;
+    return raw ? SymposiumConfigSchema.parse(JSON.parse(raw)) : null;
+  },
+  commitConfig: (sessionId, config, expectedRevision) =>
+    eventStore.setSymposiumConfig(sessionId, config, expectedRevision),
+  getMembership: (sessionId, seatId) =>
+    eventStore.getLatestSymposiumMembership(sessionId, seatId) ?? null,
+  validateSelection: (seat) => {
+    if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    loadAccountProfiles().validateModel(seat.accountBinding, seat.model, seat.reasoningEffort);
+  },
+  resolveProfile: (selection) =>
+    symposiumProfileStore.get('user', selection.profileId, selection.revision),
+  authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
+    const sessionSource = `session:${sessionId}`;
+    if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+      throw new Error('Only this conversation context can be admitted');
+    const writable = seat.role === 'implementer' || seat.role === 'coder';
+    return {
+      classification: 'mixed' as const,
+      sourceRefs: [sessionSource],
+      authority: {
+        filesystem: writable ? ('write' as const) : ('read' as const),
+        tools: writable ? ('write' as const) : ('read' as const),
+        network: 'restricted' as const,
+      },
+    };
+  },
+});
+/** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */
 export function setSymposiumDirectorRuntimeFactory(
   factory: (sessionId: string) => SymposiumOrchestrator | null,
 ): void {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -15,6 +16,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
@@ -233,6 +235,21 @@ beforeEach(async () => {
 });
 
 // --- Auth Routes ---
+
+it('stores Symposium host grants in the repository event database', () => {
+  const db = new Database(join(TEST_REPO, '.mitzo', 'events.db'), { readonly: true });
+  try {
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'symposium_host_grants'",
+        )
+        .get(),
+    ).toEqual({ name: 'symposium_host_grants' });
+  } finally {
+    db.close();
+  }
+});
 
 describe('auth routes', () => {
   it('POST /api/auth/login — correct passphrase returns 200 + cookie', async () => {
@@ -587,10 +604,23 @@ describe('session routes', () => {
       sessionId: 's1',
       sessionType: 'symposium',
       symposiumConfig: JSON.stringify({
-        version: 2, revision: 1, state: 'draft', anchorSeatId: 'builder', activeSeatCap: 1,
-        seats: [{ id: 'builder', name: 'Builder', role: 'implementer', model: 'gpt-test',
-          systemPrompt: 'Build the requested patch.', color: '#224466' }],
-        turnRules: { mode: 'directed', maxTurns: 4 }, interceptMode: 'manual',
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'builder',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'implementer',
+            model: 'gpt-test',
+            systemPrompt: 'Build the requested patch.',
+            color: '#224466',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
       }),
     } as ReturnType<typeof eventStore.getSession>);
     try {

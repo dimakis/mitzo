@@ -53,6 +53,23 @@ export type {
   ProviderAttemptToken,
 };
 
+export interface SymposiumSeatSandboxRecord {
+  sessionId: string;
+  seatId: string;
+  generation: number;
+  runtimeId: string;
+  workspace: string;
+  providerName: string;
+  providerId: string;
+  providerType: string;
+  model: string;
+  sandboxName: string | null;
+  physicalId: string | null;
+  creationStarted: boolean;
+  creationCompleted: boolean;
+  state: 'reserved' | 'ready' | 'stopped';
+}
+
 /**
  * Map internal 7-state lifecycle to client-facing 3-state.
  * Note: 'requires_action' is never returned here — it is emitted separately
@@ -898,6 +915,25 @@ export class EventStore {
           FOREIGN KEY(session_id, seat_id, generation)
             REFERENCES symposium_membership(session_id, seat_id, generation)
         );
+        CREATE TABLE IF NOT EXISTS symposium_seat_sandboxes (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          runtime_id TEXT NOT NULL UNIQUE, workspace TEXT NOT NULL,
+          provider_name TEXT NOT NULL, provider_id TEXT NOT NULL,
+          provider_type TEXT NOT NULL, model TEXT NOT NULL,
+          sandbox_name TEXT, physical_id TEXT UNIQUE,
+          creation_started INTEGER NOT NULL DEFAULT 0,
+          creation_completed INTEGER NOT NULL DEFAULT 0,
+          state TEXT NOT NULL CHECK(state IN ('reserved','ready','stopped')),
+          PRIMARY KEY(session_id, seat_id, generation),
+          FOREIGN KEY(session_id, seat_id, generation)
+            REFERENCES symposium_membership(session_id, seat_id, generation)
+        );
+        -- A lifecycle operation holds this fence across gateway I/O. An orphaned
+        -- fence is deliberately retained after a process crash for reconciliation.
+        CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_fences (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, token TEXT NOT NULL,
+          PRIMARY KEY(session_id, seat_id)
+        );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_one_replacement
           ON symposium_membership(session_id,replaces_seat_id)
           WHERE replaces_seat_id IS NOT NULL;
@@ -910,6 +946,13 @@ export class EventStore {
           FOREIGN KEY(delivery_id) REFERENCES symposium_deliveries(delivery_id)
         );
       `);
+      const seatSandboxColumns = db
+        .prepare("PRAGMA table_info('symposium_seat_sandboxes')")
+        .all() as Array<{ name: string }>;
+      if (!seatSandboxColumns.some((column) => column.name === 'creation_started'))
+        db.exec('ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_started INTEGER NOT NULL DEFAULT 0');
+      if (!seatSandboxColumns.some((column) => column.name === 'creation_completed'))
+        db.exec('ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0');
       const deliveryColumns = db
         .prepare("PRAGMA table_info('symposium_deliveries')")
         .all() as Array<{ name: string }>;
@@ -1605,15 +1648,15 @@ export class EventStore {
       throw new Error('Invalid Symposium perspective page');
     const rows = this.db!.prepare(
       `SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance
-       FROM events e WHERE session_id = ? AND seq > ?
+        FROM events e WHERE session_id = ? AND seq > ?
          AND type IN ('message_end', 'user_message', 'symposium_delivery_dispatched')
          AND (type != 'message_end' OR NOT EXISTS (
            SELECT 1 FROM events prior
            WHERE prior.session_id = e.session_id AND prior.type = 'message_end'
              AND prior.seq < e.seq AND prior.seat_id IS e.seat_id
              AND prior.symposium_provenance IS e.symposium_provenance
-             AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
-         ))
+              AND json_extract(prior.payload, '$.messageId') = json_extract(e.payload, '$.messageId')
+          ))
        ORDER BY seq LIMIT ?`,
     ).all(sessionId, afterSeq, limit) as EventRow[];
     return rows.map(rowToEvent);
@@ -1937,6 +1980,199 @@ export class EventStore {
       WHERE m.session_id = ? AND m.seat_id = ? ORDER BY m.generation DESC LIMIT 1`,
     ).get(sessionId, seatId) as Record<string, unknown> | undefined;
     return row ? rowToSymposiumMembership(row) : undefined;
+  }
+
+  /** Reserve an immutable seat-generation runtime before its first gateway mutation. */
+  claimSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): boolean {
+    const result = this.db!.prepare(
+      `INSERT OR IGNORE INTO symposium_seat_lifecycle_fences(session_id,seat_id,token)
+       VALUES(?,?,?)`,
+    ).run(sessionId, seatId, token);
+    return result.changes === 1;
+  }
+
+  releaseSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): void {
+    const result = this.db!.prepare(
+      `DELETE FROM symposium_seat_lifecycle_fences
+       WHERE session_id=? AND seat_id=? AND token=?`,
+    ).run(sessionId, seatId, token);
+    if (result.changes !== 1) throw new Error('Symposium seat lifecycle fence changed');
+  }
+
+  reserveSymposiumSeatSandbox(
+    input: Omit<SymposiumSeatSandboxRecord, 'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'>,
+  ): SymposiumSeatSandboxRecord {
+    return this.db!.transaction(() => {
+      const existing = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+      );
+      if (existing) {
+        if (
+          existing.state === 'stopped' ||
+          (existing.creationStarted && !existing.creationCompleted) ||
+          existing.runtimeId !== input.runtimeId ||
+          existing.workspace !== input.workspace ||
+          existing.providerName !== input.providerName ||
+          existing.providerId !== input.providerId ||
+          existing.providerType !== input.providerType ||
+          existing.model !== input.model
+        )
+          throw new Error('Symposium seat sandbox reservation changed');
+        return existing;
+      }
+      if (this.listUnstoppedSymposiumSeatSandboxes(input.sessionId, input.seatId).length)
+        throw new Error('Previous Symposium seat sandbox requires confirmed stop');
+      const membership = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if (membership?.generation !== input.generation || membership.state !== 'active')
+        throw new Error('Symposium seat sandbox generation is not active');
+      this.db!.prepare(
+        `INSERT INTO symposium_seat_sandboxes
+        (session_id,seat_id,generation,runtime_id,workspace,provider_name,provider_id,
+         provider_type,model,state) VALUES(?,?,?,?,?,?,?,?,?,'reserved')`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        input.generation,
+        input.runtimeId,
+        input.workspace,
+        input.providerName,
+        input.providerId,
+        input.providerType,
+        input.model,
+      );
+      return this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation)!;
+    }).immediate();
+  }
+
+  getSymposiumSeatSandbox(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumSeatSandboxRecord | undefined {
+    const row = this.db!.prepare(
+      `SELECT * FROM symposium_seat_sandboxes
+      WHERE session_id=? AND seat_id=? AND generation=?`,
+    ).get(sessionId, seatId, generation) as Record<string, unknown> | undefined;
+    return row ? this.rowToSymposiumSeatSandbox(row) : undefined;
+  }
+
+  listUnstoppedSymposiumSeatSandboxes(
+    sessionId: string,
+    seatId: string,
+  ): SymposiumSeatSandboxRecord[] {
+    const rows = this.db!.prepare(
+      `SELECT * FROM symposium_seat_sandboxes
+      WHERE session_id=? AND seat_id=? AND state<>'stopped' ORDER BY generation`,
+    ).all(sessionId, seatId) as Record<string, unknown>[];
+    return rows.map((row) => this.rowToSymposiumSeatSandbox(row));
+  }
+
+  private rowToSymposiumSeatSandbox(row: Record<string, unknown>): SymposiumSeatSandboxRecord {
+    return {
+      sessionId: row.session_id as string,
+      seatId: row.seat_id as string,
+      generation: row.generation as number,
+      runtimeId: row.runtime_id as string,
+      workspace: row.workspace as string,
+      providerName: row.provider_name as string,
+      providerId: row.provider_id as string,
+      providerType: row.provider_type as string,
+      model: row.model as string,
+      sandboxName: row.sandbox_name as string | null,
+      physicalId: row.physical_id as string | null,
+      creationStarted: Boolean(row.creation_started),
+      creationCompleted: Boolean(row.creation_completed),
+      state: row.state as SymposiumSeatSandboxRecord['state'],
+    };
+  }
+
+  /** Persist the point after which a timed-out gateway create may still finish. */
+  markSymposiumSeatSandboxCreationStarted(input: {
+    sessionId: string; seatId: string; generation: number; runtimeId: string;
+  }): void {
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_started=1
+       WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+       AND state='reserved' AND creation_started=0`,
+    ).run(input.sessionId, input.seatId, input.generation, input.runtimeId);
+    if (result.changes !== 1) throw new Error('Symposium seat creation requires reconciliation');
+  }
+
+  /** Only a completed create response can discharge uncertainty about late creation. */
+  markSymposiumSeatSandboxCreationCompleted(input: {
+    sessionId: string; seatId: string; generation: number; runtimeId: string; physicalId: string;
+  }): void {
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_completed=1
+       WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+       AND physical_id=? AND state='ready' AND creation_started=1 AND creation_completed=0`,
+    ).run(input.sessionId, input.seatId, input.generation, input.runtimeId, input.physicalId);
+    if (result.changes !== 1) throw new Error('Symposium seat creation completion changed');
+  }
+
+  confirmSymposiumSeatSandbox(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+    physicalId: string;
+  }): void {
+    this.db!.transaction(() => {
+      const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+      if (
+        !record ||
+        record.runtimeId !== input.runtimeId ||
+        record.state === 'stopped' ||
+        (record.physicalId && record.physicalId !== input.physicalId) ||
+        (record.sandboxName && record.sandboxName !== input.sandboxName)
+      )
+        throw new Error('Symposium seat sandbox physical identity changed');
+      this.db!.prepare(
+        `UPDATE symposium_seat_sandboxes SET sandbox_name=?,physical_id=?,state='ready'
+        WHERE session_id=? AND seat_id=? AND generation=?`,
+      ).run(input.sandboxName, input.physicalId, input.sessionId, input.seatId, input.generation);
+    }).immediate();
+  }
+
+  confirmSymposiumSeatSandboxStopped(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    physicalId: string;
+  }): void {
+    const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+    if (!record || record.runtimeId !== input.runtimeId || record.physicalId !== input.physicalId ||
+        (record.creationStarted && !record.creationCompleted))
+      throw new Error('Symposium seat sandbox stop identity changed');
+    this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET state='stopped'
+      WHERE session_id=? AND seat_id=? AND generation=? AND physical_id=?`,
+    ).run(input.sessionId, input.seatId, input.generation, input.physicalId);
+  }
+
+  confirmAbsentSymposiumSeatSandboxStopped(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+  }): void {
+    const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
+    if (
+      !record ||
+      record.runtimeId !== input.runtimeId ||
+      record.state !== 'reserved' ||
+      record.physicalId ||
+      record.creationStarted
+    )
+      throw new Error('Symposium seat sandbox absence identity changed');
+    this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET state='stopped'
+      WHERE session_id=? AND seat_id=? AND generation=? AND state='reserved'`,
+    ).run(input.sessionId, input.seatId, input.generation);
   }
 
   /** SQLite IMMEDIATE transaction makes generation and cap reservation one CAS. */
@@ -2547,8 +2783,8 @@ export class EventStore {
     const rows = this.db!.prepare(
       `SELECT r.delivery_id, r.seat_id FROM symposium_delivery_recipients r
        JOIN symposium_deliveries d ON d.delivery_id = r.delivery_id
-       WHERE d.session_id = ? AND d.status IN ('awaiting_intervention', 'ready', 'delivering')
-         AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
+        WHERE d.session_id = ? AND d.status IN ('awaiting_intervention', 'ready', 'delivering')
+          AND r.status = 'pending' AND (? IS NULL OR r.seat_id = ?)
        ORDER BY d.created_at, r.delivery_id, r.seat_id LIMIT ?`,
     ).all(sessionId, seatId ?? null, seatId ?? null, limit) as Array<{
       delivery_id: string;
@@ -2727,9 +2963,7 @@ export class EventStore {
     ).run(attemptId, idempotencyKey);
   }
 
-  getUnsettledSymposiumExecutions(
-    deliveryId: string,
-  ): Array<{
+  getUnsettledSymposiumExecutions(deliveryId: string): Array<{
     seatId: string;
     attemptId: number;
     idempotencyKey: string;

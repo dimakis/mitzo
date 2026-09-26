@@ -21,7 +21,7 @@ const route = {
   kind: 'claude-vertex' as const,
   provider: 'fixture-provider',
   providerId: 'fixture-object',
-  model: 'fixture-model',
+  model: 'claude-haiku-4-5@20251001',
   effort: 'low',
   projectId: 'fixture-project',
   region: 'us-east5',
@@ -36,7 +36,7 @@ const execution = {
   seat: {
     id: 'reviewer',
     name: 'Reviewer',
-    model: 'fixture-model',
+    model: 'claude-haiku-4-5@20251001',
     systemPrompt: 'Read only.',
     color: '#112233',
     role: 'reviewer',

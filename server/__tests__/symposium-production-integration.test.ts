@@ -25,6 +25,7 @@ const profiles = new AccountProfiles([
     models: [{ id: 'gpt-test', label: 'Test' }],
   },
 ]);
+const accountBinding = AccountBindingSchema.parse(profiles.resolve('work-api', 'gpt-test'));
 const seat = {
   id: 'builder',
   name: 'Builder',
@@ -34,7 +35,7 @@ const seat = {
   expectedOutput: 'A focused patch and test result',
   acceptanceCriteria: ['The focused tests pass', 'Explain remaining risks'],
   color: '#224466',
-  accountBinding: AccountBindingSchema.parse(profiles.resolve('work-api', 'gpt-test')),
+  accountBinding,
   profileBinding: { profileId: 'builder', profileRevision: '1' },
   contextGrant: {
     grantId: 'context',
@@ -59,14 +60,15 @@ const config: SymposiumConfig = {
   version: 2,
   revision: 1,
   state: 'active',
-  anchorSeatId: 'builder',
+  anchorSeatId: 'anchor',
   activeSeatCap: 2,
-  seats: [seat],
+  seats: [{ ...seat, id: 'anchor', name: 'Anchor' }, seat],
   turnRules: { mode: 'directed', maxTurns: 4 },
   interceptMode: 'manual',
 };
 const runtimeConfig = {
   cli: 'openshell',
+  cliContract: 'v0.1' as const,
   image: 'test-image',
   policy: '/policy',
   seed: '/seed',
@@ -85,6 +87,48 @@ describe('production Symposium route to native runtime', () => {
   const roots: string[] = [];
   afterEach(() => {
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+
+  it('does not admit a seat whose physical provider is absent from the host attestation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-symposium-unattested-provider-'));
+    roots.push(root);
+    const store = new EventStore(join(root, 'events.db'));
+    store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
+    store.setSymposiumConfig('symposium', config);
+    const managerFactory = vi.fn(() => ({
+      ensure: async () => {
+        throw new Error('Sandbox must not be created');
+      },
+    }));
+    const runtime = createSymposiumSessionRuntime({
+      sessionId: 'symposium',
+      store,
+      profiles,
+      hostGrants: { verifySeat: vi.fn() },
+      codexStore: {} as never,
+      resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+      runtimeConfig,
+      perSeatSandboxVerified: true,
+      allowedSeatRoles: new Set(['implementer']),
+      allowedAccountProviders: new Set(['openai']),
+      verifyHostCapability: () => ({ attestedProviderProfiles: new Set(['unrelated-provider']) }),
+      readOnlyEnforced: { openaiApi: false, claudeVertex: false },
+      recordAccepted: vi.fn(() => true),
+      managerFactory,
+    });
+    const membership = await runtime.orchestrator.transitionMembership({
+      sessionId: 'symposium',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 1,
+      actor: 'owner',
+      reason: 'Approved',
+      idempotencyKey: 'unattested-provider',
+    });
+    expect(membership.reconciliation).toBe('recovery_required');
+    expect(store.getLatestSymposiumAdmission('symposium', 'builder', 1)).toBeUndefined();
+    expect(managerFactory).not.toHaveBeenCalled();
   });
 
   it('quarantines an API seat when its pinned physical provider is codex typed', async () => {
@@ -106,6 +150,7 @@ describe('production Symposium route to native runtime', () => {
         workspace: 'default',
       }),
       runtimeConfig,
+      perSeatSandboxVerified: true,
       readOnlyEnforced: { openaiApi: false, claudeVertex: false },
       recordAccepted: vi.fn(() => true),
       managerFactory: () => ({
@@ -147,6 +192,18 @@ describe('production Symposium route to native runtime', () => {
     const cancellations = vi.fn(async () => {
       rejectHeld?.(new Error('native turn stopped'));
     });
+    const sandboxName = 'symposium-builder-generation-1';
+    const physicalId = 'physical-sandbox-builder-1';
+    let sandboxPhase = 'Ready';
+    const ensure = vi.fn(async () => ({
+      sandboxName,
+      sandboxId: physicalId,
+      workdir: runtimeConfig.workdir,
+    }));
+    const stop = vi.fn(async (_runtimeId: string, observedPhysicalId: string) => {
+      expect(observedPhysicalId).toBe(physicalId);
+      sandboxPhase = 'Stopped';
+    });
     const runtime = createSymposiumSessionRuntime({
       sessionId: 'symposium',
       store,
@@ -155,11 +212,18 @@ describe('production Symposium route to native runtime', () => {
       codexStore: {} as never,
       resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
       runtimeConfig,
+      perSeatSandboxVerified: true,
       readOnlyEnforced: { openaiApi: false, claudeVertex: false },
       recordAccepted: accepted,
       recordEvent: (execution, event) => events.record(execution, event),
       managerFactory: () => ({
-        ensure: async () => ({ sandboxName: 'shared', workdir: runtimeConfig.workdir }),
+        ensure,
+        inspectReserved: async () => ({ id: physicalId, name: sandboxName, phase: sandboxPhase }),
+        inspect: async (_runtimeId: string, observedPhysicalId: string) => {
+          expect(observedPhysicalId).toBe(physicalId);
+          return { id: physicalId, phase: sandboxPhase };
+        },
+        stop,
       }),
       openNative: async ({ execution, onEvent }) => ({
         run: async (_input, callbacks) => {
@@ -305,7 +369,7 @@ describe('production Symposium route to native runtime', () => {
         getPerspective: (id, perspective, options) =>
           getSymposiumPerspective(store, id, perspective, options),
         getQueuedInputs: (id, perspective) => getSymposiumQueuedInputs(store, id, perspective),
-        resolveSelection: () => seat.accountBinding,
+        resolveSelection: () => accountBinding,
       }),
     );
     const base = '/api/sessions/symposium/symposium';
@@ -321,6 +385,9 @@ describe('production Symposium route to native runtime', () => {
     expect(admission.status).toBe(200);
     expect(admission.body.reconciliation).toBe('confirmed');
     expect(store.getLatestSymposiumAdmission('symposium', 'builder', 1)?.decision).toBe('admitted');
+    expect(ensure).toHaveBeenCalledTimes(1);
+    const reserved = store.getSymposiumSeatSandbox('symposium', 'builder', 1);
+    expect(reserved).toMatchObject({ sandboxName, physicalId, state: 'ready' });
     const staged = await request(app)
       .post(`${base}/deliveries`)
       .send({
@@ -411,15 +478,6 @@ describe('production Symposium route to native runtime', () => {
       ),
     ).toBe(true);
     expect(rich.some((event) => event.type === 'progress')).toBe(true);
-    const suspended = await request(app).post(`${base}/membership`).send({
-      seatId: 'builder',
-      action: 'suspend',
-      expectedGeneration: 1,
-      configRevision: 1,
-      reason: 'Stop',
-      idempotencyKey: 'suspend-builder',
-    });
-    expect(suspended.status).toBe(409);
     expect(store.getLatestSymposiumMembership('symposium', 'builder')?.state).toBe('active');
     expect(cancellations).not.toHaveBeenCalled();
     const held = await request(app)
@@ -452,6 +510,22 @@ describe('production Symposium route to native runtime', () => {
     expect(cancellations).toHaveBeenCalledTimes(1);
     await pendingDispatch;
     expect(store.getUnsettledSymposiumExecutions(heldId)).toEqual([]);
+    const revoked = await request(app).post(`${base}/membership`).send({
+      seatId: 'builder',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 1,
+      reason: 'Stop after cancellation',
+      idempotencyKey: 'suspend-builder-after-cancel',
+    });
+    expect(revoked.status, JSON.stringify(revoked.body)).toBe(200);
+    expect(revoked.body.reconciliation).toBe('confirmed');
+    expect(stop).toHaveBeenCalledExactlyOnceWith(
+      reserved!.runtimeId,
+      physicalId,
+      expect.any(AbortSignal),
+    );
+    expect(store.getSymposiumSeatSandbox('symposium', 'builder', 1)?.state).toBe('stopped');
     store.close();
   });
 

@@ -54,6 +54,248 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('requires OpenShell 0.1 and physical attestation for an artifact mount', async () => {
+    const artifactDriverConfig = { podman: { mounts: [{
+      type: 'volume' as const, source: 'artifacts-1',
+      target: '/sandbox/symposium-artifacts', read_only: true,
+    }] } };
+    const run = vi.fn(async () => '{}');
+    await expect(new OpenShellRuntimeManager({ ...config, artifactDriverConfig }, run)
+      .ensure('conversation', new AbortController().signal))
+      .rejects.toThrow('requires OpenShell 0.1');
+    await expect(new OpenShellRuntimeManager({ ...config, cliContract: 'v0.1', artifactDriverConfig,
+      serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run)
+      .ensure('conversation', new AbortController().signal))
+      .rejects.toThrow('physical mount attestation');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('passes a lease-bound driver config only on 0.1 create and attests physical mount', async () => {
+    const commands: string[][] = [];
+    const sandboxName = sandboxNameForConversation('conversation');
+    const artifactDriverConfig = { podman: { mounts: [{
+      type: 'volume' as const, source: 'artifacts-1',
+      target: '/sandbox/symposium-artifacts', read_only: true,
+    }] } };
+    let created = false;
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai' }], next_page_token: '' });
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{
+        name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo',
+      }], next_page_token: '' });
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({ name: sandboxName, id: 'physical-id', workspace: 'mitzo', phase: 'Ready', labels: {
+          'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-none',
+        } });
+      }
+      if (args.includes('create')) { created = true; return '{}'; }
+      if (args.includes('list')) return JSON.stringify({ providers: [], next_page_token: '' });
+      return '{}';
+    });
+    const verifyArtifactMount = vi.fn(async () => {});
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined, artifactDriverConfig, verifyArtifactMount,
+    }, run);
+    await manager.ensure('conversation', new AbortController().signal);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create[create.indexOf('--driver-config-json') + 1]).toBe(JSON.stringify(artifactDriverConfig));
+    expect(verifyArtifactMount).toHaveBeenCalledWith(sandboxName, 'physical-id', artifactDriverConfig);
+  });
+  it('uses 0.1 workspace, pagination, and exactly one pinned account attachment', async () => {
+    const commands: string[][] = [];
+    const sandboxName = sandboxNameForConversation('conversation');
+    let created = false;
+    const runtimeConfig = {
+      ...config,
+      cliContract: 'v0.1' as const,
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    };
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify({ name: sandboxName, id: 'sandbox-id', workspace: 'mitzo', phase: 'Ready', labels: {
+          'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work',
+          'mitzo.provider_policy': 'state-v2-none',
+        } });
+      }
+      if (args.includes('create')) { created = true; return '{}'; }
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai', credential_keys: ['OPENAI_API_KEY'], config_keys: [] }], next_page_token: '' });
+      if (args.includes('list')) return JSON.stringify({ sandboxes: [], next_page_token: '' });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(runtimeConfig, run);
+    const result = await manager.ensure('conversation', new AbortController().signal);
+    expect(result.sandboxName).toBe(sandboxName);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create).toContain('--workspace');
+    expect(create[create.indexOf('--workspace') + 1]).toBe('mitzo');
+    expect(create.filter((part) => part === '--provider')).toHaveLength(1);
+    expect(create[create.indexOf('--provider') + 1]).toBe('openai-work');
+    expect(create).not.toContain('--inference-model');
+    expect(commands.filter((args) => args.includes('provider') && args.includes('list'))
+      .every((args) => args.includes('--output') && args.includes('json'))).toBe(true);
+    expect(commands.find((args) => args[0] === 'provider' && args.includes('list'))).toContain('--page-size');
+  });
+  it('rejects a retained 0.1 seat sandbox with a sibling provider', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) return JSON.stringify({
+        ...JSON.parse(ready('Ready', 'state-v2-none')),
+        name: sandboxNameForConversation('conversation'), workspace: 'mitzo',
+      });
+      if (args.includes('provider') && args.includes('list')) return JSON.stringify({ providers: [
+        { name: 'openai-work', type: 'openai' }, { name: 'vertex-work', type: 'google-vertex-ai' },
+      ], next_page_token: '' });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(/another provider attachment/);
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('waits for the exact 0.1 provider attachment before admitting a retained seat', async () => {
+    const commands: string[][] = [];
+    let attached = false;
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) return JSON.stringify({
+        ...JSON.parse(ready('Ready', 'state-v2-none')),
+        name: sandboxNameForConversation('conversation'), workspace: 'mitzo',
+      });
+      if (args.includes('provider') && args.includes('list')) return JSON.stringify({ providers: attached ? [{ name: 'openai-work', type: 'openai' }] : [], next_page_token: '' });
+      if (args.includes('attach')) { attached = true; return '{}'; }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    await manager.ensure('conversation', new AbortController().signal);
+    const attach = commands.find((args) => args.includes('attach'))!;
+    expect(attach).toEqual(expect.arrayContaining(['--workspace', 'mitzo', 'openai-work', '--wait', '--output', 'json']));
+    expect(commands.filter((args) => args.includes('attach'))).toHaveLength(1);
+  });
+  it('reads all 0.1 attachment pages before accepting a retained seat', async () => {
+    const attachmentPages: string[][] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) return JSON.stringify({
+        ...JSON.parse(ready('Ready', 'state-v2-none')),
+        name: sandboxNameForConversation('conversation'), workspace: 'mitzo',
+      });
+      if (args.includes('provider') && args.includes('list')) {
+        attachmentPages.push([...args]);
+        return args.includes('--page-token')
+          ? JSON.stringify({ providers: [{ name: 'vertex-work', type: 'google-vertex-ai' }], next_page_token: '' })
+          : JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai' }], next_page_token: 'next' });
+      }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(/another provider attachment/);
+    expect(attachmentPages).toHaveLength(2);
+    expect(attachmentPages[1]).toEqual(expect.arrayContaining(['--page-token', 'next']));
+  });
+  it.each([
+    ['bare array', JSON.stringify([{ name: 'openai-work', type: 'openai' }])],
+    ['missing token', JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai' }] })],
+    ['malformed row', JSON.stringify({ providers: [{ name: 'openai-work' }], next_page_token: '' })],
+  ])('rejects a 0.1 attachment inventory with %s', async (_case, inventory) => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) return JSON.stringify({
+        ...JSON.parse(ready('Ready', 'state-v2-none')),
+        name: sandboxNameForConversation('conversation'), workspace: 'mitzo',
+      });
+      if (args.includes('provider') && args.includes('list')) return inventory;
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow();
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('rejects a repeating 0.1 attachment page token', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider') return JSON.stringify({ providers: [{ name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' }], next_page_token: '' });
+      if (args.includes('get')) return JSON.stringify({
+        ...JSON.parse(ready('Ready', 'state-v2-none')),
+        name: sandboxNameForConversation('conversation'), workspace: 'mitzo',
+      });
+      if (args.includes('provider') && args.includes('list'))
+        return JSON.stringify({ providers: [{ name: 'openai-work', type: 'openai' }], next_page_token: 'same' });
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(/pagination repeated a token/);
+    expect(run).not.toHaveBeenCalledWith(expect.arrayContaining(['attach']), expect.anything());
+  });
+  it('rejects the legacy subscription route before any 0.1 CLI call', async () => {
+    const run = vi.fn();
+    expect(() => new OpenShellRuntimeManager({
+      ...config,
+      cliContract: 'v0.1',
+      serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'personal-chatgpt', type: 'openai-codex-oauth', id: 'provider-object-1' }],
+      account: {
+        kind: 'chatgpt-subscription', provider: 'personal-chatgpt',
+        providerType: 'openai-codex-oauth', providerId: 'provider-object-1',
+        grantId: 'grant-generation-1', model: 'gpt-test',
+      },
+    }, run)).toThrow(/exactly one account provider/);
+    expect(run).not.toHaveBeenCalled();
+  });
+  it('uses opaque 0.1 sandbox page tokens for workspace-scoped inventory', async () => {
+    const requests: string[][] = [];
+    const run = vi.fn(async (args: readonly string[]) => {
+      requests.push([...args]);
+      return args.includes('--page-token')
+        ? JSON.stringify({ sandboxes: [{ name: 'seat', phase: 'Ready', workspace: 'mitzo', labels: {
+            'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work',
+          } }], next_page_token: '' })
+        : JSON.stringify({ sandboxes: [], next_page_token: 'next' });
+    });
+    const manager = new OpenShellRuntimeManager({
+      ...config, cliContract: 'v0.1', serviceProviders: [], grantableServiceProviders: [],
+      accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+      verifyAccountProviderUnion: () => undefined,
+    }, run);
+    expect((await manager.inventory(new AbortController().signal)).map((item) => item.name)).toEqual(['seat']);
+    expect(requests[1]).toEqual(expect.arrayContaining(['--workspace', 'mitzo', '--page-token', 'next']));
+    expect(requests[0]).not.toContain('--offset');
+  });
   it('verifies and attaches an explicitly bound second inference provider in one sandbox', async () => {
     const commands: string[][] = [];
     let created = false;

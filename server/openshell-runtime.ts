@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { McpServerConfig } from './mcp-config.js';
 import { openShellSshProcessSpec } from './codex-app-server-client.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
+import type { ArtifactDriverConfig } from './symposium-artifact-lease.js';
 
 // OpenShell gateways prior to the current API contract encode resource_version
 // as a JSON number. Normalize that legacy representation at the boundary so
@@ -82,6 +83,12 @@ export interface OpenShellRuntime {
 }
 
 export interface OpenShellRuntimeConfig {
+  /** Explicit CLI wire contract. Omitted retains the deployed 0.0.x behavior. */
+  cliContract?: 'v0.1';
+  /** Host-validated, lease-bound mount for a single seat. Never read from model output. */
+  artifactDriverConfig?: ArtifactDriverConfig;
+  /** Physical mount attestation supplied by the selected local compute driver. */
+  verifyArtifactMount?: (sandboxName: string, sandboxId: string, config: ArtifactDriverConfig) => Promise<void>;
   cli: string;
   image: string;
   policy: string;
@@ -96,6 +103,20 @@ export interface OpenShellRuntimeConfig {
   sandboxIdLength: number;
   workdir: string;
   webSearch: 'disabled' | 'live';
+}
+
+function assertArtifactDriverConfig(config: ArtifactDriverConfig): void {
+  const keys = Object.keys(config);
+  if (keys.length !== 1 || (keys[0] !== 'docker' && keys[0] !== 'podman'))
+    throw new Error('Artifact driver config must select one local compute driver');
+  const mounts = config[keys[0]]?.mounts;
+  if (!Array.isArray(mounts) || mounts.length !== 1 ||
+      mounts[0].type !== 'volume' ||
+      !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(mounts[0].source) ||
+      mounts[0].target !== '/sandbox/symposium-artifacts' ||
+      typeof mounts[0].read_only !== 'boolean' ||
+      Object.keys(mounts[0]).sort().join(',') !== 'read_only,source,target,type')
+    throw new Error('Invalid artifact driver config');
 }
 
 const SERVICE_PROVIDERS = new Set(['google-workspace', 'github']);
@@ -344,6 +365,16 @@ export class OpenShellRuntimeManager {
     runSsh?: Run,
     private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
+    if (config.cliContract === 'v0.1') {
+      if (
+        config.account.kind !== 'api' ||
+        config.accountProviderBindings?.length !== 1 ||
+        config.accountProviderBindings[0].name !== config.account.provider ||
+        config.serviceProviders.length ||
+        config.grantableServiceProviders.length
+      )
+        throw new Error('OpenShell 0.1 seat sandbox requires exactly one account provider');
+    }
     if (config.grantableServiceProviders.includes(config.account.provider))
       throw new Error(
         `OpenShell account provider cannot also be grantable: ${config.account.provider}`,
@@ -414,13 +445,7 @@ export class OpenShellRuntimeManager {
             `OpenShell sandbox ${runtime.sandboxName} has another account provider binding`,
           ),
         };
-      const attached = parseProviderAttachments(
-        await this.run(
-          ['sandbox', ...this.base(), 'provider', 'list', runtime.sandboxName],
-          signal,
-        ),
-        runtime.sandboxName,
-      );
+      const attached = await this.attachedProviders(runtime.sandboxName, signal);
       const approved = this.providerPolicyState
         .read(runtime.sandboxName)
         ?.granted.includes(provider);
@@ -468,11 +493,106 @@ export class OpenShellRuntimeManager {
     ] as const;
   }
 
+  private async attachedProviders(name: string, signal: AbortSignal): Promise<string[]> {
+    const args = ['sandbox', ...this.base(), 'provider', 'list', name];
+    if (this.config.cliContract !== 'v0.1')
+      return parseProviderAttachments(await this.run(args, signal), name);
+    // The 0.1 CLI emits a paginated envelope even for an empty attachment list.
+    // A partial page is never sufficient evidence that another seat's provider
+    // is absent, so consume every page before returning an authorization result.
+    const attachments: { name: string; type: string }[] = [];
+    let token = '';
+    const seen = new Set<string>();
+    do {
+      const payload: unknown = JSON.parse(
+        await this.run(
+          [
+            ...args,
+            '--output',
+            'json',
+            '--page-size',
+            '100',
+            ...(token ? ['--page-token', token] : []),
+          ],
+          signal,
+        ),
+      );
+      const page = z
+        .object({
+          providers: z.array(z.object({ name: z.string().min(1), type: z.string().min(1) })),
+          next_page_token: z.string(),
+        })
+        .parse(payload);
+      attachments.push(...page.providers);
+      token = page.next_page_token;
+      if (token && seen.has(token))
+        throw new Error('OpenShell 0.1 attachment pagination repeated a token');
+      if (token) seen.add(token);
+    } while (token);
+    const names = attachments.map((row) => row.name);
+    if (new Set(names).size !== names.length)
+      throw new Error('OpenShell 0.1 attachment inventory is invalid');
+    const accountAttachment = attachments.find((row) => row.name === this.config.account.provider);
+    if (
+      accountAttachment &&
+      accountAttachment.type !== this.config.accountProviderBindings?.[0]?.type
+    )
+      throw new Error('OpenShell 0.1 account attachment type changed');
+    return names;
+  }
+
+  private async accountProviderInventory(signal: AbortSignal) {
+    if (this.config.cliContract !== 'v0.1')
+      return ProviderList.parse(
+        JSON.parse(
+          await this.run(
+            ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
+            signal,
+          ),
+        ),
+      );
+    const providers: z.infer<typeof Provider>[] = [];
+    let token = '';
+    const seen = new Set<string>();
+    do {
+      const payload = JSON.parse(
+        await this.run(
+          [
+            'provider',
+            ...this.base(),
+            'list',
+            '--output',
+            'json',
+            '--page-size',
+            '100',
+            ...(token ? ['--page-token', token] : []),
+          ],
+          signal,
+        ),
+      ) as unknown;
+      const page = z
+        .object({ providers: ProviderList, next_page_token: z.string() })
+        .parse(payload);
+      providers.push(...page.providers);
+      token = page.next_page_token;
+      if (token && seen.has(token))
+        throw new Error('OpenShell provider pagination repeated a token');
+      if (token) seen.add(token);
+    } while (token);
+    return providers;
+  }
+
   private async get(name: string, signal: AbortSignal) {
     try {
-      return Sandbox.parse(
+      const sandbox = Sandbox.parse(
         JSON.parse(await this.run(['sandbox', ...this.base(), 'get', name, '-o', 'json'], signal)),
       );
+      if (
+        this.config.cliContract === 'v0.1' &&
+        (sandbox.name !== name || sandbox.workspace !== this.config.workspace)
+      )
+        throw new Error('OpenShell 0.1 sandbox name or workspace changed');
+      return sandbox;
     } catch (error) {
       const message = error instanceof Error ? error.message : '';
       if (/not found|404|does not exist/i.test(message)) return undefined;
@@ -506,6 +626,41 @@ export class OpenShellRuntimeManager {
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
   async inventory(signal: AbortSignal) {
     const sandboxes: z.infer<typeof Sandbox>[] = [];
+    if (this.config.cliContract === 'v0.1') {
+      let token = '';
+      const seen = new Set<string>();
+      do {
+        const payload = JSON.parse(
+          await this.run(
+            [
+              'sandbox',
+              ...this.base(),
+              'list',
+              '--output',
+              'json',
+              '--page-size',
+              '100',
+              ...(token ? ['--page-token', token] : []),
+            ],
+            signal,
+          ),
+        ) as unknown;
+        const page = z
+          .object({ sandboxes: SandboxList, next_page_token: z.string() })
+          .parse(payload);
+        sandboxes.push(...page.sandboxes);
+        token = page.next_page_token;
+        if (token && seen.has(token))
+          throw new Error('OpenShell sandbox pagination repeated a token');
+        if (token) seen.add(token);
+      } while (token);
+      return sandboxes.filter(
+        (sandbox) =>
+          sandbox.labels?.['mitzo.conversation'] &&
+          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+          sandbox.workspace === this.config.workspace,
+      );
+    }
     const limit = 100;
     for (let offset = 0; ; offset += limit) {
       const page = SandboxList.parse(
@@ -554,6 +709,22 @@ export class OpenShellRuntimeManager {
       ...(lifecycleVersion ? { resourceVersion: lifecycleVersion } : {}),
       phase: sandbox.phase,
     };
+  }
+
+  /** Recover a reserved runtime after a crash before its physical ID was recorded. */
+  async inspectReserved(conversationId: string, signal: AbortSignal) {
+    const name = sandboxNameForConversation(conversationId, this.config.sandboxIdLength);
+    const sandbox = await this.get(name, signal);
+    if (!sandbox) return undefined;
+    const owner = createHash('sha256').update(conversationId).digest('hex').slice(0, 63);
+    if (
+      sandbox.labels?.['mitzo.conversation'] !== owner ||
+      sandbox.labels?.['mitzo.account_provider'] !== this.config.account.provider ||
+      (this.config.cliContract === 'v0.1' && sandbox.workspace !== this.config.workspace) ||
+      !sandbox.id
+    )
+      throw new Error('Reserved OpenShell sandbox identity cannot be verified');
+    return { id: sandbox.id, name: sandbox.name, phase: sandbox.phase };
   }
 
   private ownedSandbox(
@@ -677,17 +848,12 @@ export class OpenShellRuntimeManager {
   private async verifyAccountProvider(signal: AbortSignal) {
     const account = this.config.account;
     if (this.config.accountProviderBindings) {
-      const providers = ProviderList.parse(
-        JSON.parse(
-          await this.run(
-            ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
-            signal,
-          ),
-        ),
-      );
+      const providers = await this.accountProviderInventory(signal);
       for (const binding of this.config.accountProviderBindings) {
-        const match = providers.find((provider) => provider.name === binding.name);
+        const matches = providers.filter((provider) => provider.name === binding.name);
+        const match = matches[0];
         if (
+          matches.length !== 1 ||
           !match ||
           match.workspace !== this.config.workspace ||
           match.type !== binding.type ||
@@ -698,14 +864,7 @@ export class OpenShellRuntimeManager {
       return;
     }
     if (account.kind === 'api') return;
-    const providers = ProviderList.parse(
-      JSON.parse(
-        await this.run(
-          ['provider', ...this.base(), 'list', '--output', 'json', '--limit', '100'],
-          signal,
-        ),
-      ),
-    );
+    const providers = await this.accountProviderInventory(signal);
     const provider = providers.find((entry) => entry.name === account.provider);
     if (
       !provider ||
@@ -761,10 +920,9 @@ export class OpenShellRuntimeManager {
   ) {
     await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
     if (this.config.enforceConnectionAttachments) {
-      const actual = parseProviderAttachments(
-        await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-        name,
-      ).filter((p) => p.startsWith('mitzo-conn-'));
+      const actual = (await this.attachedProviders(name, signal)).filter((p) =>
+        p.startsWith('mitzo-conn-'),
+      );
       const expected = this.config.serviceProviders.filter((p) => p.startsWith('mitzo-conn-'));
       if (actual.length !== expected.length || actual.some((p) => !expected.includes(p)))
         throw new Error('Connection permissions changed. Start a new conversation.');
@@ -780,11 +938,22 @@ export class OpenShellRuntimeManager {
     let changed = false;
     for (const provider of attach) {
       try {
-        await this.run(['sandbox', ...this.base(), 'provider', 'attach', name, provider], signal);
+        await this.run(
+          [
+            'sandbox',
+            ...this.base(),
+            'provider',
+            'attach',
+            name,
+            provider,
+            ...(this.config.cliContract === 'v0.1' ? ['--wait', '--output', 'json'] : []),
+          ],
+          signal,
+        );
         changed = true;
       } catch (error) {
         const message = error instanceof Error ? error.message : '';
-        if (!/already attached|conflict|409/i.test(message))
+        if (this.config.cliContract === 'v0.1' || !/already attached|conflict|409/i.test(message))
           throw new Error('OpenShell service provider reconciliation failed', { cause: error });
       }
     }
@@ -802,6 +971,10 @@ export class OpenShellRuntimeManager {
   }
 
   async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
+    const artifactConfig = this.config.artifactDriverConfig;
+    if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
+      throw new Error('Artifact mount requires OpenShell 0.1 and physical mount attestation');
+    if (artifactConfig) assertArtifactDriverConfig(artifactConfig);
     this.config.verifyAccountProviderUnion?.();
     await this.verifyAccountProvider(signal);
     this.config.verifyAccountProviderUnion?.();
@@ -873,6 +1046,7 @@ export class OpenShellRuntimeManager {
         '--output',
         'json',
       ];
+      if (artifactConfig) args.push('--driver-config-json', JSON.stringify(artifactConfig));
       if (this.config.connectionAccountId)
         args.push('--label', `mitzo.connection_account=${this.config.connectionAccountId}`);
       if (this.config.createDetached) args.push('--detach');
@@ -880,7 +1054,10 @@ export class OpenShellRuntimeManager {
       // The reviewed subscription compatibility CLI requires an explicit
       // inference route. Released OpenShell 0.0.116 does not expose these
       // flags, and API providers already define their own inspected endpoint.
-      if (this.config.account.kind === 'chatgpt-subscription') {
+      if (
+        this.config.account.kind === 'chatgpt-subscription' &&
+        this.config.cliContract !== 'v0.1'
+      ) {
         args.push(
           '--inference-provider',
           accountProvider,
@@ -930,15 +1107,19 @@ export class OpenShellRuntimeManager {
         // a physical grant without that record is unapproved and must be
         // detached. Read actual state before mutating either the sandbox or
         // policy; an unreadable list fails closed.
-        const desired = new Set([...automatic, ...granted]);
+        const desired = new Set([
+          ...(this.config.cliContract === 'v0.1' ? [accountProvider] : []),
+          ...automatic,
+          ...granted,
+        ]);
         const actual = retained
-          ? new Set(
-              parseProviderAttachments(
-                await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-                name,
-              ),
-            )
+          ? new Set(await this.attachedProviders(name, signal))
           : new Set<string>();
+        if (
+          this.config.cliContract === 'v0.1' &&
+          [...actual].some((provider) => provider !== accountProvider)
+        )
+          throw new Error('OpenShell 0.1 seat sandbox has another provider attachment');
         const attach = retained ? [...desired].filter((provider) => !actual.has(provider)) : [];
         const detach = retained
           ? [...actual].filter(
@@ -961,15 +1142,17 @@ export class OpenShellRuntimeManager {
     }
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
+    if (artifactConfig) {
+      if (!sandbox.id) throw new Error('Artifact sandbox has no immutable physical identity');
+      await this.config.verifyArtifactMount!(name, sandbox.id, artifactConfig);
+      const afterMount = await this.get(name, signal);
+      if (!afterMount || afterMount.id !== sandbox.id || afterMount.phase !== 'Ready')
+        throw new Error('Artifact sandbox changed during mount attestation');
+    }
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
     if (this.config.accountProviderBindings) {
-      const actual = new Set(
-        parseProviderAttachments(
-          await this.run(['sandbox', ...this.base(), 'provider', 'list', name], signal),
-          name,
-        ),
-      );
+      const actual = new Set(await this.attachedProviders(name, signal));
       const policy = this.providerPolicyState.read(name);
       const expected = new Set([
         accountProvider,

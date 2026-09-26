@@ -1,0 +1,10 @@
+# Disposable local image only. Do not use as the active gateway runtime.
+ARG OPENSHELL_BASE_IMAGE
+FROM ${OPENSHELL_BASE_IMAGE}
+USER root
+COPY symposium-seat-landlock.c /tmp/symposium-seat-landlock.c
+RUN gcc -O2 -Wall -Wextra -Werror /tmp/symposium-seat-landlock.c \
+      -o /usr/local/bin/symposium-seat-landlock \
+    && rm /tmp/symposium-seat-landlock.c \
+    && install -d -o sandbox -g sandbox -m 0700 /sandbox/.symposium-seats
+USER sandbox

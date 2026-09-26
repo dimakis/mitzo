@@ -26,10 +26,13 @@ export interface SymposiumOpenShellSeatExecutorDeps {
   profiles: AccountProfiles;
   currentProfiles?: () => AccountProfiles;
   hostGrants: SymposiumHostGrantVerifier;
-  /** One session-owned manager reconciles the entire admitted provider union. */
+  /** Re-probe selected gateway, policy, controller and exact profile at dispatch. */
+  verifyHostCapability?: () => { attestedProviderProfiles: ReadonlySet<string> };
+  /** A session-owned manager reconciles the exact provider for this seat. */
   owner: {
     ensure(
       sessionId: string,
+      seatId: string,
       signal: AbortSignal,
     ): Promise<{ sandboxName: string; workdir: string }>;
     readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
@@ -76,7 +79,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
         : this.deps.owner.readOnlyEnforced.claudeVertex)
     )
       throw new Error('Reviewer native read-only policy is not verified on this sandbox');
-    const sandbox = await this.deps.owner.ensure(input.sessionId, input.signal);
+    const sandbox = await this.deps.owner.ensure(input.sessionId, input.seat.id, input.signal);
     route = admission();
     const native = await this.deps.openNative({
       sandbox,
@@ -93,6 +96,9 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
         const current = admission();
         if (current.providerId !== route.providerId || current.provider !== route.provider)
           throw new Error('Symposium account provider changed before native turn');
+        const capability = this.deps.verifyHostCapability?.();
+        if (capability && !capability.attestedProviderProfiles.has(current.provider))
+          throw new Error('Seat provider profile is outside the host attestation');
       },
       accepted: (providerThreadId, providerTurnId) => {
         const recorded = this.deps.recordAccepted({

@@ -9,6 +9,31 @@ import { symposiumSeatSystemPrompt } from './symposium-seat-prompt.js';
 
 type ClaudeRoute = Extract<SymposiumSeatRoute, { kind: 'claude-vertex' }>;
 
+/** Runs inside the sandbox, where OpenShell projects the attached provider's env. */
+export const claudeVertexLaunchScript = `
+project=$1; region=$2; shift 2
+test "\${VERTEX_AI_PROJECT_ID-}" = "$project" || exit 64
+test "\${VERTEX_AI_REGION-}" = "$region" || exit 64
+token=\${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN-}
+adc_token=\${GOOGLE_VERTEX_AI_TOKEN-}
+test -z "$token" || test -z "$adc_token" || exit 64
+if test -z "$token"; then
+  token=$adc_token
+  key=GOOGLE_VERTEX_AI_TOKEN
+else
+  key=GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN
+fi
+case "$token" in
+  "openshell:resolve:env:$key"|openshell:resolve:env:v[0-9]*_"$key"|"provider-OPENSHELL-RESOLVE-ENV-$key") ;;
+  *) exit 64 ;;
+esac
+unset ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN GOOGLE_APPLICATION_CREDENTIALS
+export CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_SKIP_VERTEX_AUTH=1
+export ANTHROPIC_VERTEX_PROJECT_ID="$project" CLOUD_ML_REGION="$region"
+export ANTHROPIC_CUSTOM_HEADERS="Authorization: Bearer $token"
+exec "$@"
+`;
+
 function privateSessionUuid(input: SymposiumSeatExecution): string {
   const hex = createHash('sha256').update(symposiumSeatRuntimeId(input)).digest('hex');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
@@ -16,14 +41,20 @@ function privateSessionUuid(input: SymposiumSeatExecution): string {
 
 /** Argv only: the routed user text goes to stdin, never SSH argv or process listings. */
 export function claudeVertexArgv(route: ClaudeRoute, input: SymposiumSeatExecution): string[] {
-  if (!/^[A-Za-z0-9._:-]+$/.test(route.projectId) || !/^[a-z][a-z0-9-]+$/.test(route.region))
+  if (
+    !/^[a-z][a-z0-9-]{4,62}$/.test(route.projectId) ||
+    !/^[a-z][a-z0-9-]+$/.test(route.region) ||
+    !/^claude-[a-z0-9][a-z0-9.-]*(?:@[0-9]{8})?$/.test(route.model)
+  )
     throw new Error('Invalid pinned Vertex route');
   return [
-    '/usr/bin/env',
-    'CLAUDE_CODE_USE_VERTEX=1',
-    'CLAUDE_CODE_SKIP_VERTEX_AUTH=1',
-    `ANTHROPIC_VERTEX_PROJECT_ID=${route.projectId}`,
-    `CLOUD_ML_REGION=${route.region}`,
+    '/bin/sh',
+    '-eu',
+    '-c',
+    claudeVertexLaunchScript,
+    '--',
+    route.projectId,
+    route.region,
     '/usr/local/bin/claude',
     '--print',
     '--bare',

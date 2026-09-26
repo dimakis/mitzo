@@ -1,9 +1,11 @@
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
 import {
   claudeVertexArgv,
+  claudeVertexLaunchScript,
   createClaudeVertexSeat,
   readClaudeVertexEvent,
 } from '../symposium-claude-native.js';
@@ -47,12 +49,18 @@ describe('Claude Vertex native seat', () => {
       /registry is unavailable/,
     );
   });
-  it('uses a pinned gateway route, private thread, and tool ceiling without putting user text in argv', () => {
+  it('uses a pinned native Vertex route, private thread, and tool ceiling without putting user text in argv', () => {
     const argv = claudeVertexArgv(route, execution);
-    expect(argv).toContain('CLAUDE_CODE_USE_VERTEX=1');
-    expect(argv).toContain('CLAUDE_CODE_SKIP_VERTEX_AUTH=1');
-    expect(argv).toContain('ANTHROPIC_VERTEX_PROJECT_ID=project-1');
-    expect(argv).toContain('CLOUD_ML_REGION=us-east5');
+    expect(argv.slice(0, 7)).toEqual([
+      '/bin/sh',
+      '-eu',
+      '-c',
+      claudeVertexLaunchScript,
+      '--',
+      'project-1',
+      'us-east5',
+    ]);
+    expect(argv).not.toContain('GOOGLE_VERTEX_AI_TOKEN');
     expect(argv).toContain('--session-id');
     expect(argv).toContain('--include-partial-messages');
     expect(argv).toContain('--append-system-prompt');
@@ -62,6 +70,66 @@ describe('Claude Vertex native seat', () => {
     expect(argv).not.toContain('--dangerously-skip-permissions');
     expect(argv).not.toContain('--allow-dangerously-skip-permissions');
   });
+  it('requires a matching attached provider placeholder and clears inherited endpoint overrides', () => {
+    const run = (env: Record<string, string>) =>
+      spawnSync(
+        '/bin/sh',
+        [
+          '-eu',
+          '-c',
+          claudeVertexLaunchScript,
+          '--',
+          'project-1',
+          'us-east5',
+          process.execPath,
+          '-e',
+          'process.stdout.write(JSON.stringify({header:process.env.ANTHROPIC_CUSTOM_HEADERS,project:process.env.ANTHROPIC_VERTEX_PROJECT_ID,region:process.env.CLOUD_ML_REGION,base:process.env.ANTHROPIC_VERTEX_BASE_URL || null}))',
+        ],
+        { env: { PATH: process.env.PATH ?? '', ...env }, encoding: 'utf8' },
+      );
+    const config = { VERTEX_AI_PROJECT_ID: 'project-1', VERTEX_AI_REGION: 'us-east5' };
+    expect(run(config).status).toBe(64);
+    expect(run({ ...config, GOOGLE_VERTEX_AI_TOKEN: 'raw-secret' }).status).toBe(64);
+    expect(
+      run({ ...config, GOOGLE_VERTEX_AI_TOKEN: 'openshell:resolve:env:v1_OTHER_TOKEN' }).status,
+    ).toBe(64);
+    expect(
+      run({
+        ...config,
+        VERTEX_AI_PROJECT_ID: 'other-project',
+        GOOGLE_VERTEX_AI_TOKEN: 'openshell:resolve:env:v1_GOOGLE_VERTEX_AI_TOKEN',
+      }).status,
+    ).toBe(64);
+    expect(
+      run({
+        ...config,
+        GOOGLE_VERTEX_AI_TOKEN: 'openshell:resolve:env:v1_GOOGLE_VERTEX_AI_TOKEN',
+        GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:
+          'openshell:resolve:env:v1_GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN',
+      }).status,
+    ).toBe(64);
+    const result = run({
+      ...config,
+      GOOGLE_VERTEX_AI_TOKEN: 'openshell:resolve:env:v1_GOOGLE_VERTEX_AI_TOKEN',
+      ANTHROPIC_VERTEX_BASE_URL: 'https://unexpected.example',
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      header: 'Authorization: Bearer openshell:resolve:env:v1_GOOGLE_VERTEX_AI_TOKEN',
+      project: 'project-1',
+      region: 'us-east5',
+      base: null,
+    });
+    const serviceAccount = run({
+      ...config,
+      GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN:
+        'openshell:resolve:env:v2_GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN',
+    });
+    expect(serviceAccount.status).toBe(0);
+    expect(JSON.parse(serviceAccount.stdout).header).toBe(
+      'Authorization: Bearer openshell:resolve:env:v2_GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN',
+    );
+  });
   it('resumes only the provider thread pinned to this seat attempt', () => {
     const argv = claudeVertexArgv(route, {
       ...execution,
@@ -69,6 +137,19 @@ describe('Claude Vertex native seat', () => {
     } as SymposiumSeatExecution);
     expect(argv.slice(-2)).toEqual(['--resume', 'pinned-thread']);
     expect(argv).not.toContain('--session-id');
+  });
+  it('accepts the exact dated Vertex Haiku model and rejects model argument injection', () => {
+    const haiku = claudeVertexArgv({ ...route, model: 'claude-haiku-4-5@20251001' }, execution);
+    expect(haiku.slice(haiku.indexOf('--model'), haiku.indexOf('--model') + 2)).toEqual([
+      '--model',
+      'claude-haiku-4-5@20251001',
+    ]);
+    expect(() =>
+      claudeVertexArgv({ ...route, model: 'claude-haiku-4-5@20251001 --tools Bash' }, execution),
+    ).toThrow(/Invalid pinned/);
+    expect(() =>
+      claudeVertexArgv({ ...route, model: 'claude-haiku-4-5@2025100x' }, execution),
+    ).toThrow(/Invalid pinned/);
   });
   it('treats an assistant message as acceptance and ignores initialization alone', () => {
     expect(
