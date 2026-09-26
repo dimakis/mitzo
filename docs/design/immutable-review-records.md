@@ -30,3 +30,10 @@ public sharing, and the snapshot does not imply that the current branch still
 matches it. Future publication must independently recheck current artifact/Git
 identity and seat authority at approval and dispatch, then use the existing
 reviewed publication capability. This slice does not add that capability.
+
+The saved record opens inside Mitzo through `apiFetch`, so Capacitor and other
+configured API origins retain bearer authentication as well as browser cookies.
+The view checks the returned record ID and content hash against the selected
+immutable reference; the server continues to enforce owner/session scope and
+stored-content integrity. Failed or mismatched reads show an error and retry,
+never a substituted record or unauthenticated browser navigation.

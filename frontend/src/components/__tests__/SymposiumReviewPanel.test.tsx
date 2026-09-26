@@ -151,10 +151,14 @@ it('shows a durable scoped record reference without claiming a PR was created', 
   );
   render(<SymposiumReviewPanel sessionId="session" />);
   fireEvent.click(await screen.findByRole('button', { name: 'Prepare PR review record' }));
-  const link = await screen.findByRole('link', { name: 'Open saved review record' });
-  expect(link.getAttribute('href')).toBe(
-    `/api/sessions/session/symposium/reviews/records/${recordId}`,
+  fireEvent.click(await screen.findByRole('button', { name: 'Open saved review record' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/sessions/session/symposium/reviews/records/${recordId}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
   );
+  expect(screen.queryByRole('link', { name: 'Open saved review record' })).toBeNull();
   expect(screen.getByText(/No PR has been created/)).toBeTruthy();
 });
 
