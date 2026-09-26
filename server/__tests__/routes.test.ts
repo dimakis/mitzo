@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterAll, afterEach } 
 import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import { mkdirSync, writeFileSync, symlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -16,6 +17,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-test-repo-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({
       sessions: [{ id: 's1', summary: 'Test', lastModified: 1 }],
       hasMore: false,
@@ -235,6 +237,21 @@ beforeEach(async () => {
 });
 
 // --- Auth Routes ---
+
+it('stores Symposium host grants in the repository event database', () => {
+  const db = new Database(join(TEST_REPO, '.mitzo', 'events.db'), { readonly: true });
+  try {
+    expect(
+      db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'symposium_host_grants'",
+        )
+        .get(),
+    ).toEqual({ name: 'symposium_host_grants' });
+  } finally {
+    db.close();
+  }
+});
 
 describe('auth routes', () => {
   it('POST /api/auth/login — correct passphrase returns 200 + cookie', async () => {

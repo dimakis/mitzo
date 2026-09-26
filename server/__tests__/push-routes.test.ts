@@ -17,6 +17,7 @@ vi.mock('../chat.js', () => {
   const { tmpdir: ptmpdir } = require('os');
   const repo = pjoin(ptmpdir(), `mitzo-push-test-${process.pid}`);
   return {
+    broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({ sessions: [], hasMore: false }),
     getMessages: vi.fn().mockResolvedValue([]),
     renameSessionById: vi.fn(),
