@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumDirectorPanel } from '../SymposiumDirectorPanel';
@@ -266,4 +266,105 @@ it('adds an active-roster seat through host grant revision without sending grant
     crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT',
   });
   expect(JSON.stringify(body)).not.toMatch(/authorityGrant|contextGrant|isolationRequest/);
+});
+
+it.each(['resolve', 'reject'] as const)(
+  'ignores an old session status request that completes with %s after navigation',
+  async (completion) => {
+    let resolveOld!: (value: Response) => void;
+    let rejectOld!: (reason: Error) => void;
+    const oldRequest = new Promise<Response>((resolve, reject) => {
+      resolveOld = resolve;
+      rejectOld = reject;
+    });
+    vi.mocked(apiFetch)
+      .mockReturnValueOnce(oldRequest)
+      .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }));
+    const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+    rerender(<SymposiumDirectorPanel sessionId="next" />);
+    await screen.findByText('This conversation has no Symposium roster.');
+    await act(async () => {
+      if (completion === 'resolve') resolveOld(response(status(true)));
+      else rejectOld(new Error('Old session failed'));
+    });
+    expect(screen.getByText('This conversation has no Symposium roster.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(apiFetch).toHaveBeenLastCalledWith('/api/sessions/next/symposium', undefined);
+  },
+);
+
+it('clears the previous session roster and form state immediately on navigation', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(status(true)))
+    .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next' }));
+  const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/OpenAI work · gpt/);
+  await userEvent.click(screen.getByRole('checkbox', { name: 'Send to Reviewer' }));
+  await userEvent.type(screen.getByRole('textbox', { name: 'Director message' }), 'Old message');
+  rerender(<SymposiumDirectorPanel sessionId="next" />);
+  expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  await screen.findByText(/OpenAI work · gpt/);
+  expect(
+    (screen.getByRole('textbox', { name: 'Director message' }) as HTMLTextAreaElement).value,
+  ).toBe('');
+  expect(
+    (screen.getByRole('checkbox', { name: 'Send to Reviewer' }) as HTMLInputElement).checked,
+  ).toBe(false);
+});
+
+it('refreshes externally queued deliveries without closing director controls', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(status(true)))
+    .mockResolvedValueOnce(
+      response({
+        ...status(true),
+        deliveries: [
+          {
+            deliveryId: 'audience-delivery',
+            recipientSeatIds: ['reviewer'],
+            status: 'awaiting_intervention',
+            originalContent: 'Queued from the audience composer',
+          },
+        ],
+      }),
+    );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/OpenAI work · gpt/);
+  expect(screen.queryByRole('button', { name: 'Approve' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh director status' }));
+  expect(await screen.findByText('Queued from the audience composer')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Approve' })).toBeTruthy();
+  expect(
+    screen.getByRole('button', { name: 'Director controls' }).getAttribute('aria-expanded'),
+  ).toBe('true');
+});
+
+it('keeps old mutation completion and its refresh isolated from the new session', async () => {
+  let resolveMutation!: (value: Response) => void;
+  const mutation = new Promise<Response>((resolve) => {
+    resolveMutation = resolve;
+  });
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(status(true)))
+    .mockReturnValueOnce(mutation)
+    .mockResolvedValueOnce(response({ ...status(true), sessionId: 'next', config: null }))
+    .mockResolvedValueOnce(response(status(true)));
+  const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/OpenAI work · gpt/);
+  await userEvent.click(screen.getAllByRole('button', { name: 'Suspend' })[1]);
+  rerender(<SymposiumDirectorPanel sessionId="next" />);
+  await screen.findByText('This conversation has no Symposium roster.');
+  await act(async () => {
+    resolveMutation(response({ ok: true }));
+  });
+  expect(screen.getByText('This conversation has no Symposium roster.')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Create draft Symposium' }).hasAttribute('disabled'),
+  ).toBe(false);
 });

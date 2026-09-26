@@ -47,6 +47,8 @@ describe('portable Symposium profiles', () => {
     expect(first.contentHash).not.toBe(second.contentHash);
     expect(profiles.get('owner', 'reviewer', 1)).toEqual(first);
     expect(profiles.get('owner', 'reviewer')).toEqual(second);
+    expect(profiles.list('owner')).toEqual([second, first]);
+    expect(profiles.list('other-owner')).toEqual([]);
     expect(() => save({ idempotencyKey: 'stale-create' })).toThrow(/revision/i);
   });
   it('reconciles exact retries after reopening and rejects conflicting retries', () => {

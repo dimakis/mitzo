@@ -86,3 +86,48 @@ it('exports a portable version and imports an exact artifact', async () => {
     expect(onChange).toHaveBeenCalledWith({ profileId: 'reviewer', revision: 2 }),
   );
 });
+
+it('selects historical revisions exactly and limits revision edits to the latest version', async () => {
+  const older = { ...version, revision: 1 };
+  vi.mocked(apiFetch).mockResolvedValue(response([version, older]));
+  const onChange = vi.fn();
+  const { rerender } = render(<SymposiumProfilePicker value={null} onChange={onChange} />);
+  await screen.findByText('Independent reviewer · v1');
+  fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: 'reviewer:1' } });
+  expect(onChange).toHaveBeenCalledWith({ profileId: 'reviewer', revision: 1 });
+  rerender(
+    <SymposiumProfilePicker value={{ profileId: 'reviewer', revision: 1 }} onChange={onChange} />,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Revise selected' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Export JSON' }));
+  expect(apiFetch).toHaveBeenCalledWith('/api/symposium/profiles/reviewer/1/export');
+  await screen.findByLabelText('Portable profile export');
+});
+
+it.each(['save', 'import'])('keeps previous revisions selectable after %s', async (action) => {
+  const older = { ...version, revision: 1 };
+  const saved = { ...version, revision: 3 };
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
+    init?.method === 'POST' ? response(saved) : response([version, older]),
+  );
+  const onChange = vi.fn();
+  render(
+    <SymposiumProfilePicker value={{ profileId: 'reviewer', revision: 2 }} onChange={onChange} />,
+  );
+  await screen.findByText('Independent reviewer · v1');
+  if (action === 'save') {
+    fireEvent.click(screen.getByRole('button', { name: 'Revise selected' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  } else {
+    fireEvent.change(screen.getByLabelText('Import profile JSON'), {
+      target: { value: JSON.stringify(saved) },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Import profile' }));
+  }
+  await screen.findByText('Independent reviewer · v3');
+  expect(screen.getByText('Independent reviewer · v2')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: 'reviewer:1' } });
+  expect(onChange).toHaveBeenLastCalledWith({ profileId: 'reviewer', revision: 1 });
+});
