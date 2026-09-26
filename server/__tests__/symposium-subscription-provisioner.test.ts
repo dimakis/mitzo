@@ -252,3 +252,33 @@ it('removes refresh material then provider and verifies absence', async () => {
   );
   expect(operations.some((args) => args.slice(0, 2).join(' ') === 'provider delete')).toBe(true);
 });
+
+it('refuses even detached or unrelated surviving sandboxes without credential deletion lineage', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? { sandboxes: [{ name: 'unrelated', state: 'Stopped' }], next_page_token: '' }
+      : { providers: [], next_page_token: '' },
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args.includes('delete'))).toBe(false);
+});
+it('does not certify cleanup when a starting sandbox appears after provider deletion', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let inventories = 0;
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? {
+          sandboxes: ++inventories === 1 ? [] : [{ name: 'late-seat', state: 'Creating' }],
+          next_page_token: '',
+        }
+      : args[1] === 'list'
+        ? { providers: [], next_page_token: '' }
+        : undefined,
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(inventories).toBe(2);
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+});

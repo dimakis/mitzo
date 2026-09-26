@@ -248,18 +248,11 @@ export class SymposiumSubscriptionProvisioner {
     };
     try {
       if (!this.resources.size) return;
-      for (const sandbox of await pages(['sandbox', 'list'], 'sandboxes')) {
-        if (typeof sandbox.name !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(sandbox.name))
-          throw new Error('Invalid sandbox inventory');
-        for (const attached of await pages(
-          ['sandbox', 'provider', 'list', sandbox.name],
-          'providers',
-        )) {
-          if (typeof attached.name !== 'string') throw new Error('Invalid attachment inventory');
-          if (this.resources.has(attached.name))
-            throw new Error('Existing seat credentials require cleanup');
-        }
-      }
+      // Attachment absence cannot prove a formerly projected credential cache
+      // was erased. Without durable projection/deletion lineage, require the
+      // entire owned workspace to have no surviving or starting sandboxes.
+      if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+        throw new Error('Owned workspace sandbox cleanup is required');
       for (const provider of this.resources) {
         await this.host.run([
           'provider',
@@ -275,6 +268,9 @@ export class SymposiumSubscriptionProvisioner {
         const remaining = await pages(['provider', 'list'], 'providers');
         if (remaining.some((row) => typeof row.name !== 'string' || row.name === provider))
           throw new Error('Provider absence is unconfirmed');
+        // An in-flight create may become visible after the first inventory.
+        if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+          throw new Error('Owned workspace sandbox cleanup is unconfirmed');
         this.resources.delete(provider);
       }
     } catch {

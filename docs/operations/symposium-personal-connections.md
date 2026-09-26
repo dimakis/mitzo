@@ -18,10 +18,14 @@ instance; ephemeral codes additionally belong to the initiating authentication
 session. At most one login runs at once.
 
 Disconnect immediately fences new dispatch through the slot's receipt/catalog.
-It scans every paginated sandbox/provider attachment in the owned workspace. An
-existing attachment, an unknown inventory, a pending provisioning operation, or
+It scans every paginated sandbox in the owned workspace before and after provider
+removal. Without durable credential projection/deletion lineage, a detached or
+unrelated sandbox can still contain a projected credential cache. Therefore any
+surviving or starting sandbox, an unknown inventory, a pending provisioning operation, or
 failed deletion prevents a successful disconnected result. The slot remains
-`recovery_required` until host cleanup is confirmed. Pending login must be
+`recovery_required` until host cleanup is confirmed. This conservative guard can
+require cleanup of unrelated seats in the same owned workspace; it does not claim
+that present provider attachment absence proves credential erasure. Pending login must be
 cancelled through its initiating receipt before disconnect. Successful removal
 uses supported upstream refresh-material deletion and provider deletion, followed
 by provider absence verification. It does not claim remote revocation of the
