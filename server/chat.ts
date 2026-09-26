@@ -958,6 +958,7 @@ export async function startChat(
   },
 ) {
   const startupGuard: { admission?: ProviderDispatchAdmission } = {};
+  let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
     'chat.start',
     {
@@ -966,9 +967,9 @@ export async function startChat(
       'chat.mode': options.mode ?? 'agent',
     },
     async () => {
-      for (const id of [options.resume, options.initialSessionId])
-        if (id && eventStore.getSession(id)?.symposiumConfig)
-          throw new Error('Use Symposium directed prompts for this session');
+      releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
+        [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
+      );
       return _startChatInner(transport, clientId, prompt, options, startupGuard);
     },
   )
@@ -977,7 +978,11 @@ export async function startChat(
       throw error;
     })
     .finally(() => {
-      cleanupUndispatchedStartup(startupGuard.admission, clientId);
+      try {
+        cleanupUndispatchedStartup(startupGuard.admission, clientId);
+      } finally {
+        releaseOrdinaryStartup?.();
+      }
     });
 }
 
@@ -2945,6 +2950,19 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
     log.info('reconciled orphaned sessions', { count: reconciledCount });
   }
 
+  // Symposium is persisted by Mitzo and may never create an SDK transcript.
+  // Include configured drafts and native sessions while honoring explicit hiding.
+  for (const meta of eventStore.listSessions()) {
+    if (!meta.symposiumConfig || meta.isHidden) continue;
+    seen.set(meta.sessionId, {
+      id: meta.sessionId,
+      summary: meta.summary ?? '',
+      lastModified: meta.updatedAt,
+      branch: meta.branch ?? undefined,
+      cwd: meta.cwd ?? undefined,
+    });
+  }
+
   const deduped = Array.from(seen.values());
   deduped.sort((a, b) => b.lastModified - a.lastModified);
   const page = deduped.slice(offset, offset + limit);
@@ -2959,6 +2977,8 @@ export async function getSessions(offset = 0, limit = SESSION_PAGE_SIZE) {
 export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   const now = Date.now();
   const all = eventStore.listSessions().filter((m) => {
+    if (m.isHidden) return false;
+    if (m.symposiumConfig) return true;
     // Hide sessions that were never used through Mitzo (e.g. automated
     // code review sessions discovered from filesystem).  Active sessions
     // always show regardless of turn count.  Recently created sessions

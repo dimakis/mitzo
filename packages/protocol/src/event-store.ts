@@ -481,6 +481,27 @@ export class EventStore {
     );
   }
 
+  private ordinaryStartups = new Map<string, number>();
+
+  /** Synchronous with initial Symposium conversion; held across ordinary startup awaits. */
+  reserveOrdinaryStartup(sessionIds: string[]): () => void {
+    const ids = [...new Set(sessionIds)];
+    for (const id of ids)
+      if (this.getSession(id)?.symposiumConfig)
+        throw new Error('Use Symposium directed prompts for this session');
+    for (const id of ids) this.ordinaryStartups.set(id, (this.ordinaryStartups.get(id) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      for (const id of ids) {
+        const remaining = (this.ordinaryStartups.get(id) ?? 1) - 1;
+        if (remaining) this.ordinaryStartups.set(id, remaining);
+        else this.ordinaryStartups.delete(id);
+      }
+    };
+  }
+
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;
     const db = new Database(dbPath);
@@ -1998,6 +2019,8 @@ export class EventStore {
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+      if (!session.symposiumConfig && this.ordinaryStartups.has(sessionId))
+        throw new Error('Ordinary startup must finish or stop before Symposium conversion');
       if (expectedRevision !== undefined && (session.symposiumRevision ?? 0) !== expectedRevision) {
         throw new Error('Symposium configuration revision conflict');
       }

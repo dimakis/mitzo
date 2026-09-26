@@ -1672,7 +1672,7 @@ app.post(
   createSubscriptionLoginHandler(() => symposiumProductionHost),
 );
 
-// Uses configured native models only; no host discovery or legacy catalog fallback.
+// Reads the dedicated host catalog (including its cached model discovery); no refresh or legacy fallback.
 app.get('/api/symposium/accounts', (_req, res) => {
   try {
     if (!symposiumProductionHost) throw new Error('Symposium host is unavailable');

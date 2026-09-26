@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockListSessions = vi.fn().mockResolvedValue([]);
 const mockUpsertSession = vi.fn();
@@ -468,5 +468,48 @@ describe('hideAllSessions', () => {
     expect(mockEventStore.hideSession).toHaveBeenCalledWith('sess-a');
     expect(mockEventStore.hideSession).toHaveBeenCalledWith('sess-b');
     expect(mockEventStore.hideSession).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('configured Symposium listing without SDK transcripts', () => {
+  afterEach(() => vi.useRealTimers());
+  it('keeps aged drafts and native sessions in cached and full lists while honoring hide', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-26T12:00:00Z'));
+    const createdAt = Date.now();
+    const metas = ['draft', 'active', 'hidden'].map((state, index) => ({
+      sessionId: `symposium-${state}`,
+      summary: `Saved ${state}`,
+      numTurns: 0,
+      promptCount: 0,
+      isActive: false,
+      createdAt,
+      updatedAt: createdAt + index,
+      isHidden: state === 'hidden',
+      symposiumConfig: JSON.stringify({ version: 2, state: state === 'hidden' ? 'draft' : state }),
+    }));
+    mockListSessionsMeta.mockReturnValue(metas);
+    mockListSessions.mockResolvedValue([]);
+    mockGetSession.mockImplementation((id) => metas.find((meta) => meta.sessionId === id));
+    const { getSessionsCached, getSessions } = await import('../chat.js');
+    vi.setSystemTime(new Date('2026-09-28T12:00:00Z'));
+    expect(getSessionsCached().sessions.map((session) => session.id)).toEqual([
+      'symposium-draft',
+      'symposium-active',
+    ]);
+    const full = await getSessions();
+    expect(full.sessions.map((session) => session.id)).toEqual([
+      'symposium-active',
+      'symposium-draft',
+    ]);
+    expect(full.hasMore).toBe(false);
+    expect((await getSessions(1, 1)).sessions[0].id).toBe('symposium-draft');
+    expect((await getSessions(0, 1)).hasMore).toBe(true);
+    // Archive/hide remains effective even for a deliberately persisted draft.
+    metas[0].isHidden = true;
+    expect(getSessionsCached().sessions.map((session) => session.id)).toEqual(['symposium-active']);
+    expect((await getSessions()).sessions.map((session) => session.id)).toEqual([
+      'symposium-active',
+    ]);
   });
 });

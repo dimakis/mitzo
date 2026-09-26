@@ -760,3 +760,29 @@ it('refuses converting an active ordinary conversation into a draft', async () =
   expect(response.body.error).toContain('Stop the ordinary conversation');
   expect(store.setSymposiumConfig).not.toHaveBeenCalled();
 });
+
+it('refuses initial /config conversion while ordinary execution is active', async () => {
+  const { app, store } = fixture();
+  store.getSession.mockReturnValue({
+    sessionId: 'chat',
+    symposiumConfig: null,
+    symposiumRevision: 0,
+    isActive: true,
+  } as never);
+  const response = await request(app)
+    .put('/api/sessions/chat/symposium/config')
+    .send({
+      expectedRevision: 0,
+      config: {
+        ...config,
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: config.seats[0].id,
+        activeSeatCap: 3,
+      },
+    });
+  expect(response.status).toBe(409);
+  expect(response.body.error).toContain('Stop the ordinary conversation');
+  expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+});

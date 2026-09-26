@@ -467,6 +467,17 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+    if (
+      !session.symposiumConfig &&
+      (session.isActive ||
+        (session.executionPhase && session.executionPhase !== 'TERMINAL') ||
+        deps.hasOrdinaryRuntime?.(sessionId))
+    ) {
+      res
+        .status(409)
+        .json({ error: 'Stop the ordinary conversation before creating a Symposium draft' });
+      return;
+    }
     const { config, expectedRevision } = parsed.data;
     const previous = session.symposiumConfig
       ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))

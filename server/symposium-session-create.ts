@@ -45,7 +45,7 @@ export function createSymposiumSessionRouter(deps: {
         return;
       }
       const accounts = deps.currentAccounts();
-      const binding = accounts.resolve(selection.accountId, selection.model, true);
+      const binding = accounts.resolve(selection.accountId, selection.model);
       accounts.validateModelSelection(binding, selection.model, selection.reasoningEffort);
       if (!['openai', 'openai-codex'].includes(binding.provider))
         throw new Error('This account provider is not available for native Symposium creation');

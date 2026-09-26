@@ -365,3 +365,113 @@ it('fences all ordinary startup and active-runtime entrypoints for Symposium ses
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('serializes paused ordinary resume and draft conversion in both orderings', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-conversion-race-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', '');
+  const fetch = vi.fn();
+  vi.stubGlobal('fetch', fetch);
+  const chat = await import('../chat.js');
+  const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+  const { createSymposiumDirectorRouter } = await import('../symposium-director-routes.js');
+  const express = (await import('express')).default;
+  const request = (await import('supertest')).default;
+  const accounts = new AccountProfiles(
+    [
+      {
+        id: 'personal-race',
+        label: 'Personal test',
+        provider: 'openai-codex',
+        credentialRef: '/mock/private-auth',
+        email: 'personal@example.test',
+        planType: 'plus',
+        models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const binding = accounts.resolve('personal-race', 'gpt-5.6-luna');
+  chat.eventStore.upsertSession({
+    sessionId: 'convert-race',
+    accountBinding: binding,
+    isActive: false,
+  });
+  let rejectInitialize!: (reason: Error) => void;
+  const initialization = new Promise<void>((_resolve, reject) => {
+    rejectInitialize = reject;
+  });
+  const initialize = vi.fn(() => initialization);
+  const launch = vi
+    .spyOn(CodexAppServerClient, 'launch')
+    .mockReturnValue({ initialize, close: vi.fn() } as never);
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/sessions/:id/symposium',
+    createSymposiumDirectorRouter({ store: chat.eventStore, validateSelection: () => {} } as never),
+  );
+  const transport = { send: vi.fn(), isOpen: () => true };
+  try {
+    const startup = chat.startChat(transport, 'paused-resume', 'hello', {
+      resume: 'convert-race',
+      accountProfiles: accounts,
+    });
+    await vi.waitFor(() => expect(initialize).toHaveBeenCalledOnce());
+    // Paused in account verification: neither active-runtime nor durable executing checks cover it.
+    expect(chat.eventStore.getSession('convert-race')?.isActive).toBe(false);
+    expect(chat.registry.findBySessionId('convert-race')).toBeNull();
+    const blocked = await request(app).post('/sessions/convert-race/symposium/draft').send({});
+    expect(blocked.status).toBe(409);
+    const configAttempt = await request(app)
+      .put('/sessions/convert-race/symposium/config')
+      .send({
+        expectedRevision: 0,
+        config: {
+          version: 2,
+          revision: 1,
+          state: 'draft',
+          anchorSeatId: 'primary',
+          activeSeatCap: 3,
+          seats: [
+            {
+              id: 'primary',
+              name: 'Builder',
+              role: 'coder',
+              model: binding.model,
+              accountBinding: binding,
+              systemPrompt: 'Build',
+              color: '#335577',
+            },
+          ],
+          turnRules: { mode: 'directed', maxTurns: 8 },
+          interceptMode: 'manual',
+        },
+      });
+    expect(configAttempt.status).toBe(409);
+    expect(configAttempt.body.error).toContain('Ordinary startup');
+    expect(chat.eventStore.getSession('convert-race')?.symposiumConfig).toBeNull();
+    rejectInitialize(new Error('Mock account verification cancelled'));
+    await startup;
+    // Reservation is released on failure; conversion succeeds, then the opposite ordering fences startup.
+    expect(
+      (await request(app).post('/sessions/convert-race/symposium/draft').send({})).status,
+    ).toBe(200);
+    await expect(
+      chat.startChat(transport, 'after-conversion', 'hello', {
+        resume: 'convert-race',
+        accountProfiles: accounts,
+      }),
+    ).rejects.toThrow('Symposium directed prompts');
+    expect(launch).toHaveBeenCalledOnce();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(chat.eventStore.getSessionEvents('convert-race')).toEqual([]);
+  } finally {
+    rejectInitialize(new Error('cleanup'));
+    launch.mockRestore();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

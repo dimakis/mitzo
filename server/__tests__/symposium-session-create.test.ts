@@ -145,3 +145,48 @@ it('rolls back session and retry receipt if draft persistence fails', async () =
   store.setSymposiumConfig = original;
   expect((await post()).status).toBe(201);
 });
+
+it('accepts the exact cached catalog model without refreshing or reverting to configured seeds', async () => {
+  const { refreshModels } = await import('../model-catalog.js');
+  const profile = {
+    id: 'cached-work',
+    label: 'Cached owned work',
+    provider: 'openai' as const,
+    credentialRef: { provider: 'keychain', service: 'cached-test', account: 'work' },
+    sandboxProvider: 'cached-provider',
+    sandboxProviderId: 'cached-provider-id',
+    models: [{ id: 'gpt-5.6-luna', label: 'Configured seed' }],
+  };
+  const cached = new AccountProfiles([profile]);
+  const discover = vi
+    .fn()
+    .mockResolvedValue([{ id: 'gpt-6-luna', label: 'Cached Luna', reasoningEfforts: ['low'] }]);
+  await refreshModels(JSON.stringify(profile), discover, true);
+  expect(cached.catalog()[0].models[0].id).toBe('gpt-6-luna');
+  currentAccounts.mockReturnValue(cached);
+  const refresh = vi.spyOn(cached, 'refresh');
+  const created = await post({
+    ...body,
+    accountId: profile.id,
+    model: 'gpt-6-luna',
+    reasoningEffort: 'low',
+  });
+  expect(created.status).toBe(201);
+  expect(store.getSession('allocated')?.accountBinding?.model).toBe('gpt-6-luna');
+  expect(discover).toHaveBeenCalledTimes(1);
+  expect(refresh).not.toHaveBeenCalled();
+  expect(
+    (
+      await post({
+        ...body,
+        idempotencyKey: 'wrong-effort',
+        accountId: profile.id,
+        model: 'gpt-6-luna',
+        reasoningEffort: 'unsupported',
+      })
+    ).status,
+  ).toBe(409);
+  expect((await post({ ...body, idempotencyKey: 'old-seed', accountId: profile.id })).status).toBe(
+    409,
+  );
+});
