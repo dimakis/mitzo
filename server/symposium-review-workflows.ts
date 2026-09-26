@@ -547,6 +547,8 @@ export class SymposiumReviewStore {
     return this.db.transaction(() => {
       const state = this.read(parsed.workflowId);
       this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+      if (state.reservations.some((attempt) => !attempt.settled))
+        throw new Error('An attempt is in progress; wait before changing a finding disposition');
       if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
       if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
       const finding = state.findings.find(
