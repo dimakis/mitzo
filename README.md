@@ -453,3 +453,5 @@ connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
 
 Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
+
+Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.

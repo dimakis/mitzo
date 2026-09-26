@@ -163,12 +163,13 @@ export class PersonalConnections<T extends Adapter> {
     if (row.state === 'disconnecting' || row.state === 'connecting')
       throw new Error('Cancel the pending login before disconnecting');
     const adapter = this.adapters.get(id);
+    const requiresRecovery = row.state === 'recovery_required';
     adapter?.invalidate();
     row.state = 'disconnecting';
     row.revision++;
     this.save();
     try {
-      if (!adapter && row.account)
+      if (!adapter && (row.account || requiresRecovery))
         throw new Error('Prior host credential cleanup requires recovery');
       await adapter?.disconnect();
       row.state = 'disconnected';
