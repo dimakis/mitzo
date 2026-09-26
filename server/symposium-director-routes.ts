@@ -276,6 +276,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(409).json({ error: 'A current Symposium draft is required' });
       return;
     }
+    if (!deps.getRuntime(sessionId)) {
+      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      return;
+    }
     if (
       crossesAnchorAccount(current.data) &&
       parsed.data.crossAccountConfirmation !== 'ADD CROSS-ACCOUNT SEAT'

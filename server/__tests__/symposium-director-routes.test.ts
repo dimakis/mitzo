@@ -189,7 +189,7 @@ describe('Symposium director routes', () => {
   });
 
   it('activates a draft through host grants only after shared and cross-account confirmation', async () => {
-    const { app, store, activateDraft } = fixture();
+    const { app, store, activateDraft } = fixture(true);
     store.getSession.mockReturnValue({
       sessionId: 'chat',
       sessionType: 'symposium',
@@ -238,6 +238,15 @@ describe('Symposium director routes', () => {
         profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
       }),
     );
+  });
+  it('does not issue grants or persist activation without a verified runtime', async () => {
+    const { app, store, activateDraft } = fixture();
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/activate')
+      .send({ expectedRevision: 4, sharedBoundaryAcknowledged: true });
+    expect(response.status).toBe(503);
+    expect(activateDraft).not.toHaveBeenCalled();
+    expect(store.setSymposiumConfig).not.toHaveBeenCalled();
   });
   it('reissues a nonactive seat from server-resolved selection without client grant claims', async () => {
     const { app, store, resolveSelection, reviseSeat } = fixture();
