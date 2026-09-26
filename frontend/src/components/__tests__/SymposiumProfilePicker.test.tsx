@@ -178,3 +178,14 @@ it('starts an editable canonical security template without saving or selecting i
   expect(onChange).not.toHaveBeenCalled();
   expect(apiFetch).toHaveBeenCalledTimes(1);
 });
+
+it('labels provider compatibility in user-facing terms', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.click(screen.getByLabelText('Include reusable recipe'));
+  expect(screen.getByLabelText('ChatGPT subscription')).toBeTruthy();
+  expect(screen.getByLabelText('OpenAI API')).toBeTruthy();
+  expect(screen.getByLabelText('Vertex Claude')).toBeTruthy();
+  expect(screen.getByLabelText('Vertex Gemini')).toBeTruthy();
+});

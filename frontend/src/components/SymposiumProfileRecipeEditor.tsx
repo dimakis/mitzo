@@ -1,5 +1,11 @@
 import type { SymposiumProfileRecipe } from '@mitzo/protocol';
 
+const providerLabels = {
+  openai: 'OpenAI API',
+  'openai-codex': 'ChatGPT subscription',
+  'anthropic-vertex': 'Vertex Claude',
+  'google-vertex': 'Vertex Gemini',
+};
 const initial: SymposiumProfileRecipe = {
   version: 1,
   context: { include: ['task', 'diff', 'acceptance-criteria'], sources: ['workspace'] },
@@ -130,7 +136,7 @@ export function SymposiumProfileRecipeEditor({
                     })
                   }
                 />
-                {provider}
+                {providerLabels[provider]}
               </label>
             ))}
           </fieldset>
