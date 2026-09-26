@@ -453,3 +453,5 @@ and retains reconciliation evidence until gateway and physical cleanup agree.
 
 The no-inference discovery helper requires complete, bounded paginated sandbox and
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
+Discovery journal ownership is exclusive across host adapters; interrupted owners
+retain a recovery lock, and SSH cleanup terminates its proxy process group.

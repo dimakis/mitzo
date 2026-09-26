@@ -60,3 +60,11 @@ the adapter consumes up to 100 unique continuation pages and accepts completion 
 with an explicit empty `next_page_token`. Missing or malformed tokens, repeated tokens,
 exhausted page bounds and bare arrays fail closed without returning partial rows.
 Legacy CLI collection arrays are not completeness evidence and are unsupported here.
+
+The host adapter exclusively locks the journal for the entire attempt, including
+reconciliation and cleanup. A concurrent caller cannot inspect, cancel or clear the
+active attempt. The private exclusive lock is synchronized to disk before any work;
+a process crash retains it and requires explicit host recovery after confirming no
+active owner remains. It is never automatically stolen using a PID or timeout.
+The read transport starts SSH in a detached process group and closes the entire
+group, including its OpenShell ProxyCommand, using the shared transport helper.

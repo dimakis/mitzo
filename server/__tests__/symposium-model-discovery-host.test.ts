@@ -3,7 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { execFile, spawn } from 'node:child_process';
 import { createDiscoveryHostOperations } from '../symposium-model-discovery-host.js';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 let root: string;
@@ -194,4 +196,55 @@ it('bounds unique continuation pages without accepting a partial inventory', asy
   }) as typeof execFile);
   await expect(createDiscoveryHostOperations(config, options).list()).rejects.toThrow('page limit');
   expect(execFile).toHaveBeenCalledTimes(100);
+});
+
+it('exclusively owns the journal across separate host adapters until the active attempt exits', async () => {
+  const { config, options } = fixture();
+  const first = createDiscoveryHostOperations(config, options);
+  const second = createDiscoveryHostOperations(config, options);
+  let release!: () => void;
+  let acquired!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    acquired = resolve;
+  });
+  const active = first.withExclusiveAttempt(async () => {
+    acquired();
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  });
+  await ready;
+  const forbidden = vi.fn();
+  await expect(second.withExclusiveAttempt(forbidden)).rejects.toThrow();
+  expect(forbidden).not.toHaveBeenCalled();
+  release();
+  await active;
+  await second.withExclusiveAttempt(async () => {});
+});
+
+it('terminates the detached SSH process group including its proxy child', async () => {
+  const { config, options } = fixture();
+  const child = Object.assign(new EventEmitter(), {
+    pid: 987654,
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+  });
+  vi.mocked(spawn).mockReturnValue(child as never);
+  const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+  try {
+    const client = await createDiscoveryHostOperations(config, options).openClient(
+      inventoryReceipt,
+    );
+    client.close();
+    expect(spawn).toHaveBeenCalledWith(
+      'ssh',
+      expect.any(Array),
+      expect.objectContaining({ detached: true, shell: false }),
+    );
+    expect(kill).toHaveBeenCalledWith(-987654, 'SIGTERM');
+  } finally {
+    kill.mockRestore();
+  }
 });
