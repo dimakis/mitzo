@@ -498,3 +498,6 @@ and retains reconciliation evidence until gateway and physical cleanup agree.
 Personal Symposium Connections support separate saved account slots with explicit
 connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+
+The no-inference discovery helper requires complete, bounded paginated sandbox and
+provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
