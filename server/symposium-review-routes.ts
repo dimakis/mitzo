@@ -1,3 +1,4 @@
+import type { createSymposiumReviewPublicationPreflight } from './symposium-review-publication.js';
 import { Router } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -62,6 +63,9 @@ export function createSymposiumReviewRouter(deps: {
   store: SymposiumReviewStore;
   getHost(sessionId: string): SymposiumInteractiveReviewHost | null;
   hasSession(sessionId: string): boolean;
+  getPublicationPreflight?(
+    sessionId: string,
+  ): ReturnType<typeof createSymposiumReviewPublicationPreflight> | null;
 }): Router {
   const router = Router({ mergeParams: true });
   router.use((req, res, next) => {
@@ -118,6 +122,42 @@ export function createSymposiumReviewRouter(deps: {
       res.json(record);
     } catch {
       res.status(409).json({ error: 'Review record integrity check failed' });
+    }
+  });
+  router.post('/records/:recordId/publication-preflight', async (req, res) => {
+    const ctx = context((req.params as { id: string; recordId: string }).id);
+    res.set('Cache-Control', 'no-store');
+    try {
+      if (!deps.store.getReviewRecord(ctx.owner, ctx.sessionId, req.params.recordId)) {
+        res.status(404).json({ error: 'Review record not found' });
+        return;
+      }
+      const preflight =
+        deps.getHost(ctx.sessionId) && deps.getPublicationPreflight?.(ctx.sessionId);
+      if (!preflight) {
+        res.status(409).json({
+          kind: 'decision_required',
+          code: 'review_publication_unavailable',
+          publication: 'not_created',
+        });
+        return;
+      }
+      const controller = new AbortController();
+      const abort = () => {
+        if (!res.writableEnded) controller.abort();
+      };
+      res.once('close', abort);
+      try {
+        res.json(await preflight.inspect(ctx, req.params.recordId, req.body, controller.signal));
+      } finally {
+        res.off('close', abort);
+      }
+    } catch {
+      res.status(409).json({
+        kind: 'decision_required',
+        code: 'review_publication_preflight_failed',
+        publication: 'not_created',
+      });
     }
   });
   router.get('/:workflowId', (req, res) => {
