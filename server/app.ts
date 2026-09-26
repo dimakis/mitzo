@@ -1667,7 +1667,10 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
-const subscriptionLogin = createSubscriptionLoginController(() => symposiumProductionHost);
+const subscriptionLogin = createSubscriptionLoginController(
+  () => symposiumProductionHost,
+  (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
 app.post('/api/symposium/personal/login/cancel', operatorAuthMiddleware, subscriptionLogin.cancel);

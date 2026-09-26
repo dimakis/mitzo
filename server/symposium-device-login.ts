@@ -96,6 +96,7 @@ function readTokens(path: string): SubscriptionTokens {
 export async function beginDeviceLogin(
   service: SymposiumSubscriptionProvisioner,
   launch: typeof spawn = spawn,
+  removeHome: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
 ): Promise<DeviceLogin> {
   const importTokens = service.beginDevice();
   const home = mkdtempSync(join(tmpdir(), 'mitzo-device-login-'));
@@ -112,7 +113,11 @@ export async function beginDeviceLogin(
     });
   } catch {
     service.invalidate();
-    rmSync(home, { recursive: true, force: true });
+    try {
+      removeHome(home);
+    } catch {
+      throw new DeviceLoginCleanupError();
+    }
     throw new Error('Device login could not start');
   }
   let exited = false;
@@ -169,26 +174,53 @@ export async function beginDeviceLogin(
       if (!exited) throw new DeviceLoginCleanupError();
     })());
   let expiry: ReturnType<typeof setTimeout> | undefined;
+  let homeRemoved = false;
+  let homeCleanupFailed = false;
+  const eraseCredentials = () => {
+    if (homeRemoved) return;
+    if (homeCleanupFailed) throw new DeviceLoginCleanupError();
+    try {
+      removeHome(home);
+      homeRemoved = true;
+    } catch {
+      homeCleanupFailed = true;
+      throw new DeviceLoginCleanupError();
+    }
+  };
   const finish = async (success: boolean) => {
     if (sealed) return;
     sealed = true;
     if (expiry) clearTimeout(expiry);
+    let result: unknown;
+    let failed = false;
     try {
       await reap();
       if (!success || cancelled) throw new Error('Device login did not complete');
       const tokens = readTokens(join(home, 'codex', 'auth.json'));
-      const result = await importTokens(tokens);
+      // The temporary raw credential cache must be gone before provisioning or
+      // publishing success. A deletion failure is a quarantined auth failure.
+      eraseCredentials();
+      result = await importTokens(tokens);
       if (cancelled) throw new Error('Device login cancelled');
-      resolve(result);
     } catch {
+      failed = true;
+    }
+    if (exited && !homeRemoved) {
+      try {
+        eraseCredentials();
+      } catch {
+        failed = true;
+      }
+    }
+    if (failed) {
       service.invalidate();
       reject(
-        exited
-          ? new Error('Device login did not complete; retry explicitly')
-          : new DeviceLoginCleanupError(),
+        !exited || homeCleanupFailed
+          ? new DeviceLoginCleanupError()
+          : new Error('Device login did not complete; retry explicitly'),
       );
-    } finally {
-      if (exited) rmSync(home, { recursive: true, force: true });
+    } else {
+      resolve(result);
     }
   };
   const client = new CodexAppServerClient(child as never, {
@@ -252,14 +284,19 @@ export async function beginDeviceLogin(
           await finish(false);
         }
         await reap();
-        await completed.catch(() => undefined);
+        await completed.catch((error) => {
+          if (error instanceof DeviceLoginCleanupError) throw error;
+        });
       },
     };
   } catch {
     cancelled = true;
     service.invalidate();
     await finish(false);
-    if (!exited) throw new DeviceLoginCleanupError();
+    await completed.catch((error) => {
+      if (error instanceof DeviceLoginCleanupError) throw error;
+    });
+    if (!exited || homeCleanupFailed) throw new DeviceLoginCleanupError();
     throw new Error('Device login is unavailable; no browser fallback was started');
   }
 }
