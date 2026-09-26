@@ -445,3 +445,7 @@ has one personal account slot. After a host restart, sign in again. Connecting
 does not select a reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
+
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).

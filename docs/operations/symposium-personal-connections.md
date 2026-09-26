@@ -1,0 +1,45 @@
+# Personal connection lifecycle
+
+Each saved personal connection has a distinct account ID, display label, revision,
+and independent in-memory provisioning receipt. Explicit reconnect removes the
+selected slot's prior provider credentials before starting a new device login.
+Other connected slots remain independent. A new provider identity changes the
+account binding revision; existing seats require explicit rebind and are never
+silently moved to the replacement account.
+
+`GET /api/symposium/personal/connections` lists rows. `POST` on the same path
+accepts `{label}` (1–120 characters) and creates a disconnected row. Login accepts
+`{method:"device-code",connectionId,expectedRevision}`. Login status accepts
+`connectionId` and optional `attemptId`; receipts for another slot or authenticated
+operator session never disclose its code. Disconnect accepts `{expectedRevision}`
+at `POST /api/symposium/personal/connections/:id/disconnect`. All routes require
+interactive operator authentication. Connection rows belong to this private app
+instance; ephemeral codes additionally belong to the initiating authentication
+session. At most one login runs at once.
+
+Disconnect immediately fences new dispatch through the slot's receipt/catalog.
+It scans every paginated sandbox/provider attachment in the owned workspace. An
+existing attachment, an unknown inventory, a pending provisioning operation, or
+failed deletion prevents a successful disconnected result. The slot remains
+`recovery_required` until host cleanup is confirmed. Pending login must be
+cancelled through its initiating receipt before disconnect. Successful removal
+uses supported upstream refresh-material deletion and provider deletion, followed
+by provider absence verification. It does not claim remote revocation of the
+user's ChatGPT session, and it does not remove unrelated seats or accounts.
+
+Only display metadata is saved in private `personal-connections.json` under the
+configured owned gateway state parent. No access token, refresh token, provider
+receipt, or private authentication cache is persisted there. After restart,
+previously connected rows become `reauth_required`; interrupted cleanup/login
+remains `recovery_required`. Fresh sign-in is required before catalog admission.
+A previous-host credential cleanup cannot be inferred from a saved row.
+
+Verified authorization recovery across host restart remains blocked: upstream
+owns refresh-token rotation, and a supported custody mechanism for recovering the
+latest rotated credentials has not been verified. The implementation does not
+restore trust from cached tokens or alter the gateway to expose them.
+
+Validation uses mocked OAuth/native endpoints and local private metadata files.
+It covers isolated slots, revision conflicts, code visibility, restart behavior,
+late completion, and cleanup refusal. It does not perform real inference or
+claim successful live multi-account runtime acceptance.
