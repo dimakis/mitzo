@@ -22,7 +22,8 @@
 .symposium-review-panel h3 {
   font-size: 1rem;
 }
-.symposium-review-panel ul {
+.symposium-review-panel ul,
+.symposium-review-panel ol {
   list-style: none;
   display: grid;
   gap: 0.5rem;
@@ -35,6 +36,7 @@
 .symposium-review-panel label {
   display: block;
 }
+.symposium-review-panel select,
 .symposium-review-panel input:not([type='checkbox']),
 .symposium-review-panel textarea {
   display: block;
@@ -109,4 +111,10 @@
 
 .symposium-review-severity {
   font-weight: 600;
+}
+
+.symposium-review-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
 }
