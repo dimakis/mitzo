@@ -1,3 +1,7 @@
+import {
+  assertSymposiumAttestedProvider,
+  type SymposiumProviderCapability,
+} from './symposium-production-gate.js';
 import type { AccountProfiles } from './account-profiles.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CodexConversationStore } from './codex-conversation-store.js';
@@ -254,7 +258,7 @@ export interface SymposiumSharedSandboxOwnerDeps {
   resolveProviderIdentity: SymposiumProviderIdentityResolver;
   runtimeConfig: OpenShellRuntimeConfig;
   readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
-  verifyHostCapability?: () => { attestedProviderProfiles: ReadonlySet<string> };
+  verifyHostCapability?: () => SymposiumProviderCapability;
   managerFactory?: (config: BoundOpenShellRuntimeConfig) => {
     ensure(
       sessionId: string,
@@ -509,8 +513,11 @@ export class SymposiumPerSeatSandboxOwner {
         const binding = snapshot.bindings[0];
         const verifySeatCapability = () => {
           const capability = this.deps.verifyHostCapability?.();
-          if (capability && !capability.attestedProviderProfiles.has(binding.name))
-            throw new Error('Seat provider profile is outside the host attestation');
+          if (capability)
+            assertSymposiumAttestedProvider(capability, {
+              ...binding,
+              workspace: this.deps.runtimeConfig.workspace,
+            });
         };
         // A queued ensure may run long after admission or provider reconciliation.
         verifySeatCapability();
@@ -944,11 +951,12 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         deps.runtimeConfig.workspace,
         'candidate',
       );
-      if (
-        capability &&
-        snapshot.bindings.some((binding) => !capability.attestedProviderProfiles.has(binding.name))
-      )
-        throw new Error('Seat provider profile is outside the host attestation');
+      if (capability)
+        for (const binding of snapshot.bindings)
+          assertSymposiumAttestedProvider(capability, {
+            ...binding,
+            workspace: deps.runtimeConfig.workspace,
+          });
       snapshot.verify();
       orchestrator.recordProviderAdmission({
         sessionId,
@@ -994,15 +1002,13 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           'reconciling',
         ),
       );
-      if (
-        capability &&
-        snapshots.some((snapshot) =>
-          snapshot.bindings.some(
-            (binding) => !capability.attestedProviderProfiles.has(binding.name),
-          ),
-        )
-      )
-        throw new Error('Seat provider profile is outside the host attestation');
+      if (capability)
+        for (const snapshot of snapshots)
+          for (const binding of snapshot.bindings)
+            assertSymposiumAttestedProvider(capability, {
+              ...binding,
+              workspace: deps.runtimeConfig.workspace,
+            });
       if (
         JSON.stringify(
           [...new Set(snapshots.map((snapshot) => snapshot.logicalProvider))].sort(),

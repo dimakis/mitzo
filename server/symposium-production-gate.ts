@@ -25,6 +25,18 @@ const Attestation = z
     controllerPath: z.literal('/usr/bin/codex'),
     controllerSha256: Sha256,
     providerProfiles: z.array(z.object({ name: z.string().min(1), sha256: Sha256 })).min(1),
+    providerInstances: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1),
+            id: z.string().min(1),
+            type: z.literal('openai'),
+            profileName: z.string().min(1),
+          })
+          .strict(),
+      )
+      .min(1),
     artifactVolume: z.object({ driver: z.enum(['podman', 'docker']), name: z.string().min(1) }),
     allowedRoles: z.array(z.enum(['implementer', 'coder'])).min(1),
     allowedAccountProviders: z.tuple([z.literal('openai')]),
@@ -42,8 +54,43 @@ export interface SymposiumProductionPhysicalProof {
     controllerSha256: string,
   ): void;
   verifyProviderProfile(name: string, sha256: string, workspace: string): void;
+  /** Prove this exact live instance uses the reviewed profile, not just its provider type. */
+  verifyProviderInstance(binding: {
+    name: string;
+    id: string;
+    type: string;
+    profileName: string;
+    profileSha256: string;
+    workspace: string;
+  }): void;
   verifyGatewayDriverConfig(gateway: string, workspace: string, driver: 'podman' | 'docker'): void;
   verifyArtifactVolume(driver: 'podman' | 'docker', name: string, workspace: string): void;
+}
+
+export interface SymposiumProviderCapability {
+  attestedProviderInstances: ReadonlyMap<
+    string,
+    {
+      id: string;
+      type: string;
+      profileName: string;
+      workspace: string;
+    }
+  >;
+}
+
+export function assertSymposiumAttestedProvider(
+  capability: SymposiumProviderCapability,
+  binding: { name: string; id: string; type: string; workspace?: string },
+): void {
+  const approved = capability.attestedProviderInstances?.get(binding.name);
+  if (
+    !approved ||
+    approved.id !== binding.id ||
+    approved.type !== binding.type ||
+    (binding.workspace !== undefined && approved.workspace !== binding.workspace)
+  )
+    throw new Error('Seat provider profile is outside the host attestation');
 }
 
 type RunCli = (cli: string, args: string[]) => string;
@@ -105,12 +152,23 @@ export function verifySymposiumProductionGate(
   allowedRoles: ReadonlySet<'implementer' | 'coder'>;
   allowedAccountProviders: ReadonlySet<'openai'>;
   attestedProviderProfiles: ReadonlySet<string>;
+  attestedProviderInstances: SymposiumProviderCapability['attestedProviderInstances'];
 } {
   const expected = Attestation.parse(attestation);
   const profileNames = expected.providerProfiles.map((profile) => profile.name);
   if (new Set(profileNames).size !== profileNames.length)
     throw new Error('Symposium attested provider profile names must be unique');
-  if (!physical) throw new Error('Symposium physical gateway and volume proof is unavailable');
+  const instanceNames = expected.providerInstances.map((instance) => instance.name);
+  const instanceIds = expected.providerInstances.map((instance) => instance.id);
+  if (
+    new Set(instanceNames).size !== instanceNames.length ||
+    new Set(instanceIds).size !== instanceIds.length
+  )
+    throw new Error('Symposium attested provider instances must be unique');
+  if (expected.providerInstances.some((instance) => !profileNames.includes(instance.profileName)))
+    throw new Error('Symposium provider instance references an unattested profile');
+  if (!physical || typeof physical.verifyProviderInstance !== 'function')
+    throw new Error('Symposium physical gateway and volume proof is unavailable');
   if (
     legacyConfig.cliContract ||
     legacyConfig.artifactDriverConfig ||
@@ -172,6 +230,14 @@ export function verifySymposiumProductionGate(
   );
   for (const profile of expected.providerProfiles)
     physical.verifyProviderProfile(profile.name, profile.sha256, expected.workspace);
+  for (const instance of expected.providerInstances)
+    physical.verifyProviderInstance({
+      ...instance,
+      profileSha256: expected.providerProfiles.find(
+        (profile) => profile.name === instance.profileName,
+      )!.sha256,
+      workspace: expected.workspace,
+    });
   physical.verifyGatewayDriverConfig(
     expected.gateway,
     expected.workspace,
@@ -187,5 +253,16 @@ export function verifySymposiumProductionGate(
     allowedRoles: new Set(expected.allowedRoles),
     allowedAccountProviders: new Set(expected.allowedAccountProviders),
     attestedProviderProfiles: new Set(profileNames),
+    attestedProviderInstances: new Map(
+      expected.providerInstances.map((instance) => [
+        instance.name,
+        {
+          id: instance.id,
+          type: instance.type,
+          profileName: instance.profileName,
+          workspace: expected.workspace,
+        },
+      ]),
+    ),
   };
 }

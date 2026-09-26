@@ -484,7 +484,7 @@ describe('last native Symposium dispatch fence', () => {
     let available = true;
     const verifyHostCapability = vi.fn(() => {
       if (!available) throw new Error('Selected gateway capability changed');
-      return { attestedProviderProfiles: new Set(['unrelated-provider']) };
+      return { attestedProviderInstances: new Map() };
     });
     const send = vi.fn();
     const executor = new SymposiumOpenShellSeatExecutor({
@@ -1078,7 +1078,7 @@ describe('last native Symposium dispatch fence', () => {
       }),
     }));
     const verifyHostCapability = vi.fn(() => ({
-      attestedProviderProfiles: new Set(['unrelated-provider']),
+      attestedProviderInstances: new Map(),
     }));
     const owner = new SymposiumPerSeatSandboxOwner({
       sessionId: 'symposium',
@@ -1966,7 +1966,19 @@ describe('per-seat artifact admission', () => {
           capabilityChecks += 1;
           if (options.failFinalCapability && capabilityChecks === 2)
             throw new Error('host capability changed');
-          return { attestedProviderProfiles: new Set(['openai-work']) };
+          return {
+            attestedProviderInstances: new Map([
+              [
+                'openai-work',
+                {
+                  id: 'openai-object',
+                  type: 'openai',
+                  profileName: 'openai',
+                  workspace: 'default',
+                },
+              ],
+            ]),
+          };
         },
         artifactLeaseHost: host,
         artifactRequest: () => request,

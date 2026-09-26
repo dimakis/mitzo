@@ -112,7 +112,7 @@ describe('production Symposium route to native runtime', () => {
       perSeatSandboxVerified: true,
       allowedSeatRoles: new Set(['implementer']),
       allowedAccountProviders: new Set(['openai']),
-      verifyHostCapability: () => ({ attestedProviderProfiles: new Set(['unrelated-provider']) }),
+      verifyHostCapability: () => ({ attestedProviderInstances: new Map() }),
       readOnlyEnforced: { openaiApi: false, claudeVertex: false },
       recordAccepted: vi.fn(() => true),
       managerFactory,
@@ -210,6 +210,14 @@ describe('production Symposium route to native runtime', () => {
       store,
       profiles,
       hostGrants: { verifySeat },
+      verifyHostCapability: () => ({
+        attestedProviderInstances: new Map([
+          [
+            'openai-work',
+            { id: 'object-1', type: 'openai', profileName: 'openai', workspace: 'default' },
+          ],
+        ]),
+      }),
       codexStore: {} as never,
       resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
       runtimeConfig,

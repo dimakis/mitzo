@@ -124,7 +124,10 @@ replacement lease.
 
 Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
-profiles, seed and artifacts. The first supported attestation scope is OpenAI
+profiles, seed and artifacts. Attestations must map each exact provider instance
+name, ID and type to its reviewed profile; the host must verify that association
+in the selected workspace. Missing instance mappings or physical proof fail closed.
+The first supported attestation scope is OpenAI
 writer roles. Claude via Vertex and reviewer admission remain closed pending their
 live acceptance checks. ChatGPT subscription accounts (`openai-codex`), including
 personal subscriptions available elsewhere in Mitzo, do not yet have a Symposium

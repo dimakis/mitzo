@@ -1,3 +1,7 @@
+import {
+  assertSymposiumAttestedProvider,
+  type SymposiumProviderCapability,
+} from './symposium-production-gate.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
@@ -29,7 +33,7 @@ export interface SymposiumOpenShellSeatExecutorDeps {
   currentProfiles?: () => AccountProfiles;
   hostGrants: SymposiumHostGrantVerifier;
   /** Re-probe selected gateway, policy, controller and exact profile at dispatch. */
-  verifyHostCapability?: () => { attestedProviderProfiles: ReadonlySet<string> };
+  verifyHostCapability?: () => SymposiumProviderCapability;
   /** A session-owned manager reconciles the exact provider for this seat. */
   owner: {
     ensure(
@@ -116,8 +120,12 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
         if (current.providerId !== route.providerId || current.provider !== route.provider)
           throw new Error('Symposium account provider changed before native turn');
         const capability = this.deps.verifyHostCapability?.();
-        if (capability && !capability.attestedProviderProfiles.has(current.provider))
-          throw new Error('Seat provider profile is outside the host attestation');
+        if (capability)
+          assertSymposiumAttestedProvider(capability, {
+            name: current.provider,
+            id: current.providerId,
+            type: current.kind === 'openai-api' ? 'openai' : 'google-vertex-ai',
+          });
       },
       accepted: (providerThreadId, providerTurnId) => {
         const recorded = this.deps.recordAccepted({

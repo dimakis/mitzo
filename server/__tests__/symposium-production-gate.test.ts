@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   readSymposiumProductionAttestation,
   digestSymposiumSeedTree,
+  assertSymposiumAttestedProvider,
   verifySymposiumProductionGate,
   type SymposiumProductionPhysicalProof,
 } from '../symposium-production-gate.js';
@@ -58,6 +59,9 @@ function setup() {
     controllerPath: '/usr/bin/codex' as const,
     controllerSha256: sha('codex'),
     providerProfiles: [{ name: 'openai', sha256: sha('profile') }],
+    providerInstances: [
+      { name: 'openai-work', id: 'instance-1', type: 'openai' as const, profileName: 'openai' },
+    ],
     artifactVolume: { driver: 'podman' as const, name: 'symposium-artifacts' },
     allowedRoles: ['implementer' as const, 'coder' as const],
     allowedAccountProviders: ['openai'] as ['openai'],
@@ -65,6 +69,7 @@ function setup() {
   const physical: SymposiumProductionPhysicalProof = {
     verifyImageAndController: vi.fn(),
     verifyProviderProfile: vi.fn(),
+    verifyProviderInstance: vi.fn(),
     verifyGatewayDriverConfig: vi.fn(),
     verifyArtifactVolume: vi.fn(),
   };
@@ -97,6 +102,28 @@ describe('Symposium production gate', () => {
     expect(result.runtimeConfig.cliContract).toBe('v0.1');
     expect([...result.allowedRoles]).toEqual(['implementer', 'coder']);
     expect([...result.attestedProviderProfiles]).toEqual(['openai']);
+    expect(result.attestedProviderInstances.get('openai-work')).toEqual({
+      id: 'instance-1',
+      type: 'openai',
+      profileName: 'openai',
+      workspace: 'symposium',
+    });
+    expect(physical.verifyProviderInstance).toHaveBeenCalledWith({
+      name: 'openai-work',
+      id: 'instance-1',
+      type: 'openai',
+      profileName: 'openai',
+      profileSha256: sha('profile'),
+      workspace: 'symposium',
+    });
+    expect(() =>
+      assertSymposiumAttestedProvider(result, {
+        name: 'openai-work',
+        id: 'instance-1',
+        type: 'openai',
+        workspace: 'symposium',
+      }),
+    ).not.toThrow();
     expect(invoke).toHaveBeenCalledWith(config.cli, [
       'gateway',
       'info',
@@ -174,6 +201,68 @@ describe('Symposium production gate', () => {
       'must be unique',
     );
     expect(physical.verifyProviderProfile).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'other-instance' },
+    { id: 'replacement-id' },
+    { type: 'google-vertex-ai' },
+    { workspace: 'other-workspace' },
+  ])('rejects instance identity drift %j', (change) => {
+    const { config, attestation, physical, invoke } = setup();
+    const result = verifySymposiumProductionGate(config, attestation, physical, invoke);
+    expect(() =>
+      assertSymposiumAttestedProvider(result, {
+        name: 'openai-work',
+        id: 'instance-1',
+        type: 'openai',
+        workspace: 'symposium',
+        ...change,
+      }),
+    ).toThrow('outside the host attestation');
+  });
+
+  it('requires an explicit verified instance-to-profile association', () => {
+    const { config, attestation, physical, invoke } = setup();
+    expect(() =>
+      verifySymposiumProductionGate(
+        config,
+        {
+          ...attestation,
+          providerInstances: [{ ...attestation.providerInstances[0], profileName: 'unreviewed' }],
+        },
+        physical,
+        invoke,
+      ),
+    ).toThrow('unattested profile');
+    expect(() =>
+      verifySymposiumProductionGate(
+        config,
+        {
+          ...attestation,
+          providerInstances: [attestation.providerInstances[0], attestation.providerInstances[0]],
+        },
+        physical,
+        invoke,
+      ),
+    ).toThrow('must be unique');
+    expect(() =>
+      verifySymposiumProductionGate(
+        config,
+        attestation,
+        {
+          ...physical,
+          verifyProviderInstance: undefined,
+        } as never,
+        invoke,
+      ),
+    ).toThrow('proof is unavailable');
+    vi.mocked(physical.verifyProviderInstance).mockImplementation(() => {
+      throw new Error('Live instance uses a different profile');
+    });
+    expect(() => verifySymposiumProductionGate(config, attestation, physical, invoke)).toThrow(
+      'different profile',
+    );
   });
 
   it('digests the complete seed tree and rejects links', () => {
