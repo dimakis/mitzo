@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface AccountSelection {
@@ -228,9 +229,18 @@ export function AccountModelPicker({
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, attempt, legacy, scope]);
+  const subscriptionLogin =
+    scope === 'symposium' ? (
+      <SymposiumSubscriptionLogin
+        disabled={disabled}
+        onComplete={() => setAttempt((value) => value + 1)}
+        onCatalogRefresh={() => setAttempt((value) => value + 1)}
+      />
+    ) : null;
   if (error)
     return (
       <>
+        {subscriptionLogin}
         <span role="alert">{error}</span>
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
@@ -249,6 +259,7 @@ export function AccountModelPicker({
   if (empty)
     return (
       <>
+        {subscriptionLogin}
         <span>
           {scope === 'symposium'
             ? 'No Symposium account profiles configured.'
@@ -266,6 +277,7 @@ export function AccountModelPicker({
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
+      {subscriptionLogin}
       {sessionId ? (
         <span className="chat-account-binding">{account.label}</span>
       ) : legacy ? (

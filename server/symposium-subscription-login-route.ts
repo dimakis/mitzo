@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from 'express';
 
 interface LoginHost {
@@ -26,7 +27,24 @@ const callbackWorkflow = {
 export function createSubscriptionLoginHandler(
   getHost: () => LoginHost | undefined,
 ): RequestHandler {
-  return async (req, res) => {
+  return createSubscriptionLoginController(getHost).start;
+}
+
+/** Ephemeral operator receipts; restart never implies a successful login. */
+export function createSubscriptionLoginController(getHost: () => LoginHost | undefined): {
+  start: RequestHandler;
+  status: RequestHandler;
+} {
+  let attempt: { attemptId: string; state: 'pending' | 'completed' | 'failed' } | undefined;
+  const status: RequestHandler = (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    if (req.query.attemptId && req.query.attemptId !== attempt?.attemptId) {
+      res.json({ state: 'unknown' });
+      return;
+    }
+    res.json(attempt ?? { state: 'idle' });
+  };
+  const start: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const transport: unknown = req.body?.callbackTransport;
     if (transport !== 'host-local' && transport !== 'ssh-forwarded') {
@@ -39,22 +57,39 @@ export function createSubscriptionLoginHandler(
       });
       return;
     }
+    if (attempt?.state === 'pending') {
+      res.status(409).json({ error: 'A personal subscription login is already pending.' });
+      return;
+    }
+    const current = { attemptId: randomUUID(), state: 'pending' as const };
+    attempt = current;
     try {
       const host = getHost();
       if (!host?.beginLogin) throw new Error('Unavailable');
       const login = await host.beginLogin();
       // Credentials and token-bearing failures never enter responses or logs.
-      void login.completed.catch(() => undefined);
+      void login.completed.then(
+        () => {
+          if (attempt?.attemptId === current.attemptId)
+            attempt = { ...current, state: 'completed' };
+        },
+        () => {
+          if (attempt?.attemptId === current.attemptId) attempt = { ...current, state: 'failed' };
+        },
+      );
       res.json({
+        attemptId: current.attemptId,
         authorizationUrl: login.authorizationUrl,
         callbackTransport: transport,
         ...callbackWorkflow,
       });
     } catch {
+      if (attempt?.attemptId === current.attemptId) attempt = { ...current, state: 'failed' };
       res.status(503).json({
         error:
           'Personal subscription login is unavailable or already pending. Check the host and ensure callback port 1455 is free, then retry.',
       });
     }
   };
+  return { start, status };
 }
