@@ -26,7 +26,9 @@ entry saves metadata only; Connect starts sign-in explicitly. Reconnect and
 Disconnect target the selected entry and revision. They never select an account
 for a reviewer or rebind existing seats. Saved metadata survives restart, but
 credentials are not automatically restored: `reauth_required` appears as **Sign in
-required**. `recovery_required` blocks new sign-in until host recovery. No auth URL, user code or
+required**. `recovery_required` blocks new sign-in until host recovery. Disconnect
+or reconnect can require cleanup of other seats in the same owned workspace;
+provider removal alone does not prove projected credentials were erased. No auth URL, user code or
 credential is persisted by the UI. Existing seat selections are never rebound.
 
 Mocked tests cover recovery, cancellation, quarantined cleanup, polling from code

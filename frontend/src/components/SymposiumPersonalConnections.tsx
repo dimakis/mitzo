@@ -126,8 +126,8 @@ export function SymposiumPersonalConnections({
           </div>
           {connection.state === 'recovery_required' ? (
             <p>
-              This connection needs recovery on the Mac before it can be used. Refresh after
-              recovery.
+              This connection needs recovery on the Mac before it can be used. Cleanup may include
+              other seats in the same owned workspace. Refresh after host recovery.
             </p>
           ) : connection.state === 'disconnecting' ? (
             <p>Wait for disconnect to finish, then refresh.</p>
