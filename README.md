@@ -107,6 +107,31 @@ contracts with mocked integration coverage. The default application still has no
 Symposium runtime; production reviewer and Claude admission require further host
 attestation and live acceptance. Environment settings alone do not enable them.
 
+### Symposium OpenShell 0.1 per-seat runtime
+
+The experimental 0.1 runtime gives each seat generation its own sandbox and exact
+provider attachment inside one OpenShell workspace. Mitzo retains one conversation
+view and routes each seat to its own sandbox. Reuse rechecks the physical sandbox
+identity and provider attachments; uncertain creation or cleanup keeps the seat
+reserved until reconciled. This path uses upstream OpenShell contracts without a
+private gateway patch.
+
+Shared artifacts use an explicitly admitted named volume, mounted read-write for
+a writer and read-only for a reviewer. Host-side leases fence writers, verify the
+physical mount, and release only after gateway and compute-host deletion proof.
+Exact release receipts allow cleanup to finish after a crash without releasing a
+replacement lease.
+
+Production remains disabled by default. A trusted server bootstrap must install
+matching host attestation for the selected CLI, gateway, images, policy, provider
+profiles, seed and artifacts. The first supported attestation scope is OpenAI
+writer roles. Claude via Vertex and reviewer admission remain closed pending their
+live acceptance checks; the local Podman adapter cannot yet attest effective
+gateway admission configuration. See the
+[per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
+for the architecture and remaining gates. Installing this code does not upgrade
+or enable the active gateway.
+
 ### Packages (`packages/`) — npm workspace
 
 Mitzo uses an npm workspace with three internal packages shared between server and frontend:

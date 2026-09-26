@@ -94,12 +94,17 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     // accidentally turn a live sandbox into an apparent absence.
     const listed = await this.run(['ps', '--all', '--format', 'json']);
     if (!Array.isArray(listed)) throw new Error('Invalid Podman container listing');
+    // A replacement ID does not prove the previous physical workload stopped.
+    // Include the stable identity so both generations cannot pass mount admission.
     const workload = listed.filter((item) => {
       const row = record(item);
       const foundLabels = labels(row.Labels ?? row.labels);
       return (
-        foundLabels['openshell.ai/sandbox-id'] === sandboxId &&
-        foundLabels['openshell.ai/isolation-role'] === 'sandbox'
+        foundLabels['openshell.ai/isolation-role'] === 'sandbox' &&
+        (foundLabels['openshell.ai/sandbox-id'] === sandboxId ||
+          (foundLabels['openshell.ai/sandbox-name'] === sandboxName &&
+            foundLabels['openshell.ai/sandbox-workspace'] === this.workspaceId &&
+            foundLabels['openshell.ai/sandbox-namespace'] === this.sandboxNamespace))
       );
     });
     const workloadRow = exactlyOne(workload);

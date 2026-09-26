@@ -47,7 +47,7 @@ function fixture() {
   const evidence = { verifyGateway, verifyMount, verifyDeleted };
   const a = new SqliteArtifactLeaseHost(path, evidence, runner);
   const b = new SqliteArtifactLeaseHost(path, evidence, runner);
-  return { a, b, evidence, runner };
+  return { a, b, evidence, runner, path };
 }
 
 describe('durable artifact host', () => {
@@ -94,6 +94,97 @@ describe('durable artifact host', () => {
       await expect(
         acquireSymposiumArtifactLease(b, { ...request, seatId: 'writer-2' }),
       ).resolves.toMatchObject({ request: { seatId: 'writer-2' } });
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('replays an exact release after host restart with fresh gateway and physical proof', async () => {
+    const { a, b, evidence, runner, path } = fixture();
+    const writer = await acquireSymposiumArtifactLease(a, request);
+    a.markCreationStarted(writer.token, writer.revision, 'seat-writer');
+    a.bindSandbox(writer.token, writer.revision, 'seat-writer', 'physical-1');
+    await a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {});
+    // Crash after the lease transaction but before the seat's stopped marker.
+    a.close();
+    b.close();
+    const reopened = new SqliteArtifactLeaseHost(path, evidence, runner);
+    const gatewayAbsent = vi.fn(async () => {});
+    try {
+      evidence.verifyDeleted.mockClear();
+      await reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', gatewayAbsent);
+      expect(gatewayAbsent).toHaveBeenCalledTimes(2);
+      expect(evidence.verifyDeleted).toHaveBeenCalledExactlyOnceWith('seat-writer', 'physical-1');
+      expect(await reopened.inspectLease(writer.token)).toBeNull();
+      for (const [changed, name, id] of [
+        [{ ...request, seatId: 'other' }, 'seat-writer', 'physical-1'],
+        [request, 'other-sandbox', 'physical-1'],
+        [request, 'seat-writer', 'physical-2'],
+      ] as const) {
+        await expect(
+          reopened.releaseBoundSandbox(changed, name, id, gatewayAbsent),
+        ).rejects.toThrow('identity is unavailable');
+      }
+      evidence.verifyDeleted.mockRejectedValueOnce(new Error('Physical proof unavailable'));
+      await expect(
+        reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', gatewayAbsent),
+      ).rejects.toThrow('Physical proof unavailable');
+      const appeared = vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('Gateway replacement appeared'));
+      await expect(
+        reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', appeared),
+      ).rejects.toThrow('Gateway replacement appeared');
+      await reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', gatewayAbsent);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  it('does not release a replacement lease when replaying a previous release', async () => {
+    const { a, b } = fixture();
+    try {
+      const writer = await acquireSymposiumArtifactLease(a, request);
+      a.markCreationStarted(writer.token, writer.revision, 'seat-writer');
+      a.bindSandbox(writer.token, writer.revision, 'seat-writer', 'physical-1');
+      await a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {});
+      const replacement = await acquireSymposiumArtifactLease(b, request);
+      expect(replacement.token).not.toBe(writer.token);
+      await expect(
+        a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {}),
+      ).rejects.toThrow('changed after deletion proof');
+      expect(await b.inspectLease(replacement.token)).toEqual(replacement);
+      await b.release(replacement.token);
+      const other = await acquireSymposiumArtifactLease(b, { ...request, seatId: 'other' });
+      b.markCreationStarted(other.token, other.revision, 'seat-writer');
+      b.bindSandbox(other.token, other.revision, 'seat-writer', 'physical-2');
+      await expect(
+        a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {}),
+      ).rejects.toThrow('changed after deletion proof');
+      expect(await b.inspectLease(other.token)).toEqual(other);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('rechecks replacement leases after asynchronous replay evidence', async () => {
+    const { a, b } = fixture();
+    try {
+      const writer = await acquireSymposiumArtifactLease(a, request);
+      a.markCreationStarted(writer.token, writer.revision, 'seat-writer');
+      a.bindSandbox(writer.token, writer.revision, 'seat-writer', 'physical-1');
+      await a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {});
+      let replacementToken = '';
+      const absent = vi.fn(async () => {
+        if (!replacementToken) replacementToken = (await b.reserve(request)).token;
+      });
+      await expect(
+        a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', absent),
+      ).rejects.toThrow('changed after deletion proof');
+      expect(await b.inspectLease(replacementToken)).not.toBeNull();
     } finally {
       a.close();
       b.close();

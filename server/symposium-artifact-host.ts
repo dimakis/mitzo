@@ -131,7 +131,16 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       this.db.exec('ALTER TABLE symposium_artifact_leases ADD COLUMN intended_sandbox_name TEXT');
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS symposium_artifact_sandbox_identity
       ON symposium_artifact_leases(COALESCE(intended_sandbox_name, sandbox_name))
-      WHERE creation_started = 1 AND COALESCE(intended_sandbox_name, sandbox_name) IS NOT NULL;`);
+      WHERE creation_started = 1 AND COALESCE(intended_sandbox_name, sandbox_name) IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS symposium_artifact_release_receipts (
+      token TEXT PRIMARY KEY,
+      revision TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      sandbox_name TEXT NOT NULL,
+      sandbox_id TEXT NOT NULL,
+      released_at INTEGER NOT NULL,
+      UNIQUE(sandbox_name, sandbox_id)
+    );`);
   }
 
   close(): void {
@@ -359,30 +368,68 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   ): Promise<void> {
     if (!safeName.test(sandboxName) || !sandboxId || !this.evidence.verifyDeleted)
       throw new Error('Artifact deletion evidence is unavailable');
+    const requestJson = JSON.stringify(request);
+    type Receipt = Pick<
+      LeaseRow,
+      'token' | 'revision' | 'request_json' | 'sandbox_name' | 'sandbox_id'
+    >;
+    const receipt = () =>
+      this.db
+        .prepare(
+          'SELECT * FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .get(sandboxName, sandboxId) as Receipt | undefined;
+    const previous = receipt();
     const rows = this.db
-      .prepare(
-        `SELECT * FROM symposium_artifact_leases
-      WHERE sandbox_name=? AND sandbox_id=?`,
-      )
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE sandbox_name=? AND sandbox_id=?')
       .all(sandboxName, sandboxId) as LeaseRow[];
-    if (
-      rows.length !== 1 ||
-      rows[0].request_json !== JSON.stringify(request) ||
-      rows[0].creation_started !== 1
-    )
+    const row =
+      previous ?? (rows.length === 1 && rows[0].creation_started === 1 ? rows[0] : undefined);
+    if (!row || row.request_json !== requestJson)
       throw new Error('Bound artifact lease identity is unavailable');
-    const row = rows[0];
+    const verifyNoReplacement = () => {
+      const replacement = this.db
+        .prepare(
+          `SELECT 1 FROM symposium_artifact_leases
+         WHERE token=? OR request_json=? OR COALESCE(intended_sandbox_name, sandbox_name)=? LIMIT 1`,
+        )
+        .get(row.token, requestJson, sandboxName);
+      if (replacement) throw new Error('Artifact lease changed after deletion proof');
+    };
+    if (previous) verifyNoReplacement();
+    // A receipt proves only the earlier exact lease release. Physical and gateway
+    // absence must still be refreshed before completing seat lifecycle cleanup.
     await verifyGatewayAbsent();
     await this.evidence.verifyDeleted(sandboxName, sandboxId);
     await verifyGatewayAbsent();
-    const deleted = this.db
-      .prepare(
-        `DELETE FROM symposium_artifact_leases
-      WHERE token=? AND revision=? AND request_json=? AND creation_started=1
-        AND intended_sandbox_name=? AND sandbox_name=? AND sandbox_id=?`,
-      )
-      .run(row.token, row.revision, row.request_json, sandboxName, sandboxName, sandboxId);
-    if (deleted.changes !== 1) throw new Error('Artifact lease changed during deletion proof');
+    this.db.transaction(() => {
+      const released = receipt();
+      if (released) {
+        if (
+          released.token !== row.token ||
+          released.revision !== row.revision ||
+          released.request_json !== requestJson
+        )
+          throw new Error('Artifact release receipt identity changed');
+        verifyNoReplacement();
+        return;
+      }
+      const deleted = this.db
+        .prepare(
+          `DELETE FROM symposium_artifact_leases
+         WHERE token=? AND revision=? AND request_json=? AND creation_started=1
+           AND intended_sandbox_name=? AND sandbox_name=? AND sandbox_id=?`,
+        )
+        .run(row.token, row.revision, requestJson, sandboxName, sandboxName, sandboxId);
+      if (deleted.changes !== 1) throw new Error('Artifact lease changed during deletion proof');
+      this.db
+        .prepare(
+          `INSERT INTO symposium_artifact_release_receipts
+         (token, revision, request_json, sandbox_name, sandbox_id, released_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(row.token, row.revision, requestJson, sandboxName, sandboxId, Date.now());
+    })();
   }
 
   private row(token: string): LeaseRow | undefined {

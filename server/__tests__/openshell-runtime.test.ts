@@ -244,6 +244,128 @@ describe('OpenShell runtime lifecycle', () => {
       '--page-size',
     );
   });
+  it.each(['absent', 'replaced', 'renamed', 'stopped', 'replaced-during-checks'])(
+    'never creates or starts a retained sandbox when its expected identity is %s',
+    async (change) => {
+      const name = sandboxNameForConversation('conversation');
+      let reads = 0;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider')
+          return JSON.stringify({
+            providers: [
+              { name: 'openai-work', id: 'provider-id', type: 'openai', workspace: 'mitzo' },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('provider') && args.includes('list'))
+          return JSON.stringify({
+            providers: [{ name: 'openai-work', type: 'openai' }],
+            next_page_token: '',
+          });
+        if (args.includes('get')) {
+          reads += 1;
+          if (change === 'absent') throw new Error('sandbox not found');
+          return JSON.stringify({
+            ...JSON.parse(ready('Ready', 'state-v2-none')),
+            name: change === 'renamed' ? 'other-sandbox' : name,
+            id:
+              change === 'replaced' || (change === 'replaced-during-checks' && reads > 1)
+                ? 'replacement-id'
+                : 'physical-id',
+            phase: change === 'stopped' ? 'Stopped' : 'Ready',
+            workspace: 'mitzo',
+          });
+        }
+        throw new Error('Unexpected sandbox mutation');
+      });
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+        },
+        run,
+      );
+      await expect(
+        manager.ensure('conversation', new AbortController().signal, {
+          sandboxName: name,
+          sandboxId: 'physical-id',
+        }),
+      ).rejects.toThrow(/identity changed|not Ready|name or workspace changed/);
+      expect(
+        run.mock.calls.every(
+          ([args]) => args[0] === 'provider' || args.includes('get') || args.includes('list'),
+        ),
+      ).toBe(true);
+    },
+  );
+
+  it.each(['added', 'replaced', 'wrong-type'])(
+    'rechecks a retained seat and rejects an %s provider on the next reuse',
+    async (change) => {
+      const name = sandboxNameForConversation('conversation');
+      let changed = false;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider')
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'openai-work',
+                id: changed && change === 'replaced' ? 'replacement-id' : 'provider-id',
+                type: 'openai',
+                workspace: 'mitzo',
+              },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('get'))
+          return JSON.stringify({
+            ...JSON.parse(ready('Ready', 'state-v2-none')),
+            name,
+            id: 'physical-id',
+            workspace: 'mitzo',
+          });
+        if (args.includes('provider') && args.includes('list'))
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'openai-work',
+                type: changed && change === 'wrong-type' ? 'google-vertex-ai' : 'openai',
+              },
+              ...(changed && change === 'added'
+                ? [{ name: 'other-provider', type: 'openai' }]
+                : []),
+            ],
+            next_page_token: '',
+          });
+        throw new Error('Unexpected sandbox mutation');
+      });
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+        },
+        run,
+      );
+      const expected = { sandboxName: name, sandboxId: 'physical-id' };
+      await manager.ensure('conversation', new AbortController().signal, expected);
+      changed = true;
+      await expect(
+        manager.ensure('conversation', new AbortController().signal, expected),
+      ).rejects.toThrow(/another provider attachment|account provider|attachment type changed/);
+      expect(
+        run.mock.calls.some(([args]) => args.includes('create') || args.includes('attach')),
+      ).toBe(false);
+    },
+  );
+
   it('rejects a retained 0.1 seat sandbox with a sibling provider', async () => {
     const run = vi.fn(async (args: readonly string[]) => {
       if (args[0] === 'provider')

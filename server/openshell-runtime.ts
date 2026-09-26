@@ -989,7 +989,11 @@ export class OpenShellRuntimeManager {
     if (changed) await this.waitForReady(name, owner, signal);
   }
 
-  async ensure(conversationId: string, signal: AbortSignal): Promise<OpenShellRuntime> {
+  async ensure(
+    conversationId: string,
+    signal: AbortSignal,
+    expected?: { sandboxName: string; sandboxId: string },
+  ): Promise<OpenShellRuntime> {
     const artifactConfig = this.config.artifactDriverConfig;
     if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
       throw new Error('Artifact mount requires OpenShell 0.1 and physical mount attestation');
@@ -1016,6 +1020,15 @@ export class OpenShellRuntimeManager {
     let name = currentName;
     let owner = currentOwner;
     let sandbox = await this.get(name, signal);
+    if (
+      expected &&
+      (!sandbox ||
+        sandbox.phase !== 'Ready' ||
+        sandbox.id !== expected.sandboxId ||
+        sandbox.name !== expected.sandboxName ||
+        name !== expected.sandboxName)
+    )
+      throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
@@ -1186,6 +1199,16 @@ export class OpenShellRuntimeManager {
     }
     if (sandbox.labels?.['mitzo.conversation'] !== owner)
       throw new Error(`OpenShell sandbox ${name} is not owned by this conversation`);
+    if (expected) {
+      const current = await this.get(name, signal);
+      if (
+        !current ||
+        current.phase !== 'Ready' ||
+        current.id !== expected.sandboxId ||
+        current.name !== expected.sandboxName
+      )
+        throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
+    }
     this.config.verifyAccountProviderUnion?.();
     return {
       sandboxName: name,

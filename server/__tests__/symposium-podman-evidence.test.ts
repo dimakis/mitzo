@@ -86,6 +86,52 @@ describe('local Podman artifact evidence', () => {
     }
   });
 
+  it('rejects an older workload for the same stable identity despite a different sandbox ID', async () => {
+    const older = {
+      Id: 'b'.repeat(64),
+      Labels: { ...labels, 'openshell.ai/sandbox-id': 'older-sandbox' },
+    };
+    const run = vi.fn().mockResolvedValueOnce([...listed, older]);
+    const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
+      'exactly one',
+    );
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('does not admit an older workload as the replacement when it is the only match', async () => {
+    const olderLabels = { ...labels, 'openshell.ai/sandbox-id': 'older-sandbox' };
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce([{ Id: physicalId, Labels: olderLabels }])
+      .mockResolvedValueOnce([{ ...inspected[0], Config: { Labels: olderLabels } }]);
+    const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
+    await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
+      'sandbox-id',
+    );
+  });
+
+  it.each(['sandbox-name', 'sandbox-workspace', 'sandbox-namespace'] as const)(
+    'allows an unrelated workload with a different %s',
+    async (field) => {
+      const unrelated = {
+        Id: 'b'.repeat(64),
+        Labels: {
+          ...labels,
+          'openshell.ai/sandbox-id': 'other-sandbox',
+          [`openshell.ai/${field}`]: 'other',
+        },
+      };
+      const run = vi
+        .fn()
+        .mockResolvedValueOnce([...listed, unrelated])
+        .mockResolvedValueOnce(inspected);
+      const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
+      expect(run).toHaveBeenLastCalledWith(['inspect', '--type', 'container', physicalId]);
+    },
+  );
+
   it('closes gateway admission and rejects any remaining physical sandbox', async () => {
     const run = vi.fn().mockResolvedValue([]);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);

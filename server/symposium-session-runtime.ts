@@ -259,6 +259,7 @@ export interface SymposiumSharedSandboxOwnerDeps {
     ensure(
       sessionId: string,
       signal: AbortSignal,
+      expected?: { sandboxName: string; sandboxId: string },
     ): Promise<{ sandboxName: string; sandboxId?: string; workdir: string }>;
     inspect?(
       runtimeId: string,
@@ -539,15 +540,6 @@ export class SymposiumPerSeatSandboxOwner {
           ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
           : undefined;
         snapshot.verify();
-        if (lease) {
-          // This durable write precedes every possible gateway create. A crash
-          // after it leaves an unbound lease closed until explicit reconciliation.
-          this.deps.artifactLeaseHost!.markCreationStarted(
-            lease.token,
-            lease.revision,
-            sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
-          );
-        }
         const manager = (
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
@@ -582,6 +574,16 @@ export class SymposiumPerSeatSandboxOwner {
           );
           if (!observed || observed.phase !== 'Ready' || observed.id !== reservation.physicalId)
             throw new Error('Recorded seat sandbox is not Ready');
+          // Ready lifecycle metadata does not attest the current provider attachments.
+          const sandbox = await manager.ensure(snapshot.runtimeId, signal, {
+            sandboxName: reservation.sandboxName,
+            sandboxId: reservation.physicalId,
+          });
+          if (
+            sandbox.sandboxId !== reservation.physicalId ||
+            sandbox.sandboxName !== reservation.sandboxName
+          )
+            throw new Error('Recorded seat sandbox physical identity changed');
           if (lease) {
             await this.deps.artifactLeaseHost!.verifyPhysicalMount(
               reservation.sandboxName,
@@ -595,6 +597,18 @@ export class SymposiumPerSeatSandboxOwner {
             sandboxId: reservation.physicalId,
             workdir: this.deps.runtimeConfig.workdir,
           };
+        }
+        signal.throwIfAborted();
+        verifySeatCapability();
+        snapshot.verify();
+        if (lease) {
+          // This durable write precedes every possible gateway create. A crash
+          // after it leaves an unbound lease closed until explicit reconciliation.
+          this.deps.artifactLeaseHost!.markCreationStarted(
+            lease.token,
+            lease.revision,
+            sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
+          );
         }
         this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
           sessionId,

@@ -1168,7 +1168,7 @@ describe('last native Symposium dispatch fence', () => {
     work.setAdmission({ ...admission, configRevision: 5 });
     const second = await owner.ensure('symposium', 'reviewer', signal);
     expect(second).toEqual(first);
-    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledTimes(2);
 
     work.setConfig({
       ...config,
@@ -1179,7 +1179,7 @@ describe('last native Symposium dispatch fence', () => {
     await expect(owner.ensure('symposium', 'reviewer', signal)).rejects.toThrow(
       /reservation changed/,
     );
-    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(ensure).toHaveBeenCalledTimes(2);
     await owner.stop('symposium', 'reviewer', 2, signal);
     expect(stopped).toEqual([`${retained.runtimeId}:${retained.physicalId}`]);
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('stopped');
@@ -1880,6 +1880,8 @@ describe('per-seat artifact admission', () => {
       failMount?: boolean;
       failCreate?: boolean;
       failDriverConfig?: boolean;
+      failManager?: boolean;
+      failFinalCapability?: boolean;
     } = {},
   ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
@@ -1932,6 +1934,7 @@ describe('per-seat artifact admission', () => {
     const remove = vi.fn(async () => {
       phase = 'Absent';
     });
+    let capabilityChecks = 0;
     const owner = () =>
       new SymposiumPerSeatSandboxOwner({
         sessionId: 'symposium',
@@ -1958,9 +1961,16 @@ describe('per-seat artifact admission', () => {
         },
         readOnlyEnforced: { openaiApi: true, claudeVertex: false },
         perSeatSandboxVerified: true,
+        verifyHostCapability: () => {
+          capabilityChecks += 1;
+          if (options.failFinalCapability && capabilityChecks === 2)
+            throw new Error('host capability changed');
+          return { attestedProviderProfiles: new Set(['openai-work']) };
+        },
         artifactLeaseHost: host,
         artifactRequest: () => request,
         managerFactory: (config) => {
+          if (options.failManager) throw new Error('manager construction failed');
           configurations.push(config);
           return {
             ensure,
@@ -2028,6 +2038,31 @@ describe('per-seat artifact admission', () => {
     });
   }
 
+  it.each(['provider attachment changed', 'provider identity changed'])(
+    'revalidates retained Ready seats and rejects %s',
+    async (message) => {
+      const state = setup('writer');
+      try {
+        await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
+        const record = state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)!;
+        const markStarted = vi.spyOn(state.host, 'markCreationStarted');
+        state.ensure.mockRejectedValueOnce(new Error(message));
+        await expect(
+          state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+        ).rejects.toThrow(message);
+        expect(state.ensure).toHaveBeenLastCalledWith(record.runtimeId, expect.anything(), {
+          sandboxName: record.sandboxName,
+          sandboxId: record.physicalId,
+        });
+        expect(markStarted).not.toHaveBeenCalled();
+        expect(record.state).toBe('ready');
+      } finally {
+        state.host.close();
+        rmSync(state.root, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('retains a closed lease when creation loses its response or mount proof fails', async () => {
     for (const options of [{ failCreate: true }, { failMount: true }]) {
       const state = setup('writer', options);
@@ -2046,12 +2081,19 @@ describe('per-seat artifact admission', () => {
     }
   });
 
-  it('releases the exact unstarted writer after crash recovery proves the seat absent', async () => {
-    const state = setup('writer', { failDriverConfig: true });
+  it.each([
+    ['failDriverConfig', 'driver config unavailable'],
+    ['failManager', 'manager construction failed'],
+    ['failFinalCapability', 'host capability changed'],
+  ] as const)('releases the never-started writer after %s', async (failure, message) => {
+    const options = { [failure]: true };
+    const state = setup('writer', options);
     try {
       await expect(
         state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
-      ).rejects.toThrow('driver config unavailable');
+      ).rejects.toThrow(message);
+      expect(state.ensure).not.toHaveBeenCalled();
+      options[failure] = false;
       expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toMatchObject({
         state: 'reserved',
         creationStarted: false,
@@ -2115,6 +2157,39 @@ describe('per-seat artifact admission', () => {
       await expect(
         acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
       ).resolves.toMatchObject({ request: { seatId: 'next' } });
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
+
+  it('retries stop after lease release succeeds but lifecycle confirmation fails', async () => {
+    const state = setup('writer');
+    try {
+      await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
+      const confirm = vi
+        .spyOn(state.registry, 'confirmSymposiumSeatSandboxStopped')
+        .mockImplementationOnce(() => {
+          throw new Error('lifecycle commit failed');
+        });
+      await expect(
+        state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal),
+      ).rejects.toThrow('lifecycle commit failed');
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'ready',
+      );
+      await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
+      expect(confirm).toHaveBeenCalledTimes(2);
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
+      expect(state.remove).toHaveBeenCalledOnce();
+      const replacement = await acquireSymposiumArtifactLease(state.host, {
+        ...state.request,
+        seatId: 'next',
+      });
+      await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
+      expect(await state.host.inspectLease(replacement.token)).toEqual(replacement);
     } finally {
       state.host.close();
       rmSync(state.root, { recursive: true, force: true });
