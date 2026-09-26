@@ -131,3 +131,36 @@ it.each(['save', 'import'])('keeps previous revisions selectable after %s', asyn
   fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: 'reviewer:1' } });
   expect(onChange).toHaveBeenLastCalledWith({ profileId: 'reviewer', revision: 1 });
 });
+
+it('edits an advisory reviewer recipe and saves it without applying to a seat', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
+    init?.method === 'POST' ? response({ ...version, revision: 3 }) : response([version]),
+  );
+  render(
+    <SymposiumProfilePicker value={{ profileId: 'reviewer', revision: 2 }} onChange={vi.fn()} />,
+  );
+  await screen.findByText('Independent reviewer · v2');
+  fireEvent.click(screen.getByRole('button', { name: 'Revise selected' }));
+  fireEvent.click(screen.getByLabelText('Include reusable recipe'));
+  fireEvent.change(screen.getByLabelText('Reviewer template'), { target: { value: 'security' } });
+  fireEvent.change(screen.getByLabelText('Skill references (one per line)'), {
+    target: { value: 'risk-scan' },
+  });
+  fireEvent.click(screen.getByLabelText('ContexGin (explicit selection required)'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const [path, init] = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(path).toBe('/api/symposium/profiles');
+  expect(JSON.parse(init!.body as string).definition.recipe).toMatchObject({
+    version: 1,
+    reviewerTemplate: 'security',
+    skillRefs: ['risk-scan'],
+    context: { sources: ['workspace', 'contexgin'] },
+    toolDefaults: { mode: 'read-only' },
+  });
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => path.startsWith('/api/symposium/profiles')),
+  ).toBe(true);
+});

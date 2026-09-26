@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
+import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface SymposiumProfileSelection {
@@ -89,7 +90,21 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
             profileId,
             expectedRevision,
             idempotencyKey: crypto.randomUUID(),
-            definition,
+            definition: definition.recipe
+              ? {
+                  ...definition,
+                  recipe: {
+                    ...definition.recipe,
+                    skillRefs: definition.recipe.skillRefs.map((ref) => ref.trim()).filter(Boolean),
+                    toolDefaults: {
+                      ...definition.recipe.toolDefaults,
+                      preferredTools: definition.recipe.toolDefaults.preferredTools
+                        .map((ref) => ref.trim())
+                        .filter(Boolean),
+                    },
+                  },
+                }
+              : definition,
           }),
         }),
       );
@@ -286,6 +301,11 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
               onChange={(event) => update('modelPolicyRole', event.target.value)}
             />
           </label>
+          <SymposiumProfileRecipeEditor
+            value={definition.recipe}
+            onChange={(recipe) => update('recipe', recipe)}
+            disabled={disabled || busy}
+          />
           <button type="button" disabled={disabled || busy} onClick={save}>
             Save profile
           </button>
