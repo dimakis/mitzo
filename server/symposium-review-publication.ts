@@ -1,3 +1,4 @@
+import type { LiveCapabilityConversationBinding } from './capability-conversation-binding.js';
 import { createHash } from 'node:crypto';
 import {
   artifactDriverConfigForLease,
@@ -29,12 +30,14 @@ import { connectionTemplateRegistry } from './connections/registry.js';
  * Git object IDs bind blob contents; this digest also binds paths and executable modes.
  * Symlinks, gitlinks, malformed/unbounded trees are deliberately unsupported. */
 export function committedTreeDigest(tree: string): string {
-  if (!tree.endsWith('\0') || Buffer.byteLength(tree) > 1024 * 1024 || tree.includes('\ufffd'))
+  if (
+    (tree !== '' && !tree.endsWith('\0')) ||
+    Buffer.byteLength(tree) > 1024 * 1024 ||
+    tree.includes('\ufffd')
+  )
     throw new Error('Unsupported committed tree');
   const seen = new Set<string>();
-  const entries = tree
-    .slice(0, -1)
-    .split('\0')
+  const entries = (tree === '' ? [] : tree.slice(0, -1).split('\0'))
     .map((line) => {
       const match = /^(100644|100755) blob ([a-f0-9]{40}(?:[a-f0-9]{24})?)\t(.+)$/.exec(line);
       if (!match) throw new Error('Unsupported committed tree entry');
@@ -68,6 +71,11 @@ export interface ReviewPublicationBinding {
   operation: CapabilityExecutionContext['operation'];
   publicConfig: Readonly<Record<string, string | readonly string[]>>;
 }
+export interface ReviewPublicationAttachment extends LiveCapabilityConversationBinding {
+  sessionId: string;
+  seatId: string;
+  membershipGeneration: number;
+}
 export interface ReviewPublicationDependencies {
   store: SymposiumReviewStore;
   operations: Pick<CapabilityOperationStore, 'get' | 'getGrant'>;
@@ -76,6 +84,12 @@ export interface ReviewPublicationDependencies {
   workspaceId: string;
   publisher: Pick<GithubHostPublisher, 'policy' | 'findOpen'>;
   getConnection(id: string): CapabilityConnection | undefined;
+  /** Current seat-scoped lifecycle attachment; never reconstructed from durable operation metadata. */
+  getLiveAttachment(
+    context: ReviewContext,
+    seatId: string,
+    membershipGeneration: number,
+  ): ReviewPublicationAttachment | null;
   /** Must resolve only currently admitted builder seats and a real durable capability operation. */
   resolveBinding(context: ReviewContext, record: ReviewRecord): ReviewPublicationBinding | null;
 }
@@ -96,6 +110,7 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
       const binding = deps.resolveBinding(context, record);
       if (!binding) throw new Error('Publication builder binding unavailable');
       const fingerprint = canonicalReviewJson(binding);
+      let attachmentFingerprint: string | undefined;
       const check = async () => {
         signal.throwIfAborted();
         const current = deps.resolveBinding(context, record);
@@ -152,6 +167,28 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
           !grant.accountIds.includes(operation.accountId)
         )
           throw new Error('Publication capability binding unavailable');
+        const attachment = deps.getLiveAttachment(
+          context,
+          current.builder.seatId,
+          current.membershipGeneration,
+        );
+        if (
+          !attachment ||
+          attachment.sessionId !== context.sessionId ||
+          attachment.seatId !== current.builder.seatId ||
+          attachment.membershipGeneration !== current.membershipGeneration ||
+          attachment.accountId !== operation.accountId ||
+          attachment.connectionId !== operation.connectionId ||
+          attachment.connectionRevision !== operation.connectionRevision ||
+          !attachment.gatewayProviderId ||
+          attachment.sandboxName !== current.sandboxName ||
+          attachment.workspace !== SYMPOSIUM_ARTIFACT_TARGET
+        )
+          throw new Error('Publication live attachment unavailable');
+        const attached = canonicalReviewJson(attachment);
+        if (attachmentFingerprint && attachmentFingerprint !== attached)
+          throw new Error('Publication live attachment changed');
+        attachmentFingerprint = attached;
         await artifactDriverConfigForLease(deps.leaseHost, lease);
       };
       await check();
@@ -216,6 +253,17 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
         input: validated,
         signal,
       });
+      const { approvalInput, approvalHash } = binding.operation;
+      if (approvalInput != null || approvalHash != null) {
+        const encoded = canonicalJson(preflight.approvalInput);
+        if (
+          approvalInput == null ||
+          approvalHash == null ||
+          canonicalJson(approvalInput) !== encoded ||
+          createHash('sha256').update(encoded).digest('hex') !== approvalHash
+        )
+          throw new Error('Publication pending approval changed');
+      }
       // Remote policy/PR reads may yield; repeat local artifact and authority checks afterward.
       await inspect({
         sandboxName: binding.sandboxName,

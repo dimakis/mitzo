@@ -70,6 +70,8 @@ function fixture() {
     connectionRevision: 1,
     grantId: 'grant',
     status: 'pending_approval',
+    approvalInput: null as import('../connections/types.js').JsonValue | null,
+    approvalHash: null as string | null,
     inputHash: createHash('sha256').update(canonicalJson(input)).digest('hex'),
   };
   const lease = {
@@ -152,6 +154,19 @@ function fixture() {
       revision: 1,
       desiredAccountIds: ['account'],
     }),
+    getLiveAttachment: vi
+      .fn<() => import('../symposium-review-publication.js').ReviewPublicationAttachment | null>()
+      .mockReturnValue({
+        sessionId: 'session',
+        seatId: 'builder',
+        membershipGeneration: 1,
+        accountId: 'account',
+        connectionId: 'connection',
+        connectionRevision: 1,
+        gatewayProviderId: 'gateway-provider',
+        sandboxName: 'sandbox',
+        workspace: '/sandbox/symposium-artifacts',
+      }),
     resolveBinding: vi.fn(() => binding),
   };
   const inspect = () =>
@@ -297,4 +312,48 @@ it('keeps Symposium inspection separate from the unchanged publisher transport',
     }),
   ).rejects.toThrow('Repository path is invalid');
   expect(control).toHaveBeenCalledOnce();
+});
+
+it('accepts a valid empty committed tree with the versioned empty-array digest', () => {
+  expect(committedTreeDigest('')).toBe(
+    createHash('sha256').update('mitzo-committed-tree-v1\0[]').digest('hex'),
+  );
+});
+it('requires the live builder sandbox attachment and rejects detachment during preflight', async () => {
+  const f = fixture();
+  f.deps.getLiveAttachment.mockReturnValueOnce(null);
+  await expect(f.inspect()).rejects.toThrow('live attachment');
+  expect(f.deps.control).not.toHaveBeenCalled();
+  const g = fixture();
+  g.deps.publisher.findOpen.mockImplementation(async () => {
+    g.deps.getLiveAttachment.mockReturnValue(null);
+    return null;
+  });
+  await expect(g.inspect()).rejects.toThrow('live attachment');
+});
+it('refuses to replace a persisted pending approval card or accept a corrupt approval hash', async () => {
+  const f = fixture();
+  const preview = await f.inspect();
+  f.binding.operation.approvalInput = { ...preview.approvalInput, sourceBranch: 'feature/other' };
+  f.binding.operation.approvalHash = createHash('sha256')
+    .update(canonicalJson(f.binding.operation.approvalInput))
+    .digest('hex');
+  await expect(f.inspect()).rejects.toThrow('pending approval');
+  f.binding.operation.approvalInput = { ...preview.approvalInput };
+  f.binding.operation.approvalHash = 'a'.repeat(64);
+  await expect(f.inspect()).rejects.toThrow('pending approval');
+});
+it('accepts an unchanged persisted approval but rejects an attachment to another sandbox', async () => {
+  const f = fixture();
+  const preview = await f.inspect();
+  f.binding.operation.approvalInput = { ...preview.approvalInput };
+  f.binding.operation.approvalHash = createHash('sha256')
+    .update(canonicalJson(preview.approvalInput))
+    .digest('hex');
+  expect((await f.inspect()).kind).toBe('preview_only');
+  f.deps.getLiveAttachment.mockReturnValue({
+    ...f.deps.getLiveAttachment()!,
+    sandboxName: 'other-sandbox',
+  });
+  await expect(f.inspect()).rejects.toThrow('live attachment');
 });
