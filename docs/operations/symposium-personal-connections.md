@@ -9,7 +9,10 @@ silently moved to the replacement account.
 
 `GET /api/symposium/personal/connections` lists rows. `POST` on the same path
 accepts `{label}` (1–120 characters) and creates a disconnected row. Login accepts
-`{method:"device-code",connectionId,expectedRevision}`. Login status accepts
+`{method:"device-code",connectionId,expectedRevision}`. Both slot identity and
+revision are required, including the configured default slot and legacy callback
+login on a multi-slot host. The server never fills in a fresh revision for an
+omitted selection. Login status accepts
 `connectionId` and optional `attemptId`; receipts for another slot or authenticated
 operator session never disclose its code. Disconnect accepts `{expectedRevision}`
 at `POST /api/symposium/personal/connections/:id/disconnect`. All routes require

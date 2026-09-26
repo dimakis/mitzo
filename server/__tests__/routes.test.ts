@@ -1626,7 +1626,7 @@ describe('mounted personal device login ownership', () => {
     const started = await request(app)
       .post('/api/symposium/personal/login')
       .set('Cookie', first)
-      .send({ method: 'device-code' });
+      .send({ method: 'device-code', connectionId: row.id, expectedRevision: row.revision });
     expect(started.status).toBe(200);
     const foreign = await request(app)
       .get('/api/symposium/personal/login/status')
