@@ -31,27 +31,52 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
 
 export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
+  const [visited, setVisited] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        onClick={() => {
+          setVisited(true);
+          setOpen(true);
+        }}
+      >
         Add reviewer
       </button>
-      {open && (
-        <ReviewerForm key={sessionId} sessionId={sessionId} onClose={() => setOpen(false)} />
+      {visited && (
+        <ReviewerForm
+          key={`${sessionId}:${attempt}`}
+          open={open}
+          sessionId={sessionId}
+          onClose={() => setOpen(false)}
+          onAnother={() => setAttempt((value) => value + 1)}
+        />
       )}
     </>
   );
 }
-function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): void }) {
+function ReviewerForm({
+  sessionId,
+  onClose,
+  open,
+  onAnother,
+}: {
+  sessionId: string;
+  onClose(): void;
+  open: boolean;
+  onAnother(): void;
+}) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
   const dialog = useRef<HTMLElement>(null);
   useEffect(() => {
+    if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
     return () => {
       previous?.focus();
     };
-  }, []);
+  }, [open]);
   const [status, setStatus] = useState<Status | null>(null);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const [profile, setProfile] = useState<SymposiumProfileSelection | null>(null);
@@ -65,6 +90,9 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [progress, setProgress] = useState('');
+  const packageSnapshot = useRef<{ content: string } | null>(null);
   const operation = useRef({ seatId: `reviewer-${crypto.randomUUID()}`, key: crypto.randomUUID() });
   useEffect(() => {
     let live = true;
@@ -117,16 +145,28 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
     setBusy(true);
     setError('');
     try {
-      const context = await request<{ content: string }>(`${base}/context-package`, {
-        mode,
-        ...(mode === 'summary' ? { summary } : {}),
-        ...(mode === 'selected-turns' ? { turnIds } : {}),
-      });
+      const context =
+        packageSnapshot.current ??
+        (await request<{ content: string }>(`${base}/context-package`, {
+          mode,
+          ...(mode === 'summary' ? { summary } : {}),
+          ...(mode === 'selected-turns' ? { turnIds } : {}),
+        }));
       let current = await request<Status>(base);
       let config = current.config;
       if (!config) config = await request<SymposiumConfig>(`${base}/draft`, {});
       if (config.version !== 2)
         throw new Error('This roster must be upgraded before adding a reviewer');
+      const configuredAnchorId = config.anchorSeatId;
+      const configuredAnchor = config.seats.find((seat) => seat.id === configuredAnchorId);
+      if (
+        configuredAnchor?.accountBinding &&
+        configuredAnchor.accountBinding.accountId !== selection.accountId &&
+        typed !== confirmation
+      )
+        throw new Error('Confirm the cross-account transfer before binding the reviewer');
+      packageSnapshot.current = context;
+      setLocked(true);
       const boundary = {
         sharedBoundaryAcknowledged: true,
         ...(typed === confirmation ? { crossAccountConfirmation: confirmation } : {}),
@@ -182,6 +222,7 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
           );
         }
       }
+      setProgress(`Reviewer configured (${operation.current.seatId}). Admission pending.`);
       if (config.state === 'draft')
         config = await request<SymposiumConfig>(`${base}/activate`, {
           expectedRevision: config.revision,
@@ -204,6 +245,9 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
           ...boundary,
         });
       }
+      setProgress(
+        `Reviewer admitted. Context not queued (${seatId}). Retry uses this seat and the same package.`,
+      );
       await request(`${base}/deliveries`, {
         sourceSeatId: null,
         recipientSeatIds: [seatId],
@@ -220,7 +264,11 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
     }
   }
   return (
-    <div className="reviewer-sheet-backdrop">
+    <div
+      className="reviewer-sheet-backdrop"
+      hidden={!open}
+      style={{ display: open ? undefined : 'none' }}
+    >
       <section
         ref={dialog}
         className="reviewer-sheet"
@@ -266,11 +314,14 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
             <button type="button" onClick={onClose}>
               Done
             </button>
+            <button type="button" onClick={onAnother}>
+              Add another reviewer
+            </button>
           </>
         ) : (
           <>
             <p>Choose a saved profile and the account that will receive this review request.</p>
-            <fieldset disabled={busy}>
+            <fieldset disabled={busy || locked}>
               <SymposiumProfilePicker
                 compact
                 value={profile}
@@ -371,6 +422,7 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
                   : 'Adding prepares an isolated roster. Stop ordinary execution first; provider admission still requires the verified runtime.'}
               </p>
             )}
+            {progress && <p role="status">{progress}</p>}
             <button type="button" disabled={!ready || busy} onClick={() => void add()}>
               Add reviewer and queue context
             </button>

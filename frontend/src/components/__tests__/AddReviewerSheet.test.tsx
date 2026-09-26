@@ -140,3 +140,64 @@ it('moves focus into the dialog and restores it on Escape', async () => {
   fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
   expect(trigger).toHaveFocus();
 });
+
+it('retains an admitted reviewer and frozen context across close/reopen after queue failure', async () => {
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'anchor',
+    seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+  };
+  let failed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const path = String(url);
+    if (path.endsWith('/symposium'))
+      return new Response(
+        JSON.stringify({
+          config,
+          runtimeAvailable: true,
+          seats: config.seats.map((seat) => ({
+            seatId: seat.id,
+            membership: { state: 'active', generation: 1 },
+          })),
+        }),
+      );
+    if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+    if (path.endsWith('/seats/revise')) {
+      const body = JSON.parse(String(init?.body));
+      config.seats.push({ id: body.seatId, accountBinding: { accountId: body.accountId } });
+      return new Response(JSON.stringify(config));
+    }
+    if (path.endsWith('/deliveries') && !failed) {
+      failed = true;
+      return new Response(JSON.stringify({ error: 'Queue unavailable' }), { status: 503 });
+    }
+    return new Response(JSON.stringify({}));
+  });
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), {
+    target: { value: 'Frozen package' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Reviewer admitted. Context not queued/);
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Reviewer added/);
+  const writes = vi.mocked(apiFetch).mock.calls;
+  expect(writes.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
+  const queued = writes
+    .filter(([url]) => String(url).endsWith('/deliveries'))
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(queued).toHaveLength(2);
+  expect(queued[1]).toEqual(queued[0]);
+});
