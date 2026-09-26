@@ -17,9 +17,12 @@ draft or mint its runtime grants.
 The OpenShell 0.1 path gives each seat generation its own durable sandbox identity.
 Lifecycle fences, artifact leases, and physical deletion evidence keep uncertain
 creation or cleanup quarantined. Host capability and the exact physical provider
-are checked again at admission and dispatch. The first production gate permits
-only attested OpenAI implementer/coder seats. Claude Vertex and reviewer read-only
-enforcement remain experimental and unavailable through that gate.
+are checked again at admission and dispatch. The legacy attestation gate permits only OpenAI implementer/coder seats. The
+separate owned-native gate can admit OpenAI and OpenAI subscription seats, including
+reviewers, only with its exact reviewed build, native artifacts, private CLI state,
+and physical read-only enforcement evidence. This does not enable the automated
+review coordinator: its trusted ReviewHost and native budget/result contracts are
+still missing. Claude Vertex is outside both production gates.
 
 The split rehearsal uses mocked providers. It does not establish live model,
 gateway, IAM, or production readiness. The sections below retain the historical
@@ -202,15 +205,14 @@ its applied cursor only after the consumer accepts an event or the matching
 connection-scoped REST snapshot offer. Negotiated reconnect loads a bounded
 snapshot before replaying buffered live events. Missing consumers, refused
 events, stale offers, and buffer overflow trigger recovery without acknowledging
-unapplied state. Provider execution and directed-seat controls remain integration
-work.
-
-Next, integrate provider execution and websocket controls (Phase 3), complete
-seat-attributed controls in the existing ChatView (Phases 4–6).
-The old Phase 6 separate-session creation wording is superseded by add/remove seat
-within a chat. Review findings, delta review, profile catalog, context selection,
-and account/model selection need explicit coverage in those slices. Account/model
-availability must reuse the existing connection infrastructure.
+unapplied state. Provider dispatch and directed-seat controls now have application
+wiring and mocked coverage. DesktopChatView and ChatView are separate responsive
+wrappers around the same conversation state and server host; neither establishes
+a second workspace or provider host. Profile catalog, explicit reviewer context,
+account/model selection, and review findings surfaces are implemented. The old
+Phase 6 separate-session creation wording is superseded by add/remove seat within
+a chat. End-to-end native acceptance remains unproven; source integration is not
+a claim of live readiness.
 
 ## Existing PR reconciliation
 
@@ -221,7 +223,8 @@ not been closed or modified by this change.
 
 The original foundation slice did not include runtime or UI integration. The
 current implementation includes concurrent transcript rendering and acknowledged
-reconnect transport. Shared provider execution and reusable review workflows
+reconnect transport, gated per-seat provider dispatch, and durable interactive
+review workflows. Automated native review/fix execution and reviewed PR publication
 remain unfinished. No live model acceptance or production
 deployment has been performed for these changes; the Telos parent remains open.
 
@@ -261,9 +264,10 @@ decisions. Completion requires current-artifact host evidence for every acceptan
 criterion; model agreement does not establish verification, and newer failed host
 evidence supersedes an earlier verified result.
 
-These are persistence and admission services. Profile catalog UI, runtime-enforced
-attempt limits, recovery of uncertain native execution, and the complete automated
-review/fix loop still require integration. The tests use synthetic results and do
+The profile catalog and durable review routes/panel are integrated. The coordinator
+can reconcile trusted receipts under mocked adapters. Native enforced attempt
+limits, a production ReviewHost receipt collector, and the complete live automated
+review/fix loop remain unavailable. The tests use synthetic results and do
 not invoke models.
 
 ## Concurrent directed dispatch
@@ -323,9 +327,10 @@ Assistant messages use completion events as pagination anchors, so a turn that
 finishes after a page is read remains discoverable on a subsequent page. User
 messages and dispatched inputs retain their original event anchors.
 
-These bounded persistence projections provide message anchors for rich transcript
-rendering. Runtime receipt/event wiring and the full interactive composer remain
-separate integration work; these tests do not invoke providers.
+These bounded persistence projections feed the rich transcript and directed
+composer. Native attempt receipt/event wiring is implemented; its mocked tests
+do not establish live provider acceptance or the separate structured review
+receipt contract.
 
 ## Provider cost evidence
 
@@ -358,7 +363,10 @@ history. Findings optionally carry a reviewer-reported severity (`critical`, `hi
 `medium`, or `low`). Legacy findings remain unlabeled; severity updates are preserved
 in review history and do not change the stable finding fingerprint. Findings are untrusted content: they neither grant write authority nor
 create a PR. A reasoned dismissal records its human actor and evidence references.
-Preparing a record does **not** publish a PR. Automated PR creation and attachment
+Records are now immutable, content-addressed snapshots with scoped authenticated
+reads, persisted ordered history, and integrity checks. Export binds the current
+verified artifact revision and hash; reopening a record does not require an active
+review host. Preparing a record does **not** publish a PR. Automated PR creation and attachment
 are not implemented by this slice; publication requires a separate explicit action.
 
 The optional server-bootstrap `SymposiumProductionHost.reviewHost` capability is
@@ -374,8 +382,9 @@ these native contracts are still absent:
   verification evidence to the same completed native attempt, enforcement ID,
   session, seat, and artifact revision/hash. Request bodies cannot supply those facts.
 - The reviewer requires attested read-only tool and filesystem grants. The current
-  production gate allows OpenAI implementer/coder seats only; it must not be widened
-  merely to make the review UI executable.
+  legacy gate excludes reviewers; the owned-native gate requires its reviewed
+  read-only enforcement. Neither gate supplies the missing ReviewHost contract
+  merely because a reviewer seat can be admitted.
 - Dispatch must enforce remaining round/token/cost budgets before provider work,
   preserve one upstream OpenShell sandbox per seat generation, and retain uncertain
   attempts for receipt-based recovery. Estimated budgets do not satisfy enforcement.
@@ -409,3 +418,10 @@ to a changed artifact awaiting delta review, and `preview-2` to the unavailable
 native host explanation. Open **Review findings** in the selected preview chat.
 All review responses are fixtures and review mutation requests return HTTP 405;
 no provider, sandbox, account, or PR service is called.
+
+### Connections phone login status
+
+Repeatable phone login through Connections is in development. Existing account
+catalog and subscription-authentication infrastructure is not evidence that the
+phone device flow is complete or live-tested. No login or runtime gate is relaxed
+by the review-record implementation.
