@@ -69,6 +69,7 @@ const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]
   const admission = reviews.admitAttempt({
     workflowId: input.workflowId,
     attemptId: input.usage.attemptId,
+    enforcementId: `cap-${input.usage.attemptId}`,
     kind: 'review',
     actorSeatId: input.reviewerSeatId,
     artifactRevision: input.artifactRevision,
@@ -92,6 +93,7 @@ const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
   const admission = reviews.admitAttempt({
     workflowId: input.workflowId,
     attemptId: input.usage.attemptId,
+    enforcementId: `cap-${input.usage.attemptId}`,
     kind: 'fix',
     actorSeatId: input.implementerSeatId,
     artifactRevision: input.result.inputRevision,
@@ -109,6 +111,7 @@ describe('artifact-pinned Symposium review workflow', () => {
     reviews.admitAttempt({
       workflowId: 'workflow-1',
       attemptId: 'reviewer-1',
+      enforcementId: 'cap-reviewer-1',
       kind: 'review',
       actorSeatId: 'reviewer',
       artifactRevision: 'commit-1',
@@ -193,6 +196,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reviews.admitAttempt({
         workflowId: 'workflow-1',
         attemptId: 'unauthorized-fix',
+        enforcementId: 'cap-unauthorized-fix',
         kind: 'fix',
         actorSeatId: 'coder',
         artifactRevision: 'commit-1',
@@ -210,6 +214,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reviews.admitAttempt({
         workflowId: 'workflow-1',
         attemptId: 'free-estimate',
+        enforcementId: 'cap-free-estimate',
         kind: 'review',
         actorSeatId: 'reviewer',
         artifactRevision: 'commit-1',
@@ -575,6 +580,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reviews.admitAttempt({
         workflowId: 'workflow-unknown-cost',
         attemptId: 'reviewer-unknown',
+        enforcementId: 'cap-reviewer-unknown',
         kind: 'review',
         actorSeatId: 'reviewer',
         artifactRevision: 'commit-1',
@@ -825,6 +831,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       reviews.admitAttempt({
         workflowId: 'workflow-1',
         attemptId: 'reviewer-2',
+        enforcementId: 'cap-reviewer-2',
         kind: 'review',
         actorSeatId: 'reviewer',
         artifactRevision: 'commit-1',
@@ -841,6 +848,7 @@ describe('artifact-pinned Symposium review workflow', () => {
       workflowId: 'workflow-1',
       attemptId: 'reviewer-1',
       kind: 'review' as const,
+      enforcementId: 'cap-reviewer-1',
       actorSeatId: 'reviewer',
       artifactRevision: 'commit-1',
       artifactHash: hash('b'),

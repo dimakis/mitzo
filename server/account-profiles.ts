@@ -26,7 +26,19 @@ const VertexProfile = z
     credentialRef: z
       .string()
       .refine(isAbsolute, 'Credential reference must be an absolute ADC path'),
+    sandboxProvider: z
+      .string()
+      .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
+      .optional(),
+    sandboxProviderId: z.string().trim().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
+  })
+  .superRefine((profile, context) => {
+    if (Boolean(profile.sandboxProvider) !== Boolean(profile.sandboxProviderId))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Vertex sandbox binding is incomplete',
+      });
   })
   .strict();
 
@@ -85,10 +97,20 @@ const ApiProfile = z
       .string()
       .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/)
       .optional(),
+    sandboxProviderId: z.string().trim().min(1).max(128).optional(),
     models: z.array(CatalogModel.strict()).min(1),
   })
   .strict();
-const GoogleProfile = VertexProfile.extend({ provider: z.literal('google-vertex') });
+const GoogleProfile = z
+  .object({ ...VertexProfile.shape, provider: z.literal('google-vertex') })
+  .superRefine((profile, context) => {
+    if (Boolean(profile.sandboxProvider) !== Boolean(profile.sandboxProviderId))
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Vertex sandbox binding is incomplete',
+      });
+  })
+  .strict();
 const Profile = z.discriminatedUnion('provider', [
   VertexProfile,
   GoogleProfile,
@@ -388,8 +410,20 @@ export class AccountProfiles {
                 profile.sandboxGrantId,
               ]
             : profile.provider === 'openai'
-              ? [profile.provider, profile.credentialRef, profile.sandboxProvider]
-              : [profile.provider, profile.projectId, profile.region, profile.credentialRef],
+              ? [
+                  profile.provider,
+                  profile.credentialRef,
+                  profile.sandboxProvider,
+                  profile.sandboxProviderId,
+                ]
+              : [
+                  profile.provider,
+                  profile.projectId,
+                  profile.region,
+                  profile.credentialRef,
+                  profile.sandboxProvider,
+                  profile.sandboxProviderId,
+                ],
         ),
       )
       .digest('hex');
@@ -493,6 +527,26 @@ export class AccountProfiles {
     return {
       credentialRef: profile.credentialRef,
       sandboxProvider: profile.sandboxProvider,
+      sandboxProviderId: profile.sandboxProviderId,
+    };
+  }
+
+  /** A process-local Vertex route; host ADC remains outside the sandbox. */
+  vertexSandboxRoute(binding: AccountBinding) {
+    this.resume(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'anthropic-vertex')
+      throw new Error('Not a Claude Vertex account');
+    if (!profile.sandboxProvider)
+      throw new Error('Claude Vertex account has no explicit OpenShell sandbox provider');
+    if (!profile.sandboxProviderId)
+      throw new Error('Claude Vertex account has no pinned OpenShell provider identity');
+    return {
+      provider: profile.sandboxProvider,
+      providerId: profile.sandboxProviderId,
+      projectId: profile.projectId,
+      region: profile.region,
+      model: binding.model,
     };
   }
 

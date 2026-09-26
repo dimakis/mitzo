@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { SymposiumConfig } from '@mitzo/protocol';
+import { AccountProfiles } from '../account-profiles.js';
+import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
+import { SymposiumOpenShellSeatExecutor } from '../symposium-openshell-seat-executor.js';
 import { EventStore } from '../event-store.js';
 import {
   SymposiumOrchestrator,
@@ -95,6 +98,7 @@ class FakeExecutor implements SymposiumSeatExecutor {
   calls: SymposiumSeatExecution[] = [];
   cancellations: string[] = [];
   cancellationThreadIds: Array<string | undefined> = [];
+  cancellationClaimTokens: Array<string | undefined> = [];
   private threadCount = 0;
   private results = new Map<
     string,
@@ -117,9 +121,10 @@ class FakeExecutor implements SymposiumSeatExecutor {
     return result;
   }
 
-  async cancel(input: { providerThreadId?: string; idempotencyKey: string }) {
+  async cancel(input: { providerThreadId?: string; idempotencyKey: string; claimToken?: string }) {
     this.cancellations.push(input.idempotencyKey);
     this.cancellationThreadIds.push(input.providerThreadId);
+    this.cancellationClaimTokens.push(input.claimToken);
   }
 }
 
@@ -180,6 +185,77 @@ afterEach(() => {
 });
 
 describe('SymposiumOrchestrator', () => {
+  it('recovers a native claim after a crash between durable claim and execute', async () => {
+    await prepareConcurrentSeats();
+    const hostDir = join(dir, 'native-host');
+    const firstHost = initializeSymposiumNativeHost(hostDir);
+    const nativeExecutor = (host: ReturnType<typeof initializeSymposiumNativeHost>) =>
+      new SymposiumOpenShellSeatExecutor({
+        facts: store,
+        profiles: new AccountProfiles([]),
+        hostGrants: { verifySeat: vi.fn() },
+        attemptRegistry: host.registry,
+        owner: { ensure: vi.fn(), readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+        recordAccepted: () => true,
+        openNative: vi.fn(),
+      });
+    const firstExecutor = nativeExecutor(firstHost);
+    const execute = vi.spyOn(firstExecutor, 'execute');
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { reviewer: firstExecutor },
+      claimIdFactory: () => 'crash-gap-claim',
+    });
+    const id = readyFor(['reviewer'], 'claim-crash-gap');
+    const claim = store.claimSymposiumRecipientExecution.bind(store);
+    vi.spyOn(store, 'claimSymposiumRecipientExecution').mockImplementation((input) => {
+      expect(claim(input)?.claimToken).toBe('crash-gap-claim');
+      throw new Error('Simulated host crash after claim commit');
+    });
+    await expect(orchestrator.deliver(id)).rejects.toThrow(/Simulated host crash/);
+    expect(execute).not.toHaveBeenCalled();
+    firstHost.registry.close();
+    store.close();
+
+    store = openStore();
+    const restartedHost = initializeSymposiumNativeHost(hostDir);
+    const restartedExecutor = nativeExecutor(restartedHost);
+    orchestrator = new SymposiumOrchestrator({ store, executors: { reviewer: restartedExecutor } });
+    expect(orchestrator.recover()).toEqual([
+      expect.objectContaining({ deliveryId: id, status: 'recovery_required' }),
+    ]);
+    expect(store.getUnsettledSymposiumExecutions(id)).toHaveLength(1);
+    expect(await orchestrator.reconcileDeliveryCleanup(id)).toMatchObject({ cleanup: 'confirmed' });
+    expect(store.getUnsettledSymposiumExecutions(id)).toEqual([]);
+    await expect(
+      restartedExecutor.cancel({ claimToken: 'unregistered-legacy-claim' }),
+    ).rejects.toThrow(/unavailable/);
+    restartedHost.registry.close();
+  });
+
+  it('fails preparation before creating any execution claim', async () => {
+    await prepareConcurrentSeats();
+    const execute = vi.fn();
+    const cancel = vi.fn();
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: {
+        reviewer: {
+          prepare: () => {
+            throw new Error('Preparation unavailable');
+          },
+          execute,
+          cancel,
+        },
+      },
+    });
+    const id = readyFor(['reviewer'], 'prepare-failed');
+    expect(await orchestrator.deliver(id)).toMatchObject({ status: 'failed' });
+    expect(store.getUnsettledSymposiumExecutions(id)).toEqual([]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
   it.each([-1, Infinity])(
     'refuses invalid provider cost %s as billing evidence',
     async (costUsd) => {
@@ -2209,6 +2285,7 @@ describe('SymposiumOrchestrator', () => {
 
     expect(reviewer.calls[1].providerThreadId).toBe('thread-reviewer');
     expect(reviewer.cancellationThreadIds).toEqual(['thread-reviewer']);
+    expect(reviewer.cancellationClaimTokens).toEqual([reviewer.calls[1].claimToken]);
   });
 
   it('marks crash-interrupted attempts for explicit recovery and reuses their execution key', async () => {
@@ -2721,6 +2798,10 @@ describe('SymposiumOrchestrator', () => {
     });
 
     expect(await orchestrator.deliver(staged.deliveryId)).toMatchObject({ status: 'delivered' });
+    for (const call of [...builder.calls, ...reviewer.calls]) {
+      expect(call.claimToken).toEqual(expect.any(String));
+      expect(call.claimToken.length).toBeGreaterThan(0);
+    }
     expect(store.getSymposiumSeatThreads('chat')).toEqual([
       expect.objectContaining({ seatId: 'builder', providerThreadId: 'thread-1' }),
       expect.objectContaining({ seatId: 'reviewer', providerThreadId: 'thread-1' }),

@@ -1565,6 +1565,84 @@ export class EventStore {
     }).immediate();
   }
 
+  /** Close transcript structure after the host confirms exact native cleanup.
+   * Uses only persisted claim attribution; never emits a successful provider result.
+   * Historical provenance is retained even if membership has since changed.
+   */
+  closeSymposiumAttemptTranscript(claimToken: string): StoredEvent[] {
+    return this.db!.transaction(() => {
+      const attempt = this.getSymposiumRecipientAttemptByClaimToken(claimToken);
+      if (!attempt || attempt.acceptedAt === null || !attempt.provenance) return [];
+      const delivery = this.getSymposiumDelivery(attempt.deliveryId);
+      if (!delivery) throw new Error('Native transcript delivery is unavailable');
+      const provenance = JSON.stringify(attempt.provenance);
+      const open = new Map<string, Map<string, Record<string, unknown>>>();
+      const legacy = new Set<string>();
+      for (const event of this.getSessionEvents(delivery.sessionId)) {
+        if (
+          event.seatId !== attempt.seatId ||
+          JSON.stringify(event.symposiumProvenance) !== provenance
+        )
+          continue;
+        const payload = event.payload;
+        const messageId = payload.messageId;
+        if (typeof messageId !== 'string') continue;
+        if (payload.nativeClaimToken === undefined) {
+          if (event.type === 'message_start') legacy.add(messageId);
+          if (event.type === 'message_end') legacy.delete(messageId);
+          continue;
+        }
+        if (payload.nativeClaimToken !== claimToken) continue;
+        if (event.type === 'message_start') open.set(messageId, new Map());
+        else if (event.type === 'message_end') open.delete(messageId);
+        else {
+          const blocks = open.get(messageId);
+          if (!blocks || typeof payload.blockId !== 'string') continue;
+          if (event.type === 'block_start') blocks.set(payload.blockId, { ...payload });
+          else if (event.type === 'block_end') blocks.delete(payload.blockId);
+          else if (event.type === 'block_delta') {
+            const block = blocks.get(payload.blockId);
+            if (block && typeof payload.input === 'string') block.input = payload.input;
+          }
+        }
+      }
+      if (legacy.size)
+        throw new Error('Unattributed legacy native transcript requires reconciliation');
+      const appended: StoredEvent[] = [];
+      const append = (type: string, payload: Record<string, unknown>) => {
+        const result = this.stmts.append.run(
+          delivery.sessionId,
+          type,
+          JSON.stringify({ ...payload, nativeClaimToken: claimToken }),
+          attempt.seatId,
+          provenance,
+        );
+        const row = this.db!.prepare('SELECT * FROM events WHERE seq = ?').get(
+          Number(result.lastInsertRowid),
+        ) as EventRow;
+        appended.push(rowToEvent(row));
+      };
+      for (const [messageId, blocks] of open) {
+        for (const block of blocks.values()) {
+          let rawInput: unknown;
+          if (typeof block.input === 'string') {
+            try {
+              rawInput = JSON.parse(block.input);
+            } catch {
+              /* preserve partial input */
+            }
+          }
+          append('block_end', {
+            ...block,
+            ...(rawInput && typeof rawInput === 'object' ? { rawInput } : {}),
+          });
+        }
+        append('message_end', { messageId });
+      }
+      return appended;
+    }).immediate();
+  }
+
   /** Check if a user_message with the given messageId already exists for this session. */
   hasUserMessage(sessionId: string, messageId: string): boolean {
     return this.stmts.hasUserMessage.get(sessionId, messageId) != null;
@@ -2727,34 +2805,48 @@ export class EventStore {
     ).run(attemptId, idempotencyKey);
   }
 
-  getUnsettledSymposiumExecutions(
-    deliveryId: string,
-  ): Array<{ seatId: string; attemptId: number; idempotencyKey: string }> {
+  getUnsettledSymposiumExecutions(deliveryId: string): Array<{
+    seatId: string;
+    attemptId: number;
+    idempotencyKey: string;
+    claimToken: string | null;
+  }> {
     return (
       this.db!.prepare(
-        `SELECT seat_id, attempt_id, idempotency_key FROM symposium_recipient_attempts
+        `SELECT seat_id, attempt_id, idempotency_key, claim_token FROM symposium_recipient_attempts
       WHERE delivery_id = ? AND cleanup_confirmed = 0`,
-      ).all(deliveryId) as Array<{ seat_id: string; attempt_id: number; idempotency_key: string }>
+      ).all(deliveryId) as Array<{
+        seat_id: string;
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
     ).map((row) => ({
       seatId: row.seat_id,
       attemptId: row.attempt_id,
       idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
     }));
   }
 
   getUnsettledSymposiumSeatExecutions(
     sessionId: string,
     seatId: string,
-  ): Array<{ attemptId: number; idempotencyKey: string }> {
+  ): Array<{ attemptId: number; idempotencyKey: string; claimToken: string | null }> {
     return (
       this.db!.prepare(
-        `SELECT a.attempt_id, a.idempotency_key FROM symposium_recipient_attempts a
+        `SELECT a.attempt_id, a.idempotency_key, a.claim_token FROM symposium_recipient_attempts a
       JOIN symposium_deliveries d ON d.delivery_id = a.delivery_id
       WHERE d.session_id = ? AND a.seat_id = ? AND a.cleanup_confirmed = 0`,
-      ).all(sessionId, seatId) as Array<{ attempt_id: number; idempotency_key: string }>
+      ).all(sessionId, seatId) as Array<{
+        attempt_id: number;
+        idempotency_key: string;
+        claim_token: string | null;
+      }>
     ).map((row) => ({
       attemptId: row.attempt_id,
       idempotencyKey: row.idempotency_key,
+      claimToken: row.claim_token,
     }));
   }
 

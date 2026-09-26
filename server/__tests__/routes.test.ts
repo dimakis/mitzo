@@ -567,6 +567,62 @@ describe('session routes', () => {
     expect(Array.isArray(res.body)).toBe(true);
   });
 
+  it('GET /api/sessions/:id/symposium — requires operator auth and shows unconfigured session', async () => {
+    const denied = await request(app).get('/api/sessions/s1/symposium');
+    expect(denied.status).toBe(401);
+    const response = await request(app).get('/api/sessions/s1/symposium').set('Cookie', authCookie);
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ sessionId: 's1', config: null, seats: [] });
+  });
+
+  it('does not activate or mint grants from OpenShell environment configuration alone', async () => {
+    const { eventStore } = await import('../chat.js');
+    const { SymposiumHostGrants } = await import('../symposium-host-grants.js');
+    const getSession = vi.mocked(eventStore.getSession);
+    const originalGetSession = getSession.getMockImplementation();
+    const activate = vi.spyOn(SymposiumHostGrants.prototype, 'activate');
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'test-image');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/test/policy.yaml');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/test/seed');
+    getSession.mockReturnValue({
+      sessionId: 's1',
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify({
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'builder',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'implementer',
+            model: 'gpt-test',
+            systemPrompt: 'Build the requested patch.',
+            color: '#224466',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
+      }),
+    } as ReturnType<typeof eventStore.getSession>);
+    try {
+      const response = await request(app)
+        .post('/api/sessions/s1/symposium/activate')
+        .set('Cookie', authCookie)
+        .send({ expectedRevision: 1, sharedBoundaryAcknowledged: true });
+      expect(response.status).toBe(503);
+      expect(response.body.error).toBe('Symposium provider runtime is unavailable');
+      expect(activate).not.toHaveBeenCalled();
+    } finally {
+      activate.mockRestore();
+      getSession.mockImplementation(originalGetSession!);
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('GET /api/sessions/:id/messages — bounds restore by a valid cursor', async () => {
     const { getReconnectTranscript } = await import('../chat.js');
     const bounded = await request(app)

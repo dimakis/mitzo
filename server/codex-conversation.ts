@@ -30,7 +30,7 @@ interface Rpc {
   request(method: string, params: ObjectValue): Promise<unknown>;
   close(): void;
 }
-interface Options {
+export interface CodexConversationOptions {
   conversationId: string;
   cwd: string;
   profile: CodexAccountProfile;
@@ -72,7 +72,15 @@ interface Options {
   onActivity?: () => boolean | void;
   onThreadChanged?: (threadId: string) => void | Promise<void>;
   onProviderDispatch?: (commandId: string) => void;
+  /** Persist an exact provider turn receipt after turn/start confirms its ID. */
+  onProviderAccepted?: (commandId: string, threadId: string, turnId: string) => void;
   onProviderComplete?: (commandId: string, status: 'completed' | 'interrupted' | 'failed') => void;
+  /** Only the matching native turn/completed notification, never transport loss or close. */
+  onProviderTerminal?: (
+    commandId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void;
   loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -175,7 +183,7 @@ export class CodexConversation {
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
-  constructor(private opts: Options) {
+  constructor(private opts: CodexConversationOptions) {
     this.client = this.createClient();
   }
   private createClient() {
@@ -945,6 +953,7 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (active.completion) {
           const completedTurn = z.object({ id: z.string() }).safeParse(active.completion.turn);
           if (!completedTurn.success || completedTurn.data.id !== active.turnId)
@@ -1060,6 +1069,7 @@ export class CodexConversation {
             })
           : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
+      this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
       this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);

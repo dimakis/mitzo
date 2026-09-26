@@ -82,6 +82,7 @@ const DismissalSchema = z.strictObject({
 const AttemptAdmissionSchema = z.strictObject({
   workflowId: Id,
   attemptId: Id,
+  enforcementId: Id,
   kind: z.enum(['review', 'fix']),
   actorSeatId: Id,
   artifactRevision: Id,

@@ -120,8 +120,19 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
+
+// Host-only state. No remote recovery runs at boot: unsettled claims remain
+// quarantined until the exact controller marker is obtained separately.
+export const symposiumNativeHost = process.env.SYMPOSIUM_NATIVE_ATTEMPT_DIR
+  ? initializeSymposiumNativeHost(process.env.SYMPOSIUM_NATIVE_ATTEMPT_DIR)
+  : undefined;
+if (symposiumNativeHost?.quarantinedClaims.length)
+  log.warn('native Symposium sandboxes quarantined after restart', {
+    count: symposiumNativeHost.quarantinedClaims.length,
+  });
 
 const PORT = parseInt(process.env.PORT || String(PORT_DEFAULT), 10);
 
@@ -1294,6 +1305,7 @@ async function shutdown(signal: string) {
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   openShellLifecycle?.store.close();
+  symposiumNativeHost?.registry.close();
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();

@@ -25,6 +25,8 @@ export interface SymposiumSeatExecution {
   seat: SeatConfig;
   content: string;
   idempotencyKey: string;
+  /** Exact durable attempt claim; native acceptance and cancellation must use this token. */
+  claimToken: string;
   providerThreadId?: string;
   provenance: SymposiumProvenance;
   signal: AbortSignal;
@@ -37,6 +39,8 @@ export interface SymposiumSeatExecutionResult {
 }
 
 export interface SymposiumSeatExecutor {
+  /** Persist exact prelaunch identity synchronously before the execution claim is committed. */
+  prepare?(input: { sessionId: string; claimToken: string }): void;
   execute(input: SymposiumSeatExecution): Promise<SymposiumSeatExecutionResult>;
   /** Target the exact supplied attempt identity, never a newer retry on the same thread.
    * Resolve only after that attempt can no longer execute tools or native writes. */
@@ -57,6 +61,8 @@ export interface SymposiumOrchestratorDeps {
   stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
+  /** Host-only verification, recorded after the durable generation exists. */
+  admitSeat?: (input: { sessionId: string; seatId: string; generation: number }) => void;
 }
 
 export class SymposiumOrchestrator {
@@ -68,6 +74,7 @@ export class SymposiumOrchestrator {
   private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
   private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
   private readonly retainedProviders: (sessionId: string) => string[];
+  private readonly admitSeat?: SymposiumOrchestratorDeps['admitSeat'];
   private readonly running = new Map<string, Promise<SymposiumDeliveryRecord>>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly reconciliationQueues: Map<string, Promise<void>>;
@@ -81,6 +88,7 @@ export class SymposiumOrchestrator {
     this.stopSeat = deps.stopSeat;
     this.reconcileProviders = deps.reconcileProviders;
     this.retainedProviders = deps.retainedProviders ?? (() => []);
+    this.admitSeat = deps.admitSeat;
     this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
     sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
   }
@@ -98,7 +106,24 @@ export class SymposiumOrchestrator {
     replacesSeatId?: string;
   }): Promise<SymposiumMembershipRecord> {
     const record = this.store.transitionSymposiumMembership({ ...input, occurredAt: this.now() });
-    if (record.reconciliation === 'confirmed' || record.state === 'active') return record;
+    if (record.reconciliation === 'confirmed') return record;
+    if (record.state === 'active' && !this.admitSeat) return record;
+    if (record.state === 'active' && this.admitSeat) {
+      try {
+        this.admitSeat({
+          sessionId: input.sessionId,
+          seatId: input.seatId,
+          generation: record.generation,
+        });
+      } catch {
+        return this.store.markSymposiumMembershipReconciled(
+          input.sessionId,
+          input.seatId,
+          record.generation,
+          'recovery_required',
+        );
+      }
+    }
     return this.reconcileMembership(input.sessionId, input.seatId, record.generation);
   }
 
@@ -468,6 +493,7 @@ export class SymposiumOrchestrator {
             providerThreadId: recipient?.providerThreadId ?? undefined,
             idempotencyKey: attempt.idempotencyKey,
             attemptId: attempt.attemptId,
+            claimToken: attempt.claimToken ?? undefined,
           });
           this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
         } catch (error) {
@@ -504,6 +530,7 @@ export class SymposiumOrchestrator {
           providerThreadId: recipient?.providerThreadId ?? undefined,
           idempotencyKey: attempt.idempotencyKey,
           attemptId: attempt.attemptId,
+          claimToken: attempt.claimToken ?? undefined,
         });
         this.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
       }),
@@ -593,6 +620,20 @@ export class SymposiumOrchestrator {
           : undefined,
         this.now(),
       );
+      const claimToken = this.claimIdFactory();
+      try {
+        executor.prepare?.({ sessionId: delivery.sessionId, claimToken });
+      } catch (error) {
+        this.store.failSymposiumRecipient({
+          deliveryId,
+          seatId: recipient.seatId,
+          error: error instanceof Error ? error.message : String(error),
+          updatedAt: this.now(),
+        });
+        return false;
+      }
+      // Preparation precedes the durable claim: a crash before execute() is
+      // recoverable. A lost claim race leaves only a harmless, unlaunched preparation.
       const claim = this.store.claimSymposiumRecipientExecution({
         sessionId: delivery.sessionId,
         deliveryId,
@@ -600,20 +641,22 @@ export class SymposiumOrchestrator {
         expectedConfigRevision: currentConfig.revision,
         bindingKey,
         recipientIdempotencyKey: recipient.idempotencyKey,
-        claimToken: this.claimIdFactory(),
+        claimToken,
         claimedAt: this.now(),
         provenance,
       });
       if (!claim) return false;
       const thread = claim.thread;
       try {
-        if (abortController.signal.aborted) return false;
+        if (abortController.signal.aborted)
+          throw new Error('Symposium execution was cancelled before dispatch');
         const result = await executor.execute({
           sessionId: delivery.sessionId,
           deliveryId,
           seat,
           content: delivery.deliveredContent!,
           idempotencyKey: recipient.idempotencyKey,
+          claimToken: claim.claimToken,
           providerThreadId: thread?.providerThreadId,
           provenance,
           signal: abortController.signal,

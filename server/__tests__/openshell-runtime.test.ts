@@ -54,6 +54,295 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('verifies and attaches an explicitly bound second inference provider in one sandbox', async () => {
+    const commands: string[][] = [];
+    let created = false;
+    const run = vi.fn(async (args: readonly string[]) => {
+      commands.push([...args]);
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [
+          'openai-work',
+          'github',
+          'vertex-work',
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        return '{}';
+      }
+      return ready();
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' },
+        ],
+      },
+      run,
+    );
+    await manager.ensure('conversation', new AbortController().signal);
+    const create = commands.find((args) => args.includes('create'))!;
+    expect(create.filter((_, index) => create[index - 1] === '--provider')).toEqual([
+      'openai-work',
+      'github',
+      'vertex-work',
+    ]);
+    expect(create).not.toContain('--inference-provider');
+    expect(create).not.toContain('--inference-model');
+  });
+
+  it('rejects a changed second account provider before creating a sandbox', async () => {
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'wrong-id', workspace: 'mitzo' },
+        ]);
+      throw new Error('No sandbox operation should occur');
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id' },
+          { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' },
+        ],
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+      /account provider/i,
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles a changed account union on the same retained owner sandbox', async () => {
+    let created = false;
+    const attached = new Set<string>();
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        args.forEach((value, index) => {
+          if (args[index - 1] === '--provider') attached.add(value);
+        });
+        return '{}';
+      }
+      if (args.includes('attach')) attached.add(args.at(-1)!);
+      if (args.includes('detach')) attached.delete(args.at(-1)!);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+    const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+    const signal = new AbortController().signal;
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work']);
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner, vertex] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work', 'vertex-work']);
+    await new OpenShellRuntimeManager(
+      { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+      run,
+    ).ensure('conversation', signal);
+    expect([...attached].sort()).toEqual(['github', 'openai-work']);
+    expect(
+      run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
+    ).toBe(true);
+  });
+  it.each(['failure', 'unconfirmed'] as const)(
+    'retries an obsolete account detach after %s across manager restart',
+    async (failureMode) => {
+      let created = false;
+      const attached = new Set<string>();
+      let failDetach = true;
+      const run = vi.fn(async (args: readonly string[]) => {
+        if (args[0] === 'provider' && args.includes('list'))
+          return JSON.stringify([
+            { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+            {
+              name: 'vertex-work',
+              type: 'google-vertex-ai',
+              id: 'vertex-provider-id',
+              workspace: 'mitzo',
+            },
+          ]);
+        if (args.includes('get')) {
+          if (!created) throw new Error('sandbox not found');
+          return ready();
+        }
+        if (args.includes('create')) {
+          created = true;
+          args.forEach((value, index) => {
+            if (args[index - 1] === '--provider') attached.add(value);
+          });
+          return '{}';
+        }
+        if (args.includes('attach')) attached.add(args.at(-1)!);
+        if (args.includes('detach')) {
+          if (failDetach) {
+            if (failureMode === 'failure') throw new Error('gateway temporarily unavailable');
+          } else attached.delete(args.at(-1)!);
+        }
+        if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+          return providerList(sandboxNameForConversation('conversation'), [...attached]);
+        return '{}';
+      });
+      const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+      const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+      const signal = new AbortController().signal;
+      await new OpenShellRuntimeManager(
+        { ...config, verifyAccountProviderUnion: () => {}, accountProviderBindings: [owner] },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      await new OpenShellRuntimeManager(
+        {
+          ...config,
+          verifyAccountProviderUnion: () => {},
+          accountProviderBindings: [owner, vertex],
+        },
+        run,
+      ).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work', 'vertex-work']);
+      const reducedConfig = {
+        ...config,
+        verifyAccountProviderUnion: () => {},
+        accountProviderBindings: [owner],
+      };
+      await expect(
+        new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal),
+      ).rejects.toThrow(
+        failureMode === 'failure' ? /reconciliation failed/ : /attachments are not confirmed/,
+      );
+      const policyPath = join(
+        privateRoot,
+        'openshell-provider-policy',
+        `${sandboxNameForConversation('conversation')}.json`,
+      );
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+        pendingDetach: ['vertex-work'],
+      });
+      expect(attached.has('vertex-work')).toBe(true);
+      failDetach = false;
+      // A fresh manager must recover using the durable file, not process-local history.
+      await new OpenShellRuntimeManager(reducedConfig, run).ensure('conversation', signal);
+      expect([...attached].sort()).toEqual(['github', 'openai-work']);
+      expect(JSON.parse(readFileSync(policyPath, 'utf8'))).toEqual({
+        automatic: ['github'],
+        granted: [],
+      });
+      expect(
+        run.mock.calls.some(([args]) => args.includes('detach') && args.includes('vertex-work')),
+      ).toBe(true);
+    },
+  );
+  it('cannot confirm a stale union after a delayed attach and lets the new revision clean it up', async () => {
+    let created = false;
+    let revision = 1;
+    const attached = new Set<string>();
+    let resolveStarted!: () => void;
+    let releaseAttach!: () => void;
+    const started = new Promise<void>((resolve) => {
+      resolveStarted = resolve;
+    });
+    const delayed = new Promise<void>((resolve) => {
+      releaseAttach = resolve;
+    });
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'provider' && args.includes('list'))
+        return JSON.stringify([
+          { name: 'openai-work', type: 'openai', id: 'openai-provider-id', workspace: 'mitzo' },
+          {
+            name: 'vertex-work',
+            type: 'google-vertex-ai',
+            id: 'vertex-provider-id',
+            workspace: 'mitzo',
+          },
+        ]);
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return ready();
+      }
+      if (args.includes('create')) {
+        created = true;
+        args.forEach((value, index) => {
+          if (args[index - 1] === '--provider') attached.add(value);
+        });
+        return '{}';
+      }
+      if (args.includes('attach')) {
+        resolveStarted();
+        await delayed;
+        attached.add(args.at(-1)!);
+      }
+      if (args.includes('detach')) attached.delete(args.at(-1)!);
+      if (args[0] === 'sandbox' && args.includes('provider') && args.includes('list'))
+        return providerList(sandboxNameForConversation('conversation'), [...attached]);
+      return '{}';
+    });
+    const owner = { name: 'openai-work', type: 'openai', id: 'openai-provider-id' };
+    const vertex = { name: 'vertex-work', type: 'google-vertex-ai', id: 'vertex-provider-id' };
+    const configFor = (expected: number, bindings: (typeof owner)[]) => ({
+      ...config,
+      accountProviderBindings: bindings,
+      verifyAccountProviderUnion: () => {
+        if (revision !== expected) throw new Error('Symposium provider union revision changed');
+      },
+    });
+    const signal = new AbortController().signal;
+    await new OpenShellRuntimeManager(configFor(1, [owner]), run).ensure('conversation', signal);
+    revision = 2;
+    const stale = new OpenShellRuntimeManager(configFor(2, [owner, vertex]), run).ensure(
+      'conversation',
+      signal,
+    );
+    await started;
+    revision = 3;
+    releaseAttach();
+    await expect(stale).rejects.toThrow(/union revision changed/i);
+    expect(attached.has('vertex-work')).toBe(true);
+    await new OpenShellRuntimeManager(configFor(3, [owner]), run).ensure('conversation', signal);
+    expect(attached.has('vertex-work')).toBe(false);
+  });
   it('rejects a grantable account provider before any runtime call', () => {
     const run = vi.fn();
     expect(
