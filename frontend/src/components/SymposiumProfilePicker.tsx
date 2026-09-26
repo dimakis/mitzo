@@ -249,6 +249,9 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
                   if (template) {
                     setDefinition(template.definition);
                     setProfileId(`${template.id}-reviewer`);
+                  } else {
+                    setDefinition(empty);
+                    setProfileId('');
                   }
                 }}
               >
