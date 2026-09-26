@@ -3,15 +3,51 @@ import { account, metadata, sessions } from './fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
 let deviceState = 'idle';
+let deviceExpiresAt = 0;
 window.fetch = async (input, init) => {
   const url = new URL(
     typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     location.origin,
   );
   if (!url.pathname.startsWith('/api/')) return nativeFetch(input, init);
-  if (url.pathname.startsWith('/api/symposium/personal/login')) {
-    if (url.pathname.endsWith('/cancel')) deviceState = 'cancelled';
-    else if (init?.method === 'POST') deviceState = 'pending';
+  const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const denied = () => Response.json({ error: 'Unsupported preview request' }, { status: 405 });
+  const login = '/api/symposium/personal/login';
+  if (url.pathname.startsWith(login)) {
+    let body: Record<string, unknown> | undefined;
+    if (method === 'POST') {
+      try {
+        const raw: unknown =
+          init?.body !== undefined
+            ? JSON.parse(String(init.body))
+            : input instanceof Request
+              ? await input.clone().json()
+              : undefined;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw))
+          body = raw as Record<string, unknown>;
+      } catch {
+        return denied();
+      }
+    }
+    if (
+      url.pathname === login &&
+      method === 'POST' &&
+      body?.method === 'device-code' &&
+      Object.keys(body).length === 1
+    ) {
+      deviceState = 'pending';
+      deviceExpiresAt = Date.now() + 600000;
+    } else if (
+      url.pathname === `${login}/cancel` &&
+      method === 'POST' &&
+      body?.attemptId === 'preview-device' &&
+      Object.keys(body).length === 1
+    ) {
+      deviceState = 'cancelled';
+    } else if (url.pathname === `${login}/status` && method === 'GET') {
+      const id = url.searchParams.get('attemptId');
+      if (id && id !== 'preview-device') return Response.json({ state: 'unknown', attemptId: id });
+    } else return denied();
     return Response.json(
       deviceState === 'pending'
         ? {
@@ -20,11 +56,15 @@ window.fetch = async (input, init) => {
             method: 'device-code',
             verificationUrl: 'https://auth.openai.com/codex/device',
             userCode: 'DEMO-CODE',
-            expiresAt: Date.now() + 600000,
+            expiresAt: deviceExpiresAt,
           }
-        : { state: deviceState },
+        : {
+            state: deviceState,
+            ...(deviceState === 'idle' ? {} : { attemptId: 'preview-device' }),
+          },
     );
   }
+  if (method !== 'GET') return denied();
   if (url.pathname === '/api/connections')
     return Response.json({
       connections: [],
@@ -33,8 +73,6 @@ window.fetch = async (input, init) => {
       appliesTo: 'new conversations only',
     });
   if (url.pathname === '/api/connections/templates') return Response.json({ templates: [] });
-  if (init?.method && init.method !== 'GET')
-    return Response.json({ error: 'Preview is read-only' }, { status: 405 });
   if (url.pathname === '/api/symposium/profile-proposals')
     return Response.json(
       url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],

@@ -33,3 +33,48 @@ it('provides deterministic three-seat and ordinary fallback fixtures', async () 
   ).json();
   expect(proposals).toHaveLength(1);
 });
+
+it('simulates only explicit device-code start, status, and cancellation', async () => {
+  const start = await window.fetch('/api/symposium/personal/login', {
+    method: 'POST',
+    body: JSON.stringify({ method: 'device-code' }),
+  });
+  const code = await start.json();
+  expect(code).toMatchObject({
+    state: 'pending',
+    attemptId: 'preview-device',
+    userCode: 'DEMO-CODE',
+  });
+  expect(
+    await (
+      await window.fetch('/api/symposium/personal/login/status?attemptId=preview-device')
+    ).json(),
+  ).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  const cancelled = await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: code.attemptId }),
+  });
+  expect(await cancelled.json()).toMatchObject({ state: 'cancelled' });
+  expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toMatchObject({
+    state: 'cancelled',
+  });
+});
+
+it.each([
+  ['/api/symposium/personal/login', 'POST', '{}'],
+  ['/api/symposium/personal/login', 'POST', '{'],
+  ['/api/symposium/personal/login', 'POST', JSON.stringify({ callbackTransport: 'local' })],
+  ['/api/symposium/personal/login', 'POST', JSON.stringify({ method: 'device-code', extra: true })],
+  ['/api/symposium/personal/login', 'GET', undefined],
+  ['/api/symposium/personal/login/status', 'POST', '{}'],
+  ['/api/symposium/personal/login/cancel', 'GET', undefined],
+  ['/api/symposium/personal/login/cancel', 'POST', '{}'],
+  ['/api/symposium/personal/login/cancel', 'POST', JSON.stringify({ attemptId: 'other' })],
+  ['/api/symposium/personal/login/other', 'POST', JSON.stringify({ method: 'device-code' })],
+  ['/api/symposium/personal/login-other', 'GET', undefined],
+  ['/api/connections', 'POST', '{}'],
+])('denies unsupported preview auth request %s %s %s', async (url, method, body) => {
+  const before = await (await window.fetch('/api/symposium/personal/login/status')).json();
+  expect((await window.fetch(url, { method, body })).status).toBe(405);
+  expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toEqual(before);
+});
