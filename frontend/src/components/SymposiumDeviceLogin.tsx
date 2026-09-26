@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { copyToClipboard } from '../lib/clipboard';
 import { apiFetch } from '../lib/api-fetch';
 import './SymposiumDeviceLogin.css';
 
@@ -39,6 +40,7 @@ export function SymposiumDeviceLogin({
   const [status, setStatus] = useState<Status>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copyFeedback, setCopyFeedback] = useState('');
   const [statusFailed, setStatusFailed] = useState(false);
   const version = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -59,6 +61,7 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
     attempt.current = next.attemptId;
     setStatus(next);
     setError('');
@@ -175,6 +178,22 @@ export function SymposiumDeviceLogin({
               <div className="symposium-device-code">
                 <span>Enter this code on OpenAI</span>
                 <strong>{status.userCode}</strong>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const generation = version.current;
+                    const copied = await copyToClipboard(status.userCode!);
+                    if (generation === version.current)
+                      setCopyFeedback(
+                        copied
+                          ? 'Code copied.'
+                          : 'Could not copy. Select the code above and copy it manually.',
+                      );
+                  }}
+                >
+                  Copy code
+                </button>
+                {copyFeedback && <span role="status">{copyFeedback}</span>}
                 <a href={status.verificationUrl} target="_blank" rel="noopener noreferrer">
                   Open OpenAI sign-in
                 </a>

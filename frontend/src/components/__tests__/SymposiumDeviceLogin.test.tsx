@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { copyToClipboard } from '../../lib/clipboard';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumDeviceLogin } from '../SymposiumDeviceLogin';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/clipboard', () => ({ copyToClipboard: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -126,4 +128,39 @@ it('polls allocating receipts and shows verified identity only after exact compl
   expect(screen.getByText('operator@example.test')).toBeTruthy();
   expect(screen.queryByText(pending.userCode)).toBeNull();
   expect(onAccountsChanged).toHaveBeenCalledTimes(1);
+});
+
+it.each([true, false])(
+  'reports clipboard result %s without changing sign-in state',
+  async (copied) => {
+    vi.mocked(apiFetch).mockResolvedValue(response(pending));
+    vi.mocked(copyToClipboard).mockResolvedValue(copied);
+    render(<SymposiumDeviceLogin />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Copy code' }));
+    await screen.findByText(
+      copied ? 'Code copied.' : 'Could not copy. Select the code above and copy it manually.',
+    );
+    expect(copyToClipboard).toHaveBeenCalledWith(pending.userCode);
+    expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  },
+);
+it('ignores a stale completed response after the control closes', async () => {
+  let resolve!: (value: Response) => void;
+  vi.mocked(apiFetch)
+    .mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    )
+    .mockResolvedValue(response({ state: 'idle' }));
+  const onAccountsChanged = vi.fn();
+  render(<SymposiumDeviceLogin onAccountsChanged={onAccountsChanged} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  await act(async () => resolve(response({ state: 'completed', attemptId: 'stale' })));
+  expect(onAccountsChanged).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  expect(await screen.findByRole('button', { name: 'Get sign-in code' })).toBeTruthy();
 });
