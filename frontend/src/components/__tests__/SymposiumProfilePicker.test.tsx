@@ -189,3 +189,16 @@ it('labels provider compatibility in user-facing terms', async () => {
   expect(screen.getByLabelText('Vertex Claude')).toBeTruthy();
   expect(screen.getByLabelText('Vertex Gemini')).toBeTruthy();
 });
+
+it('resets template contents when switching to a custom profile', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: 'security' } });
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: '' } });
+  expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Profile ID') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Include reusable recipe') as HTMLInputElement).checked).toBe(
+    false,
+  );
+});
