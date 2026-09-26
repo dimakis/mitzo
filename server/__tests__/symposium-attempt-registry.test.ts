@@ -51,6 +51,22 @@ describe('durable native attempt registry', () => {
     registry.close();
   });
 
+  it('repeats preparation only for the same open session claim', async () => {
+    const registry = new SymposiumAttemptRegistry(registryPath());
+    registry.prepare(claim);
+    expect(() => registry.prepare(claim)).not.toThrow();
+    expect(() => registry.prepare({ ...claim, sessionId: 'other-session' })).toThrow(
+      /another session/,
+    );
+    await registry.recover(claim.claimToken);
+    expect(() => registry.prepare(claim)).toThrow(/closed/);
+    const launched = { ...claim, claimToken: 'launched-claim' };
+    registry.prepare(launched);
+    registry.reserve(launched);
+    expect(() => registry.prepare(launched)).toThrow(/already exists/);
+    registry.close();
+  });
+
   it('cannot treat a transport launch failure as a never-launched preparation', async () => {
     const confirm = vi.fn().mockRejectedValue(new Error('No exact proof'));
     const registry = new SymposiumAttemptRegistry(registryPath(), {

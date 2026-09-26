@@ -63,8 +63,12 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
 
   constructor(private deps: SymposiumOpenShellSeatExecutorDeps) {}
 
-  async execute(input: SymposiumSeatExecution) {
+  prepare(input: { sessionId: string; claimToken: string }) {
     this.deps.attemptRegistry?.prepare(input);
+  }
+
+  async execute(input: SymposiumSeatExecution) {
+    this.prepare(input);
     const attempt: {
       native?: SymposiumNativeSeat;
       execution: SymposiumSeatExecution;

@@ -66,6 +66,16 @@ export class SymposiumAttemptRegistry {
     if (!input.claimToken || !input.sessionId) throw new Error('Invalid native attempt identity');
     this.db.transaction(() => {
       if (this.get(input.claimToken)) throw new Error('Native attempt claim already exists');
+      const existing = this.db
+        .prepare(
+          'SELECT session_id AS sessionId, closed FROM symposium_native_preparations WHERE claim_token = ?',
+        )
+        .get(input.claimToken) as { sessionId: string; closed: number } | undefined;
+      if (existing) {
+        if (existing.closed || existing.sessionId !== input.sessionId)
+          throw new Error('Native attempt preparation is closed or belongs to another session');
+        return;
+      }
       this.db
         .prepare(
           'INSERT INTO symposium_native_preparations (claim_token, session_id) VALUES (?, ?)',
