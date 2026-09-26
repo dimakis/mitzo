@@ -204,3 +204,62 @@ it('does not revoke newly ready mapping using a delayed creating-state inspectio
   expect(await delayed).toEqual({ state: 'recovery_required' });
   expect(f.store.getReady('session')).toEqual(mapping);
 });
+it('does not restore readiness from stale successful inspection after newer contradictory evidence', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  const mapping = f.store.getReady('session')!;
+  const snapshot = structuredClone(f.volumes.get(mapping.volumeName)!);
+  let release!: (v: ArtifactVolumeEvidence) => void;
+  f.host.inspect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  const stale = other.ensure('session');
+  f.volumes.get(mapping.volumeName)!.labels['mitzo.symposium.session'] = 'wrong';
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
+  release(snapshot);
+  expect(await stale).toEqual({ state: 'recovery_required' });
+  expect(f.store.getReady('session')).toBeNull();
+});
+it('fences an uncertain-ready-uncertain ABA cycle by revision, not state', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  const mapping = f.store.getReady('session')!;
+  const volume = f.volumes.get(mapping.volumeName)!;
+  const valid = structuredClone(volume);
+  volume.labels['mitzo.symposium.session'] = 'bad';
+  await f.store.ensure('session');
+  let release!: (v: ArtifactVolumeEvidence) => void;
+  f.host.inspect.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  const stale = other.ensure('session');
+  f.volumes.set(mapping.volumeName, structuredClone(valid));
+  expect(await f.store.ensure('session')).toEqual({ state: 'ready' });
+  f.volumes.get(mapping.volumeName)!.labels['mitzo.symposium.session'] = 'bad-again';
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
+  release(valid);
+  expect(await stale).toEqual({ state: 'recovery_required' });
+  expect(f.store.getReady('session')).toBeNull();
+});
