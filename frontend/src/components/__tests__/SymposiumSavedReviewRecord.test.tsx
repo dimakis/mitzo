@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { SymposiumSavedReviewRecordPage } from '../SymposiumSavedReviewRecordPage';
 import { SymposiumSavedReviewRecord } from '../SymposiumSavedReviewRecord';
 
 afterEach(() => {
@@ -36,16 +38,52 @@ it.each(['denied', 'mismatched'])(
   async (kind) => {
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: kind !== 'denied',
-          status: kind === 'denied' ? 403 : 200,
-          json: async () => ({ recordId: reference.id, contentHash: 'b'.repeat(64), snapshot: {} }),
-        }),
+      vi.fn().mockResolvedValue({
+        ok: kind !== 'denied',
+        status: kind === 'denied' ? 403 : 200,
+        json: async () => ({ recordId: reference.id, contentHash: 'b'.repeat(64), snapshot: {} }),
+      }),
     );
     render(<SymposiumSavedReviewRecord url={url} reference={reference} />);
     await screen.findByRole('alert');
     expect(screen.queryByLabelText('Saved immutable review record')).toBeNull();
   },
 );
+
+it('reopens a copied app route after remount using authenticated configured API access', async () => {
+  vi.stubEnv('VITE_API_BASE_URL', 'https://mitzo.example');
+  localStorage.setItem('mitzo_auth_token', 'test-token');
+  const fetch = vi
+    .fn()
+    .mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        recordId: reference.id,
+        contentHash: reference.hash,
+        snapshot: { historySequence: 7 },
+      }),
+    });
+  vi.stubGlobal('fetch', fetch);
+  const route = `/sessions/session/review-records/${reference.id}?hash=${reference.hash}`;
+  const mount = () =>
+    render(
+      <MemoryRouter initialEntries={[route]}>
+        <Routes>
+          <Route
+            path="/sessions/:sessionId/review-records/:recordId"
+            element={<SymposiumSavedReviewRecordPage />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    );
+  const first = mount();
+  await screen.findByLabelText('Saved immutable review record');
+  first.unmount();
+  mount();
+  await screen.findByLabelText('Saved immutable review record');
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls[1][0]).toBe(`https://mitzo.example${url}`);
+  expect(new Headers(fetch.mock.calls[1][1].headers).get('Authorization')).toBe(
+    'Bearer test-token',
+  );
+});

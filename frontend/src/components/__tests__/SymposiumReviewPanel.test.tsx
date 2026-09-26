@@ -158,7 +158,9 @@ it('shows a durable scoped record reference without claiming a PR was created', 
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     ),
   );
-  expect(screen.queryByRole('link', { name: 'Open saved review record' })).toBeNull();
+  expect(
+    screen.getByRole('link', { name: 'Permanent saved review link' }).getAttribute('href'),
+  ).toBe(`/sessions/session/review-records/${recordId}?hash=${'c'.repeat(64)}`);
   expect(screen.getByText(/No PR has been created/)).toBeTruthy();
 });
 
