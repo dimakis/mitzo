@@ -47,3 +47,13 @@ it('provides reviewer context choices and a saved profile without enabling write
   });
   expect(mutation.status).toBe(405);
 });
+
+it('provides a model catalog for the dedicated Symposium account picker', async () => {
+  const accounts = await (await window.fetch('/api/symposium/accounts')).json();
+  expect(Array.isArray(accounts)).toBe(true);
+  expect(accounts[0]).toMatchObject({
+    id: 'preview',
+    label: 'Preview account',
+    models: [{ id: 'preview-model', label: 'Preview model' }],
+  });
+});

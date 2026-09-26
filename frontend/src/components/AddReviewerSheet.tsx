@@ -44,6 +44,14 @@ export function AddReviewerSheet({ sessionId }: { sessionId: string }) {
 }
 function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): void }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
+  const dialog = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    return () => {
+      previous?.focus();
+    };
+  }, []);
   const [status, setStatus] = useState<Status | null>(null);
   const [selection, setSelection] = useState<AccountSelection | null>(null);
   const [profile, setProfile] = useState<SymposiumProfileSelection | null>(null);
@@ -214,12 +222,34 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
   return (
     <div className="reviewer-sheet-backdrop">
       <section
+        ref={dialog}
         className="reviewer-sheet"
         role="dialog"
         aria-modal="true"
         aria-label="Ask another agent"
         onKeyDown={(event) => {
           if (event.key === 'Escape' && !busy) onClose();
+          if (event.key === 'Tab') {
+            const controls = [
+              ...(dialog.current?.querySelectorAll<HTMLElement>(
+                'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary',
+              ) ?? []),
+            ].filter(
+              (node) =>
+                !node.hidden &&
+                (!node.closest('details:not([open])') || node.tagName === 'SUMMARY'),
+            );
+            const first = controls[0];
+            const last = controls.at(-1);
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last?.focus();
+            }
+            if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first?.focus();
+            }
+          }
         }}
       >
         <header>
@@ -241,7 +271,12 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
           <>
             <p>Choose a saved profile and the account that will receive this review request.</p>
             <fieldset disabled={busy}>
-              <SymposiumProfilePicker value={profile} onChange={setProfile} disabled={busy} />
+              <SymposiumProfilePicker
+                compact
+                value={profile}
+                onChange={setProfile}
+                disabled={busy}
+              />
               <AccountModelPicker
                 scope="symposium"
                 sessionId={null}

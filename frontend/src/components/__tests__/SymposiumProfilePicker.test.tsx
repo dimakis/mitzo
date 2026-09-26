@@ -131,3 +131,12 @@ it.each(['save', 'import'])('keeps previous revisions selectable after %s', asyn
   fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: 'reviewer:1' } });
   expect(onChange).toHaveBeenLastCalledWith({ profileId: 'reviewer', revision: 1 });
 });
+
+it('keeps catalog management collapsed in the focused reviewer flow', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([version]));
+  render(<SymposiumProfilePicker compact value={null} onChange={vi.fn()} />);
+  await screen.findByLabelText('Saved profile');
+  const disclosure = screen.getByText('Manage profiles').closest('details');
+  expect(disclosure).not.toBeNull();
+  expect(disclosure?.hasAttribute('open')).toBe(false);
+});

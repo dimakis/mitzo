@@ -127,3 +127,16 @@ it('lets an ordinary conversation prepare its isolated roster before runtime adm
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
 });
+
+it('moves focus into the dialog and restores it on Escape', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ config: null, seats: [], runtimeAvailable: false })),
+  );
+  render(<AddReviewerSheet sessionId="chat" />);
+  const trigger = screen.getByRole('button', { name: 'Add reviewer' });
+  trigger.focus();
+  fireEvent.click(trigger);
+  expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  expect(trigger).toHaveFocus();
+});

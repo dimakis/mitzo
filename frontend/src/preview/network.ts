@@ -62,7 +62,8 @@ window.fetch = async (input, init) => {
     });
   }
   if (url.pathname === '/api/inbox') return Response.json([]);
-  if (url.pathname === '/api/accounts') return Response.json([account]);
+  if (url.pathname === '/api/accounts' || url.pathname === '/api/symposium/accounts')
+    return Response.json([account]);
   if (url.pathname.endsWith('/meta')) return Response.json(metadata);
   if (url.pathname === '/api/sessions/search')
     return Response.json({
