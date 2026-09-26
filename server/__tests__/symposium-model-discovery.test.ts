@@ -203,3 +203,10 @@ it('does not inspect or reconcile a journal held by another active attempt', asy
   expect(f.operations.cancel).not.toHaveBeenCalled();
   expect(f.operations.clearReceipt).not.toHaveBeenCalled();
 });
+
+it('accepts owned-host dotted identifiers and repository-pinned workload images', async () => {
+  const f = fixture();
+  f.config.gateway = 'owned.gateway';
+  f.config.workloadImage = `registry.example.test/team/runtime@sha256:${'b'.repeat(64)}`;
+  expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
+});

@@ -2,11 +2,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { readCodexModels } from './model-catalog.js';
 
-const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/);
+const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
 const configSchema = z
   .object({
     cliSha256: z.string().regex(/^[a-f0-9]{64}$/),
-    workloadImage: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+    workloadImage: z.string().regex(/^(?:[A-Za-z0-9][A-Za-z0-9._:/-]*@)?sha256:[a-f0-9]{64}$/),
     policySha256: z.string().regex(/^[a-f0-9]{64}$/),
     podmanUrl: z.string().regex(/^unix:\/\/\/[^\0]+$/),
     gateway: identifier,

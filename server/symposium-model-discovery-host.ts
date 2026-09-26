@@ -75,7 +75,7 @@ export function createDiscoveryHostOperations(
   if (
     ![options.cli, options.podman, options.policy, options.journal].every(isAbsolute) ||
     !options.configPins.length ||
-    !/^[A-Za-z0-9_-]+$/.test(options.namespace)
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.namespace)
   )
     throw new Error('Explicit discovery host configuration required');
   const environment = { ...options.environment };
@@ -135,6 +135,17 @@ export function createDiscoveryHostOperations(
       privateDirectory(dirname(options.journal));
       const path = `${options.journal}.lock`;
       const lock = await open(path, 'wx', 0o600);
+      const release = async () => {
+        try {
+          const held = await lock.stat();
+          const current = await lstat(path);
+          if (held.ino !== current.ino || held.dev !== current.dev || current.isSymbolicLink())
+            throw new Error('Discovery journal ownership changed');
+          await unlink(path);
+        } finally {
+          await lock.close();
+        }
+      };
       try {
         await lock.sync();
         const directory = await open(dirname(path), 'r');
@@ -145,15 +156,7 @@ export function createDiscoveryHostOperations(
         }
         return await operation();
       } finally {
-        try {
-          const held = await lock.stat();
-          const current = await lstat(path);
-          if (held.ino !== current.ino || held.dev !== current.dev || current.isSymbolicLink())
-            throw new Error('Discovery journal ownership changed');
-          await unlink(path);
-        } finally {
-          await lock.close();
-        }
+        await release();
       }
     },
     async verifyCustody(expected) {

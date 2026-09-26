@@ -132,9 +132,9 @@ export function openShellSshProcessSpec(
   const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
   const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
   const cli = options.cli || 'openshell';
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(workspace))
     throw new Error('Invalid OpenShell workspace name');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(gateway))
     throw new Error('Invalid OpenShell gateway name');
   if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
     throw new Error('Invalid OpenShell CLI path');
@@ -194,9 +194,9 @@ function openShellSshProcessSpecTrusted(
   const workspace = options.workspace || base.OPENSHELL_WORKSPACE || 'default';
   const gateway = options.gateway || base.OPENSHELL_GATEWAY || 'openshell';
   const cli = options.cli || 'openshell';
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(workspace))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(workspace))
     throw new Error('Invalid OpenShell workspace name');
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(gateway))
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(gateway))
     throw new Error('Invalid OpenShell gateway name');
   if ((cli !== 'openshell' && !isAbsolute(cli)) || !/^[A-Za-z0-9_./+-]+$/.test(cli))
     throw new Error('Invalid OpenShell CLI path');

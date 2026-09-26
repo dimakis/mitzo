@@ -248,3 +248,25 @@ it('terminates the detached SSH process group including its proxy child', async 
     kill.mockRestore();
   }
 });
+
+it('preserves supported dotted gateway/workspace names in the private SSH process spec', async () => {
+  const { config, options } = fixture();
+  config.gateway = 'owned.gateway';
+  config.workspace = 'owned.workspace';
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: vi.fn(),
+  });
+  vi.mocked(spawn).mockReturnValue(child as never);
+  const client = await createDiscoveryHostOperations(config, options).openClient(inventoryReceipt);
+  client.close();
+  expect(spawn).toHaveBeenCalledWith(
+    'ssh',
+    expect.arrayContaining([
+      'ProxyCommand=' + options.cli + ' ssh-proxy --gateway-name owned.gateway',
+    ]),
+    expect.any(Object),
+  );
+});
