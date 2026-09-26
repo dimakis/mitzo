@@ -421,7 +421,12 @@ no provider, sandbox, account, or PR service is called.
 
 ### Connections phone login status
 
-Repeatable phone login through Connections is in development. Existing account
-catalog and subscription-authentication infrastructure is not evidence that the
-phone device flow is complete or live-tested. No login or runtime gate is relaxed
-by the review-record implementation.
+Repeatable phone sign-in through Connections is implemented in
+[PR #617](https://github.com/dimakis/mitzo/pull/617) (isolated device authentication)
+and [PR #618](https://github.com/dimakis/mitzo/pull/618) (shared Connections UI).
+Mocked tests cover the flow, and the mobile and desktop UI has been checked with
+fixtures. Attended OAuth completion remains unproven; these changes have not been
+deployed. Service restart requires fresh sign-in because authorization depends on
+live host custody. Signing in again never silently rebinds active seats; account
+replacement remains subject to the explicit selection and revision fences. No
+login or runtime gate is relaxed by the review-record implementation.
