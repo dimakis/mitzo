@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type { Server } from 'node:http';
 import type { Express } from 'express';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
 import { mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
@@ -53,7 +55,8 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-let app: Express;
+let app: Server;
+let expressApp: Express;
 let authCookie: string;
 
 async function getAuthCookie(agent: request.Agent): Promise<string> {
@@ -70,13 +73,15 @@ beforeAll(async () => {
   mkdirSync(join(TEST_REPO, '.mitzo'), { recursive: true });
 
   const mod = await import('../app.js');
-  app = mod.app;
+  expressApp = mod.app;
+  app = await listenOnLoopback(mod.app);
 
   const agent = request(app);
   authCookie = await getAuthCookie(agent);
 });
 
 afterAll(async () => {
+  if (app) await closeTestServer(app);
   // Clean up stores
   try {
     const mod = await import('../app.js');
@@ -547,7 +552,7 @@ describe('workload routes', () => {
 
   it('POST /api/workload/items/:id/promote — fallback does not broadcast workload update', async () => {
     const broadcasts: unknown[] = [];
-    const workloadApp = app as Express & { _workloadBroadcast?: (msg: unknown) => void };
+    const workloadApp = expressApp as Express & { _workloadBroadcast?: (msg: unknown) => void };
     const origBroadcast = workloadApp._workloadBroadcast;
     workloadApp._workloadBroadcast = (msg: unknown) => broadcasts.push(msg);
 
