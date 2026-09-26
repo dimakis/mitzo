@@ -1024,11 +1024,14 @@ describe('ConnectionsView', () => {
   });
 });
 
-it('offers ChatGPT setup from Connections without a conversation', async () => {
+it('offers explicit saved account selection before ChatGPT setup without a conversation', async () => {
   await act(async () => root.render(<ConnectionsView />));
+  expect(
+    container.querySelector('section[aria-label="Personal sign-in selection"] select'),
+  ).not.toBeNull();
   expect(
     Array.from(container.querySelectorAll('button')).some(
       (item) => item.textContent === 'Add personal account',
     ),
-  ).toBe(true);
+  ).toBe(false);
 });
