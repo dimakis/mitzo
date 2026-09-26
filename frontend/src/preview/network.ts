@@ -1,6 +1,9 @@
 // Imported only by ui-preview.html. No real accounts, messages, or services are contacted.
 import { account, metadata, sessions } from './fixtures';
-import { symposiumReviewPreviewResponses } from './symposium-review-fixtures';
+import {
+  symposiumReviewPreviewResponses,
+  symposiumReviewPreviewHistory,
+} from './symposium-review-fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
@@ -21,6 +24,18 @@ window.fetch = async (input, init) => {
           ? symposiumReviewPreviewResponses.delta
           : symposiumReviewPreviewResponses.unavailable,
     );
+  }
+  if (/^\/api\/sessions\/[^/]+\/symposium\/reviews\/[^/]+$/.test(url.pathname)) {
+    const sessionId = url.pathname.split('/')[3];
+    const workflowId = url.pathname.split('/')[6];
+    const scenario =
+      sessionId === 'preview-1' ? 'findings' : sessionId === 'preview-3' ? 'delta' : null;
+    if (!scenario || workflowId !== 'preview-review')
+      return Response.json({ error: 'Review workflow not found' }, { status: 404 });
+    return Response.json({
+      workflow: symposiumReviewPreviewResponses[scenario].workflows[0],
+      history: symposiumReviewPreviewHistory[scenario],
+    });
   }
   if (url.pathname === '/api/symposium/personal/login/status')
     return Response.json({ state: 'idle' });

@@ -97,3 +97,26 @@ it('reports idle personal login without enabling preview OAuth', async () => {
   expect(mutation.status).toBe(405);
   expect(upstreamFetch).not.toHaveBeenCalled();
 });
+
+it('serves scoped saved review decision history without contacting a host', async () => {
+  const response = await window.fetch('/api/sessions/preview-3/symposium/reviews/preview-review');
+  const detail = await response.json();
+  expect(detail.workflow.status).toBe('awaiting_delta_review');
+  expect(detail.history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        action: 'fix_authorized',
+        detail: expect.objectContaining({
+          reason: 'Keep the selected connection across reconnect',
+        }),
+      }),
+    ]),
+  );
+  expect(
+    (await window.fetch('/api/sessions/preview-2/symposium/reviews/preview-review')).status,
+  ).toBe(404);
+  expect((await window.fetch('/api/sessions/preview-3/symposium/reviews/unknown')).status).toBe(
+    404,
+  );
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
