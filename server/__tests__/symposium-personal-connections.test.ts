@@ -74,3 +74,15 @@ it('requires cancellation instead of disconnecting an allocating login', async (
   await expect(manager.disconnect(row.id, manager.list()[0].revision)).rejects.toThrow('Cancel');
   expect(manager.list()[0].state).toBe('connecting');
 });
+
+it('never clears interrupted login recovery after restart without a live cleanup adapter', async () => {
+  const { manager, path, create } = setup();
+  const row = manager.create('Phone');
+  manager.begin(row.id, row.revision);
+  const restarted = new PersonalConnections(path, create);
+  const recovered = restarted.list()[0];
+  expect(recovered.account).toBeUndefined();
+  expect(recovered.state).toBe('recovery_required');
+  await expect(restarted.disconnect(recovered.id, recovered.revision)).rejects.toThrow('cleanup');
+  expect(restarted.list()[0].state).toBe('recovery_required');
+});

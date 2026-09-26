@@ -57,3 +57,10 @@ gateway custody. A retry skips those acknowledged stages but repeats empty
 workspace and provider-absence checks. `NotFound`, lost custody, and other
 unacknowledged outcomes do not prove deletion and remain blocked for host
 recovery. These stage proofs are never restored from disk.
+
+A retained host coordinator serializes sandbox creation with credential cleanup.
+Creation revalidates its seat binding after acquiring the fence and durably marks
+the external operation before dispatch. Rejection or host loss leaves a persistent
+uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
+for in-flight creation and refuses uncertain outcomes. Interrupted login rows
+without a live adapter also remain blocked even when account metadata is absent.

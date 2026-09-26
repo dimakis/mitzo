@@ -1,7 +1,6 @@
-import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
+import { SymposiumPersonalLogin } from './SymposiumPersonalLogin';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface AccountSelection {
@@ -232,20 +231,11 @@ export function AccountModelPicker({
   }, [sessionId, attempt, legacy, scope]);
   const subscriptionLogin =
     scope === 'symposium' ? (
-      <>
-        <SymposiumDeviceLogin
-          disabled={disabled}
-          onAccountsChanged={() => setAttempt((value) => value + 1)}
-        />
-        <details>
-          <summary>Browser callback alternative</summary>
-          <SymposiumSubscriptionLogin
-            disabled={disabled}
-            onComplete={() => setAttempt((value) => value + 1)}
-            onCatalogRefresh={() => setAttempt((value) => value + 1)}
-          />
-        </details>
-      </>
+      <SymposiumPersonalLogin
+        disabled={disabled}
+        callback
+        onAccountsChanged={() => setAttempt((value) => value + 1)}
+      />
     ) : null;
   if (error)
     return (

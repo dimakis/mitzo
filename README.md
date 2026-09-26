@@ -449,3 +449,5 @@ Login receipts are private to the initiating authenticated session, and credenti
 Personal Symposium Connections support separate saved account slots with explicit
 connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+
+Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
