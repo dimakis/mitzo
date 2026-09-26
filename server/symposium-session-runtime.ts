@@ -533,8 +533,21 @@ export class SymposiumPerSeatSandboxOwner {
             artifactRequest.workspaceId !== this.deps.runtimeConfig.workspace)
         )
           throw new Error('Artifact request does not match admitted seat and workspace');
+        // Reuse must retain its original bound lease. Creating a replacement here
+        // would block stop recovery after a prior release committed before lifecycle cleanup.
+        if (
+          reservation.state === 'ready' &&
+          (!reservation.creationCompleted || !reservation.physicalId || !reservation.sandboxName)
+        )
+          throw new Error('Recorded seat sandbox requires reconciliation');
         const lease = artifactRequest
-          ? await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
+          ? reservation.state === 'ready'
+            ? await this.deps.artifactLeaseHost!.requireBoundSandboxLease(
+                artifactRequest,
+                reservation.sandboxName!,
+                reservation.physicalId!,
+              )
+            : await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
           : undefined;
         const artifactDriverConfig = lease
           ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)

@@ -126,8 +126,10 @@ Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
 profiles, seed and artifacts. The first supported attestation scope is OpenAI
 writer roles. Claude via Vertex and reviewer admission remain closed pending their
-live acceptance checks; the local Podman adapter cannot yet attest effective
-gateway admission configuration. See the
+live acceptance checks. ChatGPT subscription accounts (`openai-codex`), including
+personal subscriptions available elsewhere in Mitzo, do not yet have a Symposium
+seat route. The local Podman adapter cannot yet attest effective gateway admission
+configuration. See the
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.

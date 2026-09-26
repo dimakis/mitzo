@@ -100,6 +100,68 @@ describe('durable artifact host', () => {
     }
   });
 
+  it('requires an existing exact bound lease for reuse without reserving', async () => {
+    const { a, b } = fixture();
+    try {
+      const reserve = vi.spyOn(a, 'reserve');
+      await expect(
+        a.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).rejects.toThrow('identity is unavailable');
+      expect(reserve).not.toHaveBeenCalled();
+      const writer = await b.reserve(request);
+      await expect(
+        a.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).rejects.toThrow('identity is unavailable');
+      b.markCreationStarted(writer.token, writer.revision, 'seat-writer');
+      await expect(
+        a.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).rejects.toThrow('identity is unavailable');
+      b.bindSandbox(writer.token, writer.revision, 'seat-writer', 'physical-1');
+      await expect(
+        a.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).resolves.toEqual(writer);
+      for (const [changed, name, id] of [
+        [{ ...request, volumeGeneration: 'other' }, 'seat-writer', 'physical-1'],
+        [request, 'other-seat', 'physical-1'],
+        [request, 'seat-writer', 'other-physical'],
+      ] as const)
+        await expect(a.requireBoundSandboxLease(changed, name, id)).rejects.toThrow(
+          'identity is unavailable',
+        );
+      expect(reserve).not.toHaveBeenCalled();
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it('reports released Ready identities as cleanup-required after restart without reacquiring', async () => {
+    const { a, b, path, evidence, runner } = fixture();
+    const writer = await a.reserve(request);
+    a.markCreationStarted(writer.token, writer.revision, 'seat-writer');
+    a.bindSandbox(writer.token, writer.revision, 'seat-writer', 'physical-1');
+    await a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {});
+    a.close();
+    b.close();
+    const reopened = new SqliteArtifactLeaseHost(path, evidence, runner);
+    try {
+      await expect(
+        reopened.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).rejects.toThrow('seat cleanup is required');
+      // A read failed; the exact prior release can still finish lifecycle cleanup.
+      await expect(
+        reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {}),
+      ).resolves.toBeUndefined();
+      const replacement = await reopened.reserve(request);
+      await expect(
+        reopened.requireBoundSandboxLease(request, 'seat-writer', 'physical-1'),
+      ).rejects.toThrow('seat cleanup is required');
+      expect(await reopened.inspectLease(replacement.token)).toEqual(replacement);
+    } finally {
+      reopened.close();
+    }
+  });
+
   it('replays an exact release after host restart with fresh gateway and physical proof', async () => {
     const { a, b, evidence, runner, path } = fixture();
     const writer = await acquireSymposiumArtifactLease(a, request);

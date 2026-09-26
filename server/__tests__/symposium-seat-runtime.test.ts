@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -2163,6 +2164,31 @@ describe('per-seat artifact admission', () => {
     }
   });
 
+  it('does not silently replace a missing artifact lease for a live Ready sandbox', async () => {
+    const state = setup('writer');
+    try {
+      await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
+      const leases = new Database(join(state.root, 'leases.sqlite'));
+      try {
+        leases.prepare('DELETE FROM symposium_artifact_leases').run();
+      } finally {
+        leases.close();
+      }
+      const reserve = vi.spyOn(state.host, 'reserve');
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow(/unavailable/);
+      expect(reserve).not.toHaveBeenCalled();
+      expect(state.ensure).toHaveBeenCalledTimes(1);
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'ready',
+      );
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
+
   it('retries stop after lease release succeeds but lifecycle confirmation fails', async () => {
     const state = setup('writer');
     try {
@@ -2178,6 +2204,12 @@ describe('per-seat artifact admission', () => {
       expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
         'ready',
       );
+      const reserve = vi.spyOn(state.host, 'reserve');
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow(/cleanup|unavailable/);
+      expect(reserve).not.toHaveBeenCalled();
+      expect(state.ensure).toHaveBeenCalledTimes(1);
       await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
       expect(confirm).toHaveBeenCalledTimes(2);
       expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(

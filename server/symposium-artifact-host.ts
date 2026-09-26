@@ -241,6 +241,47 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       : null;
   }
 
+  /** Ready-seat reuse must find its existing binding, never allocate a new lease.
+   * The caller must still revalidate volume, driver policy, and physical mount evidence.
+   */
+  async requireBoundSandboxLease(
+    request: ArtifactLeaseRequest,
+    sandboxName: string,
+    sandboxId: string,
+  ): Promise<ArtifactLease> {
+    if (!safeName.test(sandboxName) || !sandboxId)
+      throw new Error('Invalid artifact sandbox identity');
+    const requestJson = JSON.stringify(request);
+    return this.db.transaction(() => {
+      const released = this.db
+        .prepare(
+          'SELECT request_json FROM symposium_artifact_release_receipts WHERE sandbox_name=? AND sandbox_id=?',
+        )
+        .get(sandboxName, sandboxId) as { request_json: string } | undefined;
+      if (released?.request_json === requestJson)
+        throw new Error('Artifact lease was released; seat cleanup is required before reuse');
+      const rows = this.db
+        .prepare('SELECT * FROM symposium_artifact_leases WHERE sandbox_name=? AND sandbox_id=?')
+        .all(sandboxName, sandboxId) as LeaseRow[];
+      const row = rows.length === 1 ? rows[0] : undefined;
+      if (
+        released ||
+        !row ||
+        row.request_json !== requestJson ||
+        row.creation_started !== 1 ||
+        row.intended_sandbox_name !== sandboxName ||
+        !row.token ||
+        !row.revision
+      )
+        throw new Error('Bound artifact lease identity is unavailable');
+      return {
+        token: row.token,
+        revision: row.revision,
+        request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+      };
+    })();
+  }
+
   /** Persist the exact create target before issuing a sandbox create/ensure call.
    * A started, unbound lease intentionally cannot be released automatically: an
    * in-flight create could finish after an absence check or process restart.
