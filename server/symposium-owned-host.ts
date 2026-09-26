@@ -1,3 +1,9 @@
+import { SymposiumConfigSchema } from '@mitzo/protocol';
+import {
+  SymposiumSessionArtifacts,
+  assertSessionArtifactVolume,
+  type SessionArtifactPreparation,
+} from './symposium-session-artifacts.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
@@ -32,7 +38,7 @@ export interface OwnedSymposiumHostOptions {
   runtime: Pick<OpenShellRuntimeConfig, 'policy' | 'seed' | 'createDetached' | 'sandboxIdLength'>;
   podman: { executable: string; environment: NodeJS.ProcessEnv; sandboxNamespace: string };
   personal: Omit<SymposiumSubscriptionHostOptions, 'gateway' | 'seatProof'>;
-  facts: SymposiumDispatchFacts & Pick<EventStore, 'getSymposiumSeatSandbox'>;
+  facts: SymposiumDispatchFacts & Pick<EventStore, 'getSymposiumSeatSandbox' | 'getSession'>;
   hostGrants: SymposiumHostGrantVerifier;
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
@@ -47,6 +53,7 @@ export async function createOwnedSymposiumHost(
   options: OwnedSymposiumHostOptions,
   launch: typeof OwnedSymposiumGateway.launch = OwnedSymposiumGateway.launch,
   prepareGateway?: (gateway: OwnedSymposiumGateway) => Promise<readonly unknown[]>,
+  podmanCommand?: (args: readonly string[]) => Promise<string>,
 ) {
   if (
     !isAbsolute(options.attestationPath) ||
@@ -84,6 +91,7 @@ export async function createOwnedSymposiumHost(
   const gateway = await launch(options.gateway);
   let native: ReturnType<typeof initializeSymposiumNativeHost> | undefined;
   let leaseHost: SqliteArtifactLeaseHost | undefined;
+  let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let subscription: ReturnType<typeof createSymposiumSubscriptionHost> | undefined;
   let stopped = false;
   let loginStarting = false;
@@ -123,32 +131,26 @@ export async function createOwnedSymposiumHost(
     };
     native = initializeSymposiumNativeHost(join(gateway.stateDirectory, 'native-attempts'));
     const podmanEnv = { ...options.podman.environment };
-    const podman = (args: readonly string[]): Promise<unknown> =>
-      new Promise((resolve, reject) => {
-        try {
-          custody();
-        } catch (error) {
-          reject(error);
-          return;
-        }
-        execFile(
-          options.podman.executable,
-          [...args],
-          { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
-          (error, stdout) => {
-            if (error) {
-              reject(new Error('Owned Podman inspection failed'));
-              return;
-            }
-            try {
-              custody();
-              resolve(JSON.parse(stdout));
-            } catch (cause) {
-              reject(cause);
-            }
-          },
-        );
-      });
+    const podmanText = async (args: readonly string[]): Promise<string> => {
+      custody();
+      const text = podmanCommand
+        ? await podmanCommand(args)
+        : await new Promise<string>((resolve, reject) => {
+            execFile(
+              options.podman.executable,
+              [...args],
+              { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
+              (error, stdout) => {
+                if (error) reject(new Error('Owned Podman operation failed'));
+                else resolve(stdout);
+              },
+            );
+          });
+      custody();
+      return text;
+    };
+    const podman = async (args: readonly string[]): Promise<unknown> =>
+      JSON.parse(await podmanText(args));
     const artifactEvidence = new LocalPodmanArtifactEvidence(
       gateway.workspace,
       options.podman.sandboxNamespace,
@@ -162,6 +164,67 @@ export async function createOwnedSymposiumHost(
       return podman(['volume', 'inspect', name]);
     });
     chmodSync(leasePath, 0o600);
+    const sessionArtifactsPath = join(gateway.stateDirectory, 'session-artifacts.db');
+    sessionArtifacts = new SymposiumSessionArtifacts(
+      sessionArtifactsPath,
+      gateway.workspace,
+      gateway.stateDirectory,
+      custody,
+      {
+        async inspect(name) {
+          const listed = await podman([
+            'volume',
+            'ls',
+            '--filter',
+            `name=^${name}$`,
+            '--format',
+            'json',
+          ]);
+          if (
+            !Array.isArray(listed) ||
+            listed.length > 1 ||
+            listed.some((row) => !row || typeof row !== 'object' || row.Name !== name)
+          )
+            throw new Error('Ambiguous artifact volume inventory');
+          return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
+        },
+        async create(name, labels) {
+          const result = await podmanText([
+            'volume',
+            'create',
+            '--driver',
+            'local',
+            ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
+            name,
+          ]);
+          if (result.trim() !== name) throw new Error('Artifact volume creation identity changed');
+        },
+      },
+    );
+    chmodSync(sessionArtifactsPath, 0o600);
+    const ensureSessionArtifacts = async (
+      sessionId: string,
+    ): Promise<SessionArtifactPreparation> => {
+      custody();
+      // A durable draft must already exist; this does not activate it or grant a seat.
+      const session = options.facts.getSession(sessionId);
+      const config = session?.symposiumConfig
+        ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+        : null;
+      if (session?.sessionType !== 'symposium' || config?.version !== 2)
+        throw new Error('A Symposium session is required');
+      const mapped = artifacts.get(sessionId);
+      if (mapped) {
+        assertSessionArtifactVolume(
+          gateway.workspace,
+          mapped,
+          await leaseHost!.inspectVolume(mapped.volumeName, 'podman'),
+        );
+        custody();
+        return { state: 'ready' };
+      }
+      return sessionArtifacts!.ensure(sessionId);
+    };
     const physical = new LocalSymposiumProductionPhysicalProof({
       cli: gateway.cli,
       podman: options.podman.executable,
@@ -194,7 +257,7 @@ export async function createOwnedSymposiumHost(
       generation: number,
     ): ArtifactLeaseRequest => {
       custody();
-      const mapped = artifacts.get(sessionId);
+      const mapped = artifacts.get(sessionId) ?? sessionArtifacts!.getReady(sessionId);
       const config = options.facts.getActiveSymposiumConfig(sessionId);
       const seat = config.seats.find((row) => row.id === seatId);
       const membership = options.facts.getLatestSymposiumMembership(sessionId, seatId);
@@ -269,6 +332,7 @@ export async function createOwnedSymposiumHost(
       attemptRegistry: native.registry,
       artifactLeaseHost: leaseHost,
       artifactRequest,
+      ensureSessionArtifacts,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: subscription.assertPrivateAuth,
       beginLogin: () =>
@@ -292,6 +356,7 @@ export async function createOwnedSymposiumHost(
           } finally {
             try {
               leaseHost!.close();
+              sessionArtifacts!.close();
             } finally {
               gateway.stop();
             }
@@ -303,6 +368,7 @@ export async function createOwnedSymposiumHost(
     subscription?.invalidate();
     native?.registry.close();
     leaseHost?.close();
+    sessionArtifacts?.close();
     gateway.stop();
     throw error;
   }
