@@ -151,8 +151,15 @@ live acceptance checks. An experimental [personal ChatGPT seat route](docs/featu
 uses upstream Codex provider attachments and a private native authentication bootstrap.
 It rejects the older private-gateway OAuth binding and host login imports, and keeps
 subscription production admission closed pending independent account, credential
-isolation and live acceptance evidence. The local Podman adapter cannot yet attest
-effective gateway admission configuration. See the
+isolation and live acceptance evidence. An optional dedicated host, configured with
+`MITZO_SYMPOSIUM_OWNED_HOST_CONFIG`, starts a digest-pinned unmodified upstream
+gateway with private management authentication and physical native-image and
+volume verification. `MITZO_BIND_HOST=127.0.0.1` can restrict the application
+listener for local staging. Its Symposium account catalog is separate from regular
+chat accounts; unavailable accounts never fall back to a work account. The owned
+contract includes writer/reviewer and personal-seat capability, but still requires
+independent account authorization and all production evidence gates. See
+[dedicated gateway operation](docs/operations/symposium-owned-gateway.md) and the
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.

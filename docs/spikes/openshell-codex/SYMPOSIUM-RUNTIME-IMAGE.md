@@ -42,10 +42,10 @@ Podman manifest digest: `sha256:d00a366614f1926d7159a5290818418b041167295ba2e936
 Registry import can change manifest representation; inspect the final registry
 and containerd identities rather than treating them as this digest.
 
-| Installed artifact | SHA-256 |
-| --- | --- |
-| `/usr/local/bin/symposium-attempt-controller` | `d9f995cd0871ca63be4efa3c5d5760094af9c07496e1acf5d838acf8b55f2209` |
-| `/usr/local/bin/symposium-seat-landlock` | `bf31950c31eafab27d54ddd3662e450769811ea906687616217d743d3134c96d` |
+| Installed artifact                                 | SHA-256                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------ |
+| `/usr/local/bin/symposium-attempt-controller`      | `d9f995cd0871ca63be4efa3c5d5760094af9c07496e1acf5d838acf8b55f2209` |
+| `/usr/local/bin/symposium-seat-landlock`           | `bf31950c31eafab27d54ddd3662e450769811ea906687616217d743d3134c96d` |
 | `/usr/local/bin/symposium-subscription-app-server` | `ffb14857502305d354143e475ad8b417aa733857254b6d3e34b66023e444adfb` |
 
 Codex is `0.153.4`; Claude Code is `2.1.156`. Both private controller and seat

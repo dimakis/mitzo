@@ -1,3 +1,4 @@
+import { createSubscriptionLoginHandler } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
@@ -1651,19 +1652,11 @@ app.put('/api/accounts/:id/alias', (req, res) => {
   }
 });
 
-app.post('/api/symposium/personal/login', operatorAuthMiddleware, async (_req, res) => {
-  try {
-    if (!symposiumProductionHost?.beginLogin) throw new Error('Unavailable');
-    const login = await symposiumProductionHost.beginLogin();
-    // Credentials and token-bearing failures never enter HTTP responses or logs.
-    void login.completed.catch(() => undefined);
-    res.json({ authorizationUrl: login.authorizationUrl });
-  } catch {
-    res
-      .status(503)
-      .json({ error: 'Personal subscription login is unavailable or already pending.' });
-  }
-});
+app.post(
+  '/api/symposium/personal/login',
+  operatorAuthMiddleware,
+  createSubscriptionLoginHandler(() => symposiumProductionHost),
+);
 
 // Uses configured native models only; no host discovery or legacy catalog fallback.
 app.get('/api/symposium/accounts', (_req, res) => {
