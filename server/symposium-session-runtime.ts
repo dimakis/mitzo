@@ -18,6 +18,12 @@ import {
 } from './symposium-artifact-lease.js';
 import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
+import {
+  createSymposiumNativeProfileTools,
+  assertSymposiumProfileAttemptCurrent,
+} from './symposium-native-profile-tools.js';
+import type { SymposiumProfileStore } from './symposium-profiles.js';
+import type { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createOpenAiCodexSeat } from './symposium-codex-native.js';
 import {
   assertSubscriptionControllerCommand,
@@ -37,9 +43,10 @@ import {
   type OpenShellAccountRoute,
   type OpenShellRuntimeConfig,
 } from './openshell-runtime.js';
-import type {
-  SymposiumDispatchFacts,
-  SymposiumHostGrantVerifier,
+import {
+  admitSymposiumSeatDispatch,
+  type SymposiumDispatchFacts,
+  type SymposiumHostGrantVerifier,
 } from './symposium-seat-runtime.js';
 
 export interface SymposiumPhysicalProviderIdentity {
@@ -923,6 +930,8 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 > {
   store: EventStore;
   codexStore: CodexConversationStore;
+  profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
+  profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
   recordAccepted: SymposiumOpenShellSeatExecutorDeps['recordAccepted'];
   /** Trusted override owns durable persistence and live publication when supplied. */
   recordEvent?: SymposiumOpenShellSeatExecutorDeps['recordEvent'];
@@ -972,11 +981,43 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           releaseAttempt: (claimToken) => defaultEvents.release(claimToken),
           openNative:
             deps.openNative ??
-            ((input) =>
-              input.route.kind === 'openai-api'
+            ((input) => {
+              const profileTools = deps.profileProposalStore
+                ? createSymposiumNativeProfileTools({
+                    store: deps.profileProposalStore,
+                    catalogStore: deps.profileCatalogStore,
+                    owner: 'user',
+                    execution: input.execution,
+                    verifyCurrent: () => {
+                      const capability = deps.verifyHostCapability?.();
+                      assertSymposiumProfileAttemptCurrent(deps.store, input.execution);
+                      const current = admitSymposiumSeatDispatch(
+                        deps.store,
+                        deps.currentProfiles?.() ?? deps.profiles,
+                        input.execution,
+                        deps.hostGrants,
+                      );
+                      if (JSON.stringify(current) !== JSON.stringify(input.route))
+                        throw new Error('Symposium seat route changed before profile proposal');
+                      if (capability)
+                        assertSymposiumAttestedProvider(capability, {
+                          name: current.provider,
+                          id: current.providerId,
+                          type:
+                            current.kind === 'chatgpt-subscription-native'
+                              ? 'codex'
+                              : current.kind === 'openai-api'
+                                ? 'openai'
+                                : 'google-vertex-ai',
+                        });
+                    },
+                  })
+                : undefined;
+              return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
                     ...input,
                     store: deps.codexStore,
+                    profileTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
                   })
@@ -984,6 +1025,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   ? createChatGptSubscriptionSeat({
                       ...input,
                       store: deps.codexStore,
+                      profileTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,
                       verifyPrivateAuth: deps.verifySubscriptionPrivateAuth!,
@@ -993,7 +1035,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       ...input,
                       route: input.route,
                       attemptRegistry: deps.attemptRegistry,
-                    })),
+                    });
+            }),
         });
         cache.set(seatId, executor);
       }

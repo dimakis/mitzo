@@ -9,6 +9,7 @@ import type { CodexConversationStore, CodexCommandInput } from './codex-conversa
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumNativeSeat } from './symposium-openshell-seat-executor.js';
 import { symposiumSeatRuntimeId, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
+import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
 import { symposiumSeatSystemPrompt } from './symposium-seat-prompt.js';
 
 interface NativeCodexConversation {
@@ -45,6 +46,7 @@ export interface OpenAiCodexSeatInput {
   route: SymposiumSeatRoute;
   execution: SymposiumSeatExecution;
   store: CodexConversationStore;
+  profileTools?: SymposiumNativeProfileTools;
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Exact argv from a host-verified image capability; absent means no real launch. */
   verifiedControllerCommand?: readonly string[];
@@ -114,8 +116,10 @@ export async function createCodexNativeSeat(
     profile: auth.profile,
     storedBinding: binding,
     store: input.store,
-    systemPrompt: symposiumSeatSystemPrompt(execution.seat),
-    tools: [],
+    systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
+      .filter(Boolean)
+      .join('\n\n'),
+    tools: input.profileTools?.tools ?? [],
     createClient: (lifecycle) => {
       if (!input.attemptRegistry || !input.verifiedControllerCommand)
         throw new Error('Verified Codex native controller capability is unavailable');
@@ -143,10 +147,12 @@ export async function createCodexNativeSeat(
         }
       }
     },
-    executeTool: async () => ({
-      content: 'Symposium native host tools are unavailable',
-      isError: true,
-    }),
+    executeTool:
+      input.profileTools?.executeTool ??
+      (async () => ({
+        content: 'Symposium native host tools are unavailable',
+        isError: true,
+      })),
     validateModel: (model, effort) => {
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');

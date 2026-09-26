@@ -883,6 +883,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       currentProfiles: host.currentProfiles,
       hostGrants: symposiumHostGrants,
       codexStore: getCodexConversationStore(),
+      profileProposalStore: symposiumProfileProposalStore,
+      profileCatalogStore: symposiumProfileStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
       perSeatSandboxVerified: true,
