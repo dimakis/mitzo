@@ -1,7 +1,7 @@
 # Personal ChatGPT device sign-in UI
 
 Connections and the Symposium account picker share the same device sign-in
-control. Opening the control recovers the authenticated owner's latest receipt;
+control. Opening the control recovers the current authenticated operator session's latest receipt;
 only **Get sign-in code** or **Reconnect ChatGPT** starts authentication. No
 conversation is required from Connections.
 
@@ -12,7 +12,7 @@ exact verification URL. The existing browser callback workflow remains an
 explicit alternative in reviewer setup.
 
 Pending receipt polling survives closing/reopening the control and page refresh
-by reading the host receipt. The local attempt deadline is not a claim about
+by reading the host receipt in the same authenticated session. Separately signed-in browsers cannot recover each other's pending codes. While the initial code request is still allocating, the UI polls for its pending receipt so cancellation remains available. Cancellation invalidates a late start response. The local attempt deadline is not a claim about
 OpenAI's code expiry. Pending allocation may have no code yet. Failed, expired,
 cancelled and restart-unknown states allow a fresh explicit attempt. Failed status
 requests offer an in-place status retry; uncertain process cleanup blocks new
