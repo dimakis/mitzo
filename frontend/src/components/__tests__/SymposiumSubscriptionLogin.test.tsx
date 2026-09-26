@@ -112,3 +112,33 @@ it('does not count a historical completed receipt as completion of a new login',
   await screen.findByText(/Previous login completed/);
   expect(onComplete).not.toHaveBeenCalled();
 });
+
+it('refreshes the catalog for a recovered completed receipt without claiming a new login', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'completed', attemptId: 'old' }));
+  const onComplete = vi.fn();
+  const onCatalogRefresh = vi.fn();
+  render(
+    <SymposiumSubscriptionLogin onComplete={onComplete} onCatalogRefresh={onCatalogRefresh} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await screen.findByText(/Previous login completed/);
+  expect(onCatalogRefresh).toHaveBeenCalledTimes(1);
+  expect(onComplete).not.toHaveBeenCalled();
+});
+
+it('retries initial receipt recovery in place and resumes pending polling', async () => {
+  vi.mocked(apiFetch)
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValue(response({ state: 'pending', attemptId: 'existing' }));
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry status' }));
+  await screen.findByText(/Continue in the already-open login browser/);
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login/status?attemptId=existing',
+      expect.any(Object),
+    ),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
