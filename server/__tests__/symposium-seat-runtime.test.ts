@@ -12,8 +12,15 @@ import {
 } from '@mitzo/protocol';
 import { AccountProfiles } from '../account-profiles.js';
 import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
-import { acquireSymposiumArtifactLease, type ArtifactAccess, type ArtifactLeaseRequest } from '../symposium-artifact-lease.js';
-import { sandboxNameForConversation, type BoundOpenShellRuntimeConfig } from '../openshell-runtime.js';
+import {
+  acquireSymposiumArtifactLease,
+  type ArtifactAccess,
+  type ArtifactLeaseRequest,
+} from '../symposium-artifact-lease.js';
+import {
+  sandboxNameForConversation,
+  type BoundOpenShellRuntimeConfig,
+} from '../openshell-runtime.js';
 import {
   admitSymposiumSeatDispatch,
   symposiumSeatRuntimeId,
@@ -214,13 +221,19 @@ function seatSandboxRegistry() {
       fences.delete(id);
     },
     reserveSymposiumSeatSandbox(
-      input: Omit<SymposiumSeatSandboxRecord, 'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'>,
+      input: Omit<
+        SymposiumSeatSandboxRecord,
+        'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'
+      >,
     ) {
       const id = key(input.sessionId, input.seatId, input.generation);
       const existing = rows.get(id);
       if (existing) {
-        if (existing.runtimeId !== input.runtimeId || existing.state === 'stopped' ||
-            (existing.creationStarted && !existing.creationCompleted))
+        if (
+          existing.runtimeId !== input.runtimeId ||
+          existing.state === 'stopped' ||
+          (existing.creationStarted && !existing.creationCompleted)
+        )
           throw new Error('reservation changed');
         return existing;
       }
@@ -245,19 +258,37 @@ function seatSandboxRegistry() {
       return row;
     },
     markSymposiumSeatSandboxCreationStarted(input: {
-      sessionId: string; seatId: string; generation: number; runtimeId: string;
+      sessionId: string;
+      seatId: string;
+      generation: number;
+      runtimeId: string;
     }) {
       const row = rows.get(key(input.sessionId, input.seatId, input.generation));
-      if (!row || row.runtimeId !== input.runtimeId || row.creationStarted || row.state !== 'reserved')
+      if (
+        !row ||
+        row.runtimeId !== input.runtimeId ||
+        row.creationStarted ||
+        row.state !== 'reserved'
+      )
         throw new Error('creation requires reconciliation');
       row.creationStarted = true;
     },
     markSymposiumSeatSandboxCreationCompleted(input: {
-      sessionId: string; seatId: string; generation: number; runtimeId: string; physicalId: string;
+      sessionId: string;
+      seatId: string;
+      generation: number;
+      runtimeId: string;
+      physicalId: string;
     }) {
       const row = rows.get(key(input.sessionId, input.seatId, input.generation));
-      if (!row || row.runtimeId !== input.runtimeId || row.physicalId !== input.physicalId ||
-          !row.creationStarted || row.creationCompleted || row.state !== 'ready')
+      if (
+        !row ||
+        row.runtimeId !== input.runtimeId ||
+        row.physicalId !== input.physicalId ||
+        !row.creationStarted ||
+        row.creationCompleted ||
+        row.state !== 'ready'
+      )
         throw new Error('completion changed');
       row.creationCompleted = true;
     },
@@ -283,9 +314,11 @@ function seatSandboxRegistry() {
     getSymposiumSeatSandbox: (sessionId: string, seatId: string, generation: number) =>
       rows.get(key(sessionId, seatId, generation)),
     listUnstoppedSymposiumSeatSandboxes: (sessionId: string, seatId: string) =>
-      [...rows.values()].filter(
-        (row) => row.sessionId === sessionId && row.seatId === seatId && row.state !== 'stopped',
-      ).map((row) => ({ ...row })),
+      [...rows.values()]
+        .filter(
+          (row) => row.sessionId === sessionId && row.seatId === seatId && row.state !== 'stopped',
+        )
+        .map((row) => ({ ...row })),
     confirmSymposiumSeatSandboxStopped(input: {
       sessionId: string;
       seatId: string;
@@ -293,8 +326,12 @@ function seatSandboxRegistry() {
       physicalId: string;
     }) {
       const row = rows.get(key(input.sessionId, input.seatId, input.generation));
-      if (!row || row.physicalId !== input.physicalId ||
-          (row.creationStarted && !row.creationCompleted)) throw new Error('stop identity changed');
+      if (
+        !row ||
+        row.physicalId !== input.physicalId ||
+        (row.creationStarted && !row.creationCompleted)
+      )
+        throw new Error('stop identity changed');
       row.state = 'stopped';
     },
     confirmAbsentSymposiumSeatSandboxStopped(input: {
@@ -341,7 +378,9 @@ describe('last native Symposium dispatch fence', () => {
     expect(verifyHostCapability).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
     available = false;
-    await expect(executor.execute({ ...work.input, claimToken: 'claim-2' })).rejects.toThrow('Selected gateway capability changed');
+    await expect(executor.execute({ ...work.input, claimToken: 'claim-2' })).rejects.toThrow(
+      'Selected gateway capability changed',
+    );
     expect(send).not.toHaveBeenCalled();
   });
   it('rechecks the host grant after sandbox setup and records only exact accepted turns', async () => {
@@ -839,14 +878,27 @@ describe('last native Symposium dispatch fence', () => {
       throw new Error('gateway create timed out');
     });
     const owner = new SymposiumPerSeatSandboxOwner({
-      sessionId: 'symposium', facts: work.facts, profiles, hostGrants,
+      sessionId: 'symposium',
+      facts: work.facts,
+      profiles,
+      hostGrants,
       seatSandboxRegistry: registry,
       resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
       runtimeConfig: {
-        cli: 'openshell', cliContract: 'v0.1', image: 'image', policy: '/policy', seed: '/seed',
-        serviceProviders: [], grantableServiceProviders: [], workspace: 'default',
-        gateway: 'openshell', gatewayInsecure: false, createDetached: true, sandboxIdLength: 13,
-        workdir: '/sandbox/workspaces/mgmt', webSearch: 'disabled',
+        cli: 'openshell',
+        cliContract: 'v0.1',
+        image: 'image',
+        policy: '/policy',
+        seed: '/seed',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        workspace: 'default',
+        gateway: 'openshell',
+        gatewayInsecure: false,
+        createDetached: true,
+        sandboxIdLength: 13,
+        workdir: '/sandbox/workspaces/mgmt',
+        webSearch: 'disabled',
       },
       readOnlyEnforced: { openaiApi: true, claudeVertex: false },
       perSeatSandboxVerified: true,
@@ -854,47 +906,79 @@ describe('last native Symposium dispatch fence', () => {
         ensure,
         inspectReserved: async () => gatewaySandbox,
         inspect: async () => gatewaySandbox,
-        stop: async () => { throw new Error('uncertain create must not be stopped as settled'); },
+        stop: async () => {
+          throw new Error('uncertain create must not be stopped as settled');
+        },
       }),
     });
     const signal = new AbortController().signal;
     await expect(owner.ensure('symposium', 'reviewer', signal)).rejects.toThrow(/timed out/);
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toMatchObject({
-      state: 'reserved', creationStarted: true, creationCompleted: false,
+      state: 'reserved',
+      creationStarted: true,
+      creationCompleted: false,
     });
-    await expect(owner.stop('symposium', 'reviewer', 2, signal)).rejects.toThrow(/may still complete/);
+    await expect(owner.stop('symposium', 'reviewer', 2, signal)).rejects.toThrow(
+      /may still complete/,
+    );
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('reserved');
     finishGatewayCreate!();
     await gatewayCreate;
     await expect(owner.stop('symposium', 'reviewer', 2, signal)).rejects.toThrow(/uncertain/);
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toMatchObject({
-      state: 'ready', physicalId: 'late-physical', creationCompleted: false,
+      state: 'ready',
+      physicalId: 'late-physical',
+      creationCompleted: false,
     });
-    await expect(owner.ensure('symposium', 'reviewer', signal)).rejects.toThrow(/reservation changed/);
+    await expect(owner.ensure('symposium', 'reviewer', signal)).rejects.toThrow(
+      /reservation changed/,
+    );
     expect(ensure).toHaveBeenCalledTimes(1);
   });
   it('re-probes host and exact provider before a queued sandbox reservation', async () => {
     const work = fixture();
     const registry = seatSandboxRegistry();
     const managerFactory = vi.fn(() => ({
-      ensure: async () => ({ sandboxName: 'seat', sandboxId: 'physical-seat', workdir: '/sandbox/workspaces/mgmt' }),
+      ensure: async () => ({
+        sandboxName: 'seat',
+        sandboxId: 'physical-seat',
+        workdir: '/sandbox/workspaces/mgmt',
+      }),
     }));
-    const verifyHostCapability = vi.fn(() => ({ attestedProviderProfiles: new Set(['unrelated-provider']) }));
+    const verifyHostCapability = vi.fn(() => ({
+      attestedProviderProfiles: new Set(['unrelated-provider']),
+    }));
     const owner = new SymposiumPerSeatSandboxOwner({
-      sessionId: 'symposium', facts: work.facts, profiles, hostGrants,
+      sessionId: 'symposium',
+      facts: work.facts,
+      profiles,
+      hostGrants,
       seatSandboxRegistry: registry,
       resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
       runtimeConfig: {
-        cli: 'openshell', cliContract: 'v0.1', image: 'image', policy: '/policy', seed: '/seed',
-        serviceProviders: [], grantableServiceProviders: [], workspace: 'default',
-        gateway: 'openshell', gatewayInsecure: false, createDetached: true, sandboxIdLength: 13,
-        workdir: '/sandbox/workspaces/mgmt', webSearch: 'disabled',
+        cli: 'openshell',
+        cliContract: 'v0.1',
+        image: 'image',
+        policy: '/policy',
+        seed: '/seed',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        workspace: 'default',
+        gateway: 'openshell',
+        gatewayInsecure: false,
+        createDetached: true,
+        sandboxIdLength: 13,
+        workdir: '/sandbox/workspaces/mgmt',
+        webSearch: 'disabled',
       },
       readOnlyEnforced: { openaiApi: true, claudeVertex: false },
-      perSeatSandboxVerified: true, verifyHostCapability, managerFactory,
+      perSeatSandboxVerified: true,
+      verifyHostCapability,
+      managerFactory,
     });
-    await expect(owner.ensure('symposium', 'reviewer', new AbortController().signal))
-      .rejects.toThrow('outside the host attestation');
+    await expect(
+      owner.ensure('symposium', 'reviewer', new AbortController().signal),
+    ).rejects.toThrow('outside the host attestation');
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toBeUndefined();
     expect(managerFactory).not.toHaveBeenCalled();
     expect(verifyHostCapability).toHaveBeenCalledTimes(1);
@@ -978,7 +1062,13 @@ describe('last native Symposium dispatch fence', () => {
       workspace: 'default',
     });
     const first = snapshotSymposiumSeatProvider(
-      'symposium', 'reviewer', work.facts, profiles, hostGrants, identity, 'default',
+      'symposium',
+      'reviewer',
+      work.facts,
+      profiles,
+      hostGrants,
+      identity,
+      'default',
     );
     const changedProfiles = new AccountProfiles([
       {
@@ -991,7 +1081,9 @@ describe('last native Symposium dispatch fence', () => {
         models: [{ id: 'gpt-test', label: 'Test' }],
       },
     ]);
-    const replacementBinding = AccountBindingSchema.parse(changedProfiles.resolve('work-api', 'gpt-test'));
+    const replacementBinding = AccountBindingSchema.parse(
+      changedProfiles.resolve('work-api', 'gpt-test'),
+    );
     work.setConfig({
       ...config,
       revision: 5,
@@ -1003,7 +1095,13 @@ describe('last native Symposium dispatch fence', () => {
       accountProfileRevision: replacementBinding.profileRevision,
     });
     const changed = snapshotSymposiumSeatProvider(
-      'symposium', 'reviewer', work.facts, changedProfiles, hostGrants, identity, 'default',
+      'symposium',
+      'reviewer',
+      work.facts,
+      changedProfiles,
+      hostGrants,
+      identity,
+      'default',
     );
     expect(changed.runtimeId).not.toBe(first.runtimeId);
     expect(() => first.verify()).toThrow(/Account configuration changed/i);
@@ -1162,34 +1260,57 @@ describe('last native Symposium dispatch fence', () => {
     const registry = seatSandboxRegistry();
     let finishCreate!: () => void;
     let creationStarted!: () => void;
-    const started = new Promise<void>((resolve) => { creationStarted = resolve; });
-    const createGate = new Promise<void>((resolve) => { finishCreate = resolve; });
-    let phase = 'Ready';
-    const stop = vi.fn(async () => { phase = 'Stopped'; });
-    const makeOwner = () => new SymposiumPerSeatSandboxOwner({
-      sessionId: 'symposium', facts: work.facts, profiles, hostGrants,
-      seatSandboxRegistry: registry,
-      resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
-      runtimeConfig: {
-        cli: 'openshell', cliContract: 'v0.1', image: 'image', policy: '/policy', seed: '/seed',
-        serviceProviders: [], grantableServiceProviders: [], workspace: 'default',
-        gateway: 'openshell', gatewayInsecure: false, createDetached: true,
-        sandboxIdLength: 13, workdir: '/sandbox/workspaces/mgmt', webSearch: 'disabled',
-      },
-      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
-      perSeatSandboxVerified: true,
-      managerFactory: () => ({
-        ensure: async () => {
-          creationStarted();
-          await createGate;
-          return { sandboxName: 'late-sandbox', sandboxId: 'late-physical',
-            workdir: '/sandbox/workspaces/mgmt' };
-        },
-        inspectReserved: async () => ({ id: 'late-physical', name: 'late-sandbox', phase }),
-        inspect: async () => ({ id: 'late-physical', phase }),
-        stop,
-      }),
+    const started = new Promise<void>((resolve) => {
+      creationStarted = resolve;
     });
+    const createGate = new Promise<void>((resolve) => {
+      finishCreate = resolve;
+    });
+    let phase = 'Ready';
+    const stop = vi.fn(async () => {
+      phase = 'Stopped';
+    });
+    const makeOwner = () =>
+      new SymposiumPerSeatSandboxOwner({
+        sessionId: 'symposium',
+        facts: work.facts,
+        profiles,
+        hostGrants,
+        seatSandboxRegistry: registry,
+        resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+        runtimeConfig: {
+          cli: 'openshell',
+          cliContract: 'v0.1',
+          image: 'image',
+          policy: '/policy',
+          seed: '/seed',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayInsecure: false,
+          createDetached: true,
+          sandboxIdLength: 13,
+          workdir: '/sandbox/workspaces/mgmt',
+          webSearch: 'disabled',
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+        managerFactory: () => ({
+          ensure: async () => {
+            creationStarted();
+            await createGate;
+            return {
+              sandboxName: 'late-sandbox',
+              sandboxId: 'late-physical',
+              workdir: '/sandbox/workspaces/mgmt',
+            };
+          },
+          inspectReserved: async () => ({ id: 'late-physical', name: 'late-sandbox', phase }),
+          inspect: async () => ({ id: 'late-physical', phase }),
+          stop,
+        }),
+      });
     const signal = new AbortController().signal;
     const create = makeOwner().ensure('symposium', 'reviewer', signal);
     await started;
@@ -1202,7 +1323,8 @@ describe('last native Symposium dispatch fence', () => {
     await stopping;
     expect(stop).toHaveBeenCalledOnce();
     expect(registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toMatchObject({
-      physicalId: 'late-physical', state: 'stopped',
+      physicalId: 'late-physical',
+      state: 'stopped',
     });
   });
   it('keeps seat attachment closed without a verified per-seat capability', async () => {
@@ -1621,13 +1743,23 @@ describe('last native Symposium dispatch fence', () => {
 });
 
 describe('per-seat artifact admission', () => {
-  function setup(access: ArtifactAccess, options: {
-    failMount?: boolean; failCreate?: boolean; failDriverConfig?: boolean;
-  } = {}) {
+  function setup(
+    access: ArtifactAccess,
+    options: {
+      failMount?: boolean;
+      failCreate?: boolean;
+      failDriverConfig?: boolean;
+    } = {},
+  ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
     const request: ArtifactLeaseRequest = {
-      sessionId: 'symposium', workspaceId: 'default', seatId: 'reviewer',
-      volumeName: 'symposium-artifacts', volumeGeneration: 'gen-1', driver: 'podman', access,
+      sessionId: 'symposium',
+      workspaceId: 'default',
+      seatId: 'reviewer',
+      volumeName: 'symposium-artifacts',
+      volumeGeneration: 'gen-1',
+      driver: 'podman',
+      access,
     };
     const labels = {
       'openshell.ai/sandbox-attachable': 'true',
@@ -1641,50 +1773,97 @@ describe('per-seat artifact admission', () => {
       if (options.failMount) throw new Error('physical mount mismatch');
     });
     const verifyDeleted = vi.fn(async () => {});
-    const host = new SqliteArtifactLeaseHost(join(root, 'leases.sqlite'), {
-      verifyGateway: async () => {
-        if (options.failDriverConfig) throw new Error('driver config unavailable');
+    const host = new SqliteArtifactLeaseHost(
+      join(root, 'leases.sqlite'),
+      {
+        verifyGateway: async () => {
+          if (options.failDriverConfig) throw new Error('driver config unavailable');
+        },
+        verifyMount,
+        verifyDeleted,
       },
-      verifyMount,
-      verifyDeleted,
-    }, async () => [{ Name: request.volumeName, Driver: 'local', Options: {}, Labels: labels }]);
+      async () => [{ Name: request.volumeName, Driver: 'local', Options: {}, Labels: labels }],
+    );
     const ensure = vi.fn(async (runtimeId: string) => {
       if (options.failCreate) throw new Error('create response lost');
       return {
         sandboxName: sandboxNameForConversation(runtimeId, 13),
-        sandboxId: 'physical-1', workdir: '/sandbox/workspaces/mgmt',
+        sandboxId: 'physical-1',
+        workdir: '/sandbox/workspaces/mgmt',
       };
     });
     const configurations: BoundOpenShellRuntimeConfig[] = [];
     const registry = seatSandboxRegistry();
     let phase: 'Ready' | 'Stopped' | 'Absent' = 'Ready';
-    const stop = vi.fn(async () => { phase = 'Stopped'; });
-    const remove = vi.fn(async () => { phase = 'Absent'; });
-    const owner = () => new SymposiumPerSeatSandboxOwner({
-      sessionId: 'symposium', facts: fixture().facts, profiles, hostGrants,
-      seatSandboxRegistry: registry,
-      resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
-      runtimeConfig: {
-        cli: 'openshell', cliContract: 'v0.1', image: 'image', policy: '/policy', seed: '/seed',
-        serviceProviders: [], grantableServiceProviders: [], workspace: 'default', gateway: 'openshell',
-        gatewayInsecure: false, createDetached: true, sandboxIdLength: 13,
-        workdir: '/sandbox/workspaces/mgmt', webSearch: 'disabled',
-      },
-      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
-      perSeatSandboxVerified: true, artifactLeaseHost: host, artifactRequest: () => request,
-      managerFactory: (config) => { configurations.push(config); return {
-        ensure,
-        inspect: async (_runtimeId: string, physicalId: string) =>
-          phase === 'Absent' ? undefined : { id: physicalId, phase },
-        inspectReserved: async (runtimeId: string) => phase === 'Absent' ? undefined : {
-          id: 'physical-1', name: sandboxNameForConversation(runtimeId, 13), phase,
-        },
-        stop,
-        delete: remove,
-      }; },
+    const stop = vi.fn(async () => {
+      phase = 'Stopped';
     });
-    return { root, request, host, owner, ensure, verifyMount, verifyDeleted,
-      stop, remove, registry, configurations, setPhase: (next: typeof phase) => { phase = next; } };
+    const remove = vi.fn(async () => {
+      phase = 'Absent';
+    });
+    const owner = () =>
+      new SymposiumPerSeatSandboxOwner({
+        sessionId: 'symposium',
+        facts: fixture().facts,
+        profiles,
+        hostGrants,
+        seatSandboxRegistry: registry,
+        resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+        runtimeConfig: {
+          cli: 'openshell',
+          cliContract: 'v0.1',
+          image: 'image',
+          policy: '/policy',
+          seed: '/seed',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayInsecure: false,
+          createDetached: true,
+          sandboxIdLength: 13,
+          workdir: '/sandbox/workspaces/mgmt',
+          webSearch: 'disabled',
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+        artifactLeaseHost: host,
+        artifactRequest: () => request,
+        managerFactory: (config) => {
+          configurations.push(config);
+          return {
+            ensure,
+            inspect: async (_runtimeId: string, physicalId: string) =>
+              phase === 'Absent' ? undefined : { id: physicalId, phase },
+            inspectReserved: async (runtimeId: string) =>
+              phase === 'Absent'
+                ? undefined
+                : {
+                    id: 'physical-1',
+                    name: sandboxNameForConversation(runtimeId, 13),
+                    phase,
+                  },
+            stop,
+            delete: remove,
+          };
+        },
+      });
+    return {
+      root,
+      request,
+      host,
+      owner,
+      ensure,
+      verifyMount,
+      verifyDeleted,
+      stop,
+      remove,
+      registry,
+      configurations,
+      setPhase: (next: typeof phase) => {
+        phase = next;
+      },
+    };
   }
 
   for (const access of ['writer', 'reviewer'] as const) {
@@ -1694,13 +1873,27 @@ describe('per-seat artifact admission', () => {
         await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
         await state.owner().ensure('symposium', 'reviewer', new AbortController().signal);
         expect(state.configurations).toHaveLength(2);
-        expect(state.configurations[0].artifactDriverConfig).toEqual({ podman: { mounts: [{
-          type: 'volume', source: state.request.volumeName, target: '/sandbox/symposium-artifacts',
-          read_only: access === 'reviewer',
-        }] } });
-        expect(state.verifyMount).toHaveBeenCalledWith(expect.any(String), 'physical-1',
-          state.configurations[0].artifactDriverConfig);
-      } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+        expect(state.configurations[0].artifactDriverConfig).toEqual({
+          podman: {
+            mounts: [
+              {
+                type: 'volume',
+                source: state.request.volumeName,
+                target: '/sandbox/symposium-artifacts',
+                read_only: access === 'reviewer',
+              },
+            ],
+          },
+        });
+        expect(state.verifyMount).toHaveBeenCalledWith(
+          expect.any(String),
+          'physical-1',
+          state.configurations[0].artifactDriverConfig,
+        );
+      } finally {
+        state.host.close();
+        rmSync(state.root, { recursive: true, force: true });
+      }
     });
   }
 
@@ -1708,46 +1901,71 @@ describe('per-seat artifact admission', () => {
     for (const options of [{ failCreate: true }, { failMount: true }]) {
       const state = setup('writer', options);
       try {
-        await expect(state.owner().ensure('symposium', 'reviewer', new AbortController().signal))
-          .rejects.toThrow(options.failCreate ? 'create response lost' : 'physical mount mismatch');
-        await expect(state.owner().ensure('symposium', 'reviewer', new AbortController().signal))
-          .rejects.toThrow('reservation changed');
+        await expect(
+          state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+        ).rejects.toThrow(options.failCreate ? 'create response lost' : 'physical mount mismatch');
+        await expect(
+          state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+        ).rejects.toThrow('reservation changed');
         expect(state.ensure).toHaveBeenCalledTimes(1);
-      } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+      } finally {
+        state.host.close();
+        rmSync(state.root, { recursive: true, force: true });
+      }
     }
   });
 
   it('releases the exact unstarted writer after crash recovery proves the seat absent', async () => {
     const state = setup('writer', { failDriverConfig: true });
     try {
-      await expect(state.owner().ensure('symposium', 'reviewer', new AbortController().signal))
-        .rejects.toThrow('driver config unavailable');
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2))
-        .toMatchObject({ state: 'reserved', creationStarted: false });
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('driver config unavailable');
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)).toMatchObject({
+        state: 'reserved',
+        creationStarted: false,
+      });
       state.setPhase('Absent');
       await state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal);
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('stopped');
-      await expect(acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }))
-        .resolves.toMatchObject({ request: { seatId: 'next' } });
-    } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
+      await expect(
+        acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
+      ).resolves.toMatchObject({ request: { seatId: 'next' } });
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
   });
 
   it('quarantines a started writer when the seat registry still says unstarted', async () => {
     const state = setup('writer', { failDriverConfig: true });
     try {
-      await expect(state.owner().ensure('symposium', 'reviewer', new AbortController().signal))
-        .rejects.toThrow('driver config unavailable');
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('driver config unavailable');
       const record = state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)!;
       const lease = await state.host.reserve(state.request);
-      state.host.markCreationStarted(lease.token, lease.revision,
-        sandboxNameForConversation(record.runtimeId, 13));
+      state.host.markCreationStarted(
+        lease.token,
+        lease.revision,
+        sandboxNameForConversation(record.runtimeId, 13),
+      );
       state.setPhase('Absent');
-      await expect(state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal))
-        .rejects.toThrow('creation may be in flight');
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('reserved');
-      await expect(acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }))
-        .rejects.toThrow('already has a writer');
-    } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+      await expect(
+        state.owner().stop('symposium', 'reviewer', 2, new AbortController().signal),
+      ).rejects.toThrow('creation may be in flight');
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'reserved',
+      );
+      await expect(
+        acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
+      ).rejects.toThrow('already has a writer');
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
   });
 
   it('deletes the exact stopped sandbox before releasing the writer for rotation', async () => {
@@ -1760,10 +1978,16 @@ describe('per-seat artifact admission', () => {
       expect(state.stop).toHaveBeenCalledWith(record.runtimeId, 'physical-1', expect.anything());
       expect(state.remove).toHaveBeenCalledWith(record.runtimeId, 'physical-1', expect.anything());
       expect(state.verifyDeleted).toHaveBeenCalledWith(record.sandboxName, 'physical-1');
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('stopped');
-      await expect(acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }))
-        .resolves.toMatchObject({ request: { seatId: 'next' } });
-    } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
+      await expect(
+        acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
+      ).resolves.toMatchObject({ request: { seatId: 'next' } });
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
   });
 
   it('uses the durable physical identity after discovering a reserved sandbox', async () => {
@@ -1781,10 +2005,16 @@ describe('per-seat artifact admission', () => {
       await owner.stop('symposium', 'reviewer', 2, new AbortController().signal);
       expect(state.remove).toHaveBeenCalledWith(record.runtimeId, 'physical-1', expect.anything());
       expect(state.verifyDeleted).toHaveBeenCalledWith(sandboxName, 'physical-1');
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe('stopped');
-      await expect(acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }))
-        .resolves.toMatchObject({ request: { seatId: 'next' } });
-    } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
+      await expect(
+        acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
+      ).resolves.toMatchObject({ request: { seatId: 'next' } });
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
   });
 
   it('retains the writer and retries absence proof when deletion is uncertain', async () => {
@@ -1793,15 +2023,21 @@ describe('per-seat artifact admission', () => {
       const owner = state.owner();
       await owner.ensure('symposium', 'reviewer', new AbortController().signal);
       state.remove.mockRejectedValueOnce(new Error('gateway deletion uncertain'));
-      await expect(owner.stop('symposium', 'reviewer', 2, new AbortController().signal))
-        .rejects.toThrow('gateway deletion uncertain');
-      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state)
-        .toBe('ready');
-      await expect(acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }))
-        .rejects.toThrow('already has a writer');
+      await expect(
+        owner.stop('symposium', 'reviewer', 2, new AbortController().signal),
+      ).rejects.toThrow('gateway deletion uncertain');
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'ready',
+      );
+      await expect(
+        acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
+      ).rejects.toThrow('already has a writer');
       await owner.stop('symposium', 'reviewer', 2, new AbortController().signal);
       expect(state.stop).toHaveBeenCalledOnce();
       expect(state.remove).toHaveBeenCalledTimes(2);
-    } finally { state.host.close(); rmSync(state.root, { recursive: true, force: true }); }
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
   });
 });

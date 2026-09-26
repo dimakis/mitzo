@@ -22,8 +22,9 @@ describe('durable Symposium seat sandbox identity', () => {
     first.close();
     const reopened = new EventStore(path);
     expect(reopened.claimSymposiumSeatLifecycle('session', 'seat', 'worker-c')).toBe(false);
-    expect(() => second.releaseSymposiumSeatLifecycle('session', 'seat', 'worker-b'))
-      .toThrow(/fence changed/);
+    expect(() => second.releaseSymposiumSeatLifecycle('session', 'seat', 'worker-b')).toThrow(
+      /fence changed/,
+    );
     reopened.releaseSymposiumSeatLifecycle('session', 'seat', 'worker-a');
     expect(second.claimSymposiumSeatLifecycle('session', 'seat', 'worker-b')).toBe(true);
     second.releaseSymposiumSeatLifecycle('session', 'seat', 'worker-b');
@@ -66,12 +67,13 @@ describe('durable Symposium seat sandbox identity', () => {
     store.close();
     store = new EventStore(path);
     expect(store.getSymposiumSeatSandbox('session', 'seat', 1)).toMatchObject({
-      creationStarted: true, creationCompleted: false,
+      creationStarted: true,
+      creationCompleted: false,
     });
-    expect(() => store.confirmAbsentSymposiumSeatSandboxStopped(reservation))
-      .toThrow(/absence identity changed/);
-    expect(() => store.reserveSymposiumSeatSandbox(reservation))
-      .toThrow(/reservation changed/);
+    expect(() => store.confirmAbsentSymposiumSeatSandboxStopped(reservation)).toThrow(
+      /absence identity changed/,
+    );
+    expect(() => store.reserveSymposiumSeatSandbox(reservation)).toThrow(/reservation changed/);
     store.confirmSymposiumSeatSandbox({
       sessionId: 'session',
       seatId: 'seat',
@@ -101,13 +103,21 @@ describe('durable Symposium seat sandbox identity', () => {
         physicalId: 'physical-2',
       }),
     ).toThrow(/physical identity changed/);
-    expect(() => store.confirmSymposiumSeatSandboxStopped({
-      sessionId: 'session', seatId: 'seat', generation: 1,
-      runtimeId: 'runtime-1', physicalId: 'physical-1',
-    })).toThrow(/stop identity changed/);
+    expect(() =>
+      store.confirmSymposiumSeatSandboxStopped({
+        sessionId: 'session',
+        seatId: 'seat',
+        generation: 1,
+        runtimeId: 'runtime-1',
+        physicalId: 'physical-1',
+      }),
+    ).toThrow(/stop identity changed/);
     store.markSymposiumSeatSandboxCreationCompleted({
-      sessionId: 'session', seatId: 'seat', generation: 1,
-      runtimeId: 'runtime-1', physicalId: 'physical-1',
+      sessionId: 'session',
+      seatId: 'seat',
+      generation: 1,
+      runtimeId: 'runtime-1',
+      physicalId: 'physical-1',
     });
     store.confirmSymposiumSeatSandboxStopped({
       sessionId: 'session',

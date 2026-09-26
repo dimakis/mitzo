@@ -88,7 +88,11 @@ export interface OpenShellRuntimeConfig {
   /** Host-validated, lease-bound mount for a single seat. Never read from model output. */
   artifactDriverConfig?: ArtifactDriverConfig;
   /** Physical mount attestation supplied by the selected local compute driver. */
-  verifyArtifactMount?: (sandboxName: string, sandboxId: string, config: ArtifactDriverConfig) => Promise<void>;
+  verifyArtifactMount?: (
+    sandboxName: string,
+    sandboxId: string,
+    config: ArtifactDriverConfig,
+  ) => Promise<void>;
   cli: string;
   image: string;
   policy: string;
@@ -110,12 +114,15 @@ function assertArtifactDriverConfig(config: ArtifactDriverConfig): void {
   if (keys.length !== 1 || (keys[0] !== 'docker' && keys[0] !== 'podman'))
     throw new Error('Artifact driver config must select one local compute driver');
   const mounts = config[keys[0]]?.mounts;
-  if (!Array.isArray(mounts) || mounts.length !== 1 ||
-      mounts[0].type !== 'volume' ||
-      !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(mounts[0].source) ||
-      mounts[0].target !== '/sandbox/symposium-artifacts' ||
-      typeof mounts[0].read_only !== 'boolean' ||
-      Object.keys(mounts[0]).sort().join(',') !== 'read_only,source,target,type')
+  if (
+    !Array.isArray(mounts) ||
+    mounts.length !== 1 ||
+    mounts[0].type !== 'volume' ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(mounts[0].source) ||
+    mounts[0].target !== '/sandbox/symposium-artifacts' ||
+    typeof mounts[0].read_only !== 'boolean' ||
+    Object.keys(mounts[0]).sort().join(',') !== 'read_only,source,target,type'
+  )
     throw new Error('Invalid artifact driver config');
 }
 

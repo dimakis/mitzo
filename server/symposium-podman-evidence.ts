@@ -9,13 +9,22 @@ const containerId = /^[a-f0-9]{12,64}$/i;
 const target = '/sandbox/symposium-artifacts';
 
 /** The local Podman API is host evidence; stdout from a sandbox is never used. */
-export const localPodmanCommand: PodmanCommand = (args) => new Promise((resolve, reject) => {
-  execFile('podman', [...args], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024,
-    encoding: 'utf8' }, (error, stdout) => {
-    if (error) return reject(error);
-    try { resolve(JSON.parse(stdout)); } catch (parseError) { reject(parseError); }
+export const localPodmanCommand: PodmanCommand = (args) =>
+  new Promise((resolve, reject) => {
+    execFile(
+      'podman',
+      [...args],
+      { timeout: 15_000, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8' },
+      (error, stdout) => {
+        if (error) return reject(error);
+        try {
+          resolve(JSON.parse(stdout));
+        } catch (parseError) {
+          reject(parseError);
+        }
+      },
+    );
   });
-});
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -53,21 +62,32 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
   }
 
   async verifyGateway(request: ArtifactLeaseRequest, config: ArtifactDriverConfig): Promise<void> {
-    if (request.driver !== 'podman' || request.workspaceId !== this.workspaceId ||
-        Object.keys(config).length !== 1 || !config.podman)
+    if (
+      request.driver !== 'podman' ||
+      request.workspaceId !== this.workspaceId ||
+      Object.keys(config).length !== 1 ||
+      !config.podman
+    )
       throw new Error('Selected OpenShell gateway differs from artifact lease');
     throw new Error('Selected gateway effective Podman admission config is not host-attested');
   }
 
-  async verifyMount(sandboxName: string, sandboxId: string, config: ArtifactDriverConfig): Promise<void> {
+  async verifyMount(
+    sandboxName: string,
+    sandboxId: string,
+    config: ArtifactDriverConfig,
+  ): Promise<void> {
     if (!identifier.test(sandboxName) || !identifier.test(sandboxId))
       throw new Error('Invalid OpenShell sandbox identity');
-    if (Object.keys(config).length !== 1 || !config.podman ||
-        config.podman.mounts.length !== 1)
+    if (Object.keys(config).length !== 1 || !config.podman || config.podman.mounts.length !== 1)
       throw new Error('Podman artifact driver config is ambiguous');
     const expected = config.podman.mounts[0];
-    if (expected.type !== 'volume' || expected.target !== target ||
-        !identifier.test(expected.source) || typeof expected.read_only !== 'boolean')
+    if (
+      expected.type !== 'volume' ||
+      expected.target !== target ||
+      !identifier.test(expected.source) ||
+      typeof expected.read_only !== 'boolean'
+    )
       throw new Error('Invalid expected artifact mount');
 
     // List all containers so an incorrect daemon-side label filter cannot
@@ -77,8 +97,10 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     const workload = listed.filter((item) => {
       const row = record(item);
       const foundLabels = labels(row.Labels ?? row.labels);
-      return foundLabels['openshell.ai/sandbox-id'] === sandboxId &&
-        foundLabels['openshell.ai/isolation-role'] === 'sandbox';
+      return (
+        foundLabels['openshell.ai/sandbox-id'] === sandboxId &&
+        foundLabels['openshell.ai/isolation-role'] === 'sandbox'
+      );
     });
     const workloadRow = exactlyOne(workload);
     const physicalId = workloadRow.Id ?? workloadRow.ID;
@@ -104,8 +126,11 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     const atTarget = inspected.Mounts.map(record).filter((mount) => mount.Destination === target);
     if (atTarget.length !== 1) throw new Error('Artifact target has no unique physical mount');
     const mount = atTarget[0];
-    if (mount.Type !== 'volume' || mount.Name !== expected.source ||
-        mount.RW !== !expected.read_only)
+    if (
+      mount.Type !== 'volume' ||
+      mount.Name !== expected.source ||
+      mount.RW !== !expected.read_only
+    )
       throw new Error('Physical artifact volume or access differs from lease');
   }
 
@@ -114,13 +139,17 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
       throw new Error('Invalid OpenShell sandbox identity');
     const listed = await this.run(['ps', '--all', '--format', 'json']);
     if (!Array.isArray(listed)) throw new Error('Invalid Podman container listing');
-    if (listed.some((item) => {
-      const found = labels(record(item).Labels ?? record(item).labels);
-      return found['openshell.ai/sandbox-id'] === sandboxId ||
-        (found['openshell.ai/sandbox-name'] === sandboxName &&
-          found['openshell.ai/sandbox-workspace'] === this.workspaceId &&
-          found['openshell.ai/sandbox-namespace'] === this.sandboxNamespace);
-    }))
+    if (
+      listed.some((item) => {
+        const found = labels(record(item).Labels ?? record(item).labels);
+        return (
+          found['openshell.ai/sandbox-id'] === sandboxId ||
+          (found['openshell.ai/sandbox-name'] === sandboxName &&
+            found['openshell.ai/sandbox-workspace'] === this.workspaceId &&
+            found['openshell.ai/sandbox-namespace'] === this.sandboxNamespace)
+        );
+      })
+    )
       throw new Error('Physical OpenShell sandbox resources remain');
     // The caller must separately attest gateway deletion and fresh absence.
   }

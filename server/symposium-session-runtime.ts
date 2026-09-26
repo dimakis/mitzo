@@ -424,7 +424,10 @@ export class SymposiumPerSeatSandboxOwner {
   private tails = new Map<string, Promise<void>>();
 
   private async withDurableSeatFence<T>(
-    sessionId: string, seatId: string, signal: AbortSignal, operation: () => Promise<T>,
+    sessionId: string,
+    seatId: string,
+    signal: AbortSignal,
+    operation: () => Promise<T>,
   ): Promise<T> {
     const registry = this.deps.seatSandboxRegistry!;
     const token = randomUUID();
@@ -459,7 +462,11 @@ export class SymposiumPerSeatSandboxOwner {
       perSeatSandboxVerified?: boolean;
       seatSandboxRegistry?: SeatSandboxRegistry;
       /** Host-selected immutable volume and access for this admitted seat. */
-      artifactRequest?: (sessionId: string, seatId: string, generation: number) => ArtifactLeaseRequest;
+      artifactRequest?: (
+        sessionId: string,
+        seatId: string,
+        generation: number,
+      ) => ArtifactLeaseRequest;
       artifactLeaseHost?: SqliteArtifactLeaseHost;
     },
   ) {
@@ -485,127 +492,154 @@ export class SymposiumPerSeatSandboxOwner {
     if (!this.deps.perSeatSandboxVerified)
       throw new Error('OpenShell per-seat sandbox capability is not verified');
     const prior = this.tails.get(seatId) ?? Promise.resolve();
-    const work = prior.then(() => this.withDurableSeatFence(sessionId, seatId, signal, async () => {
-      signal.throwIfAborted();
-      const snapshot = snapshotSymposiumSeatProvider(
-        sessionId,
-        seatId,
-        this.deps.facts,
-        this.deps.currentProfiles ?? this.deps.profiles,
-        this.deps.hostGrants,
-        this.deps.resolveProviderIdentity,
-        this.deps.runtimeConfig.workspace,
-        'reconciling',
-      );
-      const binding = snapshot.bindings[0];
-      const verifySeatCapability = () => {
-        const capability = this.deps.verifyHostCapability?.();
-        if (capability && !capability.attestedProviderProfiles.has(binding.name))
-          throw new Error('Seat provider profile is outside the host attestation');
-      };
-      // A queued ensure may run long after admission or provider reconciliation.
-      verifySeatCapability();
-      const reservation = this.deps.seatSandboxRegistry!.reserveSymposiumSeatSandbox({
-        sessionId,
-        seatId,
-        generation: snapshot.generation,
-        runtimeId: snapshot.runtimeId,
-        workspace: this.deps.runtimeConfig.workspace,
-        providerName: binding.name,
-        providerId: binding.id,
-        providerType: binding.type,
-        model: snapshot.account.model,
-      });
-      const artifactRequest = this.deps.artifactRequest?.(sessionId, seatId, snapshot.generation);
-      if (artifactRequest && (
-        artifactRequest.sessionId !== sessionId ||
-        artifactRequest.seatId !== seatId ||
-        artifactRequest.workspaceId !== this.deps.runtimeConfig.workspace
-      )) throw new Error('Artifact request does not match admitted seat and workspace');
-      const lease = artifactRequest
-        ? await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
-        : undefined;
-      const artifactDriverConfig = lease
-        ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
-        : undefined;
-      snapshot.verify();
-      if (lease) {
-        // This durable write precedes every possible gateway create. A crash
-        // after it leaves an unbound lease closed until explicit reconciliation.
-        this.deps.artifactLeaseHost!.markCreationStarted(
-          lease.token,
-          lease.revision,
-          sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
+    const work = prior.then(() =>
+      this.withDurableSeatFence(sessionId, seatId, signal, async () => {
+        signal.throwIfAborted();
+        const snapshot = snapshotSymposiumSeatProvider(
+          sessionId,
+          seatId,
+          this.deps.facts,
+          this.deps.currentProfiles ?? this.deps.profiles,
+          this.deps.hostGrants,
+          this.deps.resolveProviderIdentity,
+          this.deps.runtimeConfig.workspace,
+          'reconciling',
         );
-      }
-      const manager = (
-        this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-      )({
-        ...this.deps.runtimeConfig,
-        account: snapshot.account,
-        accountProviderBindings: snapshot.bindings,
-        verifyAccountProviderUnion: () => {
-          verifySeatCapability();
-          snapshot.verify();
-        },
-        ...(artifactDriverConfig ? {
-          artifactDriverConfig,
-          verifyArtifactMount: (name, id, config) =>
-            this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
-        } : {}),
-      });
-      verifySeatCapability();
-      if (reservation.state === 'ready') {
-        if (!reservation.creationCompleted || !reservation.physicalId || !reservation.sandboxName ||
-            !manager.inspect)
-          throw new Error('Recorded seat sandbox requires reconciliation');
-        const observed = await manager.inspect(snapshot.runtimeId, reservation.physicalId, signal);
-        if (!observed || observed.phase !== 'Ready' || observed.id !== reservation.physicalId)
-          throw new Error('Recorded seat sandbox is not Ready');
+        const binding = snapshot.bindings[0];
+        const verifySeatCapability = () => {
+          const capability = this.deps.verifyHostCapability?.();
+          if (capability && !capability.attestedProviderProfiles.has(binding.name))
+            throw new Error('Seat provider profile is outside the host attestation');
+        };
+        // A queued ensure may run long after admission or provider reconciliation.
+        verifySeatCapability();
+        const reservation = this.deps.seatSandboxRegistry!.reserveSymposiumSeatSandbox({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          workspace: this.deps.runtimeConfig.workspace,
+          providerName: binding.name,
+          providerId: binding.id,
+          providerType: binding.type,
+          model: snapshot.account.model,
+        });
+        const artifactRequest = this.deps.artifactRequest?.(sessionId, seatId, snapshot.generation);
+        if (
+          artifactRequest &&
+          (artifactRequest.sessionId !== sessionId ||
+            artifactRequest.seatId !== seatId ||
+            artifactRequest.workspaceId !== this.deps.runtimeConfig.workspace)
+        )
+          throw new Error('Artifact request does not match admitted seat and workspace');
+        const lease = artifactRequest
+          ? await acquireSymposiumArtifactLease(this.deps.artifactLeaseHost!, artifactRequest)
+          : undefined;
+        const artifactDriverConfig = lease
+          ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
+          : undefined;
+        snapshot.verify();
         if (lease) {
-          await this.deps.artifactLeaseHost!.verifyPhysicalMount(
-            reservation.sandboxName, reservation.physicalId, artifactDriverConfig!,
+          // This durable write precedes every possible gateway create. A crash
+          // after it leaves an unbound lease closed until explicit reconciliation.
+          this.deps.artifactLeaseHost!.markCreationStarted(
+            lease.token,
+            lease.revision,
+            sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
           );
         }
+        const manager = (
+          this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
+        )({
+          ...this.deps.runtimeConfig,
+          account: snapshot.account,
+          accountProviderBindings: snapshot.bindings,
+          verifyAccountProviderUnion: () => {
+            verifySeatCapability();
+            snapshot.verify();
+          },
+          ...(artifactDriverConfig
+            ? {
+                artifactDriverConfig,
+                verifyArtifactMount: (name, id, config) =>
+                  this.deps.artifactLeaseHost!.verifyPhysicalMount(name, id, config),
+              }
+            : {}),
+        });
+        verifySeatCapability();
+        if (reservation.state === 'ready') {
+          if (
+            !reservation.creationCompleted ||
+            !reservation.physicalId ||
+            !reservation.sandboxName ||
+            !manager.inspect
+          )
+            throw new Error('Recorded seat sandbox requires reconciliation');
+          const observed = await manager.inspect(
+            snapshot.runtimeId,
+            reservation.physicalId,
+            signal,
+          );
+          if (!observed || observed.phase !== 'Ready' || observed.id !== reservation.physicalId)
+            throw new Error('Recorded seat sandbox is not Ready');
+          if (lease) {
+            await this.deps.artifactLeaseHost!.verifyPhysicalMount(
+              reservation.sandboxName,
+              reservation.physicalId,
+              artifactDriverConfig!,
+            );
+          }
+          snapshot.verify();
+          return {
+            sandboxName: reservation.sandboxName,
+            sandboxId: reservation.physicalId,
+            workdir: this.deps.runtimeConfig.workdir,
+          };
+        }
+        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+        });
+        const sandbox = await manager.ensure(snapshot.runtimeId, signal);
+        if (!sandbox.sandboxId) throw new Error('OpenShell seat sandbox has no physical identity');
+        if (lease) {
+          // A custom manager must attest the mount too. Duplicate attestation is
+          // intentional; the host is the authoritative physical verifier.
+          await this.deps.artifactLeaseHost!.verifyPhysicalMount(
+            sandbox.sandboxName,
+            sandbox.sandboxId,
+            artifactDriverConfig!,
+          );
+          this.deps.artifactLeaseHost!.bindSandbox(
+            lease.token,
+            lease.revision,
+            sandbox.sandboxName,
+            sandbox.sandboxId,
+          );
+        }
+        this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          sandboxName: sandbox.sandboxName,
+          physicalId: sandbox.sandboxId,
+        });
+        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          physicalId: sandbox.sandboxId,
+        });
+        // A revocation during gateway creation leaves the exact physical ID
+        // retained in the registry for the waiting stop operation.
         snapshot.verify();
-        return {
-          sandboxName: reservation.sandboxName,
-          sandboxId: reservation.physicalId,
-          workdir: this.deps.runtimeConfig.workdir,
-        };
-      }
-      this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
-        sessionId, seatId, generation: snapshot.generation, runtimeId: snapshot.runtimeId,
-      });
-      const sandbox = await manager.ensure(snapshot.runtimeId, signal);
-      if (!sandbox.sandboxId) throw new Error('OpenShell seat sandbox has no physical identity');
-      if (lease) {
-        // A custom manager must attest the mount too. Duplicate attestation is
-        // intentional; the host is the authoritative physical verifier.
-        await this.deps.artifactLeaseHost!.verifyPhysicalMount(
-          sandbox.sandboxName, sandbox.sandboxId, artifactDriverConfig!,
-        );
-        this.deps.artifactLeaseHost!.bindSandbox(
-          lease.token, lease.revision, sandbox.sandboxName, sandbox.sandboxId,
-        );
-      }
-      this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
-        sessionId,
-        seatId,
-        generation: snapshot.generation,
-        runtimeId: snapshot.runtimeId,
-        sandboxName: sandbox.sandboxName,
-        physicalId: sandbox.sandboxId,
-      });
-      this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
-        sessionId, seatId, generation: snapshot.generation, runtimeId: snapshot.runtimeId,
-        physicalId: sandbox.sandboxId,
-      });
-      // A revocation during gateway creation leaves the exact physical ID
-      // retained in the registry for the waiting stop operation.
-      snapshot.verify();
-      return sandbox;
-    }));
+        return sandbox;
+      }),
+    );
     const tail = work.then(
       () => undefined,
       () => undefined,
@@ -624,117 +658,139 @@ export class SymposiumPerSeatSandboxOwner {
     if (!this.deps.perSeatSandboxVerified)
       throw new Error('OpenShell per-seat sandbox capability is not verified');
     const prior = this.tails.get(seatId) ?? Promise.resolve();
-    const work = prior.then(() => this.withDurableSeatFence(sessionId, seatId, signal, async () => {
-      for (const original of this.deps.seatSandboxRegistry!.listUnstoppedSymposiumSeatSandboxes(
-        sessionId,
-        seatId,
-      )) {
-        if (original.generation > generation) continue;
-        let record: SymposiumSeatSandboxRecord = original;
-        if (record.workspace !== this.deps.runtimeConfig.workspace)
-          throw new Error('Seat sandbox workspace changed before stop');
-        const manager = (
-          this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-        )({
-          ...this.deps.runtimeConfig,
-          account: { kind: 'api', provider: record.providerName, model: record.model },
-          accountProviderBindings: [
-            { name: record.providerName, type: record.providerType, id: record.providerId },
-          ],
-          verifyAccountProviderUnion: () => undefined,
-        });
-        if (!manager.inspect || !manager.inspectReserved || !manager.stop)
-          throw new Error('OpenShell seat sandbox lifecycle interface is unavailable');
-        let physicalId = record.physicalId;
-        if (!physicalId) {
-          const discovered = await manager.inspectReserved(record.runtimeId, signal);
-          if (!discovered) {
-            if (record.creationStarted)
-              throw new Error('Seat sandbox creation may still complete; reconciliation required');
-            if (this.deps.artifactLeaseHost) {
-              if (!this.deps.artifactRequest)
-                throw new Error('Artifact lease request is unavailable');
-              const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
-              if (request.sessionId !== sessionId || request.seatId !== seatId ||
-                  request.workspaceId !== record.workspace)
-                throw new Error('Artifact lease request changed before pre-create reconciliation');
-              await this.deps.artifactLeaseHost.releaseUnstartedForAbsentSeat(
-                request,
-                async () => {
-                  if (await manager.inspectReserved!(record.runtimeId, signal))
-                    throw new Error('OpenShell seat sandbox appeared during pre-create reconciliation');
-                },
-              );
+    const work = prior.then(() =>
+      this.withDurableSeatFence(sessionId, seatId, signal, async () => {
+        for (const original of this.deps.seatSandboxRegistry!.listUnstoppedSymposiumSeatSandboxes(
+          sessionId,
+          seatId,
+        )) {
+          if (original.generation > generation) continue;
+          let record: SymposiumSeatSandboxRecord = original;
+          if (record.workspace !== this.deps.runtimeConfig.workspace)
+            throw new Error('Seat sandbox workspace changed before stop');
+          const manager = (
+            this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
+          )({
+            ...this.deps.runtimeConfig,
+            account: { kind: 'api', provider: record.providerName, model: record.model },
+            accountProviderBindings: [
+              { name: record.providerName, type: record.providerType, id: record.providerId },
+            ],
+            verifyAccountProviderUnion: () => undefined,
+          });
+          if (!manager.inspect || !manager.inspectReserved || !manager.stop)
+            throw new Error('OpenShell seat sandbox lifecycle interface is unavailable');
+          let physicalId = record.physicalId;
+          if (!physicalId) {
+            const discovered = await manager.inspectReserved(record.runtimeId, signal);
+            if (!discovered) {
+              if (record.creationStarted)
+                throw new Error(
+                  'Seat sandbox creation may still complete; reconciliation required',
+                );
+              if (this.deps.artifactLeaseHost) {
+                if (!this.deps.artifactRequest)
+                  throw new Error('Artifact lease request is unavailable');
+                const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+                if (
+                  request.sessionId !== sessionId ||
+                  request.seatId !== seatId ||
+                  request.workspaceId !== record.workspace
+                )
+                  throw new Error(
+                    'Artifact lease request changed before pre-create reconciliation',
+                  );
+                await this.deps.artifactLeaseHost.releaseUnstartedForAbsentSeat(
+                  request,
+                  async () => {
+                    if (await manager.inspectReserved!(record.runtimeId, signal))
+                      throw new Error(
+                        'OpenShell seat sandbox appeared during pre-create reconciliation',
+                      );
+                  },
+                );
+              }
+              this.deps.seatSandboxRegistry!.confirmAbsentSymposiumSeatSandboxStopped(record);
+              continue;
             }
-            this.deps.seatSandboxRegistry!.confirmAbsentSymposiumSeatSandboxStopped(record);
-            continue;
+            this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
+              sessionId,
+              seatId,
+              generation: record.generation,
+              runtimeId: record.runtimeId,
+              sandboxName: discovered.name,
+              physicalId: discovered.id,
+            });
+            // The durable registry may return detached row objects (as SQLite
+            // does). Use its newly confirmed identity for deletion and lease
+            // release rather than the original unbound reservation snapshot.
+            const confirmed = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
+              sessionId,
+              seatId,
+              record.generation,
+            );
+            if (
+              confirmed?.runtimeId !== record.runtimeId ||
+              confirmed.sandboxName !== discovered.name ||
+              confirmed.physicalId !== discovered.id
+            )
+              throw new Error('Discovered seat sandbox identity changed after confirmation');
+            record = confirmed;
+            physicalId = discovered.id;
           }
-          this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
+          if (record.creationStarted && !record.creationCompleted)
+            throw new Error('Seat sandbox creation outcome is uncertain; reconciliation required');
+          const observed = await manager.inspect(record.runtimeId, physicalId, signal);
+          if (!observed && !this.deps.artifactLeaseHost)
+            throw new Error('Recorded seat sandbox disappeared before confirmed stop');
+          if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
+          else if (observed && observed.phase !== 'Stopped')
+            throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
+          if (observed) {
+            const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
+            if (!stopped || stopped.phase !== 'Stopped')
+              throw new Error('Seat sandbox physical stop is not confirmed');
+          }
+          if (this.deps.artifactLeaseHost) {
+            if (!manager.delete || !record.sandboxName || !this.deps.artifactRequest)
+              throw new Error('Artifact seat deletion interface or identity is unavailable');
+            const expectedName = sandboxNameForConversation(
+              record.runtimeId,
+              this.deps.runtimeConfig.sandboxIdLength,
+            );
+            if (record.sandboxName !== expectedName)
+              throw new Error('Artifact seat sandbox name changed before deletion');
+            const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+            if (
+              request.sessionId !== sessionId ||
+              request.seatId !== seatId ||
+              request.workspaceId !== record.workspace
+            )
+              throw new Error('Artifact lease request changed before deletion');
+            // An earlier delete may have succeeded while the process crashed before
+            // lease release. In that case, absence is reconciled below.
+            if (observed) await manager.delete(record.runtimeId, physicalId, signal);
+            const verifyGatewayAbsent = async () => {
+              if (await manager.inspectReserved!(record.runtimeId, signal))
+                throw new Error('OpenShell seat sandbox remains or was replaced after delete');
+            };
+            await this.deps.artifactLeaseHost.releaseBoundSandbox(
+              request,
+              record.sandboxName,
+              physicalId,
+              verifyGatewayAbsent,
+            );
+          }
+          this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandboxStopped({
             sessionId,
             seatId,
             generation: record.generation,
             runtimeId: record.runtimeId,
-            sandboxName: discovered.name,
-            physicalId: discovered.id,
+            physicalId,
           });
-          // The durable registry may return detached row objects (as SQLite
-          // does). Use its newly confirmed identity for deletion and lease
-          // release rather than the original unbound reservation snapshot.
-          const confirmed = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
-            sessionId, seatId, record.generation,
-          );
-          if (confirmed?.runtimeId !== record.runtimeId ||
-              confirmed.sandboxName !== discovered.name ||
-              confirmed.physicalId !== discovered.id)
-            throw new Error('Discovered seat sandbox identity changed after confirmation');
-          record = confirmed;
-          physicalId = discovered.id;
         }
-        if (record.creationStarted && !record.creationCompleted)
-          throw new Error('Seat sandbox creation outcome is uncertain; reconciliation required');
-        const observed = await manager.inspect(record.runtimeId, physicalId, signal);
-        if (!observed && !this.deps.artifactLeaseHost)
-          throw new Error('Recorded seat sandbox disappeared before confirmed stop');
-        if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
-        else if (observed && observed.phase !== 'Stopped')
-          throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
-        if (observed) {
-          const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
-          if (!stopped || stopped.phase !== 'Stopped')
-            throw new Error('Seat sandbox physical stop is not confirmed');
-        }
-        if (this.deps.artifactLeaseHost) {
-          if (!manager.delete || !record.sandboxName || !this.deps.artifactRequest)
-            throw new Error('Artifact seat deletion interface or identity is unavailable');
-          const expectedName = sandboxNameForConversation(
-            record.runtimeId, this.deps.runtimeConfig.sandboxIdLength,
-          );
-          if (record.sandboxName !== expectedName)
-            throw new Error('Artifact seat sandbox name changed before deletion');
-          const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
-          if (request.sessionId !== sessionId || request.seatId !== seatId ||
-              request.workspaceId !== record.workspace)
-            throw new Error('Artifact lease request changed before deletion');
-          // An earlier delete may have succeeded while the process crashed before
-          // lease release. In that case, absence is reconciled below.
-          if (observed) await manager.delete(record.runtimeId, physicalId, signal);
-          const verifyGatewayAbsent = async () => {
-            if (await manager.inspectReserved!(record.runtimeId, signal))
-              throw new Error('OpenShell seat sandbox remains or was replaced after delete');
-          };
-          await this.deps.artifactLeaseHost.releaseBoundSandbox(
-            request, record.sandboxName, physicalId, verifyGatewayAbsent,
-          );
-        }
-        this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandboxStopped({
-          sessionId,
-          seatId,
-          generation: record.generation,
-          runtimeId: record.runtimeId,
-          physicalId,
-        });
-      }
-    }));
+      }),
+    );
     const tail = work.then(
       () => undefined,
       () => undefined,
@@ -836,8 +892,10 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       const binding = seat.accountBinding;
       if (!binding || !['openai', 'anthropic-vertex'].includes(binding.provider))
         throw new Error('Symposium native account provider is unsupported');
-      if (deps.allowedAccountProviders &&
-          !deps.allowedAccountProviders.has(binding.provider as 'openai' | 'anthropic-vertex'))
+      if (
+        deps.allowedAccountProviders &&
+        !deps.allowedAccountProviders.has(binding.provider as 'openai' | 'anthropic-vertex')
+      )
         throw new Error('Symposium account provider is outside the verified native capability');
       if (
         (seat.role === 'reviewer' ||
@@ -858,8 +916,10 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         deps.runtimeConfig.workspace,
         'candidate',
       );
-      if (capability && snapshot.bindings.some((binding) =>
-        !capability.attestedProviderProfiles.has(binding.name)))
+      if (
+        capability &&
+        snapshot.bindings.some((binding) => !capability.attestedProviderProfiles.has(binding.name))
+      )
         throw new Error('Seat provider profile is outside the host attestation');
       snapshot.verify();
       orchestrator.recordProviderAdmission({
@@ -878,12 +938,21 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         (candidate) =>
           deps.store.getLatestSymposiumMembership(sessionId, candidate.id)?.state === 'active',
       );
-      if (deps.allowedSeatRoles && active.some((seat) =>
-        !deps.allowedSeatRoles!.has(seat.role as 'implementer' | 'coder')))
+      if (
+        deps.allowedSeatRoles &&
+        active.some((seat) => !deps.allowedSeatRoles!.has(seat.role as 'implementer' | 'coder'))
+      )
         throw new Error('Symposium seat role is outside the verified native capability');
-      if (deps.allowedAccountProviders && active.some((seat) =>
-        !seat.accountBinding ||
-        !deps.allowedAccountProviders!.has(seat.accountBinding.provider as 'openai' | 'anthropic-vertex')))
+      if (
+        deps.allowedAccountProviders &&
+        active.some(
+          (seat) =>
+            !seat.accountBinding ||
+            !deps.allowedAccountProviders!.has(
+              seat.accountBinding.provider as 'openai' | 'anthropic-vertex',
+            ),
+        )
+      )
         throw new Error('Symposium account provider is outside the verified native capability');
       const snapshots = active.map((candidate) =>
         snapshotSymposiumSeatProvider(
@@ -897,8 +966,14 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
           'reconciling',
         ),
       );
-      if (capability && snapshots.some((snapshot) => snapshot.bindings.some((binding) =>
-        !capability.attestedProviderProfiles.has(binding.name))))
+      if (
+        capability &&
+        snapshots.some((snapshot) =>
+          snapshot.bindings.some(
+            (binding) => !capability.attestedProviderProfiles.has(binding.name),
+          ),
+        )
+      )
         throw new Error('Seat provider profile is outside the host attestation');
       if (
         JSON.stringify(

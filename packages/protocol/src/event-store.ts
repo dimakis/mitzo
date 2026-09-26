@@ -950,9 +950,13 @@ export class EventStore {
         .prepare("PRAGMA table_info('symposium_seat_sandboxes')")
         .all() as Array<{ name: string }>;
       if (!seatSandboxColumns.some((column) => column.name === 'creation_started'))
-        db.exec('ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_started INTEGER NOT NULL DEFAULT 0');
+        db.exec(
+          'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_started INTEGER NOT NULL DEFAULT 0',
+        );
       if (!seatSandboxColumns.some((column) => column.name === 'creation_completed'))
-        db.exec('ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0');
+        db.exec(
+          'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0',
+        );
       const deliveryColumns = db
         .prepare("PRAGMA table_info('symposium_deliveries')")
         .all() as Array<{ name: string }>;
@@ -2000,7 +2004,10 @@ export class EventStore {
   }
 
   reserveSymposiumSeatSandbox(
-    input: Omit<SymposiumSeatSandboxRecord, 'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'>,
+    input: Omit<
+      SymposiumSeatSandboxRecord,
+      'sandboxName' | 'physicalId' | 'creationStarted' | 'creationCompleted' | 'state'
+    >,
   ): SymposiumSeatSandboxRecord {
     return this.db!.transaction(() => {
       const existing = this.getSymposiumSeatSandbox(
@@ -2090,7 +2097,10 @@ export class EventStore {
 
   /** Persist the point after which a timed-out gateway create may still finish. */
   markSymposiumSeatSandboxCreationStarted(input: {
-    sessionId: string; seatId: string; generation: number; runtimeId: string;
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
   }): void {
     const result = this.db!.prepare(
       `UPDATE symposium_seat_sandboxes SET creation_started=1
@@ -2102,7 +2112,11 @@ export class EventStore {
 
   /** Only a completed create response can discharge uncertainty about late creation. */
   markSymposiumSeatSandboxCreationCompleted(input: {
-    sessionId: string; seatId: string; generation: number; runtimeId: string; physicalId: string;
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    physicalId: string;
   }): void {
     const result = this.db!.prepare(
       `UPDATE symposium_seat_sandboxes SET creation_completed=1
@@ -2145,8 +2159,12 @@ export class EventStore {
     physicalId: string;
   }): void {
     const record = this.getSymposiumSeatSandbox(input.sessionId, input.seatId, input.generation);
-    if (!record || record.runtimeId !== input.runtimeId || record.physicalId !== input.physicalId ||
-        (record.creationStarted && !record.creationCompleted))
+    if (
+      !record ||
+      record.runtimeId !== input.runtimeId ||
+      record.physicalId !== input.physicalId ||
+      (record.creationStarted && !record.creationCompleted)
+    )
       throw new Error('Symposium seat sandbox stop identity changed');
     this.db!.prepare(
       `UPDATE symposium_seat_sandboxes SET state='stopped'
