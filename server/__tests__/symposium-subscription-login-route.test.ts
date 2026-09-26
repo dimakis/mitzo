@@ -108,12 +108,10 @@ it('tracks pending/completed without exposing URLs and reports an unknown receip
 it('sanitizes failed completions and prevents a stale receipt from reporting a new attempt', async () => {
   const { createSubscriptionLoginController } =
     await import('../symposium-subscription-login-route.js');
-  const beginLogin = vi
-    .fn()
-    .mockImplementation(async () => ({
-      authorizationUrl: 'https://auth.openai.com/oauth/authorize',
-      completed: Promise.reject(new Error('token=secret')),
-    }));
+  const beginLogin = vi.fn().mockImplementation(async () => ({
+    authorizationUrl: 'https://auth.openai.com/oauth/authorize',
+    completed: Promise.reject(new Error('token=secret')),
+  }));
   const controller = createSubscriptionLoginController(() => ({ beginLogin }));
   const app = express();
   app.use(express.json());
