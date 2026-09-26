@@ -1,5 +1,5 @@
 import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
   AUTH_LOST_EVENT,
@@ -29,6 +29,7 @@ import { DesktopShell } from './components/DesktopShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -73,7 +74,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
     };
   }, [attempt]);
-  if (auth === 'denied') return <Navigate to="/login" replace />;
+  if (auth === 'denied')
+    return (
+      <Navigate
+        to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`}
+        replace
+      />
+    );
   if (auth === 'loading') {
     return <div className="auth-status">Checking authentication…</div>;
   }
