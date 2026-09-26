@@ -18,10 +18,14 @@ instance; ephemeral codes additionally belong to the initiating authentication
 session. At most one login runs at once.
 
 Disconnect immediately fences new dispatch through the slot's receipt/catalog.
-It scans every paginated sandbox/provider attachment in the owned workspace. An
-existing attachment, an unknown inventory, a pending provisioning operation, or
+It scans every paginated sandbox in the owned workspace before and after provider
+removal. Without durable credential projection/deletion lineage, a detached or
+unrelated sandbox can still contain a projected credential cache. Therefore any
+surviving or starting sandbox, an unknown inventory, a pending provisioning operation, or
 failed deletion prevents a successful disconnected result. The slot remains
-`recovery_required` until host cleanup is confirmed. Pending login must be
+`recovery_required` until host cleanup is confirmed. This conservative guard can
+require cleanup of unrelated seats in the same owned workspace; it does not claim
+that present provider attachment absence proves credential erasure. Pending login must be
 cancelled through its initiating receipt before disconnect. Successful removal
 uses supported upstream refresh-material deletion and provider deletion, followed
 by provider absence verification. It does not claim remote revocation of the
@@ -43,3 +47,10 @@ Validation uses mocked OAuth/native endpoints and local private metadata files.
 It covers isolated slots, revision conflicts, code visibility, restart behavior,
 late completion, and cleanup refusal. It does not perform real inference or
 claim successful live multi-account runtime acceptance.
+
+Cleanup retries retain only in-memory acknowledgements of successful exact-provider
+refresh-material and provider deletion commands, under continuously verified
+gateway custody. A retry skips those acknowledged stages but repeats empty
+workspace and provider-absence checks. `NotFound`, lost custody, and other
+unacknowledged outcomes do not prove deletion and remain blocked for host
+recovery. These stage proofs are never restored from disk.

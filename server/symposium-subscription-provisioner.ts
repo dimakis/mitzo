@@ -90,7 +90,7 @@ export class SymposiumSubscriptionProvisioner {
   };
   private pending?: { state: string; nonce: string; verifier: string; expires: number };
   private busy = false;
-  private resources = new Set<string>();
+  private resources = new Map<string, { refreshDeleted: boolean; providerDeleted: boolean }>();
   private generation = 0;
   constructor(
     private readonly host: SubscriptionProvisioningHost,
@@ -248,33 +248,37 @@ export class SymposiumSubscriptionProvisioner {
     };
     try {
       if (!this.resources.size) return;
-      for (const sandbox of await pages(['sandbox', 'list'], 'sandboxes')) {
-        if (typeof sandbox.name !== 'string' || !/^[A-Za-z0-9_.-]+$/.test(sandbox.name))
-          throw new Error('Invalid sandbox inventory');
-        for (const attached of await pages(
-          ['sandbox', 'provider', 'list', sandbox.name],
-          'providers',
-        )) {
-          if (typeof attached.name !== 'string') throw new Error('Invalid attachment inventory');
-          if (this.resources.has(attached.name))
-            throw new Error('Existing seat credentials require cleanup');
+      // Attachment absence cannot prove a formerly projected credential cache
+      // was erased. Without durable projection/deletion lineage, require the
+      // entire owned workspace to have no surviving or starting sandboxes.
+      if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+        throw new Error('Owned workspace sandbox cleanup is required');
+      for (const [provider, proof] of this.resources) {
+        // These proofs exist only in this live, exclusively owned gateway.
+        // An ambiguous/NotFound response never creates a deletion proof.
+        if (!proof.refreshDeleted) {
+          await this.host.run([
+            'provider',
+            'refresh',
+            'delete',
+            provider,
+            '--credential-key',
+            'CODEX_AUTH_ACCESS_TOKEN',
+          ]);
+          this.verifyCustody();
+          proof.refreshDeleted = true;
         }
-      }
-      for (const provider of this.resources) {
-        await this.host.run([
-          'provider',
-          'refresh',
-          'delete',
-          provider,
-          '--credential-key',
-          'CODEX_AUTH_ACCESS_TOKEN',
-        ]);
-        this.verifyCustody();
-        await this.host.run(['provider', 'delete', provider]);
-        this.verifyCustody();
+        if (!proof.providerDeleted) {
+          await this.host.run(['provider', 'delete', provider]);
+          this.verifyCustody();
+          proof.providerDeleted = true;
+        }
         const remaining = await pages(['provider', 'list'], 'providers');
         if (remaining.some((row) => typeof row.name !== 'string' || row.name === provider))
           throw new Error('Provider absence is unconfirmed');
+        // An in-flight create may become visible after the first inventory.
+        if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+          throw new Error('Owned workspace sandbox cleanup is unconfirmed');
         this.resources.delete(provider);
       }
     } catch {
@@ -300,7 +304,7 @@ export class SymposiumSubscriptionProvisioner {
       throw new Error('Subscription cached account identity changed');
     assertCurrent();
     const provider = `symposium-personal-${randomBytes(12).toString('hex')}`;
-    this.resources.add(provider); // Track before creation: even a failed command may have created credentials.
+    this.resources.set(provider, { refreshDeleted: false, providerDeleted: false }); // Track before creation: even a failed command may have created credentials.
     await this.host.run(
       [
         'provider',
