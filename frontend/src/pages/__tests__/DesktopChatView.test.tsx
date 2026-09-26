@@ -412,3 +412,16 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(toggle.textContent).toContain('Reconnecting');
 });
+
+it('offers the shared reviewer entry for an active desktop conversation', () => {
+  const store = createMockStore();
+  store.setState((state) => ({ sessions: { ...state.sessions, active: 'active-session' } }));
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Add reviewer' })).toBeTruthy();
+});
