@@ -8,7 +8,7 @@ for an existing Symposium; it accepts no volume, path, driver, labels or grants.
 Preparation failure retains the draft. The creation panel offers **Retry shared
 files** and **Open draft**. An absent owned host reports pending preparation.
 
-The owned host stores a lifecycle ledger inside its private gateway state directory.
+The owned host stores a lifecycle ledger inside its stable private gateway state parent directory.
 Each session receives a generated volume name and generation before a create command
 can run. Public Podman `volume ls`, `volume create --driver local --label …`, and
 `volume inspect` commands use the configured owned executable and environment, with
@@ -37,7 +37,12 @@ provider absent from the static attestation remains a separate admission problem
 Validation is mocked: lifecycle concurrency, reopening under the same custody,
 rejection of different custody, uncertain completion, collision quarantine, exact
 public command construction, unchanged attestation, durable route retry and the
-pending-draft UI. No live gateway, OAuth or model run was performed. A fresh owned
-gateway uses a fresh state directory; restart does not silently adopt old mappings
-or rebind active seats. Native review terminal receipts, hard token-budget evidence
+pending-draft UI. No live gateway, OAuth or model run was performed. The stable state parent and lifecycle ledger must be retained across launches. A fresh
+gateway uses a fresh launch directory, but reads the same reservations: old-custody
+sessions fail with an explicit custody error instead of receiving a new empty volume.
+Restart does not silently adopt old mappings or rebind active seats. Explicit
+cross-gateway recovery remains unimplemented; the original volume is retained.
+Transient inspection errors preserve an already-ready mapping for cleanup; fresh
+runtime admission still performs its existing physical verification. Contradictory
+physical evidence invalidates readiness. Native review terminal receipts, hard token-budget evidence
 and attended runtime acceptance remain separate work.

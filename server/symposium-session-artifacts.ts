@@ -144,7 +144,18 @@ export class SymposiumSessionArtifacts {
       const volume = await this.host.inspect(mapping.volumeName);
       this.assertOwner(row);
       if (row.state !== 'reserved') {
-        assertSessionArtifactVolume(this.workspace, mapping, volume);
+        try {
+          assertSessionArtifactVolume(this.workspace, mapping, volume);
+        } catch (error) {
+          // A completed inspection contradicting the recorded identity differs
+          // from a transport outage: only actual evidence invalidates readiness.
+          this.db
+            .prepare(
+              "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state='ready'",
+            )
+            .run(sessionId);
+          throw error;
+        }
         return ready();
       }
       // A name collision before our first create is never adopted, even if labels match.
@@ -175,7 +186,7 @@ export class SymposiumSessionArtifacts {
     } catch {
       this.db
         .prepare(
-          "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state IN ('creating','ready','uncertain')",
+          "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state IN ('creating','uncertain')",
         )
         .run(sessionId);
       return { state: 'recovery_required' };

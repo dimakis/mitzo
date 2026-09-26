@@ -164,7 +164,19 @@ export async function createOwnedSymposiumHost(
       return podman(['volume', 'inspect', name]);
     });
     chmodSync(leasePath, 0o600);
-    const sessionArtifactsPath = join(gateway.stateDirectory, 'session-artifacts.db');
+    // Session identities survive fresh gateway launches. Retain their reservations
+    // in the stable private parent, while recording launch custody in every row.
+    const parent = lstatSync(options.gateway.stateParent);
+    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.mode & 0o077)
+      throw new Error('Session artifact state parent must be a private directory');
+    const sessionArtifactsPath = join(options.gateway.stateParent, 'session-artifacts.db');
+    try {
+      const ledger = lstatSync(sessionArtifactsPath);
+      if (!ledger.isFile() || ledger.isSymbolicLink() || ledger.mode & 0o077)
+        throw new Error('Session artifact ledger must be a private regular file');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     sessionArtifacts = new SymposiumSessionArtifacts(
       sessionArtifactsPath,
       gateway.workspace,

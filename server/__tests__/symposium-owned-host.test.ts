@@ -2,6 +2,7 @@ import { readSymposiumProductionAttestation } from '../symposium-production-gate
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   mkdtempSync,
+  mkdirSync,
   rmSync,
   writeFileSync,
   readFileSync,
@@ -51,6 +52,7 @@ function fixture() {
     gateway: {
       gateway: 'owned',
       workspace: 'workspace',
+      stateParent: root,
       workloadImage: `sha256:${'a'.repeat(64)}`,
     },
     attestationPath: attestation,
@@ -207,6 +209,24 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
     expect(readFileSync(f.options.attestationPath, 'utf8')).toBe(before);
     expect(host.runtimeConfig.cliContract).toBeUndefined();
+    host.stop();
+    const nextDirectory = join(f.root, 'next-gateway');
+    mkdirSync(nextDirectory, { mode: 0o700 });
+    const nextGateway = { ...f.gateway, stateDirectory: nextDirectory };
+    const next = await createOwnedSymposiumHost(
+      f.options,
+      vi.fn().mockResolvedValue(nextGateway),
+      undefined,
+      command,
+    );
+    try {
+      await expect(next.ensureSessionArtifacts('new-session')).rejects.toThrow(
+        'different host custody',
+      );
+      expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    } finally {
+      next.stop();
+    }
   } finally {
     host.stop();
   }

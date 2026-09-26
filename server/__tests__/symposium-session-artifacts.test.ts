@@ -159,3 +159,12 @@ it('retains an uncertain reservation when custody is lost after create', async (
   await expect(f.store.ensure('session')).rejects.toThrow('custody lost');
   expect(f.host.create).toHaveBeenCalledOnce();
 });
+
+it('keeps ready mappings during transport inspection failures for cleanup', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  const ready = f.store.getReady('session');
+  f.host.inspect.mockRejectedValueOnce(new Error('temporary driver outage'));
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
+  expect(f.store.getReady('session')).toEqual(ready);
+});
