@@ -1,0 +1,139 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { apiFetch } from '../../lib/api-fetch';
+import { SymposiumPersonalConnections } from '../SymposiumPersonalConnections';
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+afterEach(() => {
+  cleanup();
+  vi.resetAllMocks();
+});
+const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
+const rows = [
+  {
+    id: 'personal-a',
+    label: 'Personal',
+    revision: 2,
+    state: 'connected',
+    account: { email: 'one@example.test', planType: 'plus' },
+  },
+  {
+    id: 'personal-b',
+    label: 'Second account',
+    revision: 3,
+    state: 'reauth_required',
+    account: { email: 'two@example.test', planType: 'pro' },
+  },
+];
+it('lists each saved identity and starts only the selected slot with its revision', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: rows }
+        : init?.method === 'POST'
+          ? {
+              state: 'pending',
+              attemptId: 'attempt-b',
+              connectionId: 'personal-b',
+              method: 'device-code',
+            }
+          : { state: 'idle' },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('one@example.test');
+  expect(screen.getByText('two@example.test')).toBeTruthy();
+  const second = within(screen.getByRole('region', { name: 'Second account' }));
+  fireEvent.click(second.getByRole('button', { name: 'Connect' }));
+  fireEvent.click(await second.findByRole('button', { name: 'Get sign-in code' }));
+  await second.findByRole('button', { name: 'Cancel sign-in' });
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/login',
+    expect.objectContaining({
+      body: JSON.stringify({
+        method: 'device-code',
+        connectionId: 'personal-b',
+        expectedRevision: 3,
+      }),
+    }),
+  );
+});
+it('creates a labeled slot without starting authentication', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    response(
+      init?.method === 'POST'
+        ? { id: 'new', label: 'Travel', revision: 1, state: 'disconnected' }
+        : { connections: rows },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('one@example.test');
+  fireEvent.change(screen.getByLabelText('Account label'), { target: { value: 'Travel' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Add personal account' }));
+  await screen.findByText(/Saved account added/);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/connections',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ label: 'Travel' }) }),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => url.endsWith('/login'))).toBe(false);
+});
+it('disconnects only the chosen revision and refreshes saved statuses', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    response(
+      init?.method === 'POST' ? { ...rows[0], state: 'disconnected' } : { connections: rows },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('one@example.test');
+  fireEvent.click(
+    within(screen.getByRole('region', { name: 'Personal' })).getByRole('button', {
+      name: 'Disconnect',
+    }),
+  );
+  await screen.findByText(/Disconnected Personal/);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/connections/personal-a/disconnect',
+    expect.objectContaining({ body: JSON.stringify({ expectedRevision: 2 }) }),
+  );
+});
+it('does not offer a new login when host recovery is required and exposes retry for list failure', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response({}, false))
+    .mockResolvedValue(response({ connections: [{ ...rows[0], state: 'recovery_required' }] }));
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry personal accounts' }));
+  await screen.findByText('Host recovery required');
+  expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+});
+
+it('refreshes recovered connecting state after cancellation so another slot can connect', async () => {
+  let cancelled = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ ...rows[0], state: cancelled ? 'connected' : 'connecting' }, rows[1]],
+      });
+    if (url.endsWith('/cancel')) {
+      cancelled = true;
+      return response({ state: 'cancelled', attemptId: 'a', connectionId: 'personal-a' });
+    }
+    return response({
+      state: 'pending',
+      attemptId: 'a',
+      connectionId: 'personal-a',
+      method: 'device-code',
+    });
+  });
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel sign-in' }));
+  await screen.findByText('Connected');
+  expect(
+    (
+      within(screen.getByRole('region', { name: 'Second account' })).getByRole('button', {
+        name: 'Connect',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+});

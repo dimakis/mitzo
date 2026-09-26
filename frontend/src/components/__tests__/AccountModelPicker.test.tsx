@@ -399,5 +399,7 @@ it('offers personal subscription setup only in the Symposium account catalog inc
       onChange={vi.fn()}
     />,
   );
-  expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeTruthy();
+  expect(
+    await screen.findByRole('button', { name: 'Manage personal ChatGPT accounts' }),
+  ).toBeTruthy();
 });
