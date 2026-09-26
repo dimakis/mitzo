@@ -24,6 +24,11 @@ export type ReviewReceipt = {
   costUsd: number | null;
 };
 
+export type CompletedReview = Omit<Parameters<SymposiumReviewStore['recordReview']>[0], 'usage'> & {
+  attemptId: string;
+  enforcementId: string;
+};
+
 /** Only a trusted host implementation may supply these facts. It never launches a provider call. */
 export interface SymposiumReviewHost {
   completedImplementation(context: ReviewContext): WorkResult;
@@ -48,6 +53,10 @@ export interface SymposiumReviewHost {
    * Planned dispatch or provider acceptance is not completion.
    */
   receipt(context: ReviewContext, attemptId: string): ReviewReceipt | null;
+  /** Structured output read from the same completed native attempt as receipt().
+   * Never construct this result from an interactive caller's review payload.
+   */
+  completedReview(context: ReviewContext, attemptId: string): CompletedReview | null;
   /** This must verify a fresh, authenticated user action and current write authority. */
   authorizeFix(input: {
     context: ReviewContext;
@@ -197,10 +206,7 @@ export class SymposiumReviewCoordinator {
 
   recordReview(
     context: ReviewContext,
-    input: Omit<
-      Parameters<SymposiumReviewStore['recordReview']>[0],
-      'reviewerSeatId' | 'artifactRevision' | 'artifactHash' | 'usage'
-    > & { attemptId: string },
+    input: { workflowId: string; reviewId: string; attemptId: string },
   ): Workflow | CoordinatorDecision {
     const state = this.scoped(context, input.workflowId);
     if (!this.host) return decision('trusted_review_host_unavailable');
@@ -219,10 +225,25 @@ export class SymposiumReviewCoordinator {
       receipt.artifactHash !== state.artifactHash
     )
       return decision('host_receipt_required');
-    const { attemptId: _attemptId, ...review } = input;
-    void _attemptId;
+    const review = this.host.completedReview?.(context, input.attemptId);
+    if (
+      !review ||
+      review.workflowId !== receipt.workflowId ||
+      review.attemptId !== receipt.attemptId ||
+      review.enforcementId !== receipt.enforcementId ||
+      review.reviewerSeatId !== receipt.actorSeatId ||
+      review.artifactRevision !== receipt.artifactRevision ||
+      review.artifactHash !== receipt.artifactHash ||
+      review.reviewId !== input.reviewId
+    )
+      return decision('host_review_result_required');
     return this.store.recordReview({
-      ...review,
+      workflowId: review.workflowId,
+      reviewId: review.reviewId,
+      kind: review.kind,
+      findings: review.findings,
+      resolvedFingerprints: review.resolvedFingerprints,
+      ...(review.failure !== undefined ? { failure: review.failure } : {}),
       reviewerSeatId: receipt.actorSeatId,
       artifactRevision: receipt.artifactRevision,
       artifactHash: receipt.artifactHash,

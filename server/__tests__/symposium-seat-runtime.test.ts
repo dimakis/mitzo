@@ -838,9 +838,11 @@ describe('last native Symposium dispatch fence', () => {
   it('builds a runnable seat executor from one shared owner and exact receipt sink', async () => {
     const work = fixture();
     const accepted: string[] = [];
+    const recordEvent = vi.fn();
     const runtime = createSymposiumSessionRuntime({
       sessionId: 'symposium',
       store: work.facts as never,
+      recordEvent,
       profiles,
       hostGrants,
       codexStore: {} as never,
@@ -885,6 +887,8 @@ describe('last native Symposium dispatch fence', () => {
       content: 'done',
     });
     expect(accepted).toEqual(['turn']);
+    expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_accepted' });
+    expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_released' });
     expect(runtime.owner).toBeDefined();
   });
   it('requires a current host-issued grant at the native boundary', () => {

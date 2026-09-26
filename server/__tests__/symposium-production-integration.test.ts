@@ -129,7 +129,8 @@ describe('production Symposium route to native runtime', () => {
     expect(store.getLatestSymposiumAdmission('symposium', 'builder', 1)).toBeUndefined();
   });
 
-  it('admits one verified seat, persists exact receipts and rich blocks, and fences revocation', async () => {
+  const sinkModes = ['explicit', 'default', 'durable-only'] as const;
+  it.each(sinkModes)('persists with %s sink', async (sinkMode) => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-symposium-native-'));
     roots.push(root);
     const store = new EventStore(join(root, 'events.db'));
@@ -158,7 +159,14 @@ describe('production Symposium route to native runtime', () => {
       runtimeConfig,
       readOnlyEnforced: { openaiApi: false, claudeVertex: false },
       recordAccepted: accepted,
-      recordEvent: (execution, event) => events.record(execution, event),
+      ...(sinkMode === 'explicit'
+        ? {
+            recordEvent: (execution: SymposiumSeatExecution, event: Record<string, unknown>) =>
+              events.record(execution, event),
+          }
+        : sinkMode === 'default'
+          ? { broadcastEvent: broadcast }
+          : {}),
       managerFactory: () => ({
         ensure: async () => ({ sandboxName: 'shared', workdir: runtimeConfig.workdir }),
       }),
@@ -459,10 +467,12 @@ describe('production Symposium route to native runtime', () => {
           event.seatId === 'builder' && event.symposiumProvenance?.membershipGeneration === 1,
       ),
     ).toBe(true);
-    expect(broadcast).toHaveBeenCalledWith(
-      'symposium',
-      expect.objectContaining({ type: 'block_delta', delta: 'complete', seatId: 'builder' }),
-    );
+    if (sinkMode === 'durable-only') expect(broadcast).not.toHaveBeenCalled();
+    else
+      expect(broadcast).toHaveBeenCalledWith(
+        'symposium',
+        expect.objectContaining({ type: 'block_delta', delta: 'complete', seatId: 'builder' }),
+      );
     const rich = store.getSessionEvents('symposium');
     expect(
       rich.some(

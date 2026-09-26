@@ -6,6 +6,8 @@ import { SymposiumReviewStore } from '../symposium-review-workflows.js';
 import {
   SymposiumReviewCoordinator,
   type SymposiumReviewHost,
+  type CompletedReview,
+  type ReviewReceipt,
 } from '../symposium-review-coordinator.js';
 
 const hash = (letter: string) => letter.repeat(64);
@@ -21,6 +23,36 @@ const implementation = {
   summary: 'Patch ready for review',
   evidenceRefs: ['commit-1'],
   completedAt: 1,
+};
+const receipt: ReviewReceipt = {
+  attemptId: 'attempt-1',
+  workflowId: 'workflow',
+  enforcementId: 'host-cap-1',
+  terminal: true,
+  kind: 'review',
+  actorSeatId: 'reviewer',
+  artifactRevision: 'commit-1',
+  artifactHash: hash('b'),
+  tokens: 30,
+  costUsd: 0.05,
+};
+const finding = {
+  criterion: 'Criterion A',
+  summary: 'Missing error branch',
+  location: 'server/feature.ts:10',
+  evidenceRefs: ['diff:10'],
+};
+const completedReview: CompletedReview = {
+  workflowId: 'workflow',
+  reviewId: 'review-1',
+  attemptId: 'attempt-1',
+  enforcementId: 'host-cap-1',
+  reviewerSeatId: 'reviewer',
+  artifactRevision: 'commit-1',
+  artifactHash: hash('b'),
+  kind: 'full',
+  findings: [],
+  resolvedFingerprints: [],
 };
 const selection = (seatId: string, role: string) => ({
   seatId,
@@ -51,6 +83,7 @@ beforeEach(() => {
       maxCostUsd: 0.1,
     }),
     receipt: () => null,
+    completedReview: () => null,
     authorizeFix: () => null,
     fixedArtifact: () => null,
     evidence: () => null,
@@ -197,6 +230,7 @@ it('returns only a reservation, requires host receipt, and refuses model-only ve
       costUsd: 0.05,
     }),
   };
+  host.completedReview = () => completedReview;
   const withReceipt = new SymposiumReviewCoordinator(store, host);
   expect(withReceipt.recordReview(context, review)).toMatchObject({ status: 'awaiting_evidence' });
   expect(withReceipt.finalize(context, 'workflow')).toEqual({
@@ -210,6 +244,7 @@ it('returns only a reservation, requires host receipt, and refuses model-only ve
 });
 
 it('requires interactive owner authorization before a fix reservation', () => {
+  host.completedReview = () => ({ ...completedReview, findings: [finding] });
   const review = new SymposiumReviewCoordinator(store, {
     ...host,
     receipt: () => ({
@@ -226,19 +261,10 @@ it('requires interactive owner authorization before a fix reservation', () => {
     }),
   });
   review.reserve(context, 'workflow', 'review', 'attempt-1');
-  const finding = {
-    criterion: 'Criterion A',
-    summary: 'Missing error branch',
-    location: 'server/feature.ts:10',
-    evidenceRefs: ['diff:10'],
-  };
   review.recordReview(context, {
     workflowId: 'workflow',
     reviewId: 'review-1',
     attemptId: 'attempt-1',
-    kind: 'full',
-    findings: [finding],
-    resolvedFingerprints: [],
   });
   const fingerprint = store.get('workflow')!.findings[0].fingerprint;
   expect(
@@ -264,4 +290,105 @@ it('requires interactive owner authorization before a fix reservation', () => {
     kind: 'reserved_not_dispatched',
     attemptId: 'fix-1',
   });
+});
+
+it('refuses caller-authored review content when no trusted result exists despite a valid receipt', () => {
+  host.receipt = () => receipt;
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  coordinator.reserve(context, 'workflow', 'review', 'attempt-1');
+  const fabricated = {
+    workflowId: 'workflow',
+    attemptId: 'attempt-1',
+    reviewId: 'review-1',
+    kind: 'full',
+    findings: [],
+    resolvedFingerprints: [],
+  };
+  expect(coordinator.recordReview(context, fabricated)).toEqual({
+    kind: 'decision_required',
+    code: 'host_review_result_required',
+  });
+  expect(store.get('workflow')).toMatchObject({
+    status: 'awaiting_review',
+    reviewRounds: 0,
+    tokensUsed: 0,
+  });
+});
+
+it('records only host findings and keeps replay identity bound to the completed output', () => {
+  host.receipt = () => receipt;
+  host.completedReview = () => ({ ...completedReview, findings: [finding] });
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  coordinator.reserve(context, 'workflow', 'review', 'attempt-1');
+  const fabricated = {
+    workflowId: 'workflow',
+    attemptId: 'attempt-1',
+    reviewId: 'review-1',
+    kind: 'delta',
+    findings: [],
+    resolvedFingerprints: [hash('f')],
+  };
+  const state = coordinator.recordReview(context, fabricated);
+  expect(state).toMatchObject({
+    reviewRounds: 1,
+    tokensUsed: 30,
+    findings: [expect.objectContaining({ summary: finding.summary })],
+  });
+  expect(store.get('workflow')?.status).not.toBe('awaiting_evidence');
+  const changedPayload = { ...fabricated, findings: [finding] };
+  expect(coordinator.recordReview(context, changedPayload)).toEqual(state);
+  expect(coordinator.recordReview(context, { ...fabricated, reviewId: 'invented' })).toEqual({
+    kind: 'decision_required',
+    code: 'host_review_result_required',
+  });
+});
+
+it.each([
+  ['workflowId', 'other'],
+  ['attemptId', 'other'],
+  ['enforcementId', 'other'],
+  ['reviewerSeatId', 'coder'],
+  ['artifactRevision', 'other'],
+  ['artifactHash', hash('c')],
+  ['reviewId', 'other'],
+] as const)('rejects host output with mismatched %s', (field, value) => {
+  host.receipt = () => receipt;
+  host.completedReview = () => ({ ...completedReview, [field]: value });
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  coordinator.reserve(context, 'workflow', 'review', 'attempt-1');
+  expect(
+    coordinator.recordReview(context, {
+      workflowId: 'workflow',
+      attemptId: 'attempt-1',
+      reviewId: 'review-1',
+    }),
+  ).toEqual({ kind: 'decision_required', code: 'host_review_result_required' });
+  expect(store.get('workflow')).toMatchObject({
+    status: 'awaiting_review',
+    reviewRounds: 0,
+    tokensUsed: 0,
+  });
+});
+
+it('preserves a failed host review despite caller-forged success and on replay', () => {
+  host.receipt = () => receipt;
+  host.completedReview = () => ({
+    ...completedReview,
+    failure: 'Reviewer could not complete validation',
+  });
+  const coordinator = new SymposiumReviewCoordinator(store, host);
+  coordinator.reserve(context, 'workflow', 'review', 'attempt-1');
+  const forgedSuccess = {
+    workflowId: 'workflow',
+    attemptId: 'attempt-1',
+    reviewId: 'review-1',
+    kind: 'full',
+    findings: [],
+    resolvedFingerprints: [],
+    failure: undefined,
+  };
+  const failed = coordinator.recordReview(context, forgedSuccess);
+  expect(failed).toMatchObject({ status: 'decision_required', reviewRounds: 1, tokensUsed: 30 });
+  expect(coordinator.recordReview(context, forgedSuccess)).toEqual(failed);
+  expect(store.get('workflow')?.status).toBe('decision_required');
 });

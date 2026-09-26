@@ -100,9 +100,14 @@ host attempt registry records setup before launch and retains uncertain native
 attempts across restart. Cleanup releases a claim only after proving it never
 launched or confirming that its exact controller has stopped. Pending provider
 detaches also survive reconciliation failure until attachments are verified.
+The runtime supplies durable transcript recording by default, including early
+events and closure after failure or cancellation; live broadcasting is optional.
 
 The review coordinator validates membership, recipient claims, profile revisions,
-and grants before dispatch and result acceptance. These are guarded execution
+and grants before dispatch and result acceptance. Review content comes from the
+trusted host's completed attempt and must match its receipt and artifact identity.
+Interactive callers select the recorded result but cannot supply its findings.
+These are guarded execution
 contracts with mocked integration coverage. The default application still has no
 Symposium runtime; production reviewer and Claude admission require further host
 attestation and live acceptance. Environment settings alone do not enable them.
