@@ -40,7 +40,7 @@ function fixture() {
   });
   store.create({
     workflowId: 'workflow',
-    owner: 'operator:owner',
+    owner: 'user',
     sessionId: 'session',
     implementation,
     implementer: selection('builder'),
@@ -180,10 +180,10 @@ it('runs explicit accepted fixes, requires delta and current host evidence befor
   expect(host.dispatch).toHaveBeenCalledTimes(3);
   expect(
     (await request(app).get('/sessions/session/reviews').set('x-actor', 'other')).body.workflows,
-  ).toEqual([]);
+  ).toHaveLength(1);
   expect(
     (await request(app).get('/sessions/session/reviews/workflow').set('x-actor', 'other')).status,
-  ).toBe(404);
+  ).toBe(200);
   expect((await action({ action: 'review', expectedArtifactRevision: 'commit-1' })).body.code).toBe(
     'artifact_changed',
   );
@@ -201,7 +201,7 @@ it('allows an explicit reasoned dismissal without granting the builder write acc
   expect(dismissed.status).toBe(200);
   expect(store.get('workflow')!.findings[0]).toMatchObject({
     status: 'dismissed',
-    disposition: { actor: 'operator:owner', reason: 'Already handled by caller' },
+    disposition: { actor: 'user', reason: 'Already handled by caller' },
   });
   expect(host.dispatch).toHaveBeenCalledTimes(1);
 });

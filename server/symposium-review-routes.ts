@@ -69,18 +69,19 @@ export function createSymposiumReviewRouter(deps: {
       res.status(403).json({ error: 'Interactive authentication required' });
       return;
     }
-    if (!deps.hasSession(req.params.id)) {
+    if (!deps.hasSession((req.params as { id: string; workflowId: string }).id)) {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
     next();
   });
-  const context = (sessionId: string, actor: string): ReviewContext => ({
+  // The verified app subject is single-user; JWT JTI changes on every login.
+  const context = (sessionId: string): ReviewContext => ({
     sessionId,
-    owner: `operator:${actor}`,
+    owner: 'user',
   });
   router.get('/', (req, res) => {
-    const ctx = context(req.params.id, res.locals.authSession.id);
+    const ctx = context((req.params as { id: string; workflowId: string }).id);
     res.json({
       available: Boolean(deps.getHost(ctx.sessionId)),
       workflows: deps.store.list(ctx.owner, ctx.sessionId),
@@ -92,7 +93,7 @@ export function createSymposiumReviewRouter(deps: {
       res.status(400).json({ error: 'Invalid review request' });
       return;
     }
-    const ctx = context(req.params.id, res.locals.authSession.id);
+    const ctx = context((req.params as { id: string; workflowId: string }).id);
     try {
       const result = new SymposiumReviewCoordinator(deps.store, deps.getHost(ctx.sessionId)).start(
         ctx,
@@ -106,7 +107,7 @@ export function createSymposiumReviewRouter(deps: {
     }
   });
   router.get('/:workflowId', (req, res) => {
-    const ctx = context(req.params.id, res.locals.authSession.id);
+    const ctx = context((req.params as { id: string; workflowId: string }).id);
     try {
       const workflow = new SymposiumReviewCoordinator(
         deps.store,
@@ -123,7 +124,7 @@ export function createSymposiumReviewRouter(deps: {
       res.status(400).json({ error: 'Invalid review action' });
       return;
     }
-    const ctx = context(req.params.id, res.locals.authSession.id);
+    const ctx = context((req.params as { id: string; workflowId: string }).id);
     const host = deps.getHost(ctx.sessionId);
     const coordinator = new SymposiumReviewCoordinator(deps.store, host);
     const workflowId = req.params.workflowId;
