@@ -1,4 +1,5 @@
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
+import { AddReviewerSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -280,6 +281,7 @@ export function DesktopChatView() {
             </div>
           )}
           {!activeSessionId && !sessionId && <NewSymposium />}
+          {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
           {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
           {activeSessionId && (
             <SymposiumReviewEntry key={activeSessionId} sessionId={activeSessionId} />
