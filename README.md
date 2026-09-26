@@ -134,6 +134,13 @@ Claude's native tool path remains unavailable pending its independent evidence
 gate. Mitzo owns profile authoring and version history; ContexGin remains a
 context source, with explicit imports rather than implicit write-back.
 
+The seat Landlock launcher permits read-only access to the supervisor's two public
+CA certificate files under `/run/openshell-supervisor-ca/material`; it grants no
+access to that directory, private keys, or other `/run` content. The
+[offline CA regression](docs/spikes/openshell-codex/SEAT-PUBLIC-CA.md) records the
+physical denial and the bounded fix. Existing runtime images must be rebuilt and
+reviewed before this source change can affect them.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
