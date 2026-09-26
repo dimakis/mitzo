@@ -1797,11 +1797,18 @@ export class EventStore {
    * Activation is fail-closed: Seat 1 must retain the session's durable account
    * binding and configuration revisions must move forward.
    */
-  setSymposiumConfig(sessionId: string, input: unknown): SymposiumConfig {
+  setSymposiumConfig(
+    sessionId: string,
+    input: unknown,
+    expectedRevision?: number,
+  ): SymposiumConfig {
     const config = SymposiumConfigSchema.parse(input);
     return this.db!.transaction(() => {
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
+      if (expectedRevision !== undefined && (session.symposiumRevision ?? 0) !== expectedRevision) {
+        throw new Error('Symposium configuration revision conflict');
+      }
       const previous = session.symposiumConfig
         ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
         : null;

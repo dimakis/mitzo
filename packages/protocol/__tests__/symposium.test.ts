@@ -279,6 +279,17 @@ describe('Symposium configuration contract', () => {
 });
 
 describe('Symposium persistence', () => {
+  it('compares the expected configuration revision inside the store transaction', () => {
+    const store = open();
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    const v2 = { ...config, version: 2 as const, anchorSeatId: 'builder', activeSeatCap: 2 };
+    store.setSymposiumConfig('chat', v2, 0);
+    expect(() => store.setSymposiumConfig('chat', { ...v2, revision: 2 }, 0)).toThrow(
+      /revision conflict/i,
+    );
+    expect(store.getSession('chat')?.symposiumRevision).toBe(1);
+    expect(store.setSymposiumConfig('chat', { ...v2, revision: 2 }, 1).revision).toBe(2);
+  });
   it('removes a reconciled suspended seat without restoring or consuming capacity', () => {
     const store = open();
     store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });

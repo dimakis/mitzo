@@ -120,6 +120,8 @@ export const SeatConfigSchema = z
     name: z.string().trim().min(1),
     model: z.string().trim().min(1),
     systemPrompt: z.string(),
+    expectedOutput: z.string().trim().min(1).optional(),
+    acceptanceCriteria: z.array(z.string().trim().min(1)).min(1).optional(),
     color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
     role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
     reasoningEffort: z.string().trim().min(1).optional(),

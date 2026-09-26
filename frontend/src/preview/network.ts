@@ -1,5 +1,6 @@
 // Imported only by ui-preview.html. No real accounts, messages, or services are contacted.
 import { account, metadata, sessions } from './fixtures';
+import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
   const url = new URL(
@@ -9,6 +10,32 @@ window.fetch = async (input, init) => {
   if (!url.pathname.startsWith('/api/')) return nativeFetch(input, init);
   if (init?.method && init.method !== 'GET')
     return Response.json({ error: 'Preview is read-only' }, { status: 405 });
+  if (url.pathname === '/api/symposium/profile-proposals')
+    return Response.json(
+      url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],
+    );
+  if (url.pathname === '/api/symposium/profiles') return Response.json([]);
+  if (
+    /^\/api\/symposium\/profiles\/preview-(?:architect|reviewer|implementer)\/1$/.test(url.pathname)
+  )
+    return Response.json({ definition: previewProposal.definition });
+  if (/^\/api\/sessions\/[^/]+\/symposium(?:\/perspectives)?$/.test(url.pathname)) {
+    const sessionId = url.pathname.split('/')[3];
+    if (url.pathname.endsWith('/perspectives'))
+      return Response.json(symposiumPerspective(url.searchParams.get('seatId')));
+    if (sessionId === 'preview-1' || sessionId === 'preview-3')
+      return Response.json(symposiumStatus(sessionId));
+    return Response.json({
+      sessionId,
+      config: null,
+      seats: [],
+      runtimeAvailable: false,
+      profileBindingEnforced: false,
+      reservedSeats: 0,
+      capacityRemaining: 3,
+      deliveries: [],
+    });
+  }
   if (url.pathname === '/api/inbox') return Response.json([]);
   if (url.pathname === '/api/accounts') return Response.json([account]);
   if (url.pathname.endsWith('/meta')) return Response.json(metadata);

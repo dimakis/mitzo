@@ -66,6 +66,8 @@ import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import * as lifecycleController from '../openshell-lifecycle-controller.js';
 import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
+import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
+import { SymposiumProfileStore } from '../symposium-profiles.js';
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -278,6 +280,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
   expect(mocks.conversationOptions?.tools).toEqual([
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
+    expect.objectContaining({ name: 'SymposiumProposeProfile' }),
   ]);
   expect(mocks.conversationOptions?.systemPrompt).toContain(
     'never use a sandbox-local todo script',
@@ -415,6 +418,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
     });
     expect(mocks.conversationOptions?.tools).toEqual([
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
+      expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({
         name: 'GrantIntegrationAccess',
         input_schema: expect.objectContaining({
@@ -1281,4 +1285,54 @@ it('preserves first launch and valid restore while failing closed for a replacem
     vi.unstubAllEnvs();
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+it('persists a fake provider profile proposal without saving a reusable profile', async () => {
+  vi.clearAllMocks();
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-codex-profile-tool-'));
+  mkdirSync(join(root, '.mitzo'));
+  vi.stubEnv('REPO_PATH', root);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const base = options(new AbortController());
+  const chat = await openCodexChat({
+    ...base,
+    conversationId: 'conversation',
+    eventStore: {
+      getRecentConversationText: () => [],
+      getSession: () => ({ sessionId: 'conversation' }),
+    } as never,
+  });
+  const execute = mocks.conversationOptions?.executeTool as (
+    name: string,
+    input: unknown,
+    signal: AbortSignal,
+    context: { turnId: string; callId: string },
+  ) => Promise<{ content: string; isError: boolean }>;
+  const input = {
+    suggestedProfileId: 'reviewer',
+    definition: {
+      name: 'Reviewer',
+      role: 'reviewer',
+      instructions: 'Review the change',
+      expectedOutput: 'Findings',
+      acceptanceCriteria: ['Cite evidence'],
+      modelPolicyRole: 'reviewer',
+    },
+  };
+  const result = await execute('SymposiumProposeProfile', input, new AbortController().signal, {
+    turnId: 'turn-1',
+    callId: 'call-1',
+  });
+  expect(result.isError).toBe(false);
+  const proposalId = JSON.parse(result.content).proposalId;
+  const dbPath = join(root, '.mitzo', 'events.db');
+  const proposals = new SymposiumProfileProposalStore(dbPath);
+  const profiles = new SymposiumProfileStore(dbPath);
+  expect(proposals.listPending('user', 'conversation')[0]?.proposalId).toBe(proposalId);
+  expect(profiles.list('user')).toEqual([]);
+  proposals.close();
+  profiles.close();
+  chat.close();
+  rmSync(root, { recursive: true, force: true });
+  vi.clearAllMocks();
 });

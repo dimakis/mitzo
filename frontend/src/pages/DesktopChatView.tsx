@@ -7,7 +7,8 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { DesktopShell } from '../components/DesktopShell';
 import { SessionPanel } from '../components/SessionPanel';
 import { CommandCenter } from '../components/CommandCenter';
-import { ChatArea } from '../components/ChatArea';
+import { SymposiumConversation } from '../components/SymposiumConversation';
+import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput } from '../components/ChatInput';
 import { ScrollFab } from '../components/ScrollFab';
 import { StatusBar } from '../components/StatusBar';
@@ -276,43 +277,50 @@ export function DesktopChatView() {
               </button>
             </div>
           )}
-          <ChatArea
-            sessionId={sessionId || activeSessionId || undefined}
-            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-            currentByMessage={
-              sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage
-            }
-            running={messages.running}
-            permission={messages.permission}
-            onPermissionRespond={handlePermission}
-            scrollRef={scrollRef}
-            progressByToolId={progressByToolId}
-            voice={voice}
-          />
+          {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
           <ScrollFab scrollRef={scrollRef} />
-          <CodexQueueStatus sessionId={activeSessionId} />
-          <ChatInput
-            sendDisabledReason={
-              !activeSessionId && !accountSelection
-                ? 'Select an account before sending.'
-                : undefined
+          <SymposiumConversation
+            sessionId={activeSessionId}
+            chat={{
+              sessionId: sessionId || activeSessionId || undefined,
+              messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
+              current: sessionId && sessionId !== activeSessionId ? null : messages.current,
+              currentByMessage:
+                sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
+              running: messages.running,
+              permission: messages.permission,
+              onPermissionRespond: handlePermission,
+              scrollRef,
+              progressByToolId,
+              voice,
+            }}
+            ordinaryComposer={
+              <>
+                <CodexQueueStatus sessionId={activeSessionId} />
+                <ChatInput
+                  sendDisabledReason={
+                    !activeSessionId && !accountSelection
+                      ? 'Select an account before sending.'
+                      : undefined
+                  }
+                  onSend={handleSend}
+                  onStop={handleStop}
+                  onInterrupt={handleInterrupt}
+                  running={messages.running}
+                  initialText={searchParams.get('prompt') || undefined}
+                  voice={voice}
+                  branch={messages.branch || undefined}
+                  isWorktree={messages.isWorktree}
+                  wtId={messages.wtId || undefined}
+                  sessionId={activeSessionId ?? undefined}
+                  tokenState={tokens}
+                  messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+                  current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+                  bootContext={bootContext}
+                  sessionContext={sessionContext}
+                />
+              </>
             }
-            onSend={handleSend}
-            onStop={handleStop}
-            onInterrupt={handleInterrupt}
-            running={messages.running}
-            initialText={searchParams.get('prompt') || undefined}
-            voice={voice}
-            branch={messages.branch || undefined}
-            isWorktree={messages.isWorktree}
-            wtId={messages.wtId || undefined}
-            sessionId={activeSessionId ?? undefined}
-            tokenState={tokens}
-            messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-            current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-            bootContext={bootContext}
-            sessionContext={sessionContext}
           />
         </div>
       }

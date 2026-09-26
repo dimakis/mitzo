@@ -2,19 +2,20 @@ import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { SymposiumProfileDefinitionSchema, type SymposiumProfileDefinition } from '@mitzo/protocol';
+import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 
 const Id = z.string().trim().min(1).max(128);
 const VersionSchema = z.strictObject({
   profileId: Id,
   revision: z.number().int().positive(),
-  definition: SymposiumProfileDefinitionSchema,
+  definition: PortableProfileDefinitionSchema,
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const SaveSchema = z.strictObject({
   profileId: Id,
   expectedRevision: z.number().int().nonnegative(),
   idempotencyKey: Id,
-  definition: SymposiumProfileDefinitionSchema,
+  definition: PortableProfileDefinitionSchema,
 });
 
 export type SymposiumProfileVersion = z.infer<typeof VersionSchema>;
@@ -41,10 +42,12 @@ const fromRow = (row: VersionRow): SymposiumProfileVersion => ({
 /** Immutable owner-scoped versions stored beside the durable session ledger. */
 export class SymposiumProfileStore {
   private readonly db: Database.Database;
+  private readonly ownsDb: boolean;
 
-  constructor(dbPath: string) {
-    this.db = new Database(dbPath);
-    this.db.pragma('journal_mode = WAL');
+  constructor(dbPath: string, sharedDb?: Database.Database) {
+    this.db = sharedDb ?? new Database(dbPath);
+    this.ownsDb = !sharedDb;
+    if (this.ownsDb) this.db.pragma('journal_mode = WAL');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS symposium_profile_versions (
         owner TEXT NOT NULL,
@@ -66,7 +69,7 @@ export class SymposiumProfileStore {
   }
 
   close(): void {
-    this.db.close();
+    if (this.ownsDb) this.db.close();
   }
 
   get(owner: string, profileId: string, revision?: number): SymposiumProfileVersion | null {
@@ -97,11 +100,8 @@ export class SymposiumProfileStore {
     const rows = this.db
       .prepare(
         `SELECT profile_id, revision, definition, content_hash
-      FROM symposium_profile_versions AS version
-      WHERE owner = ? AND revision = (
-        SELECT MAX(revision) FROM symposium_profile_versions AS latest
-        WHERE latest.owner = version.owner AND latest.profile_id = version.profile_id
-      ) ORDER BY profile_id`,
+      FROM symposium_profile_versions
+      WHERE owner = ? ORDER BY profile_id, revision DESC`,
       )
       .all(owner) as VersionRow[];
     return rows.map(fromRow);

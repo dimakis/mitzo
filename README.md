@@ -72,6 +72,26 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
+### Symposium director and portable profiles
+
+The mobile and desktop ChatViews include **Director controls** for the Symposium
+roster and directed-delivery approval. Use **Refresh director status** to load
+newly queued deliveries while the panel is open. The conversation view offers
+an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
+messages require approval before dispatch. Uncertain retries retain the original
+request key for each audience and excerpt.
+
+Portable profiles save immutable revisions of guidance, expected output, and
+acceptance criteria. Select an exact revision for a seat, or export/import its
+JSON; older revisions remain selectable after later revisions are saved. Revise
+the latest version to create a new one. Conversational profile proposals require
+operator review before saving. Profiles do not carry account credentials or
+execution authority; those are bound separately by host-issued grants.
+
+This is the director and profile foundation. The default server has no Symposium
+provider runtime: activation and grant reissue fail closed until a trusted runtime
+is installed. These controls do not enable production native seat execution.
+
 ### Packages (`packages/`) — npm workspace
 
 Mitzo uses an npm workspace with three internal packages shared between server and frontend:
