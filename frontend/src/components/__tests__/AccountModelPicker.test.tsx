@@ -383,3 +383,21 @@ it('shows per-seat account ownership for Symposium without returning an ordinary
   expect(apiFetch).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole('combobox')).toBeNull();
 });
+
+it('offers personal subscription setup only in the Symposium account catalog including empty catalogs', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const { rerender } = render(
+    <AccountModelPicker scope="chat" sessionId={null} preferredModel="luna" onChange={vi.fn()} />,
+  );
+  await screen.findByText('No account profiles configured.');
+  expect(screen.queryByRole('button', { name: 'Connect personal subscription' })).toBeNull();
+  rerender(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="luna"
+      onChange={vi.fn()}
+    />,
+  );
+  expect(await screen.findByRole('button', { name: 'Connect personal subscription' })).toBeTruthy();
+});
