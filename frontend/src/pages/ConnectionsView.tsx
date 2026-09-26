@@ -543,7 +543,8 @@ function Reauthorization({
     <section className="today-section connections-card" aria-labelledby="reauthorize-heading">
       <h2 id="reauthorize-heading">Recent reauthorization</h2>
       <p className="workspace-muted">
-        Required before creating, testing, assigning, rotating, or revoking a managed connection.
+        Required before creating, testing, assigning, rotating, or revoking a managed external
+        connection. Personal ChatGPT sign-in uses the separate OpenAI flow above.
       </p>
       <label className="connections-field">
         Passphrase
