@@ -587,10 +587,23 @@ describe('session routes', () => {
       sessionId: 's1',
       sessionType: 'symposium',
       symposiumConfig: JSON.stringify({
-        version: 2, revision: 1, state: 'draft', anchorSeatId: 'builder', activeSeatCap: 1,
-        seats: [{ id: 'builder', name: 'Builder', role: 'implementer', model: 'gpt-test',
-          systemPrompt: 'Build the requested patch.', color: '#224466' }],
-        turnRules: { mode: 'directed', maxTurns: 4 }, interceptMode: 'manual',
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'builder',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'builder',
+            name: 'Builder',
+            role: 'implementer',
+            model: 'gpt-test',
+            systemPrompt: 'Build the requested patch.',
+            color: '#224466',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 4 },
+        interceptMode: 'manual',
       }),
     } as ReturnType<typeof eventStore.getSession>);
     try {

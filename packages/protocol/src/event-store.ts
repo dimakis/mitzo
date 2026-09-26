@@ -2727,9 +2727,7 @@ export class EventStore {
     ).run(attemptId, idempotencyKey);
   }
 
-  getUnsettledSymposiumExecutions(
-    deliveryId: string,
-  ): Array<{
+  getUnsettledSymposiumExecutions(deliveryId: string): Array<{
     seatId: string;
     attemptId: number;
     idempotencyKey: string;
