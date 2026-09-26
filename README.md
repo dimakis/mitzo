@@ -104,7 +104,9 @@ source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the read-only host grant.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
-but admission still requires the verified runtime. A partially completed setup
+but admission still requires the verified runtime. Roster changes revalidate
+existing confirmed seats at the new configuration revision without resetting
+their membership generations or sandbox identity. A partially completed setup
 remains visible in Director controls. Removing the last reviewer simplifies the
 composer while preserving durable membership history and isolated routing; it
 never switches the session back to ordinary execution. The development-only
