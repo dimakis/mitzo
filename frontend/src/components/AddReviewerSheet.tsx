@@ -233,6 +233,7 @@ function ReviewerForm({
           profileSelections: { ...current.initialProfileSelections, [seatId]: profile },
           ...boundary,
         });
+      await request(`${base}/admissions/refresh`, { expectedRevision: config.revision });
       current = await request<Status>(base);
       // Existing isolated sessions stay isolated; new anchors are admitted through the same host boundary.
       for (const id of [config.version === 2 ? config.anchorSeatId : config.seats[0].id, seatId]) {

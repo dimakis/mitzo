@@ -73,6 +73,7 @@ function fixture(runtimeAvailable = false) {
     setSymposiumConfig: vi.fn((_id: string, next: unknown) => next),
   };
   const orchestrator = {
+    refreshActiveAdmissions: vi.fn(() => ['architect']),
     transitionMembership: vi.fn(async () => ({
       ...membership,
       state: 'suspended',
@@ -853,4 +854,26 @@ it('selects delivered broadcasts using historical membership and delivered edits
   );
   expect(response.body.content).not.toContain('Private');
   expect(response.body.content).not.toContain('Unedited');
+});
+
+it('refreshes retained admissions only through the verified runtime at an explicit revision', async () => {
+  const { app, orchestrator } = fixture(true);
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/admissions/refresh')
+        .send({ expectedRevision: 4 })
+    ).body,
+  ).toEqual({ seatIds: ['architect'] });
+  expect(orchestrator.refreshActiveAdmissions).toHaveBeenCalledWith('chat', 4);
+  expect(
+    (
+      await request(fixture(false).app)
+        .post('/api/sessions/chat/symposium/admissions/refresh')
+        .send({ expectedRevision: 4 })
+    ).status,
+  ).toBe(503);
+  expect(
+    (await request(app).post('/api/sessions/chat/symposium/admissions/refresh').send({})).status,
+  ).toBe(400);
 });

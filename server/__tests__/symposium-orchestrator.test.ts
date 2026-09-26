@@ -2808,3 +2808,76 @@ describe('SymposiumOrchestrator', () => {
     ]);
   });
 });
+
+it('revalidates all existing active seats after a roster revision without changing membership generations', async () => {
+  const active = {
+    ...config,
+    version: 2 as const,
+    revision: 4,
+    anchorSeatId: 'builder',
+    activeSeatCap: 3,
+    seats: [...config.seats],
+  };
+  store.setSymposiumConfig('chat', active);
+  const validated: string[] = [];
+  orchestrator = new SymposiumOrchestrator({
+    store,
+    executors: { builder, reviewer },
+    reconcileProviders: async () => {},
+    admitSeat: ({ seatId }) => {
+      validated.push(seatId);
+      const revision = store.getActiveSymposiumConfig('chat').revision;
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `host:${revision}:${seatId}`,
+      });
+    },
+  });
+  for (const seatId of ['builder', 'reviewer'])
+    await orchestrator.transitionMembership({
+      sessionId: 'chat',
+      seatId,
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'owner',
+      reason: 'initial',
+      idempotencyKey: `initial:${seatId}`,
+    });
+  store.setSymposiumConfig(
+    'chat',
+    { ...active, revision: 5, seats: [...active.seats, { ...active.seats[1], id: 'another' }] },
+    4,
+  );
+  expect(() =>
+    orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'Continue',
+      idempotencyKey: 'continued',
+    }),
+  ).toThrow(/not active/i);
+  const previous = store.getSymposiumMembershipHistory('chat');
+  expect(orchestrator.refreshActiveAdmissions('chat', 5)).toEqual(['builder', 'reviewer']);
+  expect(validated.slice(-2)).toEqual(['builder', 'reviewer']);
+  expect(store.getSymposiumMembershipHistory('chat')).toEqual(previous);
+  const delivery = orchestrator.stageDelivery({
+    sessionId: 'chat',
+    sourceSeatId: null,
+    recipientSeatIds: ['builder', 'reviewer'],
+    originalContent: 'Continue',
+    idempotencyKey: 'continued',
+  });
+  orchestrator.intervene({
+    deliveryId: delivery.deliveryId,
+    action: 'approve',
+    idempotencyKey: 'approve-continuation',
+  });
+  expect((await orchestrator.deliver(delivery.deliveryId)).status).toBe('delivered');
+  expect(builder.calls).toHaveLength(1);
+  expect(reviewer.calls).toHaveLength(1);
+  expect(() => orchestrator.refreshActiveAdmissions('chat', 4)).toThrow(/revision/i);
+});

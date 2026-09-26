@@ -610,6 +610,35 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
   });
 
+  router.post('/admissions/refresh', (req, res) => {
+    const parsed = z
+      .strictObject({ expectedRevision: z.number().int().positive() })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Expected roster revision is required' });
+      return;
+    }
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const runtime = deps.getRuntime(sessionId);
+    if (!runtime) {
+      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      return;
+    }
+    try {
+      res.json({
+        seatIds: runtime.refreshActiveAdmissions(sessionId, parsed.data.expectedRevision),
+      });
+    } catch (error) {
+      res
+        .status(409)
+        .json({ error: error instanceof Error ? error.message : 'Admission refresh failed' });
+    }
+  });
+
   router.post('/membership', async (req, res) => {
     const parsed = MembershipBody.safeParse(req.body);
     if (!parsed.success) {

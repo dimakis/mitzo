@@ -92,6 +92,13 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
     model: 'luna',
     profileSelection: { profileId: 'review', revision: 1 },
   });
+  const refreshIndex = vi
+    .mocked(apiFetch)
+    .mock.calls.findIndex(([url]) => String(url).endsWith('/admissions/refresh'));
+  expect(refreshIndex).toBeGreaterThan(-1);
+  expect(refreshIndex).toBeLessThan(
+    vi.mocked(apiFetch).mock.calls.findIndex(([url]) => String(url).endsWith('/deliveries')),
+  );
   const delivery = vi
     .mocked(apiFetch)
     .mock.calls.find(([url]) => String(url).endsWith('/deliveries'))!;
