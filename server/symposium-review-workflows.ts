@@ -38,6 +38,7 @@ const UsageSchema = z.strictObject({
   costUsd: z.number().finite().nonnegative().nullable(),
 });
 const FindingInputSchema = z.strictObject({
+  severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
   criterion: Id,
   summary: Id,
   location: Id,
@@ -107,6 +108,7 @@ type WorkResult = z.infer<typeof WorkResultSchema>;
 type Usage = z.infer<typeof UsageSchema>;
 type AttemptAdmission = z.infer<typeof AttemptAdmissionSchema>;
 type Finding = {
+  severity?: z.infer<typeof FindingInputSchema>['severity'];
   fingerprint: string;
   criterion: string;
   summary: string;
@@ -630,6 +632,8 @@ export class SymposiumReviewStore {
           const found = state.findings.find((item) => item.fingerprint === key);
           if (found) {
             found.status = 'open';
+            // Missing severity means unreported, not a downgrade or an inferred default.
+            if (candidate.severity !== undefined) found.severity = candidate.severity;
             found.reviewIds.push(parsed.reviewId);
             found.evidenceRefs = [...new Set([...found.evidenceRefs, ...candidate.evidenceRefs])];
           } else
@@ -677,6 +681,8 @@ export class SymposiumReviewStore {
     return this.db.transaction(() => {
       const state = this.read(parsed.workflowId);
       this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+      if (state.reservations.some((attempt) => !attempt.settled))
+        throw new Error('An attempt is in progress; wait before changing a finding disposition');
       if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
       if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
       const finding = state.findings.find(

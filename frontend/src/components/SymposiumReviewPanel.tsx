@@ -1,3 +1,4 @@
+import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
@@ -12,6 +13,7 @@ type Workflow = {
   costUsd: number;
   findings: Array<{
     fingerprint: string;
+    severity?: 'critical' | 'high' | 'medium' | 'low';
     summary: string;
     location: string;
     criterion: string;
@@ -39,6 +41,9 @@ export function SymposiumReviewPanel({ sessionId }: { sessionId: string }) {
 function ReviewPanel({ sessionId }: { sessionId: string }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [newReview, setNewReview] = useState(false);
+  const [historyVersion, setHistoryVersion] = useState(0);
   const [available, setAvailable] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -65,6 +70,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       if (signal?.aborted) return;
       setAvailable(data.available);
       setWorkflows(data.workflows);
+      setHistoryVersion((version) => version + 1);
       setLoaded(true);
     },
     [base],
@@ -97,6 +103,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
+      if (path === base && typeof result.workflowId === 'string') {
+        setWorkflowId(result.workflowId);
+        setNewReview(false);
+      }
       if (result.publication === 'not_created') {
         setRecord(JSON.stringify(result.record, null, 2));
         if (
@@ -114,7 +124,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       setBusy(false);
     }
   }
-  const workflow = workflows.at(-1);
+  const workflow = newReview
+    ? undefined
+    : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
   const pending = workflow?.reservations.find((attempt) => !attempt.settled);
   const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
   return (
@@ -124,9 +136,48 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       {!loaded && !error && <p>Loading review history…</p>}
       {loaded && !available && (
         <p>
-          Native review receipts and enforced budgets are not available. Review and fix execution
-          remain disabled until the trusted runtime is connected.
+          Automated review is not available for this workspace yet. Saved review history remains
+          readable. You can inspect earlier findings here or continue reviewing the changes
+          manually.
         </p>
+      )}
+      {workflows.length > 0 && (
+        <label>
+          Review workflow
+          <select
+            value={workflow?.workflowId ?? ''}
+            disabled={busy}
+            onChange={(event) => {
+              setWorkflowId(event.target.value);
+              setNewReview(false);
+              setSelected([]);
+              setReason('');
+              setRecord('');
+            }}
+          >
+            {newReview && <option value="">New review</option>}
+            {workflows.map((item) => (
+              <option key={item.workflowId} value={item.workflowId}>
+                {item.artifactRevision} · {item.status.replaceAll('_', ' ')} · {item.workflowId}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {loaded && available && workflows.length > 0 && !newReview && (
+        <button
+          disabled={
+            busy || workflows.some((item) => item.reservations.some((attempt) => !attempt.settled))
+          }
+          onClick={() => {
+            setNewReview(true);
+            setSelected([]);
+            setReason('');
+            setRecord('');
+          }}
+        >
+          New review for current artifact
+        </button>
       )}
       {workflow && (
         <>
@@ -158,6 +209,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
                     {finding.summary} ({finding.status})
                   </span>
                 </label>
+                {finding.severity && (
+                  <p className="symposium-review-severity">Severity: {finding.severity}</p>
+                )}
                 <p>
                   {finding.location} · {finding.criterion}
                 </p>
@@ -271,16 +325,11 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               Prepare PR review record
             </button>
           )}
-          <details>
-            <summary>Review history</summary>
-            <ul>
-              {workflow.reviews.map((review) => (
-                <li key={review.reviewId}>
-                  {review.kind} review · {review.artifactRevision} · {review.reviewId}
-                </li>
-              ))}
-            </ul>
-          </details>
+          <SymposiumReviewHistory
+            key={workflow.workflowId}
+            url={`${base}/${encodeURIComponent(workflow.workflowId)}`}
+            version={historyVersion}
+          />
         </>
       )}
       {loaded && available && !workflow && (

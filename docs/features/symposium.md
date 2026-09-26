@@ -354,7 +354,9 @@ already completed attempt from its host receipt without dispatching it again.
 The mocked trusted-adapter lifecycle covers a full review, explicit selected-finding
 fix authorization, a changed artifact, delta review, current host verification, and
 preparation of a PR review record containing the revision, findings, decisions, and
-history. Findings are untrusted content: they neither grant write authority nor
+history. Findings optionally carry a reviewer-reported severity (`critical`, `high`,
+`medium`, or `low`). Legacy findings remain unlabeled; severity updates are preserved
+in review history and do not change the stable finding fingerprint. Findings are untrusted content: they neither grant write authority nor
 create a PR. A reasoned dismissal records its human actor and evidence references.
 Preparing a record does **not** publish a PR. Automated PR creation and attachment
 are not implemented by this slice; publication requires a separate explicit action.
@@ -401,3 +403,9 @@ Mitzo owns immutable, owner-scoped profile revisions. New profile offers Code co
 An optional `recipe` version 1 travels with profile JSON exports/imports: suggested context categories and source kinds, skill references, read-only tool preferences, compatible providers and reviewer template. Profiles without recipes retain their original representation and hashes. Unknown recipe versions, credentials, machine paths and session authority fields are rejected. Skill/tool references do not install or enable capabilities. Provider compatibility constrains host grant issuance; it does not promise that an account/model is available.
 
 Recipes are setup guidance, not context grants. ContexGin is only an explicitly selected context source; the catalog never writes to ContexGin. Operators still select the concrete context package and account/model per review. Saving or importing a revision does not change active seats; use the existing explicit apply flow, which requires suspension before changing an active seat grant.
+
+The read-only UI preview routes `preview-1` to open review findings, `preview-3`
+to a changed artifact awaiting delta review, and `preview-2` to the unavailable
+native host explanation. Open **Review findings** in the selected preview chat.
+All review responses are fixtures and review mutation requests return HTTP 405;
+no provider, sandbox, account, or PR service is called.

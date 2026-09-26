@@ -146,8 +146,11 @@ Persisted native events retain their claim identity so confirmed restart cleanup
 can close the exact unfinished transcript without inventing a successful result.
 
 Both chat views now offer **Open review findings**. The application persists
-review workflows and history, requires explicit artifact-bound fix or dismissal
-decisions, and requests delta review after a fix. A verified current revision can
+review workflows and history, displays severity only when the reviewer reports it,
+and requires explicit artifact-bound fix or dismissal
+decisions, and requests delta review after a fix. Select an older workflow to read
+its ordered decisions, reasons and evidence, or start a separate review of the current
+artifact without losing that history. A verified current revision can
 produce a PR review record; this action does **not** create or publish a PR.
 Records are immutable host-stored snapshots with a content-derived ID and SHA-256
 hash, binding the verified artifact to its exact workflow/history and evidence.

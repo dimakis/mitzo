@@ -205,3 +205,44 @@ it('allows an explicit reasoned dismissal without granting the builder write acc
   });
   expect(host.dispatch).toHaveBeenCalledTimes(1);
 });
+
+it('rejects a concurrent dismissal while a fix is running so its completion remains recordable', async () => {
+  const { store, host, action } = fixture();
+  await action({ action: 'review' });
+  const fingerprint = store.get('workflow')!.findings[0].fingerprint;
+  const complete = vi.mocked(host.dispatch).getMockImplementation()!;
+  let release!: () => void;
+  let entered!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.mocked(host.dispatch).mockImplementation(async (context, reservation) => {
+    entered();
+    await gate;
+    await complete(context, reservation);
+  });
+  const fix = action({
+    action: 'fix',
+    findingFingerprints: [fingerprint],
+    reason: 'Fix error branch',
+  }).then((result) => result);
+  await started;
+  try {
+    const dismissed = await action({
+      action: 'dismiss',
+      fingerprint,
+      reason: 'No longer needed',
+      evidenceRefs: ['caller.ts:8'],
+    });
+    expect(dismissed.status).toBe(409);
+    expect(dismissed.body.error).toMatch(/attempt.*progress/i);
+    expect(store.get('workflow')!.findings[0].status).toBe('open');
+  } finally {
+    release();
+  }
+  expect((await fix).body.status).toBe('awaiting_delta_review');
+  expect(store.get('workflow')!.reservations.every((item) => item.settled)).toBe(true);
+});
