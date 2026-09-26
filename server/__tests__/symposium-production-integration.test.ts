@@ -456,7 +456,38 @@ describe('production Symposium route to native runtime', () => {
               type: 'stream_event',
               event: { type: 'message_start', message: { id: 'too-late' } },
             });
-          onEvent?.({ type: 'result', is_error: false });
+          // A completed early request is not proof of this turn's final usage.
+          const usageMapper = new CodexSessionEvents(
+            'private-seat',
+            'thread-1',
+            'gpt-test',
+            (event) => onEvent?.(event),
+            { freshThread: true },
+          );
+          usageMapper.notification('turn/started', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1' },
+          });
+          const usageUpdate = (inputTokens: number) =>
+            usageMapper.notification('thread/tokenUsage/updated', {
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              tokenUsage: {
+                total: {
+                  inputTokens,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0,
+                  totalTokens: inputTokens + 10,
+                },
+              },
+            });
+          usageUpdate(100);
+          usageMapper.notification('turn/completed', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed' },
+          });
+          usageUpdate(200); // final provider update arrives after the durable end
           return { providerThreadId: 'thread-1', content: 'Patch complete' };
         },
         cancel: cancellations,

@@ -76,6 +76,10 @@ export class CodexTurnUsage {
     this.latest = total;
   }
 
+  /** Observed deltas only: completion ordering does not prove these are final.
+   * Callers must not persist them as complete turn accounting without separate
+   * terminal-total evidence. The native event mapper deliberately omits them.
+   */
   finish(
     turnId: string,
   ): { input_tokens: number; output_tokens: number; cache_read_input_tokens: number } | undefined {

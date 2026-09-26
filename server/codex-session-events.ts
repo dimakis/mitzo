@@ -346,7 +346,11 @@ export class CodexSessionEvents {
     } else if (method === 'turn/completed') {
       const turn = object(params.turn);
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
-      const usage = this.usage.finish(turn.id);
+      // turn/completed carries no final usage watermark. The most recent
+      // cumulative update may cover only an earlier request; the final update
+      // can arrive after this result is durably sealed. Do not certify that
+      // observed prefix, or use it as the next turn's accounting baseline.
+      this.usage.invalidate();
       this.finishedTurns.add(turn.id);
       this.turnFinished = true;
       this.replayingReasoning = false;
@@ -357,8 +361,7 @@ export class CodexSessionEvents {
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
-        usage_status: usage ? 'complete' : 'unknown',
-        ...(usage ? { usage } : {}),
+        usage_status: 'unknown',
       });
     }
   }

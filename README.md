@@ -455,4 +455,4 @@ The OpenAI Responses route uses bearer authentication in the Authorization heade
 
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), preserving unknown accounting across resume/recovery gaps. This does not enable budgeted review admission or claim a hard provider spending cap.
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.

@@ -69,7 +69,7 @@ it('handles final-only text, repeated completion, and flushes partial text on in
     message: { content: [{ type: 'text', text: 'partial' }] },
   });
 });
-it('reports provider token usage without double-counting cached input', () => {
+it('does not certify a valid cached-input snapshot without a terminal total', () => {
   const events: Record<string, unknown>[] = [];
   const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event), {
     freshThread: true,
@@ -95,8 +95,9 @@ it('reports provider token usage without double-counting cached input', () => {
   });
   expect(events.at(-1)).toMatchObject({
     type: 'result',
-    usage: { input_tokens: 30, cache_read_input_tokens: 70, output_tokens: 20 },
+    usage_status: 'unknown',
   });
+  expect(events.at(-1)).not.toHaveProperty('usage');
 });
 it('renders host tool calls and results without putting provider continuation IDs into public events', () => {
   const events: Record<string, unknown>[] = [];
@@ -453,7 +454,7 @@ it('drops late item events after a result and accepts them after the next turn s
   expect(JSON.stringify(events)).toContain('current summary');
 });
 
-it('seals complete native turn usage across requests and excludes other-thread updates', () => {
+it('leaves native usage unknown when a cumulative update precedes completion and final usage is late', () => {
   const events: Record<string, unknown>[] = [];
   const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event), {
     freshThread: true,
@@ -489,9 +490,9 @@ it('seals complete native turn usage across requests and excludes other-thread u
     turn: { id: 'turn', status: 'completed' },
   });
   expect(events.at(-1)).toMatchObject({
-    usage: { input_tokens: 200, output_tokens: 40 },
-    usage_status: 'complete',
+    usage_status: 'unknown',
   });
+  expect(events.at(-1)).not.toHaveProperty('usage');
   mapper.notification('thread/tokenUsage/updated', {
     threadId: 'provider',
     turnId: 'turn',
