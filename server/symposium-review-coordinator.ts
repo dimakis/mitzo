@@ -342,17 +342,26 @@ export class SymposiumReviewCoordinator {
   exportRecord(context: ReviewContext, workflowId: string) {
     const finalized = this.finalize(context, workflowId);
     if (finalized.kind !== 'verified') return finalized;
-    const record = this.store.exportVerifiedRecord({
-      ...context,
-      workflowId,
-      artifactRevision: finalized.artifactRevision,
-      artifactHash: finalized.artifactHash,
-    });
-    // The immutable snapshot remains historical if the host artifact changes;
-    // never present that change as a current verified export.
-    if (!this.current(context, this.scoped(context, workflowId)))
-      return decision('artifact_changed');
-    return { ...finalized, record };
+    const artifactChanged = new Error('Artifact changed during record export');
+    try {
+      const record = this.store.exportVerifiedRecord(
+        {
+          ...context,
+          workflowId,
+          artifactRevision: finalized.artifactRevision,
+          artifactHash: finalized.artifactHash,
+        },
+        () => {
+          // Keep the final host check inside the storage transaction so a failed
+          // gate cannot leave a newly persisted permanent record behind.
+          if (!this.current(context, this.scoped(context, workflowId))) throw artifactChanged;
+        },
+      );
+      return { ...finalized, record };
+    } catch (error) {
+      if (error === artifactChanged) return decision('artifact_changed');
+      throw error;
+    }
   }
 
   finalize(context: ReviewContext, workflowId: string) {

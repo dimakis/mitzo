@@ -284,3 +284,63 @@ it('requires re-verification after artifact changes and preserves the old record
   expect(second.snapshot.workflow.currentResultId).toBe('result2');
   expect(store.getReviewRecord('owner', 'session', first.recordId)).toEqual(first);
 });
+
+it('rolls back a new immutable record when the final trusted artifact check fails', async () => {
+  verified();
+  const { SymposiumReviewCoordinator } = await import('../symposium-review-coordinator.js');
+  let checks = 0;
+  const host = {
+    currentArtifact: () =>
+      ++checks === 1
+        ? { revision: scope.artifactRevision, hash: scope.artifactHash }
+        : { revision: 'changed', hash: 'c'.repeat(64) },
+  } as unknown as import('../symposium-review-coordinator.js').SymposiumReviewHost;
+  expect(new SymposiumReviewCoordinator(store, host).exportRecord(scope, 'flow')).toMatchObject({
+    kind: 'decision_required',
+    code: 'artifact_changed',
+  });
+  expect(checks).toBe(2);
+  store.close();
+  store = new SymposiumReviewStore(join(directory, 'db'));
+  const db = new Database(join(directory, 'db'));
+  try {
+    expect(db.prepare('SELECT count(*) AS count FROM symposium_review_records').get()).toEqual({
+      count: 0,
+    });
+  } finally {
+    db.close();
+  }
+  // A later explicit export against the unchanged verified artifact is still possible.
+  host.currentArtifact = () => ({ revision: scope.artifactRevision, hash: scope.artifactHash });
+  expect(new SymposiumReviewCoordinator(store, host).exportRecord(scope, 'flow').kind).toBe(
+    'verified',
+  );
+});
+
+it('keeps an existing historical record when an idempotent export fails its final gate', async () => {
+  verified();
+  const original = store.exportVerifiedRecord(scope);
+  const { SymposiumReviewCoordinator } = await import('../symposium-review-coordinator.js');
+  let checks = 0;
+  const host = {
+    currentArtifact: () =>
+      ++checks === 1
+        ? { revision: scope.artifactRevision, hash: scope.artifactHash }
+        : { revision: 'changed', hash: 'c'.repeat(64) },
+  } as unknown as import('../symposium-review-coordinator.js').SymposiumReviewHost;
+  expect(new SymposiumReviewCoordinator(store, host).exportRecord(scope, 'flow')).toMatchObject({
+    kind: 'decision_required',
+    code: 'artifact_changed',
+  });
+  store.close();
+  store = new SymposiumReviewStore(join(directory, 'db'));
+  expect(store.getReviewRecord(scope.owner, scope.sessionId, original.recordId)).toEqual(original);
+  const db = new Database(join(directory, 'db'));
+  try {
+    expect(db.prepare('SELECT count(*) AS count FROM symposium_review_records').get()).toEqual({
+      count: 1,
+    });
+  } finally {
+    db.close();
+  }
+});

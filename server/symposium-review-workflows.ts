@@ -222,14 +222,18 @@ export class SymposiumReviewStore {
   }
 
   /** Read and persist one coherent verified state/history snapshot in a single transaction.
-   * The coordinator additionally verifies the current host artifact before calling this. */
-  exportVerifiedRecord(input: {
-    owner: string;
-    sessionId: string;
-    workflowId: string;
-    artifactRevision: string;
-    artifactHash: string;
-  }): ImmutableReviewRecord {
+   * The coordinator supplies a synchronous final host assertion. Throwing rolls back
+   * a new insertion, while previously committed historical records remain unchanged. */
+  exportVerifiedRecord(
+    input: {
+      owner: string;
+      sessionId: string;
+      workflowId: string;
+      artifactRevision: string;
+      artifactHash: string;
+    },
+    assertCurrentArtifact?: () => void,
+  ): ImmutableReviewRecord {
     return this.db
       .transaction(() => {
         const workflow = this.read(input.workflowId);
@@ -274,6 +278,7 @@ export class SymposiumReviewStore {
           );
         const record = this.getReviewRecord(input.owner, input.sessionId, recordId);
         if (!record) throw new Error('Review record integrity check failed');
+        assertCurrentArtifact?.();
         return record;
       })
       .immediate();
