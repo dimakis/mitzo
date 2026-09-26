@@ -174,9 +174,14 @@ it('runs explicit accepted fixes, requires delta and current host evidence befor
     artifactRevision: 'commit-2',
     publication: 'not_created',
   });
-  expect(record.body.history.map((entry: { action: string }) => entry.action)).toContain(
-    'fix_authorized',
+  expect(
+    record.body.record.snapshot.history.map((entry: { action: string }) => entry.action),
+  ).toContain('fix_authorized');
+  const saved = await request(app).get(
+    `/sessions/session/reviews/records/${record.body.record.recordId}`,
   );
+  expect(saved.status).toBe(200);
+  expect(saved.body).toEqual(record.body.record);
   expect(host.dispatch).toHaveBeenCalledTimes(3);
   expect(
     (await request(app).get('/sessions/session/reviews').set('x-actor', 'other')).body.workflows,
