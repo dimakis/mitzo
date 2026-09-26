@@ -449,3 +449,7 @@ Login receipts are private to the initiating authenticated session, and credenti
 Personal Symposium Connections support separate saved account slots with explicit
 connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
+checks native subscription account type and model availability without inference.
+It requires a trusted owned-host attestation, pins its configuration and provider,
+and retains reconciliation evidence until gateway and physical cleanup agree.
