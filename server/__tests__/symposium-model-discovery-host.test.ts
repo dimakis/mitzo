@@ -265,7 +265,7 @@ it('preserves supported dotted gateway/workspace names in the private SSH proces
   expect(spawn).toHaveBeenCalledWith(
     'ssh',
     expect.arrayContaining([
-      'ProxyCommand=' + options.cli + ' ssh-proxy --gateway-name owned.gateway',
+      `ProxyCommand=${options.cli} ssh-proxy --gateway-name owned.gateway --name ${inventoryReceipt.name} --workspace owned.workspace`,
     ]),
     expect.any(Object),
   );
