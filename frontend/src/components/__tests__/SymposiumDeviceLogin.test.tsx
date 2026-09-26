@@ -164,3 +164,34 @@ it('ignores a stale completed response after the control closes', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
   expect(await screen.findByRole('button', { name: 'Get sign-in code' })).toBeTruthy();
 });
+
+it('recovers an allocating start for cancellation and ignores its late result', async () => {
+  vi.useFakeTimers();
+  let finishStart!: (value: Response) => void;
+  let allocating = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url.endsWith('/cancel'))
+      return response({ state: 'cancelled', attemptId: pending.attemptId });
+    if (init?.method === 'POST')
+      return new Promise((resolve) => {
+        finishStart = resolve;
+        allocating = true;
+      });
+    return response(
+      allocating
+        ? { state: 'pending', attemptId: pending.attemptId, method: 'device-code' }
+        : { state: 'idle' },
+    );
+  });
+  render(<SymposiumDeviceLogin />);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+  fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  const cancel = screen.getByRole('button', { name: 'Cancel sign-in' }) as HTMLButtonElement;
+  expect(cancel.disabled).toBe(false);
+  await act(async () => fireEvent.click(cancel));
+  expect(screen.getByText(/Sign-in cancelled/)).toBeTruthy();
+  await act(async () => finishStart(response(pending)));
+  expect(screen.getByText(/Sign-in cancelled/)).toBeTruthy();
+  expect(screen.queryByText(pending.userCode)).toBeNull();
+});

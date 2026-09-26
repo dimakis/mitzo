@@ -1599,3 +1599,50 @@ describe('account catalog routes', () => {
     });
   });
 });
+
+describe('mounted personal device login ownership', () => {
+  it('binds instructions and cancellation to the authenticated operator session', async () => {
+    const { installSymposiumProductionHost } = await import('../app.js');
+    const cancel = vi.fn(async () => {});
+    installSymposiumProductionHost({
+      beginDeviceLogin: async () => ({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed: new Promise(() => {}),
+        cancel,
+      }),
+    } as never);
+    const { login } = await import('../auth.js');
+    const first = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const second = `cc_auth=${await login(process.env.AUTH_PASSPHRASE!)}`;
+    const started = await request(app)
+      .post('/api/symposium/personal/login')
+      .set('Cookie', first)
+      .send({ method: 'device-code' });
+    expect(started.status).toBe(200);
+    const foreign = await request(app)
+      .get('/api/symposium/personal/login/status')
+      .set('Cookie', second);
+    expect(foreign.body).toEqual({ state: 'unknown' });
+    const rejected = await request(app)
+      .post('/api/symposium/personal/login/cancel')
+      .set('Cookie', second)
+      .send({ attemptId: started.body.attemptId });
+    expect(rejected.body).toEqual({ state: 'unknown' });
+    expect(cancel).not.toHaveBeenCalled();
+    expect(
+      (await request(app).get('/api/symposium/personal/login/status').set('Cookie', first)).body
+        .userCode,
+    ).toBe('ABCD-1234');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/login/cancel')
+          .set('Cookie', first)
+          .send({ attemptId: started.body.attemptId })
+      ).body.state,
+    ).toBe('cancelled');
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+});

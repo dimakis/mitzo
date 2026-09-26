@@ -483,3 +483,5 @@ The running Mac host completes the connection; the UI shows verified account
 identity and supports cancel, status recovery, and explicit reconnect. This host
 has one personal account slot. After a host restart, sign in again. Connecting
 does not select a reviewer account/model or silently rebind an active seat.
+
+Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.

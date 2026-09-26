@@ -150,3 +150,25 @@ it('handles matching completion before the device start response without losing 
   expect(f.install).toHaveBeenCalledOnce();
   expect(existsSync(f.home())).toBe(false);
 });
+
+it('rejects and quarantines credential deletion failure before success without unhandled rejection', async () => {
+  const f = fixture();
+  const unhandled = vi.fn();
+  process.on('unhandledRejection', unhandled);
+  try {
+    const login = await beginDeviceLogin(f.service as never, f.launch as never, () => {
+      throw new Error('private filesystem diagnostic');
+    });
+    f.complete();
+    await expect(login.completed).rejects.toThrow('cleanup is unconfirmed');
+    await expect(login.cancel()).rejects.toThrow('cleanup is unconfirmed');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(unhandled).not.toHaveBeenCalled();
+    expect(f.install).not.toHaveBeenCalled();
+    expect(f.service.invalidate).toHaveBeenCalled();
+    expect(existsSync(f.home())).toBe(true);
+  } finally {
+    process.off('unhandledRejection', unhandled);
+    rmSync(f.home(), { recursive: true, force: true });
+  }
+});

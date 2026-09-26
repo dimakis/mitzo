@@ -5,7 +5,10 @@ beforeAll(async () => {
   vi.stubGlobal('fetch', upstreamFetch);
   await import('../network');
 });
-afterAll(() => vi.unstubAllGlobals());
+afterAll(() => {
+  expect(upstreamFetch).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
 
 it('returns an array for the desktop inbox consumer on a fresh preview load', async () => {
   const response = await window.fetch('/api/inbox');
@@ -119,4 +122,49 @@ it('serves scoped saved review decision history without contacting a host', asyn
     404,
   );
   expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('simulates only explicit device-code start, status, and cancellation', async () => {
+  const start = await window.fetch('/api/symposium/personal/login', {
+    method: 'POST',
+    body: JSON.stringify({ method: 'device-code' }),
+  });
+  const code = await start.json();
+  expect(code).toMatchObject({
+    state: 'pending',
+    attemptId: 'preview-device',
+    userCode: 'DEMO-CODE',
+  });
+  expect(
+    await (
+      await window.fetch('/api/symposium/personal/login/status?attemptId=preview-device')
+    ).json(),
+  ).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  const cancelled = await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: code.attemptId }),
+  });
+  expect(await cancelled.json()).toMatchObject({ state: 'cancelled' });
+  expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toMatchObject({
+    state: 'cancelled',
+  });
+});
+
+it.each([
+  ['/api/symposium/personal/login', 'POST', '{}'],
+  ['/api/symposium/personal/login', 'POST', '{'],
+  ['/api/symposium/personal/login', 'POST', JSON.stringify({ callbackTransport: 'local' })],
+  ['/api/symposium/personal/login', 'POST', JSON.stringify({ method: 'device-code', extra: true })],
+  ['/api/symposium/personal/login', 'GET', undefined],
+  ['/api/symposium/personal/login/status', 'POST', '{}'],
+  ['/api/symposium/personal/login/cancel', 'GET', undefined],
+  ['/api/symposium/personal/login/cancel', 'POST', '{}'],
+  ['/api/symposium/personal/login/cancel', 'POST', JSON.stringify({ attemptId: 'other' })],
+  ['/api/symposium/personal/login/other', 'POST', JSON.stringify({ method: 'device-code' })],
+  ['/api/symposium/personal/login-other', 'GET', undefined],
+  ['/api/connections', 'POST', '{}'],
+])('denies unsupported preview auth request %s %s %s', async (url, method, body) => {
+  const before = await (await window.fetch('/api/symposium/personal/login/status')).json();
+  expect((await window.fetch(url, { method, body })).status).toBe(405);
+  expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toEqual(before);
 });

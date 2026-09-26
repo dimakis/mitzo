@@ -39,6 +39,8 @@ export function SymposiumDeviceLogin({
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const startingVersion = useRef<number | null>(null);
   const [error, setError] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
   const [statusFailed, setStatusFailed] = useState(false);
@@ -52,6 +54,8 @@ export function SymposiumDeviceLogin({
   function stop() {
     clearTimeout(timer.current);
     version.current += 1;
+    startingVersion.current = null;
+    setStarting(false);
     return version.current;
   }
   function accept(value: unknown, expectedId?: string) {
@@ -103,6 +107,12 @@ export function SymposiumDeviceLogin({
     const generation = stop();
     setBusy(true);
     setError('');
+    if (kind === 'start') {
+      attempt.current = undefined;
+      startingVersion.current = generation;
+      setStarting(true);
+      timer.current = setTimeout(() => void check(generation), 2000);
+    }
     try {
       const response = await apiFetch(kind === 'start' ? endpoint : `${endpoint}/cancel`, {
         method: 'POST',
@@ -121,7 +131,11 @@ export function SymposiumDeviceLogin({
       setError('Could not confirm the sign-in request. Check status before trying again.');
       setStatusFailed(true);
     } finally {
-      if (generation === version.current) setBusy(false);
+      if (generation === version.current) {
+        startingVersion.current = null;
+        setStarting(false);
+        setBusy(false);
+      }
     }
   }
 
@@ -234,7 +248,7 @@ export function SymposiumDeviceLogin({
             ) : (
               <button
                 type="button"
-                disabled={busy || disabled}
+                disabled={busy || starting || disabled}
                 onClick={() => void action('start')}
               >
                 {status.state === 'completed' ? 'Reconnect ChatGPT' : 'Get sign-in code'}

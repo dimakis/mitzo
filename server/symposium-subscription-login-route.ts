@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { Request, RequestHandler } from 'express';
+import type { Request, Response, RequestHandler } from 'express';
 import {
   DeviceLoginCleanupError,
   DEVICE_LOGIN_WINDOW_MS,
@@ -40,7 +40,7 @@ export function createSubscriptionLoginHandler(
 /** Ephemeral operator receipts; restart never implies a successful login. */
 export function createSubscriptionLoginController(
   getHost: () => LoginHost | undefined,
-  getOwner: (req: Request) => string = () => 'user',
+  getOwner: (req: Request, res: Response) => string | undefined = () => 'user',
 ): {
   start: RequestHandler;
   status: RequestHandler;
@@ -93,7 +93,7 @@ export function createSubscriptionLoginController(
   const status: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     if (
-      (owner && owner !== getOwner(req)) ||
+      (owner && owner !== getOwner(req, res)) ||
       (req.query.attemptId && req.query.attemptId !== attempt?.attemptId)
     ) {
       res.json({ state: 'unknown' });
@@ -104,6 +104,11 @@ export function createSubscriptionLoginController(
   };
   const start: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
+    const authenticatedOwner = getOwner(req, res);
+    if (!authenticatedOwner) {
+      res.status(403).json({ error: 'Interactive operator authentication is required.' });
+      return;
+    }
     const device = req.body?.method === 'device-code';
     const transport: unknown = req.body?.callbackTransport;
     if (req.body?.method !== undefined && !device) {
@@ -142,7 +147,7 @@ export function createSubscriptionLoginController(
       allocatedDone = resolve;
     });
     attempt = current;
-    owner = getOwner(req);
+    owner = authenticatedOwner;
     cancelLogin = undefined;
     try {
       const host = getHost();
@@ -236,7 +241,7 @@ export function createSubscriptionLoginController(
   };
   const cancel: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (!attempt || owner !== getOwner(req) || req.body?.attemptId !== attempt.attemptId) {
+    if (!attempt || owner !== getOwner(req, res) || req.body?.attemptId !== attempt.attemptId) {
       res.json({ state: 'unknown' });
       return;
     }
