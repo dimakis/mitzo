@@ -354,7 +354,9 @@ already completed attempt from its host receipt without dispatching it again.
 The mocked trusted-adapter lifecycle covers a full review, explicit selected-finding
 fix authorization, a changed artifact, delta review, current host verification, and
 preparation of a PR review record containing the revision, findings, decisions, and
-history. Findings are untrusted content: they neither grant write authority nor
+history. Findings optionally carry a reviewer-reported severity (`critical`, `high`,
+`medium`, or `low`). Legacy findings remain unlabeled; severity updates are preserved
+in review history and do not change the stable finding fingerprint. Findings are untrusted content: they neither grant write authority nor
 create a PR. A reasoned dismissal records its human actor and evidence references.
 Preparing a record does **not** publish a PR. Automated PR creation and attachment
 are not implemented by this slice; publication requires a separate explicit action.

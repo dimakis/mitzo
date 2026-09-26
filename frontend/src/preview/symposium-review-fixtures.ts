@@ -11,6 +11,7 @@ const workflow = {
     {
       fingerprint: 'b'.repeat(64),
       summary: 'Preserve the selected connection after reconnect',
+      severity: 'high',
       location: 'frontend/src/session.ts:42',
       criterion: 'Account selection survives reconnect',
       evidenceRefs: ['mock-diff:42', 'mock-test:reconnect'],
@@ -36,4 +37,42 @@ export const symposiumReviewPreviewResponses = {
       },
     ],
   },
+};
+
+const initialHistory = [
+  {
+    sequence: 1,
+    action: 'created',
+    detail: { artifactRevision: workflow.artifactRevision, artifactHash: workflow.artifactHash },
+  },
+  {
+    sequence: 2,
+    action: 'review_recorded',
+    detail: {
+      kind: 'full',
+      artifactRevision: workflow.artifactRevision,
+      findings: workflow.findings,
+    },
+  },
+];
+export const symposiumReviewPreviewHistory = {
+  findings: initialHistory,
+  delta: [
+    ...initialHistory,
+    {
+      sequence: 3,
+      action: 'fix_authorized',
+      detail: {
+        actor: 'user',
+        reason: 'Keep the selected connection across reconnect',
+        findingFingerprints: [workflow.findings[0].fingerprint],
+        artifactRevision: workflow.artifactRevision,
+      },
+    },
+    {
+      sequence: 4,
+      action: 'fix_recorded',
+      detail: { artifactRevision: 'preview-commit-b34', evidenceRefs: ['mock-test:reconnect'] },
+    },
+  ],
 };

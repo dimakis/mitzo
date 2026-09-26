@@ -62,7 +62,12 @@ export interface SymposiumOrchestratorDeps {
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
   /** Host-only verification, recorded after the durable generation exists. */
-  admitSeat?: (input: { sessionId: string; seatId: string; generation: number }) => void;
+  admitSeat?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    retained?: true;
+  }) => void;
 }
 
 export class SymposiumOrchestrator {
@@ -107,7 +112,12 @@ export class SymposiumOrchestrator {
     for (const member of active) {
       if (member.reconciliation !== 'confirmed')
         throw new Error('Membership reconciliation is required');
-      this.admitSeat!({ sessionId, seatId: member.seatId, generation: member.generation });
+      this.admitSeat!({
+        sessionId,
+        seatId: member.seatId,
+        generation: member.generation,
+        retained: true,
+      });
       const current = this.store.getLatestSymposiumMembership(sessionId, member.seatId);
       const admission = this.store.getLatestSymposiumAdmission(
         sessionId,

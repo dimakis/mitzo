@@ -13,7 +13,7 @@ it('explains unavailable native receipts without offering an unsafe workflow lau
   vi.mocked(apiFetch).mockResolvedValue(response({ available: false, workflows: [] }));
   render(<SymposiumReviewPanel sessionId="session" />);
   expect(
-    await screen.findByText(/Native review receipts and enforced budgets are not available/),
+    await screen.findByText(/Automated review is not available for this workspace yet/),
   ).toBeTruthy();
   expect(screen.queryByRole('button', { name: 'Start review' })).toBeNull();
 });
@@ -104,7 +104,7 @@ it('loads review history only after the user opens the chat entry', async () => 
   render(<SymposiumReviewEntry sessionId="session" />);
   expect(apiFetch).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Open review findings' }));
-  expect(await screen.findByText(/Native review receipts/)).toBeTruthy();
+  expect(await screen.findByText(/Automated review is not available/)).toBeTruthy();
 });
 
 it('attaches only a host evidence reference before preparing the current review record', async () => {
@@ -131,4 +131,124 @@ it('attaches only a host evidence reference before preparing the current review 
       expect.objectContaining({ body: expect.stringContaining('"evidenceId":"test-run-42"') }),
     ),
   );
+});
+
+it('shows only explicitly reported severity and leaves legacy findings unlabeled', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = symposiumReviewPreviewResponses.findings.workflows[0];
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: false,
+      workflows: [
+        {
+          ...workflow,
+          findings: [
+            { ...workflow.findings[0], severity: 'high' },
+            {
+              ...workflow.findings[0],
+              fingerprint: 'legacy',
+              summary: 'Legacy finding',
+              severity: undefined,
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(await screen.findByText('Severity: high')).toBeTruthy();
+  expect(screen.getAllByText(/Severity:/)).toHaveLength(1);
+  expect(screen.getByText(/Legacy finding/)).toBeTruthy();
+  expect(screen.getByText(/Saved review history remains readable/)).toBeTruthy();
+});
+
+it('selects earlier workflows and starts a separate review for the current artifact after a stopped review', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const fixture = symposiumReviewPreviewResponses.findings.workflows[0];
+  const old = { ...fixture, workflowId: 'old', status: 'verified', artifactRevision: 'old-commit' };
+  const stopped = { ...fixture, workflowId: 'stopped', status: 'decision_required' };
+  const created = { ...fixture, workflowId: 'new', status: 'awaiting_review' };
+  let workflows = [old, stopped];
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      workflows = [...workflows, created];
+      return response(created);
+    }
+    return response({ available: true, workflows });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const picker = await screen.findByLabelText('Review workflow');
+  fireEvent.change(picker, { target: { value: 'old' } });
+  expect(screen.getByText('verified · old-commit')).toBeTruthy();
+  fireEvent.change(picker, { target: { value: 'stopped' } });
+  fireEvent.click(screen.getByRole('button', { name: 'New review for current artifact' }));
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Fresh criteria' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/session/symposium/reviews',
+      expect.objectContaining({ method: 'POST' }),
+    ),
+  );
+  const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  const body = JSON.parse(call[1]!.body as string);
+  expect(body.acceptanceCriteria).toEqual(['Fresh criteria']);
+  expect(body).not.toHaveProperty('expectedArtifactRevision');
+  expect(((await screen.findByLabelText('Review workflow')) as HTMLSelectElement).value).toBe(
+    'new',
+  );
+  expect(screen.getByRole('option', { name: /old-commit/ })).toBeTruthy();
+});
+
+it('reloads ordered persisted decisions including reason, evidence and verification', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = symposiumReviewPreviewResponses.findings.workflows[0];
+  const history = [
+    {
+      sequence: 2,
+      action: 'finding_dismissed',
+      detail: { actor: 'user', reason: 'Covered by caller', evidenceRefs: ['caller.ts:8'] },
+    },
+    {
+      sequence: 1,
+      action: 'fix_authorized',
+      detail: { actor: 'user', reason: 'Correct the error branch' },
+    },
+    {
+      sequence: 3,
+      action: 'evidence_recorded',
+      detail: {
+        source: 'host',
+        item: { criterion: 'Reconnect works', verdict: 'verified', evidenceRefs: ['check:42'] },
+      },
+    },
+  ];
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    response(
+      String(path).endsWith('/preview-review')
+        ? { workflow, history }
+        : { available: false, workflows: [workflow] },
+    ),
+  );
+  const mounted = render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByText('Review history'));
+  expect(await screen.findByText('Correct the error branch')).toBeTruthy();
+  expect(screen.getByText('Covered by caller')).toBeTruthy();
+  expect(screen.getByText('caller.ts:8')).toBeTruthy();
+  expect(screen.getByText('Reconnect works: verified')).toBeTruthy();
+  expect(screen.getByText('check:42')).toBeTruthy();
+  const events = screen.getAllByTestId('review-history-event');
+  expect(events[0].textContent).toContain('fix authorized');
+  mounted.unmount();
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByText('Review history'));
+  expect(await screen.findByText('Covered by caller')).toBeTruthy();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/preview-review')),
+  ).toHaveLength(2);
 });
