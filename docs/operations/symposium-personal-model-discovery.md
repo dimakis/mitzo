@@ -37,3 +37,9 @@ following a host restart.
 Validation is mocked. The endpoint has not been exercised against a live gateway or
 OAuth account by this implementation. Connections UI refresh controls are a separate
 integration; callers must reload connection status after this operation.
+
+Probe creation participates in the retained durable workspace lifecycle coordinator,
+shared with credential cleanup and ordinary seat creation. It holds creation until
+an exact requested-name/claim/workspace Ready identity is journaled. Any uncertain
+creation keeps the workspace fence quarantined across restart, even if the helper
+later observes absence; polling cannot prove that a delayed create will not arrive.

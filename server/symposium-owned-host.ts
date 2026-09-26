@@ -1,3 +1,4 @@
+import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { runSymposiumModelDiscovery } from './symposium-model-discovery.js';
@@ -249,14 +250,25 @@ export async function createOwnedSymposiumHost(
           },
           proof.account,
         );
+        const fenced = fenceDiscoveryCreation(
+          guarded,
+          gateway.workspace,
+          workspaceLifecycle.create,
+          () => {
+            custody();
+            proof.assertCurrent();
+          },
+        );
         let models: CatalogModel[] | undefined;
-        const result = await runSymposiumModelDiscovery(config, guarded, (catalog) => {
+        const result = await runSymposiumModelDiscovery(config, fenced.operations, (catalog) => {
           custody();
           proof.assertCurrent();
           models = catalog;
         });
         custody();
         proof.assertCurrent();
+        if (fenced.creationUncertain())
+          return { result: { status: 'reconciliation_required', inference: false } };
         return { result, models };
       },
     );
