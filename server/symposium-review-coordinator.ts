@@ -274,6 +274,21 @@ export class SymposiumReviewCoordinator {
     });
   }
 
+  dismissFinding(
+    context: ReviewContext,
+    input: { workflowId: string; fingerprint: string; reason: string; evidenceRefs: string[] },
+  ): Workflow | CoordinatorDecision {
+    const state = this.scoped(context, input.workflowId);
+    if (!this.host) return decision('trusted_review_host_unavailable');
+    if (!this.current(context, state)) return decision('artifact_changed');
+    return this.store.dismissFinding({
+      ...input,
+      actor: context.owner,
+      artifactRevision: state.artifactRevision,
+      artifactHash: state.artifactHash,
+    });
+  }
+
   recordFix(
     context: ReviewContext,
     workflowId: string,

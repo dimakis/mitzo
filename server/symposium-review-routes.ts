@@ -50,6 +50,13 @@ const Action = z.discriminatedUnion('action', [
   }),
   z.strictObject({ ...artifact, action: z.literal('evidence'), evidenceId: Id }),
   z.strictObject({ ...artifact, action: z.literal('review-record') }),
+  z.strictObject({
+    ...artifact,
+    action: z.literal('dismiss'),
+    fingerprint: Id,
+    reason: Id,
+    evidenceRefs: z.array(Id).min(1),
+  }),
 ]);
 export function createSymposiumReviewRouter(deps: {
   store: SymposiumReviewStore;
@@ -150,7 +157,14 @@ export function createSymposiumReviewRouter(deps: {
           history: deps.store.history(workflowId),
           publication: 'not_created',
         };
-      } else if (action.action === 'evidence')
+      } else if (action.action === 'dismiss')
+        result = coordinator.dismissFinding(ctx, {
+          workflowId,
+          fingerprint: action.fingerprint,
+          reason: action.reason,
+          evidenceRefs: action.evidenceRefs,
+        });
+      else if (action.action === 'evidence')
         result = coordinator.recordHostEvidence(ctx, workflowId, action.evidenceId);
       else {
         let attemptId: string;
