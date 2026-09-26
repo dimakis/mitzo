@@ -20,10 +20,15 @@ export function createPersonalSubscriptionHost(
   if (!connections.list().some((row) => row.id === options.accountId))
     connections.create(options.label, options.accountId);
   const select = (selection?: ConnectionSelection) => {
-    const row = connections
-      .list()
-      .find((row) => row.id === (selection?.connectionId ?? options.accountId));
-    if (!row || (selection && selection.expectedRevision !== row.revision))
+    if (
+      !selection ||
+      typeof selection.connectionId !== 'string' ||
+      !Number.isSafeInteger(selection.expectedRevision) ||
+      selection.expectedRevision < 1
+    )
+      throw new Error('An explicit connection and current revision are required');
+    const row = connections.list().find((row) => row.id === selection.connectionId);
+    if (!row || selection.expectedRevision !== row.revision)
       throw new Error('Connection changed; refresh before retry');
     return row;
   };
