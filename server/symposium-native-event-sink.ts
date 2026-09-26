@@ -24,12 +24,16 @@ interface AttemptStream {
   seenMessages: Set<string>;
   toolOwners: Map<string, string[]>;
   terminal: boolean;
+  pending: Json[];
+  pendingBytes: number;
+  closeTurn?: () => void;
   cleanupTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Maps provider notifications onto one immutable, accepted seat attempt. */
 export class SymposiumNativeEventSink {
   private streams = new Map<string, AttemptStream>();
+  private pendingBytes = 0;
 
   constructor(
     private readonly store: EventStore,
@@ -42,7 +46,15 @@ export class SymposiumNativeEventSink {
       seenMessages: new Set<string>(),
       toolOwners: new Map<string, string[]>(),
       terminal: true,
+      pending: [],
+      pendingBytes: 0,
     };
+    // Confirmed cleanup closes transcript structure, not a fabricated provider result.
+    stream.closeTurn?.();
+    stream.closeTurn = undefined;
+    this.pendingBytes -= stream.pendingBytes;
+    stream.pending = [];
+    stream.pendingBytes = 0;
     stream.terminal = true;
     stream.turn = undefined;
     stream.seenMessages.clear();
@@ -56,28 +68,57 @@ export class SymposiumNativeEventSink {
 
   record(execution: SymposiumSeatExecution, native: Json): void {
     const claim = execution.claimToken;
-    if (native.type === 'symposium_attempt_released') {
-      this.release(claim);
-      return;
-    }
     const attempt = this.store.getSymposiumRecipientAttemptByClaimToken(claim);
     if (
       !attempt ||
       attempt.deliveryId !== execution.deliveryId ||
       attempt.seatId !== execution.seat.id ||
-      attempt.acceptedAt === null ||
+      this.store.getSymposiumDelivery(attempt.deliveryId)?.sessionId !== execution.sessionId ||
       !attempt.provenance ||
       JSON.stringify(attempt.provenance) !== JSON.stringify(execution.provenance)
     )
       return;
+    if (native.type === 'symposium_attempt_released') {
+      this.release(claim);
+      return;
+    }
     let stream = this.streams.get(claim);
     const lateToolResult = native.type === 'user' && stream?.terminal === true;
     if (attempt.status !== 'executing' && !lateToolResult) return;
     if (!stream) {
-      stream = { seenMessages: new Set(), toolOwners: new Map(), terminal: false };
+      stream = {
+        seenMessages: new Set(),
+        toolOwners: new Map(),
+        terminal: false,
+        pending: [],
+        pendingBytes: 0,
+      };
       this.streams.set(claim, stream);
     }
     if (stream.terminal && !lateToolResult) return;
+    if (attempt.acceptedAt === null) {
+      if (stream.terminal || native.type === 'symposium_attempt_accepted') return;
+      const serialized = JSON.stringify(native);
+      const bytes = Buffer.byteLength(serialized);
+      if (stream.pending.length >= 512 || this.pendingBytes + bytes > 1_048_576) {
+        this.release(claim);
+        throw new Error('Native Symposium pre-acceptance event buffer exceeded');
+      }
+      // Copy notifications so provider-owned mutable objects cannot change attribution/order.
+      stream.pending.push(JSON.parse(serialized) as Json);
+      stream.pendingBytes += bytes;
+      this.pendingBytes += bytes;
+      return;
+    }
+    if (stream.pending.length) {
+      const pending = stream.pending;
+      this.pendingBytes -= stream.pendingBytes;
+      stream.pending = [];
+      stream.pendingBytes = 0;
+      for (const event of pending) this.record(execution, event);
+    }
+    if (native.type === 'symposium_attempt_accepted' || (stream.terminal && native.type !== 'user'))
+      return;
     const append = (type: string, payload: Json) => {
       const seq = this.store.appendSymposium(
         execution.sessionId,
@@ -126,6 +167,7 @@ export class SymposiumNativeEventSink {
       append('message_end', { messageId: turn.messageId });
       stream!.turn = undefined;
     };
+    stream.closeTurn = closeTurn;
 
     if (native.type === 'stream_event') {
       const event = object(native.event);

@@ -129,6 +129,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
           acceptedAt: Date.now(),
         });
         if (!recorded) throw new Error('Symposium provider receipt claim is no longer valid');
+        this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
       },
     });
     if (input.providerThreadId && result.providerThreadId !== input.providerThreadId)
