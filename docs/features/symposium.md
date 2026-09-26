@@ -383,3 +383,13 @@ not a live native workflow or production readiness. The canonical product decisi
 is [Design Mitzo symposium UX](codex://threads/01a07b9b-63ca-7771-96f4-6dbeb03f1c48),
 reconciled in the workspace redesign launch plan. A future adapter must meet these
 contracts rather than weakening the coordinator or reusing an ordinary runtime.
+
+PR publication follow-up should reuse the reviewed `github.publish-pr@1` capability,
+not a shell `gh` bypass. Its current HTTP authorization resolves ordinary-session
+registry and live connection bindings, and its executor resolves one trusted
+workspace/sandbox. Symposium needs an attested builder-seat binding plus the same
+forced conversation approval. The current 512-character PR-body schema cannot carry
+an arbitrary full review record; publication needs an immutable record reference
+and attachment policy. Recheck the reviewed artifact at approval and dispatch,
+not only before requesting publication. No existing gate should be bypassed to
+make this missing integration appear complete.
