@@ -41,6 +41,7 @@ function fixture() {
   };
   const options = {
     gateway: {
+      stateParent: root,
       gateway: 'owned',
       workspace: 'workspace',
       workloadImage: `sha256:${'a'.repeat(64)}`,

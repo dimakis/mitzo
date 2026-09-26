@@ -326,3 +326,38 @@ it('returns only verified display identity from an already completed device star
   });
   expect(JSON.stringify(status.body)).not.toMatch(/secret|ABCD|access_token/);
 });
+
+it('binds code receipts to a selected slot and requires its revision', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const beginDeviceLogin = vi.fn().mockResolvedValue({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 60000,
+    completed: new Promise(() => {}),
+    cancel: vi.fn(),
+  });
+  const controller = createSubscriptionLoginController(() => ({ beginDeviceLogin }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  expect(
+    (await request(app).post('/login').send({ method: 'device-code', connectionId: 'one' })).status,
+  ).toBe(400);
+  const result = await request(app)
+    .post('/login')
+    .send({ method: 'device-code', connectionId: 'one', expectedRevision: 2 });
+  expect(result.body.connectionId).toBe('one');
+  expect(beginDeviceLogin).toHaveBeenCalledWith({ connectionId: 'one', expectedRevision: 2 });
+  expect((await request(app).get('/status?connectionId=two')).body).toEqual({ state: 'unknown' });
+  expect((await request(app).get('/status?connectionId=one')).body.userCode).toBe('ABCD-1234');
+  expect(
+    (
+      await request(app)
+        .post('/cancel')
+        .send({ attemptId: result.body.attemptId, connectionId: 'two' })
+    ).body,
+  ).toEqual({ state: 'unknown' });
+});

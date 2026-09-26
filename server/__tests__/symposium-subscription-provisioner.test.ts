@@ -15,7 +15,7 @@ function fixture() {
   const host = {
     workspace: 'workspace',
     verifyCustody: vi.fn(),
-    run: vi.fn(async (args: string[], _environment?: Record<string, string>) =>
+    run: vi.fn(async (args: string[], _environment?: Record<string, string>): Promise<unknown> =>
       args[1] === 'create'
         ? undefined
         : args[1] === 'list'
@@ -219,4 +219,36 @@ it('fences a cancelled device completion and rejects a mismatched cached identit
     }),
   ).rejects.toThrow();
   expect(g.host.run).not.toHaveBeenCalled();
+});
+
+it('fences credentials and refuses deletion while any sandbox holds the provider', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  const provider = f.host.run.mock.calls[0][0][3];
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? args[1] === 'list'
+        ? { sandboxes: [{ name: 'seat' }], next_page_token: '' }
+        : { providers: [{ name: provider, type: 'codex' }], next_page_token: '' }
+      : (undefined as never),
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args.includes('delete'))).toBe(false);
+});
+it('removes refresh material then provider and verifies absence', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? { sandboxes: [], next_page_token: '' }
+      : args[1] === 'list'
+        ? { providers: [], next_page_token: '' }
+        : (undefined as never),
+  );
+  await f.service.disconnect();
+  const operations = f.host.run.mock.calls.map(([args]) => args);
+  expect(operations.some((args) => args.slice(0, 3).join(' ') === 'provider refresh delete')).toBe(
+    true,
+  );
+  expect(operations.some((args) => args.slice(0, 2).join(' ') === 'provider delete')).toBe(true);
 });

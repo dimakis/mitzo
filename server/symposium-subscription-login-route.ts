@@ -1,3 +1,4 @@
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response, RequestHandler } from 'express';
 import {
@@ -7,8 +8,9 @@ import {
 } from './symposium-device-login.js';
 
 interface LoginHost {
-  beginDeviceLogin?: () => Promise<DeviceLogin>;
-  beginLogin?: () => Promise<{
+  personalConnections?: { list(): PersonalConnection[] };
+  beginDeviceLogin?: (selection?: ConnectionSelection) => Promise<DeviceLogin>;
+  beginLogin?: (selection?: ConnectionSelection) => Promise<{
     authorizationUrl: string;
     completed: Promise<unknown>;
     cancel?: () => void | Promise<void>;
@@ -49,6 +51,7 @@ export function createSubscriptionLoginController(
   let attempt:
     | {
         attemptId: string;
+        connectionId?: string;
         state: 'pending' | 'completed' | 'failed' | 'cancelled' | 'expired' | 'unknown';
         method?: 'device-code';
         verificationUrl?: string;
@@ -94,7 +97,8 @@ export function createSubscriptionLoginController(
     res.setHeader('Cache-Control', 'no-store');
     if (
       (owner && owner !== getOwner(req, res)) ||
-      (req.query.attemptId && req.query.attemptId !== attempt?.attemptId)
+      (req.query.attemptId && req.query.attemptId !== attempt?.attemptId) ||
+      (req.query.connectionId && req.query.connectionId !== attempt?.connectionId)
     ) {
       res.json({ state: 'unknown' });
       return;
@@ -109,6 +113,22 @@ export function createSubscriptionLoginController(
       res.status(403).json({ error: 'Interactive operator authentication is required.' });
       return;
     }
+    const connectionId: unknown = req.body?.connectionId;
+    const expectedRevision: unknown = req.body?.expectedRevision;
+    if (
+      connectionId !== undefined &&
+      (typeof connectionId !== 'string' ||
+        !/^[A-Za-z0-9_-]{1,100}$/.test(connectionId) ||
+        !Number.isSafeInteger(expectedRevision) ||
+        Number(expectedRevision) < 1)
+    ) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    const selection =
+      typeof connectionId === 'string'
+        ? { connectionId, expectedRevision: expectedRevision as number }
+        : undefined;
     const device = req.body?.method === 'device-code';
     const transport: unknown = req.body?.callbackTransport;
     if (req.body?.method !== undefined && !device) {
@@ -135,9 +155,25 @@ export function createSubscriptionLoginController(
       });
       return;
     }
+    const catalog = getHost()?.personalConnections;
+    if (selection && catalog) {
+      const row = catalog.list().find((row) => row.id === selection.connectionId);
+      if (
+        !row ||
+        row.revision !== selection.expectedRevision ||
+        ['connecting', 'disconnecting', 'recovery_required'].includes(row.state)
+      ) {
+        res.status(409).json({
+          error: 'Connection changed or requires cleanup. Refresh its status before retry.',
+          ...(row?.state === 'recovery_required' ? { retryBlocked: true } : {}),
+        });
+        return;
+      }
+    }
     const current = {
       attemptId: randomUUID(),
       state: 'pending' as const,
+      ...(selection ? { connectionId: selection.connectionId } : {}),
       ...(device
         ? { method: 'device-code' as const, expiresAt: Date.now() + DEVICE_LOGIN_WINDOW_MS }
         : {}),
@@ -152,7 +188,9 @@ export function createSubscriptionLoginController(
     try {
       const host = getHost();
       if (device ? !host?.beginDeviceLogin : !host?.beginLogin) throw new Error('Unavailable');
-      const login = device ? await host!.beginDeviceLogin!() : await host!.beginLogin!();
+      const login = device
+        ? await host!.beginDeviceLogin!(selection)
+        : await host!.beginLogin!(selection);
       cancelLogin = login.cancel;
       allocatedDone();
       void login.completed.catch(() => undefined);
@@ -241,7 +279,12 @@ export function createSubscriptionLoginController(
   };
   const cancel: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (!attempt || owner !== getOwner(req, res) || req.body?.attemptId !== attempt.attemptId) {
+    if (
+      !attempt ||
+      owner !== getOwner(req, res) ||
+      req.body?.attemptId !== attempt.attemptId ||
+      (req.body?.connectionId !== undefined && req.body.connectionId !== attempt.connectionId)
+    ) {
       res.json({ state: 'unknown' });
       return;
     }

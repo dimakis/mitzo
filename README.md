@@ -447,3 +447,7 @@ and Disconnect controls. Saved identities remain after restart; accounts marked
 reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
+
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
