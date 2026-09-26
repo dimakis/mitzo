@@ -281,3 +281,52 @@ it('reloads ordered persisted decisions including reason, evidence and verificat
     vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/preview-review')),
   ).toHaveLength(2);
 });
+
+it('starts a new workflow despite a stranded older reservation without settling or retrying it', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const base = symposiumReviewPreviewResponses.findings.workflows[0];
+  const stale = {
+    ...base,
+    workflowId: 'stale',
+    status: 'awaiting_review',
+    artifactRevision: 'old-artifact',
+    reservations: [{ attemptId: 'old-attempt', kind: 'review', settled: false }],
+  };
+  const current = {
+    ...base,
+    workflowId: 'current',
+    status: 'awaiting_review',
+    artifactRevision: 'new-artifact',
+  };
+  let workflows = [stale];
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      workflows = [stale, current];
+      return response(current);
+    }
+    return response({ available: true, workflows });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const create = await screen.findByRole('button', { name: 'New review for current artifact' });
+  expect((create as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(create);
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Review new artifact' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
+  await waitFor(() =>
+    expect((screen.getByLabelText('Review workflow') as HTMLSelectElement).value).toBe('current'),
+  );
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.filter(([, init]) => init?.method === 'POST')
+      .map(([path]) => path),
+  ).toEqual(['/api/sessions/session/symposium/reviews']);
+  fireEvent.change(screen.getByLabelText('Review workflow'), { target: { value: 'stale' } });
+  expect(screen.getByText('awaiting review · old-artifact')).toBeTruthy();
+  expect(stale.reservations).toEqual([
+    { attemptId: 'old-attempt', kind: 'review', settled: false },
+  ]);
+});
