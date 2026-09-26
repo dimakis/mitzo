@@ -19,6 +19,7 @@ export const PortableProfileDefinitionSchema = SymposiumProfileDefinitionSchema.
       definition.expectedOutput,
       definition.modelPolicyRole,
       ...definition.acceptanceCriteria,
+      ...(definition.recipe ? [JSON.stringify(definition.recipe)] : []),
     ];
     if (fields.join('\n').length > 6000)
       ctx.addIssue({ code: 'custom', message: 'Portable profile guidance is too long' });

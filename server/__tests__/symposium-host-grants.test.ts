@@ -323,3 +323,35 @@ it('does not silently grant the conversation when no context was selected', () =
   const result = grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
   expect(result.seats.every((seat) => seat.contextGrant?.sourceRefs.length === 0)).toBe(true);
 });
+
+it('rejects a portable recipe incompatible with the explicit seat provider before minting', () => {
+  grants.close();
+  const deps = makeDeps();
+  const selected = deps.resolveProfile({ profileId: 'owner-review', revision: 2 })!;
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+    ...deps,
+    resolveProfile: () => ({
+      ...selected,
+      definition: {
+        ...selected.definition,
+        recipe: {
+          version: 1,
+          context: { include: ['diff'], sources: ['workspace'] },
+          skillRefs: [],
+          toolDefaults: { mode: 'read-only', preferredTools: [] },
+          compatibleProviders: ['google-vertex'],
+          reviewerTemplate: 'general',
+        },
+      },
+    }),
+  });
+  expect(() =>
+    grants.activate({
+      sessionId: 'chat',
+      expectedRevision: 1,
+      actor: 'owner',
+      profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
+    }),
+  ).toThrow(/compatible.*provider/i);
+  expect(config.state).toBe('draft');
+});
