@@ -83,6 +83,7 @@ export function AccountModelPicker({
   const legacy = scope === 'chat' && legacyRequested;
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
   const callbacks = useRef({ onChange, onUnavailable });
   callbacks.current = { onChange, onUnavailable };
   useEffect(() => {
@@ -96,6 +97,7 @@ export function AccountModelPicker({
     setFixedSession(false);
     setSelection(null);
     setEmpty(false);
+    setDraftUnavailable(false);
     callbacks.current.onChange(null);
     const baseUrl =
       scope === 'symposium'
@@ -203,6 +205,18 @@ export function AccountModelPicker({
           }
           setAccounts(catalog);
           const previous = attempt ? selectionRef.current : null;
+          if (
+            scope === 'symposium' &&
+            previous &&
+            !catalog.some(
+              (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
+            )
+          ) {
+            setSelection(previous);
+            setDraftUnavailable(true);
+            callbacks.current.onUnavailable?.();
+            return;
+          }
           const first = catalog.find((a) => a.id === previous?.accountId) ?? catalog[0];
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
@@ -285,11 +299,20 @@ export function AccountModelPicker({
       </>
     );
   if (!selection) return <span>Loading accounts…</span>;
-  const account = accounts.find((a) => a.id === (selection.accountId ?? ''));
+  const account =
+    accounts.find((a) => a.id === (selection.accountId ?? '')) ??
+    (draftUnavailable
+      ? { id: selection.accountId ?? '', label: 'Unavailable account', models: [] }
+      : undefined);
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
       {subscriptionLogin}
+      {draftUnavailable && (
+        <span role="alert">
+          Selected account or model is unavailable. Choose an account and model explicitly.
+        </span>
+      )}
       {sessionId ? (
         <span className="chat-account-binding">{account.label}</span>
       ) : legacy ? (
@@ -307,10 +330,16 @@ export function AccountModelPicker({
               { accountId: nextAccount.id, model: nextAccount.models[0].id },
               nextAccount,
             );
+            setDraftUnavailable(false);
             setSelection(next);
             onChange(next);
           }}
         >
+          {!accounts.some((a) => a.id === account.id) && (
+            <option value={account.id} disabled>
+              {account.label}
+            </option>
+          )}
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.label}
@@ -386,6 +415,7 @@ export function AccountModelPicker({
             { accountId: selection.accountId, model: e.target.value },
             account,
           );
+          setDraftUnavailable(false);
           setSelection(next);
           onChange(next);
         }}

@@ -287,3 +287,21 @@ it('does not report success on failed or unconfirmed model discovery', async () 
   await screen.findByText(/cleanup could not be confirmed/);
   expect(screen.queryByText(/supported models are ready/)).toBeNull();
 });
+
+it('notifies an open picker when callback recovery reports a completed login', async () => {
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: rows }
+        : { state: 'completed', attemptId: 'previous', connectionId: 'personal-a' },
+    ),
+  );
+  render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  await screen.findByText('one@example.test');
+  const personal = within(screen.getByRole('region', { name: 'Personal' }));
+  fireEvent.click(personal.getByText('Browser callback alternative for Personal'));
+  fireEvent.click(personal.getByRole('button', { name: 'Connect personal subscription' }));
+  await personal.findByText(/Previous login completed/);
+  expect(changed).toHaveBeenCalledOnce();
+});

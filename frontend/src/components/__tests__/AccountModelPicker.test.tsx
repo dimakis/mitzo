@@ -427,3 +427,68 @@ it('propagates later disabled state to an already open personal account manager'
     (screen.getByRole('button', { name: 'Add personal account' }) as HTMLButtonElement).disabled,
   ).toBe(true);
 });
+
+it.each(['model', 'account'])(
+  'keeps a removed %s draft unavailable after a personal model refresh until explicit selection',
+  async (removed) => {
+    let refreshed = false;
+    const onChange = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          json: async () => {
+            if (url.endsWith('/models/refresh')) {
+              refreshed = true;
+              return { status: 'complete', inference: false, modelCount: 1 };
+            }
+            if (url.endsWith('/connections'))
+              return {
+                connections: [
+                  { id: 'personal', label: 'Personal', state: 'connected', revision: 1 },
+                ],
+              };
+            if (url.includes('/login/status')) return { state: 'unknown' };
+            return [
+              {
+                id: refreshed && removed === 'account' ? 'replacement' : 'personal',
+                label: 'Personal',
+                models: [
+                  {
+                    id: refreshed ? 'new-model' : 'old-model',
+                    label: refreshed ? 'New model' : 'Old model',
+                  },
+                ],
+              },
+            ];
+          },
+        }) as Response,
+    );
+    render(
+      <AccountModelPicker
+        scope="symposium"
+        sessionId={null}
+        preferredModel="old-model"
+        onChange={onChange}
+      />,
+    );
+    await screen.findByRole('option', { name: 'Old model' });
+    onChange.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText(/Selected account or model is unavailable/);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    if (removed === 'account')
+      fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+        target: { value: 'replacement' },
+      });
+    else
+      fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+        target: { value: 'new-model' },
+      });
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: removed === 'account' ? 'replacement' : 'personal',
+      model: 'new-model',
+    });
+  },
+);

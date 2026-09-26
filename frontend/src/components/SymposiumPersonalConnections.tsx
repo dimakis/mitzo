@@ -264,7 +264,10 @@ export function SymposiumPersonalConnections({
                     void refresh();
                     onAccountsChanged?.();
                   }}
-                  onCatalogRefresh={() => void refresh()}
+                  onCatalogRefresh={() => {
+                    void refresh();
+                    onAccountsChanged?.();
+                  }}
                 />
               </details>
             )}
