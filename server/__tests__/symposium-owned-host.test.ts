@@ -1,6 +1,15 @@
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, statSync, existsSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+  existsSync,
+  chmodSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -131,4 +140,94 @@ describe('explicit owned Symposium host composition', () => {
     );
     expect(f.gateway.stop).toHaveBeenCalledOnce();
   });
+});
+
+it('provisions a new draft through owned argv and makes its checked mapping available without replacing attestation', async () => {
+  const f = fixture();
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'draft',
+    anchorSeatId: 'seat',
+    activeSeatCap: 3,
+    seats: [
+      {
+        id: 'seat',
+        name: 'Builder',
+        model: 'luna',
+        systemPrompt: 'Build',
+        color: '#335577',
+        role: 'coder',
+      },
+    ],
+    turnRules: { mode: 'directed', maxTurns: 8 },
+    interceptMode: 'manual',
+  };
+  f.options.facts.getSession = vi
+    .fn()
+    .mockReturnValue({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) });
+  let volume: {
+    Name: string;
+    Driver: string;
+    Options: object;
+    Labels: Record<string, string>;
+  } | null = null;
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
+    if (args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[1] === 'create') {
+      const labels: Record<string, string> = {};
+      args.forEach((v, i) => {
+        if (v === '--label') {
+          const [key, ...parts] = args[i + 1].split('=');
+          labels[key] = parts.join('=');
+        }
+      });
+      expect(args.slice(0, 4)).toEqual(['volume', 'create', '--driver', 'local']);
+      volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
+      return volume.Name + '\n';
+    }
+    throw new Error('Unexpected command');
+  });
+  const before = readFileSync(f.options.attestationPath, 'utf8');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    const request = host.artifactRequest('new-session', 'seat', 2);
+    expect(request).toMatchObject({
+      sessionId: 'new-session',
+      access: 'writer',
+      workspaceId: 'workspace',
+    });
+    expect(request.volumeName).toMatch(/^mitzo-artifacts-/);
+    expect(await host.artifactLeaseHost.inspectVolume(request.volumeName, 'podman')).toMatchObject({
+      labels: { 'mitzo.symposium.session': 'new-session' },
+    });
+    f.seat.role = 'reviewer';
+    expect(host.artifactRequest('new-session', 'seat', 2).access).toBe('reviewer');
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    expect(readFileSync(f.options.attestationPath, 'utf8')).toBe(before);
+    expect(host.runtimeConfig.cliContract).toBeUndefined();
+    host.stop();
+    const nextDirectory = join(f.root, 'next-gateway');
+    mkdirSync(nextDirectory, { mode: 0o700 });
+    const nextGateway = { ...f.gateway, stateDirectory: nextDirectory };
+    const next = await createOwnedSymposiumHost(
+      f.options,
+      vi.fn().mockResolvedValue(nextGateway),
+      undefined,
+      command,
+    );
+    try {
+      await expect(next.ensureSessionArtifacts('new-session')).rejects.toThrow(
+        'different host custody',
+      );
+      expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    } finally {
+      next.stop();
+    }
+  } finally {
+    host.stop();
+  }
 });

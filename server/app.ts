@@ -823,6 +823,9 @@ export interface SymposiumProductionHost {
   reviewHost?: SymposiumInteractiveReviewHost;
   /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
   reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
+  ensureSessionArtifacts?: (
+    sessionId: string,
+  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -996,6 +999,8 @@ app.use(
     store: eventStore,
     profiles: symposiumProfileStore,
     currentAccounts: symposiumAccountProfiles,
+    ensureSessionArtifacts: async (sessionId) =>
+      symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' },
   }),
 );
 const symposiumReviewStore = new SymposiumReviewStore(

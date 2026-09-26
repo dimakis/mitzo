@@ -1,3 +1,4 @@
+import type { SessionArtifactPreparation } from './symposium-session-artifacts.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -20,13 +21,36 @@ const Request = z.strictObject({
 
 /** Operator-only mounting required. No ordinary account loader or runtime launch capability. */
 export function createSymposiumSessionRouter(deps: {
-  store: Pick<EventStore, 'getSymposiumSessionAllocation' | 'createSymposiumSession'>;
+  store: Pick<
+    EventStore,
+    'getSymposiumSessionAllocation' | 'createSymposiumSession' | 'getSession'
+  >;
   profiles: Pick<SymposiumProfileStore, 'get'>;
   currentAccounts(): AccountProfiles;
   newSessionId?: () => string;
+  ensureSessionArtifacts?: (sessionId: string) => Promise<SessionArtifactPreparation>;
 }) {
   const router = Router();
-  router.post('/', (req, res) => {
+  async function prepare(sessionId: string): Promise<SessionArtifactPreparation> {
+    try {
+      return (await deps.ensureSessionArtifacts?.(sessionId)) ?? { state: 'pending' };
+    } catch {
+      return { state: 'recovery_required' };
+    }
+  }
+  router.post('/:sessionId/artifacts', async (req, res) => {
+    if (!z.strictObject({}).safeParse(req.body ?? {}).success) {
+      res.status(400).json({ error: 'No artifact configuration is accepted' });
+      return;
+    }
+    const session = deps.store.getSession(req.params.sessionId);
+    if (session?.sessionType !== 'symposium') {
+      res.status(404).json({ error: 'Symposium draft not found' });
+      return;
+    }
+    res.json(await prepare(req.params.sessionId));
+  });
+  router.post('/', async (req, res) => {
     const parsed = Request.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
@@ -41,7 +65,11 @@ export function createSymposiumSessionRouter(deps: {
       const key = `user:${idempotencyKey}`;
       const retry = deps.store.getSymposiumSessionAllocation(key, fingerprint);
       if (retry) {
-        res.json({ sessionId: retry, created: false });
+        res.json({
+          sessionId: retry,
+          created: false,
+          ...(deps.ensureSessionArtifacts ? { artifacts: await prepare(retry) } : {}),
+        });
         return;
       }
       const accounts = deps.currentAccounts();
@@ -89,7 +117,10 @@ export function createSymposiumSessionRouter(deps: {
         config,
         profileSelections: { primary: selection.profileSelection },
       });
-      res.status(result.created ? 201 : 200).json(result);
+      res.status(result.created ? 201 : 200).json({
+        ...result,
+        ...(deps.ensureSessionArtifacts ? { artifacts: await prepare(result.sessionId) } : {}),
+      });
     } catch (error) {
       res.status(409).json({
         error: error instanceof Error ? error.message : 'Symposium draft could not be created',

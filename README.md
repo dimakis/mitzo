@@ -88,6 +88,12 @@ profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and
 acknowledge its boundary in Director controls before activation; all production
 admission checks still apply. Retried creation requests reuse the same session.
+An explicitly installed owned host also prepares a private named artifact volume for
+new drafts. If preparation is unavailable, the draft remains saved and the creation
+panel offers **Retry shared files** or **Open draft**. Volume readiness alone does
+not activate a seat or satisfy the separate runtime admission gate. See the
+[session artifact lifecycle](docs/features/symposium-session-artifacts.md).
+
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
 
