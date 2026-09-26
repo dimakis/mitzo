@@ -14,13 +14,16 @@ never starts login, model inference, or a browser fallback automatically.
 
 ## API and custody
 
-Authenticated owner actions use:
+Actions are scoped to the initiating authenticated operator session (not every
+operator session on the same server). A separate browser login cannot retrieve or
+cancel a pending code. The installed account catalog remains available on the same
+server after successful sign-in. Authenticated session actions use:
 
 - `POST /api/symposium/personal/login` with `{"method":"device-code"}` starts a
   fresh attempt. The response carries `attemptId`, `method`, `state`,
   `verificationUrl`, `userCode`, and `expiresAt` once upstream supplies the code.
 - `GET /api/symposium/personal/login/status?attemptId=...` recovers status. Omitting
-  the ID recovers the current owner's latest receipt. During allocation a pending
+  the ID recovers the current authenticated session’s latest receipt. During allocation a pending
   receipt may have no code yet. Completed device receipts include only the verified
   display identity as `account: {label, email, planType}`. Terminal receipts omit
   the code and URL. An
@@ -41,7 +44,9 @@ Each attempt gets a private temporary home and file-backed Codex credential stor
 Only login/account RPCs are allowed; no thread/model execution is permitted. The
 child receives a minimal environment with no inherited API keys, access tokens,
 shared Codex home, or keychain auth fallback. On matching upstream completion,
-the child must terminate before the isolated credential file is read. Its ID
+the child must terminate before the isolated credential file is read. The private
+credential home must then be deleted before provisioning or reporting success;
+deletion failure quarantines the login and blocks retry. Its ID
 token is independently verified for signature, issuer, audience, age and personal
 account identity. Device login does not invent the browser flow's nonce. Raw
 credentials, provider output and failures never enter HTTP responses or logs.
