@@ -421,12 +421,17 @@ no provider, sandbox, account, or PR service is called.
 
 ### Connections phone login status
 
-Repeatable phone sign-in through Connections is implemented in
-[PR #617](https://github.com/dimakis/mitzo/pull/617) (isolated device authentication)
-and [PR #618](https://github.com/dimakis/mitzo/pull/618) (shared Connections UI).
-Mocked tests cover the flow, and the mobile and desktop UI has been checked with
-fixtures. Attended OAuth completion remains unproven; these changes have not been
-deployed. Service restart requires fresh sign-in because authorization depends on
-live host custody. Signing in again never silently rebinds active seats; account
+Repeatable phone sign-in through Connections is pending integration in this branch.
+Separate [PR #617](https://github.com/dimakis/mitzo/pull/617) implements isolated
+device authentication, and [PR #618](https://github.com/dimakis/mitzo/pull/618)
+implements the shared Connections UI. Those proposals have mocked test coverage
+and mobile/desktop fixture checks; they are not included in this branch yet.
+Until they are integrated, this branch supports the callback flow using a browser
+on the host or an explicitly prepared SSH forward. A phone without callback
+forwarding cannot complete that flow; forwarding the web UI alone is insufficient.
+
+Attended device OAuth completion remains unproven, and these proposals have not
+been deployed. Service restart requires fresh sign-in because authorization depends
+on live host custody. Signing in again never silently rebinds active seats; account
 replacement remains subject to the explicit selection and revision fences. No
 login or runtime gate is relaxed by the review-record implementation.
