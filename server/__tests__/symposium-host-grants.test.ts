@@ -315,3 +315,11 @@ it('refuses a resolver that returns a different owner profile revision', () => {
     }),
   ).toThrow(/different revision/i);
 });
+
+it('does not silently grant the conversation when no context was selected', () => {
+  const deps = makeDeps();
+  grants.close();
+  grants = new SymposiumHostGrants(join(directory, 'context.db'), deps);
+  const result = grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
+  expect(result.seats.every((seat) => seat.contextGrant?.sourceRefs.length === 0)).toBe(true);
+});

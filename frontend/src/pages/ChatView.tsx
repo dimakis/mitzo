@@ -1,3 +1,4 @@
+import { AddReviewerSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
@@ -354,6 +355,7 @@ export function ChatView() {
         </div>
       )}
       {!activeSessionId && !sessionId && <NewSymposium />}
+      {activeSessionId && <AddReviewerSheet sessionId={activeSessionId} />}
       {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
       <SymposiumConversation
         sessionId={activeSessionId}
