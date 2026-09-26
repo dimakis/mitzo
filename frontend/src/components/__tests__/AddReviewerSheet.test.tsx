@@ -103,3 +103,27 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
     false,
   );
 });
+
+it('lets an ordinary conversation prepare its isolated roster before runtime admission', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('/context-package')
+            ? { content: '' }
+            : { config: null, runtimeAvailable: false, seats: [] },
+        ),
+      ),
+  );
+  render(<AddReviewerSheet sessionId="ordinary" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), {
+    target: { value: 'Review supplied diff' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+});

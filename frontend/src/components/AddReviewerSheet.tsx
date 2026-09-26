@@ -94,7 +94,8 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
     anchor?.accountBinding && selection?.accountId !== anchor.accountBinding.accountId,
   );
   const ready = Boolean(
-    status?.runtimeAvailable &&
+    status &&
+    (!status.config || status.runtimeAvailable) &&
     profile &&
     selection?.accountId &&
     brief.trim() &&
@@ -330,7 +331,9 @@ function ReviewerForm({ sessionId, onClose }: { sessionId: string; onClose(): vo
             </fieldset>
             {!status?.runtimeAvailable && (
               <p role="status">
-                Verified provider runtime is unavailable. Your choices remain here.
+                {status?.config
+                  ? 'Verified provider runtime is unavailable. Your choices remain here.'
+                  : 'Adding prepares an isolated roster. Stop ordinary execution first; provider admission still requires the verified runtime.'}
               </p>
             )}
             <button type="button" disabled={!ready || busy} onClick={() => void add()}>
