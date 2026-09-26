@@ -11,7 +11,8 @@ This is a hostname preflight, not evidence that a sandbox or model is available.
 For a **new disposable instance**, run:
 
 ```sh
-sh scripts/symposium/create-disposable-tls.sh /absolute/new-private-tls-directory
+OPENSSL_BIN=/opt/homebrew/opt/openssl@3/bin/openssl \
+  sh scripts/symposium/create-disposable-tls.sh /absolute/new-private-tls-directory
 ```
 
 The offline helper refuses an existing directory, creates private seven-day test
@@ -32,3 +33,10 @@ The regression tests use locally generated disposable certificates and mocked
 gateway processes. They prove rejection before issuer/process startup and
 acceptance of the required SANs; they do not claim live sandbox or inference
 success.
+
+The helper requires OpenSSL with `req -addext`, `verify -verify_hostname` and
+`verify -verify_ip`. It checks these capabilities before creating the destination.
+macOS `/usr/bin/openssl` may be LibreSSL without those flags; select a supported
+executable with `OPENSSL_BIN` (the Homebrew example above), or omit that variable
+when `openssl` on PATH supports them. Unsupported binaries fail without leaving
+a partial destination. This helper does not install software or change live TLS.
