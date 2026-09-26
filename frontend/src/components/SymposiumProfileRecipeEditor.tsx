@@ -21,7 +21,7 @@ export function SymposiumProfileRecipeEditor({
   disabled?: boolean;
 }) {
   return (
-    <fieldset disabled={disabled}>
+    <fieldset className="symposium-profile-recipe" disabled={disabled}>
       <legend>Reusable review recipe</legend>
       <p>
         Setup guidance only. Select sources and confirm permissions for each review. Saving never
@@ -49,9 +49,11 @@ export function SymposiumProfileRecipeEditor({
                 })
               }
             >
-              {['general', 'architecture', 'security', 'testability'].map((template) => (
-                <option key={template}>{template}</option>
-              ))}
+              {['general', 'architecture', 'security', 'testability', 'editorial'].map(
+                (template) => (
+                  <option key={template}>{template}</option>
+                ),
+              )}
             </select>
           </label>
           <fieldset>

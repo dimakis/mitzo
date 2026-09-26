@@ -164,3 +164,17 @@ it('edits an advisory reviewer recipe and saves it without applying to a seat', 
     vi.mocked(apiFetch).mock.calls.every(([path]) => path.startsWith('/api/symposium/profiles')),
   ).toBe(true);
 });
+
+it('starts an editable canonical security template without saving or selecting it', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  const onChange = vi.fn();
+  render(<SymposiumProfilePicker value={null} onChange={onChange} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: 'security' } });
+  expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Security reviewer');
+  expect((screen.getByLabelText('Instructions') as HTMLTextAreaElement).value).toContain(
+    'trust boundaries',
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});

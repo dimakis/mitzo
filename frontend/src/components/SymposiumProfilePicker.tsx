@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
+import { symposiumProfileTemplates } from '../lib/symposium-profile-templates';
+import './SymposiumProfilePicker.css';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface SymposiumProfileSelection {
@@ -164,7 +166,7 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
   };
 
   return (
-    <section aria-label="Portable Symposium profile">
+    <section className="symposium-profile-picker" aria-label="Portable Symposium profile">
       <label>
         Saved profile
         <select
@@ -235,6 +237,34 @@ export function SymposiumProfilePicker({ value, onChange, disabled = false }: Pr
       </button>
       {editing && (
         <div>
+          {expectedRevision === 0 && (
+            <label>
+              Start from template
+              <select
+                defaultValue=""
+                onChange={(event) => {
+                  const template = symposiumProfileTemplates.find(
+                    (item) => item.id === event.target.value,
+                  );
+                  if (template) {
+                    setDefinition(template.definition);
+                    setProfileId(`${template.id}-reviewer`);
+                  }
+                }}
+              >
+                <option value="">Custom profile</option>
+                {symposiumProfileTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.definition.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <p>
+            Account: ask when seated. Save creates a catalog revision; apply it explicitly to a
+            seat.
+          </p>
           <label>
             Profile ID
             <input

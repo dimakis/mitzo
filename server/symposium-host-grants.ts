@@ -243,6 +243,13 @@ export class SymposiumHostGrants {
     if (seat.profileBinding || seat.contextGrant || seat.authorityGrant || seat.isolationRequest)
       throw new Error('Draft cannot supply host grant or profile references');
     if (!seat.accountBinding) throw new Error('Seat account binding is required');
+    if (
+      selected?.recipe &&
+      !selected.recipe.compatibleProviders.some(
+        (provider) => provider === seat.accountBinding!.provider,
+      )
+    )
+      throw new Error('Profile is not compatible with the selected provider');
     this.deps.validateSelection(seat);
     const authorization = Authorization.parse(
       this.deps.authorizeSeat({ sessionId, actor, seat: inputSeat, contextSourceRefs }),

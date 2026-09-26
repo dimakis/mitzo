@@ -76,7 +76,7 @@ export const SymposiumProfileRecipeSchema = z.strictObject({
       .max(20),
   }),
   compatibleProviders: z.array(AccountProviderSchema).min(1).max(4),
-  reviewerTemplate: z.enum(['general', 'architecture', 'security', 'testability']),
+  reviewerTemplate: z.enum(['general', 'architecture', 'security', 'testability', 'editorial']),
 });
 export type SymposiumProfileRecipe = z.infer<typeof SymposiumProfileRecipeSchema>;
 

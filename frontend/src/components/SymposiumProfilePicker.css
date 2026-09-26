@@ -1,0 +1,54 @@
+.symposium-profile-picker {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.symposium-profile-picker > div,
+.symposium-profile-recipe {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.symposium-profile-picker label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.symposium-profile-picker input:not([type='checkbox']),
+.symposium-profile-picker select,
+.symposium-profile-picker textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+  background: var(--bg-secondary, #1e1e24);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font: inherit;
+}
+.symposium-profile-picker textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+.symposium-profile-picker fieldset {
+  min-width: 0;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 6px;
+  padding: 0.6rem;
+}
+.symposium-profile-recipe label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  overflow-wrap: anywhere;
+}
+.symposium-profile-picker p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #aaa);
+}
+.symposium-profile-picker button {
+  min-height: 2.4rem;
+}
