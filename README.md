@@ -453,3 +453,6 @@ The [model-discovery acceptance helper](docs/operations/symposium-model-discover
 checks native subscription account type and model availability without inference.
 It requires a trusted owned-host attestation, pins its configuration and provider,
 and retains reconciliation evidence until gateway and physical cleanup agree.
+
+The no-inference discovery helper requires complete, bounded paginated sandbox and
+provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.

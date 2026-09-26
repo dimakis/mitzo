@@ -129,3 +129,69 @@ it('creates the reviewed controller workspace rather than an unrelated discovery
   expect(args.at(-1)).toBe('mkdir -p /sandbox/workspaces/mgmt && exec sleep infinity');
   expect(args).toContain('--no-auto-providers');
 });
+
+const inventories = [
+  ['sandboxes', 'list'],
+  ['providers', 'providerInventory'],
+  ['providers', 'attachedProviders'],
+] as const;
+const inventoryReceipt = {
+  name: 'md-aaaaaaaaaaaaaaaa',
+  claim: 'b'.repeat(64),
+  configHash: 'c'.repeat(64),
+};
+for (const [key, method] of inventories) {
+  it(`${method} consumes every unique page before returning inventory`, async () => {
+    const { config, options } = fixture();
+    const pages = [
+      { [key]: [{ id: 'first' }], next_page_token: 'next' },
+      { [key]: [{ id: 'second' }], next_page_token: '' },
+    ];
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      (args[3] as (error: null, stdout: string) => void)(null, JSON.stringify(pages.shift()));
+    }) as typeof execFile);
+    const ops = createDiscoveryHostOperations(config, options);
+    expect(await ops[method](inventoryReceipt)).toEqual([{ id: 'first' }, { id: 'second' }]);
+    expect(vi.mocked(execFile).mock.calls[1][1]).toEqual(
+      expect.arrayContaining(['--page-size', '100', '--page-token', 'next']),
+    );
+  });
+  it.each([{ page: [] }, { page: { [key]: [] } }, { page: { [key]: [], next_page_token: null } }])(
+    `${method} rejects missing completion evidence %j`,
+    async ({ page }) => {
+      const { config, options } = fixture();
+      vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+        (args[3] as (error: null, stdout: string) => void)(null, JSON.stringify(page));
+      }) as typeof execFile);
+      await expect(
+        createDiscoveryHostOperations(config, options)[method](inventoryReceipt),
+      ).rejects.toThrow('inventory');
+    },
+  );
+  it(`${method} rejects repeated continuation tokens without returning partial rows`, async () => {
+    const { config, options } = fixture();
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      (args[3] as (error: null, stdout: string) => void)(
+        null,
+        JSON.stringify({ [key]: [{ id: 'partial' }], next_page_token: 'same' }),
+      );
+    }) as typeof execFile);
+    await expect(
+      createDiscoveryHostOperations(config, options)[method](inventoryReceipt),
+    ).rejects.toThrow('inventory');
+    expect(execFile).toHaveBeenCalledTimes(2);
+  });
+}
+
+it('bounds unique continuation pages without accepting a partial inventory', async () => {
+  const { config, options } = fixture();
+  let page = 0;
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    (args[3] as (error: null, stdout: string) => void)(
+      null,
+      JSON.stringify({ sandboxes: [], next_page_token: `page-${++page}` }),
+    );
+  }) as typeof execFile);
+  await expect(createDiscoveryHostOperations(config, options).list()).rejects.toThrow('page limit');
+  expect(execFile).toHaveBeenCalledTimes(100);
+});

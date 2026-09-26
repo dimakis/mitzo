@@ -53,3 +53,10 @@ intent-before-create, lost creation responses, provider mismatch, late physical
 deletion, resumed reconciliation, replacement identity, pinned file changes,
 private environment isolation and explicit Podman endpoint selection. The helper
 has not been executed against a real OAuth account as part of this change.
+
+Inventory completeness is required for every sandbox, global provider and attachment check.
+The pinned v0.1 CLI exposes `--page-size` and `--page-token` on all three list commands;
+the adapter consumes up to 100 unique continuation pages and accepts completion only
+with an explicit empty `next_page_token`. Missing or malformed tokens, repeated tokens,
+exhausted page bounds and bare arrays fail closed without returning partial rows.
+Legacy CLI collection arrays are not completeness evidence and are unsupported here.
