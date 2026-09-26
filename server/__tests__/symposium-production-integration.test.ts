@@ -10,6 +10,7 @@ import { CodexSessionEvents } from '../codex-session-events.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { createSymposiumSessionRuntime } from '../symposium-session-runtime.js';
 import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
+import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
 import { SymposiumNativeEventSink } from '../symposium-native-event-sink.js';
 import { getSymposiumPerspective, getSymposiumQueuedInputs } from '../symposium-perspectives.js';
 import { symposiumSeatSystemPrompt } from '../symposium-seat-prompt.js';
@@ -164,11 +165,67 @@ describe('production Symposium route to native runtime', () => {
       openNative: async ({ execution, onEvent }) => ({
         run: async (_input, callbacks) => {
           callbacks.beforeDispatch();
-          callbacks.accepted('thread-1', 'turn-1');
-          sent.push(execution.content);
-          if (execution.content === 'Hold until cancelled')
+          if (execution.content.startsWith('Fail ')) {
+            const acceptedFailure = execution.content === 'Fail after accepted';
+            if (acceptedFailure) callbacks.accepted('thread-1', 'turn-failed');
+            const messageId = acceptedFailure ? 'failed-message' : 'unaccepted-message';
+            const start = {
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: messageId } },
+            };
+            onEvent?.(start);
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'text', text: 'Incomplete output' },
+              },
+            });
+            emitLateMessage = () => onEvent?.(start);
+            throw new Error('Native transport failed');
+          }
+          if (execution.content === 'Hold until cancelled') {
+            callbacks.accepted('thread-1', 'turn-held');
+            onEvent?.({
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'cancelled-message' } },
+            });
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_start',
+                index: 0,
+                content_block: { type: 'text', text: 'Partial output' },
+              },
+            });
+            onEvent?.({
+              type: 'stream_event',
+              event: {
+                type: 'content_block_start',
+                index: 1,
+                content_block: {
+                  type: 'tool_use',
+                  id: 'cancelled-tool',
+                  name: 'Read',
+                  input: { path: 'README.md' },
+                },
+              },
+            });
             await new Promise<never>((_resolve, reject) => {
               rejectHeld = reject;
+            });
+          }
+          for (const invalid of [
+            { ...execution, claimToken: 'wrong-claim' },
+            { ...execution, sessionId: 'wrong-session' },
+            { ...execution, deliveryId: 'wrong-delivery' },
+            { ...execution, seat: { ...execution.seat, id: 'wrong-seat' } },
+            { ...execution, provenance: { ...execution.provenance, membershipGeneration: 999 } },
+          ])
+            events.record(invalid, {
+              type: 'stream_event',
+              event: { type: 'message_start', message: { id: 'wrong-identity' } },
             });
           onEvent?.({
             type: 'stream_event',
@@ -202,6 +259,33 @@ describe('production Symposium route to native runtime', () => {
           onEvent?.({ type: 'stream_event', event: { type: 'content_block_stop', index: 1 } });
           onEvent?.({ type: 'stream_event', event: { type: 'message_stop' } });
           onEvent?.({ type: 'stream_event', event: { type: 'message_stop' } });
+          expect(
+            store.getSessionEvents('symposium').some((event) => event.type === 'message_start'),
+          ).toBe(false);
+          expect(broadcast).not.toHaveBeenCalled();
+          callbacks.accepted('thread-1', 'turn-1');
+          const replayed = store
+            .getSessionEvents('symposium')
+            .filter((event) =>
+              ['message_start', 'block_start', 'block_delta', 'block_end', 'message_end'].includes(
+                event.type,
+              ),
+            );
+          expect(replayed.map((event) => event.type)).toEqual([
+            'message_start',
+            'block_start',
+            'block_delta',
+            'block_end',
+            'block_start',
+            'block_delta',
+            'block_delta',
+            'block_end',
+            'message_end',
+          ]);
+          expect(replayed.every((event) => event.payload.messageId === 'provider-message')).toBe(
+            true,
+          );
+          sent.push(execution.content);
           onEvent?.({
             type: 'stream_event',
             event: { type: 'message_start', message: { id: 'tool-message' } },
@@ -219,6 +303,10 @@ describe('production Symposium route to native runtime', () => {
               },
             },
           });
+          events.record(
+            { ...execution, deliveryId: 'wrong-delivery' },
+            { type: 'symposium_attempt_released' },
+          );
           onEvent?.({
             type: 'progress',
             parentBlockId: 'tool-message:0',
@@ -452,8 +540,119 @@ describe('production Symposium route to native runtime', () => {
     expect(cancellations).toHaveBeenCalledTimes(1);
     await pendingDispatch;
     expect(store.getUnsettledSymposiumExecutions(heldId)).toEqual([]);
+    const cancelledEvents = store
+      .getSessionEvents('symposium')
+      .filter((event) => event.payload.messageId === 'cancelled-message');
+    expect(cancelledEvents.filter((event) => event.type === 'block_end')).toHaveLength(2);
+    expect(cancelledEvents.filter((event) => event.type === 'message_end')).toHaveLength(1);
+    expect(
+      cancelledEvents.find(
+        (event) => event.type === 'block_end' && event.payload.toolId === 'cancelled-tool',
+      )?.payload.input,
+    ).toBe('{"path":"README.md"}');
+    expect(store.getSymposiumDelivery(heldId)?.status).toBe('cancelled');
+    expect(
+      store
+        .getSessionEvents('symposium')
+        .filter((event) => event.type === 'provider_turn_end' && event.payload.isError === false),
+    ).toHaveLength(1);
+    expect(
+      store
+        .getSessionEvents('symposium')
+        .some((event) => event.payload.messageId === 'wrong-identity'),
+    ).toBe(false);
+    for (const content of ['Fail before accepted', 'Fail after accepted']) {
+      const failed = runtime.orchestrator.stageDelivery({
+        sessionId: 'symposium',
+        sourceSeatId: null,
+        recipientSeatIds: ['builder'],
+        originalContent: content,
+        idempotencyKey: content,
+      });
+      runtime.orchestrator.intervene({
+        deliveryId: failed.deliveryId,
+        action: 'approve',
+        idempotencyKey: `approve-${content}`,
+      });
+      const result = await runtime.orchestrator.deliver(failed.deliveryId);
+      expect(result.status).toBe('failed');
+      emitLateMessage?.();
+    }
+    const failureEvents = store.getSessionEvents('symposium');
+    expect(failureEvents.some((event) => event.payload.messageId === 'unaccepted-message')).toBe(
+      false,
+    );
+    expect(
+      failureEvents.filter(
+        (event) => event.type === 'message_start' && event.payload.messageId === 'failed-message',
+      ),
+    ).toHaveLength(1);
+    expect(
+      failureEvents.filter(
+        (event) => event.type === 'block_end' && event.payload.messageId === 'failed-message',
+      ),
+    ).toHaveLength(1);
+    expect(
+      failureEvents.filter(
+        (event) => event.type === 'message_end' && event.payload.messageId === 'failed-message',
+      ),
+    ).toHaveLength(1);
+    expect(
+      failureEvents.filter(
+        (event) => event.type === 'provider_turn_end' && event.payload.isError === false,
+      ),
+    ).toHaveLength(1);
     store.close();
   });
+
+  it.each(['count', 'bytes'])(
+    'bounds pre-acceptance buffering by %s and discards overflowed output',
+    (limit) => {
+      const execution = {
+        sessionId: 'symposium',
+        deliveryId: 'delivery',
+        claimToken: 'claim',
+        seat,
+        provenance: { membershipGeneration: 1 },
+      } as SymposiumSeatExecution;
+      const attempt = {
+        deliveryId: 'delivery',
+        seatId: seat.id,
+        acceptedAt: null as number | null,
+        status: 'executing',
+        provenance: execution.provenance,
+      };
+      const append = vi.fn();
+      const broadcast = vi.fn();
+      const sink = new SymposiumNativeEventSink(
+        {
+          getSymposiumRecipientAttemptByClaimToken: () => attempt,
+          getSymposiumDelivery: () => ({ sessionId: 'symposium' }),
+          appendSymposium: append,
+        } as unknown as EventStore,
+        broadcast,
+      );
+      const start = {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { id: 'buffered-message' } },
+      };
+      sink.record(execution, start);
+      if (limit === 'count') {
+        for (let i = 1; i < 512; i++) sink.record(execution, { type: 'progress', value: i });
+      }
+      expect(() =>
+        sink.record(execution, {
+          type: 'progress',
+          value: limit === 'bytes' ? 'x'.repeat(1_048_576) : 'overflow',
+        }),
+      ).toThrow('buffer exceeded');
+      attempt.acceptedAt = Date.now();
+      sink.record(execution, { type: 'symposium_attempt_accepted' });
+      sink.record(execution, start);
+      expect(append).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+    },
+  );
 
   it('puts only the portable profile contract into native system context', () => {
     expect(symposiumSeatSystemPrompt(seat)).toBe(
