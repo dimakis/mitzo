@@ -1,6 +1,9 @@
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
-import type { ControlledAttemptProcess } from './symposium-attempt-transport.js';
+import type {
+  ControlledAttemptProcess,
+  ControlledAttemptSandbox,
+} from './symposium-attempt-transport.js';
 import { CodexConversation, type CodexConversationOptions } from './codex-conversation.js';
 import type { CodexConversationStore, CodexCommandInput } from './codex-conversation-store.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
@@ -38,7 +41,7 @@ export function assertCodexControllerCommand(command: readonly string[]): void {
 }
 
 export interface OpenAiCodexSeatInput {
-  sandbox: { sandboxName: string; workdir: string };
+  sandbox: ControlledAttemptSandbox;
   route: SymposiumSeatRoute;
   execution: SymposiumSeatExecution;
   store: CodexConversationStore;
@@ -55,9 +58,36 @@ export interface OpenAiCodexSeatInput {
 export async function createOpenAiCodexSeat(
   input: OpenAiCodexSeatInput,
 ): Promise<SymposiumNativeSeat> {
-  const { route, execution, sandbox } = input;
+  const { route, execution } = input;
   if (route.kind !== 'openai-api')
     throw new Error('Codex native seat requires an OpenAI API route');
+  const binding = execution.seat.accountBinding;
+  if (!binding) throw new Error('Codex native seat lacks account binding');
+  return createCodexNativeSeat(input, {
+    profile: {
+      accountId: binding.accountId,
+      accountLabel: binding.accountLabel,
+      email: 'sandbox-api@invalid.local',
+      planType: 'api',
+      model: binding.model,
+      sandboxProvider: route.provider,
+      sandboxProviderId: route.providerId,
+    },
+    modelProvider: 'openshell',
+    verifyBinding: async () => binding,
+    assertCommand: assertCodexControllerCommand,
+  });
+}
+
+/** Shared durable conversation, streaming, receipt and exact-stop lifecycle. */
+export async function createCodexNativeSeat(
+  input: OpenAiCodexSeatInput,
+  auth: Pick<CodexConversationOptions, 'profile' | 'modelProvider' | 'verifyBinding'> & {
+    assertCommand(command: readonly string[]): void;
+    runtimeConfig?: Record<string, unknown>;
+  },
+): Promise<SymposiumNativeSeat> {
+  const { route, execution, sandbox } = input;
   const binding = execution.seat.accountBinding;
   if (!binding) throw new Error('Codex native seat lacks account binding');
   let callbacks:
@@ -80,15 +110,7 @@ export async function createOpenAiCodexSeat(
     conversationId: symposiumSeatRuntimeId(execution),
     cwd: sandbox.workdir,
     runtimeCwd: sandbox.workdir,
-    profile: {
-      accountId: binding.accountId,
-      accountLabel: binding.accountLabel,
-      email: 'sandbox-api@invalid.local',
-      planType: 'api',
-      model: binding.model,
-      sandboxProvider: route.provider,
-      sandboxProviderId: route.providerId,
-    },
+    profile: auth.profile,
     storedBinding: binding,
     store: input.store,
     systemPrompt: symposiumSeatSystemPrompt(execution.seat),
@@ -96,7 +118,7 @@ export async function createOpenAiCodexSeat(
     createClient: (lifecycle) => {
       if (!input.attemptRegistry || !input.verifiedControllerCommand)
         throw new Error('Verified Codex native controller capability is unavailable');
-      assertCodexControllerCommand(input.verifiedControllerCommand);
+      auth.assertCommand(input.verifiedControllerCommand);
       controlled = input.attemptRegistry.launch({
         sandbox,
         sessionId: execution.sessionId,
@@ -128,15 +150,16 @@ export async function createOpenAiCodexSeat(
       if (model !== route.model || (effort ?? null) !== route.effort)
         throw new Error('Symposium model or effort changed before native turn');
     },
-    modelProvider: 'openshell',
+    modelProvider: auth.modelProvider,
     runtimeConfig: {
       web_search: 'disabled',
+      ...auth.runtimeConfig,
       ...(route.readOnly ? { 'features.use_legacy_landlock': true } : {}),
     },
     turnSandboxPolicy: route.readOnly
       ? { type: 'readOnly' }
       : { type: 'externalSandbox', networkAccess: 'restricted' },
-    verifyBinding: async () => binding,
+    verifyBinding: auth.verifyBinding,
     onProviderDispatch: (commandId) => {
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
       callbacks?.beforeDispatch();

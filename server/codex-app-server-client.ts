@@ -83,7 +83,10 @@ export class CodexRequestError extends Error {
 export interface OpenShellCodexOptions {
   sandboxName: string;
   workdir: string;
-  appServerCommand?: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  appServerCommand?:
+    | '/sandbox/run-mitzo-app-server'
+    | '/sandbox/run-mitzo-subscription-app-server'
+    | '/usr/local/bin/symposium-subscription-app-server';
   cli?: string;
   gateway?: string;
   workspace?: string;
@@ -244,6 +247,8 @@ export function openShellCodexProcessSpec(
   options: OpenShellCodexOptions,
   base: NodeJS.ProcessEnv = process.env,
 ) {
+  if (options.appServerCommand === '/usr/local/bin/symposium-subscription-app-server')
+    throw new Error('Native ChatGPT launch requires the isolated Symposium controller');
   return openShellSshProcessSpec(
     options,
     options.appServerCommand || '/sandbox/run-mitzo-app-server',

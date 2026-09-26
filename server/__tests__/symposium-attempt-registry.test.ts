@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +16,14 @@ function registryPath() {
   return join(dir, 'claims.db');
 }
 
-const sandbox = { sandboxName: 'symposium1', workdir: '/sandbox/workspaces/mgmt' };
+const sandbox = {
+  sandboxName: 'symposium1',
+  workdir: '/sandbox/workspaces/mgmt',
+  cli: 'openshell',
+  gateway: 'test-gateway',
+  workspace: 'test-workspace',
+  gatewayInsecure: false,
+};
 const claim = { claimToken: 'claim-1', sessionId: 'session-1', sandbox };
 
 describe('durable native attempt registry', () => {
@@ -100,5 +108,43 @@ describe('durable native attempt registry', () => {
     registry.close();
     chmodSync(path, 0o644);
     expect(() => new SymposiumAttemptRegistry(path)).toThrow(/file is not private/);
+  });
+  it('retains the exact non-default gateway route across restart and cancellation', async () => {
+    const path = registryPath();
+    const selected = {
+      ...sandbox,
+      cli: '/opt/openshell',
+      gateway: 'personal',
+      workspace: 'personal-only',
+      gatewayEndpoint: 'https://127.0.0.1:8443',
+      gatewayInsecure: false,
+    };
+    const first = new SymposiumAttemptRegistry(path);
+    first.reserve({ ...claim, sandbox: selected });
+    first.close();
+    const confirm = vi.fn().mockResolvedValue(undefined);
+    const reopened = new SymposiumAttemptRegistry(path, { launch: vi.fn() as never, confirm });
+    await reopened.recover(claim.claimToken);
+    expect(confirm).toHaveBeenCalledExactlyOnceWith(selected, claim.claimToken);
+    expect(reopened.get(claim.claimToken)?.state).toBe('confirmed');
+    reopened.close();
+  });
+
+  it('migrates legacy claims without guessing their gateway or accepting cleanup', async () => {
+    const path = registryPath();
+    const old = new Database(path);
+    old.exec(`CREATE TABLE symposium_native_attempts (
+      claim_token TEXT PRIMARY KEY, session_id TEXT NOT NULL, sandbox_name TEXT NOT NULL,
+      workdir TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    ); INSERT INTO symposium_native_attempts VALUES ('legacy', 'session', 'same-name', '/sandbox/workspaces/mgmt', 'reserved', 1, 1);`);
+    old.close();
+    chmodSync(path, 0o600);
+    const confirm = vi.fn().mockResolvedValue(undefined);
+    const reopened = new SymposiumAttemptRegistry(path, { launch: vi.fn() as never, confirm });
+    await expect(reopened.recover('legacy')).rejects.toThrow('quarantined');
+    expect(confirm).not.toHaveBeenCalled();
+    expect(reopened.get('legacy')?.state).toBe('uncertain');
+    expect(() => reopened.assertSandboxAvailable('same-name')).toThrow('quarantined');
+    reopened.close();
   });
 });

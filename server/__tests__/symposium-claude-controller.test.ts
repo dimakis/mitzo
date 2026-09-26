@@ -16,7 +16,14 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-const sandbox = { sandboxName: 'symfixture', workdir: '/sandbox/workspaces/mgmt' };
+const sandbox = {
+  sandboxName: 'symfixture',
+  workdir: '/sandbox/workspaces/mgmt',
+  cli: 'openshell',
+  gateway: 'test-gateway',
+  workspace: 'test-workspace',
+  gatewayInsecure: false,
+};
 const route = {
   kind: 'claude-vertex' as const,
   provider: 'fixture-provider',

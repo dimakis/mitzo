@@ -73,3 +73,21 @@ it('requires the exact provider-reported email rather than assuming case equival
     verifyCodexAccount(rpc(), { ...profile, email: 'Person@example.test' }),
   ).rejects.toThrow('Codex account does not match');
 });
+
+it('does not mistake native bootstrap metadata for personal account identity', async () => {
+  const client = { request: vi.fn() };
+  await expect(
+    verifyCodexAccount(client, {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      nativeAuth: 'sandbox-chatgpt',
+      email: 'personal@example.test',
+      planType: 'plus',
+      model: 'luna',
+      sandboxProvider: 'codex-personal',
+      sandboxProviderType: 'codex',
+      sandboxProviderId: 'object',
+    }),
+  ).rejects.toThrow('isolated Symposium provider verification');
+  expect(client.request).not.toHaveBeenCalled();
+});

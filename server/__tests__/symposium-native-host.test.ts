@@ -22,7 +22,14 @@ describe('native Symposium host startup', () => {
     first.registry.reserve({
       claimToken: 'claim-1',
       sessionId: 'session-1',
-      sandbox: { sandboxName: 'sandbox1', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'sandbox1',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
     });
     first.registry.close();
 

@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import type { CodexAccountProfile } from './codex-account.js';
+import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-native.js';
 import type {
   AccountBinding,
   SeatConfig,
@@ -43,6 +45,16 @@ export interface SymposiumHostGrantVerifier {
 }
 
 export type SymposiumSeatRoute =
+  | {
+      kind: 'chatgpt-subscription-native';
+      accountId: string;
+      provider: string;
+      providerId: string;
+      profile: CodexAccountProfile;
+      model: string;
+      effort: string | null;
+      readOnly: boolean;
+    }
   | {
       kind: 'openai-api';
       provider: string;
@@ -187,6 +199,8 @@ export function admitSymposiumSeatDispatch(
     effort: seat.reasoningEffort ?? null,
     readOnly,
   };
+  if (seat.accountBinding.provider === 'openai-codex')
+    return { ...resolveSymposiumSubscriptionRoute(profiles, seat.accountBinding), ...common };
   if (seat.accountBinding.provider === 'openai') {
     const profile = profiles.apiProfile(seat.accountBinding);
     if (!profile.sandboxProvider || !profile.sandboxProviderId)

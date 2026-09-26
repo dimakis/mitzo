@@ -74,7 +74,10 @@ export interface OpenShellRuntime {
   resourceVersion?: string;
   created?: boolean;
   workdir: string;
-  appServerCommand: '/sandbox/run-mitzo-app-server' | '/sandbox/run-mitzo-subscription-app-server';
+  appServerCommand:
+    | '/sandbox/run-mitzo-app-server'
+    | '/sandbox/run-mitzo-subscription-app-server'
+    | '/usr/local/bin/symposium-subscription-app-server';
   cli: string;
   gateway: string;
   workspace: string;
@@ -220,6 +223,13 @@ export interface BoundOpenShellRuntimeConfig extends OpenShellRuntimeConfig {
 
 export type OpenShellAccountRoute =
   | { kind: 'api'; provider: string; model: string }
+  | {
+      kind: 'chatgpt-subscription-native';
+      provider: string;
+      providerType: 'codex';
+      providerId: string;
+      model: string;
+    }
   | {
       kind: 'chatgpt-subscription';
       provider: string;
@@ -384,9 +394,17 @@ export class OpenShellRuntimeManager {
     runSsh?: Run,
     private providerPolicyState: ProviderPolicyState = new FileProviderPolicyState(),
   ) {
+    if (
+      config.account.kind === 'chatgpt-subscription-native' &&
+      (config.cliContract !== 'v0.1' ||
+        config.accountProviderBindings?.length !== 1 ||
+        config.accountProviderBindings[0].type !== 'codex' ||
+        config.accountProviderBindings[0].id !== config.account.providerId)
+    )
+      throw new Error('Native ChatGPT requires one pinned upstream OpenShell 0.1 Codex provider');
     if (config.cliContract === 'v0.1') {
       if (
-        config.account.kind !== 'api' ||
+        (config.account.kind !== 'api' && config.account.kind !== 'chatgpt-subscription-native') ||
         config.accountProviderBindings?.length !== 1 ||
         config.accountProviderBindings[0].name !== config.account.provider ||
         config.serviceProviders.length ||
@@ -401,7 +419,7 @@ export class OpenShellRuntimeManager {
     if (config.accountProviderBindings) {
       if (!config.verifyAccountProviderUnion)
         throw new Error('Shared account provider union requires a durable membership fence');
-      if (config.account.kind !== 'api')
+      if (config.account.kind !== 'api' && config.account.kind !== 'chatgpt-subscription-native')
         throw new Error('Shared account provider union requires independent API routes');
       const names = config.accountProviderBindings.map((binding) =>
         identifier(binding.name, 'account provider'),
@@ -892,6 +910,9 @@ export class OpenShellRuntimeManager {
       provider.id !== account.providerId
     )
       throw new Error('OpenShell subscription provider does not match the selected account');
+    // Public native Codex providers use gateway-owned CODEX_AUTH_* refresh.
+    // The compatibility OAuth provider's refresh contract does not apply.
+    if (account.kind === 'chatgpt-subscription-native') return;
     const refresh = RefreshStatus.parse(
       JSON.parse(
         await this.run(
@@ -1217,9 +1238,11 @@ export class OpenShellRuntimeManager {
       ...(created ? { created: true } : {}),
       workdir: this.config.workdir,
       appServerCommand:
-        this.config.account.kind === 'chatgpt-subscription'
-          ? '/sandbox/run-mitzo-subscription-app-server'
-          : '/sandbox/run-mitzo-app-server',
+        this.config.account.kind === 'chatgpt-subscription-native'
+          ? '/usr/local/bin/symposium-subscription-app-server'
+          : this.config.account.kind === 'chatgpt-subscription'
+            ? '/sandbox/run-mitzo-subscription-app-server'
+            : '/sandbox/run-mitzo-app-server',
       cli: this.config.cli,
       gateway: this.config.gateway,
       workspace: this.config.workspace,

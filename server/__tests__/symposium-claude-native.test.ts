@@ -41,7 +41,14 @@ const route = {
 describe('Claude Vertex native seat', () => {
   it('refuses the real launch path without a durable host attempt registry', async () => {
     const native = await createClaudeVertexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route,
       execution,
     });
@@ -215,7 +222,14 @@ describe('Claude Vertex native seat', () => {
     child.kill = vi.fn(() => true);
     const seen: string[] = [];
     const native = await createClaudeVertexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route,
       execution,
       spawnProcess: () => child,
@@ -274,7 +288,14 @@ describe('Claude Vertex native seat', () => {
     child.stderr = new PassThrough();
     child.kill = vi.fn(() => true);
     const native = await createClaudeVertexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route,
       execution,
       spawnProcess: () => child,
@@ -306,7 +327,14 @@ describe('Claude Vertex native seat', () => {
       sent += chunk.toString();
     });
     const native = await createClaudeVertexSeat({
-      sandbox: { sandboxName: 'shared', workdir: '/sandbox/workspaces/mgmt' },
+      sandbox: {
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      },
       route,
       execution,
       spawnProcess: () => child,

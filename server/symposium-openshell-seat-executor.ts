@@ -2,6 +2,7 @@ import {
   assertSymposiumAttestedProvider,
   type SymposiumProviderCapability,
 } from './symposium-production-gate.js';
+import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
@@ -40,8 +41,8 @@ export interface SymposiumOpenShellSeatExecutorDeps {
       sessionId: string,
       seatId: string,
       signal: AbortSignal,
-    ): Promise<{ sandboxName: string; workdir: string }>;
-    readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean };
+    ): Promise<ControlledAttemptSandbox>;
+    readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean; chatgptSubscription?: boolean };
   };
   recordAccepted(input: {
     deliveryId: string;
@@ -56,7 +57,7 @@ export interface SymposiumOpenShellSeatExecutorDeps {
   recordEvent?: (execution: SymposiumSeatExecution, event: Record<string, unknown>) => void;
   /** Trusted factory: when a registry is supplied, all native launches must use it. */
   openNative(input: {
-    sandbox: { sandboxName: string; workdir: string };
+    sandbox: ControlledAttemptSandbox;
     route: SymposiumSeatRoute;
     execution: SymposiumSeatExecution;
     onEvent?: (event: Record<string, unknown>) => void;
@@ -94,9 +95,11 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     let route = admission();
     if (
       route.readOnly &&
-      !(route.kind === 'openai-api'
-        ? this.deps.owner.readOnlyEnforced.openaiApi
-        : this.deps.owner.readOnlyEnforced.claudeVertex)
+      !(route.kind === 'chatgpt-subscription-native'
+        ? this.deps.owner.readOnlyEnforced.chatgptSubscription
+        : route.kind === 'openai-api'
+          ? this.deps.owner.readOnlyEnforced.openaiApi
+          : this.deps.owner.readOnlyEnforced.claudeVertex)
     )
       throw new Error('Reviewer native read-only policy is not verified on this sandbox');
     const sandbox = await this.deps.owner.ensure(input.sessionId, input.seat.id, input.signal);
@@ -119,14 +122,19 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     const result = await native.run(input, {
       beforeDispatch: () => {
         const current = admission();
-        if (current.providerId !== route.providerId || current.provider !== route.provider)
+        if (JSON.stringify(current) !== JSON.stringify(route))
           throw new Error('Symposium account provider changed before native turn');
         const capability = this.deps.verifyHostCapability?.();
         if (capability)
           assertSymposiumAttestedProvider(capability, {
             name: current.provider,
             id: current.providerId,
-            type: current.kind === 'openai-api' ? 'openai' : 'google-vertex-ai',
+            type:
+              current.kind === 'chatgpt-subscription-native'
+                ? 'codex'
+                : current.kind === 'openai-api'
+                  ? 'openai'
+                  : 'google-vertex-ai',
           });
       },
       accepted: (providerThreadId, providerTurnId) => {

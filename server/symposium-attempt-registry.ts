@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { chmodSync, lstatSync, statSync } from 'node:fs';
 import {
   confirmControlledAttemptStopped,
+  controlledAttemptRoute,
   launchControlledAttempt,
   type ControlledAttemptProcess,
   type ControlledAttemptSandbox,
@@ -59,6 +60,11 @@ export class SymposiumAttemptRegistry {
       session_id TEXT NOT NULL,
       closed INTEGER NOT NULL DEFAULT 0 CHECK(closed IN (0, 1))
     );`);
+    const columns = this.db.pragma('table_info(symposium_native_attempts)') as Array<{
+      name: string;
+    }>;
+    if (!columns.some((column) => column.name === 'transport_route'))
+      this.db.exec('ALTER TABLE symposium_native_attempts ADD COLUMN transport_route TEXT');
   }
 
   /** Registered before asynchronous setup. Every native launch must pass reserve(). */
@@ -87,6 +93,14 @@ export class SymposiumAttemptRegistry {
   reserve(input: { claimToken: string; sessionId: string; sandbox: ControlledAttemptSandbox }) {
     if (!input.claimToken || !input.sessionId || !input.sandbox.sandboxName)
       throw new Error('Invalid native attempt identity');
+    const route =
+      input.sandbox.cli ||
+      input.sandbox.gateway ||
+      input.sandbox.workspace ||
+      input.sandbox.gatewayEndpoint !== undefined ||
+      input.sandbox.gatewayInsecure !== undefined
+        ? JSON.stringify(controlledAttemptRoute(input.sandbox))
+        : null;
     this.db.transaction(() => {
       const preparation = this.db
         .prepare(
@@ -100,8 +114,8 @@ export class SymposiumAttemptRegistry {
       this.db
         .prepare(
           `INSERT INTO symposium_native_attempts
-           (claim_token, session_id, sandbox_name, workdir, state, created_at, updated_at)
-           VALUES (?, ?, ?, ?, 'reserved', ?, ?)`,
+           (claim_token, session_id, sandbox_name, workdir, state, created_at, updated_at, transport_route)
+           VALUES (?, ?, ?, ?, 'reserved', ?, ?, ?)`,
         )
         .run(
           input.claimToken,
@@ -110,6 +124,7 @@ export class SymposiumAttemptRegistry {
           input.sandbox.workdir,
           now,
           now,
+          route,
         );
       // Commit the unknown process state before any transport side effect.
       this.db
@@ -125,6 +140,7 @@ export class SymposiumAttemptRegistry {
     access: 'read' | 'write';
     command: readonly string[];
   }): ControlledAttemptProcess {
+    controlledAttemptRoute(input.sandbox);
     this.reserve(input);
     try {
       const process = this.transport.launch(
@@ -153,11 +169,11 @@ export class SymposiumAttemptRegistry {
     const row = this.db
       .prepare(
         `SELECT claim_token AS claimToken, session_id AS sessionId,
-                sandbox_name AS sandboxName, workdir, state
+                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute
          FROM symposium_native_attempts WHERE claim_token = ?`,
       )
       .get(claimToken);
-    return row as AttemptRow | undefined;
+    return row ? this.decodeRow(row) : undefined;
   }
 
   markUncertain(claimToken: string) {
@@ -179,14 +195,25 @@ export class SymposiumAttemptRegistry {
       throw new Error('Native attempt claim is unavailable');
   }
 
+  private decodeRow(value: unknown): AttemptRow {
+    const { transportRoute, ...row } = value as AttemptRow & { transportRoute: string | null };
+    if (!transportRoute) return row;
+    const route = JSON.parse(transportRoute);
+    return {
+      ...row,
+      ...controlledAttemptRoute({ ...route, sandboxName: row.sandboxName, workdir: row.workdir }),
+    };
+  }
+
   pending(): AttemptRow[] {
     return this.db
       .prepare(
         `SELECT claim_token AS claimToken, session_id AS sessionId,
-                sandbox_name AS sandboxName, workdir, state
+                sandbox_name AS sandboxName, workdir, state, transport_route AS transportRoute
          FROM symposium_native_attempts WHERE state != 'confirmed'`,
       )
-      .all() as AttemptRow[];
+      .all()
+      .map((row) => this.decodeRow(row));
   }
 
   /** A failed probe retains the quarantine; callers must not infer sandbox safety. */
@@ -208,7 +235,8 @@ export class SymposiumAttemptRegistry {
     if (!row) return;
     if (row.state === 'confirmed') return;
     try {
-      await confirm({ sandboxName: row.sandboxName, workdir: row.workdir }, claimToken);
+      const route = controlledAttemptRoute(row);
+      await confirm({ sandboxName: row.sandboxName, workdir: row.workdir, ...route }, claimToken);
       this.markConfirmed(claimToken);
     } catch {
       this.markUncertain(claimToken);

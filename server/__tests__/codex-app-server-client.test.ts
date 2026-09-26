@@ -398,3 +398,13 @@ describe('Codex app-server transport', () => {
     expect(fallback).not.toHaveBeenCalled();
   });
 });
+
+it('rejects native Symposium command through the generic Codex launcher', () => {
+  expect(() =>
+    openShellCodexProcessSpec({
+      sandboxName: 'personal-seat',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/usr/local/bin/symposium-subscription-app-server',
+    }),
+  ).toThrow('isolated Symposium controller');
+});

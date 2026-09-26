@@ -6,7 +6,10 @@ import { z } from 'zod';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 
 const Sha256 = z.string().regex(/^[a-f0-9]{64}$/);
-/** First capability contract covers OpenAI writer seats only. A future Claude
+/** First capability contract covers OpenAI API writer seats only. Personal ChatGPT
+ * subscription admission needs independent upstream provider/authentication and
+ * per-seat credential isolation evidence; an API attestation cannot authorize it.
+ * A future Claude
  * contract needs independent /usr/local/bin/claude, Vertex Haiku profile,
  * negative isolation, and host proof before widening admission.
  */
@@ -154,6 +157,8 @@ export function verifySymposiumProductionGate(
   attestedProviderProfiles: ReadonlySet<string>;
   attestedProviderInstances: SymposiumProviderCapability['attestedProviderInstances'];
 } {
+  if (attestation.allowedAccountProviders?.some((provider: string) => provider === 'openai-codex'))
+    throw new Error('Personal ChatGPT subscription production evidence is unavailable');
   const expected = Attestation.parse(attestation);
   const profileNames = expected.providerProfiles.map((profile) => profile.name);
   if (new Set(profileNames).size !== profileNames.length)

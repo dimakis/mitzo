@@ -191,6 +191,35 @@ describe('Symposium production gate', () => {
     expect(physical.verifyArtifactVolume).not.toHaveBeenCalled();
   });
 
+  it('does not treat an API attestation as personal ChatGPT subscription evidence', () => {
+    const { config, attestation, physical, invoke } = setup();
+    expect(() =>
+      verifySymposiumProductionGate(
+        config,
+        { ...attestation, allowedAccountProviders: ['openai-codex'] } as never,
+        physical,
+        invoke,
+      ),
+    ).toThrow('Personal ChatGPT subscription production evidence is unavailable');
+    for (const change of [
+      { contract: 'openshell-v0.1-chatgpt-subscription-seat' },
+      {
+        providerInstances: [{ ...attestation.providerInstances[0], type: 'openai-codex-oauth' }],
+      },
+    ]) {
+      expect(() =>
+        verifySymposiumProductionGate(
+          config,
+          { ...attestation, ...change } as never,
+          physical,
+          invoke,
+        ),
+      ).toThrow();
+    }
+    expect(invoke).not.toHaveBeenCalled();
+    expect(physical.verifyProviderInstance).not.toHaveBeenCalled();
+  });
+
   it('rejects ambiguous provider profile names before any physical probe', () => {
     const { config, attestation, physical, invoke } = setup();
     const duplicate = {

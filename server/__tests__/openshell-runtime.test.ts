@@ -2561,3 +2561,60 @@ describe('OpenShell runtime lifecycle', () => {
     ).toThrow('providers');
   });
 });
+
+it('attaches the upstream codex provider and returns only the native subscription launcher', async () => {
+  const calls: string[][] = [];
+  const sandboxName = sandboxNameForConversation('conversation');
+  let created = false;
+  const binding = { name: 'codex-personal', id: 'provider-native', type: 'codex' };
+  const run = vi.fn(async (args: readonly string[]) => {
+    calls.push([...args]);
+    if (args.includes('list'))
+      return JSON.stringify({
+        providers: [{ ...binding, workspace: 'mitzo' }],
+        next_page_token: '',
+      });
+    if (args.includes('get')) {
+      if (!created) throw new Error('sandbox not found');
+      return JSON.stringify({
+        name: sandboxName,
+        id: 'physical-native',
+        workspace: 'mitzo',
+        phase: 'Ready',
+        labels: {
+          'mitzo.conversation': owner,
+          'mitzo.account_provider': binding.name,
+          'mitzo.provider_policy': 'state-v2-none',
+        },
+      });
+    }
+    if (args.includes('create')) created = true;
+    return '{}';
+  });
+  const manager = new OpenShellRuntimeManager(
+    {
+      ...config,
+      cliContract: 'v0.1',
+      serviceProviders: [],
+      grantableServiceProviders: [],
+      account: {
+        kind: 'chatgpt-subscription-native',
+        provider: binding.name,
+        providerType: 'codex',
+        providerId: binding.id,
+        model: 'luna',
+      },
+      accountProviderBindings: [binding],
+      verifyAccountProviderUnion: () => {},
+    },
+    run,
+  );
+  const runtime = await manager.ensure('conversation', new AbortController().signal);
+  const create = calls.find((args) => args.includes('create'))!;
+  expect(create.filter((arg) => arg === '--provider')).toHaveLength(1);
+  expect(create[create.indexOf('--provider') + 1]).toBe('codex-personal');
+  expect(create).not.toContain('--inference-provider');
+  expect(create).not.toContain('--inference-model');
+  expect(calls.some((args) => args.includes('refresh'))).toBe(false);
+  expect(runtime.appServerCommand).toBe('/usr/local/bin/symposium-subscription-app-server');
+});
