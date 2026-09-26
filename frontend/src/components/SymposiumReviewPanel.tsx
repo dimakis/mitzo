@@ -387,6 +387,11 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               >
                 {savedRecordOpen ? 'Close saved review record' : 'Open saved review record'}
               </button>
+              <a
+                href={`/sessions/${encodeURIComponent(sessionId)}/review-records/${encodeURIComponent(recordReference.id)}?hash=${encodeURIComponent(recordReference.hash)}`}
+              >
+                Permanent saved review link
+              </a>
               <span>SHA-256: {recordReference.hash}</span>
             </>
           )}

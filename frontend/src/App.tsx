@@ -1,3 +1,4 @@
+import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import {
@@ -148,6 +149,16 @@ export function App() {
           <MobileShell>
             <Routes>
               <Route path="/login" element={<Login />} />
+              <Route
+                path="/sessions/:sessionId/review-records/:recordId"
+                element={
+                  <ProtectedRoute>
+                    <PageRoute>
+                      <SymposiumSavedReviewRecordPage />
+                    </PageRoute>
+                  </ProtectedRoute>
+                }
+              />
               <Route
                 path="/"
                 element={
