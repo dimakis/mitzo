@@ -64,6 +64,12 @@ import {
   TelosOutcomeInput,
   TELOS_CREATE_OUTCOME_TOOL,
 } from './telos-tool.js';
+import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import {
+  proposeProfileFromTool,
+  symposiumProposeProfileDefinition,
+  SYMPOSIUM_PROPOSE_PROFILE_TOOL,
+} from './symposium-profile-tool.js';
 
 const runtimes = new WeakMap<ManagedSession, CodexConversation>();
 interface PendingProviderAdmission {
@@ -506,7 +512,7 @@ async function openCodexChatBound(
     : [];
   const integrationTools = grantIntegrationTools(grantableProviders);
   const openShellHostTools = connectedOpenShell
-    ? [telosCreateOutcomeDefinition, ...integrationTools]
+    ? [telosCreateOutcomeDefinition, symposiumProposeProfileDefinition, ...integrationTools]
     : [];
   let integrationTurn:
     | {
@@ -742,6 +748,7 @@ async function openCodexChatBound(
     getMode: () => options.session.mode,
     systemPrompt:
       options.systemPrompt +
+      `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
       (connectedOpenShell
         ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
         : HOST_TOOL_INSTRUCTIONS) +
@@ -803,7 +810,12 @@ async function openCodexChatBound(
     },
     tools: connectedOpenShell
       ? [...openShellHostTools, ...capabilityTools.definitions]
-      : [...nativeToolDefinitions, ...mcp.definitions, ...capabilityTools.definitions],
+      : [
+          symposiumProposeProfileDefinition,
+          ...nativeToolDefinitions,
+          ...mcp.definitions,
+          ...capabilityTools.definitions,
+        ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) =>
       connectedOpenShell
@@ -862,6 +874,38 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (name === SYMPOSIUM_PROPOSE_PROFILE_TOOL) {
+        signal.throwIfAborted();
+        if (!options.eventStore.getSession(options.conversationId))
+          return { content: 'Conversation is unavailable', isError: true };
+        const proposals = new SymposiumProfileProposalStore(
+          join(process.env.REPO_PATH || '.', '.mitzo', 'events.db'),
+        );
+        try {
+          const proposal = proposeProfileFromTool({
+            store: proposals,
+            owner: 'user',
+            sessionId: options.conversationId,
+            turnId: callContext.turnId,
+            callId: callContext.callId,
+            arguments: input,
+          });
+          return {
+            content: JSON.stringify({
+              proposalId: proposal.proposalId,
+              status: 'awaiting_user_review',
+            }),
+            isError: false,
+          };
+        } catch (error) {
+          return {
+            content: error instanceof Error ? error.message : 'Profile proposal was rejected',
+            isError: true,
+          };
+        } finally {
+          proposals.close();
+        }
+      }
       const capability = capabilityTools.bindings.get(name);
       if (capability && capabilityTools.service) {
         const operation = await capabilityTools.service.invoke(
