@@ -112,7 +112,7 @@ export function SymposiumPersonalConnections({
         .parse(await response.json());
       if (result.status === 'complete' && result.modelCount !== undefined) {
         setMessage(
-          `${result.modelCount} supported models are ready for ${connection.label}. Explicitly choose an account and model to rebind existing seats.`,
+          `${result.modelCount} supported ${result.modelCount === 1 ? 'model is' : 'models are'} ready for ${connection.label}. Explicitly choose an account and model to rebind existing seats.`,
         );
       } else if (result.status === 'reconciliation_required') {
         setMessage(
