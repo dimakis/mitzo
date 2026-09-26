@@ -22,6 +22,8 @@ window.fetch = async (input, init) => {
           : symposiumReviewPreviewResponses.unavailable,
     );
   }
+  if (url.pathname === '/api/symposium/personal/login/status')
+    return Response.json({ state: 'idle' });
   if (url.pathname === '/api/symposium/profile-proposals')
     return Response.json(
       url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],

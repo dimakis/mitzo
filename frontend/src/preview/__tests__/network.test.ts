@@ -84,3 +84,16 @@ it('serves findings, delta and unavailable review panels entirely from preview d
   expect(denied.status).toBe(405);
   expect(upstreamFetch).not.toHaveBeenCalled();
 });
+
+it('reports idle personal login without enabling preview OAuth', async () => {
+  const response = await window.fetch('/api/symposium/personal/login/status');
+  const body = await response.json();
+  expect(body).toEqual({ state: 'idle' });
+  expect(body).not.toHaveProperty('authorizationUrl');
+  const mutation = await window.fetch('/api/symposium/personal/login', {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(mutation.status).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
