@@ -930,7 +930,9 @@ export function symposiumSeatRolloverHistory(
   execution: import('./symposium-orchestrator.js').SymposiumSeatExecution,
 ) {
   const identity = (value: Record<string, unknown>) => {
-    const { capturedAt: _captured, configRevision: _config, ...rest } = value;
+    const rest = { ...value };
+    delete rest.capturedAt;
+    delete rest.configRevision;
     return JSON.stringify(rest);
   };
   const expected = identity(execution.provenance as unknown as Record<string, unknown>);
