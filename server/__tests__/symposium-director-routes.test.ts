@@ -73,6 +73,7 @@ function fixture(runtimeAvailable = false) {
     setSymposiumConfig: vi.fn((_id: string, next: unknown) => next),
   };
   const orchestrator = {
+    refreshActiveAdmissions: vi.fn(() => ['architect']),
     transitionMembership: vi.fn(async () => ({
       ...membership,
       state: 'suspended',
@@ -785,4 +786,94 @@ it('refuses initial /config conversion while ordinary execution is active', asyn
   expect(response.status).toBe(409);
   expect(response.body.error).toContain('Stop the ordinary conversation');
   expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+});
+
+it('does not infer public visibility from a null author and rejects selecting private context', async () => {
+  const { app, getPerspective } = fixture();
+  getPerspective.mockReturnValue({
+    items: [
+      {
+        kind: 'authored',
+        eventSeq: 1,
+        messageId: 'private',
+        seatId: null,
+        content: 'Private operator aside',
+        provenance: null,
+      },
+    ],
+    nextSeq: null,
+  } as never);
+  const response = await request(app)
+    .post('/api/sessions/chat/symposium/context-package')
+    .send({ mode: 'selected-turns', turnIds: ['turn:1'] });
+  expect(response.status).toBe(409);
+  expect(JSON.stringify(response.body)).not.toContain('Private operator aside');
+  expect(getPerspective).not.toHaveBeenCalled();
+});
+it('selects delivered broadcasts using historical membership and delivered edits in chronological order', async () => {
+  const { app, store } = fixture();
+  store.getSymposiumMembershipHistory.mockReturnValue([
+    { seatId: 'architect', generation: 1, state: 'active', occurredAt: 1 },
+    { seatId: 'reviewer', generation: 1, state: 'active', occurredAt: 1 },
+    { seatId: 'later', generation: 1, state: 'active', occurredAt: 30 },
+  ] as never);
+  store.getSymposiumDeliveries.mockReturnValue([
+    {
+      deliveryId: 'second',
+      status: 'delivered',
+      recipientSeatIds: ['architect', 'reviewer'],
+      originalContent: 'Unedited secret',
+      deliveredContent: 'Second approved excerpt',
+      createdAt: 20,
+    },
+    {
+      deliveryId: 'private',
+      status: 'delivered',
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'Private operator aside',
+      deliveredContent: null,
+      createdAt: 15,
+    },
+    {
+      deliveryId: 'first',
+      status: 'delivered',
+      recipientSeatIds: ['architect', 'reviewer'],
+      originalContent: 'First approved excerpt',
+      deliveredContent: null,
+      createdAt: 10,
+    },
+  ] as never);
+  const response = await request(app)
+    .post('/api/sessions/chat/symposium/context-package')
+    .send({ mode: 'full-context' });
+  expect(response.status).toBe(200);
+  expect(response.body.content).toContain('First approved excerpt');
+  expect(response.body.content).toContain('Second approved excerpt');
+  expect(response.body.content.indexOf('First')).toBeLessThan(
+    response.body.content.indexOf('Second'),
+  );
+  expect(response.body.content).not.toContain('Private');
+  expect(response.body.content).not.toContain('Unedited');
+});
+
+it('refreshes retained admissions only through the verified runtime at an explicit revision', async () => {
+  const { app, orchestrator } = fixture(true);
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/admissions/refresh')
+        .send({ expectedRevision: 4 })
+    ).body,
+  ).toEqual({ seatIds: ['architect'] });
+  expect(orchestrator.refreshActiveAdmissions).toHaveBeenCalledWith('chat', 4);
+  expect(
+    (
+      await request(fixture(false).app)
+        .post('/api/sessions/chat/symposium/admissions/refresh')
+        .send({ expectedRevision: 4 })
+    ).status,
+  ).toBe(503);
+  expect(
+    (await request(app).post('/api/sessions/chat/symposium/admissions/refresh').send({})).status,
+  ).toBe(400);
 });

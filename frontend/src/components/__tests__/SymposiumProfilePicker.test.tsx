@@ -132,6 +132,15 @@ it.each(['save', 'import'])('keeps previous revisions selectable after %s', asyn
   expect(onChange).toHaveBeenLastCalledWith({ profileId: 'reviewer', revision: 1 });
 });
 
+it('keeps catalog management collapsed in the focused reviewer flow', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([version]));
+  render(<SymposiumProfilePicker compact value={null} onChange={vi.fn()} />);
+  await screen.findByLabelText('Saved profile');
+  const disclosure = screen.getByText('Manage profiles').closest('details');
+  expect(disclosure).not.toBeNull();
+  expect(disclosure?.hasAttribute('open')).toBe(false);
+});
+
 it('edits an advisory reviewer recipe and saves it without applying to a seat', async () => {
   vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
     init?.method === 'POST' ? response({ ...version, revision: 3 }) : response([version]),
