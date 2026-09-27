@@ -131,8 +131,10 @@ policy and operator-selected GitHub authority. No live writer identity is invent
 
 This increment is local, not an enabled review/publication route. Offline real-Git
 and mocked host-boundary tests cover inspection, bundle verification, size and
-identity rejection, unknown create and failed cleanup. Exact combined-source
-physical export remains pending. Existing earlier physical verifier evidence used
-an explicitly reported canonical-target projection and does not prove this new
-exporter. Child artifact generations will require a reviewed generation-scoped
+identity rejection, unknown create and failed cleanup. An exact combined-source physical proof at `47c93c79` exercised the unchanged
+verifier and exporter scripts on the canonical target using the pinned image:
+two synthetic commits, matching inspection, a hash-checked 402-byte bundle, and
+physical rejection of a 16-byte cap. Helpers and the disposable volume were
+removed. This proves those scripts, not full host drain-to-seal-to-export wiring.
+Earlier target-projected evidence is not used for this claim. Child artifact generations will require a reviewed generation-scoped
 parent lookup; current snapshot checks intentionally remain strict.
