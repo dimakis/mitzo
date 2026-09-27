@@ -138,6 +138,7 @@ export function ownedEvidenceHandler(
   resolve: () => ((selection: unknown) => SymposiumProductionAttestation) | undefined,
 ): RequestHandler {
   return (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     const collect = resolve();
     if (!collect) {
       res.status(503).json({ error: 'Owned admission evidence collection is unavailable.' });
