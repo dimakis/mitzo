@@ -64,6 +64,8 @@ export interface SealedPublicationAuthorityDependencies {
   /** Fresh actual seal and review-record validation; no pending intent accepted. */
   assertArtifact(scope: SealedPublicationScope, signal: AbortSignal): Promise<void>;
   resolveCredential(scope: SealedPublicationScope): PublicationCredentialHandle | null;
+  /** Synchronous retained-owner fence immediately before grant insertion. */
+  beforeGrantPersist?(scope: SealedPublicationScope): void;
 }
 export interface SealedPublicationGrant {
   id: string;
@@ -166,6 +168,7 @@ export class SealedPublicationAuthority {
       throw new Error('Selected GitHub principal changed');
     const binding = { scope, principal };
     const grant = { id: randomUUID(), ...binding, bindingHash: digest(binding) };
+    this.deps.beforeGrantPersist?.(scope);
     this.db
       .prepare('INSERT INTO sealed_publication_grants VALUES (?, ?, ?, ?)')
       .run(grant.id, canonicalJson(binding), grant.bindingHash, 'active');
