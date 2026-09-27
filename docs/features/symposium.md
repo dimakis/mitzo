@@ -396,6 +396,13 @@ and attachment policy. Recheck the reviewed artifact at approval and dispatch,
 not only before requesting publication. No existing gate should be bypassed to
 make this missing integration appear complete.
 
+A [read-only publication preflight adapter](symposium-review-publication.md) now
+checks a committed-tree digest under the existing artifact lease and reuses the
+reviewed GitHub capability preflight. Its authenticated route remains unavailable
+without trusted runtime, review-host and builder-operation bindings. A preview
+does not approve or create a PR; native review evidence and publication dispatch
+remain unfinished.
+
 ### Reusable reviewer recipes
 
 Mitzo owns immutable, owner-scoped profile revisions. New profile offers Code correctness reviewer, Security reviewer, Architecture critic, Testability reviewer, and Artifact/editorial critic starters. Edit the starter and save explicitly; templates do not create sessions or bind seats. Account selection remains **ask when seated**.
