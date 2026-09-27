@@ -107,3 +107,42 @@ it('rejects unknown repositories, changed commits, credentials, unsafe branches 
   f.git('remote', 'set-url', 'origin', 'https://secret@github.com/example/project.git');
   await expect(inspectLocalSource(f.repositories, f.selection)).rejects.toThrow();
 });
+it.each(['credential-path', 'historical-secret', 'submodule', 'config-hook'])(
+  'rejects unsafe source history and never executes source configuration (%s)',
+  async (mode) => {
+    const f = fixture();
+    if (mode === 'credential-path') {
+      writeFileSync(join(f.repo, '.env'), 'DATABASE_PASSWORD=not-exportable');
+      f.git('add', '.env');
+      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'private');
+    }
+    if (mode === 'historical-secret') {
+      writeFileSync(join(f.repo, 'old.txt'), '-----BEGIN PRIVATE KEY-----\nnot-for-export\n');
+      f.git('add', '.');
+      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'secret');
+      f.git('rm', 'old.txt');
+      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'remove');
+    }
+    if (mode === 'submodule') {
+      f.git(
+        'update-index',
+        '--add',
+        '--cacheinfo',
+        `160000,${f.git('rev-parse', 'HEAD')},dependency`,
+      );
+      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'gitlink');
+    }
+    if (mode === 'config-hook') {
+      f.git('config', 'core.fsmonitor', `touch ${f.root}/executed`);
+      f.git('config', 'uploadpack.packObjectsHook', `touch ${f.root}/executed`);
+      f.git('config', 'filter.danger.clean', `touch ${f.root}/executed`);
+      f.git('config', 'url.https://invalid.example/.insteadOf', 'https://github.com/');
+    }
+    f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const plan = await inspectLocalSource(f.repositories, f.selection);
+    if (mode === 'config-hook') {
+      await exportLocalSource(f.repositories, plan);
+      expect(existsSync(join(f.root, 'executed'))).toBe(false);
+    } else await expect(exportLocalSource(f.repositories, plan)).rejects.toThrow();
+  },
+);

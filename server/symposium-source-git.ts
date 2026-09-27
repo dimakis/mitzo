@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process';
 import { lstatSync, readdirSync, readFileSync, realpathSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-export const SOURCE_BUNDLE_MAX_BYTES = 64 * 1024 * 1024;
+export const SOURCE_BUNDLE_MAX_BYTES = 8 * 1024 * 1024;
 export type SourceSelection = {
   repositoryId: string;
   targetRepository: string;
@@ -87,9 +87,10 @@ function git(
   args: string[],
   environment: NodeJS.ProcessEnv = {},
   maxBuffer = SOURCE_BUNDLE_MAX_BYTES,
+  input?: string,
 ): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    execFile(
+  return new Promise((resolve, reject) => {
+    const child = execFile(
       '/usr/bin/git',
       args,
       {
@@ -110,8 +111,9 @@ function git(
       },
       (error, stdout) =>
         error ? reject(new Error('Selected source Git read failed')) : resolve(stdout),
-    ),
-  );
+    );
+    child.stdin?.end(input);
+  });
 }
 function readRef(gitdir: string, ref: string) {
   const parts = ref.split('/');
@@ -139,11 +141,7 @@ function readRef(gitdir: string, ref: string) {
 async function withSource<T>(
   repositories: Record<string, string>,
   selection: SourceSelection,
-  run: (context: {
-    plan: LocalSourcePlan;
-    args: string[];
-    env: NodeJS.ProcessEnv;
-  }) => Promise<T>,
+  run: (context: { plan: LocalSourcePlan; args: string[]; env: NodeJS.ProcessEnv }) => Promise<T>,
 ) {
   const selected = source(repositories, selection);
   const origin = (
@@ -231,17 +229,85 @@ export function exportLocalSource(repositories: Record<string, string>, expected
   return withSource(repositories, expected, async ({ plan, args, env }) => {
     if (JSON.stringify(plan) !== JSON.stringify(expected))
       throw new Error('Selected source preview changed');
+    const objectIds = (
+      await git(
+        [...args, 'rev-list', '--objects', '--no-object-names', plan.baseOid],
+        env,
+        8 * 1024 * 1024,
+      )
+    )
+      .toString()
+      .trim()
+      .split('\n');
+    if (objectIds.length > 100000 || objectIds.some((oid) => !/^[a-f0-9]{40}$/.test(oid)))
+      throw new Error('Source object count bound');
+    const input = objectIds.join('\n') + '\n';
+    const sizes = (await git([...args, 'cat-file', '--batch-check'], env, 8 * 1024 * 1024, input))
+      .toString()
+      .trim()
+      .split('\n');
+    let expanded = 0;
+    for (const row of sizes) {
+      const match = row.match(/^[a-f0-9]{40} (blob|tree|commit) ([0-9]+)$/);
+      if (!match || (expanded += Number(match[2])) > 64 * 1024 * 1024)
+        throw new Error('Source expanded history bound (64 MiB)');
+    }
+    const data = await git([...args, 'cat-file', '--batch'], env, 80 * 1024 * 1024, input);
+    let offset = 0;
+    for (const oid of objectIds) {
+      const end = data.indexOf(10, offset);
+      const header = data.subarray(offset, end).toString().split(' ');
+      const bytes = Number(header[2]);
+      if (
+        header[0] !== oid ||
+        !Number.isSafeInteger(bytes) ||
+        bytes < 0 ||
+        end + 1 + bytes >= data.length
+      )
+        throw new Error('Source object framing');
+      const object = data.subarray(end + 1, end + 1 + bytes);
+      offset = end + bytes + 2;
+      if (header[1] === 'blob') {
+        const text = object.toString('latin1');
+        if (
+          /-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}|\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}|\bAKIA[A-Z0-9]{16}|"type"\s*:\s*"service_account"/.test(
+            text,
+          )
+        )
+          throw new Error('Credential-bearing committed history is not importable');
+      } else if (header[1] === 'tree') {
+        let cursor = 0;
+        while (cursor < object.length) {
+          const space = object.indexOf(32, cursor),
+            nul = object.indexOf(0, space);
+          if (space < cursor || nul < space || nul + 21 > object.length)
+            throw new Error('Source tree framing');
+          const mode = object.subarray(cursor, space).toString(),
+            name = object.subarray(space + 1, nul).toString('utf8');
+          if (
+            !['40000', '100644', '100755'].includes(mode) ||
+            name.includes('\uFFFD') ||
+            /[\\/\x00-\x1f\x7f]/.test(name) ||
+            ['.', '..', '.git'].includes(name.toLowerCase())
+          )
+            throw new Error('Unsupported historical source path');
+          if (
+            (/^(?:\.env(?:\..+)?|\.ssh|\.aws|\.netrc|\.npmrc|\.pypirc|auth\.json|credentials(?:\.[^.]+)?|id_rsa|id_ed25519)$/i.test(
+              name,
+            ) &&
+              !/\.(example|sample|template)$/i.test(name)) ||
+            /\.(pem|key|p12|pfx)$/i.test(name)
+          )
+            throw new Error('Credential-bearing committed path is not importable');
+          cursor = nul + 21;
+        }
+      }
+    }
+    if (offset !== data.length) throw new Error('Source object framing');
     await git([...args, 'update-ref', 'refs/heads/import', plan.baseOid], env);
     const bundle = await git([...args, 'bundle', 'create', '-', 'refs/heads/import'], env);
     if (!bundle.length || bundle.length > SOURCE_BUNDLE_MAX_BYTES)
-      throw new Error('Source bundle bound');
-    // Git's full reachable object walk is bounded independently from compression.
-    const objects = (
-      await git([...args, 'rev-list', '--objects', plan.baseOid], env, 8 * 1024 * 1024)
-    )
-      .toString()
-      .split('\n');
-    if (objects.length > 100000) throw new Error('Source object count bound');
+      throw new Error('Source bundle bound (8 MiB)');
     return {
       bundle,
       manifest: { ...plan, bundleSha256: hash(bundle), bundleBytes: bundle.length },
@@ -272,8 +338,8 @@ if cfg.sections()!=['core'] or dict(cfg['core']).get('repositoryformatversion')!
 allowed={'repositoryformatversion':'0','filemode':'true','bare':'false','logallrefupdates':'true','ignorecase':'true','precomposeunicode':'true'}
 if any(allowed.get(k)!=v for k,v in cfg['core'].items()): raise ValueError('unexpected Git config')
 size=os.stat(bundle).st_size
-if size!=manifest['bundleBytes'] or not 0<size<=67108864: raise ValueError('bundle size')
-if hashlib.sha256(open(bundle,'rb').read(67108865)).hexdigest()!=manifest['bundleSha256']: raise ValueError('bundle digest')
+if size!=manifest['bundleBytes'] or not 0<size<=8388608: raise ValueError('bundle size')
+if hashlib.sha256(open(bundle,'rb').read(8388609)).hexdigest()!=manifest['bundleSha256']: raise ValueError('bundle digest')
 for key in ['baseOid','treeOid']:
  if not re.fullmatch('[a-f0-9]{40}',manifest[key]): raise ValueError('object identity')
 for key in ['baseBranch','featureBranch']:
