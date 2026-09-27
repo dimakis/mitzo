@@ -496,6 +496,36 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     if (updated.changes !== 1) throw new Error('Artifact lease cannot be rebound');
   }
 
+  /** Complete only the original lease binding retained with a terminal create
+   * receipt by the same owner. Never acquires capacity or adopts another lease. */
+  bindRetainedSandboxForCleanup(
+    lease: ArtifactLease,
+    sandboxName: string,
+    sandboxId: string,
+  ): void {
+    const requestJson = JSON.stringify(lease.request);
+    const row = this.row(lease.token);
+    if (row) {
+      if (row.request_json !== requestJson) throw new Error('Retained artifact lease changed');
+      this.bindSandbox(lease.token, lease.revision, sandboxName, sandboxId);
+      return;
+    }
+    // A previous cleanup may have released the exact lease before its caller
+    // recorded completion. This receipt does not replace fresh physical absence.
+    const released = this.db
+      .prepare(
+        'SELECT 1 FROM symposium_artifact_release_receipts WHERE token=? AND revision=? AND request_json=? AND sandbox_name=? AND sandbox_id=?',
+      )
+      .get(lease.token, lease.revision, requestJson, sandboxName, sandboxId);
+    if (!released) throw new Error('Retained artifact lease is unavailable');
+    const replacement = this.db
+      .prepare(
+        'SELECT 1 FROM symposium_artifact_leases WHERE request_json=? OR COALESCE(intended_sandbox_name, sandbox_name)=? LIMIT 1',
+      )
+      .get(requestJson, sandboxName);
+    if (replacement) throw new Error('Retained artifact lease was replaced');
+  }
+
   async release(token: string): Promise<void> {
     const row = this.row(token);
     if (!row) return;

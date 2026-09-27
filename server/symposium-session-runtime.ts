@@ -19,6 +19,7 @@ import {
   acquireSymposiumArtifactLease,
   artifactDriverConfigForLease,
   type ArtifactLeaseRequest,
+  type ArtifactLease,
 } from './symposium-artifact-lease.js';
 import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
@@ -515,7 +516,10 @@ export function snapshotSymposiumSeatProvider(
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
 export class SymposiumPerSeatSandboxOwner {
   /** Same-owner terminal proof for cleanup only; never restored from inventories/restart. */
-  private readonly terminalCreates = new Map<string, { sandboxName: string; sandboxId: string }>();
+  private readonly terminalCreates = new Map<
+    string,
+    { sandboxName: string; sandboxId: string; lease?: ArtifactLease }
+  >();
   readonly readOnlyEnforced: {
     openaiApi: boolean;
     claudeVertex: boolean;
@@ -714,14 +718,6 @@ export class SymposiumPerSeatSandboxOwner {
                     sandboxName: receipt.sandboxName,
                     sandboxId: receipt.sandboxId,
                   };
-                  // Bind cleanup identity before a provider/upload/mount postcheck may fail.
-                  if (lease)
-                    this.deps.artifactLeaseHost!.bindSandbox(
-                      lease.token,
-                      lease.revision,
-                      receipt.sandboxName,
-                      receipt.sandboxId,
-                    );
                   this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
                     sessionId,
                     seatId,
@@ -731,7 +727,19 @@ export class SymposiumPerSeatSandboxOwner {
                     physicalId: receipt.sandboxId,
                   });
                   terminalSettled();
-                  this.terminalCreates.set(snapshot.runtimeId, identity);
+                  this.terminalCreates.set(snapshot.runtimeId, {
+                    ...identity,
+                    ...(lease ? { lease: structuredClone(lease) } : {}),
+                  });
+                  // Successful native creation is settled before any lease postcheck.
+                  // A failed binding retains the original lease for explicit cleanup.
+                  if (lease)
+                    this.deps.artifactLeaseHost!.bindSandbox(
+                      lease.token,
+                      lease.revision,
+                      receipt.sandboxName,
+                      receipt.sandboxId,
+                    );
                 },
               }
             : {}),
@@ -994,6 +1002,23 @@ export class SymposiumPerSeatSandboxOwner {
           }
           if (record.workspace !== this.deps.runtimeConfig.workspace)
             throw new Error('Seat sandbox workspace changed before stop');
+          const retained = this.terminalCreates.get(record.runtimeId);
+          if (record.state === 'reserved' && retained?.lease && this.deps.artifactLeaseHost) {
+            const request = this.deps.artifactRequest?.(
+              sessionId,
+              seatId,
+              record.generation,
+              'cleanup',
+            );
+            if (!request || JSON.stringify(request) !== JSON.stringify(retained.lease.request))
+              throw new Error('Retained artifact cleanup request changed');
+            this.deps.artifactLeaseHost.bindRetainedSandboxForCleanup(
+              retained.lease,
+              retained.sandboxName,
+              retained.sandboxId,
+            );
+          }
+
           const manager = (
             this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
           )({

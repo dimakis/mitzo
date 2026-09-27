@@ -2896,7 +2896,7 @@ describe('mixed personal subscription and work seat isolation', () => {
       async (configuration: BoundOpenShellRuntimeConfig, runtimeId: string) => {
         configuration.beforeSandboxCreate!();
         configuration.onSandboxCreateSettled!({
-          sandboxName: runtimeId,
+          sandboxName: sandboxNameForConversation(runtimeId, 13),
           sandboxId: 'terminal-id',
           workspace: 'default',
           owner: 'mock-owner',
@@ -2967,6 +2967,114 @@ describe('mixed personal subscription and work seat isolation', () => {
       incompleteRegistry.getSymposiumSeatSandbox('symposium', 'personal', membership.generation)
         ?.state,
     ).toBe('stopped');
+
+    // A lease-binding rejection must not erase successful native create proof.
+    const artifactRoot = mkdtempSync(join(tmpdir(), 'terminal-before-bind-'));
+    const artifactPath = join(artifactRoot, 'leases.sqlite');
+    const artifactRequest: ArtifactLeaseRequest = {
+      sessionId: 'symposium',
+      workspaceId: 'default',
+      seatId: 'personal',
+      volumeName: 'symposium-artifacts',
+      volumeGeneration: 'gen-1',
+      driver: 'podman',
+      access: 'reviewer',
+    };
+    let deleted = false;
+    stopped = false;
+    const artifactHost = new SqliteArtifactLeaseHost(
+      artifactPath,
+      {
+        verifyGateway: async () => {},
+        verifyMount: async () => {},
+        verifyDeleted: async () => {
+          expect(deleted).toBe(true);
+        },
+      },
+      async () => [
+        {
+          Name: artifactRequest.volumeName,
+          Driver: 'local',
+          Options: {},
+          Labels: {
+            'openshell.ai/sandbox-attachable': 'true',
+            'openshell.ai/sandbox-attachable-workspace': 'default',
+            'mitzo.symposium.purpose': 'artifacts',
+            'mitzo.symposium.session': 'symposium',
+            'mitzo.symposium.workspace': 'default',
+            'mitzo.symposium.generation': 'gen-1',
+          },
+        },
+      ],
+    );
+    const workspace = new SymposiumWorkspaceLifecycle(join(artifactRoot, 'fence.json'), () => {});
+    const failedRegistry = seatSandboxRegistry();
+    const bind = vi.spyOn(artifactHost, 'bindSandbox');
+    bind.mockImplementationOnce(() => {
+      throw Error('binding rejected before persistence');
+    });
+    const artifactOwner = new SymposiumPerSeatSandboxOwner({
+      ...phasedDeps,
+      seatSandboxRegistry: failedRegistry,
+      artifactLeaseHost: artifactHost,
+      artifactRequest: () => artifactRequest,
+      runSandboxCreation: workspace.create,
+      managerFactory: (configuration) => ({
+        ...phasedDeps.managerFactory(configuration),
+        inspect: async () =>
+          deleted
+            ? undefined
+            : { id: 'terminal-id', phase: stopped ? ('Stopped' as const) : ('Ready' as const) },
+        delete: async () => {
+          deleted = true;
+        },
+      }),
+    });
+    try {
+      await expect(
+        artifactOwner.ensure('symposium', 'personal', new AbortController().signal),
+      ).rejects.toThrow('binding rejected before persistence');
+      const saved = failedRegistry.getSymposiumSeatSandbox(
+        'symposium',
+        'personal',
+        membership.generation,
+      )!;
+      expect(saved).toMatchObject({
+        state: 'reserved',
+        physicalId: 'terminal-id',
+        creationCompleted: true,
+      });
+      expect(artifactOwner.creationDiagnostic('personal')?.canCleanup).toBe(true);
+      const leaseDb = new Database(artifactPath);
+      try {
+        expect(
+          leaseDb
+            .prepare('SELECT creation_started,sandbox_id FROM symposium_artifact_leases')
+            .get(),
+        ).toEqual({ creation_started: 1, sandbox_id: null });
+        await workspace.drain(new AbortController().signal);
+        await artifactOwner.stop(
+          'symposium',
+          'personal',
+          membership.generation,
+          new AbortController().signal,
+        );
+        expect(deleted).toBe(true);
+        expect(
+          leaseDb.prepare('SELECT count(*) AS n FROM symposium_artifact_leases').get(),
+        ).toEqual({ n: 0 });
+        expect(
+          failedRegistry.getSymposiumSeatSandbox('symposium', 'personal', membership.generation)
+            ?.state,
+        ).toBe('stopped');
+        expect(bind).toHaveBeenCalledTimes(2);
+      } finally {
+        leaseDb.close();
+      }
+    } finally {
+      artifactHost.close();
+      rmSync(artifactRoot, { recursive: true, force: true });
+    }
 
     expect(() =>
       snapshotSymposiumSeatProvider(
