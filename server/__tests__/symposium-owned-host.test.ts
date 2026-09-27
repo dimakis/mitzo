@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import * as discoveryCore from '../symposium-model-discovery.js';
 import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
@@ -353,7 +354,7 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     Labels: Record<string, string>;
   } | null = null;
   let afterInspection: (() => Promise<void>) | undefined;
-  const command = vi.fn(async (args: readonly string[]) => {
+  const command = vi.fn(async (args: readonly string[], execution?: { timeout: number }) => {
     if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
     if (args[1] === 'inspect') {
       const result = JSON.stringify([volume]);
@@ -388,7 +389,10 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
       expect(args).toContain(`type=volume,src=${volume!.Name},dst=/sandbox/workspaces/mgmt`);
       return 'a'.repeat(64);
     }
-    if (args[0] === 'start') return 'MITZO_GIT_INITIALIZED_V1\n';
+    if (args[0] === 'start') {
+      expect(execution?.timeout).toBe(60_000);
+      return 'MITZO_GIT_INITIALIZED_V1\n';
+    }
     if (args[0] === 'rm') {
       expect(args).toEqual(['rm', 'a'.repeat(64)]);
       return 'a'.repeat(64);
@@ -686,3 +690,67 @@ it('retains the lease ledger across different launch directories and blocks lega
   );
   expect(launch).not.toHaveBeenCalled();
 });
+
+it.each(['create', 'rm'])(
+  'journals terminal initializer %s through actual owned transport before custody loss',
+  async (boundary) => {
+    const f = fixture();
+    f.options.facts.getSession = vi.fn().mockReturnValue({
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify({
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'seat',
+        activeSeatCap: 3,
+        seats: [
+          {
+            id: 'seat',
+            name: 'Builder',
+            model: 'luna',
+            systemPrompt: 'Build',
+            color: '#335577',
+            role: 'coder',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 8 },
+        interceptMode: 'manual',
+      }),
+    });
+    const command = vi.fn(async (args: readonly string[]) => {
+      if (args[0] === 'volume' && args[1] === 'ls') return '[]';
+      if (args[0] === 'volume' && args[1] === 'create') return args.at(-1)!;
+      if (args[0] === 'start') return 'MITZO_GIT_INITIALIZED_V1';
+      if (args[0] === boundary) {
+        f.gateway.verifyCustody.mockImplementation(() => {
+          throw new Error('custody lost');
+        });
+        return 'b'.repeat(64);
+      }
+      if (args[0] === 'create') return 'b'.repeat(64);
+      throw new Error('Unexpected command');
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+    try {
+      expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+        state: 'recovery_required',
+      });
+      const db = new Database(join(f.root, 'session-artifacts.db'), { readonly: true });
+      const row = db
+        .prepare(
+          'SELECT initializer_id,initializer_removed,initialization_contract FROM symposium_session_artifacts',
+        )
+        .get();
+      db.close();
+      expect(row).toEqual({
+        initializer_id: 'b'.repeat(64),
+        initializer_removed: boundary === 'rm' ? 1 : 0,
+        initialization_contract: null,
+      });
+      expect(command.mock.calls.some(([args]) => args[0] === 'start')).toBe(boundary === 'rm');
+    } finally {
+      f.gateway.verifyCustody.mockReset();
+      host.stop();
+    }
+  },
+);

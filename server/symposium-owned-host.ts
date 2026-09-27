@@ -84,7 +84,7 @@ export async function createOwnedSymposiumHost(
   options: OwnedSymposiumHostOptions,
   launch: typeof OwnedSymposiumGateway.launch = OwnedSymposiumGateway.launch,
   prepareGateway?: (gateway: OwnedSymposiumGateway) => Promise<readonly unknown[]>,
-  podmanCommand?: (args: readonly string[]) => Promise<string>,
+  podmanCommand?: (args: readonly string[], execution: { timeout: number }) => Promise<string>,
 ) {
   if (
     !isAbsolute(options.attestationPath) ||
@@ -189,6 +189,7 @@ export async function createOwnedSymposiumHost(
     const podmanText = async (
       args: readonly string[],
       maxOutputBytes = 2 * 1024 * 1024,
+      deferPostCustody = false,
     ): Promise<string> => {
       if (
         !Number.isSafeInteger(maxOutputBytes) ||
@@ -197,8 +198,9 @@ export async function createOwnedSymposiumHost(
       )
         throw new Error('Owned Podman output bound is invalid');
       custody();
+      const timeout = args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000;
       const text = podmanCommand
-        ? await podmanCommand(args)
+        ? await podmanCommand(args, { timeout })
         : await new Promise<string>((resolve, reject) => {
             execFile(
               options.podman.executable,
@@ -208,7 +210,7 @@ export async function createOwnedSymposiumHost(
                 encoding: 'utf8',
                 // Attached verifier/export helpers own bounded child work (including
                 // a 20-second bundle phase); the transport must outlive that bound.
-                timeout: args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000,
+                timeout,
                 maxBuffer: maxOutputBytes,
               },
               (error, stdout) => {
@@ -217,7 +219,7 @@ export async function createOwnedSymposiumHost(
               },
             );
           });
-      custody();
+      if (!deferPostCustody) custody();
       return text;
     };
     const podman = async (args: readonly string[]): Promise<unknown> =>
@@ -277,7 +279,17 @@ export async function createOwnedSymposiumHost(
           return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
         },
         async create(name, labels, receipt) {
-          await createArtifactGitVolume(name, labels, artifactOwner, podmanText, custody, receipt);
+          // The initializer journals terminal create/removal before its own
+          // post-command custody check. The generic transport postcheck would
+          // otherwise discard an exact helper identity after a successful create.
+          await createArtifactGitVolume(
+            name,
+            labels,
+            artifactOwner,
+            (args) => podmanText(args, undefined, true),
+            custody,
+            receipt,
+          );
         },
       },
     );
