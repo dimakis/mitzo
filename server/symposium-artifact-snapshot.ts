@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
@@ -168,13 +169,13 @@ export class ArtifactSnapshotObserver {
         '--memory=256m',
         '--cpus=1',
         '--mount',
-        `type=volume,src=${selection.request.volumeName},dst=/sandbox/symposium-artifacts,readonly`,
+        `type=volume,src=${selection.request.volumeName},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
         '--entrypoint=/usr/bin/python3',
         TESTED_SYMPOSIUM_NATIVE_BUILD.image,
         '-I',
         '-c',
         ARTIFACT_SCANNER,
-        '/sandbox/symposium-artifacts',
+        SYMPOSIUM_ARTIFACT_TARGET,
         String(ARTIFACT_SNAPSHOT_LIMITS.entries),
         String(ARTIFACT_SNAPSHOT_LIMITS.bytes),
         String(ARTIFACT_SNAPSHOT_LIMITS.seconds),

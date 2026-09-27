@@ -22,7 +22,7 @@ const inspected = [
       {
         Type: 'volume',
         Name: 'artifacts-1',
-        Destination: '/sandbox/symposium-artifacts',
+        Destination: '/sandbox/workspaces/mgmt',
         RW: false,
       },
     ],
@@ -34,7 +34,7 @@ const config = {
       {
         type: 'volume' as const,
         source: 'artifacts-1',
-        target: '/sandbox/symposium-artifacts',
+        target: '/sandbox/workspaces/mgmt',
         read_only: true,
       },
     ],
