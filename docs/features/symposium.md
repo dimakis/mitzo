@@ -106,8 +106,10 @@ TLS setup requires the Podman guest hostname as well as loopback in the gateway
 certificate. The newer runtime image also carries the guest CA/launcher fixes
 used by the attended smoke. These fixes do not automatically update production
 build pins. The measured new image differs from the older literal gate pins;
-admission must remain closed until a focused reviewed pin update is backed by
-physical and live evidence. A caller-supplied hash cannot override the schema.
+the focused pin update is tracked separately in
+[PR #629](https://github.com/dimakis/mitzo/pull/629) with physical and live evidence.
+Admission requires whichever reviewed pins are present in the selected source to
+match the actual image. A caller-supplied hash cannot override the schema.
 
 Personal provider receipts are necessary but do not replace the static
 attestation's exact provider-instance allowlist. A fresh dynamic provider must
