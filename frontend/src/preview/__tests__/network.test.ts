@@ -63,12 +63,12 @@ it('simulates only explicit device-code start, status, and cancellation', async 
   const code = await start.json();
   expect(code).toMatchObject({
     state: 'pending',
-    attemptId: 'preview-device',
+    attemptId: expect.stringMatching(/^preview-device-\d+$/),
     userCode: 'DEMO-CODE',
   });
   expect(
     await (
-      await window.fetch('/api/symposium/personal/login/status?attemptId=preview-device')
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${code.attemptId}`)
     ).json(),
   ).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
   const cancelled = await window.fetch('/api/symposium/personal/login/cancel', {
@@ -166,5 +166,42 @@ it('serves scoped saved review decision history without contacting a host', asyn
   expect((await window.fetch('/api/sessions/preview-3/symposium/reviews/unknown')).status).toBe(
     404,
   );
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('uses a fresh device identity for retry and rejects cancellation of the previous attempt', async () => {
+  const begin = async () =>
+    (
+      await window.fetch('/api/symposium/personal/login', {
+        method: 'POST',
+        body: JSON.stringify({ method: 'device-code' }),
+      })
+    ).json();
+  const first = await begin();
+  await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: first.attemptId }),
+  });
+  const second = await begin();
+  expect(second.attemptId).not.toBe(first.attemptId);
+  expect(second).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  expect(
+    (
+      await window.fetch('/api/symposium/personal/login/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ attemptId: first.attemptId }),
+      })
+    ).status,
+  ).toBe(405);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${second.attemptId}`)
+    ).json(),
+  ).toMatchObject(second);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${first.attemptId}`)
+    ).json(),
+  ).toMatchObject({ state: 'unknown' });
   expect(upstreamFetch).not.toHaveBeenCalled();
 });
