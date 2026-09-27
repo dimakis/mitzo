@@ -1,3 +1,4 @@
+import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   SeatConfig,
@@ -679,6 +680,7 @@ function SessionDirectorPanel({
       </button>
       {open && (
         <div className="symposium-director-panel">
+          <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
           <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
             Refresh director status
           </button>
