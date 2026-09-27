@@ -6,6 +6,7 @@ import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
+import * as sourceSeal from '../symposium-source-artifact-seal.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -848,12 +849,21 @@ it('keeps the production successor capability unavailable without a trusted fix 
 it('waits for the entire source import receipt lifecycle during shutdown between command boundaries', async () => {
   const source = await import('../symposium-source-service.js');
   const f = fixture();
-  let entered!: () => void, release!: () => void;
+  let entered!: () => void,
+    release!: () => void,
+    sealEntered!: () => void,
+    sealRelease!: () => void;
   const started = new Promise<void>((resolve) => {
     entered = resolve;
   });
   const gate = new Promise<void>((resolve) => {
     release = resolve;
+  });
+  const sealing = new Promise<void>((resolve) => {
+    sealEntered = resolve;
+  });
+  const sealGate = new Promise<void>((resolve) => {
+    sealRelease = resolve;
   });
   let receiptPersisted = false;
   vi.spyOn(source, 'createSymposiumSourceHost').mockReturnValue({
@@ -862,8 +872,13 @@ it('waits for the entire source import receipt lifecycle during shutdown between
       entered();
       await gate;
       receiptPersisted = true;
-      return {} as never;
+      return { operationId: 'import-operation' } as never;
     },
+  });
+  vi.spyOn(sourceSeal, 'sealImportedSourceArtifact').mockImplementation(async () => {
+    sealEntered();
+    await sealGate;
+    return {} as never;
   });
   const host = await createOwnedSymposiumHost(f.options, f.launch);
   const operation = host.sourceImport.import({} as never, () => {});
@@ -877,6 +892,9 @@ it('waits for the entire source import receipt lifecycle during shutdown between
   await new Promise((resolve) => setTimeout(resolve, 5));
   expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
   release();
+  await sealing;
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  sealRelease();
   await operation;
   await stopping;
   expect(receiptPersisted).toBe(true);

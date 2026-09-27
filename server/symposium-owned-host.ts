@@ -769,7 +769,9 @@ export async function createOwnedSymposiumHost(
       owner: artifactOwner,
       workspace: gateway.workspace,
       custody: async () => {
-        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        // The outer tracked import/seal operation was admitted before drain.
+        // Drain waits for it; only track() rejects newly submitted work.
+        if (stopped) throw new Error('Owned Symposium host stopped');
         await gateway.verifyCustodyAsync();
       },
       assertNoNativeClaims: (selectedSession: string) => {
