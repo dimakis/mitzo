@@ -398,3 +398,184 @@ it('rechecks the connection provider after asynchronous inspection', async () =>
   });
   await expect(f.inspect()).rejects.toThrow('Publication live attachment unavailable');
 });
+
+import {
+  createSymposiumReviewPublicationExecutor,
+  type ReviewPublicationExecutorDependencies,
+} from '../symposium-review-publication-executor.js';
+import { CapabilityService } from '../connections/capabilities/service.js';
+import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
+import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
+import { connectionTemplateRegistry } from '../connections/registry.js';
+
+function executionFixture() {
+  const f = fixture();
+  const operations = new CapabilityOperationStore(':memory:');
+  operations.upsertGrant({
+    id: 'grant',
+    connectionId: 'connection',
+    connectionRevision: 1,
+    capabilityId: 'github.publish-pr',
+    capabilityVersion: 1,
+    accountIds: ['account'],
+    status: 'active',
+  });
+  const pull = {
+    repository: 'acme/repo',
+    sourceBranch: 'feature/review',
+    baseBranch: 'main',
+    url: 'https://github.com/acme/repo/pull/1',
+    id: '1',
+    title: f.input.title,
+    body: f.input.body,
+    draft: true,
+  };
+  const publisher = {
+    ...f.deps.publisher,
+    reconstruct: vi.fn(async () => ({ directory: '/mock-host' })),
+    push: vi.fn(async () => {}),
+    create: vi.fn(async () => pull),
+    update: vi.fn(async () => pull),
+    read: vi.fn(async () => pull),
+    readBranch: vi.fn(async () => 'c'.repeat(40)),
+    cleanup: vi.fn(async () => {}),
+  };
+  const seal = {
+    id: 'sealed',
+    revision: '1',
+    artifactRevision: f.record.snapshot.artifactRevision,
+    artifactHash: f.record.snapshot.artifactHash,
+    withHold: async <T>(_id: string, work: (check: () => Promise<void>) => Promise<T>) =>
+      work(async () => {}),
+  };
+  const deps = {
+    ...f.deps,
+    operations,
+    publisher,
+    exportBundle: vi.fn(async () => Buffer.from('mock-bundle')),
+    resolveReview: vi.fn(
+      (operation: import('../connections/capabilities/types.js').CapabilityOperation) => {
+        f.binding.operation = {
+          ...operation,
+          approvalInput: operation.approvalInput ?? null,
+          approvalHash: operation.approvalHash ?? null,
+        };
+        return { context: { owner: 'user', sessionId: 'session' }, recordId: f.record.recordId };
+      },
+    ),
+    resolveBinding: () => ({ ...f.binding, operation: operations.get(f.binding.operation.id)! }),
+    getPublicationSeal: vi.fn(() => seal),
+  };
+  const executor = createSymposiumReviewPublicationExecutor(
+    deps as unknown as ReviewPublicationExecutorDependencies,
+  );
+  const template = connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 1)!;
+  const approve = vi.fn(async () => true);
+  const service = new CapabilityService({
+    store: operations,
+    executorRegistry: new CapabilityExecutorRegistry({ [template.executor]: executor }),
+    getTemplate: () => template,
+    getConnection: f.deps.getConnection,
+    listConnections: () => [f.deps.getConnection()],
+    isConnectionActiveForConversation: () => true,
+    approve,
+  });
+  const request = {
+    capabilityId: template.id,
+    capabilityVersion: 1,
+    connectionId: 'connection',
+    connectionRevision: 1,
+    accountId: 'account',
+    conversationId: 'session',
+    turnId: 'turn',
+    idempotencyKey: 'publish',
+    input: f.input,
+  };
+  const invoke = () => service.invoke(request, new AbortController().signal);
+  return { ...f, deps, operations, publisher, seal, approve, invoke, executor };
+}
+
+it('uses real durable forced approval and idempotency for a sealed reviewed publication', async () => {
+  const f = executionFixture();
+  const result = await f.invoke();
+  expect(result.status).toBe('succeeded');
+  expect(f.approve).toHaveBeenCalledWith(
+    expect.objectContaining({
+      forcePrompt: true,
+      input: expect.objectContaining({
+        sourceOid: f.record.snapshot.artifactRevision,
+        body: f.input.body,
+      }),
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(result.recoveryIntent).toMatchObject({
+    symposiumRecordId: f.record.recordId,
+    symposiumSealId: 'sealed',
+  });
+  expect((await f.invoke()).status).toBe('succeeded');
+  expect(f.publisher.create).toHaveBeenCalledOnce();
+  expect(f.approve).toHaveBeenCalledOnce();
+});
+it('requires a completed seal before asking for approval', async () => {
+  const f = executionFixture();
+  f.deps.getPublicationSeal.mockReturnValue(null as never);
+  expect((await f.invoke()).status).toBe('failed');
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.publisher.push).not.toHaveBeenCalled();
+});
+it.each(['seal', 'membership', 'review', 'grant'] as const)(
+  'rejects changed %s during approval before writing',
+  async (change) => {
+    const f = executionFixture();
+    f.approve.mockImplementation(async () => {
+      if (change === 'seal') f.seal.revision = '2';
+      if (change === 'membership') f.binding.membershipGeneration = 2;
+      if (change === 'review') f.record.contentHash = 'd'.repeat(64);
+      if (change === 'grant')
+        f.operations.upsertGrant({
+          id: 'grant',
+          connectionId: 'connection',
+          connectionRevision: 1,
+          capabilityId: 'github.publish-pr',
+          capabilityVersion: 1,
+          accountIds: ['account'],
+          status: 'revoked',
+        });
+      return true;
+    });
+    expect((await f.invoke()).status).not.toBe('succeeded');
+    expect(f.publisher.push).not.toHaveBeenCalled();
+    expect(f.publisher.create).not.toHaveBeenCalled();
+  },
+);
+it('recovers an ambiguous created PR by read-only outcome lookup without redispatch or reapproval', async () => {
+  const f = executionFixture();
+  f.publisher.create.mockImplementation(async () => {
+    throw new Error('Lost response after create');
+  });
+  const first = await f.invoke();
+  expect(first.status).toBe('verification_pending');
+  f.deps.getPublicationSeal.mockReturnValue(null as never);
+  f.publisher.findOpen.mockResolvedValue((await f.publisher.read()) as never);
+  const recovered = await f.invoke();
+  expect(recovered.status).toBe('succeeded');
+  expect(f.publisher.create).toHaveBeenCalledOnce();
+  expect(f.publisher.push).toHaveBeenCalledOnce();
+  expect(f.approve).toHaveBeenCalledOnce();
+});
+it('cleans a reconstructed host directory if seal verification fails before push', async () => {
+  const f = executionFixture();
+  let valid = true;
+  f.seal.withHold = async (_id, work) =>
+    work(async () => {
+      if (!valid) throw new Error('Seal lost');
+    });
+  f.publisher.reconstruct.mockImplementation(async () => {
+    valid = false;
+    return { directory: '/mock-host' };
+  });
+  expect((await f.invoke()).status).toBe('verification_pending');
+  expect(f.publisher.cleanup).toHaveBeenCalledWith('/mock-host');
+  expect(f.publisher.push).not.toHaveBeenCalled();
+});

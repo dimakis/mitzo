@@ -214,6 +214,14 @@ readiness. Reviewer and Claude admission still require independent host attestat
 and live acceptance; environment settings alone do not enable them. See the
 [integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
+A dormant Symposium publication executor now composes the existing forced-approval
+capability service with the saved review record, exact committed tree, current
+writer/session/grant authority, and a mandatory completed host publication seal.
+It revalidates those bindings after approval and uses read-only recovery for an
+ambiguous external outcome. It is **not installed in the live host**: a pending
+seal intent or unfenced Git observation cannot satisfy its seal contract. Trusted
+hard-budget review execution and physical seal completion remain prerequisites.
+
 ### Symposium OpenShell 0.1 per-seat runtime
 
 The experimental 0.1 runtime gives each seat generation its own sandbox and exact
