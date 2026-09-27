@@ -629,7 +629,6 @@ export class PhysicalArtifactSealer {
       }
       throw new Error(
         'Sealed artifact export failed; retained helper state may require reconciliation',
-        { cause: error },
       );
     }
   }

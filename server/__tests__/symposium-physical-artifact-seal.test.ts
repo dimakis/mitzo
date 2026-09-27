@@ -733,3 +733,31 @@ it('retains exact successor export authority across reopen and rejects substitut
   ).rejects.toThrow();
   db.close();
 });
+
+it('does not expose malformed export bundle content through error causes', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (args) => (args[0] === 'start' ? 'LEAK' : original(args)));
+  try {
+    await f.sealer.exportSuccessorArtifactBundle(
+      {
+        fenceId: seal.fenceId,
+        operationId: 'malformed',
+        sourceBranch: 'feature',
+        baseBranch: 'main',
+        sourceOid: seal.git.commit,
+        maxBytes: 1024,
+      },
+      signal,
+    );
+    throw new Error('Expected malformed export rejection');
+  } catch (error) {
+    const messages: string[] = [];
+    for (let current: unknown = error; current instanceof Error; current = current.cause)
+      messages.push(current.message);
+    expect(messages.join('\n')).not.toContain('LEAK');
+    expect(messages.join('\n')).toContain('retained helper state');
+  }
+});

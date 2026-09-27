@@ -53,7 +53,6 @@ export async function withOwnedArtifactSuccessor<T>(
         initializationReceiptDigest: digest(receipt),
       };
     };
-    let copier: PhysicalArtifactSuccessorCopier;
     const ledger = new SymposiumArtifactGenerations(db, {
       initial(value) {
         if (canonicalReviewJson(value) !== canonicalReviewJson(initial()))
@@ -82,7 +81,7 @@ export async function withOwnedArtifactSuccessor<T>(
       },
     });
     ledger.registerInitial(initial());
-    copier = new PhysicalArtifactSuccessorCopier({
+    const copier = new PhysicalArtifactSuccessorCopier({
       ledger,
       sealer: deps.sealer,
       command: deps.leaseHost.snapshotCommand(),
