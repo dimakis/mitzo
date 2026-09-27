@@ -119,3 +119,39 @@ describe('portable Symposium profiles', () => {
     ).toMatchObject({ revision: 3 });
   });
 });
+
+const recipe = {
+  version: 1,
+  context: {
+    include: ['task', 'diff', 'acceptance-criteria'],
+    sources: ['workspace', 'contexgin'],
+  },
+  skillRefs: ['risk-scan', 'pr-review'],
+  toolDefaults: { mode: 'read-only', preferredTools: ['Read', 'Grep'] },
+  compatibleProviders: ['openai-codex'],
+  reviewerTemplate: 'security',
+};
+
+it('round trips recipes immutably while retaining legacy profile hashes', () => {
+  const legacy = save();
+  const rich = save({
+    expectedRevision: 1,
+    idempotencyKey: 'recipe',
+    definition: { ...definition, recipe },
+  });
+  expect(rich.definition).toEqual({ ...definition, recipe });
+  expect(profiles.get('owner', 'reviewer', 1)).toEqual(legacy);
+  expect(
+    profiles.import('other', profiles.export('owner', 'reviewer', 2), 'recipe-import'),
+  ).toEqual(rich);
+});
+it.each([
+  { ...recipe, version: 2 },
+  { ...recipe, toolDefaults: { mode: 'write', preferredTools: ['Bash'] } },
+  { ...recipe, context: { ...recipe.context, grantId: 'session-grant' } },
+  { ...recipe, skillRefs: ['/Users/person/private/skill'] },
+  { ...recipe, toolDefaults: { mode: 'read-only', preferredTools: ['password=secret'] } },
+  { ...recipe, compatibleProviders: ['unknown'] },
+])('rejects unsafe or unsupported recipe %#', (recipe) => {
+  expect(() => save({ definition: { ...definition, recipe } })).toThrow();
+});

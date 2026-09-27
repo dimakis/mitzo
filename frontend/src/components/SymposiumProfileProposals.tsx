@@ -1,3 +1,5 @@
+import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
+import './SymposiumProfilePicker.css';
 import { useEffect, useRef, useState } from 'react';
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -112,6 +114,21 @@ function ProposalEditor({
     setBusy(true);
     setError('');
     try {
+      const portableDefinition = definition.recipe
+        ? {
+            ...definition,
+            recipe: {
+              ...definition.recipe,
+              skillRefs: definition.recipe.skillRefs.map((ref) => ref.trim()).filter(Boolean),
+              toolDefaults: {
+                ...definition.recipe.toolDefaults,
+                preferredTools: definition.recipe.toolDefaults.preferredTools
+                  .map((ref) => ref.trim())
+                  .filter(Boolean),
+              },
+            },
+          }
+        : definition;
       if (!catalog) throw new Error('Profile catalog is not available');
       const expectedRevision = catalog.find((row) => row.profileId === profileId)?.revision ?? 0;
       if (proposal) {
@@ -120,7 +137,12 @@ function ProposalEditor({
           {
             method: 'POST',
             headers,
-            body: JSON.stringify({ sessionId, profileId, expectedRevision, definition }),
+            body: JSON.stringify({
+              sessionId,
+              profileId,
+              expectedRevision,
+              definition: portableDefinition,
+            }),
           },
         );
       } else {
@@ -131,7 +153,7 @@ function ProposalEditor({
             profileId,
             expectedRevision,
             idempotencyKey: saveKey.current,
-            definition,
+            definition: portableDefinition,
           }),
         });
       }
@@ -167,7 +189,7 @@ function ProposalEditor({
   };
   return (
     <section
-      className="symposium-profile-proposal"
+      className="symposium-profile-picker symposium-profile-proposal"
       aria-label={proposal ? 'Agent profile proposal' : 'Seat profile draft'}
     >
       <p>
@@ -240,6 +262,11 @@ function ProposalEditor({
           onChange={(event) => update('modelPolicyRole', event.target.value)}
         />
       </label>
+      <SymposiumProfileRecipeEditor
+        value={definition.recipe}
+        onChange={(recipe) => update('recipe', recipe)}
+        disabled={busy}
+      />
       {error && <p role="alert">{error}</p>}
       <button
         type="button"

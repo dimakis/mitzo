@@ -131,3 +131,74 @@ it.each(['save', 'import'])('keeps previous revisions selectable after %s', asyn
   fireEvent.change(screen.getByLabelText('Saved profile'), { target: { value: 'reviewer:1' } });
   expect(onChange).toHaveBeenLastCalledWith({ profileId: 'reviewer', revision: 1 });
 });
+
+it('edits an advisory reviewer recipe and saves it without applying to a seat', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) =>
+    init?.method === 'POST' ? response({ ...version, revision: 3 }) : response([version]),
+  );
+  render(
+    <SymposiumProfilePicker value={{ profileId: 'reviewer', revision: 2 }} onChange={vi.fn()} />,
+  );
+  await screen.findByText('Independent reviewer · v2');
+  fireEvent.click(screen.getByRole('button', { name: 'Revise selected' }));
+  fireEvent.click(screen.getByLabelText('Include reusable recipe'));
+  fireEvent.change(screen.getByLabelText('Reviewer template'), { target: { value: 'security' } });
+  fireEvent.change(screen.getByLabelText('Skill references (one per line)'), {
+    target: { value: 'risk-scan' },
+  });
+  fireEvent.click(screen.getByLabelText('ContexGin (explicit selection required)'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save profile' }));
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const [path, init] = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(path).toBe('/api/symposium/profiles');
+  expect(JSON.parse(init!.body as string).definition.recipe).toMatchObject({
+    version: 1,
+    reviewerTemplate: 'security',
+    skillRefs: ['risk-scan'],
+    context: { sources: ['workspace', 'contexgin'] },
+    toolDefaults: { mode: 'read-only' },
+  });
+  expect(
+    vi.mocked(apiFetch).mock.calls.every(([path]) => path.startsWith('/api/symposium/profiles')),
+  ).toBe(true);
+});
+
+it('starts an editable canonical security template without saving or selecting it', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  const onChange = vi.fn();
+  render(<SymposiumProfilePicker value={null} onChange={onChange} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: 'security' } });
+  expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('Security reviewer');
+  expect((screen.getByLabelText('Instructions') as HTMLTextAreaElement).value).toContain(
+    'trust boundaries',
+  );
+  expect(onChange).not.toHaveBeenCalled();
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
+it('labels provider compatibility in user-facing terms', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.click(screen.getByLabelText('Include reusable recipe'));
+  expect(screen.getByLabelText('ChatGPT subscription')).toBeTruthy();
+  expect(screen.getByLabelText('OpenAI API')).toBeTruthy();
+  expect(screen.getByLabelText('Vertex Claude')).toBeTruthy();
+  expect(screen.getByLabelText('Vertex Gemini')).toBeTruthy();
+});
+
+it('resets template contents when switching to a custom profile', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response([]));
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'New profile' }));
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: 'security' } });
+  fireEvent.change(screen.getByLabelText('Start from template'), { target: { value: '' } });
+  expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Profile ID') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Include reusable recipe') as HTMLInputElement).checked).toBe(
+    false,
+  );
+});
