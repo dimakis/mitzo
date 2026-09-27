@@ -11,6 +11,7 @@ import type {
 } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
 import type { EventStore } from './event-store.js';
+import type { SymposiumCreationRecoveryRequest } from '@mitzo/protocol/event-store';
 import { createLogger } from './logger.js';
 
 const log = createLogger('symposium-orchestrator');
@@ -58,6 +59,13 @@ export interface SymposiumOrchestratorDeps {
   idFactory?: () => string;
   claimIdFactory?: () => string;
   now?: () => number;
+  creationRecovery?: {
+    diagnostic(
+      sessionId: string,
+      seatId: string,
+    ): { phase: string; code: string; canCleanup: boolean } | null;
+    assertRetained(sessionId: string, seatId: string, generation: number): void;
+  };
   stopSeat?: (input: { sessionId: string; seatId: string; generation: number }) => Promise<void>;
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
@@ -76,6 +84,7 @@ export class SymposiumOrchestrator {
   private readonly idFactory: () => string;
   private readonly claimIdFactory: () => string;
   private readonly now: () => number;
+  private readonly creationRecovery?: SymposiumOrchestratorDeps['creationRecovery'];
   private readonly stopSeat?: SymposiumOrchestratorDeps['stopSeat'];
   private readonly reconcileProviders?: SymposiumOrchestratorDeps['reconcileProviders'];
   private readonly retainedProviders: (sessionId: string) => string[];
@@ -91,6 +100,7 @@ export class SymposiumOrchestrator {
     this.claimIdFactory = deps.claimIdFactory ?? randomUUID;
     this.now = deps.now ?? Date.now;
     this.stopSeat = deps.stopSeat;
+    this.creationRecovery = deps.creationRecovery;
     this.reconcileProviders = deps.reconcileProviders;
     this.retainedProviders = deps.retainedProviders ?? (() => []);
     this.admitSeat = deps.admitSeat;
@@ -151,6 +161,61 @@ export class SymposiumOrchestrator {
       throw new Error('Primary transfer saved; retained seat admissions require rechecking');
     }
     return config;
+  }
+
+  creationDiagnostic(sessionId: string, seatId: string, actor?: string) {
+    const diagnostic = this.creationRecovery?.diagnostic(sessionId, seatId) ?? null;
+    if (!diagnostic) return null;
+    const member = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    const pending =
+      member &&
+      this.store.getPendingSymposiumCreationRecovery(sessionId, seatId, member.generation);
+    if (!pending) return diagnostic;
+    const current = this.store.getActiveSymposiumConfig(sessionId);
+    if (
+      !diagnostic.canCleanup ||
+      pending.actor !== actor ||
+      pending.expectedRevision !== current.revision ||
+      pending.expectedGeneration !== member!.generation
+    )
+      return { ...diagnostic, canCleanup: false };
+    return { ...diagnostic, recoveryIdempotencyKey: pending.idempotencyKey };
+  }
+  async recoverCreation(
+    input: SymposiumCreationRecoveryRequest,
+  ): Promise<SymposiumMembershipRecord> {
+    const prior = this.reconciliationQueues.get(input.sessionId) ?? Promise.resolve();
+    const work = prior
+      .catch(() => {})
+      .then(async () => {
+        const saved = this.store.getSymposiumCreationRecovery(input);
+        if (saved) return saved;
+        if (!this.creationRecovery || !this.stopSeat)
+          throw new Error('Creation cleanup capability unavailable');
+        this.creationRecovery.assertRetained(
+          input.sessionId,
+          input.seatId,
+          input.expectedGeneration,
+        );
+        this.store.beginSymposiumCreationRecovery(input);
+        await this.stopSeat({
+          sessionId: input.sessionId,
+          seatId: input.seatId,
+          generation: input.expectedGeneration,
+        });
+        return this.store.completeSymposiumCreationRecovery(input);
+      });
+    const tail = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(input.sessionId, tail);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(input.sessionId) === tail)
+        this.reconciliationQueues.delete(input.sessionId);
+    }
   }
 
   /** Persist revocation and fence dispatch before requesting runtime cleanup. */
