@@ -313,7 +313,7 @@ export class SymposiumArtifactGenerations {
           return;
         }
         if (
-          row.state !== 'copy_uncertain' ||
+          !['copy_uncertain', 'quarantined'].includes(row.state) ||
           row.helper_id !== receipt.helperId ||
           receipt.helperName !== intent.helperName ||
           receipt.generationId !== generationId ||
@@ -349,6 +349,7 @@ export class SymposiumArtifactGenerations {
           return;
         }
         if (row.state !== 'copy_uncertain') throw new Error('Copy is quarantined');
+        this.require(this.proof.authority(intent.request));
         this.parent(intent);
         this.require(this.proof.copy(intent, receipt));
         this.db

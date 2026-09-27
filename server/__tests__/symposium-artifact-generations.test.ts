@@ -156,7 +156,7 @@ it('unknown quarantined copy cannot be retried, receipted or activated', () => {
   f.store.quarantine(context, f.intent.generationId);
   expect(f.store.claimCopy(context, f.intent.generationId)).toBe(false);
   expect(() => f.store.recordCopy(context, f.intent.generationId, receipt(f.intent))).toThrow(
-    'dispatched intent',
+    'quarantined',
   );
   expect(() => f.store.activate(context, f.intent.generationId)).toThrow('receipt');
 });
@@ -275,7 +275,7 @@ it('retains helper and terminal observation before later proof failure without a
     throw new Error('verification unavailable');
   });
   expect(() => f.store.recordCopy(context, f.intent.generationId, receipt(f.intent))).toThrow(
-    'verification unavailable',
+    'revoked',
   );
   f.db.close();
   const reopened = f.open().store;
@@ -298,6 +298,56 @@ it('retains late helper identity after quarantine without allowing activation or
   });
   expect(() => f.store.recordCopy(context, f.intent.generationId, receipt(f.intent))).toThrow();
   expect(() => f.store.activate(context, f.intent.generationId)).toThrow();
+});
+it('retains late terminal evidence after quarantine across reopen without verification', () => {
+  const f = prepared();
+  f.store.claimCopy(context, f.intent.generationId);
+  f.store.quarantine(context, f.intent.generationId);
+  const terminal = receipt(f.intent);
+  f.store.bindHelper(context, f.intent.generationId, terminal.helperId);
+  expect(() => f.store.recordCopy(context, f.intent.generationId, terminal)).toThrow();
+  const reopened = f.open();
+  expect(
+    reopened.db
+      .prepare(
+        'SELECT receipt_json FROM symposium_artifact_copy_observations WHERE generation_id=?',
+      )
+      .get(f.intent.generationId),
+  ).toEqual({ receipt_json: canonicalReviewJson(terminal) });
+  expect(reopened.store.historical(context, f.intent.generationId).state).toBe('quarantined');
+  expect(f.proof.copy).not.toHaveBeenCalled();
+  expect(() => reopened.store.activate(context, f.intent.generationId)).toThrow();
+  expect(() =>
+    reopened.store.recordCopy(context, f.intent.generationId, {
+      ...terminal,
+      verificationDigest: 'c'.repeat(64),
+    }),
+  ).toThrow(/observation conflict/);
+});
+it('retains terminal observation but cannot verify after authority is revoked', () => {
+  const f = prepared();
+  f.store.claimCopy(context, f.intent.generationId);
+  const terminal = receipt(f.intent);
+  f.store.bindHelper(context, f.intent.generationId, terminal.helperId);
+  f.proof.authority.mockImplementation(() => {
+    throw new Error('authority revoked');
+  });
+  expect(() => f.store.recordCopy(context, f.intent.generationId, terminal)).toThrow(
+    /authority revoked/,
+  );
+  const reopened = f.open();
+  expect(
+    reopened.db
+      .prepare(
+        'SELECT receipt_json FROM symposium_artifact_copy_observations WHERE generation_id=?',
+      )
+      .get(f.intent.generationId),
+  ).toEqual({ receipt_json: canonicalReviewJson(terminal) });
+  expect(reopened.store.historical(context, f.intent.generationId).state).toBe('copy_uncertain');
+  expect(f.proof.copy).not.toHaveBeenCalled();
+  expect(() => reopened.store.activate(context, f.intent.generationId)).toThrow(
+    /authority revoked/,
+  );
 });
 it('scopes operation replay to session and migrates legacy keys without changing intent', () => {
   const f = prepared();
