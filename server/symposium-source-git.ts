@@ -294,7 +294,7 @@ export function exportLocalSource(repositories: Record<string, string>, expected
           )
             throw new SourceImportError('Unsupported historical source path');
           if (
-            (/^(?:\.env(?:\..+)?|\.ssh|\.aws|\.netrc|\.npmrc|\.pypirc|auth\.json|credentials(?:\.[^.]+)?|id_rsa|id_ed25519)$/i.test(
+            (/^(?:\.env(?:\..+)?|\.ssh|\.aws|\.docker|\.kube|\.gitconfig|\.netrc|\.npmrc|\.pypirc|application_default_credentials\.json|auth\.json|credentials(?:\.[^.]+)?|id_rsa|id_ed25519)$/i.test(
               name,
             ) &&
               !/\.(example|sample|template)$/i.test(name)) ||

@@ -107,45 +107,59 @@ it('rejects unknown repositories, changed commits, credentials, unsafe branches 
   f.git('remote', 'set-url', 'origin', 'https://secret@github.com/example/project.git');
   await expect(inspectLocalSource(f.repositories, f.selection)).rejects.toThrow();
 });
-it.each(['credential-path', 'historical-secret', 'submodule', 'config-hook'])(
-  'rejects unsafe source history and never executes source configuration (%s)',
-  async (mode) => {
-    const f = fixture();
-    if (mode === 'credential-path') {
-      writeFileSync(join(f.repo, '.env'), 'DATABASE_PASSWORD=not-exportable');
-      f.git('add', '.env');
-      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'private');
-    }
-    if (mode === 'historical-secret') {
-      writeFileSync(join(f.repo, 'old.txt'), '-----BEGIN PRIVATE KEY-----\nnot-for-export\n');
-      f.git('add', '.');
-      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'secret');
-      f.git('rm', 'old.txt');
-      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'remove');
-    }
-    if (mode === 'submodule') {
-      f.git(
-        'update-index',
-        '--add',
-        '--cacheinfo',
-        `160000,${f.git('rev-parse', 'HEAD')},dependency`,
-      );
-      f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'gitlink');
-    }
-    if (mode === 'config-hook') {
-      f.git('config', 'core.fsmonitor', `touch ${f.root}/executed`);
-      f.git('config', 'uploadpack.packObjectsHook', `touch ${f.root}/executed`);
-      f.git('config', 'filter.danger.clean', `touch ${f.root}/executed`);
-      f.git('config', 'url.https://invalid.example/.insteadOf', 'https://github.com/');
-    }
-    f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
-    const plan = await inspectLocalSource(f.repositories, f.selection);
-    if (mode === 'config-hook') {
-      await exportLocalSource(f.repositories, plan);
-      expect(existsSync(join(f.root, 'executed'))).toBe(false);
-    } else await expect(exportLocalSource(f.repositories, plan)).rejects.toThrow();
-  },
-);
+it.each([
+  'credential-path',
+  'historical-secret',
+  'submodule',
+  'config-hook',
+  'application_default_credentials.json',
+  '.gitconfig',
+  '.docker',
+  '.kube',
+])('rejects unsafe source history and never executes source configuration (%s)', async (mode) => {
+  const f = fixture();
+  if (mode === 'credential-path') {
+    writeFileSync(join(f.repo, '.env'), 'DATABASE_PASSWORD=not-exportable');
+    f.git('add', '.env');
+    f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'private');
+  }
+  if (['application_default_credentials.json', '.gitconfig', '.docker', '.kube'].includes(mode)) {
+    writeFileSync(
+      join(f.repo, mode),
+      '{"type":"authorized_user","refresh_token":"fixture-no-secret"}',
+    );
+    f.git('add', mode);
+    f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'credential fixture');
+  }
+  if (mode === 'historical-secret') {
+    writeFileSync(join(f.repo, 'old.txt'), '-----BEGIN PRIVATE KEY-----\nnot-for-export\n');
+    f.git('add', '.');
+    f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'secret');
+    f.git('rm', 'old.txt');
+    f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'remove');
+  }
+  if (mode === 'submodule') {
+    f.git(
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${f.git('rev-parse', 'HEAD')},dependency`,
+    );
+    f.git('-c', 'commit.gpgsign=false', 'commit', '--quiet', '-m', 'gitlink');
+  }
+  if (mode === 'config-hook') {
+    f.git('config', 'core.fsmonitor', `touch ${f.root}/executed`);
+    f.git('config', 'uploadpack.packObjectsHook', `touch ${f.root}/executed`);
+    f.git('config', 'filter.danger.clean', `touch ${f.root}/executed`);
+    f.git('config', 'url.https://invalid.example/.insteadOf', 'https://github.com/');
+  }
+  f.git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const plan = await inspectLocalSource(f.repositories, f.selection);
+  if (mode === 'config-hook') {
+    await exportLocalSource(f.repositories, plan);
+    expect(existsSync(join(f.root, 'executed'))).toBe(false);
+  } else await expect(exportLocalSource(f.repositories, plan)).rejects.toThrow();
+});
 
 it.each(['include', 'hook', 'object', 'oversized', 'digest'])(
   'rejects altered pristine Git or bundle before materialization (%s)',
