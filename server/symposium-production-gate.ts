@@ -1,4 +1,9 @@
-import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
+import type { SymposiumWorkVertexReceipt } from './symposium-work-vertex-provider.js';
+import {
+  REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
+  reviewedSymposiumOwnedRuntime,
+} from './symposium-owned-runtime-contract.js';
 import {
   validateOpenShellCliEnvironment,
   type OpenShellCliEnvironment,
@@ -55,6 +60,7 @@ const LegacyAttestation = z
  * passed the owned-gateway transport, authentication and filesystem canaries. */
 export const TESTED_SYMPOSIUM_NATIVE_BUILD = REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build;
 const reviewed = TESTED_SYMPOSIUM_NATIVE_BUILD;
+const claudeReviewed = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
   cliVersion: z.literal(reviewed.version),
@@ -62,8 +68,8 @@ const OwnedAttestation = LegacyAttestation.extend({
   gatewayVersion: z.literal(reviewed.version),
   gatewaySha256: z.literal(reviewed.gatewaySha256),
   gatewayEndpoint: z.string().url(),
-  image: z.literal(reviewed.image),
-  imageDigest: z.literal(reviewed.imageDigest),
+  image: z.enum([reviewed.image, claudeReviewed.image]),
+  imageDigest: z.enum([reviewed.imageDigest, claudeReviewed.imageDigest]),
   controllerSha256: z.literal(reviewed.nativeArtifacts['/usr/bin/codex']),
   sandboxRuntimeImage: z.literal(reviewed.sandboxRuntimeImage),
   supervisorImage: z.literal(reviewed.supervisorImage),
@@ -73,9 +79,16 @@ const OwnedAttestation = LegacyAttestation.extend({
       '/usr/local/bin/symposium-attempt-controller': z.literal(
         reviewed.nativeArtifacts['/usr/local/bin/symposium-attempt-controller'],
       ),
-      '/usr/local/bin/symposium-seat-landlock': z.literal(
+      '/usr/local/bin/symposium-seat-landlock': z.enum([
         reviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
-      ),
+        claudeReviewed.nativeArtifacts['/usr/local/bin/symposium-seat-landlock'],
+      ]),
+      '/usr/local/bin/claude': z
+        .literal(claudeReviewed.nativeArtifacts['/usr/local/bin/claude'])
+        .optional(),
+      '/usr/local/bin/symposium-claude-vertex': z
+        .literal(claudeReviewed.nativeArtifacts['/usr/local/bin/symposium-claude-vertex'])
+        .optional(),
       '/usr/local/bin/symposium-subscription-app-server': z.literal(
         reviewed.nativeArtifacts['/usr/local/bin/symposium-subscription-app-server'],
       ),
@@ -87,7 +100,7 @@ const OwnedAttestation = LegacyAttestation.extend({
         .object({
           name: z.string().min(1),
           id: z.string().min(1),
-          type: z.enum(['openai', 'codex']),
+          type: z.enum(['openai', 'codex', 'google-vertex-ai']),
           profileName: z.string().min(1),
         })
         .strict(),
@@ -95,8 +108,27 @@ const OwnedAttestation = LegacyAttestation.extend({
     .min(1),
   artifactVolume: z.object({ driver: z.literal('podman'), name: z.string().min(1) }).strict(),
   allowedRoles: z.array(z.enum(['implementer', 'coder', 'reviewer'])).min(1),
-  allowedAccountProviders: z.array(z.enum(['openai', 'openai-codex'])).min(1),
-}).strict();
+  allowedAccountProviders: z.array(z.enum(['openai', 'openai-codex', 'anthropic-vertex'])).min(1),
+})
+  .strict()
+  .superRefine((value, context) => {
+    const expected = reviewedSymposiumOwnedRuntime(value.image).build;
+    const artifacts = Object.entries(value.nativeArtifacts);
+    if (
+      value.imageDigest !== expected.imageDigest ||
+      artifacts.length !== Object.keys(expected.nativeArtifacts).length ||
+      artifacts.some(
+        ([path, hash]) => (expected.nativeArtifacts as Record<string, string>)[path] !== hash,
+      ) ||
+      (value.image !== claudeReviewed.image &&
+        (value.allowedAccountProviders.includes('anthropic-vertex') ||
+          value.providerInstances.some((p) => p.type === 'google-vertex-ai')))
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Owned native runtime variant differs from reviewed contract',
+      });
+  });
 const Attestation = z.discriminatedUnion('contract', [LegacyAttestation, OwnedAttestation]);
 export type SymposiumProductionAttestation = z.infer<typeof Attestation>;
 export interface SymposiumOwnedNativeHostBinding {
@@ -116,6 +148,8 @@ export interface SymposiumOwnedNativeHostBinding {
 export interface SymposiumProductionPhysicalProof {
   /** Mandatory for owned-native contracts; unavailable evidence is never inferred. */
   verifyOwnedNativeHost?(binding: SymposiumOwnedNativeHostBinding): void;
+  /** Same-process selected identity capability, never reconstructed from attestation text. */
+  captureClaudeProvider?(providerId: string): SymposiumWorkVertexReceipt;
   verifyNativeArtifacts?(
     image: string,
     imageDigest: string,
@@ -225,7 +259,8 @@ export function verifySymposiumProductionGate(
 ): {
   runtimeConfig: OpenShellRuntimeConfig;
   allowedRoles: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
-  allowedAccountProviders: ReadonlySet<'openai' | 'openai-codex'>;
+  allowedAccountProviders: ReadonlySet<'openai' | 'openai-codex' | 'anthropic-vertex'>;
+  claudeProviders: ReadonlyMap<string, SymposiumWorkVertexReceipt>;
   readOnlyEnforced: boolean;
   attestedProviderProfiles: ReadonlySet<string>;
   attestedProviderInstances: SymposiumProviderCapability['attestedProviderInstances'];
@@ -253,7 +288,12 @@ export function verifySymposiumProductionGate(
     )
       throw new Error('Owned native admission lists must be unique');
     for (const provider of expected.allowedAccountProviders) {
-      const type = provider === 'openai-codex' ? 'codex' : 'openai';
+      const type =
+        provider === 'openai-codex'
+          ? 'codex'
+          : provider === 'anthropic-vertex'
+            ? 'google-vertex-ai'
+            : 'openai';
       if (
         !expected.providerInstances.some(
           (instance) => instance.type === type && instance.profileName === type,
@@ -368,7 +408,22 @@ export function verifySymposiumProductionGate(
     expected.workspace,
   );
   if (ownedBinding) physical.verifyOwnedNativeHost!(ownedBinding);
+  const claudeProviders = new Map<string, SymposiumWorkVertexReceipt>();
+  for (const instance of expected.providerInstances) {
+    if (instance.type !== 'google-vertex-ai') continue;
+    if (!owned || expected.image !== claudeReviewed.image || !physical.captureClaudeProvider)
+      throw new Error('Claude selected provider proof is unavailable');
+    const receipt = physical.captureClaudeProvider(instance.id);
+    if (
+      receipt.provider !== instance.name ||
+      receipt.providerId !== instance.id ||
+      receipt.workspace !== expected.workspace
+    )
+      throw new Error('Claude selected provider identity changed');
+    claudeProviders.set(instance.name, receipt);
+  }
   return {
+    claudeProviders,
     readOnlyEnforced: owned,
     runtimeConfig: { ...legacyConfig, cliContract: 'v0.1' },
     allowedRoles: new Set(expected.allowedRoles),
