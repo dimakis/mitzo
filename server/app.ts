@@ -1,3 +1,4 @@
+import { createSymposiumSourceRouter } from './symposium-source-routes.js';
 import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
@@ -836,6 +837,7 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
     throw new Error('Symposium runtime cleanup incomplete');
 }
 export interface SymposiumProductionHost {
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
   runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
     sessionId: string,
@@ -1061,6 +1063,15 @@ app.use(
       symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
         ? symposiumProductionHost.reviewHost
         : null,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/source',
+  operatorAuthMiddleware,
+  createSymposiumSourceRouter({
+    repositories: () => getRepoConfig().repos,
+    getSession: (id) => eventStore.getSession(id),
+    getHost: () => symposiumProductionHost?.sourceImport,
   }),
 );
 app.use(
