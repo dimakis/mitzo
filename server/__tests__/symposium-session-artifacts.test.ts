@@ -421,6 +421,60 @@ it('serializes source import against admission and permanently records permissio
   expect(() => f.store.completeSourceImport({ ...claim, token: 'wrong' }, {})).toThrow(/claim/);
 });
 
+it('durably fences original source admission before an imported generation can be sealed', async () => {
+  const f = fixture();
+  await f.store.ensure('source');
+  const mapping = f.store.getReady('source')!;
+  const claim = f.store.beginSourceImport('source', {
+    operationId: 'import-op',
+    expectedGeneration: mapping.volumeGeneration,
+    source: {},
+  });
+  const helper = f.store.sourceImportHelperReceipt(claim);
+  helper.intent(`${mapping.volumeName}-import`);
+  helper.created('a'.repeat(64));
+  helper.removed();
+  const receipt = {
+    commit: 'b'.repeat(40),
+    tree: 'c'.repeat(40),
+    featureBranch: 'change',
+    bundleSha256: 'd'.repeat(64),
+    files: 1,
+    bytes: 3,
+    git: {
+      version: 1,
+      commit: 'b'.repeat(40),
+      tree: 'c'.repeat(40),
+      entries: 1,
+      bytes: 3,
+      manifestDigest: 'e'.repeat(64),
+      committedTreeDigest: 'f'.repeat(64),
+    },
+    terminal: { helperId: 'a'.repeat(64), exitCode: 0 },
+    importer: 'g'.repeat(64),
+    operationId: 'import-op',
+  };
+  f.store.completeSourceImport(claim, receipt);
+  const pending = f.store.beginSourceSeal('source', 'source-seal-op');
+  expect(pending).toMatchObject({
+    sessionId: 'source',
+    volumeGeneration: mapping.volumeGeneration,
+    sourceReceipt: receipt,
+  });
+  expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);
+  const reopened = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => reopened.close());
+  expect(reopened.beginSourceSeal('source', 'source-seal-op')).toEqual(pending);
+  expect(() => reopened.claimAdmission('source')).toThrow(/source seal/);
+  expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
+});
+
 it('keeps interrupted source import fenced after reopening and rejects stale volume selection', async () => {
   const f = fixture();
   await f.store.ensure('session');

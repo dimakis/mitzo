@@ -48,6 +48,7 @@ type Row = {
   initialization_contract: string | null;
   admission_issued: number;
   source_import_json: string | null;
+  source_seal_json: string | null;
   initializer_name: string | null;
   initializer_id: string | null;
   initializer_removed: number;
@@ -101,6 +102,7 @@ export class SymposiumSessionArtifacts {
     for (const [name, definition] of [
       ['admission_issued', 'INTEGER NOT NULL DEFAULT 1'],
       ['source_import_json', 'TEXT'],
+      ['source_seal_json', 'TEXT'],
     ]) {
       if (!columns.some((column) => column.name === name))
         this.db.exec(`ALTER TABLE symposium_session_artifacts ADD COLUMN ${name} ${definition}`);
@@ -162,7 +164,60 @@ export class SymposiumSessionArtifacts {
       admissionIssued: !!row.admission_issued,
       volumeGeneration: row.generation,
       receipt: source?.receipt ?? null,
+      sourceSeal: row.source_seal_json ? JSON.parse(row.source_seal_json) : null,
     };
+  }
+  /** Persist a permanent pre-admission fence before physical source verification.
+   * A pending attempt is never reconstructed from a later clean volume inspection. */
+  beginSourceSeal(sessionId: string, operationId: string) {
+    if (!id.test(operationId)) throw new Error('Invalid source seal operation');
+    return this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('Source seal mapping unavailable');
+        this.assertOwner(row);
+        const existing = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (existing) {
+          if (existing.operationId !== operationId)
+            throw new Error('source seal operation changed');
+          return existing;
+        }
+        const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
+        const receipt = source?.receipt;
+        if (
+          row.admission_issued ||
+          !this.getReady(sessionId) ||
+          !receipt ||
+          receipt.git?.version !== 1 ||
+          receipt.git.commit !== receipt.commit ||
+          receipt.git.tree !== receipt.tree ||
+          receipt.git.entries !== receipt.files ||
+          receipt.git.bytes !== receipt.bytes ||
+          !/^[a-f0-9]{64}$/.test(receipt.git.manifestDigest) ||
+          !/^[a-f0-9]{64}$/.test(receipt.git.committedTreeDigest) ||
+          receipt.terminal?.exitCode !== 0 ||
+          !/^[a-f0-9]{64}$/.test(receipt.terminal.helperId)
+        )
+          throw new Error('Source seal requires exact imported, unadmitted Git proof');
+        const pending = {
+          version: 1 as const,
+          state: 'pending' as const,
+          sessionId,
+          operationId,
+          workspace: row.workspace,
+          custody: row.custody,
+          volumeName: row.volume_name,
+          volumeGeneration: row.generation,
+          sourceReceipt: receipt,
+        };
+        this.db
+          .prepare(
+            'UPDATE symposium_session_artifacts SET source_seal_json=?,revision=revision+1 WHERE session_id=?',
+          )
+          .run(JSON.stringify(pending), sessionId);
+        return pending;
+      })
+      .immediate();
   }
   /** Permanent issuance marker: an already returned descriptor can never race a later import. */
   claimAdmission(sessionId: string): SessionArtifactMapping {
@@ -171,6 +226,8 @@ export class SymposiumSessionArtifacts {
         const mapping = this.getReady(sessionId);
         if (!mapping)
           throw new Error('Artifact source import or preparation mapping is incomplete');
+        if (this.read(sessionId)?.source_seal_json)
+          throw new Error('Original source seal fences direct artifact admission');
         this.db
           .prepare('UPDATE symposium_session_artifacts SET admission_issued=1 WHERE session_id=?')
           .run(sessionId);
