@@ -579,3 +579,20 @@ it('cleans a reconstructed host directory if seal verification fails before push
   expect(f.publisher.cleanup).toHaveBeenCalledWith('/mock-host');
   expect(f.publisher.push).not.toHaveBeenCalled();
 });
+it('does not settle a lost existing-PR update whose approved review metadata was never applied', async () => {
+  const f = executionFixture();
+  const stale = { ...(await f.publisher.read()), title: 'Old title', body: 'No review record' };
+  f.publisher.findOpen.mockResolvedValue(stale as never);
+  f.publisher.read.mockResolvedValue(stale);
+  f.publisher.update.mockImplementation(async () => {
+    throw new Error('Lost update response');
+  });
+  expect((await f.invoke()).status).toBe('verification_pending');
+  expect((await f.invoke()).status).toBe('verification_pending');
+  expect(f.publisher.update).toHaveBeenCalledOnce();
+  expect(f.publisher.push).toHaveBeenCalledOnce();
+  expect(f.approve).toHaveBeenCalledOnce();
+  f.publisher.read.mockResolvedValue({ ...stale, title: f.input.title, body: f.input.body });
+  expect((await f.invoke()).status).toBe('succeeded');
+  expect(f.publisher.update).toHaveBeenCalledOnce();
+});

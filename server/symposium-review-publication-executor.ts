@@ -10,6 +10,7 @@ import {
   type GithubSandboxTransport,
 } from './connections/capabilities/github-publish-pr.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
+import { CapabilityRecoveryPendingError } from './connections/capabilities/types.js';
 import type {
   CapabilityExecutor,
   CapabilityExecutionContext,
@@ -218,13 +219,26 @@ export function createSymposiumReviewPublicationExecutor(
       const forbidden = async (): Promise<never> => {
         throw new Error('Recovery mutation forbidden');
       };
+      const approved = operation.approvalInput as Record<string, string | boolean>;
+      const verifyMetadata = <T extends { title: string; body: string; draft: boolean } | null>(
+        pr: T,
+      ): T => {
+        if (
+          pr &&
+          (pr.title !== approved.title || pr.body !== approved.body || pr.draft !== approved.draft)
+        )
+          throw new CapabilityRecoveryPendingError(
+            'Approved review publication metadata remains unverified',
+          );
+        return pr;
+      };
       const executor = createGithubPublishPrExecutor({
         sandbox: { inspect: forbidden, exportBundle: forbidden },
         host: {
           ...deps.publisher,
           policy: forbidden,
-          findOpen: (input) => deps.publisher.findOpen(input),
-          read: (input) => deps.publisher.read(input),
+          findOpen: async (input) => verifyMetadata(await deps.publisher.findOpen(input)),
+          read: async (input) => verifyMetadata(await deps.publisher.read(input)),
           readBranch: (input) => deps.publisher.readBranch(input),
           reconstruct: forbidden,
           push: forbidden,
