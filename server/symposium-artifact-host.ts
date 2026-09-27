@@ -56,9 +56,14 @@ export class ArtifactCommandNotDispatched extends Error {
   }
 }
 
+export type ArtifactPodmanCommand = (
+  args: readonly string[],
+  maxOutputBytes?: number,
+  input?: Buffer,
+) => Promise<string>;
 export class ArtifactPodmanContext {
   constructor(
-    private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>,
+    private readonly command: ArtifactPodmanCommand,
     private readonly terminalCommand = command,
   ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
@@ -66,14 +71,28 @@ export class ArtifactPodmanContext {
       throw new Error('Invalid artifact context inspection');
     return JSON.parse(await this.command(['volume', 'inspect', name]));
   }
-  verifierCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
+  verifierCommand(): ArtifactPodmanCommand {
     // Successful create/removal must reach the caller journal before post-command custody checks.
     // The retained command still checks custody before dispatch. Other reads keep both checks.
-    return (args, maxOutputBytes) =>
-      (args[0] === 'create' || args[0] === 'rm' ? this.terminalCommand : this.command)(
-        args,
-        maxOutputBytes,
-      );
+    return async (args, maxOutputBytes, input) => {
+      if (
+        input &&
+        (input.length < 1 ||
+          input.length > 8 * 1024 * 1024 ||
+          args[0] !== 'start' ||
+          args[1] !== '--attach' ||
+          args[2] !== '--interactive')
+      )
+        throw new Error('Artifact stdin command or byte bound is invalid');
+      return (
+        args[0] === 'create' ||
+          args[0] === 'rm' ||
+          (args[0] === 'volume' && args[1] === 'create') ||
+          input
+          ? this.terminalCommand
+          : this.command
+      )(args, maxOutputBytes, input);
+    };
   }
 }
 
@@ -102,7 +121,7 @@ export const inspectLocalArtifactVolume: VolumeRunner = (driver, name) => {
   });
 };
 
-function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
+export function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
   const item = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
   if (!item || typeof item !== 'object' || Array.isArray(item))
     throw new Error('Invalid artifact volume inspection result');
@@ -217,7 +236,7 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       throw new Error('Artifact snapshot gateway differs from retained lease host');
   }
 
-  snapshotCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
+  snapshotCommand(): ArtifactPodmanCommand {
     if (!this.podmanContext)
       throw new Error('Artifact snapshot requires the lease host Podman context');
     return this.podmanContext.verifierCommand();

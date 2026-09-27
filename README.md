@@ -635,8 +635,11 @@ An internal physical-seal operation now composes runtime drain, exact absence ch
 credential-free read-only Git verifier; its retained receipt still grants no native review
 or publication permission, and new gateway custody cannot adopt it.
 
-A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
-records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
+The gated [artifact successor copier](docs/operations/symposium-artifact-generations.md)
+joins retained self-contained exports, credential-free physical import and the existing
+SQLite generation ledger. Activation moves only the ledger pointer; session admission
+still maps the initial volume and sealed sessions stay closed. Trusted fix authority is
+required and remains unavailable in the current application.
 
 The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced

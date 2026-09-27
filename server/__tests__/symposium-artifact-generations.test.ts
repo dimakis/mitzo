@@ -431,3 +431,53 @@ it('racing quarantine and terminal verification never reports quarantine success
     quarantine.stdout === 'ok' ? 'quarantined' : 'verified',
   );
 }, 15000);
+
+it('retains ordered physical effects across reopen without granting retry or activation', () => {
+  const f = fixture();
+  const { store, db } = f.open();
+  store.registerInitial(initial);
+  const intent = store.reserve(request);
+  expect(store.claimCopy(context, intent.generationId)).toBe(true);
+  store.observePhysical(context, intent.generationId, { phase: 'volume_create_dispatched' });
+  store.observePhysical(context, intent.generationId, {
+    phase: 'volume_created',
+    name: intent.volumeName,
+  });
+  store.observePhysical(context, intent.generationId, { phase: 'helper_create_dispatched' });
+  const helperId = 'c'.repeat(64);
+  store.observePhysical(context, intent.generationId, { phase: 'helper_created', helperId });
+  db.close();
+  const reopened = f.open().store;
+  expect(reopened.historical(context, intent.generationId)).toMatchObject({
+    state: 'copy_uncertain',
+    helperId,
+    physical: [
+      { phase: 'volume_create_dispatched' },
+      { phase: 'volume_created', name: intent.volumeName },
+      { phase: 'helper_create_dispatched' },
+      { phase: 'helper_created', helperId },
+    ],
+  });
+  expect(reopened.claimCopy(context, intent.generationId)).toBe(false);
+  expect(() =>
+    reopened.observePhysical(context, intent.generationId, { phase: 'helper_removed', helperId }),
+  ).toThrow();
+  reopened.observePhysical(context, intent.generationId, {
+    phase: 'terminal',
+    helperId,
+    exitCode: 23,
+    proofDigest: null,
+  });
+  reopened.observePhysical(context, intent.generationId, { phase: 'helper_removed', helperId });
+  reopened.quarantine(context, intent.generationId);
+  reopened.observePhysical(context, intent.generationId, { phase: 'helper_absent', helperId });
+  expect(() => reopened.activate(context, intent.generationId)).toThrow();
+  expect(() =>
+    reopened.observePhysical(context, intent.generationId, {
+      phase: 'terminal',
+      helperId,
+      exitCode: 0,
+      proofDigest: hash,
+    }),
+  ).toThrow();
+});
