@@ -133,6 +133,15 @@ export function recentAuthorizationSession(res: express.Response): AuthSession |
   }
   return value;
 }
+/** Export only the validity bound of a capability verified in this app process. */
+export function recentAuthorizationExpiry(res: express.Response, csrf: string): number | undefined {
+  const auth = res.locals.authSession as AuthSession | undefined;
+  if (!auth || auth.expiresAt <= Date.now()) return undefined;
+  const capability = capabilities.get(auth.id);
+  if (!capability || capability.csrf !== csrf || capability.expiresAt <= Date.now())
+    return undefined;
+  return Math.min(capability.expiresAt, auth.expiresAt);
+}
 export function requireRecentConnectionAuthorization(res: express.Response, csrf: string) {
   try {
     const retained = custodianRequestAuthority(res.req);
