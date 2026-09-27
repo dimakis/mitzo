@@ -598,3 +598,6 @@ registry file, not automatic history adoption after fresh gateway custody.
 Before external seat creation, local artifact and seat intent writes complete before workspace dispatch uncertainty is recorded. A live owner can undo its exact unbound local intent if those writes fail before dispatch; failed rollback and interrupted processes retain recovery requirements. Inventory absence never discharges an uncertain dispatched create.
 
 A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
+
+Symposium director controls identify the current primary-seat lifecycle restriction;
+primary-writer removal remains unsupported. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
