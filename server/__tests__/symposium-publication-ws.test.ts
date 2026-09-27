@@ -67,12 +67,40 @@ it('uses native switch/watch, concurrent normal approvals and real WS responses 
   };
   await handleSwitchSession('browser', { type: 'switch_session', sessionId: 'session' }, ctx);
   expect(sessionRegistry.findBySessionId('session', true)).toBeNull();
+  const otherMessages: Record<string, unknown>[] = [];
+  connRegistry.register('other-browser', {
+    send: (value) => otherMessages.push(value),
+    isOpen: () => true,
+  });
+  await handleSwitchSession('other-browser', { type: 'switch_session', sessionId: 'session' }, ctx);
+  const owned = (connection: string, actor: string) =>
+    ['browser', 'other-browser'].includes(connection) && actor === 'login';
+  expect(
+    publicationControllerApproval(
+      sessionRegistry,
+      owned,
+      'session',
+      'login',
+      undefined,
+      connRegistry,
+    ),
+  ).toBeUndefined();
+  expect(
+    publicationControllerApproval(
+      sessionRegistry,
+      owned,
+      'session',
+      'login',
+      'missing',
+      connRegistry,
+    ),
+  ).toBeUndefined();
   const approval = publicationControllerApproval(
     sessionRegistry,
-    (connection, actor) => connection === 'browser' && actor === 'login',
+    owned,
     'session',
     'login',
-    undefined,
+    'browser',
     connRegistry,
   );
   expect(approval).toBeDefined();
@@ -93,6 +121,19 @@ it('uses native switch/watch, concurrent normal approvals and real WS responses 
   );
   const permissions = messages.filter((value) => value.type === 'permission_request');
   expect(permissions).toHaveLength(2);
+  expect(otherMessages.filter((value) => value.type === 'permission_request')).toEqual([]);
+  expect(
+    handlePermissionResponseV2(
+      'other-browser',
+      {
+        type: 'permission_response',
+        sessionId: 'session',
+        permId: String(permissions[0].permId),
+        decision: 'once',
+      },
+      ctx,
+    ),
+  ).toBe(false);
   expect(
     handlePermissionResponseV2(
       'browser',

@@ -1,3 +1,4 @@
+import { useMitzoStore } from '@mitzo/client/hooks';
 import { z } from 'zod';
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
@@ -37,6 +38,7 @@ function Publication({
   sessionId: string;
   record: { id: string; hash: string } | null;
 }) {
+  const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/publication`;
   const storageKey = `mitzo-publication:${sessionId}:${record?.id ?? ''}`;
   const [saved] = useState(() => pendingRequest(storageKey));
@@ -77,9 +79,15 @@ function Publication({
     return () => abort.abort();
   }, [base]);
   async function post(path: string, input: unknown) {
+    const connectionId = path === 'publish' ? getTransportConnectionId() : null;
+    if (path === 'publish' && !connectionId)
+      throw new Error('Connect this tab to the session before publishing');
     const response = await apiFetch(`${base}/${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(connectionId ? { 'X-Connection-ID': connectionId } : {}),
+      },
       body: JSON.stringify(input),
       signal: controller.current?.signal,
     });

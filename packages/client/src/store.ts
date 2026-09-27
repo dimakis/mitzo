@@ -96,6 +96,9 @@ export interface MitzoStoreState {
   // Pending session (for "Start Session" from inbox/todo)
   pendingSession: PendingSession | null;
 
+  // Current server-issued transport identity; never persisted across reconnect.
+  getTransportConnectionId(): string | null;
+
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   switchSession(id: string): Promise<void>;
@@ -456,6 +459,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSession: null,
 
     // ── Actions ──────────────────────────────────────────────────────────
+
+    getTransportConnectionId: () => connection.getConnectionId(),
 
     dispatchMessages(action: MessagesAction) {
       set((s) => ({ messages: messagesReducer(s.messages, action) }));

@@ -132,3 +132,5 @@ The selected credential custodian must report HTTP failures using the sanitized
 `PublicationCredentialHttpError` status contract. An exact 404 maps to the host
 publisher's missing-resource branch-rule check; raw stderr/error text is never
 retained or exposed; the custodian recognizes the fixed gh status diagnostic. Selected repository names are canonicalized before durable grant hashing.
+
+Publication requests bind to the current tab’s server-issued chat transport ID at dispatch. Reconnect updates only that transport binding; uncertain publication retries retain the original operation payload and idempotency key. Multiple authenticated watchers cannot redirect the initiating tab’s approval. Direct saved-record links require an explicit **Open session for approval** action, keep the immutable record visible, and render the existing permission banner without starting a model.

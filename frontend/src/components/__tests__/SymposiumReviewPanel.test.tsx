@@ -1,6 +1,11 @@
+import { MitzoStoreProvider } from '@mitzo/client/hooks';
+import { createTestStore } from '../../test-utils/createTestStore';
+import type { ReactNode } from 'react';
+const render = (node: ReactNode) =>
+  baseRender(<MitzoStoreProvider value={createTestStore()}>{node}</MitzoStoreProvider>);
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render as baseRender, screen, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumReviewPanel } from '../SymposiumReviewPanel';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
