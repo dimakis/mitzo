@@ -27,8 +27,11 @@ tokens; it does not send inference requests.
 
 The gateway creates a fresh provider, receives exact project/region config,
 and returns a bounded census identifying name, ID, type, and workspace. Refresh
-configuration and an initial rotation must both succeed before publishing the
-account binding. A failed/uncertain startup returns no binding; the existing
+configuration and an initial rotation request must both be acknowledged before
+publishing the account binding. Rotation acknowledgement is not proof that the
+background refresh finished; admission must inspect current refresh readiness
+and expiry before relying on it. The initial token was authenticated from the
+same selected snapshot. A failed/uncertain startup returns no binding; the existing
 bootstrap stops its newly owned gateway. Do not retry or adopt that provider.
 The code does not claim restart recovery.
 
