@@ -2,6 +2,7 @@ import {
   collectPersonalAdmissionEvidence,
   PersonalEvidenceSelection,
 } from './symposium-personal-evidence.js';
+import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -18,8 +19,6 @@ import {
   assertSessionArtifactVolume,
   type SessionArtifactPreparation,
 } from './symposium-session-artifacts.js';
-
-import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
