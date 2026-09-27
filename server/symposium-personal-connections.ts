@@ -3,6 +3,7 @@ import {
   constants,
   closeSync,
   fstatSync,
+  fsyncSync,
   openSync,
   readFileSync,
   renameSync,
@@ -91,8 +92,27 @@ export class PersonalConnections<T extends Adapter> {
   private save() {
     const temp = `${this.path}.${randomUUID()}`;
     try {
-      writeFileSync(temp, JSON.stringify(this.rows), { mode: 0o600, flag: 'wx' });
+      const fd = openSync(
+        temp,
+        constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeFileSync(fd, JSON.stringify(this.rows));
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
       renameSync(temp, this.path);
+      const parent = openSync(
+        dirname(this.path),
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      try {
+        fsyncSync(parent);
+      } finally {
+        closeSync(parent);
+      }
     } catch {
       for (const adapter of this.adapters.values()) adapter.invalidate();
       for (const row of this.rows) row.state = 'recovery_required';

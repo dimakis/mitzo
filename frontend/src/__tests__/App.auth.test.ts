@@ -7,6 +7,9 @@ describe('ProtectedRoute authentication restoration', () => {
     const source = readFileSync(join(import.meta.dirname, '..', 'App.tsx'), 'utf8');
 
     expect(source).toContain('restoreCookieAuthentication()');
+    expect(source).toContain(
+      'encodeURIComponent(location.pathname + location.search + location.hash)',
+    );
   });
 
   it('rechecks the route when another tab restores authentication', () => {

@@ -1333,7 +1333,7 @@ describe('last native Symposium dispatch fence', () => {
       type: 'openai',
       workspace: 'default',
     });
-    const snapshot = (phase: 'candidate' | 'reconciling' | 'confirmed') =>
+    const snapshot = (phase: 'candidate' | 'retained' | 'reconciling' | 'confirmed') =>
       snapshotSymposiumSeatProvider(
         'symposium',
         'reviewer',
@@ -1356,6 +1356,18 @@ describe('last native Symposium dispatch fence', () => {
     currentMembership = { ...membership };
     expect(snapshot('confirmed').generation).toBe(2);
     expect(() => snapshot('candidate')).toThrow(/membership/i);
+    currentAdmission = undefined;
+    const retained = snapshot('retained');
+    expect(retained.generation).toBe(2);
+    expect(() => snapshot('confirmed')).toThrow(/admission/i);
+    currentAdmission = { ...admission, decision: 'refused' };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = { ...admission, membershipGeneration: 999 };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = undefined;
+    currentMembership = { ...membership, reconciliation: 'pending' };
+    expect(() => snapshot('retained')).toThrow(/membership/i);
+    expect(() => retained.verify()).toThrow(/membership/i);
   });
   it('does not create a pending seat sandbox until its provider admission is recorded', async () => {
     // The admission changes between the two ensure attempts in this test.
@@ -2024,6 +2036,7 @@ describe('per-seat artifact admission', () => {
       phase = 'Absent';
     });
     let capabilityChecks = 0;
+    let artifactReady = true;
     const owner = () =>
       new SymposiumPerSeatSandboxOwner({
         sessionId: 'symposium',
@@ -2069,7 +2082,11 @@ describe('per-seat artifact admission', () => {
           };
         },
         artifactLeaseHost: host,
-        artifactRequest: () => request,
+        artifactRequest: (_session, _seat, _generation, purpose) => {
+          if (!artifactReady && purpose !== 'cleanup')
+            throw new Error('Artifact admission blocked');
+          return request;
+        },
         managerFactory: (config) => {
           if (options.failManager) throw new Error('manager construction failed');
           configurations.push(config);
@@ -2102,6 +2119,9 @@ describe('per-seat artifact admission', () => {
       remove,
       registry,
       configurations,
+      setArtifactReady: (ready: boolean) => {
+        artifactReady = ready;
+      },
       setPhase: (next: typeof phase) => {
         phase = next;
       },
@@ -2236,6 +2256,27 @@ describe('per-seat artifact admission', () => {
       await expect(
         acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
       ).rejects.toThrow('already has a writer');
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
+
+  it('retains cleanup identity after artifact readiness is revoked', async () => {
+    const state = setup('writer');
+    try {
+      const owner = state.owner();
+      await owner.ensure('symposium', 'reviewer', new AbortController().signal);
+      state.setArtifactReady(false);
+      await expect(
+        owner.ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('Artifact admission blocked');
+      await owner.stop('symposium', 'reviewer', 2, new AbortController().signal);
+      expect(state.remove).toHaveBeenCalledOnce();
+      expect(state.verifyDeleted).toHaveBeenCalledOnce();
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
     } finally {
       state.host.close();
       rmSync(state.root, { recursive: true, force: true });

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
 import './SymposiumPersonalConnections.css';
@@ -46,6 +47,13 @@ export function SymposiumPersonalConnections({
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
+  const accountsChanged = useRef(onAccountsChanged);
+  accountsChanged.current = onAccountsChanged;
+  const observedRevisions = useRef(new Map<string, number>());
+  const notifyAccountsChanged = useCallback(() => {
+    invalidateSymposiumAccountCatalog();
+    accountsChanged.current?.();
+  }, []);
   const refresh = useCallback(async () => {
     const request = ++version.current;
     try {
@@ -55,7 +63,13 @@ export function SymposiumPersonalConnections({
         .object({ connections: z.array(connectionSchema) })
         .parse(await response.json());
       if (request !== version.current) return;
+      const revisions = new Map(body.connections.map((row) => [row.id, row.revision]));
+      const revised = [...observedRevisions.current].some(
+        ([id, revision]) => revisions.get(id) !== revision,
+      );
+      observedRevisions.current = revisions;
       setConnections(body.connections);
+      if (revised) notifyAccountsChanged();
       setActiveId((current) =>
         current &&
         body.connections.some(
@@ -75,7 +89,7 @@ export function SymposiumPersonalConnections({
       if (request === version.current)
         setError('Could not load personal accounts. Refresh before changing a saved connection.');
     }
-  }, []);
+  }, [notifyAccountsChanged]);
   useEffect(() => {
     void refresh();
     return () => {
@@ -95,7 +109,7 @@ export function SymposiumPersonalConnections({
       if (!response.ok) throw new Error('Request failed');
       setMessage(success);
       if (path === endpoint) setLabel('');
-      onAccountsChanged?.();
+      notifyAccountsChanged();
     } catch {
       setMessage(
         'Could not confirm the change. Check the refreshed account status before trying again.',
@@ -175,10 +189,7 @@ export function SymposiumPersonalConnections({
                 );
                 if (!pending) void refresh();
               }}
-              onAccountsChanged={() => {
-                void refresh();
-                onAccountsChanged?.();
-              }}
+              onAccountsChanged={notifyAccountsChanged}
             />
           )}
           {!['recovery_required', 'disconnecting'].includes(connection.state) && (
@@ -198,11 +209,11 @@ export function SymposiumPersonalConnections({
                 }}
                 onComplete={() => {
                   void refresh();
-                  onAccountsChanged?.();
+                  notifyAccountsChanged();
                 }}
                 onCatalogRefresh={() => {
                   void refresh();
-                  onAccountsChanged?.();
+                  notifyAccountsChanged();
                 }}
               />
             </details>

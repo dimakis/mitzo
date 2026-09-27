@@ -235,3 +235,72 @@ describe('owned native admission contract', () => {
     ).toThrow();
   });
 });
+
+const measuredCanonicalBuild = {
+  image: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
+  imageDigest: '55b6dc5c7aaf443c4a11c44d29a170697648e63f3b8f81f7e1e93b7535e9fe17',
+  controllerSha256: '4d76e542c222ea8c75861d8c4ade60a1a332a63255ce1c60bdaebf7c2a2869e6',
+};
+it('accepts measured canonical build only through the remaining custody and policy checks', () => {
+  const f = fixture();
+  f.config.image = measuredCanonicalBuild.image;
+  const attestation = {
+    ...f.attestation,
+    ...measuredCanonicalBuild,
+    nativeArtifacts: {
+      ...f.attestation.nativeArtifacts,
+      '/usr/bin/codex': measuredCanonicalBuild.controllerSha256,
+      '/usr/local/bin/symposium-seat-landlock':
+        '286c37e476c145df22216402310b20ac7a7ac735d6280a1293b800299b76801f',
+    },
+  } as SymposiumProductionAttestation;
+  expect(
+    verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke).readOnlyEnforced,
+  ).toBe(true);
+  expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
+    measuredCanonicalBuild.image,
+    measuredCanonicalBuild.imageDigest,
+    expect.objectContaining({ '/usr/bin/codex': measuredCanonicalBuild.controllerSha256 }),
+  );
+  vi.mocked(f.physical.verifyOwnedNativeHost!).mockImplementation(() => {
+    throw new Error('custody denied');
+  });
+  expect(() => verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke)).toThrow(
+    'custody denied',
+  );
+  vi.mocked(f.physical.verifyOwnedNativeHost!).mockImplementation(() => {});
+  writeFileSync(f.config.policy, 'changed policy');
+  expect(() => verifySymposiumProductionGate(f.config, attestation, f.physical, f.invoke)).toThrow(
+    'policy or seed digest changed',
+  );
+});
+it('rejects the former wrapper image and hash even with otherwise valid host proof', () => {
+  const f = fixture();
+  const prior = {
+    ...f.attestation,
+    image: 'sha256:c621f4a66281689c9d4c2692ca7234ba61cd154f58c3df003a193f58375bb63d',
+    imageDigest: 'd00a366614f1926d7159a5290818418b041167295ba2e93692ce47a38e06448f',
+    controllerSha256: '61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70',
+    nativeArtifacts: {
+      ...f.attestation.nativeArtifacts,
+      '/usr/bin/codex': '61b0194f3bb6534439c8d26a3ed57d0805f84b884588b761795323eeb92fcf70',
+      '/usr/local/bin/symposium-seat-landlock':
+        'bf31950c31eafab27d54ddd3662e450769811ea906687616217d743d3134c96d',
+    },
+  } as SymposiumProductionAttestation;
+  f.config.image = prior.image;
+  expect(() => verifySymposiumProductionGate(f.config, prior, f.physical, f.invoke)).toThrow();
+  expect(f.invoke).not.toHaveBeenCalled();
+});
+it.each(['controllerSha256', 'imageDigest'] as const)('rejects wrong measured %s', (key) => {
+  const f = fixture();
+  expect(() =>
+    verifySymposiumProductionGate(
+      f.config,
+      { ...f.attestation, [key]: '0'.repeat(64) } as SymposiumProductionAttestation,
+      f.physical,
+      f.invoke,
+    ),
+  ).toThrow();
+  expect(f.invoke).not.toHaveBeenCalled();
+});
