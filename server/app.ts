@@ -1,5 +1,7 @@
 import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
 
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import {
   createSymposiumReviewPublicationPreflight,
   type ReviewPublicationDependencies,
@@ -819,6 +821,7 @@ const symposiumSessionRuntimes = new Map<
   }
 >();
 export interface SymposiumProductionHost {
+  runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
@@ -832,12 +835,19 @@ export interface SymposiumProductionHost {
   collectAdmissionEvidence?: (
     selection: unknown,
   ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
-  beginDeviceLogin?: () => Promise<import('./symposium-device-login.js').DeviceLogin>;
-  beginLogin?: () => Promise<{
+  beginDeviceLogin?: (
+    selection?: ConnectionSelection,
+  ) => Promise<import('./symposium-device-login.js').DeviceLogin>;
+  beginLogin?: (selection?: ConnectionSelection) => Promise<{
     authorizationUrl: string;
     completed: Promise<unknown>;
     cancel(): void;
   }>;
+  personalConnections?: {
+    list(): PersonalConnection[];
+    create(label: string): PersonalConnection;
+    disconnect(id: string, revision: number): Promise<PersonalConnection>;
+  };
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
@@ -923,6 +933,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       attemptRegistry: host.attemptRegistry,
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
+      runSandboxCreation: host.runSandboxCreation,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
       ...(host.verifySubscriptionPrivateAuth
         ? {
@@ -1731,6 +1742,55 @@ app.post(
   '/api/symposium/admission-evidence',
   operatorAuthMiddleware,
   ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
+);
+app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  res.json({ connections: service.list() });
+});
+app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const service = symposiumProductionHost?.personalConnections;
+  if (!service) {
+    res.status(503).json({ error: 'Personal connections are unavailable.' });
+    return;
+  }
+  try {
+    if (typeof req.body?.label !== 'string') throw new Error();
+    res.status(201).json(service.create(req.body.label));
+  } catch {
+    res.status(400).json({
+      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
+    });
+  }
+});
+app.post(
+  '/api/symposium/personal/connections/:id/disconnect',
+  operatorAuthMiddleware,
+  async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    const service = symposiumProductionHost?.personalConnections;
+    if (!service) {
+      res.status(503).json({ error: 'Personal connections are unavailable.' });
+      return;
+    }
+    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+      res.status(400).json({ error: 'A current connection revision is required.' });
+      return;
+    }
+    try {
+      res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
+    } catch {
+      res.status(409).json({
+        error:
+          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
+      });
+    }
+  },
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);

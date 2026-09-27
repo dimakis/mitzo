@@ -91,6 +91,8 @@ export interface OpenShellRuntime {
 }
 
 export interface OpenShellRuntimeConfig {
+  /** Trusted host marker immediately before the external sandbox create command. */
+  beforeSandboxCreate?: () => void;
   /** Explicit CLI wire contract. Omitted retains the deployed 0.0.x behavior. */
   cliContract?: 'v0.1';
   /** Host-validated, lease-bound mount for a single seat. Never read from model output. */
@@ -1139,6 +1141,7 @@ export class OpenShellRuntimeManager {
         this.config.verifyAccountProviderUnion?.();
         this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
       }
+      this.config.beforeSandboxCreate?.();
       try {
         await this.run(args, signal);
       } catch (error) {

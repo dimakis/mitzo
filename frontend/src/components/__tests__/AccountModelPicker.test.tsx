@@ -340,15 +340,23 @@ it('fails closed for unavailable Symposium catalog and retries only that catalog
       onChange={onChange}
     />,
   );
-  expect((await screen.findByRole('alert')).textContent).toContain(
-    'Symposium account catalog unavailable',
-  );
+  expect(
+    await screen.findByText('Symposium account catalog unavailable. Retry to continue.'),
+  ).toBeTruthy();
   expect(screen.queryByText('Use legacy server account')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Retry accounts' }));
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2));
-  expect(vi.mocked(apiFetch).mock.calls.every(([url]) => url === '/api/symposium/accounts')).toBe(
-    true,
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([url]) => url === '/api/symposium/accounts'),
+    ).toHaveLength(2),
   );
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.every(([url]) =>
+        ['/api/symposium/accounts', '/api/symposium/personal/connections'].includes(url),
+      ),
+  ).toBe(true);
   expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
 });
 
@@ -399,7 +407,8 @@ it('offers personal subscription setup only in the Symposium account catalog inc
       onChange={vi.fn()}
     />,
   );
-  expect(await screen.findByRole('button', { name: 'Connect ChatGPT' })).toBeTruthy();
+  expect(await screen.findByLabelText('Saved account for sign-in')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Connect ChatGPT' })).toBeNull();
 });
 
 it('requires confirmation of the named account and model and invalidates it on changes', async () => {
@@ -431,6 +440,10 @@ it.each(['recovered', 'new'] as const)(
     let finish!: (value: Response) => void;
     const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (url === '/api/symposium/personal/connections')
+        return response({
+          connections: [{ id: 'personal', label: 'Personal', revision: 1, state: 'disconnected' }],
+        });
       if (url === '/api/symposium/accounts') {
         if (++catalogs === 1) return response([]);
         return new Promise<Response>((resolve) => {
@@ -440,10 +453,16 @@ it.each(['recovered', 'new'] as const)(
       if (init?.method === 'POST')
         return response({
           attemptId: 'login',
+          connectionId: 'personal',
           authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=mock',
         });
-      if (url.includes('?attemptId=')) return response({ state: 'completed', attemptId: 'login' });
-      return response({ state: mode === 'recovered' ? 'completed' : 'idle', attemptId: 'login' });
+      if (url.includes('?attemptId='))
+        return response({ state: 'completed', attemptId: 'login', connectionId: 'personal' });
+      return response({
+        state: mode === 'recovered' ? 'completed' : 'idle',
+        attemptId: 'login',
+        connectionId: 'personal',
+      });
     });
     const onChange = vi.fn();
     render(
@@ -455,7 +474,10 @@ it.each(['recovered', 'new'] as const)(
       />,
     );
     await screen.findByText('No Symposium account profiles configured.');
-    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    fireEvent.change(await screen.findByLabelText('Saved account for sign-in'), {
+      target: { value: 'personal' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect personal subscription' }));
     if (mode === 'new') {
       fireEvent.click(await screen.findByLabelText(/Browser on the Mitzo server/));
       fireEvent.click(screen.getByLabelText(/ready/i));
