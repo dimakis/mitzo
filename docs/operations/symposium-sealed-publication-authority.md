@@ -154,3 +154,8 @@ schema has active/revoked state rather than an independent TTL; this path does n
 authorization lifetime. Expired observer authorization, revocation, disconnect or uncertain
 reads preserve the pending operation. A changed handle or new custodian cannot reconstruct
 recovery authority. No automatic retry or cross-custody recovery is provided.
+
+Matching pending publications also fence new grants and new operation/idempotency namespaces.
+Invalid or unowned pending rows are reported as unavailable, never silently omitted as if no
+write were outstanding. An unrelated review record is allowed only when its separation is
+proven by the retained original grant; unknown historical owners keep the session fenced.

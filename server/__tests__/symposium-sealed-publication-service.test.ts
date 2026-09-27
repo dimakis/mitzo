@@ -729,6 +729,7 @@ it('routes fresh login and recent authorization through a replacement controller
   parentApp.use(operatorAuthMiddleware);
   const registration = {
     service: f.service,
+    authority: f.authority,
     authorize(auth: { id: string }) {
       f.operators.add(auth.id);
       return f.signal;
@@ -788,6 +789,16 @@ it('routes fresh login and recent authorization through a replacement controller
     const auth = (await authenticateToken(token))!;
     expect(auth.id).not.toBe(oldAuth.id);
     const app = childApp();
+    const grantAttempt = vi.spyOn(f.authority, 'grant');
+    const grantSelection = { ...f.grant.scope };
+    Reflect.deleteProperty(grantSelection, 'operatorId');
+    Reflect.deleteProperty(grantSelection, 'sessionId');
+    const rejectedGrant = await request(app)
+      .post('/api/sessions/session/symposium/publication/grant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ selection: grantSelection, principal: f.grant.principal });
+    expect(rejectedGrant.status).toBe(409);
+    expect(grantAttempt).not.toHaveBeenCalled();
     const body = { ...recoverySelection(f, pending.id) };
     Reflect.deleteProperty(body, 'sessionId');
     expect(
@@ -860,7 +871,9 @@ it('cannot reconstruct an existing operation with another service owner', async 
       artifact: f.artifact,
       credentialCustodianRegistered: true,
     });
-    expect(other.recoveryCandidates('session', 'review', 'a'.repeat(64))).toEqual([]);
+    expect(() => other.recoveryCandidates('session', 'review', 'a'.repeat(64))).toThrow(
+      'Pending publication recovery unavailable',
+    );
     await expect(
       other.recoverExact(recoverySelection(f, pending.id), 'operator', f.signal),
     ).rejects.toThrow('Retained exact recovery unavailable');
@@ -910,5 +923,59 @@ it('never lends fresh observer authority to an already-running ordinary recovery
   } finally {
     release?.();
     f.close();
+  }
+});
+it('does not report an empty safe-to-publish list when a matching pending grant is revoked', async () => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const grant = f.operations.getGrant(
+      pending.connectionId,
+      pending.connectionRevision,
+      pending.capabilityId,
+      pending.capabilityVersion,
+    )!;
+    f.operations.upsertGrant({ ...grant, status: 'revoked' });
+    expect(() => f.service.recoveryCandidates('session', 'review', 'a'.repeat(64))).toThrow(
+      'Pending publication recovery unavailable',
+    );
+  } finally {
+    f.close();
+  }
+});
+
+it('fences a fresh grant and idempotency namespace while the original publication remains uncertain', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'publication-regrant-'));
+  const f = await fixture(true, false, false, false, undefined, join(directory, 'operations.db'));
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    f.operators.add('fresh');
+    const freshGrant = await f.authority.grant(
+      { ...f.grant.scope, operatorId: 'fresh' },
+      f.grant.principal,
+      f.signal,
+    );
+    const before = f.run.mock.calls.filter(([, args]) => args.includes('POST')).length;
+    await expect(
+      f.service.invoke(
+        {
+          ...f.input,
+          grantId: freshGrant.id,
+          bindingHash: freshGrant.bindingHash,
+          turnId: 'fresh-turn',
+          idempotencyKey: 'fresh-key',
+        },
+        f.signal,
+        async () => true,
+      ),
+    ).rejects.toThrow('Existing publication must be reconciled');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(before);
+    expect(f.exportBundle).toHaveBeenCalledOnce();
+  } finally {
+    f.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

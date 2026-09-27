@@ -213,20 +213,65 @@ export class SealedPublicationService {
       throw Error('Original sealed artifact changed');
     this.assertRecovery(retained, operation, context);
   }
-  recoveryCandidates(sessionId: string, recordId: string, recordHash: string) {
-    return this.deps.operations.pendingRecovery().flatMap((operation) => {
+  assertPublicationAvailable(
+    sessionId: string,
+    recordId: string,
+    recordHash: string,
+    existing?: { grantId: string; turnId: string; idempotencyKey: string },
+  ) {
+    for (const operation of this.deps.operations.pendingRecovery()) {
+      if (
+        operation.conversationId !== sessionId ||
+        !operation.connectionId.startsWith('sealed-publication-')
+      )
+        continue;
       const retained = [...this.services.values()].find(
         (entry) =>
           operation.connectionId === `sealed-publication-${entry.grant.id}` &&
-          entry.grant.scope.sessionId === sessionId &&
-          entry.grant.scope.recordId === recordId &&
-          entry.grant.scope.recordHash === recordHash,
+          entry.grant.scope.sessionId === sessionId,
       );
-      if (!retained) return [];
+      // Unknown historical owners cannot prove that a pending write is unrelated.
+      if (!retained) throw Error('Existing publication must be reconciled');
+      if (
+        retained.grant.scope.recordId !== recordId ||
+        retained.grant.scope.recordHash !== recordHash
+      )
+        continue;
+      if (
+        existing &&
+        retained.grant.id === existing.grantId &&
+        operation.turnId === existing.turnId &&
+        operation.idempotencyKey === existing.idempotencyKey
+      )
+        continue;
+      throw Error('Existing publication must be reconciled');
+    }
+  }
+  recoveryCandidates(sessionId: string, recordId: string, recordHash: string) {
+    const pending = this.deps.operations
+      .pendingRecovery()
+      .filter(
+        (operation) =>
+          operation.conversationId === sessionId &&
+          operation.connectionId.startsWith('sealed-publication-'),
+      );
+    if (pending.length > 100) throw Error('Pending publication recovery unavailable');
+    return pending.flatMap((operation) => {
+      const retained = [...this.services.values()].find(
+        (entry) =>
+          operation.connectionId === `sealed-publication-${entry.grant.id}` &&
+          entry.grant.scope.sessionId === sessionId,
+      );
+      if (!retained) throw Error('Pending publication recovery unavailable');
+      if (
+        retained.grant.scope.recordId !== recordId ||
+        retained.grant.scope.recordHash !== recordHash
+      )
+        return [];
       try {
         this.validateRecoveryOperation(retained, operation);
       } catch {
-        return [];
+        throw Error('Pending publication recovery unavailable');
       }
       const grant = retained.grant;
       return [
@@ -537,6 +582,12 @@ export class SealedPublicationService {
       retained = { service, grant, handle: initial.handle };
       this.services.set(grant.id, retained);
     }
+    this.assertPublicationAvailable(
+      grant.scope.sessionId,
+      grant.scope.recordId,
+      grant.scope.recordHash,
+      { grantId: grant.id, turnId: input.turnId, idempotencyKey: input.idempotencyKey },
+    );
     return service.invoke(
       {
         capabilityId: 'github.publish-pr',

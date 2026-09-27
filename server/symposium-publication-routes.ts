@@ -173,6 +173,11 @@ export function createPublicationRouter(deps: {
   });
   route('/grant', async (runtime, req, session, signal) => {
     const input = z.strictObject({ selection, principal }).parse(req.body);
+    runtime.service.assertPublicationAvailable(
+      String(req.params.id),
+      input.selection.recordId,
+      input.selection.recordHash,
+    );
     return runtime.authority.grant(
       { ...input.selection, operatorId: session.id, sessionId: String(req.params.id) },
       input.principal,
