@@ -64,7 +64,7 @@ it('closes admission immediately even while an old semantic command is still com
       done = resolve;
     });
     assert();
-    return { status: 200, body: {} };
+    return { status: 200, body: { ok: true } };
   });
   const first = controller.attach();
   const pending = first.request(request(first.epoch));

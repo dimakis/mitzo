@@ -1,3 +1,4 @@
+import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import { SignJWT, jwtVerify } from 'jose';
 import type { Request, Response, NextFunction } from 'express';
 import { createHash, randomUUID } from 'node:crypto';
@@ -144,6 +145,18 @@ function selectRequestToken(req: Request): string | undefined {
 }
 
 export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    const retained = custodianRequestAuthority(req);
+    if (retained) {
+      if (isSessionRevoked(retained))
+        return res.status(403).json({ error: 'Operator session revoked' });
+      res.locals.authSession = { id: retained.id, expiresAt: retained.expiresAt };
+      return next();
+    }
+  } catch {
+    return res.status(403).json({ error: 'Custodian controller authority unavailable' });
+  }
+
   if (req.path === '/auth/login') return next();
 
   // Allow internal-token auth for programmatic access (agents, CLI).
@@ -182,6 +195,18 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
  * This reuses the ordinary interactive JWT/cookie session mechanism even when
  * the broader API middleware admitted an internal caller. */
 export async function operatorAuthMiddleware(req: Request, res: Response, next: NextFunction) {
+  try {
+    const retained = custodianRequestAuthority(req);
+    if (retained) {
+      if (isSessionRevoked(retained))
+        return res.status(403).json({ error: 'Operator session revoked' });
+      res.locals.authSession = { id: retained.id, expiresAt: retained.expiresAt };
+      return next();
+    }
+  } catch {
+    return res.status(403).json({ error: 'Custodian controller authority unavailable' });
+  }
+
   const token = selectRequestToken(req);
   const session = token ? await authenticateToken(token) : null;
   if (!session) {
