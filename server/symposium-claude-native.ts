@@ -1,3 +1,4 @@
+import { AccountBindingSchema, SymposiumProvenanceSchema } from '@mitzo/protocol';
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import { createHash } from 'node:crypto';
 import type { EventEmitter } from 'node:events';
@@ -158,7 +159,7 @@ export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undef
       ...('model' in message ? { model: message.model } : {}),
     };
   }
-  if (data.type === 'result') {
+  if (data.type === 'result' && typeof data.is_error === 'boolean') {
     const cost = data.total_cost_usd;
     return {
       kind: 'result',
@@ -214,6 +215,24 @@ export async function createClaudeVertexSeat(
   input: ClaudeVertexSeatInput,
 ): Promise<SymposiumNativeSeat> {
   const { execution, route } = input;
+  const observationContext = input.attemptRegistry
+    ? {
+        claimToken: execution.claimToken,
+        sessionId: execution.sessionId,
+        seatId: execution.seat.id,
+        membershipGeneration: execution.provenance.membershipGeneration!,
+        accountBinding: AccountBindingSchema.parse(execution.seat.accountBinding),
+        provenance: SymposiumProvenanceSchema.parse(structuredClone(execution.provenance)),
+      }
+    : undefined;
+  if (
+    observationContext &&
+    (!Number.isSafeInteger(observationContext.membershipGeneration) ||
+      observationContext.membershipGeneration < 0 ||
+      observationContext.accountBinding.provider !== 'anthropic-vertex' ||
+      observationContext.accountBinding.model !== route.model)
+  )
+    throw new Error('Claude observation requires exact routed account and membership');
   const continuity = execution.providerThreadId ? claudeContinuity(input) : undefined;
   const legacyArgv = claudeVertexArgv(route, { ...execution, providerThreadId: undefined });
   const argv = input.verifiedLauncher
@@ -262,6 +281,7 @@ export async function createClaudeVertexSeat(
       let outputBytes = 0;
       let threadId: string | undefined;
       let accepted = false;
+      let acceptedTurnId: string | undefined;
       let initialized = false;
       let assistantVerified = false;
       let awaitingAssistant: string | undefined;
@@ -305,6 +325,7 @@ export async function createClaudeVertexSeat(
               }
               const event = readClaudeVertexEvent(value);
               if (event) {
+                if (result) return fail();
                 const modelBearing =
                   event.kind === 'init' ||
                   event.kind === 'assistant' ||
@@ -346,6 +367,13 @@ export async function createClaudeVertexSeat(
                   if (!accepted) {
                     accepted = true;
                     try {
+                      if (observationContext)
+                        input.attemptRegistry!.observations.accept({
+                          ...observationContext,
+                          providerThreadId: event.threadId,
+                          providerTurnId: event.turnId!,
+                        });
+                      acceptedTurnId = event.turnId!;
                       callbacks.accepted(event.threadId, event.turnId!);
                     } catch {
                       return fail();
@@ -380,21 +408,34 @@ export async function createClaudeVertexSeat(
           process.on('close', async (code: number | null) => {
             if (settled) return;
             if (
-              code !== 0 ||
-              !result?.success ||
+              !result ||
               !threadId ||
               !accepted ||
+              !acceptedTurnId ||
               stdout.trim() ||
+              (result.success && code !== 0) ||
               (input.requireModelReceipts &&
-                (!initialized || !assistantVerified || awaitingAssistant))
+                (!initialized || (result.success && (!assistantVerified || awaitingAssistant))))
             )
               return fail();
             try {
+              // Claude's result names the private invocation session, not a provider turn.
+              // This one-claim stream correlates it to the first accepted message ID already
+              // retained as the invocation identity. Internal messages are not new host turns.
+              // Closing a relay without this explicit result never creates a terminal fact.
+              if (observationContext)
+                input.attemptRegistry!.observations.terminal({
+                  claimToken: execution.claimToken,
+                  providerThreadId: threadId,
+                  providerTurnId: acceptedTurnId,
+                  status: result.success ? 'completed' : 'failed',
+                });
               await confirmStopped?.();
             } catch {
               return fail();
             }
             terminalConfirmed = true;
+            if (!result.success) return fail();
             pendingEvents.length = 0;
             settled = true;
             resolve({

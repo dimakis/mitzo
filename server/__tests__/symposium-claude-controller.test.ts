@@ -47,8 +47,25 @@ const execution = {
     systemPrompt: 'Read only.',
     color: '#112233',
     role: 'reviewer',
+    accountBinding: {
+      accountId: 'work',
+      accountLabel: 'Work fixture',
+      provider: 'anthropic-vertex',
+      model: 'claude-haiku-4-5@20251001',
+      profileRevision: 'account-v1',
+    },
   },
-  provenance: { membershipGeneration: 2 },
+  provenance: {
+    membershipGeneration: 2,
+    seatId: 'reviewer',
+    configRevision: 1,
+    accountProfileRevision: 'account-v1',
+    seatProfileRevision: 'profile-v1',
+    contextGrantRevision: 1,
+    authorityGrantRevision: 1,
+    isolationDomainId: 'domain',
+    isolationDomainRevision: 1,
+  },
   signal: new AbortController().signal,
 } as SymposiumSeatExecution;
 
@@ -302,3 +319,65 @@ describe('Claude fixture over claim controller and durable registry', () => {
     registry.close();
   });
 });
+
+it.each(['completed', 'failed', 'lost-close', 'wrong-thread', 'conflicting-result'] as const)(
+  'persists exact Claude operation observations for %s',
+  async (outcome) => {
+    const { child, registry } = harness(vi.fn().mockResolvedValue(undefined));
+    const native = await createClaudeVertexSeat({
+      sandbox,
+      route,
+      execution,
+      attemptRegistry: registry,
+      requireModelReceipts: true,
+    });
+    const argv = claudeVertexArgv(route, execution);
+    const thread = argv[argv.indexOf('--session-id') + 1];
+    let acceptedObservation: unknown;
+    const run = native.run(execution, {
+      beforeDispatch: () => {},
+      accepted: () => {
+        acceptedObservation = registry.observations.get(execution.claimToken);
+      },
+    });
+    const failed = outcome !== 'completed' ? expect(run).rejects.toThrow(/uncertain/) : undefined;
+    event(child, { type: 'system', subtype: 'init', session_id: thread, model: route.model });
+    event(child, {
+      type: 'stream_event',
+      session_id: thread,
+      event: { type: 'message_start', message: { id: 'message-1', model: route.model } },
+    });
+    expect(acceptedObservation).toMatchObject({
+      status: 'accepted',
+      terminalAt: null,
+      identity: {
+        providerThreadId: thread,
+        providerTurnId: 'message-1',
+        accountBinding: execution.seat.accountBinding,
+        provenance: execution.provenance,
+      },
+    });
+    event(child, {
+      type: 'assistant',
+      session_id: thread,
+      message: { id: 'message-1', model: route.model, content: [{ type: 'text', text: 'done' }] },
+    });
+    if (outcome !== 'lost-close')
+      event(child, {
+        type: 'result',
+        session_id: outcome === 'wrong-thread' ? 'different' : thread,
+        is_error: outcome === 'failed',
+      });
+    if (outcome === 'conflicting-result')
+      event(child, { type: 'result', session_id: thread, is_error: true });
+    child.emit('close', outcome === 'failed' ? 1 : 0);
+    if (failed) await failed;
+    else await expect(run).resolves.toMatchObject({ content: 'done' });
+    expect(registry.observations.get(execution.claimToken)).toMatchObject({
+      status: outcome === 'completed' ? 'completed' : outcome === 'failed' ? 'failed' : 'accepted',
+      usageStatus: 'unknown',
+      observedUsage: null,
+    });
+    registry.close();
+  },
+);
