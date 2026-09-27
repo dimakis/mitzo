@@ -1,6 +1,16 @@
 import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
 import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
+import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
+import type {
+  ArtifactGenerationRequest,
+  ArtifactGenerationCopyReceipt,
+} from './symposium-artifact-generations.js';
+import type { ArtifactAdmissionBindingV1, ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
+import type {
+  PhysicalArtifactSealInput,
+  CompletedArtifactSeal,
+} from './symposium-physical-artifact-seal.js';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import {
   createSymposiumApplicationDispatchPolicy,
@@ -904,7 +914,43 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
     throw new Error('Symposium runtime cleanup incomplete');
 }
 export interface SymposiumProductionHost {
-  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost & {
+    requireSeal?(
+      sessionId: string,
+    ): ReturnType<
+      typeof import('./symposium-source-artifact-seal.js').requireCompletedImportedSourceSeal
+    >;
+    initialExport?(
+      sessionId: string,
+      operationId: string,
+    ): { receipt: InitialSourceExportReceipt; bundle: Buffer };
+  };
+  gateway?: { workspace: string };
+  sealSessionArtifacts?(
+    input: PhysicalArtifactSealInput,
+    runtime: object,
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactSeal>;
+  copySuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    exported: InitialSourceExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<ArtifactGenerationCopyReceipt>;
+  activateSuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    generationId: string,
+    exported: InitialSourceExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<{ generationId: string; revision: number }>;
+  admitSuccessorArtifact?(
+    request: ArtifactGenerationRequest,
+    binding: ArtifactAdmissionBindingV1,
+    exported: InitialSourceExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<{ reference: ArtifactAdmissionReferenceV1; receipt: unknown }>;
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
   inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
