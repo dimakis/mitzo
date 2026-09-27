@@ -79,6 +79,8 @@ export function createSymposiumSuccessorFixAuthority(deps: {
         seat.authorityGrant.revision !== request.authorityRevision
       )
         throw new Error('Current successor request selection changed');
+      if (request.kind === 'initial')
+        throw new Error('Initial imported-parent authority requires the source owner');
       const admission = deps.events.getLatestSymposiumAdmission(
         request.sessionId,
         request.seatId,
@@ -154,6 +156,8 @@ export function createSymposiumSuccessorFixAuthority(deps: {
       return true;
     },
     assertAdmissionCurrent(binding) {
+      if (binding.kind === 'initial')
+        throw new Error('Initial imported-parent admission requires the source owner');
       const state = deps.workflows.get(binding.workflowId);
       const prep = state?.applicationPreparations.find(
         (value) =>
