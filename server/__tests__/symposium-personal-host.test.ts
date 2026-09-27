@@ -246,3 +246,43 @@ it('does not publish discovery after the initiating operator session is revoked'
   expect(host.currentProfiles.catalog()).toEqual([]);
   expect(host.personalConnections.list()[0].state).toBe('recovery_required');
 });
+
+it.each(['capture', 'operator'])(
+  'releases the local discovery marker when %s preflight rejects before calling discovery',
+  async (failure) => {
+    const discover = vi.fn();
+    const host = fixture(discover);
+    const row = await connected(host);
+    if (failure === 'capture')
+      state.adapters.get(row.id)!.captureDiscovery.mockImplementationOnce(() => {
+        throw new Error('receipt unavailable');
+      });
+    let checks = 0;
+    await expect(
+      host.personalConnections.discoverModels(row.id, row.revision, () => {
+        if (++checks === 2 && failure === 'operator') throw new Error('revoked');
+      }),
+    ).rejects.toThrow();
+    expect(discover).not.toHaveBeenCalled();
+    const latest = host.personalConnections.list()[0];
+    expect(latest.state).toBe('connected');
+    expect(latest.modelDiscovery).toBeUndefined();
+    await expect(
+      host.personalConnections.disconnect(row.id, latest.revision),
+    ).resolves.toMatchObject({ state: 'disconnected' });
+  },
+);
+
+it('retains recovery if the discovery capability throws after it was entered', async () => {
+  const host = fixture(async () => {
+    throw new Error('unknown allocation');
+  });
+  const row = await connected(host);
+  await expect(
+    host.personalConnections.discoverModels(row.id, row.revision, () => {}),
+  ).rejects.toThrow('recovery');
+  expect(host.personalConnections.list()[0]).toMatchObject({
+    state: 'recovery_required',
+    modelDiscovery: 'reconciliation_required',
+  });
+});

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   apiFetch,
   AUTH_RESTORED_EVENT,
@@ -17,6 +17,7 @@ import {
 } from '../lib/biometric';
 import { saveTokenToWatch } from '../lib/watch-auth';
 import { notifySuccess } from '../lib/haptics';
+import { loginReturnPath } from '../lib/login-return';
 import { MitzoBrand } from '../components/MitzoBrand';
 
 export function Login() {
@@ -27,14 +28,16 @@ export function Login() {
   const biometricAttempted = useRef(false);
   const [bioLabel, setBioLabel] = useState('Biometric');
   const navigate = useNavigate();
+  const location = useLocation();
+  const returnTo = loginReturnPath(new URLSearchParams(location.search).get('returnTo'));
 
   useEffect(() => {
     const onAuthRestored = (event: Event) => {
-      if (isCrossTabAuthEvent(event)) navigate('/');
+      if (isCrossTabAuthEvent(event)) navigate(returnTo, { replace: true });
     };
     window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
     return () => window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
-  }, [navigate]);
+  }, [navigate, returnTo]);
 
   useEffect(() => {
     isBiometricAvailable().then((available) => {
@@ -45,7 +48,7 @@ export function Login() {
         biometricLogin(getApiBaseUrl()).then((token) => {
           if (token) {
             notifySuccess();
-            navigate('/');
+            navigate(returnTo, { replace: true });
           }
         });
       }
@@ -56,7 +59,7 @@ export function Login() {
     const token = await biometricLogin(getApiBaseUrl());
     if (token) {
       notifySuccess();
-      navigate('/');
+      navigate(returnTo, { replace: true });
     } else {
       setError('Biometric authentication failed — try passphrase');
     }
@@ -82,11 +85,11 @@ export function Login() {
           await saveCredentials(data.token);
           await saveTokenToWatch(data.token);
         } else loginSucceeded();
-        navigate('/');
+        navigate(returnTo, { replace: true });
       } else {
         const restored = await restoreCookieAuthentication().catch(() => false);
         if (restored) {
-          navigate('/');
+          navigate(returnTo, { replace: true });
           return;
         }
         setError('Invalid passphrase');

@@ -82,3 +82,10 @@ does not stamp a seat or artifact as creation-started. Rejection after dispatch 
 uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
 for in-flight creation and refuses uncertain outcomes. Interrupted login rows
 without a live adapter also remain blocked even when account metadata is absent.
+
+All mounted Symposium account pickers subscribe to catalog invalidation after
+connection mutations, including pending reconnect. Removed account/model drafts
+stay unavailable until an explicit selection; a refresh never substitutes one.
+Device receipts remain attempt-scoped across cancellation, status polling and
+late allocation replies. The preview assigns fresh synthetic attempt identities
+and verifies a second code can be requested without contacting an upstream host.

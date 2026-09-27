@@ -356,3 +356,23 @@ it('captures only a live verified receipt and fences publication after receipt r
   f.service.invalidate();
   expect(() => newer.assertCurrent()).toThrow('changed');
 });
+
+it('uses the supplied attempt deadline without extending custody', async () => {
+  const f = fixture();
+  const deadline = Date.now() + 10000;
+  const finish = f.service.beginDevice(deadline);
+  const now = vi.spyOn(Date, 'now').mockReturnValue(deadline);
+  try {
+    await expect(
+      finish({
+        access_token: 'a',
+        refresh_token: 'r',
+        id_token: 'i',
+        account_id: 'actual-account',
+      }),
+    ).rejects.toThrow();
+    expect(f.host.run).not.toHaveBeenCalled();
+  } finally {
+    now.mockRestore();
+  }
+});

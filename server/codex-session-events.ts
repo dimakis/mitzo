@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
+import { CodexTurnUsage } from './codex-turn-usage.js';
 import type { StreamEvent } from '@mitzo/harness';
 import type { ProviderFailure } from '@mitzo/protocol';
 type ObjectValue = Record<string, unknown>;
@@ -21,21 +21,21 @@ export class CodexSessionEvents {
   private replayingReasoning = false;
   private reasoningReplayOffsets = new Map<string, number>();
   private turnFinished = false;
-  private usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_read_input_tokens: number;
-  };
+  private usage: CodexTurnUsage;
   constructor(
     private conversationId: string,
     private threadId: string,
     private model: string,
     private emit: (event: ObjectValue) => void,
-  ) {}
+    options: { freshThread?: boolean } = {},
+  ) {
+    this.usage = new CodexTurnUsage(options.freshThread);
+  }
   setModel(model: string) {
     this.model = model;
   }
   beginReconnectReplay() {
+    this.usage.invalidate();
     this.replayingReasoning = true;
   }
   private beginReasoningReplay(itemId: string) {
@@ -154,6 +154,7 @@ export class CodexSessionEvents {
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
         this.startedTurns.add(turnId);
+        this.usage.start(turnId);
         this.emit({
           type: 'provider_turn_start',
           session_id: this.conversationId,
@@ -262,25 +263,7 @@ export class CodexSessionEvents {
       return;
     }
     if (method === 'thread/tokenUsage/updated') {
-      const parsed = z
-        .object({
-          tokenUsage: z.object({
-            last: z.object({
-              inputTokens: z.number().int().nonnegative(),
-              cachedInputTokens: z.number().int().nonnegative(),
-              outputTokens: z.number().int().nonnegative(),
-            }),
-          }),
-        })
-        .safeParse(params);
-      if (parsed.success) {
-        const last = parsed.data.tokenUsage.last;
-        this.usage = {
-          input_tokens: Math.max(0, last.inputTokens - last.cachedInputTokens),
-          output_tokens: last.outputTokens,
-          cache_read_input_tokens: last.cachedInputTokens,
-        };
-      }
+      this.usage.update(params);
       return;
     }
     if (
@@ -363,6 +346,11 @@ export class CodexSessionEvents {
     } else if (method === 'turn/completed') {
       const turn = object(params.turn);
       if (typeof turn.id !== 'string' || this.finishedTurns.has(turn.id)) return;
+      // turn/completed carries no final usage watermark. The most recent
+      // cumulative update may cover only an earlier request; the final update
+      // can arrive after this result is durably sealed. Do not certify that
+      // observed prefix, or use it as the next turn's accounting baseline.
+      this.usage.invalidate();
       this.finishedTurns.add(turn.id);
       this.turnFinished = true;
       this.replayingReasoning = false;
@@ -373,9 +361,8 @@ export class CodexSessionEvents {
         session_id: this.conversationId,
         is_error: turn.status !== 'completed',
         ...(providerFailure ? { provider_failure: providerFailure } : {}),
-        ...(this.usage ? { usage: this.usage } : {}),
+        usage_status: 'unknown',
       });
-      this.usage = undefined;
     }
   }
   toolStart(_providerCallId: string, name: string, input: ObjectValue): string {

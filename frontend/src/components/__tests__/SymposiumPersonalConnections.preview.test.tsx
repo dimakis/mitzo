@@ -21,6 +21,9 @@ it('keeps device ownership through callback recovery and supports a second fixtu
   fireEvent.click(research.getByRole('button', { name: 'Connect' }));
   fireEvent.click(await research.findByRole('button', { name: 'Get sign-in code' }));
   await research.findByRole('button', { name: 'Cancel sign-in' });
+  const first = await (
+    await window.fetch('/api/symposium/personal/login/status?connectionId=preview-research')
+  ).json();
   fireEvent.click(research.getByRole('button', { name: 'Recover callback sign-in' }));
   await research.findByText(/Continue or cancel it in device sign-in/);
   expect((personal.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
@@ -40,5 +43,11 @@ it('keeps device ownership through callback recovery and supports a second fixtu
   ).toBe(false);
   fireEvent.click(research.getByRole('button', { name: 'Get sign-in code' }));
   await research.findByRole('button', { name: 'Cancel sign-in' });
+  const second = await (
+    await window.fetch('/api/symposium/personal/login/status?connectionId=preview-research')
+  ).json();
+  expect(second.attemptId).not.toBe(first.attemptId);
+  expect(second).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  expect(research.getByText(second.userCode)).toBeTruthy();
   expect(upstream).not.toHaveBeenCalled();
 });

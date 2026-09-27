@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
 import './SymposiumPersonalConnections.css';
@@ -53,6 +54,10 @@ export function SymposiumPersonalConnections({
   const observedPendingDiscovery = useRef(new Set<string>());
   const accountsChanged = useRef(onAccountsChanged);
   accountsChanged.current = onAccountsChanged;
+  const notifyAccountsChanged = useCallback(() => {
+    invalidateSymposiumAccountCatalog();
+    accountsChanged.current?.();
+  }, []);
   const discoveryBlocked = connections.some((row) => !!row.modelDiscovery);
   const discoveryPending = connections.some((row) => row.modelDiscovery === 'pending');
   const refresh = useCallback(async () => {
@@ -76,7 +81,7 @@ export function SymposiumPersonalConnections({
       observedRevisions.current = revisions;
       observedPendingDiscovery.current = pending;
       setConnections(body.connections);
-      if (finished || revised) accountsChanged.current?.();
+      if (finished || revised) notifyAccountsChanged();
       setActiveId((current) =>
         current &&
         body.connections.some(
@@ -96,7 +101,7 @@ export function SymposiumPersonalConnections({
       if (request === version.current)
         setError('Could not load personal accounts. Refresh before changing a saved connection.');
     }
-  }, []);
+  }, [notifyAccountsChanged]);
   useEffect(() => {
     mounted.current = true;
     void refresh();
@@ -157,7 +162,7 @@ export function SymposiumPersonalConnections({
           'No new model catalog was confirmed. Review the refreshed connection status before retrying.',
         );
       }
-      onAccountsChanged?.();
+      notifyAccountsChanged();
     } catch {
       if (!mounted.current) return;
       setMessage(
@@ -184,7 +189,7 @@ export function SymposiumPersonalConnections({
       if (!mounted.current) return;
       setMessage(success);
       if (path === endpoint) setLabel('');
-      onAccountsChanged?.();
+      notifyAccountsChanged();
     } catch {
       if (!mounted.current) return;
       setMessage(
@@ -273,10 +278,7 @@ export function SymposiumPersonalConnections({
                 );
                 if (!pending) void refresh();
               }}
-              onAccountsChanged={() => {
-                void refresh();
-                onAccountsChanged?.();
-              }}
+              onAccountsChanged={notifyAccountsChanged}
             />
           )}
           {!connection.modelDiscovery &&
@@ -301,11 +303,11 @@ export function SymposiumPersonalConnections({
                   }}
                   onComplete={() => {
                     void refresh();
-                    onAccountsChanged?.();
+                    notifyAccountsChanged();
                   }}
                   onCatalogRefresh={() => {
                     void refresh();
-                    onAccountsChanged?.();
+                    notifyAccountsChanged();
                   }}
                 />
               </details>

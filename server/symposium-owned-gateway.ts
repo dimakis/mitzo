@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, X509Certificate } from 'node:crypto';
 import {
   chmodSync,
   lstatSync,
@@ -161,6 +161,26 @@ export class OwnedSymposiumGateway {
     if (hash(cliBytes) !== options.cliSha256) throw new Error('Gateway CLI digest changed');
     if (hash(binary) !== options.executableSha256)
       throw new Error('Gateway executable digest changed');
+    // Validate the exact bytes later frozen into this launch. The management
+    // client and issuer use loopback; Podman supervisors use the advertised host.
+    const serverCertBytes = regularBytes(options.tls.serverCert);
+    let serverCertificate: X509Certificate;
+    try {
+      serverCertificate = new X509Certificate(serverCertBytes);
+    } catch {
+      throw new Error('Owned gateway server certificate is invalid');
+    }
+    if (
+      !serverCertificate.checkHost('host.containers.internal', {
+        subject: 'never',
+        wildcards: false,
+      })
+    )
+      throw new Error(
+        'Owned gateway server certificate requires a host.containers.internal DNS SAN',
+      );
+    if (!serverCertificate.checkIP('127.0.0.1'))
+      throw new Error('Owned gateway server certificate requires a 127.0.0.1 IP SAN');
     const root = mkdtempSync(join(options.stateParent, 'gateway-'));
     chmodSync(root, 0o700);
     const files = new Map<string, { sha256: string; mode: number }>();
@@ -176,7 +196,7 @@ export class OwnedSymposiumGateway {
     const tls = Object.fromEntries(
       Object.entries(options.tls).map(([name, path]) => [
         name,
-        freeze(`${name}.pem`, regularBytes(path)),
+        freeze(`${name}.pem`, name === 'serverCert' ? serverCertBytes : regularBytes(path)),
       ]),
     );
     const jwt = Object.fromEntries(
