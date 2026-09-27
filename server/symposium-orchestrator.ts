@@ -62,7 +62,12 @@ export interface SymposiumOrchestratorDeps {
   reconcileProviders?: (input: { sessionId: string; requiredProviders: string[] }) => Promise<void>;
   retainedProviders?: (sessionId: string) => string[];
   /** Host-only verification, recorded after the durable generation exists. */
-  admitSeat?: (input: { sessionId: string; seatId: string; generation: number }) => void;
+  admitSeat?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    retained?: true;
+  }) => void;
 }
 
 export class SymposiumOrchestrator {
@@ -91,6 +96,45 @@ export class SymposiumOrchestrator {
     this.admitSeat = deps.admitSeat;
     this.reconciliationQueues = sharedReconciliationQueues.get(deps.store) ?? new Map();
     sharedReconciliationQueues.set(deps.store, this.reconciliationQueues);
+  }
+
+  /** Revalidate retained seats against a new roster revision without manufacturing
+   * membership transitions or copying stale provider admissions forward. */
+  refreshActiveAdmissions(sessionId: string, expectedRevision: number): string[] {
+    const config = this.requireDirectedManualConfig(sessionId);
+    if (config.version !== 2 || config.revision !== expectedRevision)
+      throw new Error('Symposium configuration revision conflict');
+    const active = config.seats.flatMap((seat) => {
+      const member = this.store.getLatestSymposiumMembership(sessionId, seat.id);
+      return member?.state === 'active' ? [member] : [];
+    });
+    if (active.length && !this.admitSeat) throw new Error('Verified host admission is unavailable');
+    for (const member of active) {
+      if (member.reconciliation !== 'confirmed')
+        throw new Error('Membership reconciliation is required');
+      this.admitSeat!({
+        sessionId,
+        seatId: member.seatId,
+        generation: member.generation,
+        retained: true,
+      });
+      const current = this.store.getLatestSymposiumMembership(sessionId, member.seatId);
+      const admission = this.store.getLatestSymposiumAdmission(
+        sessionId,
+        member.seatId,
+        expectedRevision,
+      );
+      if (
+        this.store.getActiveSymposiumConfig(sessionId).revision !== expectedRevision ||
+        current?.state !== 'active' ||
+        current.generation !== member.generation ||
+        current.reconciliation !== 'confirmed' ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== member.generation
+      )
+        throw new Error('Retained seat admission changed during roster reconciliation');
+    }
+    return active.map((member) => member.seatId);
   }
 
   /** Persist revocation and fence dispatch before requesting runtime cleanup. */

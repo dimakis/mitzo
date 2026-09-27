@@ -939,12 +939,15 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     symposiumProfileStore.get('user', selection.profileId, selection.revision),
   authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
     const sessionSource = `session:${sessionId}`;
-    if (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+    if (
+      contextSourceRefs.length > 0 &&
+      (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+    )
       throw new Error('Only this conversation context can be admitted');
     const writable = seat.role === 'implementer' || seat.role === 'coder';
     return {
       classification: 'mixed' as const,
-      sourceRefs: [sessionSource],
+      sourceRefs: contextSourceRefs,
       authority: {
         filesystem: writable ? ('write' as const) : ('read' as const),
         tools: writable ? ('write' as const) : ('read' as const),
