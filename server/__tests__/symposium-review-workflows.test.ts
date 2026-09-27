@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { isApplicationPolicy, SymposiumReviewStore } from '../symposium-review-workflows.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { ExecutionPolicySchema } from '@mitzo/protocol';
 
@@ -65,6 +65,7 @@ afterEach(() => {
 
 const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]) => {
   const state = reviews.get(input.workflowId)!;
+  if (isApplicationPolicy(state.limits)) throw new Error('Native test');
   const existing = state.reservations.find((entry) => entry.attemptId === input.usage.attemptId);
   const admission = reviews.admitAttempt({
     workflowId: input.workflowId,
@@ -76,7 +77,7 @@ const recordReview = (input: Parameters<SymposiumReviewStore['recordReview']>[0]
     artifactHash: input.artifactHash,
     maxTokens:
       existing?.maxTokens ??
-      Math.max(1, Math.min(input.usage.tokens, state.limits.maxTokens - state.tokensUsed)),
+      Math.max(1, Math.min(input.usage.tokens ?? 0, state.limits.maxTokens - state.tokensUsed)),
     maxCostUsd:
       existing?.maxCostUsd ??
       (input.usage.costUsd === null
@@ -98,7 +99,7 @@ const recordFix = (input: Parameters<SymposiumReviewStore['recordFix']>[0]) => {
     actorSeatId: input.implementerSeatId,
     artifactRevision: input.result.inputRevision,
     artifactHash: input.result.inputHash,
-    maxTokens: Math.max(input.usage.tokens, 1),
+    maxTokens: Math.max(input.usage.tokens ?? 0, 1),
     maxCostUsd: input.usage.costUsd,
   });
   if (admission.kind === 'decision_required') throw new Error(`Fix admission: ${admission.code}`);

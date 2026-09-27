@@ -17,11 +17,51 @@ const SelectionSchema = z.strictObject({
   accountId: Id,
   model: Id,
 });
-const LimitsSchema = z.strictObject({
+const NativeLimitsSchema = z.strictObject({
+  version: z.literal(1).optional(),
+  mode: z.literal('native-hard-cap').optional(),
   maxReviewRounds: z.number().int().positive(),
   maxTokens: z.number().int().positive(),
   maxCostUsd: z.number().finite().nonnegative().nullable(),
 });
+export const ApplicationPolicySchema = z.strictObject({
+  version: z.literal(1),
+  mode: z.literal('application'),
+  maxHostTurns: z.number().int().positive(),
+  maxReviewCycles: z.number().int().positive(),
+  deadlineAt: z.number().int().positive(),
+  noProgressLimit: z.number().int().positive(),
+});
+export const ReviewLimitsSchema = z.union([NativeLimitsSchema, ApplicationPolicySchema]);
+export type ApplicationPolicy = z.infer<typeof ApplicationPolicySchema>;
+export const isApplicationPolicy = (
+  limits: z.infer<typeof ReviewLimitsSchema>,
+): limits is ApplicationPolicy => 'mode' in limits && limits.mode === 'application';
+const ApplicationAttemptSchema = z.strictObject({
+  workflowId: Id,
+  attemptId: Id,
+  policyReservationId: Id,
+  kind: z.enum(['initial', 'review', 'fix', 'delta', 'retry']),
+  actorSeatId: Id,
+  artifactRevision: Id,
+  artifactHash: Sha256,
+  retryOfAttemptId: Id.optional(),
+  retryAuthorizationId: Id.optional(),
+  binding: z.strictObject({
+    claimToken: Id,
+    deliveryId: Id,
+    membershipGeneration: z.number().int().positive(),
+    configRevision: z.number().int().positive(),
+    accountId: Id,
+    model: Id,
+    profileId: Id,
+    profileRevision: Id,
+    accountProfileRevision: Id,
+    authorityGrant: z.strictObject({ grantId: Id, revision: z.number().int().positive() }),
+    contextGrant: z.strictObject({ grantId: Id, revision: z.number().int().positive() }),
+  }),
+});
+export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
 const CreateSchema = z.strictObject({
   workflowId: Id,
   owner: Id,
@@ -30,11 +70,11 @@ const CreateSchema = z.strictObject({
   implementer: SelectionSchema,
   reviewer: SelectionSchema,
   acceptanceCriteria: z.array(Id).min(1),
-  limits: LimitsSchema,
+  limits: ReviewLimitsSchema,
 });
 const UsageSchema = z.strictObject({
   attemptId: Id,
-  tokens: z.number().int().nonnegative(),
+  tokens: z.number().int().nonnegative().nullable(),
   costUsd: z.number().finite().nonnegative().nullable(),
 });
 const FindingInputSchema = z.strictObject({
@@ -134,8 +174,27 @@ type DecisionCode =
   | 'stale_review'
   | 'missing_evidence'
   | 'open_findings'
-  | 'attempt_in_progress';
+  | 'attempt_in_progress'
+  | 'host_turns_exhausted'
+  | 'cycles_exhausted'
+  | 'deadline_exceeded'
+  | 'user_stop'
+  | 'no_progress'
+  | 'attempt_already_dispatched';
 type Workflow = Create & {
+  hostTurns: number;
+  reviewCycles: number;
+  applicationAttempts: Array<
+    ApplicationAttempt & {
+      requestHash: string;
+      dispatched: boolean;
+      settled: boolean;
+      operationId?: string;
+      terminalOutcome?: 'completed' | 'cancelled' | 'failed';
+    }
+  >;
+  policyResumeStatus?: WorkflowStatus;
+  progressSignatures: string[];
   artifactRevision: string;
   artifactHash: string;
   currentResultId: string;
@@ -143,6 +202,7 @@ type Workflow = Create & {
   decisionCode?: DecisionCode;
   reviewRounds: number;
   tokensUsed: number;
+  usageCompleteness: { tokens: 'complete' | 'partial'; cost: 'complete' | 'partial' };
   costUsd: number;
   attempts: Usage[];
   reservations: Array<AttemptAdmission & { requestHash: string; settled: boolean }>;
@@ -333,19 +393,31 @@ export class SymposiumReviewStore {
     }
   }
 
+  private hydrate(state: Workflow): Workflow {
+    state.applicationAttempts ??= [];
+    state.hostTurns ??= 0;
+    state.reviewCycles ??= 0;
+    state.progressSignatures ??= [];
+    state.usageCompleteness ??= {
+      tokens: state.attempts.some((a) => a.tokens === null) ? 'partial' : 'complete',
+      cost: state.attempts.some((a) => a.costUsd === null) ? 'partial' : 'complete',
+    };
+    return state;
+  }
+
   private read(workflowId: string): Workflow {
     const row = this.db
       .prepare('SELECT state FROM symposium_review_workflows WHERE workflow_id = ?')
       .get(Id.parse(workflowId)) as { state: string } | undefined;
     if (!row) throw new Error('Review workflow not found');
-    return JSON.parse(row.state) as Workflow;
+    return this.hydrate(JSON.parse(row.state) as Workflow);
   }
 
   get(workflowId: string): Workflow | null {
     const row = this.db
       .prepare('SELECT state FROM symposium_review_workflows WHERE workflow_id = ?')
       .get(Id.parse(workflowId)) as { state: string } | undefined;
-    return row ? (JSON.parse(row.state) as Workflow) : null;
+    return row ? this.hydrate(JSON.parse(row.state) as Workflow) : null;
   }
 
   list(owner: string, sessionId: string): Workflow[] {
@@ -414,7 +486,12 @@ export class SymposiumReviewStore {
       currentResultId: parsed.implementation.resultId,
       status: 'awaiting_review',
       reviewRounds: 0,
+      hostTurns: 0,
+      reviewCycles: 0,
+      applicationAttempts: [],
+      progressSignatures: [],
       tokensUsed: 0,
+      usageCompleteness: { tokens: 'complete', cost: 'complete' },
       costUsd: 0,
       attempts: [],
       reservations: [],
@@ -424,19 +501,26 @@ export class SymposiumReviewStore {
       authorizations: [],
       evidence: [],
     };
-    this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO symposium_review_workflows
-        (workflow_id, owner, state) VALUES (?, ?, ?)`,
+    this.db
+      .transaction(() => {
+        if (
+          isApplicationPolicy(parsed.limits) &&
+          this.applicationWorkflowForSession(parsed.sessionId)
         )
-        .run(state.workflowId, state.owner, JSON.stringify(state));
-      this.write(state, 'created', {
-        resultId: state.currentResultId,
-        artifactRevision: state.artifactRevision,
-        artifactHash: state.artifactHash,
-      });
-    })();
+          throw new Error('Session already has application policy');
+        this.db
+          .prepare(
+            `INSERT INTO symposium_review_workflows
+        (workflow_id, owner, state) VALUES (?, ?, ?)`,
+          )
+          .run(state.workflowId, state.owner, JSON.stringify(state));
+        this.write(state, 'created', {
+          resultId: state.currentResultId,
+          artifactRevision: state.artifactRevision,
+          artifactHash: state.artifactHash,
+        });
+      })
+      .immediate();
     return state;
   }
 
@@ -486,73 +570,389 @@ export class SymposiumReviewStore {
       }
     | { kind: 'decision_required'; code: DecisionCode } {
     const parsed = AttemptAdmissionSchema.parse(input);
-    return this.db.transaction(() => {
-      const state = this.read(parsed.workflowId);
-      this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
-      const requestHash = digest(parsed);
-      const existing = state.reservations.find((entry) => entry.attemptId === parsed.attemptId);
-      if (existing) {
-        if (existing.requestHash !== requestHash)
-          throw new Error('Attempt admission idempotency conflict');
-        return {
-          kind: existing.settled ? ('already_settled' as const) : ('already_admitted' as const),
-          attemptId: parsed.attemptId,
-          maxTokens: existing.maxTokens,
-          maxCostUsd: existing.maxCostUsd,
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (isApplicationPolicy(state.limits)) throw new Error('Application reservation required');
+        const requestHash = digest(parsed);
+        const existing = state.reservations.find((entry) => entry.attemptId === parsed.attemptId);
+        if (existing) {
+          if (existing.requestHash !== requestHash)
+            throw new Error('Attempt admission idempotency conflict');
+          return {
+            kind: existing.settled ? ('already_settled' as const) : ('already_admitted' as const),
+            attemptId: parsed.attemptId,
+            maxTokens: existing.maxTokens,
+            maxCostUsd: existing.maxCostUsd,
+          };
+        }
+        if (state.reservations.some((entry) => !entry.settled))
+          return { kind: 'decision_required' as const, code: 'attempt_in_progress' as const };
+        const stop = (code: DecisionCode) => {
+          state.status = 'decision_required' as const;
+          state.decisionCode = code;
+          this.write(state, 'attempt_admission_denied', { ...parsed, code });
+          return { kind: 'decision_required' as const, code };
         };
-      }
-      if (state.reservations.some((entry) => !entry.settled))
-        return { kind: 'decision_required' as const, code: 'attempt_in_progress' as const };
-      const stop = (code: DecisionCode) => {
-        state.status = 'decision_required' as const;
-        state.decisionCode = code;
-        this.write(state, 'attempt_admission_denied', { ...parsed, code });
-        return { kind: 'decision_required' as const, code };
-      };
-      if (state.decisionCode)
-        return { kind: 'decision_required' as const, code: state.decisionCode };
-      if (
-        state.tokensUsed >= state.limits.maxTokens ||
-        state.tokensUsed + parsed.maxTokens > state.limits.maxTokens
-      )
-        return stop('token_budget_exhausted');
-      if (state.limits.maxCostUsd !== null && parsed.maxCostUsd === null)
-        return stop('unknown_cost');
-      if (
-        state.limits.maxCostUsd !== null &&
-        (state.costUsd >= state.limits.maxCostUsd ||
-          (parsed.maxCostUsd !== null &&
-            state.costUsd + parsed.maxCostUsd > state.limits.maxCostUsd))
-      )
-        return stop('cost_budget_exhausted');
-      if (parsed.kind === 'review') {
-        if (parsed.actorSeatId !== state.reviewer.seatId)
-          throw new Error('Independently selected reviewer seat required');
-        if (state.reviewRounds >= state.limits.maxReviewRounds) return stop('rounds_exhausted');
-        if (state.status !== 'awaiting_review' && state.status !== 'awaiting_delta_review')
-          throw new Error('Review admission is not due');
-      } else {
-        if (parsed.actorSeatId !== state.implementer.seatId)
-          throw new Error('Controlled implementer selection required');
-        if (state.status !== 'awaiting_fix') throw new Error('Fix admission is not due');
-        this.requireFixAuthority(state);
-      }
-      if (state.attempts.some((attempt) => attempt.attemptId === parsed.attemptId))
-        throw new Error('Attempt already accounted');
-      state.reservations.push({ ...parsed, requestHash, settled: false });
-      this.write(state, 'attempt_admitted', parsed);
-      return {
-        kind: 'admitted' as const,
-        attemptId: parsed.attemptId,
-        maxTokens: parsed.maxTokens,
-        maxCostUsd: parsed.maxCostUsd,
-      };
-    })();
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        if (
+          state.tokensUsed >= state.limits.maxTokens ||
+          state.tokensUsed + parsed.maxTokens > state.limits.maxTokens
+        )
+          return stop('token_budget_exhausted');
+        if (state.limits.maxCostUsd !== null && parsed.maxCostUsd === null)
+          return stop('unknown_cost');
+        if (
+          state.limits.maxCostUsd !== null &&
+          (state.costUsd >= state.limits.maxCostUsd ||
+            (parsed.maxCostUsd !== null &&
+              state.costUsd + parsed.maxCostUsd > state.limits.maxCostUsd))
+        )
+          return stop('cost_budget_exhausted');
+        if (parsed.kind === 'review') {
+          if (parsed.actorSeatId !== state.reviewer.seatId)
+            throw new Error('Independently selected reviewer seat required');
+          if (state.reviewRounds >= state.limits.maxReviewRounds) return stop('rounds_exhausted');
+          if (state.status !== 'awaiting_review' && state.status !== 'awaiting_delta_review')
+            throw new Error('Review admission is not due');
+        } else {
+          if (parsed.actorSeatId !== state.implementer.seatId)
+            throw new Error('Controlled implementer selection required');
+          if (state.status !== 'awaiting_fix') throw new Error('Fix admission is not due');
+          this.requireFixAuthority(state);
+        }
+        if (state.attempts.some((attempt) => attempt.attemptId === parsed.attemptId))
+          throw new Error('Attempt already accounted');
+        state.reservations.push({ ...parsed, requestHash, settled: false });
+        this.write(state, 'attempt_admitted', parsed);
+        return {
+          kind: 'admitted' as const,
+          attemptId: parsed.attemptId,
+          maxTokens: parsed.maxTokens,
+          maxCostUsd: parsed.maxCostUsd,
+        };
+      })
+      .immediate();
+  }
+
+  private applicationStop(state: Workflow, code: DecisionCode): void {
+    state.policyResumeStatus ??= state.status;
+    state.status = 'decision_required';
+    state.decisionCode = code;
+    this.write(state, 'application_stopped', {
+      code,
+      attempts: state.applicationAttempts
+        .filter((a) => a.dispatched && !a.settled)
+        .map((a) => ({ attemptId: a.attemptId, operationId: a.operationId ?? null })),
+    });
+  }
+
+  stopApplication(
+    workflowId: string,
+    actor: string,
+    reason: 'user_stop' | 'deadline_exceeded' | 'no_progress',
+  ): Workflow {
+    return this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        if (state.owner !== actor || !isApplicationPolicy(state.limits))
+          throw new Error('Application owner required');
+        this.applicationStop(state, reason);
+        return state;
+      })
+      .immediate();
+  }
+
+  continueApplication(input: {
+    workflowId: string;
+    actor: string;
+    authorizationId: string;
+    reason: string;
+    limits: ApplicationPolicy;
+  }): Workflow {
+    const limits = ApplicationPolicySchema.parse(input.limits);
+    Id.parse(input.authorizationId);
+    Id.parse(input.reason);
+    return this.db
+      .transaction(() => {
+        const state = this.read(input.workflowId);
+        if (state.owner !== input.actor || !isApplicationPolicy(state.limits))
+          throw new Error('Application owner required');
+        if (state.applicationAttempts.some((a) => !a.settled))
+          throw new Error('Reconcile unresolved operations before continuation');
+        if (
+          this.history(input.workflowId).some(
+            (e) =>
+              e.action === 'application_continued' &&
+              (e.detail as { authorizationId: string }).authorizationId === input.authorizationId,
+          )
+        )
+          throw new Error('Fresh continuation authorization required');
+        if (
+          limits.maxHostTurns <= state.hostTurns ||
+          limits.maxReviewCycles < state.reviewCycles ||
+          limits.deadlineAt <= Date.now()
+        )
+          throw new Error('Amended limits do not permit continuation');
+        const previous = state.limits;
+        state.limits = limits;
+        state.status = state.policyResumeStatus ?? 'awaiting_review';
+        delete state.policyResumeStatus;
+        delete state.decisionCode;
+        return this.write(state, 'application_continued', { ...input, previous });
+      })
+      .immediate();
+  }
+
+  reserveApplicationAttempt(
+    input: ApplicationAttempt,
+  ):
+    | { kind: 'admitted'; policyReservationId: string }
+    | { kind: 'decision_required'; code: string } {
+    const parsed = ApplicationAttemptSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        const existing = state.applicationAttempts.find(
+          (a) =>
+            a.attemptId === parsed.attemptId ||
+            a.policyReservationId === parsed.policyReservationId ||
+            a.binding.claimToken === parsed.binding.claimToken,
+        );
+        if (existing) {
+          if (existing.requestHash !== digest(parsed))
+            throw new Error('Application reservation idempotency conflict');
+          return { kind: 'decision_required' as const, code: 'attempt_already_reserved' };
+        }
+        const stop = (code: DecisionCode) => {
+          this.applicationStop(state, code);
+          return { kind: 'decision_required' as const, code };
+        };
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        if (Date.now() >= state.limits.deadlineAt) return stop('deadline_exceeded');
+        if (state.hostTurns >= state.limits.maxHostTurns) return stop('host_turns_exhausted');
+        if (state.applicationAttempts.some((a) => !a.settled))
+          return { kind: 'decision_required' as const, code: 'attempt_in_progress' };
+        const original = parsed.retryOfAttemptId
+          ? state.applicationAttempts.find((a) => a.attemptId === parsed.retryOfAttemptId)
+          : undefined;
+        if (
+          parsed.kind === 'retry' &&
+          (!parsed.retryAuthorizationId ||
+            !original?.settled ||
+            !original.operationId ||
+            !original.terminalOutcome ||
+            original.terminalOutcome === 'completed')
+        )
+          throw new Error('Explicit retry requires reconciled failed/cancelled original operation');
+        if (
+          parsed.kind === 'retry' &&
+          state.applicationAttempts.some(
+            (a) => a.retryAuthorizationId === parsed.retryAuthorizationId,
+          )
+        )
+          throw new Error('Fresh retry authorization required');
+        const selectedKind = parsed.kind === 'retry' ? original!.kind : parsed.kind;
+        const selection =
+          selectedKind === 'review' || selectedKind === 'delta'
+            ? state.reviewer
+            : state.implementer;
+        if (
+          selection.seatId !== parsed.actorSeatId ||
+          selection.accountId !== parsed.binding.accountId ||
+          selection.model !== parsed.binding.model ||
+          selection.profileId !== parsed.binding.profileId
+        )
+          throw new Error('Exact selected seat binding required');
+        if (parsed.kind === 'review') {
+          if (state.status !== 'awaiting_review') throw new Error('Review is not due');
+          if (state.reviewCycles >= state.limits.maxReviewCycles) return stop('cycles_exhausted');
+          state.reviewCycles++;
+        } else if (parsed.kind === 'delta') {
+          if (state.status !== 'awaiting_delta_review') throw new Error('Delta is not due');
+        } else if (parsed.kind === 'fix') {
+          if (state.status !== 'awaiting_fix') throw new Error('Fix is not due');
+          if (
+            state.applicationAttempts.filter((a) => a.kind === 'fix').length >= state.reviewCycles
+          ) {
+            if (state.reviewCycles >= state.limits.maxReviewCycles) return stop('cycles_exhausted');
+            state.reviewCycles++;
+          }
+          this.requireFixAuthority(state);
+        }
+        state.hostTurns++;
+        state.applicationAttempts.push({
+          ...parsed,
+          requestHash: digest(parsed),
+          dispatched: false,
+          settled: false,
+        });
+        this.write(state, 'application_attempt_reserved', parsed);
+        return { kind: 'admitted' as const, policyReservationId: parsed.policyReservationId };
+      })
+      .immediate();
+  }
+
+  applicationAttemptForClaim(claimToken: string): ApplicationAttempt | null {
+    const rows = this.db.prepare('SELECT state FROM symposium_review_workflows').all() as Array<{
+      state: string;
+    }>;
+    const matches = rows
+      .flatMap((row) => (JSON.parse(row.state) as Workflow).applicationAttempts ?? [])
+      .filter((a) => a.binding.claimToken === claimToken);
+    if (matches.length > 1) throw new Error('Ambiguous application claim');
+    if (!matches[0]) return null;
+    const {
+      workflowId,
+      attemptId,
+      policyReservationId,
+      kind,
+      actorSeatId,
+      artifactRevision,
+      artifactHash,
+      binding,
+      retryOfAttemptId,
+      retryAuthorizationId,
+    } = matches[0];
+    return {
+      workflowId,
+      attemptId,
+      policyReservationId,
+      kind,
+      actorSeatId,
+      artifactRevision,
+      artifactHash,
+      binding,
+      ...(retryOfAttemptId ? { retryOfAttemptId } : {}),
+      ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
+    };
+  }
+
+  applicationWorkflowForSession(sessionId: string): Workflow | null {
+    const rows = this.db.prepare('SELECT state FROM symposium_review_workflows').all() as Array<{
+      state: string;
+    }>;
+    return (
+      rows
+        .map((row) => this.hydrate(JSON.parse(row.state) as Workflow))
+        .find((s) => s.sessionId === sessionId && isApplicationPolicy(s.limits)) ?? null
+    );
+  }
+
+  assertApplicationDispatch(input: ApplicationAttempt): void {
+    const parsed = ApplicationAttemptSchema.parse(input);
+    const state = this.read(parsed.workflowId);
+    if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+    const attempt = state.applicationAttempts.find(
+      (a) => a.policyReservationId === parsed.policyReservationId,
+    );
+    if (!attempt || attempt.requestHash !== digest(parsed) || attempt.settled)
+      throw new Error('Exact live application reservation required');
+    this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+    if (state.decisionCode) throw new Error(state.decisionCode);
+    if (Date.now() >= state.limits.deadlineAt) {
+      this.stopApplication(state.workflowId, state.owner, 'deadline_exceeded');
+      throw new Error('deadline_exceeded');
+    }
+  }
+
+  consumeApplicationDispatch(
+    input: ApplicationAttempt,
+  ):
+    | { kind: 'dispatch_authorized'; policyReservationId: string }
+    | { kind: 'decision_required'; code: string } {
+    const parsed = ApplicationAttemptSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+        const attempt = state.applicationAttempts.find(
+          (a) => a.policyReservationId === parsed.policyReservationId,
+        );
+        if (!attempt || attempt.requestHash !== digest(parsed))
+          throw new Error('Exact application reservation required');
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        if (Date.now() >= state.limits.deadlineAt) {
+          this.applicationStop(state, 'deadline_exceeded');
+          return { kind: 'decision_required' as const, code: 'deadline_exceeded' };
+        }
+        if (attempt.dispatched || attempt.settled)
+          return { kind: 'decision_required' as const, code: 'attempt_already_dispatched' };
+        attempt.dispatched = true;
+        this.write(state, 'application_dispatch_consumed', parsed);
+        return {
+          kind: 'dispatch_authorized' as const,
+          policyReservationId: parsed.policyReservationId,
+        };
+      })
+      .immediate();
+  }
+
+  bindApplicationOperation(workflowId: string, attemptId: string, operationId: string): void {
+    Id.parse(operationId);
+    this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        const attempt = state.applicationAttempts.find((a) => a.attemptId === attemptId);
+        if (!attempt?.dispatched || (attempt.operationId && attempt.operationId !== operationId))
+          throw new Error('Exact dispatched operation required');
+        attempt.operationId = operationId;
+        this.write(state, 'application_operation_bound', { attemptId, operationId });
+      })
+      .immediate();
+  }
+
+  settleApplicationExecution(
+    workflowId: string,
+    attemptId: string,
+    operationId: string,
+    outcome: 'completed' | 'cancelled' | 'failed',
+  ): void {
+    this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        const attempt = state.applicationAttempts.find((a) => a.attemptId === attemptId);
+        if (!attempt?.dispatched || attempt.operationId !== operationId)
+          throw new Error('Exact accepted operation required');
+        if (attempt.terminalOutcome && attempt.terminalOutcome !== outcome)
+          throw new Error('Terminal outcome conflict');
+        attempt.terminalOutcome = outcome;
+        if (outcome !== 'completed' || attempt.kind === 'initial' || attempt.kind === 'retry')
+          attempt.settled = true;
+        this.write(state, 'application_execution_terminal', { attemptId, operationId, outcome });
+      })
+      .immediate();
   }
 
   private charge(state: Workflow, usage: Usage): void {
     if (state.attempts.some((attempt) => attempt.attemptId === usage.attemptId))
       throw new Error('Attempt already accounted');
+    if (isApplicationPolicy(state.limits)) {
+      const admitted = state.applicationAttempts.find((a) => a.attemptId === usage.attemptId);
+      if (
+        !admitted ||
+        !admitted.dispatched ||
+        admitted.settled ||
+        !admitted.operationId ||
+        admitted.terminalOutcome !== 'completed'
+      )
+        throw new Error('Dispatched application reservation required');
+      admitted.settled = true;
+      state.attempts.push(usage);
+      if (usage.tokens !== null) state.tokensUsed += usage.tokens;
+      else state.usageCompleteness.tokens = 'partial';
+      if (usage.costUsd !== null) state.costUsd += usage.costUsd;
+      else state.usageCompleteness.cost = 'partial';
+      return;
+    }
+    if (usage.tokens === null) throw new Error('Native capped receipt requires final usage');
     const reservation = state.reservations.find((entry) => entry.attemptId === usage.attemptId);
     if (!reservation || reservation.settled)
       throw new Error('Pre-dispatch attempt reservation is required');
@@ -580,174 +980,232 @@ export class SymposiumReviewStore {
 
   recordReview(input: Review): Workflow {
     const parsed = ReviewSchema.parse(input);
-    return this.db.transaction(() => {
-      const state = this.read(parsed.workflowId);
-      this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
-      const requestHash = digest(parsed);
-      const prior = state.reviews.find((review) => review.reviewId === parsed.reviewId);
-      if (prior) {
-        if (prior.requestHash !== requestHash) throw new Error('Review idempotency conflict');
-        return state;
-      }
-      if (state.status === 'decision_required' || state.status === 'verified')
-        throw new Error('Review rounds or budget exhausted');
-      if (parsed.reviewerSeatId !== state.reviewer.seatId)
-        throw new Error('Independently selected reviewer seat required');
-      if (parsed.kind === 'full' && state.status !== 'awaiting_review')
-        throw new Error('Full review is not due');
-      if (parsed.kind === 'delta' && state.status !== 'awaiting_delta_review')
-        throw new Error('Delta review is not due');
-      if (state.reviewRounds >= state.limits.maxReviewRounds)
-        throw new Error('Review rounds exhausted');
-      if (
-        !state.reservations.some(
-          (entry) =>
-            !entry.settled &&
-            entry.attemptId === parsed.usage.attemptId &&
-            entry.kind === 'review' &&
-            entry.actorSeatId === parsed.reviewerSeatId &&
-            entry.artifactRevision === parsed.artifactRevision &&
-            entry.artifactHash === parsed.artifactHash,
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        const requestHash = digest(parsed);
+        const prior = state.reviews.find((review) => review.reviewId === parsed.reviewId);
+        if (prior) {
+          if (prior.requestHash !== requestHash) throw new Error('Review idempotency conflict');
+          return state;
+        }
+        if (
+          (!isApplicationPolicy(state.limits) && state.status === 'decision_required') ||
+          state.status === 'verified'
         )
-      )
-        throw new Error('Matching pre-dispatch review reservation is required');
-      state.reviewRounds++;
-      this.charge(state, parsed.usage);
-      state.reviews.push({
-        reviewId: parsed.reviewId,
-        kind: parsed.kind,
-        artifactRevision: parsed.artifactRevision,
-        artifactHash: parsed.artifactHash,
-        requestHash,
-      });
-      if (parsed.failure) {
-        state.status = 'decision_required';
-        state.decisionCode = 'review_failed';
-      } else {
-        for (const key of parsed.resolvedFingerprints) {
-          const found = state.findings.find((item) => item.fingerprint === key);
-          if (!found || found.status !== 'open')
-            throw new Error('Unknown open finding disposition');
-          found.status = 'fixed';
-        }
-        for (const candidate of parsed.findings) {
-          if (!state.acceptanceCriteria.includes(candidate.criterion))
-            throw new Error('Finding criterion is not in the acceptance contract');
-          const key = fingerprint(candidate);
-          const found = state.findings.find((item) => item.fingerprint === key);
-          if (found) {
-            found.status = 'open';
-            // Missing severity means unreported, not a downgrade or an inferred default.
-            if (candidate.severity !== undefined) found.severity = candidate.severity;
-            found.reviewIds.push(parsed.reviewId);
-            found.evidenceRefs = [...new Set([...found.evidenceRefs, ...candidate.evidenceRefs])];
-          } else
-            state.findings.push({
-              ...candidate,
-              fingerprint: key,
-              status: 'open',
-              reviewIds: [parsed.reviewId],
-            });
-        }
-        if (!state.decisionCode) {
-          const open = state.findings.some((item) => item.status === 'open');
-          state.status = open ? 'awaiting_fix' : 'awaiting_evidence';
-          if (open && state.reviewRounds >= state.limits.maxReviewRounds) {
-            state.status = 'decision_required';
-            state.decisionCode = 'rounds_exhausted';
+          throw new Error('Review rounds or budget exhausted');
+        if (parsed.reviewerSeatId !== state.reviewer.seatId)
+          throw new Error('Independently selected reviewer seat required');
+        if (
+          parsed.kind === 'full' &&
+          (state.policyResumeStatus ?? state.status) !== 'awaiting_review'
+        )
+          throw new Error('Full review is not due');
+        if (
+          parsed.kind === 'delta' &&
+          (state.policyResumeStatus ?? state.status) !== 'awaiting_delta_review'
+        )
+          throw new Error('Delta review is not due');
+        if (
+          !isApplicationPolicy(state.limits) &&
+          state.reviewRounds >= state.limits.maxReviewRounds
+        )
+          throw new Error('Review rounds exhausted');
+        if (
+          ![...state.reservations, ...state.applicationAttempts].some(
+            (entry) =>
+              !entry.settled &&
+              entry.attemptId === parsed.usage.attemptId &&
+              (entry.kind === 'review' || entry.kind === 'delta') &&
+              entry.actorSeatId === parsed.reviewerSeatId &&
+              entry.artifactRevision === parsed.artifactRevision &&
+              entry.artifactHash === parsed.artifactHash,
+          )
+        )
+          throw new Error('Matching pre-dispatch review reservation is required');
+        state.reviewRounds++;
+        this.charge(state, parsed.usage);
+        state.reviews.push({
+          reviewId: parsed.reviewId,
+          kind: parsed.kind,
+          artifactRevision: parsed.artifactRevision,
+          artifactHash: parsed.artifactHash,
+          requestHash,
+        });
+        if (parsed.failure) {
+          state.status = 'decision_required';
+          state.decisionCode = 'review_failed';
+        } else {
+          for (const key of parsed.resolvedFingerprints) {
+            const found = state.findings.find((item) => item.fingerprint === key);
+            if (!found || found.status !== 'open')
+              throw new Error('Unknown open finding disposition');
+            found.status = 'fixed';
+          }
+          for (const candidate of parsed.findings) {
+            if (!state.acceptanceCriteria.includes(candidate.criterion))
+              throw new Error('Finding criterion is not in the acceptance contract');
+            const key = fingerprint(candidate);
+            const found = state.findings.find((item) => item.fingerprint === key);
+            if (found) {
+              found.status = 'open';
+              // Missing severity means unreported, not a downgrade or an inferred default.
+              if (candidate.severity !== undefined) found.severity = candidate.severity;
+              found.reviewIds.push(parsed.reviewId);
+              found.evidenceRefs = [...new Set([...found.evidenceRefs, ...candidate.evidenceRefs])];
+            } else
+              state.findings.push({
+                ...candidate,
+                fingerprint: key,
+                status: 'open',
+                reviewIds: [parsed.reviewId],
+              });
+          }
+          if (state.decisionCode && isApplicationPolicy(state.limits))
+            state.policyResumeStatus = state.findings.some((f) => f.status === 'open')
+              ? 'awaiting_fix'
+              : 'awaiting_evidence';
+          if (!state.decisionCode) {
+            const open = state.findings.some((item) => item.status === 'open');
+            state.status = open ? 'awaiting_fix' : 'awaiting_evidence';
+            if (
+              open &&
+              !isApplicationPolicy(state.limits) &&
+              state.reviewRounds >= state.limits.maxReviewRounds
+            ) {
+              state.status = 'decision_required';
+              state.decisionCode = 'rounds_exhausted';
+            }
           }
         }
-      }
-      return this.write(state, 'review_recorded', parsed);
-    })();
+        if (isApplicationPolicy(state.limits) && !parsed.failure) {
+          const signature = digest([
+            state.artifactHash,
+            state.findings
+              .filter((f) => f.status === 'open')
+              .map((f) => f.fingerprint)
+              .sort(),
+          ]);
+          const previous = state.progressSignatures.at(-1);
+          state.progressSignatures.push(signature);
+          let repeated = 0;
+          for (
+            let i = state.progressSignatures.length - 2;
+            i >= 0 && state.progressSignatures[i] === signature;
+            i--
+          )
+            repeated++;
+          if (
+            previous === signature &&
+            repeated >= state.limits.noProgressLimit &&
+            state.findings.some((f) => f.status === 'open')
+          )
+            this.applicationStop(state, 'no_progress');
+        }
+        return this.write(state, 'review_recorded', parsed);
+      })
+      .immediate();
   }
 
   authorizeFix(input: FixAuthorization): Workflow {
     const parsed = FixAuthorizationSchema.parse(input);
-    return this.db.transaction(() => {
-      const state = this.read(parsed.workflowId);
-      this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
-      if (state.status !== 'awaiting_fix') throw new Error('Fix authority is not due');
-      if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
-      for (const key of parsed.findingFingerprints)
-        if (
-          !state.findings.some(
-            (finding) => finding.fingerprint === key && finding.status === 'open',
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (state.status !== 'awaiting_fix') throw new Error('Fix authority is not due');
+        if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
+        for (const key of parsed.findingFingerprints)
+          if (
+            !state.findings.some(
+              (finding) => finding.fingerprint === key && finding.status === 'open',
+            )
           )
-        )
-          throw new Error('Fix authority references an unknown open finding');
-      state.authorizations.push(parsed);
-      return this.write(state, 'fix_authorized', parsed);
-    })();
+            throw new Error('Fix authority references an unknown open finding');
+        state.authorizations.push(parsed);
+        return this.write(state, 'fix_authorized', parsed);
+      })
+      .immediate();
   }
 
   dismissFinding(input: z.infer<typeof DismissalSchema>): Workflow {
     const parsed = DismissalSchema.parse(input);
-    return this.db.transaction(() => {
-      const state = this.read(parsed.workflowId);
-      this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
-      if (state.reservations.some((attempt) => !attempt.settled))
-        throw new Error('An attempt is in progress; wait before changing a finding disposition');
-      if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
-      if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
-      const finding = state.findings.find(
-        (item) => item.fingerprint === parsed.fingerprint && item.status === 'open',
-      );
-      if (!finding) throw new Error('Open finding not found');
-      finding.status = 'dismissed';
-      finding.disposition = {
-        actor: parsed.actor,
-        reason: parsed.reason,
-        evidenceRefs: parsed.evidenceRefs,
-      };
-      if (!state.findings.some((item) => item.status === 'open'))
-        state.status = 'awaiting_evidence';
-      return this.write(state, 'finding_dismissed', parsed);
-    })();
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (
+          [...state.reservations, ...state.applicationAttempts].some((attempt) => !attempt.settled)
+        )
+          throw new Error('An attempt is in progress; wait before changing a finding disposition');
+        if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
+        if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
+        const finding = state.findings.find(
+          (item) => item.fingerprint === parsed.fingerprint && item.status === 'open',
+        );
+        if (!finding) throw new Error('Open finding not found');
+        finding.status = 'dismissed';
+        finding.disposition = {
+          actor: parsed.actor,
+          reason: parsed.reason,
+          evidenceRefs: parsed.evidenceRefs,
+        };
+        if (!state.findings.some((item) => item.status === 'open'))
+          state.status = 'awaiting_evidence';
+        return this.write(state, 'finding_dismissed', parsed);
+      })
+      .immediate();
   }
 
   recordFix(input: Fix): Workflow {
     const parsed = FixSchema.parse(input);
-    return this.db.transaction(() => {
-      const state = this.read(parsed.workflowId);
-      const requestHash = digest(parsed);
-      const prior = state.fixes?.find((fix) => fix.attemptId === parsed.usage.attemptId);
-      if (prior) {
-        if (prior.requestHash !== requestHash) throw new Error('Fix idempotency conflict');
-        return state;
-      }
-      if (state.status !== 'awaiting_fix') throw new Error('Fix is not due');
-      if (parsed.implementerSeatId !== state.implementer.seatId)
-        throw new Error('Controlled implementer selection required');
-      this.requireArtifact(state, parsed.result.inputRevision, parsed.result.inputHash);
-      if (
-        parsed.result.artifactRevision === state.artifactRevision ||
-        parsed.result.artifactHash === state.artifactHash
-      )
-        throw new Error('Fix must produce a new artifact revision and hash');
-      if (parsed.result.attemptId !== parsed.usage.attemptId)
-        throw new Error('Fix result and usage attempt mismatch');
-      if (
-        !state.reservations.some(
-          (entry) =>
-            !entry.settled &&
-            entry.attemptId === parsed.usage.attemptId &&
-            entry.kind === 'fix' &&
-            entry.actorSeatId === parsed.implementerSeatId &&
-            entry.artifactRevision === parsed.result.inputRevision &&
-            entry.artifactHash === parsed.result.inputHash,
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        const requestHash = digest(parsed);
+        const prior = state.fixes?.find((fix) => fix.attemptId === parsed.usage.attemptId);
+        if (prior) {
+          if (prior.requestHash !== requestHash) throw new Error('Fix idempotency conflict');
+          return state;
+        }
+        if ((state.policyResumeStatus ?? state.status) !== 'awaiting_fix')
+          throw new Error('Fix is not due');
+        if (parsed.implementerSeatId !== state.implementer.seatId)
+          throw new Error('Controlled implementer selection required');
+        this.requireArtifact(state, parsed.result.inputRevision, parsed.result.inputHash);
+        if (
+          !isApplicationPolicy(state.limits) &&
+          (parsed.result.artifactRevision === state.artifactRevision ||
+            parsed.result.artifactHash === state.artifactHash)
         )
-      )
-        throw new Error('Matching pre-dispatch fix reservation is required');
-      this.requireFixAuthority(state);
-      this.charge(state, parsed.usage);
-      state.artifactRevision = parsed.result.artifactRevision;
-      state.artifactHash = parsed.result.artifactHash;
-      state.currentResultId = parsed.result.resultId;
-      (state.fixes ??= []).push({ attemptId: parsed.usage.attemptId, requestHash });
-      if (!state.decisionCode) state.status = 'awaiting_delta_review';
-      return this.write(state, 'fix_recorded', parsed);
-    })();
+          throw new Error('Fix must produce a new artifact revision and hash');
+        if (parsed.result.attemptId !== parsed.usage.attemptId)
+          throw new Error('Fix result and usage attempt mismatch');
+        if (
+          ![...state.reservations, ...state.applicationAttempts].some(
+            (entry) =>
+              !entry.settled &&
+              entry.attemptId === parsed.usage.attemptId &&
+              entry.kind === 'fix' &&
+              entry.actorSeatId === parsed.implementerSeatId &&
+              entry.artifactRevision === parsed.result.inputRevision &&
+              entry.artifactHash === parsed.result.inputHash,
+          )
+        )
+          throw new Error('Matching pre-dispatch fix reservation is required');
+        this.requireFixAuthority(state);
+        this.charge(state, parsed.usage);
+        state.artifactRevision = parsed.result.artifactRevision;
+        state.artifactHash = parsed.result.artifactHash;
+        state.currentResultId = parsed.result.resultId;
+        (state.fixes ??= []).push({ attemptId: parsed.usage.attemptId, requestHash });
+        if (!state.decisionCode) state.status = 'awaiting_delta_review';
+        else if (isApplicationPolicy(state.limits))
+          state.policyResumeStatus = 'awaiting_delta_review';
+        return this.write(state, 'fix_recorded', parsed);
+      })
+      .immediate();
   }
 
   private requireFixAuthority(state: Workflow): void {
@@ -767,24 +1225,30 @@ export class SymposiumReviewStore {
 
   advanceArtifact(workflowId: string, result: WorkResult): Workflow {
     const parsed = WorkResultSchema.parse(result);
-    return this.db.transaction(() => {
-      const state = this.read(workflowId);
-      if (state.reservations.some((reservation) => !reservation.settled))
-        throw new Error('In-flight attempt must settle before advancing the artifact');
-      this.requireArtifact(state, parsed.inputRevision, parsed.inputHash);
-      if (
-        parsed.artifactRevision === state.artifactRevision ||
-        parsed.artifactHash === state.artifactHash
-      )
-        throw new Error('Artifact revision must change');
-      state.artifactRevision = parsed.artifactRevision;
-      state.artifactHash = parsed.artifactHash;
-      state.currentResultId = parsed.resultId;
-      for (const finding of state.findings)
-        if (finding.status === 'open') finding.status = 'superseded';
-      if (!state.decisionCode) state.status = 'awaiting_review';
-      return this.write(state, 'artifact_advanced', parsed);
-    })();
+    return this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        if (
+          [...state.reservations, ...state.applicationAttempts].some(
+            (reservation) => !reservation.settled,
+          )
+        )
+          throw new Error('In-flight attempt must settle before advancing the artifact');
+        this.requireArtifact(state, parsed.inputRevision, parsed.inputHash);
+        if (
+          parsed.artifactRevision === state.artifactRevision ||
+          parsed.artifactHash === state.artifactHash
+        )
+          throw new Error('Artifact revision must change');
+        state.artifactRevision = parsed.artifactRevision;
+        state.artifactHash = parsed.artifactHash;
+        state.currentResultId = parsed.resultId;
+        for (const finding of state.findings)
+          if (finding.status === 'open') finding.status = 'superseded';
+        if (!state.decisionCode) state.status = 'awaiting_review';
+        return this.write(state, 'artifact_advanced', parsed);
+      })
+      .immediate();
   }
 
   recordEvidence(
@@ -795,23 +1259,25 @@ export class SymposiumReviewStore {
   ): Workflow {
     const item = OutcomeEvidenceSchema.parse(evidence);
     Sha256.parse(artifactHash);
-    return this.db.transaction(() => {
-      const state = this.read(workflowId);
-      this.requireArtifact(state, item.artifactRevision, artifactHash);
-      if (!state.acceptanceCriteria.includes(item.criterion))
-        throw new Error('Unknown acceptance criterion');
-      if (item.resultId !== state.currentResultId)
-        throw new Error('Evidence references a stale result');
-      const prior = state.evidence.find((entry) => entry.item.evidenceId === item.evidenceId);
-      if (prior) {
-        if (digest(prior) !== digest({ item, artifactHash, source }))
-          throw new Error('Evidence idempotency conflict');
-        return state;
-      }
-      state.evidence.push({ item, artifactHash, source });
-      if (state.status === 'verified') state.status = 'awaiting_evidence';
-      return this.write(state, 'evidence_recorded', { item, artifactHash, source });
-    })();
+    return this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        this.requireArtifact(state, item.artifactRevision, artifactHash);
+        if (!state.acceptanceCriteria.includes(item.criterion))
+          throw new Error('Unknown acceptance criterion');
+        if (item.resultId !== state.currentResultId)
+          throw new Error('Evidence references a stale result');
+        const prior = state.evidence.find((entry) => entry.item.evidenceId === item.evidenceId);
+        if (prior) {
+          if (digest(prior) !== digest({ item, artifactHash, source }))
+            throw new Error('Evidence idempotency conflict');
+          return state;
+        }
+        state.evidence.push({ item, artifactHash, source });
+        if (state.status === 'verified') state.status = 'awaiting_evidence';
+        return this.write(state, 'evidence_recorded', { item, artifactHash, source });
+      })
+      .immediate();
   }
 
   finalize(
@@ -819,49 +1285,53 @@ export class SymposiumReviewStore {
   ):
     | { kind: 'verified'; artifactRevision: string; artifactHash: string }
     | { kind: 'decision_required'; code: DecisionCode } {
-    return this.db.transaction(() => {
-      const state = this.read(workflowId);
-      if (state.status === 'verified')
+    return this.db
+      .transaction(() => {
+        const state = this.read(workflowId);
+        if ([...state.reservations, ...state.applicationAttempts].some((a) => !a.settled))
+          return { kind: 'decision_required' as const, code: 'attempt_in_progress' as const };
+        if (state.status === 'verified')
+          return {
+            kind: 'verified' as const,
+            artifactRevision: state.artifactRevision,
+            artifactHash: state.artifactHash,
+          };
+        if (state.decisionCode)
+          return { kind: 'decision_required' as const, code: state.decisionCode };
+        const currentReview = state.reviews.some(
+          (review) =>
+            review.artifactRevision === state.artifactRevision &&
+            review.artifactHash === state.artifactHash,
+        );
+        if (!currentReview)
+          return { kind: 'decision_required' as const, code: 'stale_review' as const };
+        if (state.findings.some((finding) => finding.status === 'open'))
+          return { kind: 'decision_required' as const, code: 'open_findings' as const };
+        const verified = state.acceptanceCriteria.every((criterion) => {
+          const current = state.evidence.filter(
+            (entry) =>
+              entry.source === 'host' &&
+              entry.item.criterion === criterion &&
+              entry.item.resultId === state.currentResultId &&
+              entry.item.artifactRevision === state.artifactRevision &&
+              entry.artifactHash === state.artifactHash,
+          );
+          const latest = current.at(-1);
+          return latest?.item.verdict === 'verified' && latest.item.evidenceRefs.length > 0;
+        });
+        if (!verified)
+          return { kind: 'decision_required' as const, code: 'missing_evidence' as const };
+        state.status = 'verified';
+        this.write(state, 'verified', {
+          artifactRevision: state.artifactRevision,
+          artifactHash: state.artifactHash,
+        });
         return {
           kind: 'verified' as const,
           artifactRevision: state.artifactRevision,
           artifactHash: state.artifactHash,
         };
-      if (state.decisionCode)
-        return { kind: 'decision_required' as const, code: state.decisionCode };
-      const currentReview = state.reviews.some(
-        (review) =>
-          review.artifactRevision === state.artifactRevision &&
-          review.artifactHash === state.artifactHash,
-      );
-      if (!currentReview)
-        return { kind: 'decision_required' as const, code: 'stale_review' as const };
-      if (state.findings.some((finding) => finding.status === 'open'))
-        return { kind: 'decision_required' as const, code: 'open_findings' as const };
-      const verified = state.acceptanceCriteria.every((criterion) => {
-        const current = state.evidence.filter(
-          (entry) =>
-            entry.source === 'host' &&
-            entry.item.criterion === criterion &&
-            entry.item.resultId === state.currentResultId &&
-            entry.item.artifactRevision === state.artifactRevision &&
-            entry.artifactHash === state.artifactHash,
-        );
-        const latest = current.at(-1);
-        return latest?.item.verdict === 'verified' && latest.item.evidenceRefs.length > 0;
-      });
-      if (!verified)
-        return { kind: 'decision_required' as const, code: 'missing_evidence' as const };
-      state.status = 'verified';
-      this.write(state, 'verified', {
-        artifactRevision: state.artifactRevision,
-        artifactHash: state.artifactHash,
-      });
-      return {
-        kind: 'verified' as const,
-        artifactRevision: state.artifactRevision,
-        artifactHash: state.artifactHash,
-      };
-    })();
+      })
+      .immediate();
   }
 }

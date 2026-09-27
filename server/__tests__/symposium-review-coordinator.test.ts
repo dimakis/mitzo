@@ -392,3 +392,94 @@ it('preserves a failed host review despite caller-forged success and on replay',
   expect(coordinator.recordReview(context, forgedSuccess)).toEqual(failed);
   expect(store.get('workflow')?.status).toBe('decision_required');
 });
+
+it('uses application authority without claiming native enforcement and accepts unknown usage', () => {
+  const limits = {
+    version: 1 as const,
+    mode: 'application' as const,
+    maxHostTurns: 3,
+    maxReviewCycles: 1,
+    deadlineAt: Date.now() + 60000,
+    noProgressLimit: 1,
+  };
+  store.create({
+    workflowId: 'application',
+    ...context,
+    implementation,
+    implementer: selection('coder', 'coder'),
+    reviewer: selection('reviewer', 'reviewer'),
+    acceptanceCriteria: ['Criterion A'],
+    limits,
+  });
+  const applicationAttempt = {
+    workflowId: 'application',
+    attemptId: 'app-review',
+    policyReservationId: 'reservation',
+    kind: 'review' as const,
+    actorSeatId: 'reviewer',
+    artifactRevision: 'commit-1',
+    artifactHash: hash('b'),
+    binding: {
+      claimToken: 'claim',
+      deliveryId: 'delivery',
+      membershipGeneration: 1,
+      configRevision: 1,
+      accountId: 'reviewer-account',
+      model: 'reviewer-model',
+      profileId: 'reviewer',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+      authorityGrant: { grantId: 'a', revision: 1 },
+      contextGrant: { grantId: 'c', revision: 1 },
+    },
+  };
+  const appHost: SymposiumReviewHost = {
+    ...host,
+    prepareAttempt: () => {
+      throw new Error('Native cap path must not run');
+    },
+    prepareApplicationAttempt: () => applicationAttempt,
+    receipt: () => ({
+      ...receipt,
+      workflowId: 'application',
+      attemptId: 'app-review',
+      enforcementId: undefined,
+      policyReservationId: 'reservation',
+      operationId: 'operation',
+      tokens: null,
+      costUsd: null,
+    }),
+    completedReview: () => ({
+      ...completedReview,
+      workflowId: 'application',
+      attemptId: 'app-review',
+      enforcementId: undefined,
+      policyReservationId: 'reservation',
+    }),
+  };
+  const coordinator = new SymposiumReviewCoordinator(store, appHost);
+  expect(coordinator.reserve(context, 'application', 'review', 'app-review')).toMatchObject({
+    kind: 'reserved_not_dispatched',
+    policyReservationId: 'reservation',
+  });
+  expect(
+    coordinator.recordReview(context, {
+      workflowId: 'application',
+      reviewId: 'review-1',
+      attemptId: 'app-review',
+    }),
+  ).toMatchObject({ code: 'host_receipt_required' });
+  store.consumeApplicationDispatch(applicationAttempt);
+  store.bindApplicationOperation('application', 'app-review', 'operation');
+  store.settleApplicationExecution('application', 'app-review', 'operation', 'completed');
+  expect(
+    coordinator.recordReview(context, {
+      workflowId: 'application',
+      reviewId: 'review-1',
+      attemptId: 'app-review',
+    }),
+  ).toMatchObject({
+    status: 'awaiting_evidence',
+    usageCompleteness: { tokens: 'partial', cost: 'partial' },
+  });
+});

@@ -7,7 +7,11 @@ import {
   type SymposiumReviewHost,
   type ReviewContext,
 } from './symposium-review-coordinator.js';
-import type { SymposiumReviewStore } from './symposium-review-workflows.js';
+import {
+  ReviewLimitsSchema,
+  ApplicationPolicySchema,
+  type SymposiumReviewStore,
+} from './symposium-review-workflows.js';
 
 /** Installed by trusted bootstrap only. Dispatch must retain the production runtime gate,
  * bind the reservation to its native attempt, and resolve only on terminal completion.
@@ -25,17 +29,20 @@ const Id = z.string().trim().min(1).max(500);
 const Start = z.strictObject({
   workflowId: Id,
   acceptanceCriteria: z.array(Id).min(1).max(100),
-  limits: z.strictObject({
-    maxReviewRounds: z.number().int().positive(),
-    maxTokens: z.number().int().positive(),
-    maxCostUsd: z.number().finite().nonnegative().nullable(),
-  }),
+  limits: ReviewLimitsSchema,
 });
 const artifact = {
   expectedArtifactRevision: Id,
   expectedArtifactHash: z.string().regex(/^[a-f0-9]{64}$/),
 };
 const Action = z.discriminatedUnion('action', [
+  z.strictObject({ ...artifact, action: z.literal('stop') }),
+  z.strictObject({
+    ...artifact,
+    action: z.literal('continue'),
+    limits: ApplicationPolicySchema,
+    reason: Id,
+  }),
   z.strictObject({ ...artifact, action: z.literal('review') }),
   z.strictObject({
     ...artifact,
@@ -199,7 +206,10 @@ export function createSymposiumReviewRouter(deps: {
       }
       const action = input.data;
       let result: unknown;
-      if (action.action === 'review-record') {
+      if (action.action === 'stop') result = await coordinator.stop(ctx, workflowId);
+      else if (action.action === 'continue')
+        result = coordinator.continue(ctx, workflowId, action.limits, action.reason);
+      else if (action.action === 'review-record') {
         const finalized = coordinator.exportRecord(ctx, workflowId);
         if (finalized.kind !== 'verified') {
           res.status(409).json(finalized);

@@ -1,6 +1,11 @@
 import type { OutcomeEvidenceSchema, WorkResultSchema } from '@mitzo/protocol';
 import type { z } from 'zod';
-import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import {
+  isApplicationPolicy,
+  type ApplicationAttempt,
+  type ApplicationPolicy,
+  SymposiumReviewStore,
+} from './symposium-review-workflows.js';
 
 type WorkResult = z.infer<typeof WorkResultSchema>;
 type OutcomeEvidence = z.infer<typeof OutcomeEvidenceSchema>;
@@ -14,23 +19,43 @@ export type ReviewAttemptKind = 'review' | 'fix';
 export type ReviewReceipt = {
   workflowId: string;
   attemptId: string;
-  enforcementId: string;
+  enforcementId?: string;
+  policyReservationId?: string;
+  operationId?: string;
   terminal: true;
   kind: ReviewAttemptKind;
   actorSeatId: string;
   artifactRevision: string;
   artifactHash: string;
-  tokens: number;
+  tokens: number | null;
   costUsd: number | null;
 };
 
 export type CompletedReview = Omit<Parameters<SymposiumReviewStore['recordReview']>[0], 'usage'> & {
   attemptId: string;
-  enforcementId: string;
+  enforcementId?: string;
+  policyReservationId?: string;
 };
 
 /** Only a trusted host implementation may supply these facts. It never launches a provider call. */
 export interface SymposiumReviewHost {
+  prepareApplicationAttempt?(input: {
+    context: ReviewContext;
+    workflowId: string;
+    attemptId: string;
+    kind: 'review' | 'fix' | 'delta';
+    selection: Selection;
+    artifactRevision: string;
+    artifactHash: string;
+    policy: ApplicationPolicy;
+  }): ApplicationAttempt | { kind: 'decision_required'; code: string };
+  authorizeContinuation?(
+    context: ReviewContext,
+    workflowId: string,
+    limits: ApplicationPolicy,
+    reason: string,
+  ): { authorizationId: string } | null;
+  cancelApplicationAttempts?(context: ReviewContext, attempts: ApplicationAttempt[]): Promise<void>;
   completedImplementation(context: ReviewContext): WorkResult;
   currentArtifact(context: ReviewContext): { revision: string; hash: string };
   selectRoles(context: ReviewContext): Roles;
@@ -146,7 +171,9 @@ export class SymposiumReviewCoordinator {
     | {
         kind: 'reserved_not_dispatched';
         attemptId: string;
-        enforcementId: string;
+        enforcementId?: string;
+        policyReservationId?: string;
+        applicationAttempt?: ApplicationAttempt;
         selection: Selection;
         artifactRevision: string;
         artifactHash: string;
@@ -155,6 +182,40 @@ export class SymposiumReviewCoordinator {
     if (!this.host) return decision('trusted_review_host_unavailable');
     if (!this.current(context, state)) return decision('artifact_changed');
     const selection = kind === 'review' ? state.reviewer : state.implementer;
+    if (isApplicationPolicy(state.limits)) {
+      if (!this.host.prepareApplicationAttempt)
+        return decision('application_policy_host_unavailable');
+      const prepared = this.host.prepareApplicationAttempt({
+        context,
+        workflowId,
+        attemptId,
+        kind: kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind,
+        selection,
+        artifactRevision: state.artifactRevision,
+        artifactHash: state.artifactHash,
+        policy: state.limits,
+      });
+      if ('code' in prepared) return prepared;
+      if (
+        prepared.workflowId !== workflowId ||
+        prepared.attemptId !== attemptId ||
+        prepared.actorSeatId !== selection.seatId ||
+        prepared.artifactRevision !== state.artifactRevision ||
+        prepared.artifactHash !== state.artifactHash
+      )
+        return decision('application_binding_mismatch');
+      const admitted = this.store.reserveApplicationAttempt(prepared);
+      if (admitted.kind !== 'admitted') return admitted;
+      return {
+        kind: 'reserved_not_dispatched',
+        attemptId,
+        policyReservationId: prepared.policyReservationId,
+        applicationAttempt: prepared,
+        selection,
+        artifactRevision: state.artifactRevision,
+        artifactHash: state.artifactHash,
+      };
+    }
     const prepared = this.host.prepareAttempt({
       context,
       workflowId,
@@ -204,6 +265,45 @@ export class SymposiumReviewCoordinator {
     };
   }
 
+  private matchesReservation(state: Workflow, receipt: ReviewReceipt): boolean {
+    if (isApplicationPolicy(state.limits)) {
+      const attempt = state.applicationAttempts.find((a) => a.attemptId === receipt.attemptId);
+      return Boolean(
+        attempt?.dispatched &&
+        attempt.policyReservationId === receipt.policyReservationId &&
+        attempt.operationId &&
+        attempt.operationId === receipt.operationId,
+      );
+    }
+    return Boolean(
+      receipt.enforcementId &&
+      receipt.enforcementId ===
+        state.reservations.find((a) => a.attemptId === receipt.attemptId)?.enforcementId &&
+      receipt.tokens !== null,
+    );
+  }
+
+  async stop(context: ReviewContext, workflowId: string) {
+    this.scoped(context, workflowId);
+    const state = this.store.stopApplication(workflowId, context.owner, 'user_stop');
+    const pending = state.applicationAttempts.filter((a) => !a.settled);
+    await this.host?.cancelApplicationAttempts?.(context, pending);
+    return this.scoped(context, workflowId);
+  }
+
+  continue(context: ReviewContext, workflowId: string, limits: ApplicationPolicy, reason: string) {
+    this.scoped(context, workflowId);
+    const authorization = this.host?.authorizeContinuation?.(context, workflowId, limits, reason);
+    if (!authorization) return decision('interactive_continuation_authority_required');
+    return this.store.continueApplication({
+      workflowId,
+      actor: context.owner,
+      limits,
+      reason,
+      ...authorization,
+    });
+  }
+
   recordReview(
     context: ReviewContext,
     input: { workflowId: string; reviewId: string; attemptId: string },
@@ -217,8 +317,7 @@ export class SymposiumReviewCoordinator {
       receipt.terminal !== true ||
       receipt.workflowId !== input.workflowId ||
       receipt.attemptId !== input.attemptId ||
-      receipt.enforcementId !==
-        state.reservations.find((entry) => entry.attemptId === input.attemptId)?.enforcementId ||
+      !this.matchesReservation(state, receipt) ||
       receipt.kind !== 'review' ||
       receipt.actorSeatId !== state.reviewer.seatId ||
       receipt.artifactRevision !== state.artifactRevision ||
@@ -231,6 +330,7 @@ export class SymposiumReviewCoordinator {
       review.workflowId !== receipt.workflowId ||
       review.attemptId !== receipt.attemptId ||
       review.enforcementId !== receipt.enforcementId ||
+      review.policyReservationId !== receipt.policyReservationId ||
       review.reviewerSeatId !== receipt.actorSeatId ||
       review.artifactRevision !== receipt.artifactRevision ||
       review.artifactHash !== receipt.artifactHash ||
@@ -305,8 +405,7 @@ export class SymposiumReviewCoordinator {
       receipt.terminal !== true ||
       receipt.workflowId !== workflowId ||
       receipt.attemptId !== attemptId ||
-      receipt.enforcementId !==
-        state.reservations.find((entry) => entry.attemptId === attemptId)?.enforcementId ||
+      !this.matchesReservation(state, receipt) ||
       receipt.kind !== 'fix' ||
       receipt.actorSeatId !== state.implementer.seatId ||
       receipt.artifactRevision !== state.artifactRevision ||
