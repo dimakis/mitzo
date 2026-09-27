@@ -1,3 +1,4 @@
+import { PublicationCredentialRegistrationSchema } from './symposium-publication-registration.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -25,6 +26,7 @@ const Work = z.strictObject({
   models: z.array(CatalogModel.strict()).min(1),
 });
 const Config = z.strictObject({
+  publicationCredentials: z.array(PublicationCredentialRegistrationSchema).max(20).optional(),
   gateway: z.strictObject({
     executable: path,
     executableSha256: digest,

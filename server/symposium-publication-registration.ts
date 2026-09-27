@@ -27,11 +27,25 @@ export class PublicationRegistration {
   readonly authority: SealedPublicationAuthority;
   readonly service: SealedPublicationService;
   readonly artifact: SealedPublicationArtifactTransport;
+  readonly describeArtifact?: (
+    sessionId: string,
+    recordId: string,
+    signal: AbortSignal,
+  ) => Promise<{
+    recordId: string;
+    recordHash: string;
+    sealId: string;
+    sealHash: string;
+    commit: string;
+  }>;
+  private stopped = false;
+  private closed = false;
   private readonly operators = new Map<
     string,
     { expiresAt: number; controller: AbortController; unregister: () => void }
   >();
   constructor(options: {
+    describeArtifact?: PublicationRegistration['describeArtifact'];
     authorityPath: string;
     operations: CapabilityOperationStore;
     credentials: readonly PublicationCredentialRegistration[];
@@ -40,6 +54,7 @@ export class PublicationRegistration {
     runner?: PublicationCommandRunner;
   }) {
     this.artifact = options.artifact;
+    this.describeArtifact = options.describeArtifact;
     this.custodian = new PublicationCredentialCustodian(
       options.resolver ?? credentials,
       options.runner,
@@ -73,6 +88,7 @@ export class PublicationRegistration {
     });
   }
   authorize(session: AuthSession): AbortSignal {
+    if (this.stopped) throw new Error('Publication is shutting down');
     const prior = this.operators.get(session.id);
     if (prior && prior.expiresAt === session.expiresAt && !prior.controller.signal.aborted)
       return prior.controller.signal;
@@ -90,10 +106,17 @@ export class PublicationRegistration {
     value.controller.abort();
     value.unregister();
   }
-  close() {
+  shutdown() {
+    if (this.stopped) return;
+    this.stopped = true;
     for (const id of this.operators.keys()) this.invalidate(id);
     for (const credential of this.custodian.list())
       this.custodian.disconnect(credential.id, credential.revision);
+  }
+  close() {
+    if (this.closed) return;
+    this.shutdown();
+    this.closed = true;
     this.authority.close();
   }
 }

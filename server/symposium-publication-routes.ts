@@ -76,16 +76,19 @@ export function createPublicationRouter(deps: {
         signal.throwIfAborted();
         res.json(result);
       } catch {
-        res
-          .status(409)
-          .json({
-            error:
-              'Publication request unavailable or changed; refresh the selected credential and reviewed artifact',
-          });
+        res.status(409).json({
+          error:
+            'Publication request unavailable or changed; refresh the selected credential and reviewed artifact',
+        });
       } finally {
         res.off('close', close);
       }
     });
+  route('/artifact', async (runtime, req, _session, signal) => {
+    const input = z.strictObject({ recordId: id }).parse(req.body);
+    if (!runtime.describeArtifact) throw new Error('Completed artifact unavailable');
+    return runtime.describeArtifact(String(req.params.id), input.recordId, signal);
+  });
   route('/select', async (runtime, req, _session, signal) => {
     const input = z
       .strictObject({ connectionId: id, revision: z.number().int().positive() })

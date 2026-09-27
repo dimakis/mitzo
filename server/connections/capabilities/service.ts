@@ -1,3 +1,4 @@
+import { trackCapabilityOperation } from '../../capability-operation-owner.js';
 import { createHash } from 'node:crypto';
 import type { CapabilityTemplate, JsonValue } from '../types.js';
 import { validateCapabilityInput, canonicalJson } from './input-validation.js';
@@ -70,6 +71,7 @@ function persistedApprovalProjection(
 }
 
 export interface CapabilityServiceOptions {
+  ownsOperation?(operation: CapabilityOperation): boolean;
   store: CapabilityOperationStore;
   executorRegistry: CapabilityExecutorRegistry;
   getTemplate(id: string, version: number): CapabilityTemplate | undefined;
@@ -234,8 +236,12 @@ export class CapabilityService {
   }
   /** Startup hook: settle every non-terminal record without replaying a write. */
   async recoverPending(signal: AbortSignal): Promise<CapabilityOperation[]> {
+    return trackCapabilityOperation(this.options.store, () => this.recoverOwnedPending(signal));
+  }
+  private async recoverOwnedPending(signal: AbortSignal): Promise<CapabilityOperation[]> {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
+      if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
       const template = this.options.getTemplate(
         operation.capabilityId,
         operation.capabilityVersion,
@@ -251,8 +257,18 @@ export class CapabilityService {
     conversationId: string,
     signal: AbortSignal,
   ): Promise<CapabilityOperation[]> {
+    return trackCapabilityOperation(this.options.store, () =>
+      this.recoverOwnedConversation(accountId, conversationId, signal),
+    );
+  }
+  private async recoverOwnedConversation(
+    accountId: string,
+    conversationId: string,
+    signal: AbortSignal,
+  ): Promise<CapabilityOperation[]> {
     const recovered: CapabilityOperation[] = [];
     for (const operation of this.options.store.pendingRecovery()) {
+      if (this.options.ownsOperation && !this.options.ownsOperation(operation)) continue;
       if (operation.accountId !== accountId || operation.conversationId !== conversationId)
         continue;
       const template = this.options.getTemplate(
@@ -295,6 +311,15 @@ export class CapabilityService {
     request: CapabilityRequest,
     signal: AbortSignal,
     approve: CapabilityApproval = this.options.approve,
+  ): Promise<CapabilityOperation> {
+    return trackCapabilityOperation(this.options.store, () =>
+      this.invokeOwned(request, signal, approve),
+    );
+  }
+  private async invokeOwned(
+    request: CapabilityRequest,
+    signal: AbortSignal,
+    approve: CapabilityApproval,
   ): Promise<CapabilityOperation> {
     signal.throwIfAborted();
     const template = this.options.getTemplate(request.capabilityId, request.capabilityVersion);

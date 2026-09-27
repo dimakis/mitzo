@@ -1,3 +1,4 @@
+import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -1343,6 +1344,7 @@ async function shutdown(signal: string) {
   openShellLifecycle?.store.close();
   try {
     await drainOwnedSymposium();
+    await closeCapabilityOperationStores(AbortSignal.timeout(120_000));
   } catch {
     log.error('Symposium shutdown incomplete; retained resources require recovery');
     process.exit(1);

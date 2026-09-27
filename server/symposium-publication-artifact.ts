@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute, relative, sep } from 'node:path';
+import { posix } from 'node:path';
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 import type { CompletedArtifactSeal } from './symposium-physical-artifact-seal.js';
@@ -18,7 +19,6 @@ export const completedSealHash = (seal: CompletedArtifactSeal) =>
  * this adapter. It never creates a review receipt or resurrects a writer lease. */
 export function completedPublicationArtifact(deps: {
   store: SymposiumReviewStore;
-  workspace: string;
   host: CompletedPublicationHost;
 }): SealedPublicationArtifactTransport {
   return {
@@ -44,13 +44,13 @@ export function completedPublicationArtifact(deps: {
       check();
       const seal = await deps.host.requireCompletedArtifactSeal(scope.sealId, signal);
       const record = check();
-      const path = relative(deps.workspace, seal.repositoryPath);
+      const safePath =
+        seal.repositoryPath === '.' ||
+        seal.repositoryPath
+          .split('/')
+          .every((part) => /^[A-Za-z0-9_.-]+$/.test(part) && part !== '.' && part !== '..');
       if (
-        !isAbsolute(deps.workspace) ||
-        !isAbsolute(seal.repositoryPath) ||
-        path === '..' ||
-        path.startsWith(`..${sep}`) ||
-        isAbsolute(path) ||
+        !safePath ||
         seal.fenceId !== scope.sealId ||
         seal.sessionId !== scope.sessionId ||
         completedSealHash(seal) !== scope.sealHash ||
@@ -59,8 +59,8 @@ export function completedPublicationArtifact(deps: {
       )
         throw new Error('Publication completed artifact binding changed');
       return {
-        workspace: deps.workspace,
-        repositoryPath: seal.repositoryPath,
+        workspace: SYMPOSIUM_ARTIFACT_TARGET,
+        repositoryPath: posix.join(SYMPOSIUM_ARTIFACT_TARGET, seal.repositoryPath),
         sourceOid: seal.git.commit,
       };
     },

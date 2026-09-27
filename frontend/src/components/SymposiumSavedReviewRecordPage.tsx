@@ -1,3 +1,4 @@
+import { SymposiumPublication } from './SymposiumPublication';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 
@@ -16,6 +17,7 @@ export function SymposiumSavedReviewRecordPage() {
         url={`/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews/records/${encodeURIComponent(recordId)}`}
         reference={{ id: recordId, hash }}
       />
+      <SymposiumPublication sessionId={sessionId} record={{ id: recordId, hash }} />
     </main>
   );
 }

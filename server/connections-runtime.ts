@@ -7,7 +7,8 @@ import { ConnectionStore } from './connections-store.js';
 import { ConnectionsService } from './connections-service.js';
 import { OpenShellConnectionGateway } from './connections-gateway.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
-import { CapabilityOperationStore } from './connections/capabilities/operation-store.js';
+import type { CapabilityOperationStore } from './connections/capabilities/operation-store.js';
+import { capabilityOperationStore } from './capability-operation-owner.js';
 import { CapabilityExecutorRegistry } from './connections/capabilities/registry.js';
 import { CapabilityService } from './connections/capabilities/service.js';
 import type { CapabilityExecutor } from './connections/capabilities/types.js';
@@ -148,7 +149,7 @@ export function createConnectionsRuntime(options: {
     workspace: options.workspace,
     eligibleAccountIds: options.eligibleAccountIds,
   });
-  const capabilityStore = new CapabilityOperationStore(join(options.directory, 'capabilities.db'));
+  const capabilityStore = capabilityOperationStore(options.directory);
   // This transport executes only code-owned OpenShell/git argument shapes. It
   // is separate from provider provisioning because bundle export needs a
   // larger (but still bounded) binary-safe response than control metadata.
@@ -211,6 +212,7 @@ export function createConnectionsRuntime(options: {
     ...(options.capabilityExecutors ?? {}),
   });
   const capabilities = new CapabilityService({
+    ownsOperation: (operation) => !operation.connectionId.startsWith('sealed-publication-'),
     store: capabilityStore,
     executorRegistry,
     getTemplate: (id, version) => connectionTemplateRegistry.getCapabilityTemplate(id, version),

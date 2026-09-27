@@ -71,9 +71,37 @@ it('registers metadata without credential resolution, authenticates selection an
   };
   const principal = await registration.authority.preview(scope, signal);
   const grant = await registration.authority.grant(scope, principal, signal);
+  const before = run.mock.calls.length;
+  expect(
+    (
+      await request(app).post('/sessions/session/publication/publish').send({
+        grantId: grant.id,
+        bindingHash: grant.bindingHash,
+        turnId: 'turn',
+        idempotencyKey: 'key',
+        baseBranch: 'main',
+        title: 'PR',
+        body: 'body',
+        draft: true,
+      })
+    ).status,
+  ).toBe(409);
+  expect(run.mock.calls.length).toBe(before); // no authenticated controller approval owner
+  expect(
+    (
+      await request(app)
+        .post('/sessions/session/publication/select')
+        .set('Origin', 'https://foreign.invalid')
+        .send({ connectionId: 'write', revision: 1 })
+    ).status,
+  ).toBe(403);
   registration.invalidate('login');
   await expect(registration.authority.require(grant.id, grant.bindingHash, signal)).rejects.toThrow(
     'operator',
+  );
+  registration.shutdown();
+  expect(() => registration.authorize({ id: 'new-login', expiresAt: Date.now() + 60000 })).toThrow(
+    'shutting down',
   );
   registration.close();
   operations.close();

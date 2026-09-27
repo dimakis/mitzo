@@ -1,3 +1,4 @@
+import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
@@ -67,6 +68,7 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
   /** Absolute evidence destination. It may be absent until real provisioning
    * completes; bootstrap never fabricates an attestation or opens runtime admission. */
@@ -616,6 +618,7 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      publicationCredentials: options.publicationCredentials,
       physical,
       attemptRegistry: native.registry,
       async inspectCompletedArtifact(

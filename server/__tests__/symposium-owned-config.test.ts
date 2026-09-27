@@ -191,3 +191,26 @@ describe('explicit private owned startup configuration', () => {
     expect(f.gateway.stop).toHaveBeenCalledOnce();
   });
 });
+it('accepts explicit publication references and rejects inline credentials', () => {
+  const f = fixture();
+  const source = {
+    id: 'operator-github',
+    label: 'Operator GitHub',
+    reference: { provider: 'keychain', service: 'publication', account: 'operator' },
+  };
+  writeFileSync(f.filename, JSON.stringify({ ...f.config, publicationCredentials: [source] }), {
+    mode: 0o600,
+  });
+  expect(readOwnedSymposiumHostConfig(f.filename)).toMatchObject({
+    publicationCredentials: [source],
+  });
+  writeFileSync(
+    f.filename,
+    JSON.stringify({
+      ...f.config,
+      publicationCredentials: [{ ...source, token: 'must-not-be-accepted' }],
+    }),
+    { mode: 0o600 },
+  );
+  expect(() => readOwnedSymposiumHostConfig(f.filename)).toThrow();
+});

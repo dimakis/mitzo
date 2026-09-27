@@ -93,7 +93,7 @@ it('binds a real SQLite review record to a completed seal without a writer lease
     intentDigest: 'intent',
     retentionDigest: 'retention',
     revocationDigest: 'revoked',
-    repositoryPath: '/artifact/repo',
+    repositoryPath: '.',
     git: {
       version: 1,
       commit: 'commit',
@@ -109,7 +109,6 @@ it('binds a real SQLite review record to a completed seal without a writer lease
   const requireCompletedArtifactSeal = vi.fn(async () => seal);
   const adapter = completedPublicationArtifact({
     store,
-    workspace: '/artifact',
     host: {
       requireCompletedArtifactSeal,
       inspectCompletedArtifact: vi.fn(),
@@ -129,13 +128,28 @@ it('binds a real SQLite review record to a completed seal without a writer lease
     credentialGeneration: 'generation',
   };
   expect(await adapter.require(selected, new AbortController().signal)).toEqual({
-    workspace: '/artifact',
-    repositoryPath: '/artifact/repo',
+    workspace: '/sandbox/workspaces/mgmt',
+    repositoryPath: '/sandbox/workspaces/mgmt',
     sourceOid: 'commit',
   });
   await expect(
     adapter.require({ ...selected, sealHash: 'c'.repeat(64) }, new AbortController().signal),
   ).rejects.toThrow();
+  seal.repositoryPath = 'nested/repository';
+  expect(
+    await adapter.require(
+      { ...selected, sealHash: completedSealHash(seal) },
+      new AbortController().signal,
+    ),
+  ).toMatchObject({ repositoryPath: '/sandbox/workspaces/mgmt/nested/repository' });
+  seal.repositoryPath = '../escape';
+  await expect(
+    adapter.require(
+      { ...selected, sealHash: completedSealHash(seal) },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('binding');
+  seal.repositoryPath = '.';
   store.recordEvidence(
     'flow',
     { ...evidence, evidenceId: 'changed', checkedAt: 2 },

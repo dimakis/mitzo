@@ -638,10 +638,12 @@ or publication permission, and new gateway custody cannot adopt it.
 A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
 records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
 
-The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
+The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
-Create PR approval. It is unavailable without registered credential custody and the
-completed seal/review bridge; no publication route or UI action is enabled.
+Create PR approval. Explicit private credential references now enable operator selection
+and the completed-seal bridge in the review panel. Native hard-budget/final-usage review
+receipts and an authorized initial repository/base import remain prerequisites; this
+registration increment does not make fresh empty artifacts publishable.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.

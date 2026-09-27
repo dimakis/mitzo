@@ -1,3 +1,4 @@
+import { SymposiumPublication } from './SymposiumPublication';
 import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
@@ -448,6 +449,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           reference={recordReference}
         />
       )}
+      <SymposiumPublication sessionId={sessionId} record={recordReference} />
       <button
         disabled={busy}
         onClick={() => void reload().catch((error) => setError(String(error)))}

@@ -79,9 +79,7 @@ it('reopens a copied app route after remount using authenticated configured API 
   first.unmount();
   mount();
   await screen.findByLabelText('Saved immutable review record');
-  expect(fetch).toHaveBeenCalledTimes(2);
-  expect(fetch.mock.calls[1][0]).toBe(`https://mitzo.example${url}`);
-  expect(new Headers(fetch.mock.calls[1][1].headers).get('Authorization')).toBe(
-    'Bearer test-token',
-  );
+  const recordReads = fetch.mock.calls.filter(([path]) => path === `https://mitzo.example${url}`);
+  expect(recordReads).toHaveLength(2);
+  expect(new Headers(recordReads[1][1].headers).get('Authorization')).toBe('Bearer test-token');
 });

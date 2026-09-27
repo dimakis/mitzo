@@ -181,8 +181,11 @@ export class PublicationCredentialCustodian {
             } catch {
               throw new Error('Publication credential command failed');
             }
+            // Raw subprocess errors can contain secrets; preserve only the reviewed status.
             throw new PublicationCredentialHttpError(404);
           }
+          // Raw subprocess diagnostics may contain the credential; never retain a cause.
+          // eslint-disable-next-line preserve-caught-error
           throw new Error('Publication credential command failed');
         }
       },

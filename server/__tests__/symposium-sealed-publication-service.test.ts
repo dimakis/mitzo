@@ -1,3 +1,5 @@
+import { CapabilityService } from '../connections/capabilities/service.js';
+import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
 import { CredentialResolver } from '../credentials.js';
 import { PublicationCredentialCustodian } from '../symposium-publication-credentials.js';
 import { expect, it, vi } from 'vitest';
@@ -300,5 +302,31 @@ it('publishes an absent source branch through the concrete custodian without los
   const f = await fixture(true, false, true, true);
   expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
   expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  f.close();
+});
+
+it('keeps sealed operations outside legacy shared-ledger startup and reconnect recovery', async () => {
+  const f = await fixture();
+  f.loseResponse();
+  const pending = await f.service.invoke(f.input, f.signal, async () => true);
+  expect(pending.status).toBe('verification_pending');
+  const getTemplate = vi.fn();
+  const legacy = new CapabilityService({
+    store: f.operations,
+    ownsOperation: (operation) => !operation.connectionId.startsWith('sealed-publication-'),
+    executorRegistry: new CapabilityExecutorRegistry({}),
+    getTemplate,
+    getConnection: () => undefined,
+    listConnections: () => [],
+    isConnectionActiveForConversation: () => false,
+    approve: async () => false,
+  });
+  expect(await legacy.recoverPending(f.signal)).toEqual([]);
+  expect(
+    await legacy.recoverPendingForConversation(pending.accountId, pending.conversationId, f.signal),
+  ).toEqual([]);
+  expect(getTemplate).not.toHaveBeenCalled();
+  expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+  expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
   f.close();
 });
