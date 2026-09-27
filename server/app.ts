@@ -1,4 +1,7 @@
-import { createSymposiumApplicationDispatchPolicy } from './symposium-application-dispatch.js';
+import {
+  createSymposiumApplicationDispatchPolicy,
+  selectSymposiumApplicationClaim,
+} from './symposium-application-dispatch.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
 import {
   custodianControllerClient,
@@ -1055,6 +1058,8 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       allowedAccountProviders: verified.allowedAccountProviders,
       verifyHostCapability,
       attemptRegistry: host.attemptRegistry,
+      claimIdFactory: (input) =>
+        selectSymposiumApplicationClaim(symposiumReviewStore, input) ?? randomUUID(),
       applicationPolicy: createSymposiumApplicationDispatchPolicy({
         store: symposiumReviewStore,
         observations: host.attemptRegistry.observations,

@@ -147,3 +147,26 @@ export function createSymposiumApplicationDispatchPolicy(deps: {
     },
   };
 }
+
+/** Select only a persisted, undispatched reservation. The ordinary path stays available
+ * only for sessions with no application workflow; retries require a new reservation. */
+export function selectSymposiumApplicationClaim(
+  store: SymposiumReviewStore,
+  input: { sessionId: string; deliveryId: string; seatId: string },
+): string | null {
+  const workflow = store.applicationWorkflowForSession(input.sessionId);
+  if (!workflow) return null;
+  const matches = workflow.applicationAttempts.filter(
+    (attempt) =>
+      attempt.binding.deliveryId === input.deliveryId && attempt.actorSeatId === input.seatId,
+  );
+  if (matches.length !== 1) throw new Error('Exact application reservation required');
+  const attempt = matches[0];
+  if (attempt.dispatched || attempt.settled)
+    throw new Error('Application attempt already dispatched or settled');
+  const request = store.applicationAttemptForClaim(attempt.binding.claimToken);
+  if (!request || request.workflowId !== workflow.workflowId)
+    throw new Error('Exact application reservation required');
+  store.assertApplicationDispatch(request);
+  return request.binding.claimToken;
+}

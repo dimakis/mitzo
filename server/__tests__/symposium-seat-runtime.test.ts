@@ -1,4 +1,7 @@
-import { createSymposiumApplicationDispatchPolicy } from '../symposium-application-dispatch.js';
+import {
+  createSymposiumApplicationDispatchPolicy,
+  selectSymposiumApplicationClaim,
+} from '../symposium-application-dispatch.js';
 import { SymposiumReviewStore, type ApplicationAttempt } from '../symposium-review-workflows.js';
 import { SymposiumNativeObservations } from '../symposium-native-observations.js';
 import Database from 'better-sqlite3';
@@ -294,6 +297,30 @@ function applicationFixture(work: ReturnType<typeof fixture>) {
     },
   };
 }
+it('selects only the reserved recipient claim and fences ordinary work in an application session', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  const input = {
+    sessionId: work.input.sessionId,
+    deliveryId: work.input.deliveryId,
+    seatId: seat.id,
+  };
+  try {
+    expect(() => selectSymposiumApplicationClaim(f.store, input)).toThrow(/reservation/);
+    expect(
+      selectSymposiumApplicationClaim(f.store, { ...input, sessionId: 'ordinary' }),
+    ).toBeNull();
+    f.store.reserveApplicationAttempt(f.request);
+    expect(selectSymposiumApplicationClaim(f.store, input)).toBe(work.input.claimToken);
+    expect(() => selectSymposiumApplicationClaim(f.store, { ...input, seatId: 'other' })).toThrow(
+      /reservation/,
+    );
+    f.policy.consume(work.input);
+    expect(() => selectSymposiumApplicationClaim(f.store, input)).toThrow(/dispatched/);
+  } finally {
+    f.close();
+  }
+});
 it('binds the persisted application reservation to every actual native identity field', () => {
   const work = fixture();
   const f = applicationFixture(work);
