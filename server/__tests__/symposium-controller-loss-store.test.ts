@@ -153,3 +153,50 @@ it('rolls back every suspension when one seat has pending exact creation recover
     store.close();
   }
 });
+it('uses existing runtime drain after durable suspension and leaves uncertainty pending', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  let fenced = false;
+  try {
+    const runtimes = new Map([
+      [
+        's',
+        {
+          runtime: {
+            beginShutdown() {
+              fenced = true;
+            },
+            async drain() {
+              expect(fenced).toBe(true);
+              expect(store.getLatestSymposiumMembership('s', 'anchor')?.state).toBe('suspended');
+              throw Error('exact stop missing');
+            },
+          },
+        },
+      ],
+    ]);
+    await expect(
+      drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal),
+    ).rejects.toThrow('cleanup');
+    expect(store.getLatestSymposiumMembership('s', 'anchor')?.reconciliation).toBe('pending');
+    expect(runtimes.size).toBe(1);
+  } finally {
+    store.close();
+  }
+});
+it('retires only successfully drained runtime owners and requires explicit later restore', async () => {
+  const { drainRetainedSymposiumControllers } = await import('../symposium-controller-drain.js');
+  const store = fixture();
+  try {
+    const runtimes = new Map([['s', { runtime: { beginShutdown() {}, async drain() {} } }]]);
+    await drainRetainedSymposiumControllers(store, runtimes, 'epoch', new AbortController().signal);
+    expect(runtimes.size).toBe(0);
+    expect(store.getLatestSymposiumMembership('s', 'anchor')).toMatchObject({
+      state: 'suspended',
+      reconciliation: 'confirmed',
+      generation: 2,
+    });
+  } finally {
+    store.close();
+  }
+});
