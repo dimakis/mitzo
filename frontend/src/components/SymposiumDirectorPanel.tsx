@@ -8,6 +8,7 @@ import type {
   ValidAccountBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import { reauthorize } from '../lib/connections-api';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
 
@@ -74,6 +75,97 @@ async function readJson<T>(path: string, init?: RequestInit): Promise<T> {
   const body = (await response.json()) as T & { error?: string };
   if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`);
   return body;
+}
+
+function CreationRecoveryAuthorization({
+  sessionId,
+  seat,
+  revision,
+  onSaved,
+}: {
+  sessionId: string;
+  seat: DirectorSeat;
+  revision: number;
+  onSaved: () => Promise<void>;
+}) {
+  const [passphrase, setPassphrase] = useState('');
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const active = useRef(true);
+  const key = useRef(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+  useEffect(() => {
+    active.current = true;
+    return () => {
+      active.current = false;
+    };
+  }, []);
+  async function authorize() {
+    if (busy || !passphrase || typed !== 'RESUME FAILED SEAT CLEANUP') return;
+    const secret = passphrase;
+    setPassphrase('');
+    setTyped('');
+    setBusy(true);
+    setError('');
+    try {
+      const auth = await reauthorize(secret);
+      if (!active.current) return;
+      if (!auth.csrf || !Number.isFinite(auth.expiresAt) || auth.expiresAt <= Date.now())
+        throw new Error('Recent app authorization expired. Enter the passphrase again.');
+      const operation = seat.creationDiagnostic!.recoveryAuthorization!;
+      await readJson(
+        `/api/sessions/${encodeURIComponent(sessionId)}/symposium/creation/recovery/reauthorize`,
+        {
+          method: 'POST',
+          headers: { ...jsonHeaders, 'x-csrf-token': auth.csrf },
+          body: JSON.stringify({
+            seatId: seat.seatId,
+            expectedRevision: revision,
+            expectedGeneration: seat.membership!.generation,
+            operationId: operation.operationId,
+            expectedAuthorizationRevision: operation.revision,
+            idempotencyKey: key.current,
+            confirmation: 'RESUME FAILED SEAT CLEANUP',
+          }),
+        },
+      );
+      if (active.current) await onSaved();
+    } catch (cause) {
+      if (active.current)
+        setError(cause instanceof Error ? cause.message : 'Cleanup authorization failed');
+    } finally {
+      if (active.current) setBusy(false);
+    }
+  }
+  return (
+    <fieldset disabled={busy}>
+      <p>
+        Fresh app reauthorization is required to resume this pending cleanup. Authorization only
+        transfers this operation; cleanup requires a separate action.
+      </p>
+      <label>
+        App passphrase for {seat.seat.name} cleanup
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={passphrase}
+          onChange={(event) => setPassphrase(event.target.value)}
+        />
+      </label>
+      <label>
+        Type RESUME FAILED SEAT CLEANUP for {seat.seat.name}
+        <input value={typed} onChange={(event) => setTyped(event.target.value)} />
+      </label>
+      <button
+        type="button"
+        disabled={busy || !passphrase || typed !== 'RESUME FAILED SEAT CLEANUP'}
+        onClick={() => void authorize()}
+      >
+        {busy ? 'Authorizing…' : 'Authorize pending cleanup'}
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </fieldset>
+  );
 }
 
 function SeatModelEditor({
@@ -808,10 +900,13 @@ function SessionDirectorPanel({
                           </>
                         ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
                           'reauthorization_required' ? (
-                          <p>
-                            Fresh app reauthorization is required to resume this pending cleanup.
-                            This screen cannot transfer cleanup authorization yet.
-                          </p>
+                          <CreationRecoveryAuthorization
+                            key={`${sessionId}:${seat.seatId}:${seat.membership!.generation}:${status.config!.revision}:${seat.creationDiagnostic.recoveryAuthorization.operationId}:${seat.creationDiagnostic.recoveryAuthorization.revision}`}
+                            sessionId={sessionId}
+                            seat={seat}
+                            revision={status.config!.revision}
+                            onSaved={() => refresh()}
+                          />
                         ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
                           'cleanup_fenced' ? (
                           <p>
