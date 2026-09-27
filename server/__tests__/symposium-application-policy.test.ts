@@ -4,6 +4,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
+import { createSymposiumSuccessorFixAuthority } from '../symposium-artifact-successor-authority.js';
+import type { ArtifactAdmissionBindingV1, SeatConfig } from '@mitzo/protocol';
 const hash = 'a'.repeat(64);
 const selection = (seatId: string, role: string) => ({
   seatId,
@@ -167,6 +169,136 @@ it('retains exact user fix intent without borrowing an old writer grant', () => 
   expect(() => a.authorizeApplicationFixIntent({ ...intent, findingFingerprints: [hash] })).toThrow(
     /scope/i,
   );
+  a.close();
+});
+it('requires a charged fix preparation and current grant for successor admission', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create(create());
+  a.reserveApplicationAttempt(request('one'));
+  const reviewed = terminalReview(a, 'one', [
+    { criterion: 'works', summary: 'missing', location: 'file', evidenceRefs: ['diff'] },
+  ]);
+  const fingerprints = [reviewed.findings[0].fingerprint];
+  a.authorizeApplicationFixIntent({
+    workflowId: 'w',
+    artifactRevision: 'a',
+    artifactHash: hash,
+    actor: 'user',
+    authorizationId: 'action',
+    findingFingerprints: fingerprints,
+    reason: 'fix',
+  });
+  const prep = {
+    workflowId: 'w',
+    attemptId: 'fix',
+    policyReservationId: 'reservation',
+    kind: 'fix' as const,
+    actorSeatId: 'coder',
+    artifactRevision: 'a',
+    artifactHash: hash,
+    transitionId: 'transition',
+    seal: {
+      fenceId: 'fence',
+      artifactGenerationId: 'parent',
+      volumeName: 'volume',
+      sealDigest: hash,
+      artifactRevision: 'a',
+      artifactHash: hash,
+    },
+    from: { configRevision: 1, membershipGeneration: 1 },
+    to: { configRevision: 2, membershipGeneration: 2 },
+    expectedSelection: {
+      accountId: 'coder',
+      model: 'offline',
+      profileId: 'coder',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+    },
+  };
+  const binding = {
+    version: 1,
+    transitionId: 'transition',
+    operationId: 'copy',
+    sessionId: 's',
+    workspaceId: 'workspace',
+    custodyDigest: hash,
+    parentGenerationId: 'parent',
+    parentFenceId: 'fence',
+    parentSealDigest: hash,
+    childGenerationId: 'child',
+    childVolumeName: 'child-volume',
+    copyReceiptDigest: hash,
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: 'w',
+    fixAttemptId: 'fix',
+    policyReservationId: 'reservation',
+    seatId: 'coder',
+    actor: 'user',
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding: {
+      accountId: 'coder',
+      accountLabel: 'coder',
+      provider: 'openai',
+      model: 'offline',
+      profileRevision: '1',
+    },
+    profileBinding: { profileId: 'coder', profileRevision: '1' },
+    contextGrant: { grantId: 'context', revision: 1 },
+    authorityGrant: { grantId: 'grant', revision: 1 },
+    findingFingerprints: fingerprints,
+  } as ArtifactAdmissionBindingV1;
+  const seat = {
+    id: 'coder',
+    name: 'coder',
+    role: 'coder',
+    model: 'offline',
+    systemPrompt: 'offline',
+    color: '#123456',
+    accountBinding: binding.accountBinding,
+    profileBinding: binding.profileBinding,
+    authorityGrant: {
+      ...binding.authorityGrant,
+      filesystem: 'write',
+      tools: 'write',
+      network: 'restricted',
+    },
+    contextGrant: { ...binding.contextGrant, classification: 'work', sourceRefs: [] },
+  } as SeatConfig;
+  let generation = 1,
+    revision = 1;
+  const authority = createSymposiumSuccessorFixAuthority({
+    workflows: a,
+    events: {
+      getActiveSymposiumConfig: () => ({ version: 2, revision, state: 'active', seats: [seat] }),
+      getLatestSymposiumMembership: () => ({
+        generation,
+        state: 'active',
+        reconciliation: 'confirmed',
+      }),
+      getLatestSymposiumAdmission: () => ({
+        decision: 'admitted',
+        membershipGeneration: 1,
+        configRevision: 1,
+      }),
+    } as unknown as Parameters<typeof createSymposiumSuccessorFixAuthority>[0]['events'],
+    grants: { verifySeat: () => {} },
+  });
+  expect(() => authority.assertAdmissionCurrent!(binding)).toThrow(/preparation/i);
+  a.reserveApplicationPreparation(prep);
+  expect(authority.assertAdmissionCurrent!(binding)).toBe(true);
+  expect(() =>
+    authority.assertAdmissionCurrent!({
+      ...binding,
+      authorityGrant: { grantId: 'stale', revision: 1 },
+    }),
+  ).toThrow(/binding/i);
+  generation = 2;
+  revision = 2;
+  expect(authority.assertAdmissionCurrent!(binding)).toBe(true);
   a.close();
 });
 it('refuses dispatch-only completion and conflicting terminal outcomes', () => {

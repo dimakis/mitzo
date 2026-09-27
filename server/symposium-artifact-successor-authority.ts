@@ -1,6 +1,9 @@
-import type { ArtifactAdmissionBindingV1 } from '@mitzo/protocol';
+import type { ArtifactAdmissionBindingV1, SeatConfig } from '@mitzo/protocol';
 import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
+import type { EventStore } from './event-store.js';
+import type { SymposiumHostGrants } from './symposium-host-grants.js';
+import { canonicalReviewJson } from './symposium-review-records.js';
 /** Host construction only: never accepted from a request or portable configuration.
  * The current verifier checks actual grant, membership, model/account/profile. The
  * workflow supplies either a native reservation or a charged application preparation. */
@@ -9,6 +12,143 @@ export interface SuccessorFixAuthority {
   assertCurrent(request: ArtifactGenerationRequest): true;
   /** Checks the exact selected application reservation and before/after membership authority. */
   assertAdmissionCurrent?(binding: ArtifactAdmissionBindingV1): true;
+}
+/** Production owner verifier. User authorization is the retained fix intent; current
+ * physical seat authority comes only from the active configuration and host grants. */
+export function createSymposiumSuccessorFixAuthority(deps: {
+  workflows: SymposiumReviewStore;
+  events: Pick<
+    EventStore,
+    'getActiveSymposiumConfig' | 'getLatestSymposiumMembership' | 'getLatestSymposiumAdmission'
+  >;
+  grants: Pick<SymposiumHostGrants, 'verifySeat'>;
+}): SuccessorFixAuthority {
+  const current = (
+    sessionId: string,
+    seatId: string,
+    expectedGeneration?: number,
+    requireSeatAdmission = false,
+  ) => {
+    const config = deps.events.getActiveSymposiumConfig(sessionId);
+    const seat = config.seats.find((value) => value.id === seatId);
+    const member = deps.events.getLatestSymposiumMembership(sessionId, seatId);
+    const admission = deps.events.getLatestSymposiumAdmission(sessionId, seatId, config.revision);
+    if (
+      config.version !== 2 ||
+      config.state !== 'active' ||
+      !seat ||
+      !seat.accountBinding ||
+      !seat.profileBinding ||
+      !seat.authorityGrant ||
+      !seat.contextGrant ||
+      seat.authorityGrant.filesystem !== 'write' ||
+      seat.authorityGrant.tools !== 'write' ||
+      !member ||
+      member.state !== 'active' ||
+      member.reconciliation !== 'confirmed' ||
+      (expectedGeneration !== undefined && member.generation !== expectedGeneration) ||
+      (requireSeatAdmission &&
+        (admission?.decision !== 'admitted' ||
+          admission.membershipGeneration !== member.generation ||
+          admission.configRevision !== config.revision))
+    )
+      throw new Error('Current admitted writer authority required');
+    deps.grants.verifySeat({ sessionId, seat, membershipGeneration: member.generation });
+    return { config, seat: seat as SeatConfig, member };
+  };
+  const exactGrant = (seat: SeatConfig, binding: ArtifactAdmissionBindingV1) =>
+    seat.authorityGrant?.grantId === binding.authorityGrant.grantId &&
+    seat.authorityGrant.revision === binding.authorityGrant.revision &&
+    seat.contextGrant?.grantId === binding.contextGrant.grantId &&
+    seat.contextGrant.revision === binding.contextGrant.revision;
+  return {
+    workflows: deps.workflows,
+    assertCurrent(request) {
+      const { seat, member } = current(request.sessionId, request.seatId, undefined, true);
+      if (
+        member.generation !== request.membershipGeneration ||
+        seat.accountBinding?.accountId !== request.accountId ||
+        seat.accountBinding.model !== request.model ||
+        seat.profileBinding?.profileId !== request.profileId ||
+        seat.profileBinding.profileRevision !== request.profileRevision ||
+        seat.authorityGrant?.grantId !== request.authorityGrantId ||
+        seat.authorityGrant.revision !== request.authorityRevision
+      )
+        throw new Error('Current successor request selection changed');
+      return true;
+    },
+    assertAdmissionCurrent(binding) {
+      const state = deps.workflows.get(binding.workflowId);
+      const prep = state?.applicationPreparations.find(
+        (value) =>
+          value.attemptId === binding.fixAttemptId &&
+          value.policyReservationId === binding.policyReservationId &&
+          value.transitionId === binding.transitionId,
+      );
+      if (
+        !state ||
+        state.limits.mode !== 'application' ||
+        state.sessionId !== binding.sessionId ||
+        state.owner !== binding.actor ||
+        state.status !== 'awaiting_fix' ||
+        !prep ||
+        prep.kind !== 'fix' ||
+        (prep.status !== 'preparing' && prep.status !== 'bound') ||
+        prep.actorSeatId !== binding.seatId ||
+        prep.artifactRevision !== state.artifactRevision ||
+        prep.artifactHash !== state.artifactHash ||
+        prep.seal.artifactGenerationId !== binding.parentGenerationId ||
+        prep.seal.fenceId !== binding.parentFenceId ||
+        prep.seal.sealDigest !== binding.parentSealDigest ||
+        prep.from.configRevision !== binding.expectedConfigRevision ||
+        prep.from.membershipGeneration !== binding.predecessorMembershipGeneration ||
+        prep.to.configRevision !== binding.resultingConfigRevision ||
+        prep.to.membershipGeneration !== binding.successorMembershipGeneration ||
+        prep.expectedSelection.accountId !== binding.accountBinding.accountId ||
+        prep.expectedSelection.model !== binding.accountBinding.model ||
+        prep.expectedSelection.profileId !== binding.profileBinding.profileId ||
+        prep.expectedSelection.profileRevision !== binding.profileBinding.profileRevision ||
+        prep.expectedSelection.accountProfileRevision !== binding.accountBinding.profileRevision ||
+        !state.applicationFixIntents.some(
+          (intent) =>
+            intent.actor === binding.actor &&
+            intent.artifactRevision === state.artifactRevision &&
+            intent.artifactHash === state.artifactHash &&
+            canonicalReviewJson([...intent.findingFingerprints].sort()) ===
+              canonicalReviewJson([...binding.findingFingerprints].sort()),
+        )
+      )
+        throw new Error('Charged successor preparation and user fix intent required');
+      const { config, seat, member } = current(binding.sessionId, binding.seatId);
+      const before =
+        config.revision === binding.expectedConfigRevision &&
+        member.generation === binding.predecessorMembershipGeneration &&
+        prep.status === 'preparing';
+      const after =
+        config.revision === binding.resultingConfigRevision &&
+        member.generation === binding.successorMembershipGeneration;
+      if (
+        !(before || after) ||
+        canonicalReviewJson(seat.accountBinding) !== canonicalReviewJson(binding.accountBinding) ||
+        canonicalReviewJson(seat.profileBinding) !== canonicalReviewJson(binding.profileBinding) ||
+        !exactGrant(seat, binding)
+      )
+        throw new Error('Current successor admission binding changed');
+      if (prep.status === 'bound') {
+        const admitted = state.applicationAttempts.find(
+          (attempt) =>
+            attempt.attemptId === prep.attemptId &&
+            attempt.policyReservationId === prep.policyReservationId &&
+            attempt.binding.configRevision === binding.resultingConfigRevision &&
+            attempt.binding.membershipGeneration === binding.successorMembershipGeneration &&
+            attempt.binding.authorityGrant.grantId === binding.authorityGrant.grantId &&
+            attempt.binding.authorityGrant.revision === binding.authorityGrant.revision,
+        );
+        if (!admitted) throw new Error('Bound successor native claim required');
+      }
+      return true;
+    },
+  };
 }
 export function assertSuccessorFixAuthority(
   authority: SuccessorFixAuthority | undefined,
