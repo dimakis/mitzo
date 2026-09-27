@@ -1,3 +1,4 @@
+import { DiscoveryCommandFailure } from '../symposium-discovery-diagnostics.js';
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumModelDiscovery,
@@ -93,7 +94,7 @@ it('reconciles a failed create that actually allocated a sandbox', async () => {
     await create(...args);
     throw new Error('secret token');
   };
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'failed',
     inference: false,
   });
@@ -104,7 +105,7 @@ it('retains intent for ambiguous creation even if no resources have appeared yet
   f.operations.create = async () => {
     throw new Error('secret token');
   };
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'reconciliation_required',
     inference: false,
   });
@@ -113,7 +114,7 @@ it('retains intent for ambiguous creation even if no resources have appeared yet
 it('does not claim cleanup complete until physical deletion is observed', async () => {
   const f = fixture();
   f.operations.physicalAbsent = vi.fn(async () => false);
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'reconciliation_required',
     inference: false,
   });
@@ -125,7 +126,7 @@ it('rejects a different provider before opening a read client and sanitizes erro
     { id: 'other', name: 'personal', type: 'codex', workspace: 'work' },
   ];
   f.operations.openClient = vi.fn();
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'failed',
     inference: false,
   });
@@ -234,7 +235,7 @@ it('clears only a proven undispatched attempt without claiming inventory cleanup
   f.operations.create = async () => {
     throw new DiscoveryNotDispatchedError('preflight');
   };
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'failed',
     inference: false,
   });
@@ -249,7 +250,7 @@ it('retains reconciliation when an undispatched journal cannot be cleared', asyn
   f.operations.clearReceipt = async () => {
     throw new Error('disk');
   };
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'reconciliation_required',
     inference: false,
   });
@@ -268,7 +269,7 @@ it('bounds distinct model cursors and still completes both cleanup planes', asyn
         ? { account: { type: 'chatgpt' } }
         : { data: [{ model: 'gpt-5.6-luna', displayName: 'Luna' }], nextCursor: `page-${++pages}` },
   });
-  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
     status: 'failed',
     inference: false,
   });
@@ -290,7 +291,11 @@ it('times out the full model read and closes the client before cleanup', async (
     });
     const result = runSymposiumModelDiscovery(f.config, f.operations);
     await vi.advanceTimersByTimeAsync(60001);
-    expect(await result).toEqual({ status: 'failed', inference: false });
+    expect(await result).toMatchObject({
+      status: 'failed',
+      inference: false,
+      diagnostic: { stage: 'model-list' },
+    });
     expect(close).toHaveBeenCalledOnce();
     expect(f.receipt()).toBeUndefined();
   } finally {
@@ -309,7 +314,7 @@ it.each([false, true])(
       f.operations.clearReceipt = async () => {
         throw new Error('disk');
       };
-    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
       status: cleanupFails ? 'reconciliation_required' : 'failed',
       inference: false,
     });
@@ -333,10 +338,117 @@ it.each(['custody', 'read', 'malformed', 'null'])(
       if (failure === 'read') throw Error('private journal unreadable');
       return failure === 'null' ? null : { unexpected: 'retained intent' };
     };
-    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toMatchObject({
       status: 'reconciliation_required',
       inference: false,
     });
     expect(f.operations.create).not.toHaveBeenCalled();
   },
 );
+
+it.each([false, true])(
+  'retains timeout diagnostics and uncertainty when persistence fails=%s',
+  async (fails) => {
+    const f = fixture();
+    f.operations.create = async () => {
+      throw new DiscoveryCommandFailure({
+        failureClass: 'timeout',
+        commandDispatch: 'possibly-started',
+      });
+    };
+    f.operations.recordDiagnostic = vi.fn(async () => {
+      if (fails) throw new Error('PRIVATE');
+    });
+    const result = await runSymposiumModelDiscovery(f.config, f.operations);
+    expect(result).toMatchObject({
+      status: 'reconciliation_required',
+      inference: false,
+      diagnosticPersisted: !fails,
+      diagnostic: {
+        stage: 'create',
+        failureClass: 'timeout',
+        createDispatch: 'possibly-dispatched',
+        commandDispatch: 'possibly-started',
+      },
+    });
+    expect(f.receipt()).toBeDefined();
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  },
+);
+it('retains original native stage diagnosis after successful exact cleanup', async () => {
+  const f = fixture();
+  f.operations.openClient = async () => {
+    throw new Error('SECRET account');
+  };
+  f.operations.recordDiagnostic = vi.fn(async () => {});
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'failed',
+    diagnostic: { stage: 'native-initialize', failureClass: 'operation-failed' },
+    diagnosticPersisted: true,
+  });
+  expect(f.receipt()).toBeUndefined();
+  expect(JSON.stringify(result)).not.toContain('SECRET');
+});
+
+it('preserves the diagnosed attempt when the exclusive wrapper fails after its callback', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryCommandFailure({
+      failureClass: 'timeout',
+      commandDispatch: 'possibly-started',
+    });
+  };
+  f.operations.recordDiagnostic = vi.fn(async () => {});
+  f.operations.withExclusiveAttempt = async (operation) => {
+    await operation();
+    throw new Error('PRIVATE custody detail');
+  };
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'reconciliation_required',
+    diagnosticPersisted: true,
+    diagnostic: { stage: 'create', failureClass: 'timeout' },
+  });
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+});
+it.each([false, true])(
+  'diagnoses catalog publication failure with persistence failure=%s',
+  async (fails) => {
+    const f = fixture();
+    f.operations.recordDiagnostic = vi.fn(async () => {
+      if (fails) throw new Error('PRIVATE disk');
+    });
+    const result = await runSymposiumModelDiscovery(f.config, f.operations, () => {
+      throw new Error('PRIVATE catalog');
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      diagnosticPersisted: !fails,
+      diagnostic: { stage: 'catalog-publication', failureClass: 'operation-failed' },
+    });
+    expect(f.receipt()).toBeUndefined();
+    expect(f.operations.recordDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'catalog-publication' }),
+    );
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  },
+);
+
+it('retains classified delete failure when cleanup remains unconfirmed', async () => {
+  const f = fixture();
+  f.operations.delete = async () => {
+    throw new DiscoveryCommandFailure({
+      failureClass: 'timeout',
+      commandDispatch: 'possibly-started',
+    });
+  };
+  f.operations.recordDiagnostic = vi.fn(async () => {});
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'reconciliation_required',
+    diagnosticPersisted: true,
+    diagnostic: { stage: 'cleanup', failureClass: 'timeout', commandDispatch: 'possibly-started' },
+  });
+  expect(f.receipt()).toBeDefined();
+});

@@ -599,5 +599,7 @@ Before external seat creation, local artifact and seat intent writes complete be
 
 A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
 
+Native model-discovery failures retain [private staged diagnostics](docs/features/symposium-discovery-diagnostics.md) without changing conservative cleanup or recovery gates.
+
 Symposium director controls support explicit primary routing transfer to an admitted seat
 without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
