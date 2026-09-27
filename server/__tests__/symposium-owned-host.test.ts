@@ -634,3 +634,45 @@ it('rejects an unreviewed workload owner before launching the gateway', async ()
   );
   expect(f.launch).not.toHaveBeenCalled();
 });
+
+it('retains the lease ledger across different launch directories and blocks legacy launch databases', async () => {
+  const f = fixture();
+  const firstDirectory = join(f.root, 'gateway-first');
+  mkdirSync(firstDirectory, { mode: 0o700 });
+  f.gateway.stateDirectory = firstDirectory;
+  const first = await createOwnedSymposiumHost(f.options, f.launch);
+  const request = {
+    sessionId: 'session',
+    workspaceId: 'workspace',
+    seatId: 'seat',
+    volumeName: 'artifacts',
+    volumeGeneration: 'generation',
+    driver: 'podman' as const,
+    access: 'writer' as const,
+  };
+  const lease = await first.artifactLeaseHost.reserve(request);
+  first.artifactLeaseHost.markCreationStarted(lease.token, lease.revision, 'writer');
+  await first.closeAfterDrain(new AbortController().signal);
+  const secondDirectory = join(f.root, 'gateway-second');
+  mkdirSync(secondDirectory, { mode: 0o700 });
+  const second = await createOwnedSymposiumHost(
+    f.options,
+    vi.fn().mockResolvedValue({ ...f.gateway, stateDirectory: secondDirectory }),
+  );
+  try {
+    expect(await second.artifactLeaseHost.inspectLease(lease.token)).toEqual(lease);
+    await expect(
+      second.artifactLeaseHost.reserve({ ...request, seatId: 'replacement' }),
+    ).rejects.toThrow(/already has a writer/);
+  } finally {
+    await second.closeAfterDrain(new AbortController().signal);
+  }
+  writeFileSync(join(firstDirectory, 'artifact-leases.db'), 'legacy unresolved state', {
+    mode: 0o600,
+  });
+  const launch = vi.fn();
+  await expect(createOwnedSymposiumHost(f.options, launch)).rejects.toThrow(
+    /requires reconciliation/,
+  );
+  expect(launch).not.toHaveBeenCalled();
+});

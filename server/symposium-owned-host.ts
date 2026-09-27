@@ -1,4 +1,5 @@
 import { symposiumArtifactOwner, artifactOwnerContract } from './symposium-artifact-owner.js';
+import { stableSymposiumArtifactLeasePath } from './symposium-artifact-state.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
   collectPersonalAdmissionEvidence,
@@ -125,6 +126,7 @@ export async function createOwnedSymposiumHost(
     options.runtime.sandboxIdLength > 13
   )
     throw new Error('Invalid dedicated sandbox name length');
+  const leasePath = stableSymposiumArtifactLeasePath(options.gateway.stateParent);
   const gateway = await launch(options.gateway);
   let native: ReturnType<typeof initializeSymposiumNativeHost> | undefined;
   let leaseHost: SqliteArtifactLeaseHost | undefined;
@@ -205,7 +207,6 @@ export async function createOwnedSymposiumHost(
       gateway,
       options.gateway.workloadImage,
     );
-    const leasePath = join(gateway.stateDirectory, 'artifact-leases.db');
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
       artifactEvidence,
