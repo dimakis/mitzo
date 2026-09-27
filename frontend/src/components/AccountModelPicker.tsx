@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
+import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface AccountSelection {
@@ -79,6 +80,7 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const explicitSelection = requireExplicitSelection || (scope === 'symposium' && attempt > 0);
   const [legacyRequested, setLegacy] = useState(false);
   const legacy = scope === 'chat' && legacyRequested;
   const [fixedSession, setFixedSession] = useState(false);
@@ -173,13 +175,13 @@ export function AccountModelPicker({
               account,
             );
             setSelection(next);
-            callbacks.current.onChange(requireExplicitSelection ? null : next);
+            callbacks.current.onChange(explicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
               : { model: preferredModel };
             setFixedSession(true);
-            callbacks.current.onChange(requireExplicitSelection ? null : next);
+            callbacks.current.onChange(explicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding
@@ -215,7 +217,7 @@ export function AccountModelPicker({
             first,
           );
           setSelection(selected);
-          callbacks.current.onChange(requireExplicitSelection ? null : selected);
+          callbacks.current.onChange(explicitSelection ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -230,9 +232,18 @@ export function AccountModelPicker({
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, attempt, legacy, scope, requireExplicitSelection]);
+  const subscriptionLogin =
+    scope === 'symposium' ? (
+      <SymposiumSubscriptionLogin
+        disabled={disabled}
+        onComplete={() => setAttempt((value) => value + 1)}
+        onCatalogRefresh={() => setAttempt((value) => value + 1)}
+      />
+    ) : null;
   if (error)
     return (
       <>
+        {subscriptionLogin}
         <span role="alert">{error}</span>
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
@@ -251,6 +262,7 @@ export function AccountModelPicker({
   if (empty)
     return (
       <>
+        {subscriptionLogin}
         <span>
           {scope === 'symposium'
             ? 'No Symposium account profiles configured.'
@@ -263,11 +275,18 @@ export function AccountModelPicker({
         )}
       </>
     );
-  if (!selection) return <span>Loading accounts…</span>;
+  if (!selection)
+    return (
+      <>
+        {subscriptionLogin}
+        <span>Loading accounts…</span>
+      </>
+    );
   const account = accounts.find((a) => a.id === (selection.accountId ?? ''));
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
+      {subscriptionLogin}
       {sessionId ? (
         <span className="chat-account-binding">{account.label}</span>
       ) : legacy ? (
@@ -286,7 +305,7 @@ export function AccountModelPicker({
               nextAccount,
             );
             setSelection(next);
-            onChange(requireExplicitSelection ? null : next);
+            onChange(explicitSelection ? null : next);
           }}
         >
           {accounts.map((a) => (
@@ -365,7 +384,7 @@ export function AccountModelPicker({
             account,
           );
           setSelection(next);
-          onChange(requireExplicitSelection ? null : next);
+          onChange(explicitSelection ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -389,7 +408,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(requireExplicitSelection ? null : next);
+            onChange(explicitSelection ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -405,7 +424,7 @@ export function AccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {requireExplicitSelection && (
+      {explicitSelection && (
         <button type="button" disabled={disabled} onClick={() => onChange(selection)}>
           Use {account.label} ·{' '}
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -384,6 +384,24 @@ it('shows per-seat account ownership for Symposium without returning an ordinary
   expect(screen.queryByRole('combobox')).toBeNull();
 });
 
+it('offers personal subscription setup only in the Symposium account catalog including empty catalogs', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => [] } as Response);
+  const { rerender } = render(
+    <AccountModelPicker scope="chat" sessionId={null} preferredModel="luna" onChange={vi.fn()} />,
+  );
+  await screen.findByText('No account profiles configured.');
+  expect(screen.queryByRole('button', { name: 'Connect personal subscription' })).toBeNull();
+  rerender(
+    <AccountModelPicker
+      scope="symposium"
+      sessionId={null}
+      preferredModel="luna"
+      onChange={vi.fn()}
+    />,
+  );
+  expect(await screen.findByRole('button', { name: 'Connect personal subscription' })).toBeTruthy();
+});
+
 it('requires confirmation of the named account and model and invalidates it on changes', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
   const onChange = vi.fn();
@@ -405,3 +423,52 @@ it('requires confirmation of the named account and model and invalidates it on c
   fireEvent.click(screen.getByRole('button', { name: 'Use Other Vertex · Haiku' }));
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
 });
+
+it.each(['recovered', 'new'] as const)(
+  'retains %s login completion across delayed catalog reload and requires explicit use',
+  async (mode) => {
+    let catalogs = 0;
+    let finish!: (value: Response) => void;
+    const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (url === '/api/symposium/accounts') {
+        if (++catalogs === 1) return response([]);
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      }
+      if (init?.method === 'POST')
+        return response({
+          attemptId: 'login',
+          authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=mock',
+        });
+      if (url.includes('?attemptId=')) return response({ state: 'completed', attemptId: 'login' });
+      return response({ state: mode === 'recovered' ? 'completed' : 'idle', attemptId: 'login' });
+    });
+    const onChange = vi.fn();
+    render(
+      <AccountModelPicker
+        scope="symposium"
+        sessionId={null}
+        preferredModel=""
+        onChange={onChange}
+      />,
+    );
+    await screen.findByText('No Symposium account profiles configured.');
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    if (mode === 'new') {
+      fireEvent.click(await screen.findByLabelText(/Browser on the Mitzo server/));
+      fireEvent.click(screen.getByLabelText(/ready/i));
+      fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+    }
+    await waitFor(() => expect(catalogs).toBeGreaterThanOrEqual(2));
+    expect(screen.getByText(/login completed/i)).toBeTruthy();
+    await act(async () => {
+      finish(response(profiles));
+    });
+    expect(screen.getByText(/login completed/i)).toBeTruthy();
+    expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+  },
+);
