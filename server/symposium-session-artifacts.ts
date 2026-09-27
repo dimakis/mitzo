@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import type { ArtifactInitializerReceipt } from './symposium-artifact-initializer.js';
 import { randomUUID } from 'node:crypto';
 import type { ArtifactVolumeEvidence } from './symposium-artifact-lease.js';
 export type SessionArtifactMapping = {
@@ -60,8 +61,13 @@ export class SymposiumSessionArtifacts {
     private readonly verifyCustody: () => void,
     private readonly host: {
       initializationContract: string;
+      initializerRequired?: boolean;
       inspect(name: string): Promise<ArtifactVolumeEvidence | null>;
-      create(name: string, labels: Record<string, string>): Promise<void>;
+      create(
+        name: string,
+        labels: Record<string, string>,
+        receipt: ArtifactInitializerReceipt,
+      ): Promise<void>;
     },
   ) {
     if (!id.test(workspace) || !custody || !host.initializationContract)
@@ -78,6 +84,14 @@ export class SymposiumSessionArtifacts {
       this.db.exec(
         'ALTER TABLE symposium_session_artifacts ADD COLUMN initialization_contract TEXT',
       );
+    for (const [name, definition] of [
+      ['initializer_name', 'TEXT'],
+      ['initializer_id', 'TEXT'],
+      ['initializer_removed', 'INTEGER NOT NULL DEFAULT 0'],
+    ]) {
+      if (!columns.some((column) => column.name === name))
+        this.db.exec(`ALTER TABLE symposium_session_artifacts ADD COLUMN ${name} ${definition}`);
+    }
     if (!columns.some((column) => column.name === 'revision'))
       this.db.exec(
         'ALTER TABLE symposium_session_artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
@@ -218,7 +232,43 @@ export class SymposiumSessionArtifacts {
       revision += 1;
       creationStarted = true;
       this.assertOwner(row);
-      await this.host.create(mapping.volumeName, artifactVolumeLabels(this.workspace, mapping));
+      const updateReceipt = (sql: string, ...values: unknown[]) => {
+        const result = this.db.prepare(sql).run(...values, sessionId, revision);
+        if (result.changes !== 1) throw new Error('Artifact initializer receipt changed');
+      };
+      const receipt: ArtifactInitializerReceipt = {
+        intent: (name) => {
+          if (name !== `${mapping.volumeName}-init`) throw new Error('Invalid initializer intent');
+          this.assertOwner(row);
+          updateReceipt(
+            "UPDATE symposium_session_artifacts SET initializer_name=? WHERE session_id=? AND revision=? AND state='creating' AND initializer_name IS NULL",
+            name,
+          );
+        },
+        created: (helperId) => {
+          if (!/^[a-f0-9]{64}$/.test(helperId)) throw new Error('Invalid initializer identity');
+          updateReceipt(
+            "UPDATE symposium_session_artifacts SET initializer_id=? WHERE session_id=? AND revision=? AND state='creating' AND initializer_name IS NOT NULL AND initializer_id IS NULL",
+            helperId,
+          );
+        },
+        removed: () =>
+          updateReceipt(
+            "UPDATE symposium_session_artifacts SET initializer_removed=1 WHERE session_id=? AND revision=? AND state='creating' AND initializer_id IS NOT NULL AND initializer_removed=0",
+          ),
+      };
+      await this.host.create(
+        mapping.volumeName,
+        artifactVolumeLabels(this.workspace, mapping),
+        receipt,
+      );
+      if (this.host.initializerRequired) {
+        const proof = this.db
+          .prepare('SELECT initializer_removed FROM symposium_session_artifacts WHERE session_id=?')
+          .get(sessionId) as { initializer_removed: number };
+        if (proof.initializer_removed !== 1)
+          throw new Error('Artifact initializer cleanup receipt required');
+      }
       // Record successful terminal creation before a later custody check can fail.
       // A timeout/unknown exit never reaches this durable initialization receipt.
       const initialized = this.db

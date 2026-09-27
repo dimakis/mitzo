@@ -1,4 +1,5 @@
-import { symposiumArtifactOwner, artifactOwnerContract } from './symposium-artifact-owner.js';
+import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
+import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import { stableSymposiumArtifactLeasePath } from './symposium-artifact-state.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
@@ -234,8 +235,9 @@ export async function createOwnedSymposiumHost(
       custody,
       {
         get initializationContract() {
-          return artifactOwnerContract(artifactOwner);
+          return artifactGitContract(artifactOwner);
         },
+        initializerRequired: true,
         async inspect(name) {
           const listed = await podman([
             'volume',
@@ -253,21 +255,8 @@ export async function createOwnedSymposiumHost(
             throw new Error('Ambiguous artifact volume inventory');
           return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
         },
-        async create(name, labels) {
-          const owner = artifactOwner;
-          const result = await podmanText([
-            'volume',
-            'create',
-            '--driver',
-            'local',
-            '--uid',
-            String(owner.uid),
-            '--gid',
-            String(owner.gid),
-            ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
-            name,
-          ]);
-          if (result.trim() !== name) throw new Error('Artifact volume creation identity changed');
+        async create(name, labels, receipt) {
+          await createArtifactGitVolume(name, labels, artifactOwner, podmanText, custody, receipt);
         },
       },
     );
