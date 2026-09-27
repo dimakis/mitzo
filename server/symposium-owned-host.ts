@@ -29,7 +29,7 @@ import {
   type OwnedSymposiumGatewayOptions,
 } from './symposium-owned-gateway.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
-import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import { SqliteArtifactLeaseHost, ArtifactPodmanContext } from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
 import { type SymposiumSubscriptionHostOptions } from './symposium-subscription-host.js';
@@ -198,11 +198,12 @@ export async function createOwnedSymposiumHost(
       gateway,
     );
     const leasePath = join(gateway.stateDirectory, 'artifact-leases.db');
-    leaseHost = new SqliteArtifactLeaseHost(leasePath, artifactEvidence, async (driver, name) => {
-      if (driver !== 'podman' || !id.test(name))
-        throw new Error('Invalid owned artifact volume inspection');
-      return podman(['volume', 'inspect', name]);
-    });
+    leaseHost = new SqliteArtifactLeaseHost(
+      leasePath,
+      artifactEvidence,
+      new ArtifactPodmanContext(podmanText),
+      gateway,
+    );
     chmodSync(leasePath, 0o600);
     // Session identities survive fresh gateway launches. Retain their reservations
     // in the stable private parent, while recording launch custody in every row.

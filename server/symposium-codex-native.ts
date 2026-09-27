@@ -1,3 +1,5 @@
+import { captureDeliveredInput } from './symposium-completion-checkpoints.js';
+import type { SymposiumRecipientAttemptRecord } from '@mitzo/protocol';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type {
@@ -48,6 +50,8 @@ export interface OpenAiCodexSeatInput {
   store: CodexConversationStore;
   profileTools?: SymposiumNativeProfileTools;
   attemptRegistry?: SymposiumAttemptRegistry;
+  /** Resolves an immutable execution claim from the retained host EventStore. */
+  resolveAttempt?: (claimToken: string) => SymposiumRecipientAttemptRecord | undefined;
   /** Exact argv from a host-verified image capability; absent means no real launch. */
   verifiedControllerCommand?: readonly string[];
   createConversation?: (options: CodexConversationOptions) => NativeCodexConversation;
@@ -127,6 +131,13 @@ export async function createCodexNativeSeat(
   let dispatched = false;
   let controlled: ControlledAttemptProcess | undefined;
   const content: string[] = [];
+  const captureInput = () => {
+    if (!input.resolveAttempt) return; // Explicit fake conversation seam; real launch requires resolver.
+    if (!input.attemptRegistry) throw new Error('Completion checkpoint registry unavailable');
+    input.attemptRegistry.checkpoints.capture(
+      captureDeliveredInput(input.resolveAttempt(execution.claimToken), execution),
+    );
+  };
   const options: CodexConversationOptions = {
     conversationId: symposiumSeatRuntimeId(execution),
     cwd: sandbox.workdir,
@@ -140,7 +151,7 @@ export async function createCodexNativeSeat(
       .join('\n\n'),
     tools: input.profileTools?.tools ?? [],
     createClient: (lifecycle) => {
-      if (!input.attemptRegistry || !input.verifiedControllerCommand)
+      if (!input.attemptRegistry || !input.verifiedControllerCommand || !input.resolveAttempt)
         throw new Error('Verified Codex native controller capability is unavailable');
       auth.assertCommand(input.verifiedControllerCommand);
       controlled = input.attemptRegistry.launch({
@@ -188,6 +199,7 @@ export async function createCodexNativeSeat(
     verifyBinding: auth.verifyBinding,
     onProviderDispatch: (commandId) => {
       if (commandId !== execution.claimToken) throw new Error('Symposium command identity changed');
+      captureInput();
       auth.beforeDispatch?.();
       callbacks?.beforeDispatch(conversation.getThreadId());
       dispatched = true;
@@ -299,6 +311,7 @@ export async function createCodexNativeSeat(
       confirmedTerminal = new Promise<string>((resolve) => {
         resolveConfirmedTerminal = resolve;
       });
+      captureInput();
       await conversation.send({
         id: execution.claimToken,
         prompt: execution.content,
@@ -308,7 +321,19 @@ export async function createCodexNativeSeat(
       const status = await completed;
       if (status !== 'completed') throw new Error('Codex native turn did not complete');
       await closeAndConfirm(conversation);
-      return { providerThreadId, content: content.join('\n\n') };
+      const output = content.join('\n\n');
+      if (input.resolveAttempt) {
+        if (!acceptedThreadId || !acceptedTurnId)
+          throw new Error('Native completion identity unavailable');
+        captureInput();
+        input.attemptRegistry!.checkpoints.complete({
+          claimToken: execution.claimToken,
+          providerThreadId: acceptedThreadId,
+          providerTurnId: acceptedTurnId,
+          output,
+        });
+      }
+      return { providerThreadId, content: output };
     },
     async cancel() {
       if (!dispatched) {

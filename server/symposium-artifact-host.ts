@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { resolve } from 'node:path';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -31,6 +33,20 @@ export interface ArtifactHostEvidence {
 
 export type VolumeRunner = (driver: ArtifactDriver, name: string) => Promise<unknown>;
 const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+
+/** One retained Podman command closure owns both admission inspection and verifier
+ * operations. Snapshot callers cannot select a second engine/store/environment. */
+export class ArtifactPodmanContext {
+  constructor(private readonly command: (args: readonly string[]) => Promise<string>) {}
+  async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
+    if (driver !== 'podman' || !safeName.test(name))
+      throw new Error('Invalid artifact context inspection');
+    return JSON.parse(await this.command(['volume', 'inspect', name]));
+  }
+  verifierCommand(): (args: readonly string[]) => Promise<string> {
+    return (args) => this.command(args);
+  }
+}
 
 /** Uses argv rather than a shell and never accepts an arbitrary engine name. */
 export const inspectLocalArtifactVolume: VolumeRunner = (driver, name) => {
@@ -95,13 +111,24 @@ function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
  */
 export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   private readonly db: Database.Database;
+  private readonly volumeRunner: VolumeRunner;
+  private readonly persistentSnapshotPath?: string;
+  private readonly podmanContext?: ArtifactPodmanContext;
 
   constructor(
     dbPath: string,
     private readonly evidence: ArtifactHostEvidence,
-    private readonly volumeRunner: VolumeRunner = inspectLocalArtifactVolume,
+    volumeRunner: VolumeRunner | ArtifactPodmanContext = inspectLocalArtifactVolume,
+    private readonly snapshotGateway?: OwnedSymposiumGateway,
   ) {
+    this.podmanContext = volumeRunner instanceof ArtifactPodmanContext ? volumeRunner : undefined;
+    this.volumeRunner =
+      volumeRunner instanceof ArtifactPodmanContext
+        ? (driver, name) => volumeRunner.inspect(driver, name)
+        : volumeRunner;
     this.db = new Database(dbPath);
+    this.persistentSnapshotPath =
+      this.db.name && this.db.name !== ':memory:' ? resolve(this.db.name) : undefined;
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_leases (
@@ -141,6 +168,23 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       released_at INTEGER NOT NULL,
       UNIQUE(sandbox_name, sandbox_id)
     );`);
+  }
+
+  snapshotDatabasePath(): string {
+    if (!this.persistentSnapshotPath)
+      throw new Error('Artifact snapshot requires persistent lease storage');
+    return this.persistentSnapshotPath;
+  }
+
+  requireSnapshotGateway(gateway: OwnedSymposiumGateway): void {
+    if (!this.snapshotGateway || this.snapshotGateway !== gateway)
+      throw new Error('Artifact snapshot gateway differs from retained lease host');
+  }
+
+  snapshotCommand(): (args: readonly string[]) => Promise<string> {
+    if (!this.podmanContext)
+      throw new Error('Artifact snapshot requires the lease host Podman context');
+    return this.podmanContext.verifierCommand();
   }
 
   close(): void {

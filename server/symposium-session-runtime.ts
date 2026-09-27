@@ -1148,11 +1148,21 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 : undefined;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(deps.store, input.execution);
+              const resolveAttempt = (claim: string) => {
+                const attempt = deps.store.getSymposiumRecipientAttemptByClaimToken(claim);
+                if (
+                  !attempt ||
+                  deps.store.getSymposiumDelivery(attempt.deliveryId)?.sessionId !== deps.sessionId
+                )
+                  throw new Error('Native checkpoint claim belongs to another session');
+                return attempt;
+              };
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
                     ...input,
                     store: deps.codexStore,
                     loadConversationHistory,
+                    resolveAttempt,
                     profileTools,
                     attemptRegistry: deps.attemptRegistry,
                     verifiedControllerCommand: deps.verifiedCodexControllerCommand,
@@ -1162,6 +1172,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       ...input,
                       store: deps.codexStore,
                       loadConversationHistory,
+                      resolveAttempt,
                       profileTools,
                       attemptRegistry: deps.attemptRegistry,
                       verifiedControllerCommand: deps.verifiedSubscriptionControllerCommand,

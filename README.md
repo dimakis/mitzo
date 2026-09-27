@@ -7,6 +7,8 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 ## Features
 
+The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
+
 [Symposium admission candidates](docs/features/symposium-owned-evidence.md) can resolve an explicitly selected Personal connection and ready session volume inside the retained host, without installing or activating admission.
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
@@ -79,6 +81,12 @@ cleanup, and awaits the owned gateway child before closing custody stores. A bou
 failure reports incomplete cleanup and retains recovery evidence. This does not enable
 same-session artifact continuation across a new gateway custody lifetime. See the
 [shutdown contract](docs/features/symposium-shutdown.md).
+
+Codex Symposium turns now persist a host-only [completion checkpoint](docs/features/symposium-completion-checkpoints.md)
+after matching terminal completion and confirmed controller cleanup. The checkpoint
+binds the exact claimed delivered input and returned text; it is not an artifact,
+review receipt, full-context commitment, or budget-enforcement proof. Recovery reads
+never automatically redispatch a turn.
 
 ### Symposium director and portable profiles
 

@@ -1,3 +1,4 @@
+import { SymposiumCompletionCheckpoints } from './symposium-completion-checkpoints.js';
 import { SymposiumNativeObservations } from './symposium-native-observations.js';
 import Database from 'better-sqlite3';
 import { dirname } from 'node:path';
@@ -27,6 +28,7 @@ export interface SymposiumAttemptTransport {
 export class SymposiumAttemptRegistry {
   private readonly db: Database.Database;
   readonly observations: SymposiumNativeObservations;
+  readonly checkpoints: SymposiumCompletionCheckpoints;
 
   constructor(
     path: string,
@@ -72,6 +74,9 @@ export class SymposiumAttemptRegistry {
       if (!attempt || attempt.sessionId !== session)
         throw new Error('Native observation requires the exact reserved session claim');
     });
+    this.checkpoints = new SymposiumCompletionCheckpoints(this.db, this.observations, (token) =>
+      this.get(token),
+    );
   }
 
   /** Registered before asynchronous setup. Every native launch must pass reserve(). */
