@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumPersonalConnections } from '../SymposiumPersonalConnections';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -215,6 +215,97 @@ it('places browser callback login inside the selected saved account with its rev
   );
 });
 
+it.each([1, 11])(
+  'explicitly refreshes %i supported models without choosing a model',
+  async (count) => {
+    let finish!: (value: Response) => void;
+    const changed = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (url.endsWith('/models/refresh'))
+        return new Promise((resolve) => {
+          finish = resolve;
+        });
+      return response({ connections: rows });
+    });
+    render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+    const button = await screen.findByRole('button', { name: 'Refresh supported models' });
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    fireEvent.click(button);
+    await screen.findByText(/Checking supported models for Personal/);
+    expect((screen.getByRole('button', { name: 'Disconnect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/connections/personal-a/models/refresh',
+      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedRevision: 2 }) }),
+    );
+    finish(response({ status: 'complete', inference: false, modelCount: count }));
+    await screen.findByText(
+      new RegExp(`${count} supported ${count === 1 ? 'model is' : 'models are'} ready`),
+    );
+    expect(changed).toHaveBeenCalledOnce();
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+it.each(['pending', 'reconciliation_required'])(
+  'recovers persisted discovery %s without enabling conflicting account actions',
+  async (modelDiscovery) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        connections: [
+          {
+            ...rows[0],
+            modelDiscovery,
+            state: modelDiscovery === 'pending' ? 'connected' : 'recovery_required',
+          },
+          rows[1],
+        ],
+      }),
+    );
+    render(<SymposiumPersonalConnections />);
+    await screen.findByText('one@example.test');
+    expect((screen.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.queryByRole('button', { name: 'Refresh supported models' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Reconnect' })).toBeNull();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  },
+);
+it('does not report success on failed or unconfirmed model discovery', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/models/refresh')
+        ? { status: 'reconciliation_required', inference: false }
+        : { connections: rows },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/cleanup could not be confirmed/);
+  expect(screen.queryByText(/supported models are ready/)).toBeNull();
+});
+
+it('notifies an open picker when callback recovery reports a completed login', async () => {
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: rows }
+        : { state: 'completed', attemptId: 'previous', connectionId: 'personal-a' },
+    ),
+  );
+  render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  await screen.findByText('one@example.test');
+  const personal = within(screen.getByRole('region', { name: 'Personal' }));
+  fireEvent.click(personal.getByText('Browser callback alternative for Personal'));
+  fireEvent.click(personal.getByRole('button', { name: 'Connect personal subscription' }));
+  await personal.findByText(/Previous login completed/);
+  expect(changed).toHaveBeenCalledOnce();
+});
+
 it('releases callback lock when refresh unmounts a disconnecting callback control', async () => {
   let state = rows[1].state;
   let started = false;
@@ -344,6 +435,43 @@ it('allows receipt recovery after remount during a callback login without starti
   );
 });
 
+it('can request a second device code after cancellation with callback recovery open', async () => {
+  let state = 'idle';
+  let starts = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ ...rows[1], state: state === 'pending' ? 'connecting' : 'disconnected' }],
+      });
+    if (url.endsWith('/login') && init?.method === 'POST') {
+      state = 'pending';
+      starts++;
+    }
+    if (url.endsWith('/cancel')) state = 'cancelled';
+    return response({
+      state,
+      ...(state === 'idle'
+        ? {}
+        : { attemptId: `device-${starts}`, connectionId: rows[1].id, method: 'device-code' }),
+    });
+  });
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Get sign-in code' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  fireEvent.click(screen.getByRole('button', { name: 'Recover callback sign-in' }));
+  await screen.findByText(/Continue or cancel it in device sign-in/);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Get sign-in code' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  expect(starts).toBe(2);
+});
+
 it('keeps device ownership when callback recovery observes its receipt against a stale slot list', async () => {
   let pending = false;
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
@@ -391,4 +519,106 @@ it('shows the saved revision and refreshes the picker catalog after completed ca
   await screen.findByText('Connection version 3');
   fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
   await waitFor(() => expect(onAccountsChanged).toHaveBeenCalledOnce());
+});
+
+it('refreshes an open picker when recovered discovery finishes during polling', async () => {
+  vi.useFakeTimers();
+  let pending = true;
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    response({ connections: [{ ...rows[0], ...(pending ? { modelDiscovery: 'pending' } : {}) }] }),
+  );
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  try {
+    await act(async () => {});
+    expect(changed).not.toHaveBeenCalled();
+    pending = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(changed).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
+});
+
+it('waits for a slow discovery poll before scheduling another and stops after unmount', async () => {
+  vi.useFakeTimers();
+  const changed = vi.fn();
+  let finish!: (value: Response) => void;
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response({ connections: [{ ...rows[0], modelDiscovery: 'pending' }] }))
+    .mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  try {
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish(response({ connections: [rows[0]] }));
+    });
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Model discovery is pending/)).toBeNull();
+    view.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
+});
+
+it.each(['lost', 'malformed'] as const)(
+  'refreshes the account catalog after a %s discovery response and unseen revision change',
+  async (failure) => {
+    let revision = 2;
+    const changed = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (url.endsWith('/models/refresh')) {
+        revision = 3;
+        if (failure === 'lost') throw new Error('Lost response');
+        return response({ status: 'complete' });
+      }
+      return response({ connections: [{ ...rows[0], revision }] });
+    });
+    render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText('Connection version 3');
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Model discovery could not be confirmed/)).toBeTruthy();
+  },
+);
+
+it('ignores discovery completion after unmount without refreshing or notifying the catalog', async () => {
+  let finish!: (value: Response) => void;
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/refresh'))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    return response({ connections: [rows[0]] });
+  });
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  view.unmount();
+  await act(async () => {
+    finish(response({ status: 'complete', inference: false, modelCount: 1 }));
+  });
+  expect(changed).not.toHaveBeenCalled();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
 });

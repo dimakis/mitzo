@@ -80,6 +80,19 @@ window.fetch = async (input, init) => {
         personalConnections.push(row);
         return Response.json(row, { status: 201 });
       }
+      const refreshSlot = personalConnections.find(
+        (item) => url.pathname === `${connectionsPath}/${item.id}/models/refresh`,
+      );
+      if (
+        refreshSlot &&
+        refreshSlot.state === 'connected' &&
+        method === 'POST' &&
+        Object.keys(body ?? {}).length === 1 &&
+        body?.expectedRevision === refreshSlot.revision
+      ) {
+        refreshSlot.revision += 2;
+        return Response.json({ status: 'complete', inference: false, modelCount: 1 });
+      }
       const row = personalConnections.find(
         (item) => url.pathname === `${connectionsPath}/${item.id}/disconnect`,
       );

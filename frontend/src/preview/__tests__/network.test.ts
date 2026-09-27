@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const upstreamFetch = vi.fn(() => Promise.reject(new Error('Unexpected network call')));
-beforeAll(async () => {
+beforeEach(async () => {
+  vi.resetModules();
+  upstreamFetch.mockClear();
   vi.stubGlobal('fetch', upstreamFetch);
   await import('../network');
 });
-afterAll(() => {
+afterEach(() => {
   expect(upstreamFetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
 });
@@ -130,6 +132,33 @@ it('isolates saved personal fixture revisions and never sends mutations upstream
   expect(after.connections[0].state).toBe('disconnected');
   expect(after.connections[1].state).toBe(selected.state);
   expect((await window.fetch(url, { method: 'DELETE' })).status).toBe(405);
+});
+
+it('simulates only explicit model refresh of the current connected fixture revision', async () => {
+  const base = '/api/symposium/personal/connections';
+  const { connections } = await (await window.fetch(base)).json();
+  const row = connections[0];
+  const path = `${base}/${row.id}/models/refresh`;
+  expect((await window.fetch(path)).status).toBe(405);
+  expect((await window.fetch(path, { method: 'POST', body: '{}' })).status).toBe(405);
+  const result = await window.fetch(path, {
+    method: 'POST',
+    body: JSON.stringify({ expectedRevision: row.revision }),
+  });
+  expect(await result.json()).toMatchObject({
+    status: 'complete',
+    inference: false,
+    modelCount: 1,
+  });
+  expect(
+    (
+      await window.fetch(path, {
+        method: 'POST',
+        body: JSON.stringify({ expectedRevision: row.revision }),
+      })
+    ).status,
+  ).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
 });
 
 it('provides reviewer context choices and a saved profile without enabling writes', async () => {

@@ -550,3 +550,7 @@ selection; interrupted discovery retains host recovery state.
 
 Personal discovery preflight can release its local marker before the discovery
 capability is entered; uncertain allocation still requires recovery.
+
+Connections offers **Refresh supported models** for a connected personal account.
+The action uses that displayed account revision, reports pending cleanup or host recovery,
+and leaves model choice and active-seat rebinding explicit.

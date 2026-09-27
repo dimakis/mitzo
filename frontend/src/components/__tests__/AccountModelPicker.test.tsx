@@ -3,7 +3,6 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 import { apiFetch } from '../../lib/api-fetch';
-import { invalidateSymposiumAccountCatalog } from '../../lib/symposium-account-catalog';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -430,7 +429,7 @@ it('propagates later disabled state to an already open personal account manager'
 });
 
 it.each(['model', 'account'])(
-  'keeps a removed %s draft unavailable after catalog invalidation until explicit selection',
+  'keeps a removed %s draft unavailable after a personal model refresh until explicit selection',
   async (removed) => {
     let refreshed = false;
     const onChange = vi.fn();
@@ -477,8 +476,7 @@ it.each(['model', 'account'])(
     await screen.findByRole('option', { name: 'Old model' });
     onChange.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
-    refreshed = true;
-    act(() => invalidateSymposiumAccountCatalog());
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
     await screen.findByText(/Selected account or model is unavailable/);
     expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
     const confirmation = screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement;
@@ -642,12 +640,10 @@ it('reenables explicit confirmation when a missing model returns on a later refr
   );
   await screen.findByRole('option', { name: 'Sonnet' });
   fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
-  refreshes++;
-  act(() => invalidateSymposiumAccountCatalog());
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
   await screen.findByText(/Selected account or model is unavailable/);
   expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(true);
-  refreshes++;
-  act(() => invalidateSymposiumAccountCatalog());
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
   await screen.findByRole('option', { name: 'Sonnet' });
   expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(false);
   expect(changed).toHaveBeenLastCalledWith(null);

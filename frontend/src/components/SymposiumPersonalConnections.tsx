@@ -18,6 +18,7 @@ const connectionSchema = z.object({
     'disconnecting',
     'recovery_required',
   ]),
+  modelDiscovery: z.enum(['pending', 'reconciliation_required']).optional(),
   account: z.object({ email: z.string(), planType: z.string() }).optional(),
 });
 type Connection = z.infer<typeof connectionSchema>;
@@ -47,14 +48,20 @@ export function SymposiumPersonalConnections({
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
+  const mounted = useRef(false);
+  const observedRevisions = useRef(new Map<string, number>());
+  const mutation = useRef(false);
+  const observedPendingDiscovery = useRef(new Set<string>());
   const accountsChanged = useRef(onAccountsChanged);
   accountsChanged.current = onAccountsChanged;
-  const observedRevisions = useRef(new Map<string, number>());
   const notifyAccountsChanged = useCallback(() => {
     invalidateSymposiumAccountCatalog();
     accountsChanged.current?.();
   }, []);
+  const discoveryBlocked = connections.some((row) => !!row.modelDiscovery);
+  const discoveryPending = connections.some((row) => row.modelDiscovery === 'pending');
   const refresh = useCallback(async () => {
+    if (!mounted.current) return;
     const request = ++version.current;
     try {
       const response = await apiFetch(endpoint);
@@ -63,13 +70,18 @@ export function SymposiumPersonalConnections({
         .object({ connections: z.array(connectionSchema) })
         .parse(await response.json());
       if (request !== version.current) return;
+      const pending = new Set(
+        body.connections.filter((row) => row.modelDiscovery === 'pending').map((row) => row.id),
+      );
+      const finished = [...observedPendingDiscovery.current].some((id) => !pending.has(id));
       const revisions = new Map(body.connections.map((row) => [row.id, row.revision]));
       const revised = [...observedRevisions.current].some(
         ([id, revision]) => revisions.get(id) !== revision,
       );
       observedRevisions.current = revisions;
+      observedPendingDiscovery.current = pending;
       setConnections(body.connections);
-      if (revised) notifyAccountsChanged();
+      if (finished || revised) notifyAccountsChanged();
       setActiveId((current) =>
         current &&
         body.connections.some(
@@ -91,13 +103,80 @@ export function SymposiumPersonalConnections({
     }
   }, [notifyAccountsChanged]);
   useEffect(() => {
+    mounted.current = true;
     void refresh();
     return () => {
+      mounted.current = false;
       version.current += 1;
     };
   }, [refresh]);
+  useEffect(() => {
+    if (!discoveryPending) return;
+    let stopped = false;
+    let timer: number;
+    const poll = async () => {
+      await refresh();
+      if (!stopped) timer = window.setTimeout(() => void poll(), 2500);
+    };
+    timer = window.setTimeout(() => void poll(), 2500);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [discoveryPending, refresh]);
+  async function refreshModels(connection: Connection) {
+    if (disabled || mutation.current || discoveryBlocked) return;
+    mutation.current = true;
+    setBusy(true);
+    setMessage(
+      `Checking supported models for ${connection.label}. Waiting for sandbox cleanup before updating the catalog…`,
+    );
+    try {
+      const response = await apiFetch(
+        `${endpoint}/${encodeURIComponent(connection.id)}/models/refresh`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expectedRevision: connection.revision }),
+        },
+      );
+      if (!response.ok) throw new Error('Unconfirmed');
+      const result = z
+        .object({
+          status: z.enum(['complete', 'failed', 'reconciled', 'reconciliation_required']),
+          inference: z.literal(false),
+          modelCount: z.number().int().nonnegative().optional(),
+        })
+        .parse(await response.json());
+      if (!mounted.current) return;
+      if (result.status === 'complete' && result.modelCount !== undefined) {
+        setMessage(
+          `${result.modelCount} supported ${result.modelCount === 1 ? 'model is' : 'models are'} ready for ${connection.label}. Explicitly choose an account and model to rebind existing seats.`,
+        );
+      } else if (result.status === 'reconciliation_required') {
+        setMessage(
+          'Model discovery cleanup could not be confirmed. This connection needs recovery on the Mac before another account operation.',
+        );
+      } else {
+        setMessage(
+          'No new model catalog was confirmed. Review the refreshed connection status before retrying.',
+        );
+      }
+      notifyAccountsChanged();
+    } catch {
+      if (!mounted.current) return;
+      setMessage(
+        'Model discovery could not be confirmed. Refresh connection status before retrying; cleanup may still be pending on the Mac.',
+      );
+    } finally {
+      await refresh();
+      mutation.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   async function mutate(path: string, body: unknown, success: string) {
-    if (disabled) return;
+    if (disabled || mutation.current || discoveryBlocked) return;
+    mutation.current = true;
     setBusy(true);
     setMessage('');
     try {
@@ -107,16 +186,19 @@ export function SymposiumPersonalConnections({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error('Request failed');
+      if (!mounted.current) return;
       setMessage(success);
       if (path === endpoint) setLabel('');
       notifyAccountsChanged();
     } catch {
+      if (!mounted.current) return;
       setMessage(
         'Could not confirm the change. Check the refreshed account status before trying again.',
       );
     } finally {
       await refresh();
-      setBusy(false);
+      mutation.current = false;
+      if (mounted.current) setBusy(false);
     }
   }
   const pendingId =
@@ -158,7 +240,13 @@ export function SymposiumPersonalConnections({
             {connection.account && <span>{connection.account.planType}</span>}
             <p className="personal-connection-status">{stateLabels[connection.state]}</p>
           </div>
-          {connection.state === 'recovery_required' ? (
+          {connection.modelDiscovery === 'pending' ? (
+            <p role="status">
+              Model discovery is pending. Waiting for verified sandbox cleanup; account changes
+              remain unavailable.
+            </p>
+          ) : connection.state === 'recovery_required' ||
+            connection.modelDiscovery === 'reconciliation_required' ? (
             <p>
               This connection needs recovery on the Mac before it can be used. Cleanup may include
               other seats in the same owned workspace. Refresh after host recovery.
@@ -179,6 +267,7 @@ export function SymposiumPersonalConnections({
               disabled={
                 disabled ||
                 busy ||
+                discoveryBlocked ||
                 !!error ||
                 callbackId === connection.id ||
                 (!!pendingId && pendingId !== connection.id)
@@ -192,46 +281,60 @@ export function SymposiumPersonalConnections({
               onAccountsChanged={notifyAccountsChanged}
             />
           )}
-          {!['recovery_required', 'disconnecting'].includes(connection.state) && (
-            <details>
-              <summary>Browser callback alternative for {connection.label}</summary>
-              <SymposiumSubscriptionLogin
-                connectionId={connection.id}
-                expectedRevision={connection.revision}
-                disabled={
-                  disabled || busy || !!error || (!!pendingId && pendingId !== connection.id)
+          {!connection.modelDiscovery &&
+            !['recovery_required', 'disconnecting'].includes(connection.state) && (
+              <details>
+                <summary>Browser callback alternative for {connection.label}</summary>
+                <SymposiumSubscriptionLogin
+                  connectionId={connection.id}
+                  expectedRevision={connection.revision}
+                  disabled={
+                    disabled ||
+                    busy ||
+                    discoveryBlocked ||
+                    !!error ||
+                    (!!pendingId && pendingId !== connection.id)
+                  }
+                  recoveryOnly={!!pendingId && callbackId !== connection.id}
+                  onPendingChange={(pending) => {
+                    setCallbackId((current) =>
+                      pending ? connection.id : current === connection.id ? null : current,
+                    );
+                  }}
+                  onComplete={() => {
+                    void refresh();
+                    notifyAccountsChanged();
+                  }}
+                  onCatalogRefresh={() => {
+                    void refresh();
+                    notifyAccountsChanged();
+                  }}
+                />
+              </details>
+            )}
+          {connection.state === 'connected' && !connection.modelDiscovery && (
+            <div className="personal-model-actions">
+              <button
+                type="button"
+                disabled={disabled || busy || discoveryBlocked || !!error || !!pendingId}
+                onClick={() => void refreshModels(connection)}
+              >
+                Refresh supported models
+              </button>
+              <button
+                type="button"
+                disabled={disabled || busy || discoveryBlocked || !!error || !!pendingId}
+                onClick={() =>
+                  void mutate(
+                    `${endpoint}/${encodeURIComponent(connection.id)}/disconnect`,
+                    { expectedRevision: connection.revision },
+                    `Disconnected ${connection.label}. Other saved accounts are unchanged.`,
+                  )
                 }
-                recoveryOnly={!!pendingId && callbackId !== connection.id}
-                onPendingChange={(pending) => {
-                  setCallbackId((current) =>
-                    pending ? connection.id : current === connection.id ? null : current,
-                  );
-                }}
-                onComplete={() => {
-                  void refresh();
-                  notifyAccountsChanged();
-                }}
-                onCatalogRefresh={() => {
-                  void refresh();
-                  notifyAccountsChanged();
-                }}
-              />
-            </details>
-          )}
-          {connection.state === 'connected' && (
-            <button
-              type="button"
-              disabled={disabled || busy || !!error || !!pendingId}
-              onClick={() =>
-                void mutate(
-                  `${endpoint}/${encodeURIComponent(connection.id)}/disconnect`,
-                  { expectedRevision: connection.revision },
-                  `Disconnected ${connection.label}. Other saved accounts are unchanged.`,
-                )
-              }
-            >
-              Disconnect
-            </button>
+              >
+                Disconnect
+              </button>
+            </div>
           )}
         </section>
       ))}
@@ -257,7 +360,10 @@ export function SymposiumPersonalConnections({
             placeholder="For example, Personal or Research"
           />
         </label>
-        <button disabled={disabled || !loaded || busy || !!error || !label.trim()} type="submit">
+        <button
+          disabled={disabled || !loaded || busy || discoveryBlocked || !!error || !label.trim()}
+          type="submit"
+        >
           Add personal account
         </button>
       </form>
