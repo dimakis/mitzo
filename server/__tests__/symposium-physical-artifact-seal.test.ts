@@ -191,6 +191,7 @@ async function fixture() {
         entries: 1,
         bytes: 5,
         manifestDigest: 'c'.repeat(64),
+        committedTreeDigest: 'f'.repeat(64),
       });
     if (args[0] === 'rm') {
       if (state.failDelete) throw new Error('delete uncertain');

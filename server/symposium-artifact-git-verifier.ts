@@ -33,7 +33,7 @@ manifest=[]; total=0; tracked=set()
 for row in git('ls-tree','-r','-z','--full-tree',commit).split(b'\0'):
  if not row: continue
  meta, rawpath=row.split(b'\t',1); mode,kind,oid=meta.decode().split(' '); path=rawpath.decode('utf-8','strict')
- if kind!='blob' or mode not in ('100644','100755') or path.startswith('/') or any(p in ('','.','..','.git') for p in path.split('/')) or any(ord(c)<32 for c in path): raise ValueError('unsupported tree entry')
+ if kind!='blob' or mode not in ('100644','100755') or path.startswith('/') or any(p in ('','.','..','.git') for p in path.split('/')) or '\\' in path or any(ord(c)<32 or ord(c)==127 for c in path): raise ValueError('unsupported tree entry')
  if path in tracked: raise ValueError('duplicate tree entry')
  tracked.add(path)
  data=git('cat-file','blob',oid); total+=len(data)
@@ -55,6 +55,8 @@ for base,dirs,files in os.walk(repo,followlinks=False):
  if base==repo: dirs[:]=[d for d in dirs if d!='.git']
  for name in files: actual.add(os.path.relpath(base+'/'+name,repo))
 if actual!=tracked: raise ValueError('untracked working tree')
-manifest.sort(key=lambda x:x['path'])
-print(json.dumps({'version':1,'commit':commit,'tree':tree,'entries':len(manifest),'bytes':total,'manifestDigest':hashlib.sha256(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()},sort_keys=True))
+manifest.sort(key=lambda x:x['path'].encode('utf-8'))
+tree_manifest=[{'mode':item['mode'],'oid':item['oid'],'path':item['path']} for item in manifest]
+tree_digest=hashlib.sha256(b'mitzo-committed-tree-v1\0'+json.dumps(tree_manifest,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
+print(json.dumps({'version':1,'commit':commit,'tree':tree,'entries':len(manifest),'bytes':total,'committedTreeDigest':tree_digest,'manifestDigest':hashlib.sha256(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()},sort_keys=True))
 `;

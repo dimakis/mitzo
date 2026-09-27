@@ -1,3 +1,4 @@
+import { committedTreeDigest } from '../symposium-review-publication.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, symlinkSync } from 'node:fs';
@@ -48,6 +49,9 @@ it('proves the exact committed tree and content without running Git filters', ()
   expect(proof.commit).toBe(f.git('rev-parse', 'HEAD').trim());
   expect(proof.tree).toBe(f.git('rev-parse', 'HEAD^{tree}').trim());
   expect(proof.entries).toBe(2);
+  expect(proof.committedTreeDigest).toBe(
+    committedTreeDigest(f.git('ls-tree', '-r', '-z', '--full-tree', 'HEAD')),
+  );
 });
 it.each(['edited', 'staged', 'untracked', 'symlink', 'alternate'])(
   'rejects %s artifact state',

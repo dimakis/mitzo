@@ -90,3 +90,23 @@ the session drained: accepted fixes will require a separately reviewed new-write
 and reseal lifecycle. Native hard budgets, trusted review receipts, and full application
 live acceptance remain separate requirements. The earlier unfenced observation receipt
 is never promoted into this completed-seal type.
+
+## Remaining workflow joins
+
+`git.commit` supplies the candidate artifact revision, and `git.committedTreeDigest` uses
+the existing publication contract's versioned regular-file tree digest. The separate
+`manifestDigest` includes verified working-file bytes and must not be substituted for the
+review artifact hash.
+
+The existing publication binding still requires a live admitted builder attachment,
+writer lease and sandbox bundle export. A completed physical seal has deleted those
+sandboxes and released their leases. It cannot satisfy that binding. A separate reviewed
+sealed-artifact binding must use fresh operator-selected GitHub account/connection/grant
+authority and a retained, credential-free read-only bundle exporter while preserving the
+capability service's approval, input hash, policy and recovery checks.
+
+Accepted fixes likewise require a new writable artifact generation derived from the
+sealed parent, with explicit fresh writer authority and parent revision/hash binding.
+The parent retention and receipt remain immutable. After actual fix completion, the new
+generation must be drained and sealed before delta review. No automatic unseal, synthetic
+live writer, or reopened parent volume is provided here.

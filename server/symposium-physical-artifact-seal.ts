@@ -26,6 +26,7 @@ const gitProofSchema = z.strictObject({
     .min(0)
     .max(64 * 1024 * 1024),
   manifestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  committedTreeDigest: z.string().regex(/^[a-f0-9]{64}$/),
 });
 const containerId = /^[a-f0-9]{64}$/;
 const inputSchema = z.strictObject({
