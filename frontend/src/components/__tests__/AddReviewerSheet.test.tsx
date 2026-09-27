@@ -352,13 +352,13 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
   expect(screen.getByText('Choose profile').closest('fieldset')).not.toBeDisabled();
 });
 
-it.each(['active', 'draft'])(
+it.each(['active', 'draft', 'draft-config'])(
   'unlocks rejected %s reviewer selections only after confirming no seat was saved',
   async (state) => {
     const config = {
       version: 2,
       revision: 1,
-      state,
+      state: state === 'draft-config' ? 'draft' : state,
       anchorSeatId: 'anchor',
       seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
     };
@@ -369,6 +369,8 @@ it.each(['active', 'draft'])(
       if (path.endsWith('/symposium'))
         return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
       if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+      if (state === 'draft-config' && path.endsWith('/selection'))
+        return new Response(JSON.stringify({ binding: { accountId: 'a', model: 'luna' } }));
       return new Response(
         JSON.stringify({ error: 'Selected model is unavailable', seatMutation: 'not-started' }),
         { status: 400 },
