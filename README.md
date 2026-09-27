@@ -506,3 +506,6 @@ retain a recovery lock, and SSH cleanup terminates its proxy process group.
 
 Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+
+Discovery preflight rejection can undo an exact undispatched local journal under
+its retained lock; dispatched or replaced evidence still requires reconciliation.
