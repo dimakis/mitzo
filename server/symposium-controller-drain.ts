@@ -24,6 +24,11 @@ export async function drainRetainedSymposiumControllers<T extends { runtime: Run
       for (const row of store.getSymposiumMembershipHistory(sessionId))
         if (!latest.has(row.seatId) || latest.get(row.seatId)!.generation < row.generation)
           latest.set(row.seatId, row);
+      suspended.push(
+        ...[...latest.values()].filter(
+          (row) => row.state !== 'active' && row.reconciliation !== 'confirmed',
+        ),
+      );
       if (![...latest.values()].some((row) => row.state === 'active')) continue;
       const config = store.getActiveSymposiumConfig(sessionId);
       suspended.push(
@@ -43,10 +48,20 @@ export async function drainRetainedSymposiumControllers<T extends { runtime: Run
   signal.throwIfAborted();
   if (drained.some((result) => result.status === 'rejected')) failed = true;
   if (failed) throw Error('Retained controller cleanup is incomplete');
+  for (const [sessionId] of entries) {
+    for (const row of store.getSymposiumMembershipHistory(sessionId)) {
+      if (store.getPendingSymposiumCreationRecovery(sessionId, row.seatId, row.generation))
+        throw Error('Retained controller creation cleanup remains uncertain');
+    }
+  }
   for (const row of suspended) {
     signal.throwIfAborted();
+    if (store.getPendingSymposiumCreationRecovery(row.sessionId, row.seatId, row.generation))
+      throw Error('Retained controller creation cleanup remains uncertain');
     if (store.getUnsettledSymposiumSeatExecutions(row.sessionId, row.seatId).length)
       throw Error('Retained controller attempt cleanup remains uncertain');
+  }
+  for (const row of suspended) {
     store.markSymposiumMembershipReconciled(row.sessionId, row.seatId, row.generation, 'confirmed');
   }
   for (const [sessionId, entry] of entries)

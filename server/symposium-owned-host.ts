@@ -556,9 +556,14 @@ export async function createOwnedSymposiumHost(
       } finally {
         loginStarting = false;
       }
-      if (stopped || draining) {
+      if (stopped || draining || controllerPaused) {
         void pending.completed.catch(() => undefined);
-        await pending.cancel();
+        try {
+          await pending.cancel();
+        } catch (error) {
+          loginQuarantined = true;
+          throw error;
+        }
         throw new LoginCancelledForShutdown();
       }
       login = pending;
@@ -838,8 +843,15 @@ export async function createOwnedSymposiumHost(
         if (login) await login.cancel();
         const pending = await Promise.allSettled([...pendingHostOperations]);
         signal.throwIfAborted();
+        if (login) await login.cancel();
         await workspaceLifecycle.quiesceController(signal);
-        if (loginQuarantined || pending.some((item) => item.status === 'rejected'))
+        if (
+          loginQuarantined ||
+          pending.some(
+            (item) =>
+              item.status === 'rejected' && !(item.reason instanceof LoginCancelledForShutdown),
+          )
+        )
           throw new Error('Controller operation cleanup remains uncertain');
       },
       resumeController() {
