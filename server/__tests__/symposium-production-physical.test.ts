@@ -201,3 +201,52 @@ it('attempts exact temporary-container removal after an ambiguous create failure
   const created = run.mock.calls.find((call) => call[1][0] === 'create')![1];
   expect(run.mock.calls.at(-1)![1]).toEqual(['rm', created[created.indexOf('--name') + 1]]);
 });
+
+it('keeps a rejected create retryable only after successful exact-name absence proof', () => {
+  const { proof, run } = setup((args) => {
+    if (args[0] === 'image')
+      return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+    if (args[0] === 'create') throw new Error('create rejected');
+    if (args[0] === 'rm') throw new Error('container missing');
+    if (args[0] === 'container') return '[]';
+    throw new Error('unexpected');
+  });
+  expect(() =>
+    proof.verifyImageAndController(
+      'runtime',
+      sha('image'),
+      '/usr/bin/controller',
+      sha('controller'),
+    ),
+  ).toThrow('create rejected');
+  const create = run.mock.calls.find((call) => call[1][0] === 'create')![1];
+  expect(run.mock.calls.at(-1)![1]).toEqual([
+    'container',
+    'ls',
+    '--all',
+    '--filter',
+    `name=^${create[create.indexOf('--name') + 1]}$`,
+    '--format',
+    'json',
+  ]);
+});
+it.each(['[{"Names":["retained"]}]', '{}', 'invalid'])(
+  'quarantines failed removal with non-absence evidence %s',
+  (output) => {
+    const { proof } = setup((args) => {
+      if (args[0] === 'image')
+        return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+      if (args[0] === 'create' || args[0] === 'rm') throw new Error('uncertain');
+      if (args[0] === 'container') return output;
+      return '';
+    });
+    expect(() =>
+      proof.verifyImageAndController(
+        'runtime',
+        sha('image'),
+        '/usr/bin/controller',
+        sha('controller'),
+      ),
+    ).toThrow('cleanup requires operator recovery');
+  },
+);

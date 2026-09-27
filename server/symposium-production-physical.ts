@@ -178,7 +178,25 @@ export class LocalSymposiumProductionPhysicalProof implements SymposiumProductio
     try {
       if (name) this.podman(['rm', name]);
     } catch {
-      failed = true;
+      // A create may be rejected before allocation, or removal may succeed while
+      // its response is lost. Only a successful exact-name inventory proving
+      // absence clears uncertainty; error text is never absence evidence.
+      try {
+        const remaining: unknown = JSON.parse(
+          this.podman([
+            'container',
+            'ls',
+            '--all',
+            '--filter',
+            `name=^${name}$`,
+            '--format',
+            'json',
+          ]),
+        );
+        failed = !Array.isArray(remaining) || remaining.length !== 0;
+      } catch {
+        failed = true;
+      }
     }
     try {
       rmSync(root, { recursive: true, force: true });
