@@ -1,3 +1,4 @@
+import { SymposiumPublicationRecovery } from './SymposiumPublicationRecovery';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { z } from 'zod';
 import { useEffect, useRef, useState } from 'react';
@@ -59,6 +60,7 @@ function Publication({
   const [status, setStatus] = useState('');
   const [url, setUrl] = useState('');
   const [pending, setPending] = useState(Boolean(saved));
+  const [retainedPending, setRetainedPending] = useState(true);
   const operation = useRef<z.infer<typeof pendingSchema> | null>(saved);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -127,7 +129,7 @@ function Publication({
         <p>An operator publication credential must be registered for this workspace.</p>
       ) : (
         <>
-          <fieldset disabled={busy || pending || Boolean(url)}>
+          <fieldset disabled={busy || pending || retainedPending || Boolean(url)}>
             <label>
               Publication credential
               <select
@@ -227,7 +229,14 @@ function Publication({
             <>
               <p>Mitzo will ask you to approve the complete operation before publishing.</p>
               <button
-                disabled={busy || Boolean(url) || !title.trim() || !branch.trim()}
+                disabled={
+                  busy ||
+                  pending ||
+                  retainedPending ||
+                  Boolean(url) ||
+                  !title.trim() ||
+                  !branch.trim()
+                }
                 onClick={() =>
                   void action(async () => {
                     if (!operation.current)
@@ -262,12 +271,22 @@ function Publication({
                   })
                 }
               >
-                {pending ? 'Check publication result' : 'Create PR'}
+                {pending ? 'Publication outcome requires verification' : 'Create PR'}
               </button>
             </>
           )}
         </>
       )}
+      <SymposiumPublicationRecovery
+        sessionId={sessionId}
+        record={record}
+        onUncertain={setRetainedPending}
+        onRecovered={() => {
+          sessionStorage.removeItem(storageKey);
+          setPending(false);
+          clearSelection();
+        }}
+      />
       {status && <p role="status">{status}</p>}
       {url && <a href={url}>Open pull request</a>}
     </section>

@@ -310,3 +310,43 @@ it('requires private owned database and parent modes', () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+it('verifies recovery with a fresh observer without reviving the original grant operator', async () => {
+  let oldActive = true;
+  const active = new Set(['fresh']);
+  const f = fixture();
+  const authority = new SealedPublicationAuthority(':memory:', {
+    assertOperator(id) {
+      if (id === 'operator' ? oldActive : active.has(id)) return true;
+      throw Error('expired');
+    },
+    assertArtifact: async () => {},
+    resolveCredential: () => f.handle,
+  });
+  const grant = await authority.grant(f.scope, f.principal, f.signal);
+  oldActive = false;
+  try {
+    await expect(authority.require(grant.id, grant.bindingHash, f.signal)).rejects.toThrow(
+      'expired',
+    );
+    const proof = await authority.requireRecovery(
+      grant.id,
+      grant.bindingHash,
+      'fresh',
+      f.handle,
+      f.signal,
+    );
+    expect(proof.grant).toEqual(grant);
+    expect(proof.handle).toBe(f.handle);
+    await expect(authority.require(grant.id, grant.bindingHash, f.signal)).rejects.toThrow(
+      'expired',
+    );
+    active.clear();
+    await expect(
+      authority.requireRecovery(grant.id, grant.bindingHash, 'fresh', f.handle, f.signal),
+    ).rejects.toThrow('unavailable');
+  } finally {
+    authority.close();
+    f.authority.close();
+  }
+});

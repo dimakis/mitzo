@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CapabilityService } from '../connections/capabilities/service.js';
 import { CapabilityExecutorRegistry } from '../connections/capabilities/registry.js';
 import { CredentialResolver } from '../credentials.js';
@@ -17,9 +20,11 @@ async function fixture(
   unbornBranch = false,
   useCustodian = false,
   onCreate?: () => Promise<void>,
+  operationPath = ':memory:',
+  operatorId = 'operator',
 ) {
   const scope: SealedPublicationScope = {
-    operatorId: 'operator',
+    operatorId,
     sessionId: 'session',
     recordId: 'review',
     recordHash: 'a'.repeat(64),
@@ -108,8 +113,12 @@ async function fixture(
     handle = await custody.select('selected', 1);
     scope.credentialGeneration = handle.generation;
   }
+  const operators = new Set([operatorId]);
   const authority = new SealedPublicationAuthority(':memory:', {
-    assertOperator: () => true,
+    assertOperator: (id) => {
+      if (!operators.has(id)) throw Error('Operator expired');
+      return true;
+    },
     assertArtifact: async () => {},
     resolveCredential: () => (current ? handle : null),
   });
@@ -118,10 +127,14 @@ async function fixture(
     { host: 'github.com', numericId: 42, login: 'selected-user' },
     signal,
   );
-  const operations = new CapabilityOperationStore(':memory:');
+  const operations = new CapabilityOperationStore(operationPath);
   const exportBundle = vi.fn(async () => Buffer.from('mocked git bundle'));
   const artifact = {
-    require: async () => ({ workspace: '/artifact', repositoryPath: '/artifact', sourceOid: oid }),
+    require: vi.fn(async () => ({
+      workspace: '/artifact',
+      repositoryPath: '/artifact',
+      sourceOid: oid,
+    })),
     inspectCompletedArtifact: vi.fn(async () => ({
       canonicalRepositoryPath: '/artifact',
       status: '',
@@ -157,12 +170,14 @@ async function fixture(
   };
   return {
     authority,
+    operators,
     operations,
     service,
     input,
     signal,
     run,
     exportBundle,
+    artifact,
     grant,
     revoke: () => {
       current = false;
@@ -455,6 +470,566 @@ it('HTTP disconnect after approved mocked dispatch leaves canonical verification
     expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
   } finally {
     release();
+    f.close();
+  }
+});
+
+it('reconciles only the original pending operation after fresh auth without another grant or write', async () => {
+  const f = await fixture();
+  f.loseResponse();
+  const pending = await f.service.invoke(f.input, f.signal, async () => true);
+  f.operators.delete('operator');
+  f.operators.add('fresh');
+  const before = structuredClone(pending);
+  const reads = f.run.mock.calls.length;
+  try {
+    await expect(f.service.invoke(f.input, f.signal, async () => true)).rejects.toThrow('expired');
+    const recovered = await f.service.recoverExact(
+      {
+        operationId: pending.id,
+        recordId: f.grant.scope.recordId,
+        recordHash: f.grant.scope.recordHash,
+        sealId: f.grant.scope.sealId,
+        sealHash: f.grant.scope.sealHash,
+        repository: f.grant.scope.repository,
+        grantId: f.grant.id,
+        bindingHash: f.grant.bindingHash,
+        sessionId: 'session',
+        connectionId: 'selected',
+        connectionRevision: 1,
+        credentialGeneration: 'generation',
+      },
+      'fresh',
+      f.signal,
+      Date.now() + 60_000,
+    );
+    expect(recovered.status).toBe('succeeded');
+    for (const key of [
+      'id',
+      'accountId',
+      'connectionId',
+      'grantId',
+      'idempotencyKey',
+      'inputHash',
+      'approvalInput',
+      'approvalHash',
+      'recoveryIntent',
+    ] as const)
+      expect(recovered[key]).toEqual(before[key]);
+    expect(
+      f.run.mock.calls
+        .slice(reads)
+        .every(([cmd, args]) => (cmd === 'git' ? args[0] === 'ls-remote' : args.includes('GET'))),
+    ).toBe(true);
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+    expect(f.exportBundle).toHaveBeenCalledOnce();
+  } finally {
+    f.close();
+  }
+});
+
+it('refuses success if the original capability grant is revoked during the final awaited recovery read', async () => {
+  const f = await fixture();
+  f.loseResponse();
+  const pending = await f.service.invoke(f.input, f.signal, async () => true);
+  f.operators.delete('operator');
+  f.operators.add('fresh');
+  const original = f.operations.getGrant(
+    pending.connectionId,
+    pending.connectionRevision,
+    pending.capabilityId,
+    pending.capabilityVersion,
+  )!;
+  f.artifact.require.mockImplementation(async () => {
+    if (f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/pulls/7')))
+      f.operations.upsertGrant({ ...original, status: 'revoked' });
+    return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+  });
+  try {
+    const result = await f.service.recoverExact(
+      {
+        recordId: f.grant.scope.recordId,
+        recordHash: f.grant.scope.recordHash,
+        sealId: f.grant.scope.sealId,
+        sealHash: f.grant.scope.sealHash,
+        repository: f.grant.scope.repository,
+        operationId: pending.id,
+        grantId: f.grant.id,
+        bindingHash: f.grant.bindingHash,
+        sessionId: 'session',
+        connectionId: 'selected',
+        connectionRevision: 1,
+        credentialGeneration: 'generation',
+      },
+      'fresh',
+      f.signal,
+      Date.now() + 60_000,
+    );
+    expect(result.status).toBe('verification_pending');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+    expect(f.operations.getGrant(pending.connectionId, 1, pending.capabilityId, 1)?.status).toBe(
+      'revoked',
+    );
+  } finally {
+    f.close();
+  }
+});
+
+function recoverySelection(f: Awaited<ReturnType<typeof fixture>>, operationId: string) {
+  const scope = { ...f.grant.scope };
+  Reflect.deleteProperty(scope, 'operatorId');
+  return { ...scope, operationId, grantId: f.grant.id, bindingHash: f.grant.bindingHash };
+}
+it('lists only the exact record and rejects cross-record recovery without any remote read', async () => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    expect(f.service.recoveryCandidates('session', 'review', 'a'.repeat(64))).toHaveLength(1);
+    expect(f.service.recoveryCandidates('session', 'different', 'a'.repeat(64))).toEqual([]);
+    expect(f.service.recoveryCandidates('session', 'review', 'b'.repeat(64))).toEqual([]);
+    expect(f.service.recoveryCandidates('different', 'review', 'a'.repeat(64))).toEqual([]);
+    const before = f.run.mock.calls.length;
+    await expect(
+      f.service.recoverExact(
+        { ...recoverySelection(f, pending.id), recordId: 'different' },
+        'operator',
+        f.signal,
+        Date.now() + 60_000,
+      ),
+    ).rejects.toThrow();
+    expect(f.run).toHaveBeenCalledTimes(before);
+  } finally {
+    f.close();
+  }
+});
+it.each([
+  'grantId',
+  'bindingHash',
+  'sessionId',
+  'connectionId',
+  'credentialGeneration',
+  'recordHash',
+  'sealId',
+  'sealHash',
+  'repository',
+])('rejects altered original %s before recovery reads', async (field) => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const before = f.run.mock.calls.length;
+    await expect(
+      f.service.recoverExact(
+        { ...recoverySelection(f, pending.id), [field]: 'different' },
+        'operator',
+        f.signal,
+        Date.now() + 60_000,
+      ),
+    ).rejects.toThrow();
+    expect(f.run).toHaveBeenCalledTimes(before);
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+  } finally {
+    f.close();
+  }
+});
+it.each(['observer', 'credential', 'sealed-grant'])(
+  'preserves pending when %s is invalidated during the last awaited read',
+  async (kind) => {
+    const f = await fixture();
+    try {
+      f.loseResponse();
+      const pending = await f.service.invoke(f.input, f.signal, async () => true);
+      f.operators.delete('operator');
+      f.operators.add('fresh');
+      f.artifact.require.mockImplementation(async () => {
+        if (f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/pulls/7'))) {
+          if (kind === 'observer') f.operators.delete('fresh');
+          if (kind === 'credential') f.revoke();
+          if (kind === 'sealed-grant') f.authority.revoke(f.grant.id, 'operator', 'session');
+        }
+        return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+      });
+      const result = await f.service.recoverExact(
+        recoverySelection(f, pending.id),
+        'fresh',
+        f.signal,
+        Date.now() + 60_000,
+      );
+      expect(result.status).toBe('verification_pending');
+      expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+    } finally {
+      f.close();
+    }
+  },
+);
+it('uses the same SQLite operation identity across fresh auth and rejects concurrent exact recovery', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'publication-recovery-'));
+  const path = join(directory, 'operations.db');
+  const f = await fixture(true, false, false, false, undefined, path);
+  const observer = new CapabilityOperationStore(path);
+  let release!: () => void;
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const before = observer.get(pending.id)!;
+    f.operators.delete('operator');
+    f.operators.add('fresh');
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.artifact.require.mockImplementationOnce(async () => {
+      entered();
+      await blocked;
+      return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+    });
+    const first = f.service.recoverExact(
+      recoverySelection(f, pending.id),
+      'fresh',
+      f.signal,
+      Date.now() + 60_000,
+    );
+    await waiting;
+    await expect(
+      f.service.recoverExact(
+        recoverySelection(f, pending.id),
+        'fresh',
+        f.signal,
+        Date.now() + 60_000,
+      ),
+    ).rejects.toThrow('Retained exact recovery unavailable');
+    expect(observer.get(pending.id)).toEqual(before);
+    release();
+    await first;
+    const after = observer.get(pending.id)!;
+    expect(after.status).toBe('succeeded');
+    for (const key of [
+      'id',
+      'accountId',
+      'connectionId',
+      'grantId',
+      'idempotencyKey',
+      'inputHash',
+      'approvalInput',
+      'approvalHash',
+      'recoveryIntent',
+    ] as const)
+      expect(after[key]).toEqual(before[key]);
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  } finally {
+    release?.();
+    observer.close();
+    f.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('routes fresh login and recent authorization through a replacement controller to the same retained operation', async () => {
+  const { default: express } = await import('express');
+  const { default: request } = await import('supertest');
+  const { login, authenticateToken, operatorAuthMiddleware } = await import('../auth.js');
+  const { createCustodianProxy } = await import('../symposium-custodian-proxy.js');
+  const { createPublicationRouter } = await import('../symposium-publication-routes.js');
+  const { dispatchCustodianHttp } = await import('../symposium-custodian-http.js');
+  const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');
+  const oldToken = (await login(process.env.AUTH_PASSPHRASE!))!;
+  const oldAuth = (await authenticateToken(oldToken))!;
+  const f = await fixture(true, false, false, false, undefined, ':memory:', oldAuth.id);
+  const parentApp = express();
+  parentApp.use(express.json());
+  parentApp.use(operatorAuthMiddleware);
+  const registration = {
+    service: f.service,
+    authority: f.authority,
+    authorize(auth: { id: string }) {
+      f.operators.add(auth.id);
+      return f.signal;
+    },
+  } as unknown as import('../symposium-publication-registration.js').PublicationRegistration;
+  const router = () =>
+    createPublicationRouter({
+      registration: () => registration,
+      hasSession: (id) => id === 'session',
+      approval: () => {
+        throw Error('Recovery must not ask approval');
+      },
+    });
+  parentApp.use('/api/sessions/:id/symposium/publication', router());
+  const controller = new SymposiumCustodianController({
+    pause() {},
+    resume() {},
+    async drain() {},
+    invalidate(id) {
+      f.operators.delete(id);
+    },
+    dispatch: (command, current, approval, signal) =>
+      dispatchCustodianHttp(parentApp, command, current, approval, signal),
+  });
+  let child = controller.attach();
+  function childApp() {
+    const app = express();
+    app.use(express.json());
+    app.use(
+      createCustodianProxy({
+        invalidate: (id) => child.invalidate(id),
+        request: (command, approval, signal) =>
+          child.request({ ...command, epoch: child.epoch }, approval, signal),
+      }),
+    );
+    app.use(operatorAuthMiddleware);
+    app.use('/api/sessions/:id/symposium/publication', router());
+    return app;
+  }
+  const url = '/api/sessions/session/symposium/publication/recovery';
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const oldApp = childApp();
+    expect(
+      (
+        await request(oldApp)
+          .get(url)
+          .query({ recordId: 'review', recordHash: 'a'.repeat(64) })
+          .set('Authorization', `Bearer ${oldToken}`)
+      ).body.operations[0].operationId,
+    ).toBe(pending.id);
+    await child.lost();
+    child = controller.attach();
+    expect(f.operators.has(oldAuth.id)).toBe(false);
+    const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+    const auth = (await authenticateToken(token))!;
+    expect(auth.id).not.toBe(oldAuth.id);
+    const app = childApp();
+    const grantAttempt = vi.spyOn(f.authority, 'grant');
+    const grantSelection = { ...f.grant.scope };
+    Reflect.deleteProperty(grantSelection, 'operatorId');
+    Reflect.deleteProperty(grantSelection, 'sessionId');
+    const rejectedGrant = await request(app)
+      .post('/api/sessions/session/symposium/publication/grant')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ selection: grantSelection, principal: f.grant.principal });
+    expect(rejectedGrant.status).toBe(409);
+    expect(grantAttempt).not.toHaveBeenCalled();
+    const body = { ...recoverySelection(f, pending.id) };
+    Reflect.deleteProperty(body, 'sessionId');
+    expect(
+      (await request(app).post(url).set('Authorization', `Bearer ${token}`).send(body)).status,
+    ).toBe(403);
+    const recent = await request(app)
+      .post(url + '/reauthorize')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ passphrase: process.env.AUTH_PASSPHRASE });
+    expect(recent.status).toBe(200);
+    expect(
+      (
+        await request(app)
+          .post(url)
+          .set('Authorization', `Bearer ${token}`)
+          .set('X-CSRF-Token', 'wrong')
+          .send(body)
+      ).status,
+    ).toBe(403);
+    // Wrong-CSRF attempt invalidates the capability; explicitly reauthenticate.
+    const renewed = await request(app)
+      .post(url + '/reauthorize')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ passphrase: process.env.AUTH_PASSPHRASE });
+    const recoverCall = vi.spyOn(f.service, 'recoverExact');
+    const recovered = await request(app)
+      .post(url)
+      .set('Authorization', `Bearer ${token}`)
+      .set('X-CSRF-Token', renewed.body.csrf)
+      .send(body);
+    expect(recovered.status).toBe(200);
+    expect(recoverCall.mock.calls[0]?.[3]).toBe(renewed.body.expiresAt);
+    expect(recovered.body.status).toBe('succeeded');
+    expect(recovered.body.accountId).toBe(`operator:${oldAuth.id}`);
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+    expect(f.exportBundle).toHaveBeenCalledOnce();
+  } finally {
+    await child.lost();
+    f.close();
+  }
+});
+it('keeps the original pending row when the recovery request disconnects during a read', async () => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const abort = new AbortController();
+    f.artifact.require.mockImplementation(async () => {
+      if (f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/pulls/7')))
+        abort.abort();
+      return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+    });
+    const result = await f.service.recoverExact(
+      recoverySelection(f, pending.id),
+      'operator',
+      abort.signal,
+      Date.now() + 60_000,
+    );
+    expect(result.status).toBe('verification_pending');
+    expect(f.operations.get(pending.id)).toEqual(pending);
+  } finally {
+    f.close();
+  }
+});
+it('cannot reconstruct an existing operation with another service owner', async () => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const other = new SealedPublicationService({
+      authority: f.authority,
+      operations: f.operations,
+      artifact: f.artifact,
+      credentialCustodianRegistered: true,
+    });
+    expect(() => other.recoveryCandidates('session', 'review', 'a'.repeat(64))).toThrow(
+      'Pending publication recovery unavailable',
+    );
+    await expect(
+      other.recoverExact(
+        recoverySelection(f, pending.id),
+        'operator',
+        f.signal,
+        Date.now() + 60_000,
+      ),
+    ).rejects.toThrow('Retained exact recovery unavailable');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  } finally {
+    f.close();
+  }
+});
+it('never lends fresh observer authority to an already-running ordinary recovery', async () => {
+  const f = await fixture();
+  let release!: () => void;
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const hold = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = f.run.getMockImplementation()!;
+    let users = 0;
+    f.run.mockImplementation(async (command, args) => {
+      // Initial invoke authorization is the first /user; the recovery executor owns
+      // the existing in-flight claim before its second authority read.
+      if (args.includes('/user') && ++users === 2) {
+        entered();
+        await hold;
+      }
+      return original(command, args);
+    });
+    const ordinary = f.service.invoke(f.input, f.signal, async () => {
+      throw Error('No new approval');
+    });
+    await waiting;
+    f.operators.delete('operator');
+    f.operators.add('fresh');
+    const before = f.run.mock.calls.length;
+    await expect(
+      f.service.recoverExact(
+        recoverySelection(f, pending.id),
+        'fresh',
+        f.signal,
+        Date.now() + 60_000,
+      ),
+    ).rejects.toThrow('Exact pending recovery unavailable');
+    expect(f.run).toHaveBeenCalledTimes(before);
+    release();
+    expect((await ordinary).status).toBe('verification_pending');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+  } finally {
+    release?.();
+    f.close();
+  }
+});
+it('does not report an empty safe-to-publish list when a matching pending grant is revoked', async () => {
+  const f = await fixture();
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    const grant = f.operations.getGrant(
+      pending.connectionId,
+      pending.connectionRevision,
+      pending.capabilityId,
+      pending.capabilityVersion,
+    )!;
+    f.operations.upsertGrant({ ...grant, status: 'revoked' });
+    expect(() => f.service.recoveryCandidates('session', 'review', 'a'.repeat(64))).toThrow(
+      'Pending publication recovery unavailable',
+    );
+  } finally {
+    f.close();
+  }
+});
+
+it('fences a fresh grant and idempotency namespace while the original publication remains uncertain', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'publication-regrant-'));
+  const f = await fixture(true, false, false, false, undefined, join(directory, 'operations.db'));
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    f.operators.add('fresh');
+    const freshGrant = await f.authority.grant(
+      { ...f.grant.scope, operatorId: 'fresh' },
+      f.grant.principal,
+      f.signal,
+    );
+    const before = f.run.mock.calls.filter(([, args]) => args.includes('POST')).length;
+    await expect(
+      f.service.invoke(
+        {
+          ...f.input,
+          grantId: freshGrant.id,
+          bindingHash: freshGrant.bindingHash,
+          turnId: 'fresh-turn',
+          idempotencyKey: 'fresh-key',
+        },
+        f.signal,
+        async () => true,
+      ),
+    ).rejects.toThrow('Existing publication must be reconciled');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(before);
+    expect(f.exportBundle).toHaveBeenCalledOnce();
+  } finally {
+    f.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('retains uncertainty when recent passphrase authorization expires during the final read', async () => {
+  const f = await fixture();
+  const realNow = Date.now.bind(Date);
+  const until = realNow() + 1000;
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    f.artifact.require.mockImplementation(async () => {
+      if (f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/pulls/7')))
+        vi.spyOn(Date, 'now').mockReturnValue(until + 1);
+      return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+    });
+    const result = await f.service.recoverExact(
+      recoverySelection(f, pending.id),
+      'operator',
+      f.signal,
+      until,
+    );
+    expect(result.status).toBe('verification_pending');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+  } finally {
+    vi.restoreAllMocks();
     f.close();
   }
 });

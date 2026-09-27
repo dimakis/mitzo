@@ -144,7 +144,7 @@ export function createCustodianIpcClient(
             ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
             : () => {};
         const cancel = () => {
-          if (input.operation === 'publication.publish' && !closed)
+          if (['publication.publish', 'publication.recover'].includes(input.operation) && !closed)
             send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
         };
         const closeApproval = () => {
@@ -254,8 +254,11 @@ export function serveCustodianController(
         send({ kind: 'response', requestId: parsed.requestId, failed: true });
         return;
       }
-      const publicationAbort =
-        parsed.operation === 'publication.publish' ? new AbortController() : undefined;
+      const publicationAbort = ['publication.publish', 'publication.recover'].includes(
+        parsed.operation,
+      )
+        ? new AbortController()
+        : undefined;
       if (publicationAbort) publications.set(parsed.requestId, publicationAbort);
       void connection
         .request(

@@ -3,6 +3,8 @@ import { z } from 'zod';
 /** A closed list, not a generic HTTP/host-command tunnel. Reauthorization and
  * publication prompts stay in the current browser controller; the retained owner requests each exact approval over the inherited channel. */
 const operations = {
+  'publication.recoveryStatus': ['GET', '/api/sessions/:sessionId/symposium/publication/recovery'],
+  'publication.recover': ['POST', '/api/sessions/:sessionId/symposium/publication/recovery'],
   'publication.status': ['GET', '/api/sessions/:sessionId/symposium/publication'],
   'publication.artifact': ['POST', '/api/sessions/:sessionId/symposium/publication/artifact'],
   'publication.select': ['POST', '/api/sessions/:sessionId/symposium/publication/select'],

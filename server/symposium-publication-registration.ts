@@ -81,6 +81,8 @@ export class PublicationRegistration {
       assertArtifact: async (scope, signal) => {
         await this.artifact.require(scope, signal);
       },
+      beforeGrantPersist: (scope) =>
+        this.service.assertPublicationAvailable(scope.sessionId, scope.recordId, scope.recordHash),
       resolveCredential: (scope) =>
         this.custodian.resolve(
           scope.connectionId,

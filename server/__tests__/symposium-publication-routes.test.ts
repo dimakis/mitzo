@@ -1,3 +1,7 @@
+import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
 import { expect, it, vi } from 'vitest';
@@ -132,4 +136,116 @@ it('creates grant custody beneath a normal workspace directory without changing 
   registration.close();
   operations.close();
   rmSync(root, { recursive: true, force: true });
+});
+it('rechecks pending publication after awaited grant reads and before persisting a grant', async () => {
+  let reached!: () => void;
+  let release!: () => void;
+  const reading = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const resume = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'publication-grant-overlap-')));
+  const authorityPath = join(directory, 'authority.db');
+  const operations = new CapabilityOperationStore(':memory:');
+  const registration = new PublicationRegistration({
+    authorityPath,
+    operations,
+    credentials: [
+      {
+        id: 'write',
+        label: 'Write',
+        reference: { provider: 'test', service: 'git', account: 'user' },
+      },
+    ],
+    resolver: new CredentialResolver({ test: { resolve: async () => 'fixture-only' } }),
+    runner: async () => ({ stdout: JSON.stringify({ id: 1, login: 'operator', type: 'User' }) }),
+    artifact: {
+      require: async () => {
+        reached();
+        await resume;
+        return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'a'.repeat(40) };
+      },
+      inspectCompletedArtifact: vi.fn(),
+      exportCompletedArtifactBundle: vi.fn(),
+    },
+  });
+  const guard = vi.spyOn(registration.service, 'assertPublicationAvailable');
+  try {
+    const selected = await registration.custodian.select('write', 1);
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: 'login', expiresAt: Date.now() + 60_000 };
+      next();
+    });
+    app.use(
+      '/sessions/:id/publication',
+      createPublicationRouter({
+        registration: () => registration,
+        hasSession: () => true,
+        approval: () => undefined,
+      }),
+    );
+    const result = request(app)
+      .post('/sessions/session/publication/grant')
+      .send({
+        selection: {
+          recordId: 'record',
+          recordHash: 'a'.repeat(64),
+          sealId: 'seal',
+          sealHash: 'b'.repeat(64),
+          repository: 'owner/repo',
+          connectionId: 'write',
+          connectionRevision: 1,
+          credentialGeneration: selected.generation,
+        },
+        principal: { host: 'github.com', numericId: 1, login: 'operator' },
+      })
+      .then((response) => response);
+    await reading;
+    expect(guard).toHaveBeenCalledOnce();
+    operations.upsertGrant({
+      id: 'retained-grant',
+      connectionId: 'sealed-publication-retained-owner',
+      connectionRevision: 1,
+      capabilityId: 'github.publish-pr',
+      capabilityVersion: 1,
+      accountIds: ['operator:login'],
+      status: 'active',
+    });
+    const pending = operations.begin({
+      connectionId: 'sealed-publication-retained-owner',
+      connectionRevision: 1,
+      capabilityId: 'github.publish-pr',
+      capabilityVersion: 1,
+      grantId: 'retained-grant',
+      accountId: 'operator:login',
+      conversationId: 'session',
+      turnId: 'prior-turn',
+      idempotencyKey: 'prior-key',
+      inputHash: 'c'.repeat(64),
+      approvalInput: null,
+      approvalHash: null,
+      recoveryIntent: null,
+    }).operation;
+    operations.transition(pending.id, 'pending_approval', 'verification_pending');
+    release();
+    expect((await result).status).toBe(409);
+    expect(guard).toHaveBeenCalledTimes(2);
+    const db = new Database(authorityPath, { readonly: true });
+    try {
+      expect(db.prepare('SELECT count(*) AS count FROM sealed_publication_grants').get()).toEqual({
+        count: 0,
+      });
+    } finally {
+      db.close();
+    }
+  } finally {
+    release();
+    registration.close();
+    operations.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

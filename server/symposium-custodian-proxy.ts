@@ -36,7 +36,7 @@ export function createCustodianProxy(
       // controller must never fall through to a local owner for those aliases.
       const localReauthorization =
         req.method === 'POST' &&
-        /^\/api\/sessions\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/symposium\/(?:source\/reauthorize|creation\/recovery\/app-reauthorize)$/.test(
+        /^\/api\/sessions\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/symposium\/(?:source\/reauthorize|creation\/recovery\/app-reauthorize|publication\/recovery\/reauthorize)$/.test(
           req.path,
         );
       if (localReauthorization) return next();
@@ -59,7 +59,9 @@ export function createCustodianProxy(
         const auth = res.locals.authSession as AuthSession;
         const csrf = req.header('x-csrf-token') ?? '';
         if (
-          ['source.import', 'director.authorizeRecovery'].includes(selected.operation) &&
+          ['source.import', 'director.authorizeRecovery', 'publication.recover'].includes(
+            selected.operation,
+          ) &&
           !requireRecentConnectionAuthorization(res, csrf)
         )
           return;
