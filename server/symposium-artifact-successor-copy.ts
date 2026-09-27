@@ -186,6 +186,7 @@ export class PhysicalArtifactSuccessorCopier {
       )
         throw new Error('Fresh successor volume absence unavailable');
       await this.check(exported, bundle, signal);
+      ledger.assertCopyCurrent(request, intent.generationId);
       observe({ phase: 'volume_create_dispatched' });
       const labels = artifactVolumeLabels(request.workspace, {
         sessionId: request.sessionId,
@@ -210,6 +211,7 @@ export class PhysicalArtifactSuccessorCopier {
       observe({ phase: 'volume_created', name: created });
       await this.volume(intent);
       await this.check(exported, bundle, signal);
+      ledger.assertCopyCurrent(request, intent.generationId);
       observe({ phase: 'helper_create_dispatched' });
       const helperId = (
         await command([
@@ -253,7 +255,22 @@ export class PhysicalArtifactSuccessorCopier {
       observe({ phase: 'helper_created', helperId });
       await this.inspect(intent, helperId);
       await this.check(exported, bundle, signal);
-      const output = await command(['start', '--attach', '--interactive', helperId], 16384, bundle);
+      ledger.assertCopyCurrent(request, intent.generationId);
+      let output: string;
+      try {
+        output = await command(['start', '--attach', '--interactive', helperId], 16384, bundle);
+      } catch {
+        // A rejected attach never proves success. Preserve only a fresh observable terminal state.
+        const failed = await this.inspect(intent, helperId);
+        if (failed.State?.Running === false && Number.isInteger(failed.State.ExitCode))
+          observe({
+            phase: 'terminal',
+            helperId,
+            exitCode: failed.State.ExitCode!,
+            proofDigest: null,
+          });
+        throw new Error('Successor attached completion unavailable');
+      }
       const terminal = await this.inspect(intent, helperId);
       if (terminal.State?.Running !== false || !Number.isInteger(terminal.State.ExitCode))
         throw new Error('Successor terminal state unknown');

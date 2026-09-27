@@ -71,7 +71,9 @@ const exportReceipt: SuccessorArtifactExportReceipt = {
 };
 const dbs: Database.Database[] = [];
 afterEach(() => dbs.splice(0).forEach((db) => db.close()));
-function fixture(failure?: 'volume' | 'helper' | 'start' | 'remove' | 'revoked') {
+function fixture(
+  failure?: 'volume' | 'helper' | 'start' | 'remove' | 'revoked' | 'after-volume' | 'after-helper',
+) {
   const db = new Database(':memory:');
   dbs.push(db);
   let allowed = true;
@@ -127,7 +129,8 @@ function fixture(failure?: 'volume' | 'helper' | 'start' | 'remove' | 'revoked')
       volume = args.at(-1)!;
       return volume;
     }
-    if (args[0] === 'volume' && args[1] === 'inspect')
+    if (args[0] === 'volume' && args[1] === 'inspect') {
+      if (failure === 'after-volume') allowed = false;
       return JSON.stringify([
         {
           Name: volume,
@@ -140,12 +143,14 @@ function fixture(failure?: 'volume' | 'helper' | 'start' | 'remove' | 'revoked')
           }),
         },
       ]);
+    }
     if (args[0] === 'create') {
       if (failure === 'helper') throw new Error('uncertain');
       exists = true;
       return helperId;
     }
-    if (args[0] === 'inspect')
+    if (args[0] === 'inspect') {
+      if (failure === 'after-helper') allowed = false;
       return JSON.stringify([
         {
           Id: helperId,
@@ -161,6 +166,7 @@ function fixture(failure?: 'volume' | 'helper' | 'start' | 'remove' | 'revoked')
           State: { Running: false, ExitCode: 0 },
         },
       ]);
+    }
     if (args[0] === 'start') {
       expect(input).toEqual(bundle);
       if (failure === 'start') throw new Error('uncertain');
@@ -221,3 +227,28 @@ it.each(['volume', 'helper', 'start', 'remove', 'revoked'] as const)(
       expect(f.ledger.historical(context, intent.generationId).helperId).toBe(helperId);
   },
 );
+
+it.each(['after-volume', 'after-helper'] as const)(
+  'does not dispatch new work after authority revocation %s',
+  async (failure) => {
+    const f = fixture(failure);
+    await expect(
+      f.copier.copy(f.request, exportReceipt, bundle, new AbortController().signal),
+    ).rejects.toThrow();
+    const commands = f.command.mock.calls.map(([args]) => args[0]);
+    expect(commands).not.toContain('start');
+    if (failure === 'after-volume') expect(commands).not.toContain('create');
+  },
+);
+it('retains a freshly observable terminal exit after attached command rejection', async () => {
+  const f = fixture('start');
+  await expect(
+    f.copier.copy(f.request, exportReceipt, bundle, new AbortController().signal),
+  ).rejects.toThrow();
+  expect(f.ledger.historical(context, f.intent().generationId).physical.at(-1)).toEqual({
+    phase: 'terminal',
+    helperId,
+    exitCode: 0,
+    proofDigest: null,
+  });
+});

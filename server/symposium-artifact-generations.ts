@@ -298,6 +298,19 @@ export class SymposiumArtifactGenerations {
       })
       .immediate();
   }
+  assertCopyCurrent(context: Context, generationId: string): void {
+    const row = this.get(context, generationId);
+    const intent = this.intent(row);
+    if (row.state !== 'copy_uncertain') throw new Error('Copy is not dispatchable');
+    this.require(this.proof.authority(intent.request));
+    this.parent(intent);
+    const current = this.active(context);
+    if (
+      current.generationId !== intent.request.parentGenerationId ||
+      current.revision !== intent.request.expectedPointerRevision
+    )
+      throw new Error('Generation parent pointer changed');
+  }
   bindHelper(context: Context, generationId: string, helperId: string): void {
     id.parse(helperId);
     this.db
