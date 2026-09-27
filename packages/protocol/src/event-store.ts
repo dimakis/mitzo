@@ -2812,7 +2812,7 @@ export class EventStore {
         auth.authorizationRevision !== input.expectedAuthorizationRevision
       )
         throw new Error('Pending recovery authorization is stale');
-      if (auth.executing) throw new Error('Creation recovery executor is still running');
+      if (auth.executing) throw new Error('Creation recovery execution is fenced');
       const revision = auth.authorizationRevision + 1;
       this.db!.prepare(
         `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,NULL)
@@ -2838,7 +2838,7 @@ export class EventStore {
       const request = this.resolveSymposiumCreationRecovery(input);
       this.beginSymposiumCreationRecovery(request);
       const auth = this.getSymposiumCreationRecoveryAuthorization(input)!;
-      if (auth.executing) throw new Error('Creation recovery executor is still running');
+      if (auth.executing) throw new Error('Creation recovery execution is fenced');
       const token = randomUUID();
       this.db!.prepare(
         `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,?)

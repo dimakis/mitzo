@@ -4102,7 +4102,9 @@ it('keeps an uncertain cleanup fenced after local timeout and late physical comp
   const other = new EventStore(dbPath);
   try {
     expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
-    await expect(host.recoverCreation(input)).rejects.toThrow(/execut/i);
+    await expect(host.recoverCreation(input)).rejects.toThrow(
+      'Creation recovery execution is fenced',
+    );
     expect(host.creationDiagnostic('chat', 'builder', 'operator:new')).toMatchObject({
       canCleanup: false,
       recoveryAuthorization: { state: 'cleanup_fenced' },
