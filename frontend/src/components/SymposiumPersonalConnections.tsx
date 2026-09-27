@@ -65,11 +65,7 @@ export function SymposiumPersonalConnections({
           : null,
       );
       setCallbackId((current) =>
-        current &&
-        body.connections.some(
-          (row) =>
-            row.id === current && !['disconnecting', 'recovery_required'].includes(row.state),
-        )
+        current && body.connections.some((row) => row.id === current && row.state === 'connecting')
           ? current
           : null,
       );
