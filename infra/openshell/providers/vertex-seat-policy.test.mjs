@@ -71,6 +71,11 @@ test('global selection uses the documented global host without changing the sele
 
 test('rejects aliases, malformed global locations and trailing control characters', () => {
   for (const [key, value] of [
+    ['region', 'global\u2028'], ['region', 'global\u2029'],
+    ['model', 'claude-haiku-4-5@20251001\u2028'],
+    ['project', 'work-vertex-project\u2029'],
+    ['providerName', 'work-vertex-seat\u2028'],
+    ['claudeBinary', '/usr/local/bin/claude\u2029'],
     ['region', 'GLOBAL'], ['region', 'global/other'], ['region', 'global-aiplatform'],
     ['region', 'global\n'], ['model', 'claude-haiku-4-5'],
     ['model', 'claude-haiku-4-5@20251001\n'], ['project', 'work-vertex-project\n'],
