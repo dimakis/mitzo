@@ -165,3 +165,34 @@ it('retains uncertainty if custody changes before terminal receipt settlement', 
   current = true;
   await expect(fence.cleanup(async () => {})).rejects.toThrow('recovery');
 });
+it('quiesces controller work without permanently shutting down retained creation custody', async () => {
+  const { fence } = fixture();
+  fence.pauseController();
+  const physical = vi.fn(async (dispatch: () => void) => {
+    dispatch();
+  });
+  await expect(fence.create(() => {}, physical)).rejects.toThrow('controller');
+  expect(physical).not.toHaveBeenCalled();
+  await fence.quiesceController(new AbortController().signal);
+  await fence.cleanup(async () => {});
+  fence.resumeController();
+  await expect(fence.create(() => {}, physical)).resolves.toBeUndefined();
+  expect(physical).toHaveBeenCalledOnce();
+  fence.beginDrain();
+  expect(() => fence.resumeController()).toThrow('shutting down');
+});
+it('does not let a replacement controller clear an uncertain dispatched creation', async () => {
+  const { fence } = fixture();
+  await expect(
+    fence.create(
+      () => {},
+      async (dispatch) => {
+        dispatch();
+        throw Error('lost receipt');
+      },
+    ),
+  ).rejects.toThrow('lost receipt');
+  fence.pauseController();
+  await expect(fence.quiesceController(new AbortController().signal)).rejects.toThrow('recovery');
+  expect(() => fence.resumeController()).toThrow('recovery');
+});
