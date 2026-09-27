@@ -316,6 +316,35 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       .immediate();
   }
 
+  pendingArtifactRetention(
+    driver: ArtifactDriver,
+    volumeName: string,
+  ): PendingArtifactRetention | null {
+    const row = this.db
+      .prepare(
+        'SELECT retention_json FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+      )
+      .get(driver, volumeName) as { retention_json: string } | undefined;
+    return row ? (JSON.parse(row.retention_json) as PendingArtifactRetention) : null;
+  }
+
+  sealLeaseIdentities(driver: ArtifactDriver, volumeName: string) {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? ORDER BY token',
+      )
+      .all(driver, volumeName) as LeaseRow[];
+    return rows.map((row) => ({
+      tokenHash: createHash('sha256').update(row.token).digest('hex'),
+      revision: row.revision,
+      request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+      sandboxName: row.sandbox_name,
+      sandboxId: row.sandbox_id,
+      creationStarted: row.creation_started === 1,
+      intendedSandboxName: row.intended_sandbox_name,
+    }));
+  }
+
   private assertVolumeNotRetained(driver: ArtifactDriver, volumeName: string): void {
     if (
       this.db

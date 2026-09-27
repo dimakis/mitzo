@@ -224,6 +224,9 @@ function seatSandboxRegistry() {
   const key = (sessionId: string, seatId: string, generation: number) =>
     `${sessionId}:${seatId}:${generation}`;
   return {
+    listSymposiumSessionSandboxes(sessionId: string) {
+      return [...rows.values()].filter((row) => row.sessionId === sessionId);
+    },
     claimSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string) {
       const id = `${sessionId}:${seatId}`;
       if (fences.has(id)) return false;
@@ -1959,6 +1962,7 @@ describe('last native Symposium dispatch fence', () => {
         store: {
           ...work.facts,
           ...seatSandboxRegistry(),
+          listSymposiumSessionSandboxes: () => [{ seatId: 'orphan', generation: 9 }],
           getSymposiumMembershipHistory: () => [
             { seatId: 'reviewer', generation: 2 },
             { seatId: 'other', generation: 1 },
@@ -2017,6 +2021,7 @@ describe('last native Symposium dispatch fence', () => {
       await rejected;
       expect(stop).toHaveBeenCalledWith('symposium', 'reviewer', 2, expect.anything());
       expect(stop).toHaveBeenCalledWith('symposium', 'other', 1, expect.anything());
+      expect(stop).toHaveBeenCalledWith('symposium', 'orphan', 9, expect.anything());
       expect(confirm.mock.calls).toEqual([['good-attempt', 'good-key']]);
     },
   );

@@ -1077,6 +1077,34 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 }
 
 /** Host-held factory. Callers must supply durable grants, exact receipts, and verified policy. */
+const sealRuntimeBindings = new WeakMap<
+  object,
+  {
+    store: EventStore;
+    leaseHost: unknown;
+    sessionId: string;
+    drain: (signal: AbortSignal) => Promise<void>;
+  }
+>();
+/** Accept only a runtime created here, bound to this exact host/store/session. */
+export async function drainSymposiumRuntimeForArtifactSeal(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  sessionId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const binding = sealRuntimeBindings.get(runtime);
+  if (
+    !binding ||
+    binding.store !== store ||
+    binding.leaseHost !== leaseHost ||
+    binding.sessionId !== sessionId
+  )
+    throw new Error('Artifact seal runtime custody is unavailable');
+  await binding.drain(signal);
+}
+
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {
   let draining = false;
   const originalVerify = deps.verifyHostCapability;
@@ -1352,7 +1380,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     retainedProviders: () => [],
     stopSeat,
   });
-  return {
+  const runtime = {
     orchestrator,
     owner,
     executors,
@@ -1367,6 +1395,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         [...cache.values()].map((executor) => executor.drain(signal)),
       );
       const seats = new Map<string, number>();
+      for (const record of deps.store.listSymposiumSessionSandboxes(deps.sessionId))
+        seats.set(record.seatId, Math.max(seats.get(record.seatId) ?? 0, record.generation));
       for (const member of deps.store.getSymposiumMembershipHistory(deps.sessionId))
         seats.set(member.seatId, Math.max(seats.get(member.seatId) ?? 0, member.generation));
       const results = await Promise.allSettled(
@@ -1380,4 +1410,11 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         throw new Error('Symposium seat cleanup incomplete');
     },
   };
+  sealRuntimeBindings.set(runtime, {
+    store: deps.store,
+    leaseHost: deps.artifactLeaseHost,
+    sessionId: deps.sessionId,
+    drain: runtime.drain,
+  });
+  return runtime;
 }

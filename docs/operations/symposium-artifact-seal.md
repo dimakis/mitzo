@@ -56,3 +56,37 @@ explicit reconciliation, even when a stable ledger also exists. Prior per-launch
 cannot be restarted by silently adopting or discarding their state; this increment does
 not migrate or delete those ledgers. A new gateway cannot inherit old physical custody
 merely because a database row survived.
+
+## Host-only physical composition
+
+The owned host exposes internal `sealSessionArtifacts` and `requireCompletedArtifactSeal`
+methods. No HTTP route, review model dispatch, or publication permission is installed.
+The caller supplies a session revision and repository-relative path; custody, volume and
+writer lease selection come from the retained host. Only a privately registered runtime
+from the actual runtime factory may perform the drain.
+
+The operation establishes both pending fences, journals every retained physical generation,
+and drains the runtime including the anchor and sandbox rows outside current membership
+history. An orphan lease, no-ID uncertain create, unconfirmed attempt, or incomplete
+physical cleanup prevents completion. It refreshes exact gateway absence and performs a
+bounded full Podman mount census; unexpected mounts are denied, never deleted.
+
+A separate pinned-image verifier runs as `sandbox`, without credentials or network, with a
+read-only root and artifact mount. Its create intent and exact physical ID are journaled
+before execution. It accepts a regular Git repository, rejects symlinks/submodules/alternates
+and untracked files, and compares committed blobs against both the index and working tree.
+It uses fixed read-only Git commands; hooks, filters and fsmonitor are not executed.
+
+Only terminal verifier success, exact verifier deletion, renewed volume/gateway/custody
+checks and drained-attempt checks permit the immutable receipt CAS. The EventStore keeps
+an IMMEDIATE lock over the final configuration/membership snapshot validation and receipt
+write. The receipt binds commit, tree, manifest digest, pending intent/retention identities,
+revocation records, verifier image/code and gateway lifetime. Lookup requires fresh scope,
+retention, absence and custody checks. A new gateway lifetime cannot adopt the receipt.
+
+Failure or cancellation preserves the pending journal and fences. There is no automatic
+unfence, uncertain-create cleanup, or cross-custody recovery. Successful sealing also keeps
+the session drained: accepted fixes will require a separately reviewed new-writer authority
+and reseal lifecycle. Native hard budgets, trusted review receipts, and full application
+live acceptance remain separate requirements. The earlier unfenced observation receipt
+is never promoted into this completed-seal type.

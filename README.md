@@ -623,3 +623,6 @@ new Symposium seat work while trusted-host sealing is pending. Physical drain, i
 Git proof and native trusted-review dispatch remain unimplemented prerequisites.
 The pending seal can also reserve its exact artifact lease identity across writer cleanup;
 this internal retention lock remains unsealed and does not prove physical revocation.
+An internal physical-seal operation now composes runtime drain, exact absence checks and a
+credential-free read-only Git verifier; its retained receipt still grants no native review
+or publication permission, and new gateway custody cannot adopt it.
