@@ -100,6 +100,38 @@ it.each([
   expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toEqual(before);
 });
 
+it('isolates saved personal fixture revisions and never sends mutations upstream', async () => {
+  const url = '/api/symposium/personal/connections';
+  const before = await (await window.fetch(url)).json();
+  expect(before.connections).toHaveLength(2);
+  const selected = before.connections[1];
+  const start = await window.fetch('/api/symposium/personal/login', {
+    method: 'POST',
+    body: JSON.stringify({
+      method: 'device-code',
+      connectionId: selected.id,
+      expectedRevision: selected.revision,
+    }),
+  });
+  const started = await start.json();
+  expect(started).toMatchObject({ state: 'pending', connectionId: selected.id });
+  expect(
+    await (await window.fetch('/api/symposium/personal/login/status?connectionId=other')).json(),
+  ).toMatchObject({ state: 'idle' });
+  await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: started.attemptId }),
+  });
+  await window.fetch(`${url}/${before.connections[0].id}/disconnect`, {
+    method: 'POST',
+    body: JSON.stringify({ expectedRevision: before.connections[0].revision }),
+  });
+  const after = await (await window.fetch(url)).json();
+  expect(after.connections[0].state).toBe('disconnected');
+  expect(after.connections[1].state).toBe(selected.state);
+  expect((await window.fetch(url, { method: 'DELETE' })).status).toBe(405);
+});
+
 it('provides reviewer context choices and a saved profile without enabling writes', async () => {
   const profiles = await (await window.fetch('/api/symposium/profiles')).json();
   expect(profiles[0].definition.role).toBe('reviewer');

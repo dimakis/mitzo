@@ -130,8 +130,9 @@ export function SymposiumDeviceLogin({
     pendingChanged.current?.(next.state === 'pending');
     setError('');
     setStatusFailed(false);
-    if (next.state === 'completed' && next.attemptId && !refreshed.current.has(next.attemptId)) {
-      refreshed.current.add(next.attemptId);
+    const catalogState = `${next.attemptId ?? 'no-receipt'}:${next.state}`;
+    if (next.state !== 'idle' && !refreshed.current.has(catalogState)) {
+      refreshed.current.add(catalogState);
       changed.current?.();
     }
     return next;
@@ -188,6 +189,8 @@ export function SymposiumDeviceLogin({
     setCancelling(kind === 'cancel');
     if (kind === 'start') {
       receipt.current = { state: 'idle' };
+      refreshed.current.clear();
+      changed.current?.();
       previousAttempt.current = attempt.current;
       attempt.current = undefined;
       startingVersion.current = generation;
@@ -213,6 +216,7 @@ export function SymposiumDeviceLogin({
     } catch {
       if (generation !== version.current) return;
       if (kind === 'start' && !['idle', 'pending'].includes(receipt.current.state)) return;
+      changed.current?.();
       setError('Could not confirm the sign-in request. Check status before trying again.');
       setStatusFailed(true);
     } finally {

@@ -537,6 +537,10 @@ its retained lock; dispatched or replaced evidence still requires reconciliation
 Unreadable discovery journals remain reconciliation-required, and completion clears
 only the exact receipt under its retained lock.
 
+Connections lists saved personal ChatGPT identities with per-connection sign-in,
+reconnect and disconnect. Catalog mutations invalidate all open account pickers;
+changed or unavailable selections require explicit confirmation.
+
 Owned native personal accounts expose an operator-only, revision-scoped model refresh
 endpoint. It performs account/model reads without inference, then publishes the catalog
 only after sandbox and physical cleanup. A new catalog revision requires explicit seat

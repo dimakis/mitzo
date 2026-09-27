@@ -124,10 +124,11 @@ it('polls allocating receipts and shows verified identity only after exact compl
   expect(screen.queryByText(pending.userCode)).toBeNull();
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(screen.getByText(pending.userCode)).toBeTruthy();
+  expect(onAccountsChanged).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(screen.getByText('operator@example.test')).toBeTruthy();
   expect(screen.queryByText(pending.userCode)).toBeNull();
-  expect(onAccountsChanged).toHaveBeenCalledTimes(1);
+  expect(onAccountsChanged).toHaveBeenCalledTimes(2);
 });
 
 it.each([true, false])(
@@ -194,6 +195,52 @@ it('recovers an allocating start for cancellation and ignores its late result', 
   await act(async () => finishStart(response(pending)));
   expect(screen.getByText(/Sign-in cancelled/)).toBeTruthy();
   expect(screen.queryByText(pending.userCode)).toBeNull();
+});
+
+it('shows phone troubleshooting before requesting a code without promising a provider expiry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'idle' }));
+  render(<SymposiumDeviceLogin />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  await screen.findByRole('button', { name: 'Get sign-in code' });
+  expect(screen.getByText(/reopen the device sign-in page in the same browser/i)).toBeTruthy();
+  expect(screen.getByText(/Settings → Security/)).toBeTruthy();
+  expect(vi.mocked(apiFetch).mock.calls.every(([, init]) => !init?.method)).toBe(true);
+  expect(screen.queryByText(/This Mac holds one/)).toBeNull();
+});
+
+it('does not display or cancel a different saved account receipt', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ ...pending, connectionId: 'other-slot' }));
+  render(<SymposiumDeviceLogin connectionId="selected-slot" expectedRevision={2} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' }));
+  await screen.findByRole('alert');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/login/status?connectionId=selected-slot',
+  );
+  expect(screen.queryByText(pending.userCode)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+});
+
+it('keeps retry enabled after cancelled fast allocation timers expire, then starts again', async () => {
+  vi.useFakeTimers();
+  let starts = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url.endsWith('/cancel')) return response({ ...pending, state: 'cancelled' });
+    if (init?.method === 'POST') {
+      starts++;
+      return response({ ...pending, attemptId: 'device-' + starts });
+    }
+    return response({ state: 'idle' });
+  });
+  render(<SymposiumDeviceLogin />);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' })));
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' })));
+  await act(async () => vi.advanceTimersByTimeAsync(2500));
+  const retry = screen.getByRole('button', { name: 'Get sign-in code' }) as HTMLButtonElement;
+  expect(retry.disabled).toBe(false);
+  await act(async () => fireEvent.click(retry));
+  expect(starts).toBe(2);
+  expect(screen.getByText('ABCD-EFGH')).toBeTruthy();
 });
 
 it.each(['completed', 'failed', 'cancelled', 'expired', 'unknown'])(
