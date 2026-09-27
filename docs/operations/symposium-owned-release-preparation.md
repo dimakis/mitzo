@@ -82,9 +82,12 @@ snapshot must not erase newer fences. Publication fresh-login reconciliation and
 native hard-budget/final-usage authority remain separate unresolved contracts.
 
 Preparation rejects dangling attestation entries and overlapping preparation,
-repository, or gateway-state paths. The seed must be separate from configured
+repository, gateway-state, or app-home paths. These mutable directories must be
+pairwise separate (no equality or ancestor/descendant relationship). The seed must be separate from configured
 private references and mutable runtime directories; a shared ancestor directory
 is allowed. The verifier accepts canonical root-owned public CA and Podman
 executable files with no group/other write permission. Private metadata still
 requires the current owner and private permissions. Every launch boundary also
-rechecks the exact empty ordinary-account catalog.
+rechecks the exact empty ordinary-account catalog. Known configured private file
+identities are rejected before hashing any policy/profile/executable input or
+seed/build-tree file, including symlink and hard-link aliases.

@@ -8,6 +8,7 @@ import {
   rmSync,
   unlinkSync,
   symlinkSync,
+  linkSync,
   chmodSync,
   readFileSync,
 } from 'node:fs';
@@ -381,4 +382,64 @@ it('rejects private references and mutable directories contained in the seed bef
         : f.digest(path);
     expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
   }
+});
+it('rejects known private references used as public hashed inputs before any digest', () => {
+  for (const kind of ['policy', 'profile', 'cli', 'gateway'] as const) {
+    const f = fixture(),
+      secret = f.config.gateway.tls.serverKey;
+    if (kind === 'policy') f.config.runtime.policy = secret;
+    if (kind === 'profile') f.config.providerProfiles[0].path = secret;
+    if (kind === 'cli') f.config.gateway.cliExecutable = secret;
+    if (kind === 'gateway') f.config.gateway.executable = secret;
+    f.save();
+    const observed: string[] = [];
+    expect(() =>
+      prepareOwnedRelease(f.input, (path) => {
+        observed.push(path);
+        return f.digest(path);
+      }),
+    ).toThrow();
+    expect(observed).not.toContain(secret);
+  }
+});
+
+it('rejects canonical and hard-link aliases of configured private references before hashing', () => {
+  for (const link of [symlinkSync, linkSync]) {
+    const f = fixture(),
+      alias = join(f.root, 'public-alias');
+    link(f.config.gateway.jwt.signingKey, alias);
+    f.config.runtime.policy = alias;
+    f.save();
+    const observed: string[] = [];
+    expect(() =>
+      prepareOwnedRelease(f.input, (path) => {
+        observed.push(path);
+        return f.digest(path);
+      }),
+    ).toThrow();
+    expect(observed).toEqual([]);
+  }
+});
+it('rejects seed hard links to configured private files before reading their bytes', () => {
+  const f = fixture();
+  linkSync(f.config.gateway.tls.serverKey, join(f.config.runtime.seed, 'hardlink.pem'));
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+});
+it('rejects overlap between every pair of mutable runtime directories', () => {
+  for (let left = 0; left < 4; left++)
+    for (let right = left + 1; right < 4; right++) {
+      const f = fixture();
+      const paths = [
+        f.input.planDirectory,
+        f.input.repositoryPath,
+        f.config.gateway.stateParent,
+        f.config.podman.environment.HOME,
+      ];
+      const replacement = paths[left];
+      if (right === 1) f.input.repositoryPath = replacement;
+      if (right === 2) f.config.gateway.stateParent = replacement;
+      if (right === 3) f.config.podman.environment.HOME = replacement;
+      f.save();
+      expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+    }
 });

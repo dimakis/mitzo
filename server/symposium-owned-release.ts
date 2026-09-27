@@ -72,7 +72,11 @@ function bytes(path: string, max = 16 * 1024 * 1024) {
   }
 }
 const fileDigest = (path: string) => sha(bytes(path, 512 * 1024 * 1024));
-function tree(path: string) {
+type FileIdentity = { stat: { dev: number; ino: number } };
+function hasPrivateIdentity(stat: { dev: number; ino: number }, privateFiles: FileIdentity[]) {
+  return privateFiles.some((file) => stat.dev === file.stat.dev && stat.ino === file.stat.ino);
+}
+function tree(path: string, privateFiles: FileIdentity[] = []) {
   pathMetadata(path, true);
   const entries: string[] = [];
   let total = 0;
@@ -84,6 +88,7 @@ function tree(path: string) {
         pathMetadata(p, true);
         visit(p);
       } else {
+        if (hasPrivateIdentity(stat, privateFiles)) fail();
         total += stat.size;
         if (total > 512 * 1024 * 1024) fail();
         entries.push(relative(path, p) + ':' + fileDigest(p));
@@ -201,6 +206,28 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
       profile.provider === 'anthropic-vertex' ? [profile.credentialRef] : [],
     ),
   ];
+  const publicFiles = [
+    config.runtime.policy,
+    config.gateway.cliExecutable,
+    config.gateway.executable,
+    ...config.providerProfiles.map((profile) => profile.path),
+  ];
+  // Compare canonical identities before any public hashing can read a known
+  // configured private file, including a public symlink or hard-link alias.
+  const privateIdentities = privateFiles.map((path) => ({
+    path: realpathSync(path),
+    stat: lstatSync(path),
+  }));
+  for (const path of publicFiles) {
+    const canonical = realpathSync(path),
+      stat = lstatSync(canonical);
+    if (
+      privateIdentities.some(
+        (privateFile) => canonical === privateFile.path || hasPrivateIdentity(stat, [privateFile]),
+      )
+    )
+      fail();
+  }
   const mutableDirectories = [
     input.planDirectory,
     input.repositoryPath,
@@ -208,8 +235,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     config.podman.environment.HOME,
   ];
   if (
-    overlaps(input.planDirectory, input.repositoryPath) ||
-    overlaps(input.planDirectory, config.gateway.stateParent) ||
+    mutableDirectories.some((path, index) =>
+      mutableDirectories.slice(index + 1).some((other) => overlaps(path, other)),
+    ) ||
     privateFiles.some((path) => contains(config.runtime.seed, path)) ||
     mutableDirectories.some((path) => overlaps(config.runtime.seed, path))
   )
@@ -259,7 +287,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   const inputsSha256 = sha(
     JSON.stringify({
       policy: digest(config.runtime.policy),
-      seed: tree(config.runtime.seed),
+      seed: tree(config.runtime.seed, privateIdentities),
       profiles,
     }),
   );
@@ -282,7 +310,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
         'packages/harness/dist',
         'packages/client/dist',
         'scripts',
-      ].map((p) => tree(join(input.releaseRoot, p))),
+      ].map((p) => tree(join(input.releaseRoot, p), privateIdentities)),
     ),
   );
   return {
