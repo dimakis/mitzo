@@ -3974,14 +3974,12 @@ it('reauthorizes after a confirmed stop despite completion failure, resumes the 
   expect(stop).toHaveBeenCalledOnce();
 });
 
-import { createConnectionsRouter } from '../connections-router.js';
 import { authMiddleware, login, authenticateToken, revokeAuthSession } from '../auth.js';
 it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the scoped handoff route', async () => {
   const { handoff } = pendingCreation();
   const apply = vi.fn(async () => ({ authorizationRevision: 1 }));
   const app = express();
   app.use(express.json(), authMiddleware);
-  app.use('/api/connections', createConnectionsRouter({} as never));
   app.use(
     '/api/sessions/:id/symposium',
     createSymposiumDirectorRouter({
@@ -4010,7 +4008,7 @@ it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the
   expect((await post()).status).toBe(403);
   expect((await post('wrong')).status).toBe(403);
   const auth = await request(app)
-    .post('/api/connections/reauthorize')
+    .post('/api/sessions/chat/symposium/creation/recovery/app-reauthorize')
     .set('Authorization', `Bearer ${token}`)
     .send({ passphrase: 'test-passphrase-for-vitest' });
   expect(auth.status).toBe(200);
