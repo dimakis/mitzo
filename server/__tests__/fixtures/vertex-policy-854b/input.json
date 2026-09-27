@@ -54,21 +54,8 @@
   },
   "filesystem_policy": {
     "include_workdir": true,
-    "read_only": [
-      "/usr",
-      "/lib",
-      "/proc",
-      "/dev/urandom",
-      "/app",
-      "/opt",
-      "/etc",
-      "/var/log"
-    ],
-    "read_write": [
-      "/sandbox",
-      "/tmp",
-      "/dev/null"
-    ]
+    "read_only": ["/usr", "/lib", "/proc", "/dev/urandom", "/app", "/opt", "/etc", "/var/log"],
+    "read_write": ["/sandbox", "/tmp", "/dev/null"]
   },
   "landlock": {
     "compatibility": "best_effort"
