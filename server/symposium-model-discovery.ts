@@ -108,6 +108,36 @@ export async function runSymposiumModelDiscovery(
     };
   }
 }
+/** Cleanup-only capability. Missing/changed journals never become a fresh discovery. */
+export async function recoverSymposiumModelDiscovery(
+  input: DiscoveryConfig,
+  ops: DiscoveryOperations,
+  retained: DiscoveryReceipt,
+): Promise<DiscoveryResult> {
+  try {
+    const expected = receiptSchema.parse(retained);
+    // No observed identity means external creation may still arrive later.
+    if (!expected.id) throw new Error('Creation completion is unproven');
+    return await ops.withExclusiveAttempt(async () => {
+      await ops.verifyCustody(input);
+      const current = receiptSchema.parse(await ops.readReceipt());
+      if (JSON.stringify(current) !== JSON.stringify(expected))
+        throw new Error('Discovery journal changed');
+      return runExclusiveDiscovery(input, {
+        ...ops,
+        readReceipt: async () => current,
+        create: async () => {
+          throw new Error('Cleanup cannot create');
+        },
+        openClient: async () => {
+          throw new Error('Cleanup cannot open native client');
+        },
+      });
+    });
+  } catch {
+    return { status: 'reconciliation_required', inference: false };
+  }
+}
 async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,

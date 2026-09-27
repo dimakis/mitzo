@@ -862,6 +862,7 @@ export interface SymposiumProductionHost {
     list(): PersonalConnection[];
     create(label: string): PersonalConnection;
     disconnect(id: string, revision: number): Promise<PersonalConnection>;
+    recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
     discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
   };
   currentProfiles: () => AccountProfiles;
@@ -1816,11 +1817,16 @@ app.post(
   },
 );
 app.post(
-  '/api/symposium/personal/connections/:id/models/refresh',
+  [
+    '/api/symposium/personal/connections/:id/models/refresh',
+    '/api/symposium/personal/connections/:id/models/recover',
+  ],
   operatorAuthMiddleware,
   async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    const discover = symposiumProductionHost?.personalConnections?.discoverModels;
+    const discover = req.path.endsWith('/recover')
+      ? symposiumProductionHost?.personalConnections?.recoverDiscovery
+      : symposiumProductionHost?.personalConnections?.discoverModels;
     if (!discover) {
       res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
       return;
