@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './SymposiumSubscriptionLogin.css';
@@ -28,6 +28,7 @@ export function SymposiumSubscriptionLogin({
   expectedRevision?: number;
   onPendingChange?(pending: boolean): void;
 }) {
+  const transportGroup = useId();
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [open, setOpen] = useState(false);
   const [transport, setTransport] = useState('');
@@ -68,6 +69,7 @@ export function SymposiumSubscriptionLogin({
           throw new Error('Mismatched connection receipt');
         if (!live || requestVersion.current !== version) return;
         if (status.state === 'pending' && status.attemptId) {
+          refreshCatalog.current?.();
           setReceipt((current) =>
             current?.attemptId === status.attemptId ? current : { attemptId: status.attemptId! },
           );
@@ -78,6 +80,7 @@ export function SymposiumSubscriptionLogin({
           setError('');
           refreshCatalog.current?.();
         } else if (status.state === 'failed') {
+          refreshCatalog.current?.();
           setState('failed');
           setReceipt(null);
           setReady(false);
@@ -85,6 +88,7 @@ export function SymposiumSubscriptionLogin({
             'Previous login failed or expired. Prepare the callback setup before starting again.',
           );
         } else {
+          if (status.state === 'unknown') refreshCatalog.current?.();
           setState('idle');
           setReceipt(null);
           setReady(false);
@@ -137,6 +141,7 @@ export function SymposiumSubscriptionLogin({
           setState('completed');
           complete.current();
         } else {
+          refreshCatalog.current?.();
           setState('failed');
           setReady(false);
           setError(
@@ -200,7 +205,8 @@ export function SymposiumSubscriptionLogin({
       setReceipt(result);
       setState('pending');
     } catch (cause) {
-      setState('failed');
+      setState('recovery-error');
+      setRecoveryAttempt((value) => value + 1);
       setReady(false);
       setError(
         cause instanceof Error && !('issues' in cause)
@@ -208,6 +214,7 @@ export function SymposiumSubscriptionLogin({
           : 'The login response was invalid. Check the host configuration.',
       );
     } finally {
+      refreshCatalog.current?.();
       setBusy(false);
     }
   };
@@ -238,7 +245,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name={`callback-transport-${connectionId ?? 'legacy'}`}
+            name={transportGroup}
             checked={transport === 'host-local'}
             onChange={() => {
               setTransport('host-local');
@@ -250,7 +257,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name={`callback-transport-${connectionId ?? 'legacy'}`}
+            name={transportGroup}
             checked={transport === 'ssh-forwarded'}
             onChange={() => {
               setTransport('ssh-forwarded');

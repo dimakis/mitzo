@@ -1,3 +1,4 @@
+import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -37,6 +38,7 @@ const UsageSchema = z.strictObject({
   costUsd: z.number().finite().nonnegative().nullable(),
 });
 const FindingInputSchema = z.strictObject({
+  severity: z.enum(['critical', 'high', 'medium', 'low']).optional(),
   criterion: Id,
   summary: Id,
   location: Id,
@@ -106,6 +108,7 @@ type WorkResult = z.infer<typeof WorkResultSchema>;
 type Usage = z.infer<typeof UsageSchema>;
 type AttemptAdmission = z.infer<typeof AttemptAdmissionSchema>;
 type Finding = {
+  severity?: z.infer<typeof FindingInputSchema>['severity'];
   fingerprint: string;
   criterion: string;
   summary: string;
@@ -156,6 +159,23 @@ type Workflow = Create & {
   evidence: Array<{ item: Evidence; artifactHash: string; source: 'host' | 'model' }>;
 };
 
+export interface ImmutableReviewRecord {
+  recordId: string;
+  contentHash: string;
+  createdAt: number;
+  snapshot: {
+    version: 1;
+    owner: string;
+    sessionId: string;
+    workflowId: string;
+    artifactRevision: string;
+    artifactHash: string;
+    historySequence: number;
+    workflow: Workflow;
+    history: Array<{ sequence: number; action: string; detail: unknown }>;
+  };
+}
+
 const digest = (value: unknown): string =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fingerprint = (finding: z.infer<typeof FindingInputSchema>): string =>
@@ -178,6 +198,15 @@ export class SymposiumReviewStore {
         owner TEXT NOT NULL,
         state TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS symposium_review_records (
+        record_id TEXT PRIMARY KEY,
+        owner TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        workflow_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS symposium_review_events (
         workflow_id TEXT NOT NULL,
         sequence INTEGER NOT NULL,
@@ -190,6 +219,118 @@ export class SymposiumReviewStore {
 
   close(): void {
     this.db.close();
+  }
+
+  /** Read and persist one coherent verified state/history snapshot in a single transaction.
+   * The coordinator supplies a synchronous final host assertion. Throwing rolls back
+   * a new insertion, while previously committed historical records remain unchanged. */
+  exportVerifiedRecord(
+    input: {
+      owner: string;
+      sessionId: string;
+      workflowId: string;
+      artifactRevision: string;
+      artifactHash: string;
+    },
+    assertCurrentArtifact?: () => void,
+  ): ImmutableReviewRecord {
+    return this.db
+      .transaction(() => {
+        const workflow = this.read(input.workflowId);
+        if (workflow.owner !== input.owner || workflow.sessionId !== input.sessionId)
+          throw new Error('Review workflow not found');
+        if (
+          workflow.status !== 'verified' ||
+          workflow.decisionCode ||
+          workflow.artifactRevision !== input.artifactRevision ||
+          workflow.artifactHash !== input.artifactHash
+        )
+          throw new Error('A verified current artifact is required');
+        const history = this.history(input.workflowId);
+        const snapshot: ImmutableReviewRecord['snapshot'] = {
+          version: 1,
+          owner: workflow.owner,
+          sessionId: workflow.sessionId,
+          workflowId: workflow.workflowId,
+          artifactRevision: workflow.artifactRevision,
+          artifactHash: workflow.artifactHash,
+          historySequence: history.at(-1)?.sequence ?? 0,
+          workflow,
+          history,
+        };
+        const payload = canonicalReviewJson(snapshot);
+        const contentHash = reviewRecordHash(payload);
+        const recordId = `review-${contentHash}`;
+        this.db
+          .prepare(
+            `INSERT OR IGNORE INTO symposium_review_records
+        (record_id, owner, session_id, workflow_id, payload, content_hash, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            recordId,
+            input.owner,
+            input.sessionId,
+            input.workflowId,
+            payload,
+            contentHash,
+            Date.now(),
+          );
+        const record = this.getReviewRecord(input.owner, input.sessionId, recordId);
+        if (!record) throw new Error('Review record integrity check failed');
+        assertCurrentArtifact?.();
+        return record;
+      })
+      .immediate();
+  }
+
+  /** Historical records remain readable without an active provider or mutable workflow. */
+  getReviewRecord(
+    owner: string,
+    sessionId: string,
+    recordId: string,
+  ): ImmutableReviewRecord | null {
+    if (!/^review-[a-f0-9]{64}$/.test(recordId)) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM symposium_review_records
+      WHERE record_id = ? AND owner = ? AND session_id = ?`,
+      )
+      .get(recordId, owner, sessionId) as
+      | {
+          record_id: string;
+          owner: string;
+          session_id: string;
+          workflow_id: string;
+          payload: string;
+          content_hash: string;
+          created_at: number;
+        }
+      | undefined;
+    if (!row) return null;
+    try {
+      const snapshot = JSON.parse(row.payload) as ImmutableReviewRecord['snapshot'];
+      if (
+        reviewRecordHash(row.payload) !== row.content_hash ||
+        recordId !== `review-${row.content_hash}` ||
+        canonicalReviewJson(snapshot) !== row.payload ||
+        snapshot.version !== 1 ||
+        snapshot.owner !== owner ||
+        snapshot.sessionId !== sessionId ||
+        snapshot.workflowId !== row.workflow_id ||
+        snapshot.workflow.owner !== owner ||
+        snapshot.workflow.sessionId !== sessionId ||
+        snapshot.workflow.workflowId !== snapshot.workflowId ||
+        snapshot.workflow.status !== 'verified' ||
+        snapshot.workflow.artifactRevision !== snapshot.artifactRevision ||
+        snapshot.workflow.artifactHash !== snapshot.artifactHash ||
+        snapshot.historySequence !== snapshot.history.at(-1)?.sequence
+      )
+        throw new Error('mismatch');
+      return { recordId, contentHash: row.content_hash, createdAt: row.created_at, snapshot };
+    } catch {
+      throw new Error('Review record integrity check failed');
+    }
   }
 
   private read(workflowId: string): Workflow {
@@ -205,6 +346,15 @@ export class SymposiumReviewStore {
       .prepare('SELECT state FROM symposium_review_workflows WHERE workflow_id = ?')
       .get(Id.parse(workflowId)) as { state: string } | undefined;
     return row ? (JSON.parse(row.state) as Workflow) : null;
+  }
+
+  list(owner: string, sessionId: string): Workflow[] {
+    const rows = this.db
+      .prepare('SELECT state FROM symposium_review_workflows WHERE owner = ?')
+      .all(owner) as Array<{ state: string }>;
+    return rows
+      .map((row) => JSON.parse(row.state) as Workflow)
+      .filter((state) => state.sessionId === sessionId);
   }
 
   history(workflowId: string): Array<{ sequence: number; action: string; detail: unknown }> {
@@ -487,6 +637,8 @@ export class SymposiumReviewStore {
           const found = state.findings.find((item) => item.fingerprint === key);
           if (found) {
             found.status = 'open';
+            // Missing severity means unreported, not a downgrade or an inferred default.
+            if (candidate.severity !== undefined) found.severity = candidate.severity;
             found.reviewIds.push(parsed.reviewId);
             found.evidenceRefs = [...new Set([...found.evidenceRefs, ...candidate.evidenceRefs])];
           } else
@@ -534,6 +686,8 @@ export class SymposiumReviewStore {
     return this.db.transaction(() => {
       const state = this.read(parsed.workflowId);
       this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+      if (state.reservations.some((attempt) => !attempt.settled))
+        throw new Error('An attempt is in progress; wait before changing a finding disposition');
       if (state.status !== 'awaiting_fix') throw new Error('Finding disposition is not due');
       if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
       const finding = state.findings.find(

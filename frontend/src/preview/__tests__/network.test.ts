@@ -42,6 +42,19 @@ it('provides deterministic three-seat and ordinary fallback fixtures', async () 
   expect(proposals).toHaveLength(1);
 });
 
+it('reports idle personal login without enabling preview OAuth', async () => {
+  const response = await window.fetch('/api/symposium/personal/login/status');
+  const body = await response.json();
+  expect(body).toEqual({ state: 'idle' });
+  expect(body).not.toHaveProperty('authorizationUrl');
+  const mutation = await window.fetch('/api/symposium/personal/login', {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(mutation.status).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
 it('simulates only explicit device-code start, status, and cancellation', async () => {
   const start = await window.fetch('/api/symposium/personal/login', {
     method: 'POST',
@@ -50,12 +63,12 @@ it('simulates only explicit device-code start, status, and cancellation', async 
   const code = await start.json();
   expect(code).toMatchObject({
     state: 'pending',
-    attemptId: 'preview-device',
+    attemptId: expect.stringMatching(/^preview-device-\d+$/),
     userCode: 'DEMO-CODE',
   });
   expect(
     await (
-      await window.fetch('/api/symposium/personal/login/status?attemptId=preview-device')
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${code.attemptId}`)
     ).json(),
   ).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
   const cancelled = await window.fetch('/api/symposium/personal/login/cancel', {
@@ -85,4 +98,110 @@ it.each([
   const before = await (await window.fetch('/api/symposium/personal/login/status')).json();
   expect((await window.fetch(url, { method, body })).status).toBe(405);
   expect(await (await window.fetch('/api/symposium/personal/login/status')).json()).toEqual(before);
+});
+
+it('provides reviewer context choices and a saved profile without enabling writes', async () => {
+  const profiles = await (await window.fetch('/api/symposium/profiles')).json();
+  expect(profiles[0].definition.role).toBe('reviewer');
+  const context = await (
+    await window.fetch('/api/sessions/preview-1/symposium/context-turns')
+  ).json();
+  expect(context.turns[0].content).toContain('acceptance');
+  const mutation = await window.fetch('/api/sessions/preview-1/symposium/context-package', {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(mutation.status).toBe(405);
+});
+
+it('provides a model catalog for the dedicated Symposium account picker', async () => {
+  const accounts = await (await window.fetch('/api/symposium/accounts')).json();
+  expect(Array.isArray(accounts)).toBe(true);
+  expect(accounts[0]).toMatchObject({
+    id: 'preview',
+    label: 'Preview account',
+    models: [{ id: 'preview-model', label: 'Preview model' }],
+  });
+});
+
+it('serves findings, delta and unavailable review panels entirely from preview data', async () => {
+  const findings = await (await window.fetch('/api/sessions/preview-1/symposium/reviews')).json();
+  expect(findings.available).toBe(true);
+  expect(findings.workflows[0]).toMatchObject({ status: 'awaiting_fix' });
+  expect(findings.workflows[0].findings[0].status).toBe('open');
+  const delta = await (await window.fetch('/api/sessions/preview-3/symposium/reviews')).json();
+  expect(delta.workflows[0]).toMatchObject({
+    status: 'awaiting_delta_review',
+    artifactRevision: 'preview-commit-b34',
+  });
+  const unavailable = await (
+    await window.fetch('/api/sessions/preview-2/symposium/reviews')
+  ).json();
+  expect(unavailable).toEqual({ available: false, workflows: [] });
+  const denied = await window.fetch(
+    '/api/sessions/preview-1/symposium/reviews/preview-review/actions',
+    { method: 'POST', body: JSON.stringify({ action: 'fix' }) },
+  );
+  expect(denied.status).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('serves scoped saved review decision history without contacting a host', async () => {
+  const response = await window.fetch('/api/sessions/preview-3/symposium/reviews/preview-review');
+  const detail = await response.json();
+  expect(detail.workflow.status).toBe('awaiting_delta_review');
+  expect(detail.history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        action: 'fix_authorized',
+        detail: expect.objectContaining({
+          reason: 'Keep the selected connection across reconnect',
+        }),
+      }),
+    ]),
+  );
+  expect(
+    (await window.fetch('/api/sessions/preview-2/symposium/reviews/preview-review')).status,
+  ).toBe(404);
+  expect((await window.fetch('/api/sessions/preview-3/symposium/reviews/unknown')).status).toBe(
+    404,
+  );
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('uses a fresh device identity for retry and rejects cancellation of the previous attempt', async () => {
+  const begin = async () =>
+    (
+      await window.fetch('/api/symposium/personal/login', {
+        method: 'POST',
+        body: JSON.stringify({ method: 'device-code' }),
+      })
+    ).json();
+  const first = await begin();
+  await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: first.attemptId }),
+  });
+  const second = await begin();
+  expect(second.attemptId).not.toBe(first.attemptId);
+  expect(second).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  expect(
+    (
+      await window.fetch('/api/symposium/personal/login/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ attemptId: first.attemptId }),
+      })
+    ).status,
+  ).toBe(405);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${second.attemptId}`)
+    ).json(),
+  ).toMatchObject(second);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${first.attemptId}`)
+    ).json(),
+  ).toMatchObject({ state: 'unknown' });
+  expect(upstreamFetch).not.toHaveBeenCalled();
 });
