@@ -7,7 +7,10 @@ export type SessionArtifactMapping = {
   volumeName: string;
   volumeGeneration: string;
 };
-export type SessionArtifactPreparation = { state: 'ready' | 'pending' | 'recovery_required' };
+export type SessionArtifactPreparation = {
+  state: 'ready' | 'pending' | 'recovery_required';
+  nextAction?: 'operator_reconcile_retained_artifact';
+};
 const id = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 export function artifactVolumeLabels(
   workspace: string,
@@ -600,9 +603,10 @@ export class SymposiumSessionArtifacts {
       .immediate();
     this.assertOwner(row);
     const mapping = this.mapping(row);
+    if (row.state === 'quarantined')
+      return { state: 'recovery_required', nextAction: 'operator_reconcile_retained_artifact' };
     if (row.source_import_json && !JSON.parse(row.source_import_json).receipt)
       return { state: 'recovery_required' };
-    if (row.state === 'quarantined') return { state: 'recovery_required' };
     let revision = row.revision;
     let creationStarted = false;
     const ready = () => {
@@ -652,12 +656,16 @@ export class SymposiumSessionArtifacts {
       }
       // A name collision before our first create is never adopted, even if labels match.
       if (volume) {
-        this.db
-          .prepare(
-            "UPDATE symposium_session_artifacts SET state='quarantined', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
-          )
-          .run(sessionId, revision);
-        return { state: 'recovery_required' };
+        const quarantined =
+          this.db
+            .prepare(
+              "UPDATE symposium_session_artifacts SET state='quarantined', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
+            )
+            .run(sessionId, revision).changes === 1 ||
+          this.read(sessionId)?.state === 'quarantined';
+        return quarantined
+          ? { state: 'recovery_required', nextAction: 'operator_reconcile_retained_artifact' }
+          : { state: 'recovery_required' };
       }
       const claimed = this.db
         .prepare(

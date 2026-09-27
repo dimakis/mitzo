@@ -80,7 +80,10 @@ it('never adopts a preexisting collision on subsequent retries', async () => {
     options: {},
     labels: {},
   }));
-  expect((await f.store.ensure('session')).state).toBe('recovery_required');
+  expect(await f.store.ensure('session')).toEqual({
+    state: 'recovery_required',
+    nextAction: 'operator_reconcile_retained_artifact',
+  });
   const db = new Database(join(f.root, 'db'));
   const row = db
     .prepare('SELECT volume_name,generation FROM symposium_session_artifacts')
@@ -96,7 +99,23 @@ it('never adopts a preexisting collision on subsequent retries', async () => {
       volumeGeneration: row.generation,
     }),
   });
-  expect((await f.store.ensure('session')).state).toBe('recovery_required');
+  expect(await f.store.ensure('session')).toEqual({
+    state: 'recovery_required',
+    nextAction: 'operator_reconcile_retained_artifact',
+  });
+  expect(f.host.create).not.toHaveBeenCalled();
+});
+it('reports the quarantine next action only after its ledger transition wins', async () => {
+  const f = fixture();
+  f.host.inspect.mockImplementation(async (name) => {
+    const db = new Database(join(f.root, 'db'));
+    db.prepare(
+      "UPDATE symposium_session_artifacts SET state='uncertain', revision=revision+1 WHERE session_id=?",
+    ).run('session');
+    db.close();
+    return { name, driver: 'local', options: {}, labels: {} };
+  });
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
   expect(f.host.create).not.toHaveBeenCalled();
 });
 it('reopens same custody without recreating and rejects a different owner', async () => {
