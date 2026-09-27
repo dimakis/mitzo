@@ -178,7 +178,17 @@ describe('Symposium director routes', () => {
         profileRevision: 'rev-1',
       },
     } as never);
-    const response = await request(app).post('/api/sessions/chat/symposium/draft').send({});
+    expect((await request(app).get('/api/sessions/chat/symposium')).body.ordinaryAccountId).toBe(
+      'claude-work',
+    );
+    const stale = await request(app)
+      .post('/api/sessions/chat/symposium/draft')
+      .send({ expectedAccountId: 'old-account' });
+    expect(stale.status).toBe(409);
+    expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/draft')
+      .send({ expectedAccountId: 'claude-work' });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       version: 2,
