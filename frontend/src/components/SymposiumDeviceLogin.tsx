@@ -123,18 +123,26 @@ export function SymposiumDeviceLogin({
     clearTimeout(timer.current);
     setBusy(true);
     let continuePolling = false;
+    const id = attempt.current;
     try {
-      const id = attempt.current;
       const response = await apiFetch(
         `${endpoint}/status${id ? `?attemptId=${encodeURIComponent(id)}` : ''}`,
       );
       if (!response.ok) throw new Error('Status unavailable');
       const value = await response.json();
       if (generation !== version.current) return;
+      if (id !== attempt.current) {
+        continuePolling = receipt.current.state === 'pending';
+        return;
+      }
       const next = accept(value, id);
       continuePolling = next.state === 'pending' || startingVersion.current === generation;
     } catch {
       if (generation !== version.current) return;
+      if (id !== attempt.current) {
+        continuePolling = receipt.current.state === 'pending';
+        return;
+      }
       if (!['idle', 'pending'].includes(receipt.current.state)) return;
       setError('Could not check sign-in status. Retry status before starting another attempt.');
       setStatusFailed(true);
