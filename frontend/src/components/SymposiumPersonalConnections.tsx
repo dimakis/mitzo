@@ -48,6 +48,9 @@ export function SymposiumPersonalConnections({
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
   const mutation = useRef(false);
+  const observedPendingDiscovery = useRef(new Set<string>());
+  const accountsChanged = useRef(onAccountsChanged);
+  accountsChanged.current = onAccountsChanged;
   const discoveryBlocked = connections.some((row) => !!row.modelDiscovery);
   const discoveryPending = connections.some((row) => row.modelDiscovery === 'pending');
   const refresh = useCallback(async () => {
@@ -59,7 +62,13 @@ export function SymposiumPersonalConnections({
         .object({ connections: z.array(connectionSchema) })
         .parse(await response.json());
       if (request !== version.current) return;
+      const pending = new Set(
+        body.connections.filter((row) => row.modelDiscovery === 'pending').map((row) => row.id),
+      );
+      const finished = [...observedPendingDiscovery.current].some((id) => !pending.has(id));
+      observedPendingDiscovery.current = pending;
       setConnections(body.connections);
+      if (finished) accountsChanged.current?.();
       setActiveId((current) =>
         current &&
         body.connections.some(
