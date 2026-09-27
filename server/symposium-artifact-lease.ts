@@ -1,10 +1,11 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 /** Host-owned admission for an OpenShell 0.1.0 named artifact volume.
  * The caller must obtain volume metadata and lease decisions from the host,
  * never from a sandbox or a model-produced value.
  */
 
 /** Shared artifact mount and reviewed native controller cwd must be identical. */
-export const SYMPOSIUM_ARTIFACT_TARGET = '/sandbox/workspaces/mgmt';
+export const SYMPOSIUM_ARTIFACT_TARGET = REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir;
 
 export type ArtifactDriver = 'docker' | 'podman';
 export type ArtifactAccess = 'writer' | 'reviewer';

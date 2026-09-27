@@ -103,3 +103,9 @@ it('does not report initialization success after cleanup fails', async () => {
   ).rejects.toThrow('cleanup uncertain');
   expect(f.receipt.removed).not.toHaveBeenCalled();
 });
+
+it('binds the reviewed canonical target in the persisted initialization contract', () => {
+  expect(JSON.parse(artifactGitContract(owner))).toMatchObject({
+    target: '/sandbox/workspaces/mgmt',
+  });
+});

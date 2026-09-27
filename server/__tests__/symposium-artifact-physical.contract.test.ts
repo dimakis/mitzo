@@ -17,7 +17,7 @@ import {
 } from '../symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
 import { SYMPOSIUM_ARTIFACT_TARGET as target } from '../symposium-artifact-lease.js';
-const image = 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161';
+const image = TESTED_SYMPOSIUM_NATIVE_BUILD.image;
 const physical = process.env.MITZO_ARTIFACT_PHYSICAL_CONTRACT === '1';
 it.skipIf(!physical)(
   'prepares fresh Git, native writer commits, independent RO reviewer reads and cannot mutate',

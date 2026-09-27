@@ -1,3 +1,4 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import {
   validateOpenShellCliEnvironment,
   type OpenShellCliEnvironment,
@@ -7,7 +8,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 
 const controller = '/usr/local/bin/symposium-attempt-controller';
-const sharedWorkdir = '/sandbox/workspaces/mgmt';
+const sharedWorkdir = REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir;
 
 export interface ControlledAttemptSandbox {
   sandboxName: string;

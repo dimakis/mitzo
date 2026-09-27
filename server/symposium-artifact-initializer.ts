@@ -22,6 +22,7 @@ print('MITZO_GIT_INITIALIZED_V1')
 export function artifactGitContract(owner: SymposiumArtifactOwner): string {
   return JSON.stringify({
     ...owner,
+    target: SYMPOSIUM_ARTIFACT_TARGET,
     git: 1,
     initializerSha256: createHash('sha256').update(ARTIFACT_GIT_INITIALIZER).digest('hex'),
   });

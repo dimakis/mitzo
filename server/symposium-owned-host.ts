@@ -1,3 +1,4 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import {
@@ -179,7 +180,7 @@ export async function createOwnedSymposiumHost(
       seed: options.runtime.seed,
       createDetached: options.runtime.createDetached,
       sandboxIdLength: options.runtime.sandboxIdLength,
-      workdir: '/sandbox/workspaces/mgmt',
+      workdir: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir,
       serviceProviders: [],
       grantableServiceProviders: [],
       webSearch: 'disabled',

@@ -1,3 +1,4 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { execFile } from 'node:child_process';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
@@ -58,7 +59,7 @@ export async function probeOwnedArtifactAccess(
   const spec = openShellSshArgvProcessSpec(
     {
       sandboxName: name,
-      workdir: '/sandbox/workspaces/mgmt',
+      workdir: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir,
       cli: gateway.cli,
       gateway: gateway.gateway,
       workspace: gateway.workspace,

@@ -1,3 +1,4 @@
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { discoveryClaimLabel } from './symposium-model-discovery.js';
 import {
@@ -174,7 +175,7 @@ export function createDiscoveryHostOperations(
         workspace: config.workspace,
         cliEnvironment: environment,
         sandboxName: name,
-        workdir: '/sandbox/workspaces/mgmt',
+        workdir: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.workload.workdir,
         gatewayInsecure: false,
       },
       args,
