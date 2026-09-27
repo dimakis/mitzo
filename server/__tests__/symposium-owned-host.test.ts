@@ -410,3 +410,61 @@ it('pins the owned gateway immutable config using its actual read-only file mode
   expect(operations.mock.calls[0][1].configPins[0].mode).toBe(0o400);
   host.stop();
 });
+
+it.each(['beginLogin', 'beginDeviceLogin'] as const)(
+  'drains a confirmed shutdown cancellation while %s is still allocating',
+  async (method) => {
+    const f = fixture();
+    let finish!: (value: never) => void;
+    const allocate = vi.fn(
+      () =>
+        new Promise<never>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const original = personalHost.createPersonalSubscriptionHost;
+    vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => {
+      const subscription = original(...args);
+      return { ...subscription, [method]: allocate };
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const pending = host[method]();
+    const rejected = expect(pending).rejects.toThrow('stopped');
+    host.beginShutdown();
+    const draining = host.drain(new AbortController().signal);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    finish({ completed: new Promise(() => {}), cancel } as never);
+    await rejected;
+    await expect(draining).resolves.toBeUndefined();
+    expect(cancel).toHaveBeenCalledOnce();
+    await host.closeAfterDrain(new AbortController().signal);
+  },
+);
+
+it('does not suppress a failed cancellation of a late login', async () => {
+  const f = fixture();
+  let finish!: (value: never) => void;
+  const original = personalHost.createPersonalSubscriptionHost;
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...original(...args),
+    beginDeviceLogin: () =>
+      new Promise<never>((resolve) => {
+        finish = resolve;
+      }),
+  }));
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const pending = host.beginDeviceLogin();
+  const rejected = expect(pending).rejects.toThrow('cleanup unknown');
+  host.beginShutdown();
+  const draining = expect(host.drain(new AbortController().signal)).rejects.toThrow(
+    'did not settle cleanly',
+  );
+  finish({
+    completed: new Promise(() => {}),
+    cancel: vi.fn().mockRejectedValue(new Error('cleanup unknown')),
+  } as never);
+  await rejected;
+  await draining;
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  host.stop();
+});

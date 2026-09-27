@@ -39,6 +39,13 @@ import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 
 const id = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
+/** Internal receipt of successful cleanup, never inferred from an error string. */
+class LoginCancelledForShutdown extends Error {
+  constructor() {
+    super('Owned Symposium host stopped');
+  }
+}
+
 export interface OwnedSymposiumHostOptions {
   gateway: OwnedSymposiumGatewayOptions;
   /** Absolute evidence destination. It may be absent until real provisioning
@@ -462,7 +469,7 @@ export async function createOwnedSymposiumHost(
       if (stopped || draining) {
         void pending.completed.catch(() => undefined);
         await pending.cancel();
-        throw new Error('Owned Symposium host stopped');
+        throw new LoginCancelledForShutdown();
       }
       login = pending;
       void pending.completed.then(
@@ -554,7 +561,12 @@ export async function createOwnedSymposiumHost(
         draining = true;
         workspaceLifecycle.beginDrain();
         const pending = await Promise.allSettled([...pendingHostOperations]);
-        if (pending.some((result) => result.status === 'rejected'))
+        if (
+          pending.some(
+            (result) =>
+              result.status === 'rejected' && !(result.reason instanceof LoginCancelledForShutdown),
+          )
+        )
           throw new Error('Host operation did not settle cleanly');
         signal.throwIfAborted();
         if (login) await login.cancel();
