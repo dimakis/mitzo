@@ -29,6 +29,22 @@ export class SymposiumWorkspaceLifecycle {
   private tail: Promise<unknown> = Promise.resolve();
   private uncertain = false;
   private draining = false;
+  private controllerPaused = false;
+  pauseController() {
+    this.controllerPaused = true;
+  }
+  async quiesceController(signal: AbortSignal) {
+    this.pauseController();
+    await this.tail;
+    signal.throwIfAborted();
+    if (this.uncertain) throw new Error('Workspace creation outcome requires host recovery');
+  }
+  resumeController() {
+    this.custody();
+    if (this.draining) throw new Error('Workspace is shutting down');
+    if (this.uncertain) throw new Error('Workspace creation outcome requires host recovery');
+    this.controllerPaused = false;
+  }
   beginDrain() {
     this.draining = true;
   }
@@ -103,12 +119,14 @@ export class SymposiumWorkspaceLifecycle {
   create: SandboxCreationFence = (verify, operation) =>
     this.run(async () => {
       if (this.draining) throw new Error('Workspace is shutting down');
+      if (this.controllerPaused) throw new Error('Workspace controller unavailable');
       verify();
       let dispatched = false;
       let settled = false;
       const result = await operation(
         () => {
           if (this.draining) throw new Error('Workspace is shutting down');
+          if (this.controllerPaused) throw new Error('Workspace controller unavailable');
           if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
           try {
             verify();

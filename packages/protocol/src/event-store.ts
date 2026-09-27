@@ -475,14 +475,19 @@ export class EventStore {
     }).immediate();
   }
 
-  recoverPendingSendCommands(): void {
+  recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
       WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
-      )`,
-    ).all() as Array<{ client_msg_id: string; session_id: string; payload: string }>;
+      ) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+        AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))`,
+    ).all(options.excludeSymposium ? 1 : 0) as Array<{
+      client_msg_id: string;
+      session_id: string;
+      payload: string;
+    }>;
     for (const row of rows) {
       // Durable execution admissions own their retry and recovery semantics.
       // Deliberation receipts intentionally have no user_message event, so
@@ -1608,13 +1613,14 @@ export class EventStore {
   }
 
   /** Terminalize only non-terminal executions orphaned by a process restart. */
-  recoverOrphanedExecutions(): number {
+  recoverOrphanedExecutions(options: { excludeSymposium?: boolean } = {}): number {
     const rows = this.db!.prepare(
       `SELECT session_id, execution_id, execution_generation
        FROM sessions
        WHERE execution_phase IN ('RUNNING', 'REQUIRES_ACTION', 'STOPPING')
-         AND execution_id IS NOT NULL`,
-    ).all() as Array<{
+         AND execution_id IS NOT NULL
+         AND (? = 0 OR (COALESCE(session_type,'') != 'symposium' AND symposium_config IS NULL))`,
+    ).all(options.excludeSymposium ? 1 : 0) as Array<{
       session_id: string;
       execution_id: string;
       execution_generation: number;
@@ -3071,6 +3077,52 @@ export class EventStore {
     occurredAt: number;
     replacesSeatId?: string;
   }): SymposiumMembershipRecord {
+    return this.transitionSymposiumMembershipOwned(input, false);
+  }
+
+  /** Sole retained custodian safety transition. This is not an operator action.
+   * Existing creation-recovery fences and membership operation keys still apply. */
+  suspendSymposiumForControllerLoss(
+    sessionId: string,
+    expectedRevision: number,
+    controllerIdentity: string,
+    occurredAt: number,
+  ): SymposiumMembershipRecord[] {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(controllerIdentity))
+      throw new Error('Invalid retained controller identity');
+    return this.db!.transaction(() => {
+      const config = this.getActiveSymposiumConfig(sessionId);
+      if (config.version !== 2 || config.revision !== expectedRevision)
+        throw new Error('Controller loss configuration revision changed');
+      const records: SymposiumMembershipRecord[] = [];
+      for (const seat of config.seats) {
+        const previous = this.getLatestSymposiumMembership(sessionId, seat.id);
+        if (previous?.state !== 'active') continue;
+        records.push(
+          this.transitionSymposiumMembershipOwned(
+            {
+              sessionId,
+              seatId: seat.id,
+              action: 'suspend',
+              expectedGeneration: previous.generation,
+              configRevision: expectedRevision,
+              actor: `custodian:${controllerIdentity}`,
+              reason: 'Authenticated app controller lost',
+              idempotencyKey: `controller-loss:${controllerIdentity}:${seat.id}:${previous.generation}`,
+              occurredAt,
+            },
+            true,
+          ),
+        );
+      }
+      return records;
+    }).immediate();
+  }
+
+  private transitionSymposiumMembershipOwned(
+    input: Parameters<EventStore['transitionSymposiumMembership']>[0],
+    controllerLoss: boolean,
+  ): SymposiumMembershipRecord {
     return this.db!.transaction(() => {
       const duplicate = this.db!.prepare(
         `SELECT m.*, r.status AS reconciliation FROM symposium_membership m
@@ -3168,7 +3220,7 @@ export class EventStore {
         ) {
           throw new Error('Only active or reconciled suspended Symposium seats can be revoked');
         }
-        if (seat.id === config.anchorSeatId)
+        if (seat.id === config.anchorSeatId && !controllerLoss)
           throw new Error('Symposium anchor seat cannot be revoked');
       }
       const state = activating ? 'active' : input.action === 'suspend' ? 'suspended' : 'removed';
@@ -4886,15 +4938,16 @@ export class EventStore {
    * CLOSING is included because the process performing graceful shutdown is gone after a crash.
    * Returns the number of sessions recovered.
    */
-  recoverStaleSessions(): number {
+  recoverStaleSessions(options: { excludeSymposium?: boolean } = {}): number {
     // CREATED excluded: transient state, moves to STARTING synchronously in startChat().
     // The crash window between CREATED and STARTING is negligible.
     const staleStates = ['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED', 'CLOSING'];
     const placeholders = staleStates.map(() => '?').join(', ');
     // Inline prepare is intentional — this runs once at startup, not worth caching.
     const rows = this.db!.prepare(
-      `SELECT session_id FROM sessions WHERE state IN (${placeholders})`,
-    ).all(...staleStates) as Array<{ session_id: string }>;
+      `SELECT session_id FROM sessions WHERE state IN (${placeholders})
+       AND (? = 0 OR (COALESCE(session_type,'') != 'symposium' AND symposium_config IS NULL))`,
+    ).all(...staleStates, options.excludeSymposium ? 1 : 0) as Array<{ session_id: string }>;
 
     for (const row of rows) {
       this.setSessionState(row.session_id, 'ENDED', {

@@ -44,7 +44,7 @@ function fixture(emptyHistory = false) {
     signal: new AbortController().signal,
   } as SymposiumSeatExecution;
   const id = symposiumSeatRuntimeId(execution);
-  store.create(id, binding, '/workspace', 'old-surface');
+  store.create(id, binding, '/workspace', 'old-surface', 'symposium');
   store.bindThread(id, binding, 'old-thread', 'old-surface');
   const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
   let failAfterMigration = false;
