@@ -1,3 +1,12 @@
+import {
+  createSymposiumReviewPublicationPreflight,
+  type ReviewPublicationDependencies,
+} from './symposium-review-publication.js';
+import { SymposiumReviewStore } from './symposium-review-workflows.js';
+import {
+  createSymposiumReviewRouter,
+  type SymposiumInteractiveReviewHost,
+} from './symposium-review-routes.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -808,6 +817,10 @@ const symposiumSessionRuntimes = new Map<
   }
 >();
 export interface SymposiumProductionHost {
+  /** Optional until native hard budgets and durable review receipts are available. */
+  reviewHost?: SymposiumInteractiveReviewHost;
+  /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
+  reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -973,6 +986,30 @@ app.use(
     store: eventStore,
     profiles: symposiumProfileStore,
     currentAccounts: symposiumAccountProfiles,
+  }),
+);
+const symposiumReviewStore = new SymposiumReviewStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/sessions/:id/symposium/reviews',
+  operatorAuthMiddleware,
+  createSymposiumReviewRouter({
+    store: symposiumReviewStore,
+    getPublicationPreflight: (sessionId) =>
+      symposiumProductionHost?.reviewHost &&
+      symposiumProductionHost.reviewPublication &&
+      symposiumRuntimeForSession(sessionId)
+        ? createSymposiumReviewPublicationPreflight({
+            ...symposiumProductionHost.reviewPublication,
+            store: symposiumReviewStore,
+          })
+        : null,
+    hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
+    getHost: (sessionId) =>
+      symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
+        ? symposiumProductionHost.reviewHost
+        : null,
   }),
 );
 app.use(

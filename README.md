@@ -147,14 +147,32 @@ events and closure after failure or cancellation; live broadcasting is optional.
 Persisted native events retain their claim identity so confirmed restart cleanup
 can close the exact unfinished transcript without inventing a successful result.
 
-The review coordinator validates membership, recipient claims, profile revisions,
-and grants before dispatch and result acceptance. Review content comes from the
-trusted host's completed attempt and must match its receipt and artifact identity.
-Interactive callers select the recorded result but cannot supply its findings.
-These are guarded execution
-contracts with mocked integration coverage. The default application still has no
-Symposium runtime; production reviewer and Claude admission require further host
-attestation and live acceptance. Environment settings alone do not enable them.
+Both chat views now offer **Open review findings**. The application persists
+review workflows and history, displays severity only when the reviewer reports it,
+and requires explicit artifact-bound fix or dismissal
+decisions, and requests delta review after a fix. Select an older workflow to read
+its ordered decisions, reasons and evidence, or start a separate review of the current
+artifact without losing that history. A verified current revision can
+produce a PR review record; this action does **not** create or publish a PR.
+Records are immutable host-stored snapshots with a content-derived ID and SHA-256
+hash, binding the verified artifact to its exact workflow/history and evidence.
+Repeated export of the same snapshot returns the same record; changed verified
+history produces a new one. **Open saved review record** requires the Mitzo login
+and remains available after runtime shutdown. Copy **Permanent saved review link**
+to reopen the authenticated snapshot after a refresh or later visit. No record file is added to the
+reviewed Git tree. See [immutable review records](docs/design/immutable-review-records.md)
+for scope, integrity, and export limits.
+Interactive callers cannot submit fabricated findings, usage, or verification:
+the coordinator reads those facts from completed trusted host receipts.
+
+This interface is wired into the application, but native review/fix execution
+remains unavailable until a trusted adapter supplies enforced token budgets,
+terminal usage, structured results, and artifact-bound verification. The panel
+reports the missing capability rather than falling back to ordinary chat. Mocked
+integration coverage establishes the workflow boundaries, not live production
+readiness. Reviewer and Claude admission still require independent host attestation
+and live acceptance; environment settings alone do not enable them. See the
+[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -456,3 +474,4 @@ The OpenAI Responses route uses bearer authentication in the Authorization heade
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
