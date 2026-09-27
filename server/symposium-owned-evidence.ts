@@ -145,21 +145,17 @@ export function ownedEvidenceHandler(
     }
     const parsed = OwnedEvidenceSelection.safeParse(req.body);
     if (!parsed.success) {
-      res
-        .status(400)
-        .json({
-          error: 'Provide exact provider instances, roles, account providers, and artifact volume.',
-        });
+      res.status(400).json({
+        error: 'Provide exact provider instances, roles, account providers, and artifact volume.',
+      });
       return;
     }
     try {
       res.json({ candidate: collect(parsed.data), activated: false });
     } catch {
-      res
-        .status(409)
-        .json({
-          error: 'Evidence could not be verified. Check the explicit selection and owned host.',
-        });
+      res.status(409).json({
+        error: 'Evidence could not be verified. Check the explicit selection and owned host.',
+      });
     }
   };
 }
