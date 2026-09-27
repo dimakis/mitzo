@@ -6,7 +6,7 @@ const regionPattern = /^(?:global|[a-z]+-[a-z]+[0-9]+)$/;
 const modelPattern = /^claude-haiku-4-5@20251001$/;
 
 function requireMatch(value, pattern, label) {
-  if (typeof value !== 'string' || /[\r\n]/.test(value) || !pattern.test(value)) {
+  if (typeof value !== 'string' || /[\r\n\u2028\u2029]/.test(value) || !pattern.test(value)) {
     throw new TypeError(`Invalid ${label}`);
   }
   return value;
@@ -17,7 +17,7 @@ export function createVertexSeatPolicy({ project, region, model, claudeBinary, p
   requireMatch(region, regionPattern, 'Vertex region');
   requireMatch(model, modelPattern, 'Haiku model');
   requireMatch(providerName, identifier, 'provider name');
-  if (typeof claudeBinary !== 'string' || /[\r\n]/.test(claudeBinary) || !/^\/(?:[A-Za-z0-9._-]+\/)*claude$/.test(claudeBinary)) {
+  if (typeof claudeBinary !== 'string' || /[\r\n\u2028\u2029]/.test(claudeBinary) || !/^\/(?:[A-Za-z0-9._-]+\/)*claude$/.test(claudeBinary)) {
     throw new TypeError('Claude binary must be an exact absolute path ending in /claude');
   }
 
