@@ -1,3 +1,7 @@
+import {
+  probeOwnedArtifactAccess,
+  type NativeArtifactAccessProbe,
+} from './symposium-artifact-native-access.js';
 import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { execFile } from 'node:child_process';
@@ -61,6 +65,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     private readonly run: PodmanCommand = localPodmanCommand,
     private readonly ownedGateway?: OwnedSymposiumGateway,
     private readonly workloadImage?: string,
+    private readonly nativeAccess?: NativeArtifactAccessProbe,
   ) {
     if (!identifier.test(workspaceId) || !isPodmanSandboxNamespace(sandboxNamespace))
       throw new Error('Invalid expected OpenShell workspace or namespace');
@@ -152,16 +157,19 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
         throw new Error('Artifact workload image differs from reviewed identity');
       // Read-only OS evidence under the image's own sandbox identity. This never
       // writes a marker into the shared artifact volume or runs a model.
+      const nativeAccess =
+        this.nativeAccess ??
+        (this.ownedGateway
+          ? (name: string, id: string, script: string) =>
+              probeOwnedArtifactAccess(this.ownedGateway!, name, id, script)
+          : undefined);
+      if (!nativeAccess) throw new Error('Native artifact identity probe is unavailable');
       const probe = record(
-        await this.run([
-          'exec',
-          '--user',
-          'sandbox',
-          physicalId,
-          '/bin/bash',
-          '-c',
-          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" /sandbox/symposium-artifacts); writable=false; if test -w /sandbox/symposium-artifacts; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable"',
-        ]),
+        await nativeAccess(
+          sandboxName,
+          sandboxId,
+          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" /sandbox/symposium-artifacts); readable=false; searchable=false; if test -r /sandbox/symposium-artifacts; then readable=true; fi; if test -x /sandbox/symposium-artifacts; then searchable=true; fi; writable=false; if test -w /sandbox/symposium-artifacts; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s,"readable":%s,"searchable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable" "$readable" "$searchable"',
+        ),
       );
       if (
         probe.uid !== owner.uid ||
@@ -171,9 +179,27 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
         typeof probe.mode !== 'string' ||
         !/^[0-7]{3,4}$/.test(probe.mode) ||
         (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
+        probe.readable !== true ||
+        probe.searchable !== true ||
         probe.writable !== !expected.read_only
       )
         throw new Error('Artifact owner identity or effective access is not ready');
+      const after = exactlyOne(await this.run(['inspect', '--type', 'container', physicalId]));
+      const afterLabels = labels(record(after.Config).Labels);
+      const afterMounts = Array.isArray(after.Mounts)
+        ? after.Mounts.map(record).filter((mount) => mount.Destination === target)
+        : [];
+      if (
+        (after.Id ?? after.ID) !== physicalId ||
+        Object.entries(required).some(([key, value]) => afterLabels[key] !== value) ||
+        record(after.State).Running !== true ||
+        after.Image !== inspected.Image ||
+        afterMounts.length !== 1 ||
+        afterMounts[0].Type !== 'volume' ||
+        afterMounts[0].Name !== expected.source ||
+        afterMounts[0].RW !== !expected.read_only
+      )
+        throw new Error('Artifact physical identity changed during native access probe');
     }
   }
 

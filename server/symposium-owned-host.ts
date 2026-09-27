@@ -282,16 +282,7 @@ export async function createOwnedSymposiumHost(
         : null;
       if (session?.sessionType !== 'symposium' || config?.version !== 2)
         throw new Error('A Symposium session is required');
-      const mapped = artifacts.get(sessionId);
-      if (mapped) {
-        assertSessionArtifactVolume(
-          gateway.workspace,
-          mapped,
-          await leaseHost!.inspectVolume(mapped.volumeName, 'podman'),
-        );
-        custody();
-        return { state: 'ready' };
-      }
+      if (artifacts.has(sessionId)) return { state: 'recovery_required' };
       return sessionArtifacts!.ensure(sessionId);
     };
     const ensureSessionArtifacts = (sessionId: string) =>
@@ -408,10 +399,11 @@ export async function createOwnedSymposiumHost(
         throw new Error('Owned Symposium host is shutting down');
       custody();
       const mapped =
-        artifacts.get(sessionId) ??
-        (purpose === 'cleanup'
-          ? sessionArtifacts!.getRetained(sessionId)
-          : sessionArtifacts!.getReady(sessionId));
+        purpose === 'cleanup'
+          ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
+          : artifacts.has(sessionId)
+            ? null
+            : sessionArtifacts!.getReady(sessionId);
       if (purpose === 'cleanup') {
         const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
         if (

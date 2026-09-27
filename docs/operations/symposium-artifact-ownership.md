@@ -25,7 +25,9 @@ fresh volume identity; admission separately checks fresh physical mount identity
 exact image, resolved sandbox UID/GID, directory UID/GID, non-group/world-writable
 mode, and effective writeability. Writer mounts must be writable and reviewer
 mounts must not be writable. A failed or malformed read-only probe fails admission.
-The probe uses absolute tools and never writes into the shared volume or runs a
+The probe uses the owned native SSH identity (no Podman user override), checks
+read/search access for both roles, guards the gateway ID before/after and reinspects
+the exact physical container afterward. It uses absolute tools and never writes into the shared volume or runs a
 model. Existing root-owned volumes are not silently repaired.
 
 ## Verification scope
@@ -37,3 +39,7 @@ the explicitly labelled test volume were removed. No model calls were made.
 The new physical verifier also rejected the existing root-owned staging volume
 using read-only inspection. These checks do not establish full Symposium admission,
 streaming, restart recovery or complete feature acceptance.
+
+Configured legacy artifact mappings are cleanup-only without a ledger receipt. SSH
+permission evidence does not prove access under the native attempt controller’s
+additional filesystem restrictions; that separate runtime layout gate remains.

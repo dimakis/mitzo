@@ -153,19 +153,11 @@ describe('explicit owned Symposium host composition', () => {
       }),
     ).rejects.toThrow('stopped');
   });
-  it('derives artifact access from current host seat authority and generation', async () => {
+  it('keeps configured artifact mappings closed for new admission without receipts', async () => {
     const f = fixture();
     const host = await createOwnedSymposiumHost(f.options, f.launch);
-    expect(host.artifactRequest('session', 'seat', 2)).toMatchObject({
-      access: 'writer',
-      driver: 'podman',
-      workspaceId: 'workspace',
-      volumeName: 'artifacts',
-    });
+    expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     f.seat.role = 'reviewer';
-    expect(host.artifactRequest('session', 'seat', 2).access).toBe('reviewer');
-    expect(() => host.artifactRequest('unknown', 'seat', 2)).toThrow('mapping');
-    f.membership.generation = 3;
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
   });
@@ -175,7 +167,15 @@ describe('explicit owned Symposium host composition', () => {
       const f = fixture();
       const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, async () => '[]');
       const sandboxName = sandboxNameForConversation('old-runtime', 13);
-      const original = host.artifactRequest('session', 'seat', 2);
+      const original = {
+        sessionId: 'session',
+        seatId: 'seat',
+        workspaceId: 'workspace',
+        volumeName: 'artifacts',
+        volumeGeneration: 'generation',
+        driver: 'podman' as const,
+        access: 'writer' as const,
+      };
       const lease = await host.artifactLeaseHost.reserve(original);
       host.artifactLeaseHost.markCreationStarted(lease.token, lease.revision, sandboxName);
       host.artifactLeaseHost.bindSandbox(lease.token, lease.revision, sandboxName, 'physical-old');
