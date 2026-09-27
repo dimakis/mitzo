@@ -280,6 +280,7 @@ export class PhysicalArtifactSealer {
       )
         return false;
       return (
+        binding.kind !== 'initial' &&
         binding.parentFenceId === parent.fenceId &&
         binding.parentGenerationId === parent.selection.artifact.volumeGeneration
       );
