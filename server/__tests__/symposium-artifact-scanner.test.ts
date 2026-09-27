@@ -52,3 +52,29 @@ describe('bounded regular-file artifact scanner', () => {
     expect(() => scan(path, 1)).toThrow();
   });
 });
+it('bounds directory enumeration before sorting or traversing entries', () => {
+  const path = root();
+  const probe = String.raw`
+import os
+class Entries:
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def __iter__(self):
+        for i in range(2):
+            yield type('Entry', (), {'name': str(i)})()
+        raise RuntimeError('enumerated beyond entry budget')
+os.scandir = lambda fd: Entries()
+os.listdir = lambda fd: (_ for _ in ()).throw(RuntimeError('unbounded enumeration'))
+`;
+  let error = '';
+  try {
+    execFileSync('python3', ['-I', '-c', probe + ARTIFACT_SCANNER, path, '1', '100', '5'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (failure) {
+    error = String((failure as { stderr: Buffer }).stderr);
+  }
+  expect(error).toContain('artifact entry limit');
+  expect(error).not.toContain('unbounded enumeration');
+  expect(error).not.toContain('enumerated beyond entry budget');
+});

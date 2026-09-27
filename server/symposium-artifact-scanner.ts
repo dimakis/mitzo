@@ -18,12 +18,16 @@ def stamp(s):
 def walk(fd, prefix):
     global entries, total
     before = os.fstat(fd)
-    names = sorted(os.listdir(fd))
-    for name in names:
+    names = []
+    with os.scandir(fd) as children:
+        for child in children:
+            check()
+            entries += 1
+            if entries > max_entries:
+                raise RuntimeError('artifact entry limit')
+            names.append(child.name)
+    for name in sorted(names):
         check()
-        entries += 1
-        if entries > max_entries:
-            raise RuntimeError('artifact entry limit')
         if name in ('.', '..') or '/' in name or '\\' in name or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in name):
             raise RuntimeError('invalid artifact path')
         path = prefix + name
