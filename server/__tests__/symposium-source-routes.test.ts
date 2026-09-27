@@ -3,7 +3,6 @@ import { expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { authMiddleware, login } from '../auth.js';
-import { createConnectionsRouter } from '../connections-router.js';
 import { createSymposiumSourceRouter } from '../symposium-source-routes.js';
 vi.mock('../symposium-source-git.js', () => ({
   inspectLocalSource: vi.fn(),
@@ -19,7 +18,6 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
   });
   const app = express();
   app.use(express.json(), authMiddleware);
-  app.use('/api/connections', createConnectionsRouter({} as never));
   app.use(
     '/api/sessions/:id/symposium/source',
     createSymposiumSourceRouter({
@@ -59,7 +57,7 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
       .send(value);
   expect((await post(body)).status).toBe(403);
   const auth = await request(app)
-    .post('/api/connections/reauthorize')
+    .post('/api/sessions/session/symposium/source/reauthorize')
     .set('Authorization', `Bearer ${token}`)
     .send({ passphrase: 'test-passphrase-for-vitest' });
   expect(auth.status).toBe(200);

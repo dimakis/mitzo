@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
-import { reauthorize } from '../lib/connections-api';
 import type { SourcePreview, SourceStatus } from '../types/symposium-source';
 const confirmation = 'IMPORT COMMITTED REPOSITORY HISTORY';
 async function read<T>(url: string, body?: unknown, csrf?: string): Promise<T> {
@@ -88,7 +87,9 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
     setBusy(true);
     setError('');
     try {
-      const auth = await reauthorize(secret);
+      const auth = await read<{ csrf: string; expiresAt: number }>(base + '/reauthorize', {
+        passphrase: secret,
+      });
       if (!active.current) return;
       if (!auth.csrf || !Number.isFinite(auth.expiresAt) || auth.expiresAt <= Date.now())
         throw Error('Recent app authorization expired. Enter the passphrase again.');

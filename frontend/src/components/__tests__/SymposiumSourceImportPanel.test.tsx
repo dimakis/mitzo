@@ -24,7 +24,7 @@ it.each([false, true])(
       historyCommits: 2,
     };
     vi.mocked(apiFetch).mockImplementation(async (url) =>
-      url === '/api/connections/reauthorize'
+      url === '/api/sessions/session/symposium/source/reauthorize'
         ? response({ csrf: 'csrf', expiresAt: Date.now() + (expired ? -1 : 60000) })
         : String(url).endsWith('/preview')
           ? response({

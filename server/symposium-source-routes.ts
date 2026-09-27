@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import {
+  recentAppReauthorizationHandlers,
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
 } from './connections-router.js';
@@ -27,6 +28,7 @@ export function createSymposiumSourceRouter(deps: {
   getHost(): SymposiumSourceHost | undefined;
 }) {
   const router = Router({ mergeParams: true });
+  router.post('/reauthorize', ...recentAppReauthorizationHandlers());
   const session = (id: string) => {
     const value = deps.getSession(id);
     if (value?.sessionType !== 'symposium' || !value.symposiumConfig)
