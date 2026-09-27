@@ -191,6 +191,7 @@ it('serializes discovery with login/disconnect and publishes a new explicit sele
   const before = host.currentProfiles.resolve(row.id, 'luna');
   const pending = host.personalConnections.discoverModels(row.id, row.revision, () => {});
   const latest = host.personalConnections.list()[0];
+  expect(() => host.personalConnections.create('Blocked')).toThrow('discovery');
   await expect(
     host.beginDeviceLogin({ connectionId: row.id, expectedRevision: latest.revision }),
   ).rejects.toThrow('discovery');
@@ -223,6 +224,7 @@ it('retains recovery and excludes account when cleanup or receipt proof fails', 
     modelDiscovery: 'reconciliation_required',
   });
   expect(host.currentProfiles.catalog()).toEqual([]);
+  expect(() => host.personalConnections.create('Blocked')).toThrow('discovery');
 });
 
 it('does not publish discovery after the initiating operator session is revoked', async () => {
