@@ -376,3 +376,28 @@ it('serializes recovery and preserves quarantine after operator revocation', asy
   await expect(pending).rejects.toThrow('Revoked');
   expect(host.personalConnections.list()[0]).toEqual(quarantined);
 });
+
+it('requires retained credential cleanup after discovery cleanup and retries only the unfinished phase', async () => {
+  const recover = vi.fn(async () => ({ status: 'reconciled' as const, inference: false as const }));
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+    recover,
+  }));
+  const row = await connected(host);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const quarantined = host.personalConnections.list()[0];
+  const adapter = state.adapters.get(row.id)!;
+  adapter.disconnect.mockRejectedValueOnce(new Error('Workspace sandbox still uses credentials'));
+  await expect(
+    host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {}),
+  ).rejects.toThrow();
+  expect(host.personalConnections.list()[0]).toEqual(quarantined);
+  await expect(
+    host.beginDeviceLogin({ connectionId: row.id, expectedRevision: quarantined.revision }),
+  ).rejects.toThrow('discovery');
+  expect(recover).toHaveBeenCalledTimes(1);
+  await host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {});
+  expect(recover).toHaveBeenCalledTimes(1);
+  expect(adapter.disconnect).toHaveBeenCalledTimes(2);
+  expect(host.personalConnections.list()[0].state).toBe('reauth_required');
+});

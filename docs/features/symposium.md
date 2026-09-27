@@ -212,7 +212,10 @@ If discovery cleanup fails after the host has observed the sandbox identity and
 settled creation, Personal Connections can offer **Clean up model discovery**.
 This explicit action uses the current connection revision and the original host's
 retained journal/custody. It only cancels and deletes the exact discovery sandbox,
-checks gateway and physical absence, and releases the discovery marker. It never
+checks gateway and physical absence, then proves retained provider and refresh
+credential cleanup before releasing the discovery marker. Credential cleanup refuses
+while any sandbox remains in the owned workspace; ambiguity keeps the connection
+quarantined. A retry resumes the unfinished cleanup phase. It never
 creates a sandbox, calls a model, publishes a catalog, reconnects, or rebinds a seat.
 Successful cleanup requires explicit fresh sign-in.
 

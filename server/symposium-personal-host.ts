@@ -19,7 +19,15 @@ export function createPersonalSubscriptionHost(
     assertCurrent(): void;
   }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[]; recover?: DiscoveryRecovery }>,
 ) {
-  const recoveries = new Map<string, { revision: number; recover: DiscoveryRecovery }>();
+  const recoveries = new Map<
+    string,
+    {
+      revision: number;
+      recover: DiscoveryRecovery;
+      cleanupCredentials(): Promise<void>;
+      discoveryClean: boolean;
+    }
+  >();
   let recovering = false;
   const initial = createSymposiumSubscriptionHost(options);
   const connections = new PersonalConnections(metadataPath, (accountId, label) =>
@@ -172,13 +180,22 @@ export function createPersonalSubscriptionHost(
         if (recovering) throw new Error('Discovery recovery is already running');
         recovering = true;
         try {
-          const result = await retained!.recover(check);
+          const result = retained!.discoveryClean
+            ? { status: 'reconciled' as const, inference: false as const }
+            : await retained!.recover(check);
+          // Keep exact successful cleanup evidence even if operator authority
+          // expires before the next check. It grants no credential/login authority.
+          if (result.status === 'reconciled') retained!.discoveryClean = true;
           check();
           if (result.status !== 'reconciled')
             return {
               ...result,
               connection: select({ connectionId: id, expectedRevision: revision }),
             };
+          // The retained adapter serializes cleanup through the workspace fence
+          // and rejects any remaining sandbox before deleting credential resources.
+          await retained!.cleanupCredentials();
+          check();
           const connection = connections.finishDiscoveryRecovery(id, revision);
           recoveries.delete(id);
           return { ...result, connection };
@@ -215,7 +232,12 @@ export function createPersonalSubscriptionHost(
           }
           // Retain cleanup authority before invalidation destroys admission authority.
           if (discovered.result.status === 'reconciliation_required' && discovered.recover)
-            recoveries.set(id, { revision: lease.revision + 1, recover: discovered.recover });
+            recoveries.set(id, {
+              revision: lease.revision + 1,
+              recover: discovered.recover,
+              cleanupCredentials: () => lease.adapter.disconnect(),
+              discoveryClean: false,
+            });
           const connection = connections.finishDiscovery(
             lease,
             discovered.result.status !== 'reconciliation_required',
