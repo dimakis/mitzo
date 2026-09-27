@@ -1,4 +1,5 @@
 import express from 'express';
+import { SymposiumReviewCoordinator } from '../symposium-review-coordinator.js';
 import request from 'supertest';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
@@ -209,4 +210,23 @@ it('rejects denied request authorization before refreshing or changing workflow 
   ).toBe(403);
   expect(host.refreshArtifact).not.toHaveBeenCalled();
   expect(store.get('w')).toBeNull();
+});
+
+it('routes application review through the charged transition preparation', async () => {
+  const { app, start, base } = setup();
+  await request(app)
+    .post(base + '/application-runs')
+    .send(start);
+  const reserve = vi
+    .spyOn(SymposiumReviewCoordinator.prototype, 'reserveWithTransition')
+    .mockResolvedValue({ kind: 'decision_required', code: 'transition_preparation_required' });
+  try {
+    const result = await request(app)
+      .post(base + '/w/actions')
+      .send({ action: 'review', expectedArtifactRevision: 'input', expectedArtifactHash: hash });
+    expect(result.body.code).toBe('transition_preparation_required');
+    expect(reserve).toHaveBeenCalledOnce();
+  } finally {
+    reserve.mockRestore();
+  }
 });
