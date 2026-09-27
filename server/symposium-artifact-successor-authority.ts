@@ -90,13 +90,14 @@ export function createSymposiumSuccessorFixAuthority(deps: {
         state.limits.mode !== 'application' ||
         state.sessionId !== binding.sessionId ||
         state.owner !== binding.actor ||
-        state.status !== 'awaiting_fix' ||
         !prep ||
         prep.kind !== 'fix' ||
         (prep.status !== 'preparing' && prep.status !== 'bound') ||
+        (prep.status === 'preparing' && state.status !== 'awaiting_fix') ||
         prep.actorSeatId !== binding.seatId ||
-        prep.artifactRevision !== state.artifactRevision ||
-        prep.artifactHash !== state.artifactHash ||
+        (prep.status === 'preparing' &&
+          (prep.artifactRevision !== state.artifactRevision ||
+            prep.artifactHash !== state.artifactHash)) ||
         prep.seal.artifactGenerationId !== binding.parentGenerationId ||
         prep.seal.fenceId !== binding.parentFenceId ||
         prep.seal.sealDigest !== binding.parentSealDigest ||
@@ -112,8 +113,8 @@ export function createSymposiumSuccessorFixAuthority(deps: {
         !state.applicationFixIntents.some(
           (intent) =>
             intent.actor === binding.actor &&
-            intent.artifactRevision === state.artifactRevision &&
-            intent.artifactHash === state.artifactHash &&
+            intent.artifactRevision === prep.artifactRevision &&
+            intent.artifactHash === prep.artifactHash &&
             canonicalReviewJson([...intent.findingFingerprints].sort()) ===
               canonicalReviewJson([...binding.findingFingerprints].sort()),
         )
