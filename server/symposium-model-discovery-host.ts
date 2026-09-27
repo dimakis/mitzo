@@ -1,9 +1,13 @@
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
-import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
+import { readFile, writeFile, rename, unlink, open, lstat } from 'node:fs/promises';
 import { dirname, isAbsolute } from 'node:path';
-import { CodexAppServerClient, openShellSshArgvProcessSpec } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  openShellSshArgvProcessSpec,
+  terminateOpenShellProcess,
+} from './codex-app-server-client.js';
 import type { DiscoveryConfig, DiscoveryOperations } from './symposium-model-discovery.js';
 
 export interface DiscoveryHostOptions {
@@ -71,7 +75,7 @@ export function createDiscoveryHostOperations(
   if (
     ![options.cli, options.podman, options.policy, options.journal].every(isAbsolute) ||
     !options.configPins.length ||
-    !/^[A-Za-z0-9_-]+$/.test(options.namespace)
+    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.namespace)
   )
     throw new Error('Explicit discovery host configuration required');
   const environment = { ...options.environment };
@@ -127,6 +131,34 @@ export function createDiscoveryHostOperations(
       {},
     );
   return {
+    async withExclusiveAttempt(operation) {
+      privateDirectory(dirname(options.journal));
+      const path = `${options.journal}.lock`;
+      const lock = await open(path, 'wx', 0o600);
+      const release = async () => {
+        try {
+          const held = await lock.stat();
+          const current = await lstat(path);
+          if (held.ino !== current.ino || held.dev !== current.dev || current.isSymbolicLink())
+            throw new Error('Discovery journal ownership changed');
+          await unlink(path);
+        } finally {
+          await lock.close();
+        }
+      };
+      try {
+        await lock.sync();
+        const directory = await open(dirname(path), 'r');
+        try {
+          await directory.sync();
+        } finally {
+          await directory.close();
+        }
+        return await operation();
+      } finally {
+        await release();
+      }
+    },
     async verifyCustody(expected) {
       if (
         expected.podmanUrl !== config.podmanUrl ||
@@ -226,9 +258,14 @@ export function createDiscoveryHostOperations(
         '/usr/local/bin/symposium-subscription-app-server',
       ]);
       const child = spawn(spec.command, spec.args, {
+        detached: true,
+        shell: false,
         env: spec.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
+      const killChild = child.kill.bind(child);
+      child.kill = (() =>
+        terminateOpenShellProcess({ pid: child.pid, kill: killChild })) as typeof child.kill;
       // No lifecycle: CodexAppServerClient itself rejects thread/turn/inference requests.
       const client = new CodexAppServerClient(child, { timeoutMs: 30000 });
       return {
@@ -236,7 +273,6 @@ export function createDiscoveryHostOperations(
         request: (method, params) => client.request(method, params),
         close: () => {
           client.close();
-          child.kill();
         },
       };
     },
