@@ -3071,6 +3071,52 @@ export class EventStore {
     occurredAt: number;
     replacesSeatId?: string;
   }): SymposiumMembershipRecord {
+    return this.transitionSymposiumMembershipOwned(input, false);
+  }
+
+  /** Sole retained custodian safety transition. This is not an operator action.
+   * Existing creation-recovery fences and membership operation keys still apply. */
+  suspendSymposiumForControllerLoss(
+    sessionId: string,
+    expectedRevision: number,
+    controllerIdentity: string,
+    occurredAt: number,
+  ): SymposiumMembershipRecord[] {
+    if (!/^[A-Za-z0-9-]{1,128}$/.test(controllerIdentity))
+      throw new Error('Invalid retained controller identity');
+    return this.db!.transaction(() => {
+      const config = this.getActiveSymposiumConfig(sessionId);
+      if (config.version !== 2 || config.revision !== expectedRevision)
+        throw new Error('Controller loss configuration revision changed');
+      const records: SymposiumMembershipRecord[] = [];
+      for (const seat of config.seats) {
+        const previous = this.getLatestSymposiumMembership(sessionId, seat.id);
+        if (previous?.state !== 'active') continue;
+        records.push(
+          this.transitionSymposiumMembershipOwned(
+            {
+              sessionId,
+              seatId: seat.id,
+              action: 'suspend',
+              expectedGeneration: previous.generation,
+              configRevision: expectedRevision,
+              actor: `custodian:${controllerIdentity}`,
+              reason: 'Authenticated app controller lost',
+              idempotencyKey: `controller-loss:${controllerIdentity}:${seat.id}:${previous.generation}`,
+              occurredAt,
+            },
+            true,
+          ),
+        );
+      }
+      return records;
+    }).immediate();
+  }
+
+  private transitionSymposiumMembershipOwned(
+    input: Parameters<EventStore['transitionSymposiumMembership']>[0],
+    controllerLoss: boolean,
+  ): SymposiumMembershipRecord {
     return this.db!.transaction(() => {
       const duplicate = this.db!.prepare(
         `SELECT m.*, r.status AS reconciliation FROM symposium_membership m
@@ -3168,7 +3214,7 @@ export class EventStore {
         ) {
           throw new Error('Only active or reconciled suspended Symposium seats can be revoked');
         }
-        if (seat.id === config.anchorSeatId)
+        if (seat.id === config.anchorSeatId && !controllerLoss)
           throw new Error('Symposium anchor seat cannot be revoked');
       }
       const state = activating ? 'active' : input.action === 'suspend' ? 'suspended' : 'removed';
