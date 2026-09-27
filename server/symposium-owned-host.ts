@@ -160,10 +160,13 @@ export async function createOwnedSymposiumHost(
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let stopped = false;
   let draining = false;
+  let controllerPaused = false;
   const pendingHostOperations = new Set<Promise<unknown>>();
   const track = <T>(operation: () => Promise<T>): Promise<T> => {
     if (stopped) return Promise.reject(new Error('Owned Symposium host stopped'));
     if (draining) return Promise.reject(new Error('Owned Symposium host is shutting down'));
+    if (controllerPaused)
+      return Promise.reject(new Error('Owned Symposium controller unavailable'));
     const promise = operation();
     pendingHostOperations.add(promise);
     void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
@@ -789,6 +792,7 @@ export async function createOwnedSymposiumHost(
         ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>
       ) => {
         if (draining) throw new Error('Owned Symposium host is shutting down');
+        if (controllerPaused) throw new Error('Owned Symposium controller unavailable');
         return subscription!.assertPrivateAuth(...args);
       },
       runSandboxCreation: workspaceLifecycle.create,
@@ -798,6 +802,7 @@ export async function createOwnedSymposiumHost(
           ...args: Parameters<NonNullable<typeof subscription>['personalConnections']['create']>
         ) => {
           if (draining) throw new Error('Owned Symposium host is shutting down');
+          if (controllerPaused) throw new Error('Owned Symposium controller unavailable');
           return subscription!.personalConnections.create(...args);
         },
         disconnect: (
@@ -821,6 +826,30 @@ export async function createOwnedSymposiumHost(
           NonNullable<typeof subscription>['beginDeviceLogin']
         >,
 
+      pauseController() {
+        controllerPaused = true;
+        workspaceLifecycle.pauseController();
+      },
+      async quiesceController(signal: AbortSignal) {
+        controllerPaused = true;
+        workspaceLifecycle.pauseController();
+        // Retain the original provider/login owner. Only an unfinished login is
+        // cancelled; a completed personal connection is never invalidated here.
+        if (login) await login.cancel();
+        const pending = await Promise.allSettled([...pendingHostOperations]);
+        signal.throwIfAborted();
+        await workspaceLifecycle.quiesceController(signal);
+        if (loginQuarantined || pending.some((item) => item.status === 'rejected'))
+          throw new Error('Controller operation cleanup remains uncertain');
+      },
+      resumeController() {
+        custody();
+        if (draining) throw new Error('Owned Symposium host is shutting down');
+        if (loginQuarantined || pendingHostOperations.size)
+          throw new Error('Controller operation cleanup remains uncertain');
+        workspaceLifecycle.resumeController();
+        controllerPaused = false;
+      },
       beginShutdown() {
         draining = true;
         workspaceLifecycle.beginDrain();

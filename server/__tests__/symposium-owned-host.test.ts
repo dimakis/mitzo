@@ -882,3 +882,21 @@ it('waits for the entire source import receipt lifecycle during shutdown between
   expect(receiptPersisted).toBe(true);
   expect(f.gateway.stopAndWait).toHaveBeenCalledOnce();
 });
+it('retains personal custody across controller quiescence without permanent host shutdown', async () => {
+  const f = fixture();
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const original = host.personalConnections.create('retained account');
+    host.pauseController();
+    expect(() => host.personalConnections.create('blocked')).toThrow('controller');
+    await host.quiesceController(new AbortController().signal);
+    expect(host.personalConnections.list()).toContainEqual(original);
+    expect(f.gateway.stop).not.toHaveBeenCalled();
+    host.resumeController();
+    expect(host.personalConnections.create('new slot').label).toBe('new slot');
+    host.beginShutdown();
+    expect(() => host.resumeController()).toThrow('shutting down');
+  } finally {
+    host.stop();
+  }
+});
