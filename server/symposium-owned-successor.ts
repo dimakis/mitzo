@@ -19,6 +19,12 @@ import type {
   SuccessorArtifactExportReceipt,
 } from './symposium-physical-artifact-seal.js';
 import type { SymposiumSessionArtifacts } from './symposium-session-artifacts.js';
+import type { SymposiumArtifactOwner } from './symposium-artifact-owner.js';
+import {
+  assertRetainedInitialSourceExport,
+  requireInitialSourceExport,
+  type InitialSourceExportReceipt,
+} from './symposium-source-artifact-seal.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 const digest = (value: unknown) => reviewRecordHash(canonicalReviewJson(value));
@@ -30,9 +36,14 @@ export async function withOwnedArtifactSuccessor<T>(
     leaseHost: SqliteArtifactLeaseHost;
     sessionArtifacts: SymposiumSessionArtifacts;
     sealer: PhysicalArtifactSealer;
+    sourceOwner: SymposiumArtifactOwner;
+    sourceProof: {
+      assertNoNativeClaims(sessionId: string): void | Promise<void>;
+      command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
+    };
   },
   request: ArtifactGenerationRequest,
-  exported: SuccessorArtifactExportReceipt,
+  exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
   bundle: Buffer,
   run: (
     copier: PhysicalArtifactSuccessorCopier,
@@ -44,7 +55,9 @@ export async function withOwnedArtifactSuccessor<T>(
   const custodyDigest = createHash('sha256').update(deps.gateway.stateDirectory).digest('hex');
   if (request.workspace !== deps.gateway.workspace || request.custodyDigest !== custodyDigest)
     throw new Error('Successor gateway custody changed');
-  deps.sealer.assertRetainedSuccessorExport(exported, bundle);
+  if (exported.mode === 'initial')
+    assertRetainedInitialSourceExport(deps.sessionArtifacts, deps.sourceOwner, exported, bundle);
+  else deps.sealer.assertRetainedSuccessorExport(exported, bundle);
   const db = new Database(deps.leaseHost.snapshotDatabasePath());
   try {
     const initial = (): InitialArtifactGeneration => {
@@ -71,7 +84,14 @@ export async function withOwnedArtifactSuccessor<T>(
       },
       parent(intent, parent) {
         deps.gateway.verifyCustody();
-        deps.sealer.assertRetainedSuccessorExport(exported, bundle);
+        if (exported.mode === 'initial')
+          assertRetainedInitialSourceExport(
+            deps.sessionArtifacts,
+            deps.sourceOwner,
+            exported,
+            bundle,
+          );
+        else deps.sealer.assertRetainedSuccessorExport(exported, bundle);
         if (
           parent.generationId !== exported.parentGenerationId ||
           parent.volumeName !== exported.parentVolumeName ||
@@ -90,6 +110,29 @@ export async function withOwnedArtifactSuccessor<T>(
     const copier: PhysicalArtifactSuccessorCopier = new PhysicalArtifactSuccessorCopier({
       ledger,
       sealer: deps.sealer,
+      initialSource: {
+        assertRetainedInitialSourceExport: (receipt, bytes) =>
+          assertRetainedInitialSourceExport(
+            deps.sessionArtifacts,
+            deps.sourceOwner,
+            receipt,
+            bytes,
+          ),
+        requireInitialSourceExport: (receipt, bytes, signal) =>
+          requireInitialSourceExport(
+            {
+              artifacts: deps.sessionArtifacts,
+              owner: deps.sourceOwner,
+              workspace: deps.gateway.workspace,
+              custody: () => deps.gateway.verifyCustodyAsync(),
+              assertNoNativeClaims: deps.sourceProof.assertNoNativeClaims,
+              command: deps.sourceProof.command,
+            },
+            receipt,
+            bytes,
+            signal,
+          ),
+      },
       command: deps.leaseHost.snapshotCommand(),
       custody: () => deps.gateway.verifyCustodyAsync(),
     });
@@ -105,8 +148,13 @@ export function confirmOwnedArtifactSuccessor(
   ledger: SymposiumArtifactGenerations,
   binding: ArtifactAdmissionBindingV1,
   assertAuthority: (binding: ArtifactAdmissionBindingV1) => true,
+  assertSourceParent?: (binding: Extract<ArtifactAdmissionBindingV1, { kind: 'initial' }>) => true,
 ) {
-  const intent = store.beginSymposiumArtifactAdmission(binding, assertAuthority);
+  const intent = store.beginSymposiumArtifactAdmission(
+    binding,
+    assertAuthority,
+    assertSourceParent,
+  );
   const receipt = ledger.activateAdmission(binding, (selected) => {
     assertAuthority(selected);
     const retained = store.getSymposiumArtifactAdmission(selected.sessionId, selected.transitionId);
@@ -117,12 +165,18 @@ export function confirmOwnedArtifactSuccessor(
       throw new Error('Retained successor intent changed');
     return true;
   });
-  return store.confirmSymposiumArtifactAdmission(intent.binding, receipt, (selected, value) => {
-    assertAuthority(selected);
-    if (
-      artifactAdmissionDigest(ledger.requireAdmission(selected)) !== artifactAdmissionDigest(value)
-    )
-      throw new Error('Successor activation changed');
-    return true;
-  });
+  return store.confirmSymposiumArtifactAdmission(
+    intent.binding,
+    receipt,
+    (selected, value) => {
+      assertAuthority(selected);
+      if (
+        artifactAdmissionDigest(ledger.requireAdmission(selected)) !==
+        artifactAdmissionDigest(value)
+      )
+        throw new Error('Successor activation changed');
+      return true;
+    },
+    assertSourceParent,
+  );
 }

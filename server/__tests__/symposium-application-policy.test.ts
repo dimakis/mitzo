@@ -185,6 +185,70 @@ describe('persisted application admission', () => {
     expect(a.reserveApplicationPreparation(preparation)).toMatchObject({
       kind: 'already_prepared',
     });
+    const seat = {
+      id: 'coder',
+      accountBinding: {
+        accountId: 'coder',
+        accountLabel: 'Coder',
+        provider: 'openai-codex',
+        model: 'offline',
+        profileRevision: '1',
+      },
+      profileBinding: { profileId: 'coder', profileRevision: '1' },
+      authorityGrant: {
+        grantId: 'grant',
+        revision: 1,
+        filesystem: 'write',
+        tools: 'write',
+        network: 'restricted',
+      },
+      contextGrant: { grantId: 'context', revision: 1, classification: 'work', sourceRefs: [] },
+    } as unknown as SeatConfig;
+    const authority = createSymposiumSuccessorFixAuthority({
+      workflows: a,
+      events: {
+        getActiveSymposiumConfig: () => ({
+          version: 2,
+          revision: 1,
+          state: 'active',
+          seats: [seat],
+        }),
+        getLatestSymposiumMembership: () => ({
+          generation: 1,
+          state: 'active',
+          reconciliation: 'confirmed',
+        }),
+        getLatestSymposiumAdmission: () => null,
+      } as unknown as Parameters<typeof createSymposiumSuccessorFixAuthority>[0]['events'],
+      grants: { verifySeat: () => {} },
+    });
+    const sourceRequest = {
+      ...preparation,
+      sessionId: 's',
+      actor: 'user',
+      seatId: 'coder',
+      initialAttemptId: 'initial-attempt',
+      policyReservationId: 'policy-initial',
+      parentGenerationId: 'source',
+      parentSealDigest: hash,
+      parentCommit: 'i',
+      parentCommittedTreeDigest: hash,
+      membershipGeneration: 1,
+      predecessorMembershipGeneration: 1,
+      expectedConfigRevision: 1,
+      accountId: 'coder',
+      model: 'offline',
+      profileId: 'coder',
+      profileRevision: '1',
+      authorityGrantId: 'grant',
+      authorityRevision: 1,
+      accountBinding: seat.accountBinding,
+      contextGrant: seat.contextGrant,
+    } as unknown as Extract<Parameters<typeof authority.assertCurrent>[0], { kind: 'initial' }>;
+    expect(authority.assertCurrent(sourceRequest)).toBe(true);
+    expect(() => authority.assertCurrent({ ...sourceRequest, sourceSealId: 'wrong' })).toThrow(
+      /source|preparation/i,
+    );
     a.close();
   });
   it('charges once across connections/restart and consumes dispatch once', () => {

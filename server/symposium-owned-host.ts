@@ -16,6 +16,8 @@ import { createSymposiumSourceHost } from './symposium-source-service.js';
 import {
   sealImportedSourceArtifact,
   requireCompletedImportedSourceSeal,
+  initialSourceExportReceipt,
+  type InitialSourceExportReceipt,
 } from './symposium-source-artifact-seal.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import {
@@ -730,7 +732,7 @@ export async function createOwnedSymposiumHost(
     };
     const withSuccessor = <T>(
       request: ArtifactGenerationRequest,
-      exported: SuccessorArtifactExportReceipt,
+      exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
       bundle: Buffer,
       run: Parameters<typeof withOwnedArtifactSuccessor<T>>[4],
     ) => {
@@ -742,6 +744,11 @@ export async function createOwnedSymposiumHost(
           leaseHost: leaseHost!,
           sessionArtifacts: sessionArtifacts!,
           sealer: getArtifactSealer(),
+          sourceOwner: artifactOwner,
+          sourceProof: {
+            assertNoNativeClaims: (sessionId) => sourceSealDeps().assertNoNativeClaims(sessionId),
+            command: leaseHost!.snapshotCommand(),
+          },
         },
         request,
         exported,
@@ -907,7 +914,7 @@ export async function createOwnedSymposiumHost(
       },
       async copySuccessorArtifact(
         request: ArtifactGenerationRequest,
-        exported: SuccessorArtifactExportReceipt,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
         bundle: Buffer,
         signal: AbortSignal,
       ) {
@@ -920,7 +927,7 @@ export async function createOwnedSymposiumHost(
       async activateSuccessorArtifact(
         request: ArtifactGenerationRequest,
         generationId: string,
-        exported: SuccessorArtifactExportReceipt,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
         bundle: Buffer,
         signal: AbortSignal,
       ) {
@@ -934,7 +941,7 @@ export async function createOwnedSymposiumHost(
       async admitSuccessorArtifact(
         request: ArtifactGenerationRequest,
         binding: ArtifactAdmissionBindingV1,
-        exported: SuccessorArtifactExportReceipt,
+        exported: SuccessorArtifactExportReceipt | InitialSourceExportReceipt,
         bundle: Buffer,
         signal: AbortSignal,
       ) {
@@ -943,13 +950,32 @@ export async function createOwnedSymposiumHost(
             signal.throwIfAborted();
             if (!(options.facts instanceof EventStore))
               throw new Error('Successor admission requires retained EventStore');
-            return confirmOwnedArtifactSuccessor(options.facts, ledger, binding, (selected) => {
-              custody();
-              signal.throwIfAborted();
-              if (options.successorAuthority?.assertAdmissionCurrent?.(selected) !== true)
-                throw new Error('Current successor policy authority required');
-              return true;
-            });
+            return confirmOwnedArtifactSuccessor(
+              options.facts,
+              ledger,
+              binding,
+              (selected) => {
+                custody();
+                signal.throwIfAborted();
+                if (options.successorAuthority?.assertAdmissionCurrent?.(selected) !== true)
+                  throw new Error('Current successor policy authority required');
+                return true;
+              },
+              (selected) => {
+                const source = requireCompletedImportedSourceSeal(
+                  sessionArtifacts!,
+                  artifactOwner,
+                  selected.sessionId,
+                );
+                if (
+                  selected.sourceSealId !== source.receipt.operationId ||
+                  selected.parentGenerationId !== source.receipt.volumeGeneration ||
+                  selected.parentSealDigest !== source.digest
+                )
+                  throw new Error('Initial admission source proof changed');
+                return true;
+              },
+            );
           }),
         );
       },
@@ -968,6 +994,11 @@ export async function createOwnedSymposiumHost(
           track(() => sealSource(sessionId, operationId, signal)),
         requireSeal: (sessionId: string) =>
           requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
+        initialExport: (sessionId: string, operationId: string) =>
+          initialSourceExportReceipt(
+            requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
+            operationId,
+          ),
       },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: (

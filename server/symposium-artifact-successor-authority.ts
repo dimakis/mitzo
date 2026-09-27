@@ -79,8 +79,43 @@ export function createSymposiumSuccessorFixAuthority(deps: {
         seat.authorityGrant.revision !== request.authorityRevision
       )
         throw new Error('Current successor request selection changed');
-      if (request.kind === 'initial')
-        throw new Error('Initial imported-parent authority requires the source owner');
+      if (request.kind === 'initial') {
+        const state = deps.workflows.get(request.workflowId);
+        const prep = state?.applicationPreparations.find(
+          (value) => value.kind === 'initial' && value.attemptId === request.initialAttemptId,
+        );
+        if (
+          !state ||
+          state.limits.mode !== 'application' ||
+          state.status !== 'awaiting_initial' ||
+          state.implementation !== null ||
+          state.sessionId !== request.sessionId ||
+          state.owner !== request.actor ||
+          state.initialArtifact?.revision !== request.parentCommit ||
+          state.initialArtifact.hash !== request.parentCommittedTreeDigest ||
+          state.implementer.seatId !== request.seatId ||
+          !prep ||
+          prep.status !== 'preparing' ||
+          prep.kind !== 'initial' ||
+          prep.sourceSealId !== request.sourceSealId ||
+          prep.policyReservationId !== request.policyReservationId ||
+          prep.actorSeatId !== request.seatId ||
+          prep.from.configRevision !== config.revision ||
+          prep.from.membershipGeneration !== member.generation ||
+          prep.seal.fenceId !== request.sourceSealId ||
+          prep.seal.artifactGenerationId !== request.parentGenerationId ||
+          prep.seal.sealDigest !== request.parentSealDigest ||
+          prep.seal.artifactRevision !== request.parentCommit ||
+          prep.seal.artifactHash !== request.parentCommittedTreeDigest ||
+          prep.expectedSelection.accountId !== request.accountId ||
+          prep.expectedSelection.model !== request.model ||
+          prep.expectedSelection.profileId !== request.profileId ||
+          prep.expectedSelection.profileRevision !== request.profileRevision ||
+          prep.expectedSelection.accountProfileRevision !== request.accountBinding.profileRevision
+        )
+          throw new Error('Charged exact initial source preparation required');
+        return true;
+      }
       const admission = deps.events.getLatestSymposiumAdmission(
         request.sessionId,
         request.seatId,
@@ -156,8 +191,58 @@ export function createSymposiumSuccessorFixAuthority(deps: {
       return true;
     },
     assertAdmissionCurrent(binding) {
-      if (binding.kind === 'initial')
-        throw new Error('Initial imported-parent admission requires the source owner');
+      if (binding.kind === 'initial') {
+        const state = deps.workflows.get(binding.workflowId);
+        const prep = state?.applicationPreparations.find(
+          (value) =>
+            value.kind === 'initial' &&
+            value.attemptId === binding.initialAttemptId &&
+            value.policyReservationId === binding.policyReservationId &&
+            value.transitionId === binding.transitionId,
+        );
+        if (
+          !state ||
+          state.limits.mode !== 'application' ||
+          state.sessionId !== binding.sessionId ||
+          state.owner !== binding.actor ||
+          !prep ||
+          (prep.status !== 'preparing' && prep.status !== 'bound') ||
+          prep.kind !== 'initial' ||
+          prep.sourceSealId !== binding.sourceSealId ||
+          prep.seal.fenceId !== binding.sourceSealId ||
+          prep.seal.artifactGenerationId !== binding.parentGenerationId ||
+          prep.seal.sealDigest !== binding.parentSealDigest ||
+          prep.actorSeatId !== binding.seatId ||
+          prep.from.configRevision !== binding.expectedConfigRevision ||
+          prep.from.membershipGeneration !== binding.predecessorMembershipGeneration ||
+          prep.to.configRevision !== binding.resultingConfigRevision ||
+          prep.to.membershipGeneration !== binding.successorMembershipGeneration ||
+          prep.expectedSelection.accountId !== binding.accountBinding.accountId ||
+          prep.expectedSelection.model !== binding.accountBinding.model ||
+          prep.expectedSelection.profileId !== binding.profileBinding.profileId ||
+          prep.expectedSelection.profileRevision !== binding.profileBinding.profileRevision ||
+          prep.expectedSelection.accountProfileRevision !== binding.accountBinding.profileRevision
+        )
+          throw new Error('Charged exact initial admission preparation required');
+        const { config, seat, member } = current(binding.sessionId, binding.seatId);
+        const before =
+          prep.status === 'preparing' &&
+          config.revision === binding.expectedConfigRevision &&
+          member.generation === binding.predecessorMembershipGeneration;
+        const after =
+          config.revision === binding.resultingConfigRevision &&
+          member.generation === binding.successorMembershipGeneration;
+        if (
+          !(before || after) ||
+          canonicalReviewJson(seat.accountBinding) !==
+            canonicalReviewJson(binding.accountBinding) ||
+          canonicalReviewJson(seat.profileBinding) !==
+            canonicalReviewJson(binding.profileBinding) ||
+          !exactGrant(seat, binding)
+        )
+          throw new Error('Current initial writer authority changed');
+        return true;
+      }
       const state = deps.workflows.get(binding.workflowId);
       const prep = state?.applicationPreparations.find(
         (value) =>
@@ -240,7 +325,7 @@ export function assertSuccessorFixAuthority(
     throw new Error('Current successor fix authority required');
   const state = authority.workflows.get(request.workflowId);
   if (request.kind === 'initial') {
-    const attempt = state?.applicationAttempts.find(
+    const prep = state?.applicationPreparations.find(
       (value) =>
         value.kind === 'initial' &&
         value.attemptId === request.initialAttemptId &&
@@ -264,23 +349,22 @@ export function assertSuccessorFixAuthority(
       request.accountBinding.accountId !== request.accountId ||
       request.accountBinding.model !== request.model ||
       request.accountBinding.profileRevision !== request.profileRevision ||
-      !attempt ||
-      attempt.settled ||
-      attempt.dispatched ||
-      attempt.actorSeatId !== request.seatId ||
-      attempt.artifactRevision !== request.parentCommit ||
-      attempt.artifactHash !== request.parentCommittedTreeDigest ||
-      attempt.binding.membershipGeneration !== request.predecessorMembershipGeneration ||
-      attempt.binding.configRevision !== request.expectedConfigRevision ||
-      attempt.binding.accountId !== request.accountId ||
-      attempt.binding.model !== request.model ||
-      attempt.binding.profileId !== request.profileId ||
-      attempt.binding.profileRevision !== request.profileRevision ||
-      attempt.binding.accountProfileRevision !== request.accountBinding.profileRevision ||
-      attempt.binding.authorityGrant.grantId !== request.authorityGrantId ||
-      attempt.binding.authorityGrant.revision !== request.authorityRevision ||
-      attempt.binding.contextGrant.grantId !== request.contextGrant.grantId ||
-      attempt.binding.contextGrant.revision !== request.contextGrant.revision
+      !prep ||
+      prep.status !== 'preparing' ||
+      prep.kind !== 'initial' ||
+      prep.sourceSealId !== request.sourceSealId ||
+      prep.seal.artifactGenerationId !== request.parentGenerationId ||
+      prep.seal.sealDigest !== request.parentSealDigest ||
+      prep.artifactRevision !== request.parentCommit ||
+      prep.artifactHash !== request.parentCommittedTreeDigest ||
+      prep.from.membershipGeneration !== request.predecessorMembershipGeneration ||
+      prep.from.configRevision !== request.expectedConfigRevision ||
+      prep.actorSeatId !== request.seatId ||
+      prep.expectedSelection.accountId !== request.accountId ||
+      prep.expectedSelection.model !== request.model ||
+      prep.expectedSelection.profileId !== request.profileId ||
+      prep.expectedSelection.profileRevision !== request.profileRevision ||
+      prep.expectedSelection.accountProfileRevision !== request.accountBinding.profileRevision
     )
       throw new Error('Exact retained initial attempt and policy reservation required');
     return true;
