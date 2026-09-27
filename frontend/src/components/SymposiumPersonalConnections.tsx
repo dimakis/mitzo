@@ -107,6 +107,7 @@ export function SymposiumPersonalConnections({
   }
   const pendingId =
     activeId ??
+    callbackId ??
     connections.find((item) => item.state === 'connecting' || item.state === 'disconnecting')?.id;
   return (
     <section className="personal-connections" aria-label="Personal ChatGPT accounts">
@@ -190,8 +191,7 @@ export function SymposiumPersonalConnections({
                 }
                 recoveryOnly={!!pendingId && callbackId !== connection.id}
                 onPendingChange={(pending) => {
-                  setCallbackId(pending ? connection.id : null);
-                  setActiveId((current) =>
+                  setCallbackId((current) =>
                     pending ? connection.id : current === connection.id ? null : current,
                   );
                 }}

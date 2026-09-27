@@ -96,6 +96,7 @@ export function SymposiumDeviceLogin({
     return next;
   }
   async function check(generation = stop()) {
+    if (generation !== version.current) return;
     setBusy(true);
     try {
       const id = attempt.current;
@@ -107,7 +108,10 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, id);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      if (next.state === 'pending') {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => void check(generation), 2000);
+      }
     } catch {
       if (generation !== version.current) return;
       setError('Could not check sign-in status. Retry status before starting another attempt.');
@@ -148,7 +152,10 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, kind === 'cancel' ? attempt.current : undefined);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      if (next.state === 'pending') {
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => void check(generation), 2000);
+      }
     } catch {
       if (generation !== version.current) return;
       setError('Could not confirm the sign-in request. Check status before trying again.');
