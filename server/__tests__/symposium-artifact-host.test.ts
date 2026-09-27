@@ -472,3 +472,48 @@ describe('durable artifact host', () => {
     }
   });
 });
+
+it('cleanup binding uses only the retained original lease and exact terminal identity', async () => {
+  const { a, b } = fixture();
+  try {
+    const lease = await acquireSymposiumArtifactLease(a, request);
+    a.markCreationStarted(lease.token, lease.revision, 'seat-writer');
+    expect(() =>
+      a.bindRetainedSandboxForCleanup(
+        { ...lease, revision: 'foreign' },
+        'seat-writer',
+        'physical-1',
+      ),
+    ).toThrow();
+    expect(() =>
+      a.bindRetainedSandboxForCleanup(
+        { ...lease, request: { ...request, seatId: 'foreign' } },
+        'seat-writer',
+        'physical-1',
+      ),
+    ).toThrow();
+    a.bindRetainedSandboxForCleanup(lease, 'seat-writer', 'physical-1');
+    expect(() => b.bindRetainedSandboxForCleanup(lease, 'seat-writer', 'physical-1')).not.toThrow();
+    expect(() => b.bindRetainedSandboxForCleanup(lease, 'seat-writer', 'foreign-id')).toThrow();
+    await expect(
+      acquireSymposiumArtifactLease(b, { ...request, seatId: 'replacement' }),
+    ).rejects.toThrow('already has a writer');
+    await a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {});
+    expect(() => a.bindRetainedSandboxForCleanup(lease, 'seat-writer', 'physical-1')).not.toThrow();
+    expect(() =>
+      a.bindRetainedSandboxForCleanup({ ...lease, token: 'foreign' }, 'seat-writer', 'physical-1'),
+    ).toThrow();
+    const replacement = await acquireSymposiumArtifactLease(b, request);
+    expect(replacement.token).not.toBe(lease.token);
+    expect(() => a.bindRetainedSandboxForCleanup(lease, 'seat-writer', 'physical-1')).toThrow(
+      'replaced',
+    );
+    await expect(
+      a.releaseBoundSandbox(request, 'seat-writer', 'physical-1', async () => {}),
+    ).rejects.toThrow('changed after deletion proof');
+    expect(await b.inspectLease(replacement.token)).toEqual(replacement);
+  } finally {
+    a.close();
+    b.close();
+  }
+});
