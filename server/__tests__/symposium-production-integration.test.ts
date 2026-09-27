@@ -497,6 +497,24 @@ describe('production Symposium route to native runtime', () => {
     expect(ensure).toHaveBeenCalledTimes(1);
     const reserved = store.getSymposiumSeatSandbox('symposium', 'builder', 1);
     expect(reserved).toMatchObject({ sandboxName, physicalId, state: 'ready' });
+    // Exercise the production admission callback after adding a roster entry:
+    // confirmed retained members must be admitted at the new revision without
+    // changing their generation or weakening candidate membership validation.
+    const retained = store.getLatestSymposiumMembership('symposium', 'builder');
+    store.setSymposiumConfig('symposium', {
+      ...config,
+      revision: 2,
+      seats: [...config.seats, { ...seat, id: 'new-reviewer' }],
+    });
+    expect(store.getLatestSymposiumAdmission('symposium', 'builder', 2)).toBeUndefined();
+    const refreshed = await request(app)
+      .post(`${base}/admissions/refresh`)
+      .send({ expectedRevision: 2 });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.seatIds).toEqual(['builder']);
+    expect(store.getLatestSymposiumMembership('symposium', 'builder')).toEqual(retained);
+    expect(store.getLatestSymposiumAdmission('symposium', 'builder', 2)?.decision).toBe('admitted');
+    expect(ensure).toHaveBeenCalledTimes(1);
     const staged = await request(app)
       .post(`${base}/deliveries`)
       .send({
@@ -687,7 +705,7 @@ describe('production Symposium route to native runtime', () => {
       seatId: 'builder',
       action: 'suspend',
       expectedGeneration: 1,
-      configRevision: 1,
+      configRevision: 2,
       reason: 'Stop after cancellation',
       idempotencyKey: 'suspend-builder-after-cancel',
     });
