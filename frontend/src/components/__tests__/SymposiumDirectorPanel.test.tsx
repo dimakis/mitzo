@@ -442,3 +442,27 @@ it('keeps primary lifecycle controls unavailable while reviewer removal remains 
     expect.objectContaining({ body: expect.stringContaining('"seatId":"reviewer"') }),
   );
 });
+
+it('retains explicit admission for an anchor without membership after activation', async () => {
+  const current = status(true);
+  const unadmitted = {
+    ...current,
+    seats: current.seats.map((row) => ({ ...row, admitted: false, membership: null })),
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response(unadmitted));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  const anchor = within(
+    (await screen.findByText('Architect', { selector: 'strong' })).closest('li')!,
+  );
+  await userEvent.click(
+    screen.getByRole('checkbox', { name: /I acknowledge the shared artifacts/ }),
+  );
+  await userEvent.click(anchor.getByRole('button', { name: 'Add seat' }));
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/session/symposium/membership',
+    expect.objectContaining({
+      body: expect.stringContaining('"seatId":"architect","action":"admit"'),
+    }),
+  );
+});
