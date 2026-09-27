@@ -147,6 +147,11 @@ kernel executable identity with the existing exact-path network policy; it adds
 no binary grants. See the [canonical native image proof](docs/spikes/openshell-codex/CANONICAL-CODEX.md).
 The host device-login CLI version is separate and unchanged.
 
+The [reviewed canonical native build](docs/features/symposium-reviewed-native-build.md)
+records exact image/artifact pins and the attended Luna two-turn stream, replay and
+cleanup evidence. Its pin update still requires all existing host, provider,
+policy and physical admission checks; full application acceptance remains pending.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
