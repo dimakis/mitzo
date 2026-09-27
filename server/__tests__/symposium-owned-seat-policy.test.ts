@@ -394,7 +394,7 @@ it('retains its own exclusively created bytes after transient first post-write v
   expect(f.resolve(f.request)?.path).toBe(recovered.path);
 });
 
-it.each(['root', 'filesystem', 'rule', 'binding', 'allow'])(
+it.each(['root', 'filesystem', 'rule', 'binding', 'allow', 'nested-endpoints'])(
   'rejects false credential options added outside endpoints at %s',
   (location) => {
     const f = fixture(true),
@@ -411,7 +411,12 @@ it.each(['root', 'filesystem', 'rule', 'binding', 'allow'])(
             : location === 'binding'
               ? rule.endpoints[0].credential_binding
               : rule.endpoints[0].rules[0].allow;
-    Object.assign(target, { request_body_credential_rewrite: false });
+    Object.assign(
+      target,
+      location === 'nested-endpoints'
+        ? { endpoints: [{ request_body_credential_rewrite: false }] }
+        : { request_body_credential_rewrite: false },
+    );
     const sandbox = {
       name: 'seat-box',
       id: 'box-id',
