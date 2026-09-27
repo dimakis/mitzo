@@ -3556,6 +3556,7 @@ export class EventStore {
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
+      this.assertSymposiumArtifactWorkAllowed(delivery.sessionId);
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
           `SELECT
