@@ -467,3 +467,83 @@ it('collects Claude image evidence from selected owned host and requires the exi
   );
   expect(f.physical.captureClaudeProvider).toHaveBeenCalledWith('vertex-id');
 });
+
+import { createOwnedSeatPolicySelector } from '../symposium-owned-seat-policy.js';
+import { AccountProfiles } from '../account-profiles.js';
+import { chmodSync, readFileSync } from 'node:fs';
+it('keeps the collected base-policy hash distinct from the exact derived Vertex seat policy', () => {
+  const f = claudeFixture();
+  const base = JSON.stringify({
+    version: 1,
+    filesystem_policy: { include_workdir: true, read_only: ['/usr'], read_write: ['/sandbox'] },
+    landlock: { compatibility: 'best_effort' },
+    network_policies: { codex: { endpoints: [{ host: 'chatgpt.com' }] } },
+  });
+  writeFileSync(f.config.policy, base);
+  const candidate = collectOwnedAdmissionEvidence(
+    {
+      config: f.config,
+      endpoint: f.attestation.gatewayEndpoint,
+      physical: f.physical,
+      custody: () => {},
+    },
+    {
+      providerInstances: f.attestation.providerInstances,
+      allowedRoles: f.attestation.allowedRoles,
+      allowedAccountProviders: f.attestation.allowedAccountProviders,
+      artifactVolume: f.attestation.artifactVolume,
+    },
+    {
+      invoke: (cli, args) =>
+        args[0] === 'profile'
+          ? JSON.stringify({ id: args[2], provider: args[2] })
+          : f.invoke(cli, args),
+    },
+  );
+  const profiles = new AccountProfiles([
+    {
+      id: vertexReceipt.accountId,
+      label: 'Work',
+      provider: 'anthropic-vertex',
+      credentialRef: '/never-read-adc',
+      projectId: vertexReceipt.projectId,
+      region: 'global',
+      sandboxProvider: vertexReceipt.provider,
+      sandboxProviderId: vertexReceipt.providerId,
+      models: [{ id: vertexReceipt.model, label: 'Haiku' }],
+    },
+  ]);
+  const binding = profiles.resolve(vertexReceipt.accountId, vertexReceipt.model);
+  const selector = createOwnedSeatPolicySelector({
+    gateway: {
+      stateDirectory: join(f.config.seed, '..'),
+      workspace: 'symposium',
+      verifyCustody: () => {},
+    } as never,
+    basePolicy: f.config.policy,
+    baseDigest: candidate.policySha256,
+    facts: {
+      getActiveSymposiumConfig: () => ({
+        version: 2,
+        state: 'active',
+        seats: [{ id: 'seat', accountBinding: binding }],
+      }),
+      getLatestSymposiumMembership: () => ({ state: 'active', generation: 1 }),
+    } as never,
+    currentProfiles: () => profiles,
+    hostGrants: { verifySeat: () => {} },
+    capture: () => vertexReceipt,
+  });
+  const selected = selector({ sessionId: 'session', seatId: 'seat', generation: 1 })!;
+  expect(candidate.policySha256).toBe(hash(base));
+  expect(selected.sha256).not.toBe(candidate.policySha256);
+  expect(readFileSync(selected.path, 'utf8')).not.toContain('chatgpt.com');
+  selected.verify();
+  const capability = verifySymposiumProductionGate(f.config, candidate, f.physical, f.invoke);
+  expect(capability.runtimeConfig.policy).toBe(f.config.policy);
+  chmodSync(selected.path, 0o600);
+  writeFileSync(selected.path, '{}');
+  chmodSync(selected.path, 0o400);
+  // Base attestation alone never authorizes the mutated effective seat policy.
+  expect(() => selected.verify()).toThrow();
+});

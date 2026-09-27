@@ -1,0 +1,72 @@
+{
+  "filesystem_policy": {
+    "include_workdir": true,
+    "read_only": [
+      "/usr",
+      "/lib",
+      "/proc",
+      "/dev/urandom",
+      "/app",
+      "/opt",
+      "/etc",
+      "/var/log"
+    ],
+    "read_write": [
+      "/sandbox",
+      "/tmp",
+      "/dev/null"
+    ]
+  },
+  "landlock": {
+    "compatibility": "best_effort"
+  },
+  "network_policies": {
+    "claude_vertex_haiku": {
+      "binaries": [
+        {
+          "path": "/usr/local/bin/claude"
+        }
+      ],
+      "endpoints": [
+        {
+          "credential_binding": {
+            "provider": "symposium-vertex-offline-probe"
+          },
+          "enforcement": "enforce",
+          "host": "aiplatform.googleapis.com",
+          "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:rawPredict",
+          "port": 443,
+          "protocol": "rest",
+          "rules": [
+            {
+              "allow": {
+                "method": "POST",
+                "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:rawPredict"
+              }
+            }
+          ]
+        },
+        {
+          "credential_binding": {
+            "provider": "symposium-vertex-offline-probe"
+          },
+          "enforcement": "enforce",
+          "host": "aiplatform.googleapis.com",
+          "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:streamRawPredict",
+          "port": 443,
+          "protocol": "rest",
+          "rules": [
+            {
+              "allow": {
+                "method": "POST",
+                "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:streamRawPredict"
+              }
+            }
+          ]
+        }
+      ],
+      "name": "claude-vertex-haiku"
+    }
+  },
+  "version": 1
+}

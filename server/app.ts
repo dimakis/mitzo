@@ -887,6 +887,7 @@ export interface SymposiumProductionHost {
     recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
     discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
   };
+  resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
@@ -1011,6 +1012,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       attemptRegistry: host.attemptRegistry,
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
+      resolveSeatPolicy: host.resolveSeatPolicy,
       runSandboxCreation: host.runSandboxCreation,
       verifiedCodexControllerCommand: SYMPOSIUM_CODEX_CONTROLLER_COMMAND,
       ...(host.verifySubscriptionPrivateAuth

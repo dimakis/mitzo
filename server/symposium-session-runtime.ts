@@ -1,3 +1,7 @@
+import type {
+  SymposiumSeatPolicy,
+  SymposiumSeatPolicySelector,
+} from './symposium-owned-seat-policy.js';
 import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from './symposium-owned-runtime-contract.js';
 import {
   SandboxCreationPreflightError,
@@ -305,6 +309,7 @@ export function snapshotSymposiumProviderUnion(
 }
 
 export interface SymposiumSharedSandboxOwnerDeps {
+  resolveSeatPolicy?: SymposiumSeatPolicySelector;
   runSandboxCreation?: SandboxCreationFence;
   sessionId: string;
   facts: SymposiumDispatchFacts;
@@ -542,6 +547,16 @@ export function snapshotSymposiumSeatProvider(
 
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
 export class SymposiumPerSeatSandboxOwner {
+  private seatPolicies = new Map<
+    string,
+    { policy: SymposiumSeatPolicy; sandboxName: string; sandboxId: string }
+  >();
+  verifySeatPolicy(sessionId: string, seatId: string): void {
+    if (sessionId !== this.deps.sessionId) throw new Error('Seat policy session changed');
+    const policy = this.seatPolicies.get(seatId);
+    if (!policy) throw new Error('Owned Vertex seat policy unavailable');
+    policy.policy.verifyInstalled(policy);
+  }
   /** Same-owner terminal proof for cleanup only; never restored from inventories/restart. */
   private readonly terminalCreates = new Map<
     string,
@@ -655,7 +670,15 @@ export class SymposiumPerSeatSandboxOwner {
         if (snapshot.account.kind === 'chatgpt-subscription-native')
           assertNativeSubscriptionCapability(this.deps);
         const binding = snapshot.bindings[0];
+        const seatPolicy = this.deps.resolveSeatPolicy?.({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+        });
+        if (binding.type === 'google-vertex-ai' && !seatPolicy)
+          throw new Error('Owned Vertex seat policy unavailable');
         const verifySeatCapability = () => {
+          seatPolicy?.verify();
           const capability = this.deps.verifyHostCapability?.();
           verifyClaudeSeatCapability(this.deps, sessionId, seatId, capability);
           if (capability)
@@ -723,6 +746,7 @@ export class SymposiumPerSeatSandboxOwner {
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
           ...this.deps.runtimeConfig,
+          ...(seatPolicy ? { policy: seatPolicy.path } : {}),
           ...(this.deps.runSandboxCreation
             ? {
                 beforeSandboxCreate: () => {
@@ -733,7 +757,7 @@ export class SymposiumPerSeatSandboxOwner {
             : {}),
           ...(this.deps.runSandboxCreation &&
           this.deps.runtimeConfig.cliContract === 'v0.1' &&
-          snapshot.account.kind === 'chatgpt-subscription-native' &&
+          ['chatgpt-subscription-native', 'api'].includes(snapshot.account.kind) &&
           this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate
             ? {
                 onSandboxCreationPhase: (phase) => {
@@ -822,6 +846,17 @@ export class SymposiumPerSeatSandboxOwner {
               reservation.physicalId,
               artifactDriverConfig!,
             );
+          }
+          if (seatPolicy) {
+            seatPolicy.verifyInstalled({
+              sandboxName: reservation.sandboxName,
+              sandboxId: reservation.physicalId,
+            });
+            this.seatPolicies.set(seatId, {
+              policy: seatPolicy,
+              sandboxName: reservation.sandboxName,
+              sandboxId: reservation.physicalId,
+            });
           }
           snapshot.verify();
           return {
@@ -932,6 +967,24 @@ export class SymposiumPerSeatSandboxOwner {
             diagnostic(true);
             throw error;
           }
+        }
+        if (seatPolicy) {
+          creationPhase = 'provider';
+          diagnostic(false);
+          try {
+            seatPolicy.verifyInstalled(
+              { sandboxName: sandbox.sandboxName, sandboxId: sandbox.sandboxId },
+              true,
+            );
+          } catch (error) {
+            diagnostic(true);
+            throw error;
+          }
+          this.seatPolicies.set(seatId, {
+            policy: seatPolicy,
+            sandboxName: sandbox.sandboxName,
+            sandboxId: sandbox.sandboxId,
+          });
         }
         this.deps.seatSandboxRegistry!.confirmSymposiumSeatSandbox({
           sessionId,
@@ -1525,6 +1578,11 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
             workspace: deps.runtimeConfig.workspace,
           });
       verifyClaudeSeatCapability({ ...deps, facts: deps.store }, sessionId, seatId, capability);
+      if (binding.provider === 'anthropic-vertex') {
+        const policy = deps.resolveSeatPolicy?.({ sessionId, seatId, generation });
+        if (!policy) throw new Error('Owned Vertex seat policy unavailable');
+        policy.verify();
+      }
       snapshot.verify();
       orchestrator.recordProviderAdmission({
         sessionId,

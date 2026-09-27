@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "network_policies": {
+    "claude_vertex_haiku": {
+      "name": "claude-vertex-haiku",
+      "endpoints": [
+        {
+          "host": "aiplatform.googleapis.com",
+          "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:rawPredict",
+          "port": 443,
+          "protocol": "rest",
+          "enforcement": "enforce",
+          "allow_uninspected_credentials": false,
+          "request_body_credential_rewrite": false,
+          "credential_binding": {
+            "provider": "symposium-vertex-offline-probe"
+          },
+          "rules": [
+            {
+              "allow": {
+                "method": "POST",
+                "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:rawPredict"
+              }
+            }
+          ]
+        },
+        {
+          "host": "aiplatform.googleapis.com",
+          "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:streamRawPredict",
+          "port": 443,
+          "protocol": "rest",
+          "enforcement": "enforce",
+          "allow_uninspected_credentials": false,
+          "request_body_credential_rewrite": false,
+          "credential_binding": {
+            "provider": "symposium-vertex-offline-probe"
+          },
+          "rules": [
+            {
+              "allow": {
+                "method": "POST",
+                "path": "/v1/projects/itpc-ca-638a2a9c7c/locations/global/publishers/anthropic/models/claude-haiku-4-5@20251001:streamRawPredict"
+              }
+            }
+          ]
+        }
+      ],
+      "binaries": [
+        {
+          "path": "/usr/local/bin/claude"
+        }
+      ]
+    }
+  },
+  "filesystem_policy": {
+    "include_workdir": true,
+    "read_only": [
+      "/usr",
+      "/lib",
+      "/proc",
+      "/dev/urandom",
+      "/app",
+      "/opt",
+      "/etc",
+      "/var/log"
+    ],
+    "read_write": [
+      "/sandbox",
+      "/tmp",
+      "/dev/null"
+    ]
+  },
+  "landlock": {
+    "compatibility": "best_effort"
+  }
+}
