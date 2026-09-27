@@ -73,6 +73,11 @@ function fixture(runtimeAvailable = false) {
     setSymposiumConfig: vi.fn((_id: string, next: unknown) => next),
   };
   const orchestrator = {
+    creationDiagnostic: vi.fn((_sessionId: string, seatId: string, _actor?: string) => ({
+      phase: seatId,
+      code: `diagnostic-${seatId}`,
+      canCleanup: false,
+    })),
     transferPrimary: vi.fn(() => ({ ...config, revision: 5, anchorSeatId: 'reviewer' })),
     refreshActiveAdmissions: vi.fn(() => ['architect']),
     transitionMembership: vi.fn(async () => ({
@@ -110,6 +115,7 @@ function fixture(runtimeAvailable = false) {
     model: 'claude-sonnet',
     profileRevision: 'rev-1',
   }));
+  const getRuntime = vi.fn(() => (runtimeAvailable ? (orchestrator as never) : null));
   const app = express();
   app.use(express.json());
   app.use((_req, res, next) => {
@@ -120,7 +126,7 @@ function fixture(runtimeAvailable = false) {
     '/api/sessions/:id/symposium',
     createSymposiumDirectorRouter({
       store: store as never,
-      getRuntime: () => (runtimeAvailable ? (orchestrator as never) : null),
+      getRuntime,
       getSafetyOrchestrator: () => orchestrator as never,
       validateSelection,
       validateActiveConfig,
@@ -135,6 +141,7 @@ function fixture(runtimeAvailable = false) {
     app,
     store,
     orchestrator,
+    getRuntime,
     validateSelection,
     validateActiveConfig,
     activateDraft,
@@ -146,6 +153,34 @@ function fixture(runtimeAvailable = false) {
 }
 
 describe('Symposium director routes', () => {
+  it('resolves one fresh runtime per status request and preserves each seat diagnostic', async () => {
+    const { app, getRuntime, orchestrator } = fixture(true);
+    const first = await request(app).get('/api/sessions/chat/symposium');
+    expect(first.status).toBe(200);
+    expect(getRuntime).toHaveBeenCalledTimes(1);
+    expect(orchestrator.creationDiagnostic.mock.calls).toEqual([
+      ['chat', 'architect', 'operator:operator-1'],
+      ['chat', 'reviewer', 'operator:operator-1'],
+    ]);
+    expect(
+      first.body.seats.map((seat: { creationDiagnostic: unknown }) => seat.creationDiagnostic),
+    ).toEqual([
+      { phase: 'architect', code: 'diagnostic-architect', canCleanup: false },
+      { phase: 'reviewer', code: 'diagnostic-reviewer', canCleanup: false },
+    ]);
+    getRuntime.mockReturnValue(null);
+    const second = await request(app).get('/api/sessions/chat/symposium');
+    expect(getRuntime).toHaveBeenCalledTimes(2);
+    expect(second.body.runtimeAvailable).toBe(false);
+    expect(
+      second.body.seats.every(
+        (seat: { admitted: boolean; creationDiagnostic: unknown }) =>
+          !seat.admitted && seat.creationDiagnostic === null,
+      ),
+    ).toBe(true);
+    expect(orchestrator.creationDiagnostic).toHaveBeenCalledTimes(2);
+  });
+
   it('returns only the requested seat perspective and bounded queued inputs', async () => {
     const { app, getPerspective, getQueuedInputs } = fixture();
     const response = await request(app).get(

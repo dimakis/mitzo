@@ -498,7 +498,8 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(404).json({ error: 'Session not found' });
       return;
     }
-    const runtimeAvailable = deps.getRuntime(sessionId) !== null;
+    const runtime = deps.getRuntime(sessionId);
+    const runtimeAvailable = runtime !== null;
     if (session.sessionType !== 'symposium' || !session.symposiumConfig) {
       const binding = AccountBindingSchema.safeParse(session.accountBinding);
       res.json({
@@ -534,13 +535,11 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       );
       const diagnosticActor = (res.locals.authSession as { id?: string } | undefined)?.id;
       const creationDiagnostic =
-        deps
-          .getRuntime(sessionId)
-          ?.creationDiagnostic?.(
-            sessionId,
-            seat.id,
-            diagnosticActor ? `operator:${diagnosticActor}` : undefined,
-          ) ?? null;
+        runtime?.creationDiagnostic?.(
+          sessionId,
+          seat.id,
+          diagnosticActor ? `operator:${diagnosticActor}` : undefined,
+        ) ?? null;
       return {
         seatId: seat.id,
         seat,
