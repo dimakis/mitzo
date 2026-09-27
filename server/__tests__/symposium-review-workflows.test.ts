@@ -905,3 +905,73 @@ describe('artifact-pinned Symposium review workflow', () => {
     });
   });
 });
+
+it('preserves reported severity through delta history and replay without changing fingerprints or labeling legacy findings', () => {
+  reviews.create(create({ limits: { maxReviewRounds: 3, maxTokens: 500, maxCostUsd: 1 } }));
+  reviews.create(create({ workflowId: 'legacy' }));
+  const input = {
+    workflowId: 'workflow-1',
+    reviewId: 'review-1',
+    reviewerSeatId: 'reviewer',
+    kind: 'full' as const,
+    artifactRevision: 'commit-1',
+    artifactHash: hash('b'),
+    findings: [finding],
+    resolvedFingerprints: [],
+    usage: usage('reviewer-1'),
+  };
+  const legacy = recordReview({ ...input, workflowId: 'legacy' });
+  expect(legacy.findings[0]).not.toHaveProperty('severity');
+  const first = recordReview({ ...input, findings: [{ ...finding, severity: 'high' }] });
+  expect(first.findings[0]).toMatchObject({
+    severity: 'high',
+    fingerprint: legacy.findings[0].fingerprint,
+  });
+  reviews.authorizeFix({
+    workflowId: 'workflow-1',
+    artifactRevision: 'commit-1',
+    artifactHash: hash('b'),
+    actor: 'owner',
+    authorityGrantId: 'grant',
+    authorityRevision: 1,
+    findingFingerprints: [first.findings[0].fingerprint],
+    reason: 'Address finding',
+  });
+  recordFix({
+    workflowId: 'workflow-1',
+    implementerSeatId: 'coder',
+    result: {
+      ...implementation,
+      resultId: 'fix-1',
+      attemptId: 'fix-1',
+      inputRevision: 'commit-1',
+      inputHash: hash('b'),
+      artifactRevision: 'commit-2',
+      artifactHash: hash('c'),
+    },
+    usage: usage('fix-1'),
+  });
+  const delta = recordReview({
+    ...input,
+    reviewId: 'review-2',
+    kind: 'delta',
+    artifactRevision: 'commit-2',
+    artifactHash: hash('c'),
+    findings: [{ ...finding, severity: 'medium' }],
+    usage: usage('reviewer-2'),
+  });
+  expect(delta.findings).toHaveLength(1);
+  expect(delta.findings[0]).toMatchObject({
+    severity: 'medium',
+    fingerprint: first.findings[0].fingerprint,
+  });
+  reviews.close();
+  reviews = new SymposiumReviewStore(join(directory, 'events.db'));
+  expect(reviews.get('workflow-1')!.findings[0].severity).toBe('medium');
+  expect(reviews.get('legacy')!.findings[0]).not.toHaveProperty('severity');
+  const history = reviews
+    .history('workflow-1')
+    .filter((event) => event.action === 'review_recorded');
+  expect(history[0].detail).toMatchObject({ findings: [{ severity: 'high' }] });
+  expect(history[1].detail).toMatchObject({ findings: [{ severity: 'medium' }] });
+});

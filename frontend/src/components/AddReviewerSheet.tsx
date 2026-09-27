@@ -122,7 +122,9 @@ function ReviewerForm({
   const packageSnapshot = useRef<{ content: string } | null>(null);
   const operation = useRef({ seatId: `reviewer-${crypto.randomUUID()}`, key: crypto.randomUUID() });
   useEffect(() => {
+    if (!open) return;
     let live = true;
+    setStatus(null);
     request<Status>(base)
       .then((next) => {
         if (live) setStatus(next);
@@ -133,7 +135,7 @@ function ReviewerForm({
     return () => {
       live = false;
     };
-  }, [base]);
+  }, [base, open]);
   useEffect(() => {
     if (mode !== 'selected-turns' && mode !== 'full-context') return;
     let live = true;
@@ -358,6 +360,7 @@ function ReviewerForm({
               />
               <AccountModelPicker
                 scope="symposium"
+                requireExplicitSelection
                 sessionId={null}
                 preferredModel=""
                 onChange={setSelection}
