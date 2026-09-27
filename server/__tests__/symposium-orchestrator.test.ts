@@ -3407,7 +3407,14 @@ it.each(['suspend', 'remove'] as const)(
       release();
       await pending;
     }
-    const { sessionId: _sessionId, actor: _actor, occurredAt: _occurredAt, ...body } = transition;
+    const body = {
+      seatId: transition.seatId,
+      action,
+      expectedGeneration: 1,
+      configRevision: 4,
+      reason: transition.reason,
+      idempotencyKey: transition.idempotencyKey,
+    };
     expect(
       (await request(app).post('/api/sessions/chat/symposium/membership').send(body)).status,
     ).toBe(409);
