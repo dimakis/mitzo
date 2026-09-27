@@ -451,6 +451,18 @@ Login receipts are private to the initiating authenticated session, and credenti
 Personal Symposium Connections support separate saved account slots with explicit
 connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
+checks native subscription account type and model availability without inference.
+It requires a trusted owned-host attestation, pins its configuration and provider,
+and retains reconciliation evidence until gateway and physical cleanup agree.
+
+The no-inference discovery helper requires complete, bounded paginated sandbox and
+provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
+
+Owned native personal accounts expose an operator-only, revision-scoped model refresh
+endpoint. It performs account/model reads without inference, then publishes the catalog
+only after sandbox and physical cleanup. A new catalog revision requires explicit seat
+selection; interrupted discovery retains host recovery state.
 
 Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
 
@@ -458,3 +470,6 @@ Connections offers **Refresh supported models** for a connected personal account
 The action uses that displayed account revision, reports pending cleanup or host recovery,
 and leaves model choice and active-seat rebinding explicit.
 Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+Discovery journal ownership is exclusive across host adapters; interrupted owners
+retain a recovery lock, and SSH cleanup terminates its proxy process group.

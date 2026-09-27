@@ -7,6 +7,7 @@ type FakeAdapter = {
   complete(): void;
   disconnect: ReturnType<typeof vi.fn>;
   beginDeviceLogin: ReturnType<typeof vi.fn>;
+  captureDiscovery: ReturnType<typeof vi.fn>;
 };
 const state = vi.hoisted(() => ({ adapters: new Map<string, FakeAdapter>() }));
 vi.mock('../symposium-subscription-host.js', () => ({
@@ -24,6 +25,15 @@ vi.mock('../symposium-subscription-host.js', () => ({
       disconnect: vi.fn(async () => {
         definition = undefined;
       }),
+      captureDiscovery: vi.fn(() => ({
+        provider: { name: 'physical-provider', id: 'provider-id' },
+        assertCurrent: () => {
+          if (!definition) throw new Error('receipt changed');
+        },
+        publish: vi.fn((models, revision) => {
+          definition = { ...(definition as object), models, nativeCatalogRevision: revision };
+        }),
+      })),
       assertPrivateAuth: vi.fn(),
       verifyPrivateAuth: vi.fn(),
       beginDeviceLogin: vi.fn(async () => ({
@@ -62,7 +72,7 @@ afterEach(() => {
   state.adapters.clear();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(discover?: Parameters<typeof createPersonalSubscriptionHost>[2]) {
   const root = mkdtempSync(join(tmpdir(), 'personal-host-'));
   roots.push(root);
   return createPersonalSubscriptionHost(
@@ -76,6 +86,7 @@ function fixture() {
       models: [{ id: 'luna', label: 'Luna' }],
     },
     join(root, 'slots.json'),
+    discover,
   );
 }
 it('connects two independent accounts, rotates only explicit reconnect and fences removed account', async () => {
@@ -155,4 +166,81 @@ it('cannot implicitly reconnect the default slot through direct host entrypoints
   await expect(host.beginLogin()).rejects.toThrow('explicit');
   expect(state.adapters.get(row.id)!.disconnect).not.toHaveBeenCalled();
   expect(host.personalConnections.list()[0].state).toBe('connected');
+});
+
+async function connected(host: ReturnType<typeof fixture>) {
+  const row = host.personalConnections.list()[0];
+  const login = await host.beginDeviceLogin({
+    connectionId: row.id,
+    expectedRevision: row.revision,
+  });
+  state.adapters.get(row.id)!.complete();
+  await login.completed;
+  return host.personalConnections.list()[0];
+}
+it('serializes discovery with login/disconnect and publishes a new explicit selection revision', async () => {
+  let release!: (value: Awaited<ReturnType<NonNullable<Parameters<typeof fixture>[0]>>>) => void;
+  const discover = vi.fn(
+    () =>
+      new Promise<Awaited<ReturnType<NonNullable<Parameters<typeof fixture>[0]>>>>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const host = fixture(discover);
+  const row = await connected(host);
+  const before = host.currentProfiles.resolve(row.id, 'luna');
+  const pending = host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const latest = host.personalConnections.list()[0];
+  await expect(
+    host.beginDeviceLogin({ connectionId: row.id, expectedRevision: latest.revision }),
+  ).rejects.toThrow('discovery');
+  await expect(host.personalConnections.disconnect(row.id, latest.revision)).rejects.toThrow(
+    'discovery',
+  );
+  release({
+    result: { status: 'complete', inference: false, modelCount: 1, lunaModels: ['luna'] },
+    models: [{ id: 'luna', label: 'Luna' }],
+  });
+  expect((await pending).status).toBe('complete');
+  expect(host.currentProfiles.resolve(row.id, 'luna').profileRevision).not.toBe(
+    before.profileRevision,
+  );
+  expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+  await expect(
+    host.personalConnections.discoverModels(row.id, row.revision, () => {}),
+  ).rejects.toThrow('changed');
+});
+it('retains recovery and excludes account when cleanup or receipt proof fails', async () => {
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+  }));
+  const row = await connected(host);
+  expect(
+    (await host.personalConnections.discoverModels(row.id, row.revision, () => {})).status,
+  ).toBe('reconciliation_required');
+  expect(host.personalConnections.list()[0]).toMatchObject({
+    state: 'recovery_required',
+    modelDiscovery: 'reconciliation_required',
+  });
+  expect(host.currentProfiles.catalog()).toEqual([]);
+});
+
+it('does not publish discovery after the initiating operator session is revoked', async () => {
+  let current = true;
+  const host = fixture(async (proof) => {
+    current = false;
+    expect(() => proof.assertCurrent()).toThrow('revoked');
+    return {
+      result: { status: 'complete', inference: false, modelCount: 1, lunaModels: ['luna'] },
+      models: [{ id: 'luna', label: 'Luna' }],
+    };
+  });
+  const row = await connected(host);
+  await expect(
+    host.personalConnections.discoverModels(row.id, row.revision, () => {
+      if (!current) throw new Error('revoked');
+    }),
+  ).rejects.toThrow('recovery');
+  expect(host.currentProfiles.catalog()).toEqual([]);
+  expect(host.personalConnections.list()[0].state).toBe('recovery_required');
 });
