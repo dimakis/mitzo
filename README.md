@@ -624,3 +624,6 @@ new Symposium seat work while trusted-host sealing is pending. Physical drain, i
 Git proof and native trusted-review dispatch remain unimplemented prerequisites.
 The pending seal can also reserve its exact artifact lease identity across writer cleanup;
 this internal retention lock remains unsealed and does not prove physical revocation.
+
+A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
+records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
