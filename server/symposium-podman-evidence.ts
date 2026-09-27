@@ -1,3 +1,4 @@
+import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { execFile } from 'node:child_process';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { ArtifactHostEvidence } from './symposium-artifact-host.js';
@@ -59,7 +60,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     private readonly run: PodmanCommand = localPodmanCommand,
     private readonly ownedGateway?: OwnedSymposiumGateway,
   ) {
-    if (!identifier.test(workspaceId) || !identifier.test(sandboxNamespace))
+    if (!identifier.test(workspaceId) || !isPodmanSandboxNamespace(sandboxNamespace))
       throw new Error('Invalid expected OpenShell workspace or namespace');
   }
 

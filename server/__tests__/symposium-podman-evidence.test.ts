@@ -42,6 +42,41 @@ const config = {
 };
 
 describe('local Podman artifact evidence', () => {
+  it.each([
+    ['', '', true],
+    ['', undefined, false],
+    ['', 'gateway-local', false],
+    ['gateway-local', '', false],
+    ['', ' ', false],
+  ])(
+    'matches configured namespace %j against physical label %j exactly',
+    async (expected, actual, allowed) => {
+      const actualLabels: Record<string, string> = { ...labels };
+      if (actual === undefined) delete actualLabels['openshell.ai/sandbox-namespace'];
+      else actualLabels['openshell.ai/sandbox-namespace'] = actual as string;
+      const run = vi
+        .fn()
+        .mockResolvedValueOnce([{ Id: physicalId, Labels: actualLabels }])
+        .mockResolvedValueOnce([{ ...inspected[0], Config: { Labels: actualLabels } }]);
+      const evidence = new LocalPodmanArtifactEvidence('symposium-1', expected as string, run);
+      if (allowed)
+        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
+      else
+        await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
+          'sandbox-namespace',
+        );
+    },
+  );
+
+  it.each([undefined, null, ' ', 'bad/namespace'])(
+    'rejects omitted or malformed namespace %j',
+    (value) => {
+      expect(
+        () => new LocalPodmanArtifactEvidence('symposium-1', value as string, vi.fn()),
+      ).toThrow('namespace');
+    },
+  );
+
   it('inspects a matching read-only physical mount by sandbox ID label', async () => {
     const run = vi.fn().mockResolvedValueOnce(listed).mockResolvedValueOnce(inspected);
     const evidence = new LocalPodmanArtifactEvidence('symposium-1', 'gateway-local', run);
