@@ -130,7 +130,12 @@ function ReviewerForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
-  const [locked, setLocked] = useState(false);
+  const [locked, updateLocked] = useState(false);
+  const lockedRef = useRef(false);
+  const setLocked = (next: boolean) => {
+    lockedRef.current = next;
+    updateLocked(next);
+  };
   const [progress, setProgress] = useState('');
   const packageSnapshot = useRef<{ content: string } | null>(null);
   const operation = useRef({ seatId: `reviewer-${crypto.randomUUID()}`, key: crypto.randomUUID() });
@@ -402,8 +407,10 @@ function ReviewerForm({
                 compact
                 requiredRole="reviewer"
                 value={profile}
-                onChange={setProfile}
-                disabled={busy}
+                onChange={(next) => {
+                  if (!lockedRef.current) setProfile(next);
+                }}
+                disabled={busy || locked}
               />
               <AccountModelPicker
                 scope="symposium"
@@ -411,7 +418,7 @@ function ReviewerForm({
                 sessionId={null}
                 preferredModel=""
                 onChange={(next) => {
-                  if (!locked) setSelection(next);
+                  if (!lockedRef.current) setSelection(next);
                 }}
                 disabled={busy || locked}
               />

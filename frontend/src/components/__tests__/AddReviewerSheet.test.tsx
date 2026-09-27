@@ -17,10 +17,16 @@ vi.mock('../AccountModelPicker', () => ({
     );
   },
 }));
+const profilePicker = vi.hoisted(() => ({
+  onChange: undefined as undefined | ((v: unknown) => void),
+}));
 vi.mock('../SymposiumProfilePicker', () => ({
-  SymposiumProfilePicker: ({ onChange }: { onChange: (v: unknown) => void }) => (
-    <button onClick={() => onChange({ profileId: 'review', revision: 1 })}>Choose profile</button>
-  ),
+  SymposiumProfilePicker: ({ onChange }: { onChange: (v: unknown) => void }) => {
+    profilePicker.onChange = onChange;
+    return (
+      <button onClick={() => onChange({ profileId: 'review', revision: 1 })}>Choose profile</button>
+    );
+  },
 }));
 afterEach(() => {
   cleanup();
@@ -208,10 +214,12 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
+  const finishEarlierProfileSave = profilePicker.onChange;
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer admitted. Context not queued/);
   // Catalog invalidation is an effect callback even inside a disabled fieldset.
   act(() => accountPicker.onChange?.(null));
+  act(() => finishEarlierProfileSave?.({ profileId: 'review', revision: 2 }));
   expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
@@ -222,6 +230,11 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer added/);
   const writes = vi.mocked(apiFetch).mock.calls;
+  expect(
+    writes
+      .filter(([url]) => String(url).startsWith('/api/symposium/profiles/'))
+      .map(([url]) => url),
+  ).toEqual(['/api/symposium/profiles/review/1', '/api/symposium/profiles/review/1']);
   expect(writes.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
   const queued = writes
     .filter(([url]) => String(url).endsWith('/deliveries'))
