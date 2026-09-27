@@ -2807,6 +2807,13 @@ export class EventStore {
         }
         return prior;
       }
+      // Recovery owns this seat generation until exact cleanup and rotation commit.
+      // Revocation is also a generation transition; allowing it here would strand
+      // the durable recovery even when admission/dispatch are already fenced.
+      const recovering = this.db!.prepare(
+        'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND result_json IS NULL LIMIT 1',
+      ).get(input.sessionId, input.seatId);
+      if (recovering) throw new Error('Symposium seat creation cleanup is pending');
       const config = this.getActiveSymposiumConfig(input.sessionId);
       if (config.version !== 2) throw new Error('Membership transitions require Symposium v2');
       if (config.revision !== input.configRevision)
