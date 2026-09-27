@@ -99,17 +99,23 @@ export function createOwnedReviewArtifactResults(
       throw new Error('Retained review artifact input changed');
     return value;
   };
+  const currentOrNull = (context: ReviewContext) => {
+    const row = db
+      .prepare(
+        'SELECT result_json FROM symposium_review_artifact_results WHERE session_id=? ORDER BY completed_at DESC, attempt_id DESC LIMIT 1',
+      )
+      .get(context.sessionId) as { result_json: string } | undefined;
+    if (!row) return null;
+    const value = WorkResultSchema.parse(JSON.parse(row.result_json));
+    return { revision: value.artifactRevision, hash: value.artifactHash };
+  };
   return {
     close: () => db.close(),
+    currentOrNull,
     current(context: ReviewContext) {
-      const row = db
-        .prepare(
-          'SELECT result_json FROM symposium_review_artifact_results WHERE session_id=? ORDER BY completed_at DESC, attempt_id DESC LIMIT 1',
-        )
-        .get(context.sessionId) as { result_json: string } | undefined;
-      if (!row) throw new Error('No physically sealed review artifact is current');
-      const value = WorkResultSchema.parse(JSON.parse(row.result_json));
-      return { revision: value.artifactRevision, hash: value.artifactHash };
+      const current = currentOrNull(context);
+      if (!current) throw new Error('No physically sealed review artifact is current');
+      return current;
     },
     result,
     async refresh(context: ReviewContext, completion: Completion) {

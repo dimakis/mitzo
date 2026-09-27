@@ -83,6 +83,7 @@ it('retains an exact physical seal result and recovers it without model output',
       volumeGeneration: () => 'generation',
     };
     const owner = createOwnedReviewArtifactResults(join(directory, 'custody.db'), deps);
+    expect(owner.currentOrNull({ owner: 'owner', sessionId: 'session' })).toBeNull();
     await owner.refresh({ owner: 'owner', sessionId: 'session' }, completion as never);
     expect(
       owner.result({ owner: 'owner', sessionId: 'session' }, completion as never),

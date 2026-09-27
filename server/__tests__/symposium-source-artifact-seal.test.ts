@@ -2,6 +2,9 @@ import { expect, it, vi } from 'vitest';
 import {
   sealImportedSourceArtifact,
   requireCompletedImportedSourceSeal,
+  initialSourceExportReceipt,
+  assertRetainedInitialSourceExport,
+  requireInitialSourceExport,
 } from '../symposium-source-artifact-seal.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
@@ -167,7 +170,7 @@ it('rejects a pending source seal as a parent even with an imported Git receipt'
   ).toThrow(/completed source seal/);
 });
 
-it('recovers the same completed source parent digest from the owner ledger', () => {
+it('recovers the same completed source parent digest from the owner ledger', async () => {
   const owner = { image: 'image', uid: 998, gid: 998 };
   const git = {
     version: 1,
@@ -185,6 +188,9 @@ it('recovers the same completed source parent digest from the owner ledger', () 
     operationId: 'op',
     volumeName: 'volume',
     volumeGeneration: 'generation',
+    custody: '/private/owner',
+    workspace: 'workspace',
+    helperName: 'volume-source-seal',
     git,
     sourceReceipt: imported,
     helperId: 'e'.repeat(64),
@@ -203,12 +209,80 @@ it('recovers the same completed source parent digest from the owner ledger', () 
       volumeName: 'volume',
       volumeGeneration: 'generation',
     }),
-    sourceSealExport: () => ({ receipt: { proof: git }, bundle: Buffer.from('bundle') }),
+    sourceSealExport: () => ({
+      receipt: {
+        proof: git,
+        selection: {
+          sourceRef: 'refs/heads/change',
+          sourceOid: git.commit,
+          baseRef: 'refs/remotes/origin/main',
+          baseOid: git.commit,
+          defaultBranch: 'main',
+          originUrl: 'https://github.com/owner/repo.git',
+        },
+        bundleSha256: createHash('sha256').update('bundle').digest('hex'),
+        bytes: 6,
+      },
+      bundle: Buffer.from('bundle'),
+    }),
   };
   const first = requireCompletedImportedSourceSeal(artifacts as never, owner, 'session');
   expect(first.receipt).toEqual(seal);
   expect(first.digest).toMatch(/^[a-f0-9]{64}$/);
   expect(requireCompletedImportedSourceSeal(artifacts as never, owner, 'session')).toEqual(first);
+  const initial = initialSourceExportReceipt(first, 'copy-op');
+  expect(initial.receipt).toMatchObject({
+    mode: 'initial',
+    sourceSealId: 'op',
+    operationId: 'copy-op',
+    parentGenerationId: 'generation',
+    parentSealDigest: first.digest,
+  });
+  expect(
+    assertRetainedInitialSourceExport(artifacts as never, owner, initial.receipt, initial.bundle),
+  ).toBe(true);
+  const physicallyCurrent = await requireInitialSourceExport(
+    {
+      artifacts: artifacts as never,
+      owner,
+      workspace: 'workspace',
+      custody: vi.fn(),
+      assertNoNativeClaims: vi.fn(),
+      command: vi.fn(async (args: readonly string[]) =>
+        args[0] === 'volume'
+          ? JSON.stringify([
+              {
+                Name: 'volume',
+                Driver: 'local',
+                Options: {},
+                UID: 998,
+                GID: 998,
+                Labels: {
+                  'openshell.ai/sandbox-attachable': 'true',
+                  'openshell.ai/sandbox-attachable-workspace': 'workspace',
+                  'mitzo.symposium.purpose': 'artifacts',
+                  'mitzo.symposium.session': 'session',
+                  'mitzo.symposium.workspace': 'workspace',
+                  'mitzo.symposium.generation': 'generation',
+                },
+              },
+            ])
+          : JSON.stringify([]),
+      ),
+    },
+    initial.receipt,
+    initial.bundle,
+    new AbortController().signal,
+  );
+  expect(physicallyCurrent).toEqual(initial.receipt.seal);
+  expect(() =>
+    assertRetainedInitialSourceExport(
+      artifacts as never,
+      owner,
+      initial.receipt,
+      Buffer.from('changed'),
+    ),
+  ).toThrow(/source export/);
   expect(() =>
     requireCompletedImportedSourceSeal(
       {

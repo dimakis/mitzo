@@ -757,6 +757,31 @@ export async function createOwnedSymposiumHost(
       hostGrants: options.hostGrants,
       currentProfiles,
     });
+    const sourceSealDeps = () => ({
+      artifacts: sessionArtifacts!,
+      owner: artifactOwner,
+      workspace: gateway.workspace,
+      custody: async () => {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        await gateway.verifyCustodyAsync();
+      },
+      assertNoNativeClaims: (selectedSession: string) => {
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Imported source seal requires retained EventStore');
+        if (
+          native!.registry.hasSessionClaims(selectedSession) ||
+          options.facts.getSymposiumDeliveries(selectedSession).length ||
+          options.facts.listSymposiumSessionSandboxes(selectedSession).length
+        )
+          throw new Error('Imported source has prior native work');
+        const selected = sessionArtifacts!.sourceSealStatus(selectedSession);
+        if (!selected || leaseHost!.sealLeaseIdentities('podman', selected.volumeName).length)
+          throw new Error('Imported source has retained artifact leases');
+      },
+      command: leaseHost!.snapshotCommand(),
+    });
+    const sealSource = (sessionId: string, operationId: string, signal: AbortSignal) =>
+      sealImportedSourceArtifact(sourceSealDeps(), sessionId, operationId, signal);
     return {
       resolveSeatPolicy,
       gateway,
@@ -934,38 +959,13 @@ export async function createOwnedSymposiumHost(
       sourceImport: {
         status: sourceImporter.status,
         import: (...args: Parameters<typeof sourceImporter.import>) =>
-          track(() => sourceImporter.import(...args)),
+          track(async () => {
+            const imported = await sourceImporter.import(...args);
+            await sealSource(args[0].sessionId, imported.operationId, new AbortController().signal);
+            return imported;
+          }),
         seal: (sessionId: string, operationId: string, signal: AbortSignal) =>
-          track(() =>
-            sealImportedSourceArtifact(
-              {
-                artifacts: sessionArtifacts!,
-                owner: artifactOwner,
-                workspace: gateway.workspace,
-                custody: () => gateway.verifyCustodyAsync(),
-                assertNoNativeClaims: (selectedSession) => {
-                  if (!(options.facts instanceof EventStore))
-                    throw new Error('Imported source seal requires retained EventStore');
-                  if (
-                    native!.registry.hasSessionClaims(selectedSession) ||
-                    options.facts.getSymposiumDeliveries(selectedSession).length ||
-                    options.facts.listSymposiumSessionSandboxes(selectedSession).length
-                  )
-                    throw new Error('Imported source has prior native work');
-                  const selected = sessionArtifacts!.sourceSealStatus(selectedSession);
-                  if (
-                    !selected ||
-                    leaseHost!.sealLeaseIdentities('podman', selected.volumeName).length
-                  )
-                    throw new Error('Imported source has retained artifact leases');
-                },
-                command: leaseHost!.snapshotCommand(),
-              },
-              sessionId,
-              operationId,
-              signal,
-            ),
-          ),
+          track(() => sealSource(sessionId, operationId, signal)),
         requireSeal: (sessionId: string) =>
           requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
       },

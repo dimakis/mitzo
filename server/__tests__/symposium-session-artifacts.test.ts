@@ -463,7 +463,12 @@ it('durably fences original source admission before an imported generation can b
     },
   };
   f.store.completeSourceImport(claim, receipt);
-  const pending = f.store.beginSourceSeal('source', 'source-seal-op');
+  expect(f.store.sourceSealStatus('source')).toMatchObject({
+    state: 'pending',
+    operationId: 'import-op',
+    sourceReceipt: receipt,
+  });
+  const pending = f.store.beginSourceSeal('source', 'import-op');
   expect(pending).toMatchObject({
     sessionId: 'source',
     volumeGeneration: mapping.volumeGeneration,
@@ -478,10 +483,10 @@ it('durably fences original source admission before an imported generation can b
     f.host,
   );
   cleanup.push(() => reopened.close());
-  expect(reopened.beginSourceSeal('source', 'source-seal-op')).toEqual(pending);
+  expect(reopened.beginSourceSeal('source', 'import-op')).toEqual(pending);
   expect(() => reopened.claimAdmission('source')).toThrow(/source seal/);
   expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
-  const proof = reopened.sourceSealHelperReceipt('source', 'source-seal-op');
+  const proof = reopened.sourceSealHelperReceipt('source', 'import-op');
   proof.verifier('pinned-image', '8'.repeat(64));
   proof.intent(`${mapping.volumeName}-source-seal`);
   proof.created('9'.repeat(64));
@@ -501,12 +506,10 @@ it('durably fences original source admission before an imported generation can b
     },
   };
   proof.exported(exportReceipt, bundle);
-  expect(() => reopened.completeSourceSeal('source', 'source-seal-op')).toThrow(
-    /physical completion/,
-  );
+  expect(() => reopened.completeSourceSeal('source', 'import-op')).toThrow(/physical completion/);
   proof.terminal('9'.repeat(64), 0);
   proof.removed();
-  const completed = reopened.completeSourceSeal('source', 'source-seal-op');
+  const completed = reopened.completeSourceSeal('source', 'import-op');
   expect(completed).toMatchObject({
     state: 'complete',
     helperId: '9'.repeat(64),

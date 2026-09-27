@@ -174,7 +174,8 @@ export class SymposiumSessionArtifacts {
   /** Persist a permanent pre-admission fence before physical source verification.
    * A pending attempt is never reconstructed from a later clean volume inspection. */
   beginSourceSeal(sessionId: string, operationId: string) {
-    if (!id.test(operationId)) throw new Error('Invalid source seal operation');
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId))
+      throw new Error('Invalid source seal operation');
     return this.db
       .transaction(() => {
         const row = this.read(sessionId);
@@ -488,10 +489,62 @@ export class SymposiumSessionArtifacts {
     });
   }
   completeSourceImport(claim: SessionArtifactMapping & { token: string }, receipt: unknown): void {
-    this.updateSourceImport(claim, (value) => {
-      if (!value.helperRemoved) throw new Error('Source helper cleanup receipt required');
-      value.receipt = receipt;
-    });
+    this.db
+      .transaction(() => {
+        const row = this.read(claim.sessionId);
+        if (!row) throw new Error('Source import claim changed');
+        this.assertOwner(row);
+        const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
+        if (
+          row.generation !== claim.volumeGeneration ||
+          row.volume_name !== claim.volumeName ||
+          source?.token !== claim.token ||
+          source.receipt ||
+          row.admission_issued ||
+          !source.helperRemoved ||
+          row.source_seal_json
+        )
+          throw new Error('Source import claim changed or cleanup unavailable');
+        source.receipt = receipt;
+        const candidate = receipt as Record<string, unknown> | null;
+        let seal: Record<string, unknown> | null = null;
+        if (candidate?.git !== undefined) {
+          const git = candidate.git as Record<string, unknown>;
+          const manifest = candidate.manifest as Record<string, unknown> | undefined;
+          if (
+            git?.version !== 1 ||
+            git.commit !== candidate.commit ||
+            git.tree !== candidate.tree ||
+            git.entries !== candidate.files ||
+            git.bytes !== candidate.bytes ||
+            !/^[a-f0-9]{64}$/.test(String(git.manifestDigest)) ||
+            !/^[a-f0-9]{64}$/.test(String(git.committedTreeDigest)) ||
+            manifest?.baseOid !== candidate.commit ||
+            manifest?.treeOid !== candidate.tree ||
+            manifest?.featureBranch !== candidate.featureBranch ||
+            !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(String(candidate.operationId)) ||
+            (candidate.terminal as Record<string, unknown> | undefined)?.exitCode !== 0
+          )
+            throw new Error('Exact imported Git source seal proof required');
+          seal = {
+            version: 1,
+            state: 'pending',
+            sessionId: claim.sessionId,
+            operationId: candidate.operationId,
+            workspace: row.workspace,
+            custody: row.custody,
+            volumeName: row.volume_name,
+            volumeGeneration: row.generation,
+            sourceReceipt: candidate,
+          };
+        }
+        this.db
+          .prepare(
+            'UPDATE symposium_session_artifacts SET source_import_json=?,source_seal_json=?,revision=revision+1 WHERE session_id=?',
+          )
+          .run(JSON.stringify(source), seal ? JSON.stringify(seal) : null, claim.sessionId);
+      })
+      .immediate();
   }
   initializationReceipt(sessionId: string) {
     const mapping = this.getReady(sessionId);

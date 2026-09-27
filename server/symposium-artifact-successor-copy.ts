@@ -10,6 +10,7 @@ import type {
   PhysicalArtifactSealer,
   SuccessorArtifactExportReceipt,
 } from './symposium-physical-artifact-seal.js';
+import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
 import { volumeEvidence, type ArtifactPodmanCommand } from './symposium-artifact-host.js';
 import {
   artifactVolumeLabels,
@@ -21,6 +22,7 @@ import { ARTIFACT_GIT_SUCCESSOR_IMPORT } from './symposium-artifact-git-successo
 const digest = (value: unknown) => reviewRecordHash(canonicalReviewJson(value));
 const helperIdPattern = /^[a-f0-9]{64}$/;
 const runtime = REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
+type ArtifactParentExport = SuccessorArtifactExportReceipt | InitialSourceExportReceipt;
 export function successorCopierContract() {
   return {
     copierImageDigest: runtime.build.image.replace(/^sha256:/, ''),
@@ -37,16 +39,33 @@ export class PhysicalArtifactSuccessorCopier {
         PhysicalArtifactSealer,
         'requireSuccessorExport' | 'assertRetainedSuccessorExport'
       >;
+      initialSource?: {
+        assertRetainedInitialSourceExport(
+          receipt: InitialSourceExportReceipt,
+          bundle: Buffer,
+        ): true;
+        requireInitialSourceExport(
+          receipt: InitialSourceExportReceipt,
+          bundle: Buffer,
+          signal: AbortSignal,
+        ): Promise<unknown>;
+      };
       command: ArtifactPodmanCommand;
       custody(): Promise<void>;
     },
   ) {}
-  private match(
-    request: ArtifactGenerationRequest,
-    receipt: SuccessorArtifactExportReceipt,
-    bundle: Buffer,
-  ) {
-    this.deps.sealer.assertRetainedSuccessorExport(receipt, bundle);
+  private match(request: ArtifactGenerationRequest, receipt: ArtifactParentExport, bundle: Buffer) {
+    if (request.kind === 'initial') {
+      if (
+        receipt.mode !== 'initial' ||
+        receipt.sourceSealId !== request.sourceSealId ||
+        this.deps.initialSource?.assertRetainedInitialSourceExport(receipt, bundle) !== true
+      )
+        throw new Error('Retained initial source export proof required');
+    } else {
+      if (receipt.mode !== 'successor') throw new Error('Fix requires a writer seal export');
+      this.deps.sealer.assertRetainedSuccessorExport(receipt, bundle);
+    }
     const contract = successorCopierContract();
     if (
       request.operationId !== receipt.operationId ||
@@ -65,14 +84,13 @@ export class PhysicalArtifactSuccessorCopier {
     )
       throw new Error('Successor copy lineage or contract changed');
   }
-  private async check(
-    receipt: SuccessorArtifactExportReceipt,
-    bundle: Buffer,
-    signal: AbortSignal,
-  ) {
+  private async check(receipt: ArtifactParentExport, bundle: Buffer, signal: AbortSignal) {
     signal.throwIfAborted();
     await this.deps.custody();
-    await this.deps.sealer.requireSuccessorExport(receipt, bundle, signal);
+    if (receipt.mode === 'initial') {
+      if (!this.deps.initialSource) throw new Error('Retained initial source proof unavailable');
+      await this.deps.initialSource.requireInitialSourceExport(receipt, bundle, signal);
+    } else await this.deps.sealer.requireSuccessorExport(receipt, bundle, signal);
     signal.throwIfAborted();
   }
   private async volume(intent: ArtifactGenerationIntent) {
@@ -165,7 +183,7 @@ export class PhysicalArtifactSuccessorCopier {
   }
   async copy(
     request: ArtifactGenerationRequest,
-    exported: SuccessorArtifactExportReceipt,
+    exported: ArtifactParentExport,
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<ArtifactGenerationCopyReceipt> {
@@ -329,7 +347,7 @@ export class PhysicalArtifactSuccessorCopier {
   async activate(
     request: ArtifactGenerationRequest,
     generationId: string,
-    exported: SuccessorArtifactExportReceipt,
+    exported: ArtifactParentExport,
     bundle: Buffer,
     signal: AbortSignal,
   ) {

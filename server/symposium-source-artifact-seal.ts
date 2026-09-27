@@ -9,6 +9,143 @@ import type { SymposiumSessionArtifacts } from './symposium-session-artifacts.js
 type Command = (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
 const containerId = /^[a-f0-9]{64}$/;
 const verifierDigest = () => createHash('sha256').update(ARTIFACT_GIT_EXPORT).digest('hex');
+export interface InitialSourceExportReceipt {
+  version: 1;
+  mode: 'initial';
+  sourceSealId: string;
+  operationId: string;
+  parentGenerationId: string;
+  parentVolumeName: string;
+  parentSealDigest: string;
+  seal: {
+    sessionId: string;
+    custodyDigest: string;
+    repositoryPath: '.';
+    git: {
+      version: 1;
+      commit: string;
+      tree: string;
+      entries: number;
+      bytes: number;
+      manifestDigest: string;
+      committedTreeDigest: string;
+    };
+  };
+  selection: {
+    sourceRef: string;
+    sourceOid: string;
+    baseRef: string;
+    baseOid: string;
+    defaultBranch: string;
+    originUrl: string;
+  };
+  bundleSha256: string;
+  bytes: number;
+  helper: {
+    id: string;
+    name: string;
+    image: string;
+    codeDigest: string;
+    terminalExitCode: 0;
+    removed: true;
+  };
+}
+
+export function initialSourceExportReceipt(
+  source: ReturnType<typeof requireCompletedImportedSourceSeal>,
+  operationId: string,
+): { receipt: InitialSourceExportReceipt; bundle: Buffer } {
+  const seal = source.receipt;
+  const exported = source.exported;
+  return {
+    receipt: {
+      version: 1,
+      mode: 'initial',
+      sourceSealId: seal.operationId,
+      operationId,
+      parentGenerationId: seal.volumeGeneration,
+      parentVolumeName: seal.volumeName,
+      parentSealDigest: source.digest,
+      seal: {
+        sessionId: seal.sessionId,
+        custodyDigest: createHash('sha256').update(seal.custody).digest('hex'),
+        repositoryPath: '.',
+        git: seal.git,
+      },
+      selection: exported.receipt.selection,
+      bundleSha256: exported.receipt.bundleSha256,
+      bytes: exported.receipt.bytes,
+      helper: {
+        id: seal.helperId,
+        name: seal.helperName,
+        image: seal.verifier.image,
+        codeDigest: seal.verifier.codeDigest,
+        terminalExitCode: 0,
+        removed: true,
+      },
+    },
+    bundle: exported.bundle,
+  };
+}
+
+export function assertRetainedInitialSourceExport(
+  artifacts: Pick<
+    SymposiumSessionArtifacts,
+    'sourceSealStatus' | 'sourceImportStatus' | 'getReady' | 'sourceSealExport'
+  >,
+  owner: SymposiumArtifactOwner,
+  receipt: InitialSourceExportReceipt,
+  bundle: Buffer,
+): true {
+  if (receipt.mode !== 'initial' || !Buffer.isBuffer(bundle))
+    throw new Error('Retained initial source export unavailable');
+  const retained = initialSourceExportReceipt(
+    requireCompletedImportedSourceSeal(artifacts, owner, receipt.seal.sessionId),
+    receipt.operationId,
+  );
+  if (
+    canonicalReviewJson(retained.receipt) !== canonicalReviewJson(receipt) ||
+    !retained.bundle.equals(bundle)
+  )
+    throw new Error('Retained initial source export changed');
+  return true;
+}
+
+export async function requireInitialSourceExport(
+  deps: {
+    artifacts: Pick<
+      SymposiumSessionArtifacts,
+      'sourceSealStatus' | 'sourceImportStatus' | 'getReady' | 'sourceSealExport'
+    >;
+    owner: SymposiumArtifactOwner;
+    workspace: string;
+    custody(): void | Promise<void>;
+    assertNoNativeClaims(sessionId: string): void | Promise<void>;
+    command: Command;
+  },
+  receipt: InitialSourceExportReceipt,
+  bundle: Buffer,
+  signal: AbortSignal,
+) {
+  signal.throwIfAborted();
+  assertRetainedInitialSourceExport(deps.artifacts, deps.owner, receipt, bundle);
+  await deps.custody();
+  await deps.assertNoNativeClaims(receipt.seal.sessionId);
+  await assertSourceVolume({
+    mapping: {
+      sessionId: receipt.seal.sessionId,
+      volumeName: receipt.parentVolumeName,
+      volumeGeneration: receipt.parentGenerationId,
+    },
+    workspace: deps.workspace,
+    owner: deps.owner,
+    command: deps.command,
+  });
+  await deps.custody();
+  signal.throwIfAborted();
+  assertRetainedInitialSourceExport(deps.artifacts, deps.owner, receipt, bundle);
+  return receipt.seal;
+}
 
 /** Synchronous retained parent proof for the generation ledger/EventStore callback.
  * The source fence prevents its original volume from being admitted for writes. */
