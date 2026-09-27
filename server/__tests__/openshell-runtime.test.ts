@@ -2646,7 +2646,7 @@ it('leaves owned cleanup available when actual manager provider preflight fails 
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
 
-it.each(['upload', 'unknown-create', 'wrong-id'] as const)(
+it.each(['upload', 'unknown-create', 'wrong-id', 'replaced-before-upload'] as const)(
   'keeps native creation and %s outcome distinct',
   async (failure) => {
     const name = sandboxNameForConversation('conversation');
@@ -2662,14 +2662,21 @@ it.each(['upload', 'unknown-create', 'wrong-id'] as const)(
     };
     const binding = { name: 'codex-personal', id: 'provider-native', type: 'codex' };
     const settled = vi.fn();
+    let created = false;
     const run = vi.fn(async (args: readonly string[]) => {
       if (args.includes('list'))
         return JSON.stringify({
           providers: [{ ...binding, workspace: 'mitzo' }],
           next_page_token: '',
         });
-      if (args.includes('get')) throw new Error('sandbox not found');
+      if (args.includes('get')) {
+        if (!created) throw new Error('sandbox not found');
+        return JSON.stringify(
+          failure === 'replaced-before-upload' ? { ...receipt, id: 'replacement' } : receipt,
+        );
+      }
       if (args.includes('create')) {
+        created = true;
         if (failure === 'unknown-create') throw new Error('terminal response unavailable');
         return JSON.stringify(
           failure === 'wrong-id' ? { ...receipt, name: 'replacement' } : receipt,
@@ -2707,6 +2714,9 @@ it.each(['upload', 'unknown-create', 'wrong-id'] as const)(
         expect.objectContaining({ sandboxId: 'physical-native', sandboxName: name }),
       );
       expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(true);
+    } else if (failure === 'replaced-before-upload') {
+      expect(settled).toHaveBeenCalledOnce();
+      expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
     } else {
       expect(settled).not.toHaveBeenCalled();
       expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);

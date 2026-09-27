@@ -1077,6 +1077,7 @@ export class OpenShellRuntimeManager {
     )
       throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
+    let terminalSandboxId: string | undefined;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -1177,6 +1178,7 @@ export class OpenShellRuntimeManager {
             receipt.labels?.['mitzo.account_provider'] !== accountProvider
           )
             throw new Error('Terminal sandbox create identity is unavailable');
+          terminalSandboxId = receipt.id;
           this.config.onSandboxCreateSettled!({
             sandboxName: name,
             sandboxId: receipt.id,
@@ -1184,10 +1186,16 @@ export class OpenShellRuntimeManager {
             owner,
             accountProvider,
           });
+          const beforeUpload = await this.get(name, signal);
+          if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
+            throw new Error('Created sandbox identity changed before seed upload');
           await this.run(
             ['sandbox', ...this.base(), 'upload', name, this.config.seed, '/sandbox/workspaces'],
             signal,
           );
+          const afterUpload = await this.get(name, signal);
+          if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
+            throw new Error('Created sandbox identity changed after seed upload');
         }
       } catch (error) {
         if (
@@ -1203,6 +1211,8 @@ export class OpenShellRuntimeManager {
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
+    if (terminalSandboxId && sandbox?.id !== terminalSandboxId)
+      throw new Error('Created sandbox identity changed before configuration');
     await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
