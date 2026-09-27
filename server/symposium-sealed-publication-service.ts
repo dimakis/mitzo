@@ -13,9 +13,13 @@ import {
   createGithubArtifactPublishPrExecutor,
   type GithubSandboxInspection,
 } from './connections/capabilities/github-publish-pr.js';
-import { GitHubCliHostPublisher } from './connections/capabilities/github-publish-pr-transport.js';
+import {
+  GitHubCliHostPublisher,
+  GithubNotFoundError,
+} from './connections/capabilities/github-publish-pr-transport.js';
 import {
   SealedPublicationAuthority,
+  PublicationCredentialHttpError,
   guardSealedPublicationExecutor,
   type SealedPublicationScope,
 } from './symposium-sealed-publication-authority.js';
@@ -127,9 +131,18 @@ export class SealedPublicationService {
           )
             throw new Error('Recovery mutation forbidden');
           await requireAuthority(commandSignal);
-          const output = await initial.handle.run(command, args, commandSignal);
-          await requireAuthority(commandSignal);
-          return { ...output, stderr: '' };
+          try {
+            const output = await initial.handle.run(command, args, commandSignal);
+            await requireAuthority(commandSignal);
+            return { ...output, stderr: '' };
+          } catch (error) {
+            await requireAuthority(commandSignal);
+            if (error instanceof PublicationCredentialHttpError && error.status === 404)
+              throw new GithubNotFoundError(undefined);
+            // Custodian failures may contain private subprocess output; retain only typed status.
+            // eslint-disable-next-line preserve-caught-error
+            throw new Error('Selected publication credential request failed');
+          }
         });
         const forbidden = async (): Promise<never> => {
           throw new Error('Recovery artifact access forbidden');

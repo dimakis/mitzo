@@ -15,7 +15,10 @@ const scopeSchema = z.strictObject({
   recordHash: hash,
   sealId: id,
   sealHash: hash,
-  repository: z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/),
+  repository: z
+    .string()
+    .regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/)
+    .transform((value) => value.toLowerCase()),
   connectionId: id,
   connectionRevision: z.number().int().positive(),
   credentialGeneration: id,
@@ -30,6 +33,15 @@ export interface PublicationPrincipal {
   host: 'github.com';
   numericId: number;
   login: string;
+}
+/** Sanitized result from the selected credential custodian. No response body,
+ * subprocess stderr, credential or raw private exception belongs in this error. */
+export class PublicationCredentialHttpError extends Error {
+  constructor(readonly status: number) {
+    super('Selected publication credential request failed');
+    if (!Number.isInteger(status) || status < 400 || status > 599)
+      throw new Error('Invalid HTTP failure status');
+  }
 }
 /** A separately selected controller write connection, not a model-account attachment.
  * The custodian must hold one immutable credential generation inside this handle.

@@ -45,7 +45,7 @@ machine. The exact selected handle constructs `GitHubCliHostPublisher`; validati
 one identity cannot dispatch through an unrelated ambient runner. The existing
 GitHub executor shares its policy/approval logic through an explicit artifact
 source interface; live sandbox resolution remains required in its existing mode.
-The GitHub publication implementation pin intentionally advances to v1.0.1;
+The GitHub publication implementation pin intentionally advances to v1.0.2;
 other reviewed handler revisions remain unchanged.
 
 Recovery allows only fixed GitHub GET and Git ls-remote reads, rejects changed
@@ -74,3 +74,8 @@ its canonical repository path and commit. An arbitrary callback is not a receipt
 6. Run reviewed full integration and live acceptance before enabling the route.
 
 No route, UI action or production credential registration is enabled by this code.
+
+The selected credential custodian must report HTTP failures using the sanitized
+`PublicationCredentialHttpError` status contract. An exact 404 maps to the host
+publisher's missing-resource branch-rule check; raw stderr/error text is never
+parsed. Selected repository names are canonicalized before durable grant hashing.

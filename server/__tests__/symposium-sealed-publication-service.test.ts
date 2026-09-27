@@ -2,11 +2,12 @@ import { expect, it, vi } from 'vitest';
 import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
 import {
   SealedPublicationAuthority,
+  PublicationCredentialHttpError,
   type PublicationCredentialHandle,
   type SealedPublicationScope,
 } from '../symposium-sealed-publication-authority.js';
 import { SealedPublicationService } from '../symposium-sealed-publication-service.js';
-async function fixture(registered = true) {
+async function fixture(registered = true, mixedCase = false, unbornBranch = false) {
   const scope: SealedPublicationScope = {
     operatorId: 'operator',
     sessionId: 'session',
@@ -14,7 +15,7 @@ async function fixture(registered = true) {
     recordHash: 'a'.repeat(64),
     sealId: 'seal',
     sealHash: 'b'.repeat(64),
-    repository: 'owner/repo',
+    repository: mixedCase ? 'Owner/Repo' : 'owner/repo',
     connectionId: 'selected',
     connectionRevision: 1,
     credentialGeneration: 'generation',
@@ -50,6 +51,9 @@ async function fixture(registered = true) {
     const endpoint = args.find((a) => a.startsWith('repos/'));
     if (endpoint === 'repos/owner/repo')
       return { stdout: JSON.stringify({ full_name: 'owner/repo', default_branch: 'main' }) };
+    if (endpoint === 'repos/owner/repo/rules/branches/feature') return { stdout: '[]' };
+    if (endpoint === 'repos/owner/repo/branches/feature' && unbornBranch && !created)
+      throw new PublicationCredentialHttpError(404);
     if (endpoint === 'repos/owner/repo/branches/feature')
       return { stdout: JSON.stringify({ protected: false, commit: { sha: oid } }) };
     if (endpoint === 'repos/owner/repo/pulls' && args.includes('POST')) {
@@ -214,5 +218,20 @@ it('leaves stale metadata pending during read-only recovery', async () => {
   expect(pending.status).toBe('verification_pending');
   expect(f.run.mock.calls.filter(([, a]) => a.includes('POST'))).toHaveLength(1);
   expect(f.exportBundle).toHaveBeenCalledTimes(1);
+  f.close();
+});
+
+it('checks applicable branch rules for an unborn source using the selected handle', async () => {
+  const f = await fixture(true, false, true);
+  expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
+  expect(
+    f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/rules/branches/feature')),
+  ).toBe(true);
+  f.close();
+});
+it('canonicalizes a mixed-case selected repository before persisting its grant', async () => {
+  const f = await fixture(true, true);
+  expect(f.grant.scope.repository).toBe('owner/repo');
+  expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
   f.close();
 });
