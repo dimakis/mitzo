@@ -31,19 +31,22 @@ function timestamp(value: string) {
  * require matching installed provider expiry and a stable census around it.
  * No ready boolean, timestamps or credential material come from the caller.
  */
-export function assertSymposiumWorkVertexReadiness(input: {
+// One observation state machine keeps sync dispatch checks and async worker RPC
+// checks on identical identity, census, expiry, and total-time invariants.
+function* readiness(input: {
   provider: string;
   providerId: string;
   workspace: string;
-  invoke(args: string[], timeoutMs: number): string;
-}): void {
+}): Generator<{ args: string[]; timeoutMs: number }, void, string> {
   try {
     const started = performance.now(),
       wallStarted = Date.now();
-    const invoke = (args: string[]) => {
+    const invoke = function* (
+      args: string[],
+    ): Generator<{ args: string[]; timeoutMs: number }, string, string> {
       const remaining = Math.floor(OBSERVATION_MS - (performance.now() - started));
       requireValue(remaining > 0);
-      const output = input.invoke(args, remaining);
+      const output = yield { args, timeoutMs: remaining };
       requireValue(
         typeof output === 'string' &&
           Buffer.byteLength(output) <= 1_000_000 &&
@@ -51,13 +54,17 @@ export function assertSymposiumWorkVertexReadiness(input: {
       );
       return output;
     };
-    const census = () => {
+    const census = function* (): Generator<
+      { args: string[]; timeoutMs: number },
+      { revision: unknown; expiry: number },
+      string
+    > {
       let token = '';
       const seen = new Set<string>();
       const matches: Record<string, unknown>[] = [];
       for (let page = 0; page < 10; page++) {
         const value = JSON.parse(
-          invoke([
+          yield* invoke([
             'list',
             '--output',
             'json',
@@ -97,8 +104,8 @@ export function assertSymposiumWorkVertexReadiness(input: {
       requireValue(Number.isSafeInteger(expiry) && (expiry as number) > 0);
       return { revision: row.resource_version, expiry: expiry as number };
     };
-    const before = census();
-    const lines = invoke(['refresh', 'status', input.provider, '--credential-key', KEY])
+    const before = yield* census();
+    const lines = (yield* invoke(['refresh', 'status', input.provider, '--credential-key', KEY]))
       .trim()
       .split(/\r?\n/);
     requireValue(
@@ -119,7 +126,7 @@ export function assertSymposiumWorkVertexReadiness(input: {
     const expiry = timestamp(fields[5]),
       next = timestamp(fields[6]),
       last = timestamp(fields[7]);
-    const after = census(),
+    const after = yield* census(),
       now = Date.now();
     requireValue(now >= wallStarted && now - wallStarted < OBSERVATION_MS);
     requireValue(
@@ -130,6 +137,35 @@ export function assertSymposiumWorkVertexReadiness(input: {
     requireValue(
       last > 0 && last <= now && next > last && next <= expiry && after.expiry - now > MARGIN_MS,
     );
+  } catch {
+    throw new Error('Vertex credential readiness unavailable');
+  }
+}
+
+type ReadinessIdentity = { provider: string; providerId: string; workspace: string };
+export function assertSymposiumWorkVertexReadiness(
+  input: ReadinessIdentity & {
+    invoke(args: string[], timeoutMs: number): string;
+  },
+): void {
+  try {
+    const observation = readiness(input);
+    let step = observation.next();
+    while (!step.done) step = observation.next(input.invoke(step.value.args, step.value.timeoutMs));
+  } catch {
+    throw new Error('Vertex credential readiness unavailable');
+  }
+}
+export async function assertSymposiumWorkVertexReadinessAsync(
+  input: ReadinessIdentity & {
+    invoke(args: string[], timeoutMs: number): Promise<string>;
+  },
+): Promise<void> {
+  try {
+    const observation = readiness(input);
+    let step = observation.next();
+    while (!step.done)
+      step = observation.next(await input.invoke(step.value.args, step.value.timeoutMs));
   } catch {
     throw new Error('Vertex credential readiness unavailable');
   }

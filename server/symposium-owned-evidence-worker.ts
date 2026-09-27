@@ -1,3 +1,4 @@
+import { parseWorkerVertexReceipt } from './symposium-worker-vertex-contract.js';
 import {
   parentPort,
   receiveMessageOnPort,
@@ -14,7 +15,7 @@ import type { OwnedEvidenceWorkerData } from './symposium-owned-evidence-async.j
 const data = workerData as OwnedEvidenceWorkerData;
 const port: MessagePort = data.custodyPort;
 const signal = new Int32Array(data.signal);
-function custody(method: 'custody' | 'native' | 'driver', args: unknown[] = []) {
+function custody(method: 'custody' | 'native' | 'driver' | 'claude', args: unknown[] = []) {
   Atomics.store(signal, 0, 0);
   port.postMessage({ method, args });
   const deadline = Date.now() + 30_000;
@@ -22,7 +23,7 @@ function custody(method: 'custody' | 'native' | 'driver', args: unknown[] = []) 
     const response = receiveMessageOnPort(port);
     if (response) {
       if (response.message?.ok !== true) throw new Error('Retained owned custody check failed');
-      return;
+      return response.message.receipt;
     }
     if (Date.now() >= deadline) throw new Error('Retained owned custody check timed out');
     Atomics.wait(signal, 0, 0, 20);
@@ -31,6 +32,8 @@ function custody(method: 'custody' | 'native' | 'driver', args: unknown[] = []) 
 try {
   const physical = new LocalSymposiumProductionPhysicalProof({
     ...data.physical,
+    captureClaudeProvider: (providerId) =>
+      parseWorkerVertexReceipt(custody('claude', [providerId])),
     ownedGateway: {
       gateway: data.config.gateway,
       workspace: data.config.workspace,

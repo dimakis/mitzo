@@ -2888,7 +2888,7 @@ describe('mixed personal subscription and work seat isolation', () => {
       verifySubscriptionPrivateAuth: async () => {},
     });
     await expect(owner.ensure('symposium', 'claude', new AbortController().signal)).rejects.toThrow(
-      'Claude native image',
+      'Owned Vertex seat policy unavailable',
     );
     const sandboxes = await Promise.all(
       seats

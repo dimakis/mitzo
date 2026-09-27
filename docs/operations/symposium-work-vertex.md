@@ -102,3 +102,49 @@ quota-project drift, file bounds/ownership/mode/symlink/type, explicit dated
 model selection, profile replacement, provider identity, refresh failure,
 secret redaction, custody loss, and the actual bootstrap integration. They are
 not physical gateway or model acceptance.
+
+## Owned per-seat policy and create receipts
+
+The retained host uses the existing `vertex-seat-policy.mjs` compiler for the
+exact selected provider/project/global region/dated Haiku model. It copies only
+the separately reviewed base filesystem and Landlock sections. A private
+exclusive-create policy file holds exact immutable bytes and SHA-256; it is
+never adopted from an unknown previous process. Membership, account fingerprints,
+grants, selected-provider identity and fresh credential readiness are rechecked
+at each creation boundary and before final native dispatch.
+
+The production candidate's `policySha256` remains the reviewed **base** digest.
+It is not the generated or installed Vertex policy hash. Each Vertex manager
+receives its derived path; the owner verifies `policy get NAME --full --output
+json` on the pinned CLI before recording ready, on reuse, and before dispatch.
+Exact sandbox ID/workspace/provider checks bracket the readback. Full effective
+policy must match the derived policy, including the absence of extra provider
+rules. Only omission of two explicit false credential options is normalized,
+as corroborated by the actual pinned Rust parser/serializer fixture. The
+upstream effective hash is an opaque gateway hash; it is not compared to the
+local file SHA. `config_revision` is a SHA-derived u64 JSON number; its exact decimal token is
+retained losslessly and matched to the supported sandbox-provider status receipt.
+The separate `sandbox provider status` read must prove the same physical sandbox,
+provider, epoch, policy hash and string revisions with current supervisor session
+and process identity plus credentials installed, policy active and launch
+environment installed. Desired policy alone is insufficient. Initial creation
+uses the supported bounded five-second read-only status wait; reuse and final
+dispatch use a fresh no-wait observation. These are bounded synchronous checks in
+the existing synchronous host gate, so they can briefly occupy the retained owner.
+Timeout retains the already-journaled ID/lease and requires explicit cleanup.
+
+Owned v0.1 API seats use the same phased create receipt as subscription seats:
+the exact successful physical ID is retained before seed upload or subsequent
+policy/provider/mount checks. A failed readback leaves the known sandbox and
+artifact lease quarantined for explicit exact cleanup, never a second create.
+Offline tests exercise the actual manager, SQLite EventStore/lease owner, and
+native adapter with synthetic CLI/controller responses. They establish code
+behavior, not physical gateway policy installation or live inference acceptance.
+
+The asynchronous generic admission-evidence worker requests only a selected Vertex provider ID through the existing private custody channel. The retained owner captures the current public receipt and readiness; strict bounded fields cross the channel, with no credentials or callable authority in worker data. After the worker has completed physical cleanup and exited, the parent verifies custody and recaptures every selected Vertex receipt before returning the candidate. Missing support, identity/readiness changes and malformed receipts fail closed with sanitized errors. Offline worker tests replace public CLI/Podman replies and pinned binary streams; they are not proof of a live workload or inference.
+
+The worker receipt RPC runs readiness commands asynchronously in the retained
+parent. It shares the synchronous readiness validator and its total ten-second
+observation bound, uses bounded output, and kills/reaps the exact CLI child on
+timeout. Offline regressions exercise real synthetic subprocesses to verify
+parent responsiveness and timeout cleanup; they do not exercise a live gateway.
