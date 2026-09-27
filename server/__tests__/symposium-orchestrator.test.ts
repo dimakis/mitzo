@@ -3197,10 +3197,11 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
         },
       },
     });
+    let operator = 'owner';
     const app = express();
     app.use(express.json());
     app.use((_req, res, next) => {
-      res.locals.authSession = { id: 'owner' };
+      res.locals.authSession = { id: operator };
       next();
     });
     app.use(
@@ -3249,7 +3250,36 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
       retained = false;
       expect((await post()).status).toBe(409);
       retained = true;
-      expect((await post()).status).toBe(200);
+      const getStatus = () => request(app).get('/api/sessions/chat/symposium');
+      const resumedStatus = await getStatus();
+      expect(resumedStatus.status).toBe(200);
+      const resumeKey = resumedStatus.body.seats.find(
+        (seat: { seatId: string }) => seat.seatId === 'builder',
+      ).creationDiagnostic.recoveryIdempotencyKey;
+      expect(resumeKey).toBe('cleanup');
+      operator = 'another-operator';
+      const foreignStatus = await getStatus();
+      expect(
+        foreignStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
+          .creationDiagnostic,
+      ).toEqual({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: false });
+      expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(409);
+      operator = 'owner';
+      expect((await post({ ...body, idempotencyKey: resumeKey, expectedRevision: 3 })).status).toBe(
+        409,
+      );
+      expect(
+        (await post({ ...body, idempotencyKey: resumeKey, expectedGeneration: 2 })).status,
+      ).toBe(409);
+      const configRead = vi.spyOn(store, 'getActiveSymposiumConfig');
+      configRead.mockReturnValueOnce({ ...store.getActiveSymposiumConfig('chat'), revision: 5 });
+      expect(host.creationDiagnostic('chat', 'builder', 'operator:owner')).toEqual({
+        phase: 'upload',
+        code: 'SEAT_UPLOAD_FAILED',
+        canCleanup: false,
+      });
+      configRead.mockRestore();
+      expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(200);
     } else expect(first.status).toBe(200);
     expect(store.getLatestSymposiumMembership('chat', 'builder')).toMatchObject({
       generation: 2,

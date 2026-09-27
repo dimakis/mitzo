@@ -163,8 +163,23 @@ export class SymposiumOrchestrator {
     return config;
   }
 
-  creationDiagnostic(sessionId: string, seatId: string) {
-    return this.creationRecovery?.diagnostic(sessionId, seatId) ?? null;
+  creationDiagnostic(sessionId: string, seatId: string, actor?: string) {
+    const diagnostic = this.creationRecovery?.diagnostic(sessionId, seatId) ?? null;
+    if (!diagnostic) return null;
+    const member = this.store.getLatestSymposiumMembership(sessionId, seatId);
+    const pending =
+      member &&
+      this.store.getPendingSymposiumCreationRecovery(sessionId, seatId, member.generation);
+    if (!pending) return diagnostic;
+    const current = this.store.getActiveSymposiumConfig(sessionId);
+    if (
+      !diagnostic.canCleanup ||
+      pending.actor !== actor ||
+      pending.expectedRevision !== current.revision ||
+      pending.expectedGeneration !== member!.generation
+    )
+      return { ...diagnostic, canCleanup: false };
+    return { ...diagnostic, recoveryIdempotencyKey: pending.idempotencyKey };
   }
   async recoverCreation(
     input: SymposiumCreationRecoveryRequest,

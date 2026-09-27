@@ -525,8 +525,15 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         admission?.decision === 'admitted' &&
         (config.version === 1 || admission.membershipGeneration === membership.generation),
       );
+      const diagnosticActor = (res.locals.authSession as { id?: string } | undefined)?.id;
       const creationDiagnostic =
-        deps.getRuntime(sessionId)?.creationDiagnostic?.(sessionId, seat.id) ?? null;
+        deps
+          .getRuntime(sessionId)
+          ?.creationDiagnostic?.(
+            sessionId,
+            seat.id,
+            diagnosticActor ? `operator:${diagnosticActor}` : undefined,
+          ) ?? null;
       return {
         seatId: seat.id,
         seat,

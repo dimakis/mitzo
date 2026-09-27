@@ -2653,6 +2653,18 @@ export class EventStore {
     if (result.changes !== 1) throw new Error('Creation diagnostic identity changed');
   }
 
+  getPendingSymposiumCreationRecovery(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumCreationRecoveryRequest | null {
+    const row = this.db!.prepare(
+      `SELECT request_json FROM symposium_creation_recoveries
+      WHERE session_id=? AND seat_id=? AND generation=? AND result_json IS NULL`,
+    ).get(sessionId, seatId, generation) as { request_json: string } | undefined;
+    return row ? (JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest) : null;
+  }
+
   getSymposiumCreationRecovery(
     input: SymposiumCreationRecoveryRequest,
   ): SymposiumMembershipRecord | null | undefined {

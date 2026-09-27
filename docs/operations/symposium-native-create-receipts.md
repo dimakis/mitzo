@@ -31,6 +31,11 @@ a transaction rotates the membership to a new suspended generation, preserving
 the primary role and account binding. A separate **Restore** action is required;
 cleanup never creates a replacement or calls a model. Retry uses the same durable
 request; partial cleanup stays fenced, and a completed retry never repeats deletion.
+After a browser reload, authenticated status returns the pending operation key only
+to the original operator while the revision, generation, and retained host proof
+still match. The UI reuses that key after fresh typed confirmation. Another
+operator or stale binding cannot resume the operation; POST identity checks remain
+strict. Successful cleanup and session changes clear the typed confirmation.
 
 Artifact lease release still requires native absence and driver deletion
 proof for that exact ID. No provider inventory, mount failure, or empty sandbox

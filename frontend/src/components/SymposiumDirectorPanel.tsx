@@ -16,7 +16,12 @@ interface DirectorSeat {
   seat: SeatConfig;
   membership: SymposiumMembershipRecord | null;
   admitted: boolean;
-  creationDiagnostic?: { phase: string; code: string; canCleanup: boolean } | null;
+  creationDiagnostic?: {
+    phase: string;
+    code: string;
+    canCleanup: boolean;
+    recoveryIdempotencyKey?: string;
+  } | null;
   admission?: Pick<
     SymposiumAdmissionRecord,
     'configRevision' | 'membershipGeneration' | 'decision'
@@ -276,6 +281,7 @@ function SessionDirectorPanel({
     setSelected([]);
     setPrimarySelection('');
     setPrimaryConfirmation('');
+    setCleanupConfirmation({});
     setProfileSelections({});
     pendingKeys.current.clear();
     if (open) void refresh();
@@ -289,7 +295,10 @@ function SessionDirectorPanel({
     setBusy(true);
     setError('');
     const fingerprint = JSON.stringify([path, payload]);
-    let idempotencyKey = pendingKeys.current.get(fingerprint);
+    let idempotencyKey =
+      typeof payload.idempotencyKey === 'string'
+        ? payload.idempotencyKey
+        : pendingKeys.current.get(fingerprint);
     if (!idempotencyKey) {
       idempotencyKey = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
       pendingKeys.current.set(fingerprint, idempotencyKey);
@@ -301,6 +310,10 @@ function SessionDirectorPanel({
         body: JSON.stringify({ ...payload, idempotencyKey }),
       });
       pendingKeys.current.delete(fingerprint);
+      if (path === '/creation/recover' && typeof payload.seatId === 'string') {
+        const seatId = payload.seatId;
+        setCleanupConfirmation((current) => ({ ...current, [seatId]: '' }));
+      }
       if (path === '/primary/transfer') {
         setPrimarySelection('');
         setPrimaryConfirmation('');
@@ -776,6 +789,12 @@ function SessionDirectorPanel({
                                   expectedRevision: status.config!.revision,
                                   expectedGeneration: seat.membership!.generation,
                                   confirmation: cleanupConfirmation[seat.seatId],
+                                  ...(seat.creationDiagnostic?.recoveryIdempotencyKey
+                                    ? {
+                                        idempotencyKey:
+                                          seat.creationDiagnostic.recoveryIdempotencyKey,
+                                      }
+                                    : {}),
                                 })
                               }
                             >
