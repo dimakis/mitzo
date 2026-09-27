@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import express from 'express';
 import request from 'supertest';
-import { AccountBindingSchema, type SymposiumConfig } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  storedEventToClientMessage,
+  type SymposiumConfig,
+} from '@mitzo/protocol';
 import { EventStore } from '../event-store.js';
 import { CodexSessionEvents } from '../codex-session-events.js';
 import { AccountProfiles } from '../account-profiles.js';
@@ -452,7 +456,38 @@ describe('production Symposium route to native runtime', () => {
               type: 'stream_event',
               event: { type: 'message_start', message: { id: 'too-late' } },
             });
-          onEvent?.({ type: 'result', is_error: false });
+          // A completed early request is not proof of this turn's final usage.
+          const usageMapper = new CodexSessionEvents(
+            'private-seat',
+            'thread-1',
+            'gpt-test',
+            (event) => onEvent?.(event),
+            { freshThread: true },
+          );
+          usageMapper.notification('turn/started', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1' },
+          });
+          const usageUpdate = (inputTokens: number) =>
+            usageMapper.notification('thread/tokenUsage/updated', {
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              tokenUsage: {
+                total: {
+                  inputTokens,
+                  cachedInputTokens: 0,
+                  outputTokens: 10,
+                  reasoningOutputTokens: 0,
+                  totalTokens: inputTokens + 10,
+                },
+              },
+            });
+          usageUpdate(100);
+          usageMapper.notification('turn/completed', {
+            threadId: 'thread-1',
+            turn: { id: 'turn-1', status: 'completed' },
+          });
+          usageUpdate(200); // final provider update arrives after the durable end
           return { providerThreadId: 'thread-1', content: 'Patch complete' };
         },
         cancel: cancellations,
@@ -497,6 +532,24 @@ describe('production Symposium route to native runtime', () => {
     expect(ensure).toHaveBeenCalledTimes(1);
     const reserved = store.getSymposiumSeatSandbox('symposium', 'builder', 1);
     expect(reserved).toMatchObject({ sandboxName, physicalId, state: 'ready' });
+    // Exercise the production admission callback after adding a roster entry:
+    // confirmed retained members must be admitted at the new revision without
+    // changing their generation or weakening candidate membership validation.
+    const retained = store.getLatestSymposiumMembership('symposium', 'builder');
+    store.setSymposiumConfig('symposium', {
+      ...config,
+      revision: 2,
+      seats: [...config.seats, { ...seat, id: 'new-reviewer' }],
+    });
+    expect(store.getLatestSymposiumAdmission('symposium', 'builder', 2)).toBeUndefined();
+    const refreshed = await request(app)
+      .post(`${base}/admissions/refresh`)
+      .send({ expectedRevision: 2 });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body.seatIds).toEqual(['builder']);
+    expect(store.getLatestSymposiumMembership('symposium', 'builder')).toEqual(retained);
+    expect(store.getLatestSymposiumAdmission('symposium', 'builder', 2)?.decision).toBe('admitted');
+    expect(ensure).toHaveBeenCalledTimes(1);
     const staged = await request(app)
       .post(`${base}/deliveries`)
       .send({
@@ -642,6 +695,17 @@ describe('production Symposium route to native runtime', () => {
         .getSessionEvents('symposium')
         .some((event) => event.payload.messageId === 'wrong-identity'),
     ).toBe(false);
+    const terminalUsage = store
+      .getSessionEvents('symposium')
+      .find((event) => event.type === 'provider_turn_end' && event.payload.isError === false)!;
+    expect(terminalUsage.payload.usage_status).toBe('unknown');
+    expect(terminalUsage.payload).not.toHaveProperty('usage');
+    expect(storedEventToClientMessage(terminalUsage)).toMatchObject({
+      type: 'provider_turn_end',
+      usage_status: 'unknown',
+      seatId: 'builder',
+    });
+    expect(storedEventToClientMessage(terminalUsage)).not.toHaveProperty('usage');
     for (const content of ['Fail before accepted', 'Fail after accepted']) {
       const failed = runtime.orchestrator.stageDelivery({
         sessionId: 'symposium',
@@ -687,7 +751,7 @@ describe('production Symposium route to native runtime', () => {
       seatId: 'builder',
       action: 'suspend',
       expectedGeneration: 1,
-      configRevision: 1,
+      configRevision: 2,
       reason: 'Stop after cancellation',
       idempotencyKey: 'suspend-builder-after-cancel',
     });
