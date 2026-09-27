@@ -1,3 +1,10 @@
+import {
+  custodianControllerClient,
+  custodianOwnerMode,
+  receiveCustodianEvents,
+} from './symposium-custodian-mode.js';
+import { createCustodianProxy } from './symposium-custodian-proxy.js';
+import { drainRetainedSymposiumControllers } from './symposium-controller-drain.js';
 import { createSessionMessagesHandler } from './session-messages-route.js';
 import { createSymposiumSourceRouter } from './symposium-source-routes.js';
 import { getConnectionRegistry } from './chat.js';
@@ -98,7 +105,7 @@ import {
   authMiddleware,
   operatorAuthMiddleware,
   registerAuthSession,
-  revokeAuthSession,
+  revokeOperatorSessions,
   COOKIE_NAME,
   MAX_AGE_HOURS,
   type AuthSession,
@@ -800,12 +807,14 @@ app.post('/api/auth/logout', async (req, res) => {
   const cookie = req.cookies?.[COOKIE_NAME] as string | undefined;
   const tokens = [...new Set([bearer, cookie].filter((token): token is string => Boolean(token)))];
   const sessions = await Promise.all(tokens.map((token) => authenticateToken(token)));
-  for (const session of sessions) revokeAuthSession(session ?? undefined);
+  revokeOperatorSessions(sessions, (id) => custodianControllerClient?.invalidate(id));
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'strict' });
   res.json({ ok: true });
 });
 
 app.use('/api', authMiddleware);
+if (custodianControllerClient) app.use(createCustodianProxy(custodianControllerClient));
+receiveCustodianEvents(broadcastDurableSymposiumEvent);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -825,9 +834,17 @@ app.use(
   createSymposiumProfileRouter(symposiumProfileStore),
 );
 
-const symposiumNativeEvents = new SymposiumNativeEventSink(
-  eventStore,
-  broadcastDurableSymposiumEvent,
+let custodianBroadcast: typeof broadcastDurableSymposiumEvent | undefined;
+export function setSymposiumCustodianBroadcast(value: typeof broadcastDurableSymposiumEvent) {
+  if (!custodianOwnerMode) throw Error('Retained custodian mode required');
+  custodianBroadcast = value;
+}
+const retainedCustodianSessions = new Set<string>();
+export function hasRetainedCustodianSession(sessionId: string) {
+  return retainedCustodianSessions.has(sessionId);
+}
+const symposiumNativeEvents = new SymposiumNativeEventSink(eventStore, (sessionId, event) =>
+  (custodianBroadcast ?? broadcastDurableSymposiumEvent)(sessionId, event),
 );
 const symposiumSessionRuntimes = new Map<
   string,
@@ -838,6 +855,19 @@ const symposiumSessionRuntimes = new Map<
   }
 >();
 let symposiumShuttingDown = false;
+let symposiumControllerPaused = false;
+export function pauseSymposiumController() {
+  symposiumControllerPaused = true;
+}
+export async function drainSymposiumController(identity: string, signal: AbortSignal) {
+  pauseSymposiumController();
+  await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
+}
+export function resumeSymposiumController() {
+  if (symposiumShuttingDown || symposiumSessionRuntimes.size)
+    throw Error('Retained runtime cleanup incomplete');
+  symposiumControllerPaused = false;
+}
 export function beginSymposiumShutdown() {
   symposiumShuttingDown = true;
   symposiumPublication?.shutdown();
@@ -947,7 +977,8 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
   sessionId,
 ) => {
-  if (symposiumShuttingDown) return null;
+  if (symposiumShuttingDown || symposiumControllerPaused) return null;
+  if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId)) return null;
   if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
   const host = symposiumProductionHost;
   if (!host) return null;
@@ -1093,8 +1124,12 @@ app.use(
     store: eventStore,
     profiles: symposiumProfileStore,
     currentAccounts: symposiumAccountProfiles,
-    ensureSessionArtifacts: async (sessionId) =>
-      symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' },
+    onSessionCreated: (sessionId) => retainedCustodianSessions.add(sessionId),
+    ensureSessionArtifacts: async (sessionId) => {
+      if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId))
+        throw Error('Session was not created by this retained custodian');
+      return symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' };
+    },
   }),
 );
 const symposiumReviewStore = new SymposiumReviewStore(

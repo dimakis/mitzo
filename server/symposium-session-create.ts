@@ -28,6 +28,7 @@ export function createSymposiumSessionRouter(deps: {
   profiles: Pick<SymposiumProfileStore, 'get'>;
   currentAccounts(): AccountProfiles;
   newSessionId?: () => string;
+  onSessionCreated?: (sessionId: string) => void;
   ensureSessionArtifacts?: (sessionId: string) => Promise<SessionArtifactPreparation>;
 }) {
   const router = Router();
@@ -117,6 +118,7 @@ export function createSymposiumSessionRouter(deps: {
         config,
         profileSelections: { primary: selection.profileSelection },
       });
+      if (result.created) deps.onSessionCreated?.(result.sessionId);
       res.status(result.created ? 201 : 200).json({
         ...result,
         ...(deps.ensureSessionArtifacts ? { artifacts: await prepare(result.sessionId) } : {}),

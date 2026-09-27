@@ -1,3 +1,4 @@
+import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
 import type { GeminiOptions } from './gemini-session.js';
@@ -184,7 +185,8 @@ function initEventStore(): EventStore {
   const store = new EventStore(dbPath);
   const recover = Reflect.get(store, 'recoverSymposiumDeliveries') as
     EventStore['recoverSymposiumDeliveries'] | undefined;
-  const recovered = recover?.call(store, Date.now()) ?? [];
+  const recovered =
+    custodianControllerMode || custodianOwnerMode ? [] : (recover?.call(store, Date.now()) ?? []);
   if (recovered.length > 0) {
     log.warn('recovered interrupted Symposium deliveries during startup', {
       deliveryIds: recovered.map((delivery) => delivery.deliveryId),
@@ -3058,6 +3060,11 @@ export async function syncSessionTimestamps(): Promise<void> {
   let synced = 0;
   for (const [sessionId, entry] of seen) {
     const existing = eventStore.getSession(sessionId);
+    if (
+      custodianControllerMode &&
+      (existing?.sessionType === 'symposium' || existing?.symposiumConfig != null)
+    )
+      continue;
     if (!existing) {
       // New session — insert with correct timestamp
       eventStore.upsertSession({

@@ -21,6 +21,7 @@
     "build:mcp": "cd mcp-server && npm run build",
     "setup-mcp": "bash scripts/setup-mcp.sh",
     "start": "node dist/index.js",
+    "start:symposium-custodian": "node dist/symposium-custodian-main.js",
     "start:dev": "node --import tsx server/index.ts",
     "deploy": "bash scripts/deploy.sh",
     "build:ios": "cd frontend && npm run build:ios",
