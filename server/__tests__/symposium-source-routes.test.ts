@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { authMiddleware, login } from '../auth.js';
+import { recentAppReauthorizationHandlers } from '../connections-router.js';
 import { createSymposiumSourceRouter } from '../symposium-source-routes.js';
 vi.mock('../symposium-source-git.js', () => ({
   inspectLocalSource: vi.fn(),
@@ -85,4 +86,23 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
     .set('Authorization', `Bearer ${token}`);
   expect(status.body.repositories).toEqual(['selected']);
   expect(JSON.stringify(status.body)).not.toContain('/server/owned/path');
+  app.post('/other-app-auth', ...recentAppReauthorizationHandlers());
+  for (let attempt = 0; attempt < 4; attempt++) {
+    expect(
+      (
+        await request(app)
+          .post('/other-app-auth')
+          .set('Authorization', `Bearer ${token}`)
+          .send({ passphrase: 'test-passphrase-for-vitest' })
+      ).status,
+    ).toBe(200);
+  }
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/session/symposium/source/reauthorize')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ passphrase: 'test-passphrase-for-vitest' })
+    ).status,
+  ).toBe(429);
 });

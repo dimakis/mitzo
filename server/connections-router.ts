@@ -1,5 +1,5 @@
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -84,7 +84,16 @@ const publicConnection = (c: Connection): PublicConnection => {
     updatedAt,
   };
 };
+const reauthorizationApps = new WeakMap<object, string>();
 const appReauthorizationLimiter = rateLimit({
+  keyGenerator: (req) => {
+    let appId = reauthorizationApps.get(req.app);
+    if (!appId) {
+      appId = randomUUID();
+      reauthorizationApps.set(req.app, appId);
+    }
+    return `${appId}:${ipKeyGenerator(req.ip ?? 'unknown')}`;
+  },
   windowMs: 60_000,
   limit: 5,
   standardHeaders: 'draft-7',
