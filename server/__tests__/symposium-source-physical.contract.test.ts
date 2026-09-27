@@ -142,7 +142,7 @@ it.skipIf(!physical)(
       );
       const token = (await login('test-passphrase-for-vitest'))!;
       const base = `/api/sessions/${sessionId}/symposium/source`;
-      const post = (path: string, body: unknown, csrf = '') =>
+      const post = (path: string, body: object, csrf = '') =>
         request(app)
           .post(base + path)
           .set('Authorization', `Bearer ${token}`)
