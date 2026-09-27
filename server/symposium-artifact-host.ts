@@ -121,7 +121,7 @@ export const inspectLocalArtifactVolume: VolumeRunner = (driver, name) => {
   });
 };
 
-function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
+export function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
   const item = Array.isArray(raw) && raw.length === 1 ? raw[0] : raw;
   if (!item || typeof item !== 'object' || Array.isArray(item))
     throw new Error('Invalid artifact volume inspection result');
