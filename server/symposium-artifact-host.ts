@@ -2,7 +2,8 @@ import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import type { EventStore } from './event-store.js';
 import type {
   ArtifactDriver,
   ArtifactDriverConfig,
@@ -11,6 +12,16 @@ import type {
   ArtifactLeaseRequest,
   ArtifactVolumeEvidence,
 } from './symposium-artifact-lease.js';
+
+export interface PendingArtifactRetention {
+  kind: 'pending_artifact_retention';
+  status: 'pending_unsealed';
+  fenceId: string;
+  intent: NonNullable<ReturnType<EventStore['getSymposiumArtifactSealIntent']>>;
+  writerSandboxName: string;
+  writerSandboxId: string;
+  retainedAt: number;
+}
 
 interface LeaseRow {
   token: string;
@@ -159,6 +170,13 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS symposium_artifact_sandbox_identity
       ON symposium_artifact_leases(COALESCE(intended_sandbox_name, sandbox_name))
       WHERE creation_started = 1 AND COALESCE(intended_sandbox_name, sandbox_name) IS NOT NULL;
+    CREATE TABLE IF NOT EXISTS symposium_artifact_pending_retention (
+      driver TEXT NOT NULL,
+      volume_name TEXT NOT NULL,
+      intent_json TEXT NOT NULL,
+      retention_json TEXT NOT NULL,
+      PRIMARY KEY(driver, volume_name)
+    );
     CREATE TABLE IF NOT EXISTS symposium_artifact_release_receipts (
       token TEXT PRIMARY KEY,
       revision TEXT NOT NULL,
@@ -225,6 +243,90 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     await this.evidence.verifyMount(sandboxName, sandboxId, config);
   }
 
+  /** Trusted-host internal prerequisite, with no runtime installer or completion path.
+   * Read the durable session fence first; only then retain the exact bound writer.
+   * This lock survives normal writer cleanup, but is not physical deletion immunity.
+   */
+  beginPendingArtifactRetention(
+    store: Pick<EventStore, 'getSymposiumArtifactSealIntent'>,
+    sessionId: string,
+  ): PendingArtifactRetention {
+    const intent = store.getSymposiumArtifactSealIntent(sessionId);
+    if (!intent || intent.status !== 'pending_unsealed' || intent.selection.sessionId !== sessionId)
+      throw new Error('Pending artifact retention requires the durable session seal intent');
+    const intentJson = JSON.stringify(intent);
+    const selected = intent.selection;
+    this.db.pragma('synchronous = FULL');
+    return this.db
+      .transaction(() => {
+        const previous = this.db
+          .prepare(
+            'SELECT intent_json, retention_json FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+          )
+          .get(selected.artifact.driver, selected.artifact.volumeName) as
+          { intent_json: string; retention_json: string } | undefined;
+        if (previous) {
+          if (previous.intent_json !== intentJson)
+            throw new Error('Pending artifact retention identity changed');
+          return JSON.parse(previous.retention_json) as PendingArtifactRetention;
+        }
+        const rows = this.db
+          .prepare(
+            "SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? AND access='writer'",
+          )
+          .all(selected.artifact.driver, selected.artifact.volumeName) as LeaseRow[];
+        const writer = rows.length === 1 ? rows[0] : undefined;
+        const request = writer
+          ? (JSON.parse(writer.request_json) as ArtifactLeaseRequest)
+          : undefined;
+        if (
+          !writer ||
+          !request ||
+          request.sessionId !== sessionId ||
+          request.workspaceId !== selected.custody.workspaceId ||
+          request.volumeGeneration !== selected.artifact.volumeGeneration ||
+          writer.revision !== selected.artifact.leaseRevision ||
+          createHash('sha256').update(writer.token).digest('hex') !==
+            selected.artifact.leaseTokenHash ||
+          writer.creation_started !== 1 ||
+          !writer.sandbox_id ||
+          !writer.sandbox_name ||
+          writer.intended_sandbox_name !== writer.sandbox_name
+        )
+          throw new Error('Pending artifact retention requires the exact bound writer lease');
+        const retention: PendingArtifactRetention = {
+          kind: 'pending_artifact_retention',
+          status: 'pending_unsealed',
+          fenceId: intent.fenceId,
+          intent,
+          writerSandboxName: writer.sandbox_name,
+          writerSandboxId: writer.sandbox_id,
+          retainedAt: Date.now(),
+        };
+        this.db
+          .prepare('INSERT INTO symposium_artifact_pending_retention VALUES(?,?,?,?)')
+          .run(
+            selected.artifact.driver,
+            selected.artifact.volumeName,
+            intentJson,
+            JSON.stringify(retention),
+          );
+        return retention;
+      })
+      .immediate();
+  }
+
+  private assertVolumeNotRetained(driver: ArtifactDriver, volumeName: string): void {
+    if (
+      this.db
+        .prepare(
+          'SELECT 1 FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+        )
+        .get(driver, volumeName)
+    )
+      throw new Error('Artifact volume has pending retention; new leases are fenced');
+  }
+
   async reserve(request: ArtifactLeaseRequest): Promise<ArtifactLease> {
     const id = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
     if (
@@ -238,35 +340,38 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       throw new Error('Invalid artifact lease request');
     const requestJson = JSON.stringify(request);
     try {
-      return this.db.transaction(() => {
-        const existing = this.db
-          .prepare(
-            `SELECT * FROM symposium_artifact_leases
+      return this.db
+        .transaction(() => {
+          this.assertVolumeNotRetained(request.driver, request.volumeName);
+          const existing = this.db
+            .prepare(
+              `SELECT * FROM symposium_artifact_leases
           WHERE driver=? AND volume_name=? AND request_json=?`,
-          )
-          .all(request.driver, request.volumeName, requestJson) as LeaseRow[];
-        if (existing.length > 1) throw new Error('Duplicate artifact lease identity');
-        if (existing.length === 1)
-          return { token: existing[0].token, revision: existing[0].revision, request };
-        const token = randomUUID();
-        const revision = randomUUID();
-        this.db
-          .prepare(
-            `INSERT INTO symposium_artifact_leases
+            )
+            .all(request.driver, request.volumeName, requestJson) as LeaseRow[];
+          if (existing.length > 1) throw new Error('Duplicate artifact lease identity');
+          if (existing.length === 1)
+            return { token: existing[0].token, revision: existing[0].revision, request };
+          const token = randomUUID();
+          const revision = randomUUID();
+          this.db
+            .prepare(
+              `INSERT INTO symposium_artifact_leases
           (token, revision, driver, volume_name, access, request_json, creation_started, created_at)
           VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-          )
-          .run(
-            token,
-            revision,
-            request.driver,
-            request.volumeName,
-            request.access,
-            requestJson,
-            Date.now(),
-          );
-        return { token, revision, request };
-      })();
+            )
+            .run(
+              token,
+              revision,
+              request.driver,
+              request.volumeName,
+              request.access,
+              requestJson,
+              Date.now(),
+            );
+          return { token, revision, request };
+        })
+        .immediate();
     } catch (error) {
       if (error instanceof Error && error.message.includes('UNIQUE constraint failed'))
         throw new Error('Artifact volume already has a writer', { cause: error });
