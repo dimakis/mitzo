@@ -1,4 +1,7 @@
-import { custodianPublicationSignal } from './symposium-custodian-authority.js';
+import {
+  custodianPublicationSignal,
+  custodianRequestAuthority,
+} from './symposium-custodian-authority.js';
 import express from 'express';
 import { z } from 'zod';
 import type { AuthSession } from './auth.js';
@@ -6,6 +9,7 @@ import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
   recentAppReauthorizationHandlers,
+  recentAuthorizationExpiry,
 } from './connections-router.js';
 import type { PublicationRegistration } from './symposium-publication-registration.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
@@ -79,6 +83,7 @@ export function createPublicationRouter(deps: {
       req: express.Request,
       session: AuthSession,
       signal: AbortSignal,
+      recentUntil?: number,
     ) => Promise<unknown>,
   ) =>
     router.post(path, async (req, res) => {
@@ -103,7 +108,12 @@ export function createPublicationRouter(deps: {
           ...(retainedSignal ? [retainedSignal] : []),
         ]);
         signal.throwIfAborted();
-        const result = await run(runtime, req, session, signal);
+        const recentUntil =
+          path === '/recovery'
+            ? (custodianRequestAuthority(req)?.recentUntil ??
+              recentAuthorizationExpiry(res, req.header('x-csrf-token') ?? ''))
+            : undefined;
+        const result = await run(runtime, req, session, signal, recentUntil);
         signal.throwIfAborted();
         res.json(result);
       } catch {
@@ -117,7 +127,9 @@ export function createPublicationRouter(deps: {
         res.off('close', close);
       }
     });
-  route('/recovery', async (runtime, req, session, signal) => {
+  route('/recovery', async (runtime, req, session, signal, recentUntil) => {
+    if (!recentUntil || recentUntil <= Date.now())
+      throw Error('Recent recovery authorization expired');
     const selected = z
       .strictObject({
         recordId: id,
@@ -137,6 +149,7 @@ export function createPublicationRouter(deps: {
       { ...selected, sessionId: String(req.params.id) },
       session.id,
       signal,
+      recentUntil,
     );
   });
   route('/artifact', async (runtime, req, _session, signal) => {

@@ -501,6 +501,7 @@ it('reconciles only the original pending operation after fresh auth without anot
       },
       'fresh',
       f.signal,
+      Date.now() + 60_000,
     );
     expect(recovered.status).toBe('succeeded');
     for (const key of [
@@ -562,6 +563,7 @@ it('refuses success if the original capability grant is revoked during the final
       },
       'fresh',
       f.signal,
+      Date.now() + 60_000,
     );
     expect(result.status).toBe('verification_pending');
     expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
@@ -593,6 +595,7 @@ it('lists only the exact record and rejects cross-record recovery without any re
         { ...recoverySelection(f, pending.id), recordId: 'different' },
         'operator',
         f.signal,
+        Date.now() + 60_000,
       ),
     ).rejects.toThrow();
     expect(f.run).toHaveBeenCalledTimes(before);
@@ -621,6 +624,7 @@ it.each([
         { ...recoverySelection(f, pending.id), [field]: 'different' },
         'operator',
         f.signal,
+        Date.now() + 60_000,
       ),
     ).rejects.toThrow();
     expect(f.run).toHaveBeenCalledTimes(before);
@@ -650,6 +654,7 @@ it.each(['observer', 'credential', 'sealed-grant'])(
         recoverySelection(f, pending.id),
         'fresh',
         f.signal,
+        Date.now() + 60_000,
       );
       expect(result.status).toBe('verification_pending');
       expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
@@ -682,10 +687,20 @@ it('uses the same SQLite operation identity across fresh auth and rejects concur
       await blocked;
       return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
     });
-    const first = f.service.recoverExact(recoverySelection(f, pending.id), 'fresh', f.signal);
+    const first = f.service.recoverExact(
+      recoverySelection(f, pending.id),
+      'fresh',
+      f.signal,
+      Date.now() + 60_000,
+    );
     await waiting;
     await expect(
-      f.service.recoverExact(recoverySelection(f, pending.id), 'fresh', f.signal),
+      f.service.recoverExact(
+        recoverySelection(f, pending.id),
+        'fresh',
+        f.signal,
+        Date.now() + 60_000,
+      ),
     ).rejects.toThrow('Retained exact recovery unavailable');
     expect(observer.get(pending.id)).toEqual(before);
     release();
@@ -823,12 +838,14 @@ it('routes fresh login and recent authorization through a replacement controller
       .post(url + '/reauthorize')
       .set('Authorization', `Bearer ${token}`)
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
+    const recoverCall = vi.spyOn(f.service, 'recoverExact');
     const recovered = await request(app)
       .post(url)
       .set('Authorization', `Bearer ${token}`)
       .set('X-CSRF-Token', renewed.body.csrf)
       .send(body);
     expect(recovered.status).toBe(200);
+    expect(recoverCall.mock.calls[0]?.[3]).toBe(renewed.body.expiresAt);
     expect(recovered.body.status).toBe('succeeded');
     expect(recovered.body.accountId).toBe(`operator:${oldAuth.id}`);
     expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
@@ -853,6 +870,7 @@ it('keeps the original pending row when the recovery request disconnects during 
       recoverySelection(f, pending.id),
       'operator',
       abort.signal,
+      Date.now() + 60_000,
     );
     expect(result.status).toBe('verification_pending');
     expect(f.operations.get(pending.id)).toEqual(pending);
@@ -875,7 +893,12 @@ it('cannot reconstruct an existing operation with another service owner', async 
       'Pending publication recovery unavailable',
     );
     await expect(
-      other.recoverExact(recoverySelection(f, pending.id), 'operator', f.signal),
+      other.recoverExact(
+        recoverySelection(f, pending.id),
+        'operator',
+        f.signal,
+        Date.now() + 60_000,
+      ),
     ).rejects.toThrow('Retained exact recovery unavailable');
     expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
   } finally {
@@ -914,7 +937,12 @@ it('never lends fresh observer authority to an already-running ordinary recovery
     f.operators.add('fresh');
     const before = f.run.mock.calls.length;
     await expect(
-      f.service.recoverExact(recoverySelection(f, pending.id), 'fresh', f.signal),
+      f.service.recoverExact(
+        recoverySelection(f, pending.id),
+        'fresh',
+        f.signal,
+        Date.now() + 60_000,
+      ),
     ).rejects.toThrow('Exact pending recovery unavailable');
     expect(f.run).toHaveBeenCalledTimes(before);
     release();
@@ -977,5 +1005,31 @@ it('fences a fresh grant and idempotency namespace while the original publicatio
   } finally {
     f.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it('retains uncertainty when recent passphrase authorization expires during the final read', async () => {
+  const f = await fixture();
+  const realNow = Date.now.bind(Date);
+  const until = realNow() + 1000;
+  try {
+    f.loseResponse();
+    const pending = await f.service.invoke(f.input, f.signal, async () => true);
+    f.artifact.require.mockImplementation(async () => {
+      if (f.run.mock.calls.some(([, args]) => args.includes('repos/owner/repo/pulls/7')))
+        vi.spyOn(Date, 'now').mockReturnValue(until + 1);
+      return { workspace: '/artifact', repositoryPath: '/artifact', sourceOid: 'c'.repeat(40) };
+    });
+    const result = await f.service.recoverExact(
+      recoverySelection(f, pending.id),
+      'operator',
+      f.signal,
+      until,
+    );
+    expect(result.status).toBe('verification_pending');
+    expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
+  } finally {
+    vi.restoreAllMocks();
+    f.close();
   }
 });

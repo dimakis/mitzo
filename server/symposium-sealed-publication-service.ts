@@ -67,6 +67,7 @@ export interface PublicationRecoverySelection {
 interface RecoveryContext {
   operationId: string;
   observerId: string;
+  recentUntil: number;
   signal: AbortSignal;
   snapshot: string;
 }
@@ -104,6 +105,7 @@ export class SealedPublicationService {
     context.signal.throwIfAborted();
     const current = this.deps.operations.get(operation.id);
     if (
+      context.recentUntil <= Date.now() ||
       retained.recovery !== context ||
       context.operationId !== operation.id ||
       !current ||
@@ -293,7 +295,14 @@ export class SealedPublicationService {
       ];
     });
   }
-  async recoverExact(input: PublicationRecoverySelection, observerId: string, signal: AbortSignal) {
+  async recoverExact(
+    input: PublicationRecoverySelection,
+    observerId: string,
+    signal: AbortSignal,
+    recentUntil: number,
+  ) {
+    if (!Number.isSafeInteger(recentUntil) || recentUntil <= Date.now())
+      throw Error('Recent recovery authorization expired');
     const retained = this.services.get(input.grantId),
       operation = this.deps.operations.get(input.operationId);
     if (!retained || !operation || retained.recovery)
@@ -316,7 +325,11 @@ export class SealedPublicationService {
     const context = {
       operationId: operation.id,
       observerId,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+      recentUntil,
+      signal: AbortSignal.any([
+        signal,
+        AbortSignal.timeout(Math.min(60_000, Math.max(1, recentUntil - Date.now()))),
+      ]),
       snapshot: recoverySnapshot(operation),
     };
     try {

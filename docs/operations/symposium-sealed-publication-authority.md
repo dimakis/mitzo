@@ -147,7 +147,7 @@ Only the original retained handle may perform GitHub GET and Git `ls-remote` obs
 
 The retained service checks the original operation, approval hash, recovery intent, repository,
 review/seal, principal, credential revision/generation, sealed grant and capability grant. It
-checks fresh observer authorization around awaited reads and synchronously revalidates original
+checks fresh observer authorization and the original recent-passphrase expiry around awaited reads and synchronously revalidates original
 grant validity immediately before the existing SQLite terminal transition. Original JTI,
 grant, approval, operation and idempotency identity remain unchanged. The current sealed-grant
 schema has active/revoked state rather than an independent TTL; this path does not extend any
