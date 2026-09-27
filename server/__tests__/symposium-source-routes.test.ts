@@ -50,7 +50,7 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
     operationId: 'import-1',
     confirmation: 'IMPORT COMMITTED REPOSITORY HISTORY',
   };
-  const post = (value: unknown, csrf = '') =>
+  const post = (value: Record<string, unknown>, csrf = '') =>
     request(app)
       .post('/api/sessions/session/symposium/source/import')
       .set('Authorization', `Bearer ${token}`)
