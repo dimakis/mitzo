@@ -553,3 +553,5 @@ only after sandbox and physical cleanup. A new catalog revision requires explici
 selection; interrupted discovery retains host recovery state.
 
 Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
+
+- [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
