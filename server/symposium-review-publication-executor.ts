@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { createHash } from 'node:crypto';
 import type { ReviewContext } from './symposium-review-coordinator.js';
 import {
@@ -164,7 +165,7 @@ export function createSymposiumReviewPublicationExecutor(
           cleanup: (directory) => deps.publisher.cleanup(directory),
         },
         resolveConversation: () => ({
-          workspace: '/sandbox/symposium-artifacts',
+          workspace: SYMPOSIUM_ARTIFACT_TARGET,
           sandboxName: prepared.binding.sandboxName,
         }),
         resolvePublicConfig: () => prepared.binding.publicConfig,

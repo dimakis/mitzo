@@ -107,7 +107,7 @@ it('records an empty observation only after exact verifier cleanup and preserves
   expect(create).toContain(
     'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
   );
-  expect(create).toContain('type=volume,src=v,dst=/sandbox/symposium-artifacts,readonly');
+  expect(create).toContain('type=volume,src=v,dst=/sandbox/workspaces/mgmt,readonly');
   expect(create).not.toContain('git');
   const name = create[create.indexOf('--name') + 1];
   expect(f.command.mock.calls.at(-1)![0]).toEqual(['rm', '--force', '--ignore', name]);

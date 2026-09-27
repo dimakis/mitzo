@@ -95,6 +95,7 @@ const config: SymposiumConfig = {
 };
 
 class FakeExecutor implements SymposiumSeatExecutor {
+  prepare?: SymposiumSeatExecutor['prepare'];
   calls: SymposiumSeatExecution[] = [];
   cancellations: string[] = [];
   cancellationThreadIds: Array<string | undefined> = [];
@@ -1529,13 +1530,11 @@ describe('SymposiumOrchestrator', () => {
     });
     expect(staged.recipientSeatIds).toEqual(['reviewer', 'implementer']);
     await move('reviewer', 'suspend', 1);
-    expect(() =>
-      orchestrator.intervene({
-        deliveryId: staged.deliveryId,
-        action: 'approve',
-        idempotencyKey: 'late-approval',
-      }),
-    ).toThrow();
+    orchestrator.intervene({
+      deliveryId: staged.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'late-approval',
+    });
     expect((await orchestrator.deliver(staged.deliveryId)).recipients[0].status).not.toBe(
       'delivered',
     );
@@ -1571,7 +1570,7 @@ describe('SymposiumOrchestrator', () => {
         stopSeat: async () => {},
         reconcileProviders: async () => {},
       });
-      for (const seatId of ['builder', 'reviewer']) {
+      for (const seatId of ['builder', 'reviewer'] as const) {
         await orchestrator.transitionMembership({
           sessionId: 'chat',
           seatId,
@@ -1905,7 +1904,7 @@ describe('SymposiumOrchestrator', () => {
       stopSeat,
       reconcileProviders,
     });
-    for (const seatId of ['builder', 'reviewer']) {
+    for (const seatId of ['builder', 'reviewer'] as const) {
       await orchestrator.transitionMembership({
         sessionId: 'chat',
         seatId,
@@ -2125,7 +2124,7 @@ describe('SymposiumOrchestrator', () => {
       revision: 4,
       seats: [config.seats[0], { ...config.seats[1], reasoningEffort: 'high' }],
     });
-    for (const seatId of ['builder', 'reviewer']) {
+    for (const seatId of ['builder', 'reviewer'] as const) {
       orchestrator.recordProviderAdmission({
         sessionId: 'chat',
         seatId,
@@ -3112,4 +3111,684 @@ it('revalidates all existing active seats after a roster revision without changi
   expect(builder.calls).toHaveLength(1);
   expect(reviewer.calls).toHaveLength(1);
   expect(() => orchestrator.refreshActiveAdmissions('chat', 4)).toThrow(/revision/i);
+});
+
+import express from 'express';
+import request from 'supertest';
+import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
+
+it.each(['before-stop', 'after-stop', 'none'] as const)(
+  'recovers a failed primary through the real HTTP handler and durable fences (%s)',
+  async (failure) => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+    });
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'initial',
+      idempotencyKey: 'initial',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'confirmed');
+    admit('builder');
+    const queued = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'old queued work',
+      idempotencyKey: 'old-queue',
+    });
+
+    const physical = {
+      sessionId: 'chat',
+      seatId: 'builder',
+      generation: 1,
+      runtimeId: 'runtime',
+      workspace: 'work',
+      providerName: 'provider',
+      providerId: 'provider-id',
+      providerType: 'codex',
+      model: 'luna',
+    };
+    store.reserveSymposiumSeatSandbox(physical);
+    store.markSymposiumSeatSandboxCreationStarted(physical);
+    store.recordSymposiumSeatSandboxTerminalCreate({
+      ...physical,
+      sandboxName: 'sandbox',
+      physicalId: 'physical',
+    });
+    store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'upload', failed: true });
+    let retained = true;
+    let fail = failure;
+    const stop = vi.fn(async () => {
+      expect(store.getLatestSymposiumMembership('chat', 'builder')?.reconciliation).toBe(
+        'recovery_required',
+      );
+      expect(store.getSymposiumDelivery(queued.deliveryId)?.status).toBe('cancelled');
+      expect(() => store.assertSymposiumArtifactWorkAllowed('chat')).toThrow('cleanup is pending');
+      if (fail === 'before-stop') {
+        fail = 'none';
+        throw new Error('physical deletion uncertain');
+      }
+      store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+      if (fail === 'after-stop') {
+        fail = 'none';
+        throw new Error('response lost after cleanup');
+      }
+    });
+    const host = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat: stop,
+      creationRecovery: {
+        diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: retained }),
+        assertRetained: () => {
+          if (!retained) throw new Error('receipt unavailable');
+        },
+      },
+    });
+    let operator = 'owner';
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: operator };
+      next();
+    });
+    app.use(
+      '/api/sessions/:id/symposium',
+      createSymposiumDirectorRouter({ store, getRuntime: () => host } as never),
+    );
+    const body = {
+      seatId: 'builder',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      idempotencyKey: 'cleanup',
+      confirmation: 'CLEAN UP FAILED SEAT',
+    };
+    const post = (value = body) =>
+      request(app).post('/api/sessions/chat/symposium/creation/recover').send(value);
+    expect((await post({ ...body, confirmation: 'yes' })).status).toBe(400);
+    expect((await post({ ...body, expectedRevision: 3 })).status).toBe(409);
+    retained = false;
+    expect((await post()).status).toBe(409);
+    expect(stop).not.toHaveBeenCalled();
+    retained = true;
+    const raw = new Database(dbPath);
+    raw
+      .prepare(
+        "UPDATE symposium_seat_sandboxes SET creation_completed=0 WHERE session_id='chat' AND seat_id='builder'",
+      )
+      .run();
+    expect((await post()).status).toBe(409);
+    expect(stop).not.toHaveBeenCalled();
+    raw
+      .prepare(
+        "UPDATE symposium_seat_sandboxes SET creation_completed=1 WHERE session_id='chat' AND seat_id='builder'",
+      )
+      .run();
+    raw.close();
+    const first = await post();
+    if (failure !== 'none') {
+      expect(first.status).toBe(409);
+      expect(store.getLatestSymposiumMembership('chat', 'builder')?.generation).toBe(1);
+      expect(() =>
+        store.setSymposiumConfig('chat', {
+          ...store.getActiveSymposiumConfig('chat'),
+          revision: 5,
+        }),
+      ).toThrow('cleanup');
+      retained = false;
+      expect((await post()).status).toBe(409);
+      retained = true;
+      const getStatus = () => request(app).get('/api/sessions/chat/symposium');
+      const resumedStatus = await getStatus();
+      expect(resumedStatus.status).toBe(200);
+      const resumeKey = resumedStatus.body.seats.find(
+        (seat: { seatId: string }) => seat.seatId === 'builder',
+      ).creationDiagnostic.recoveryIdempotencyKey;
+      expect(resumeKey).toBe('cleanup');
+      operator = 'another-operator';
+      const foreignStatus = await getStatus();
+      expect(
+        foreignStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
+          .creationDiagnostic,
+      ).toEqual({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: false });
+      expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(409);
+      operator = 'owner';
+      expect((await post({ ...body, idempotencyKey: resumeKey, expectedRevision: 3 })).status).toBe(
+        409,
+      );
+      expect(
+        (await post({ ...body, idempotencyKey: resumeKey, expectedGeneration: 2 })).status,
+      ).toBe(409);
+      const configRead = vi.spyOn(store, 'getActiveSymposiumConfig');
+      configRead.mockReturnValueOnce({ ...store.getActiveSymposiumConfig('chat'), revision: 5 });
+      expect(host.creationDiagnostic('chat', 'builder', 'operator:owner')).toEqual({
+        phase: 'upload',
+        code: 'SEAT_UPLOAD_FAILED',
+        canCleanup: false,
+      });
+      configRead.mockRestore();
+      expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(200);
+    } else expect(first.status).toBe(200);
+    expect(store.getLatestSymposiumMembership('chat', 'builder')).toMatchObject({
+      generation: 2,
+      state: 'suspended',
+      reconciliation: 'confirmed',
+    });
+    expect(store.getActiveSymposiumConfig('chat')).toMatchObject({
+      anchorSeatId: 'builder',
+      revision: 4,
+    });
+    const calls = stop.mock.calls.length;
+    retained = false; // A completed idempotent read does not require a new deletion or custody adoption.
+    expect((await post()).status).toBe(200);
+    expect(stop).toHaveBeenCalledTimes(calls);
+    expect((await post({ ...body, idempotencyKey: 'different' })).status).toBe(409);
+    expect(builder.calls).toHaveLength(0);
+  },
+);
+
+it.each(['suspend', 'remove'] as const)(
+  'fences concurrent %s of a non-primary seat during pending creation cleanup',
+  async (action) => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+    });
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'owner',
+      reason: 'initial',
+      idempotencyKey: 'initial-reviewer',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('chat', 'reviewer', 1, 'confirmed');
+    const physical = {
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      generation: 1,
+      runtimeId: 'runtime-reviewer',
+      workspace: 'work',
+      providerName: 'provider',
+      providerId: 'provider-id',
+      providerType: 'codex',
+      model: 'luna',
+    };
+    store.reserveSymposiumSeatSandbox(physical);
+    store.markSymposiumSeatSandboxCreationStarted(physical);
+    store.recordSymposiumSeatSandboxTerminalCreate({
+      ...physical,
+      sandboxName: 'sandbox-reviewer',
+      physicalId: 'physical-reviewer',
+    });
+    store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'mount', failed: true });
+    let release!: () => void, entered!: () => void;
+    const stopped = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let first = true;
+    const host = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat: async () => {
+        if (first) {
+          first = false;
+          entered();
+          await stopped;
+          throw Error('cleanup response unavailable');
+        }
+        store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical-reviewer' });
+      },
+      creationRecovery: {
+        diagnostic: () => ({ phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: true }),
+        assertRetained: () => {},
+      },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: 'owner' };
+      next();
+    });
+    app.use(
+      '/api/sessions/:id/symposium',
+      createSymposiumDirectorRouter({ store, getRuntime: () => host } as never),
+    );
+    const recovery = {
+      seatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      idempotencyKey: 'recover-reviewer',
+      confirmation: 'CLEAN UP FAILED SEAT',
+    };
+    const pending = request(app)
+      .post('/api/sessions/chat/symposium/creation/recover')
+      .send(recovery)
+      .then((response) => response);
+    await started;
+    const other = new EventStore(dbPath);
+    const transition = {
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action,
+      expectedGeneration: 1,
+      configRevision: 4,
+      actor: 'operator:owner',
+      reason: 'revoke',
+      idempotencyKey: `concurrent-${action}`,
+      occurredAt: 2,
+    };
+    try {
+      expect(() => other.transitionSymposiumMembership(transition)).toThrow('cleanup is pending');
+      expect(other.getLatestSymposiumMembership('chat', 'reviewer')?.generation).toBe(1);
+    } finally {
+      other.close();
+      release();
+      await pending;
+    }
+    const body = {
+      seatId: transition.seatId,
+      action,
+      expectedGeneration: 1,
+      configRevision: 4,
+      reason: transition.reason,
+      idempotencyKey: transition.idempotencyKey,
+    };
+    expect(
+      (await request(app).post('/api/sessions/chat/symposium/membership').send(body)).status,
+    ).toBe(409);
+    expect(store.getLatestSymposiumMembership('chat', 'reviewer')?.generation).toBe(1);
+    expect(
+      (await request(app).post('/api/sessions/chat/symposium/creation/recover').send(recovery))
+        .status,
+    ).toBe(200);
+    expect(store.getLatestSymposiumMembership('chat', 'reviewer')).toMatchObject({
+      generation: 2,
+      state: 'suspended',
+      reconciliation: 'confirmed',
+    });
+    expect(store.getPendingSymposiumCreationRecovery('chat', 'reviewer', 1)).toBeNull();
+    expect(builder.calls).toHaveLength(0);
+    expect(reviewer.calls).toHaveLength(0);
+  },
+);
+
+function prepareRecipientRecovery() {
+  store.setSymposiumConfig('chat', {
+    ...config,
+    version: 2,
+    revision: 4,
+    anchorSeatId: 'builder',
+    activeSeatCap: 3,
+    turnRules: { mode: 'directed', maxTurns: 20 },
+  });
+  for (const seatId of ['builder', 'reviewer'] as const) {
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId,
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'owner',
+      reason: 'admit',
+      idempotencyKey: `initial-${seatId}`,
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('chat', seatId, 1, 'confirmed');
+    admit(seatId);
+  }
+  const physical = {
+    sessionId: 'chat',
+    seatId: 'reviewer',
+    generation: 1,
+    runtimeId: 'failed-reviewer',
+    workspace: 'work',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'codex',
+    model: 'luna',
+  };
+  store.reserveSymposiumSeatSandbox(physical);
+  store.markSymposiumSeatSandboxCreationStarted(physical);
+  store.recordSymposiumSeatSandboxTerminalCreate({
+    ...physical,
+    sandboxName: 'reviewer-sandbox',
+    physicalId: 'reviewer-id',
+  });
+  store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'mount', failed: true });
+  const recovery = {
+    sessionId: 'chat',
+    seatId: 'reviewer',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    actor: 'operator:owner',
+    idempotencyKey: 'recover-reviewer',
+  };
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: { builder, reviewer },
+    stopSeat: async () => {
+      store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'reviewer-id' });
+    },
+    creationRecovery: {
+      diagnostic: () => ({ phase: 'mount', code: 'SEAT_MOUNT_FAILED', canCleanup: true }),
+      assertRetained: () => {},
+    },
+  });
+  return { host, recovery };
+}
+it.each(['awaiting_intervention', 'ready', 'remove'] as const)(
+  'preserves other recipients through seat-local %s cancellation',
+  async (mode) => {
+    const { host, recovery } = prepareRecipientRecovery();
+    const delivery = host.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder', 'reviewer'],
+      originalContent: 'keep builder work',
+      idempotencyKey: 'mixed',
+    });
+    if (mode !== 'awaiting_intervention')
+      host.intervene({
+        deliveryId: delivery.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'approve',
+      });
+    const before = store.getSymposiumDelivery(delivery.deliveryId)!;
+    if (mode === 'remove')
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        action: 'remove',
+        expectedGeneration: 1,
+        configRevision: 4,
+        actor: 'owner',
+        reason: 'remove',
+        idempotencyKey: 'remove-reviewer',
+        occurredAt: 2,
+      });
+    else await host.recoverCreation(recovery);
+    if (mode === 'remove')
+      store.markSymposiumMembershipReconciled('chat', 'reviewer', 2, 'confirmed');
+    const after = store.getSymposiumDelivery(delivery.deliveryId)!;
+    expect(after.status).toBe(before.status);
+    expect(after.recipients.find((r) => r.seatId === 'builder')).toEqual(
+      before.recipients.find((r) => r.seatId === 'builder'),
+    );
+    expect(after.recipients.find((r) => r.seatId === 'reviewer')?.status).toBe('cancelled');
+    if (mode === 'awaiting_intervention')
+      host.intervene({
+        deliveryId: delivery.deliveryId,
+        action: 'approve',
+        idempotencyKey: 'approve',
+      });
+    expect((await host.deliver(delivery.deliveryId)).status).toBe('delivered');
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+    expect((await host.deliver(delivery.deliveryId)).status).toBe('delivered');
+    expect(builder.calls).toHaveLength(1);
+  },
+);
+it('keeps an unaffected executing claim and result while failed recipient cleanup completes', async () => {
+  const { host, recovery } = prepareRecipientRecovery();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const execute = builder.execute.bind(builder);
+  builder.execute = async (input) => {
+    entered();
+    await gate;
+    return execute(input);
+  };
+  reviewer.execute = async () => {
+    throw Error('creation failed');
+  };
+  const delivery = host.stageDelivery({
+    sessionId: 'chat',
+    sourceSeatId: null,
+    recipientSeatIds: ['builder', 'reviewer'],
+    originalContent: 'continue builder',
+    idempotencyKey: 'executing-mixed',
+  });
+  host.intervene({ deliveryId: delivery.deliveryId, action: 'approve', idempotencyKey: 'approve' });
+  const running = host.deliver(delivery.deliveryId);
+  await started;
+  await vi.waitFor(() =>
+    expect(
+      store
+        .getSymposiumDelivery(delivery.deliveryId)
+        ?.recipients.find((r) => r.seatId === 'reviewer')?.status,
+    ).toBe('failed'),
+  );
+  const attempt = store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder');
+  await host.recoverCreation(recovery);
+  expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('delivering');
+  expect(store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder')).toEqual(attempt);
+  release();
+  expect((await running).status).toBe('delivered');
+  expect(
+    store.getSymposiumDelivery(delivery.deliveryId)?.recipients.find((r) => r.seatId === 'builder')
+      ?.resultContent,
+  ).toBe('builder: continue builder');
+});
+it('retains cancelled target execution uncertainty and archives late completion without losing other results', async () => {
+  const { host, recovery } = prepareRecipientRecovery();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const execute = reviewer.execute.bind(reviewer);
+  reviewer.execute = async (input) => {
+    entered();
+    await gate;
+    return execute(input);
+  };
+  const delivery = host.stageDelivery({
+    sessionId: 'chat',
+    sourceSeatId: null,
+    recipientSeatIds: ['builder', 'reviewer'],
+    originalContent: 'late reviewer',
+    idempotencyKey: 'late-mixed',
+  });
+  host.intervene({ deliveryId: delivery.deliveryId, action: 'approve', idempotencyKey: 'approve' });
+  const running = host.deliver(delivery.deliveryId);
+  await started;
+  store.beginSymposiumCreationRecovery(recovery);
+  expect(store.getUnsettledSymposiumSeatExecutions('chat', 'reviewer')).toHaveLength(1);
+  expect(store.getSymposiumRecipientAttempts(delivery.deliveryId, 'reviewer')[0].status).toBe(
+    'recovery_required',
+  );
+  release();
+  await running;
+  const final = store.getSymposiumDelivery(delivery.deliveryId)!;
+  expect(final.status).toBe('delivered');
+  expect(final.recipients.find((r) => r.seatId === 'reviewer')?.status).toBe('cancelled');
+  expect(store.getUnsettledSymposiumSeatExecutions('chat', 'reviewer')).toHaveLength(0);
+  const db = new Database(dbPath);
+  try {
+    expect(
+      db
+        .prepare(
+          'SELECT count(*) AS n FROM symposium_late_results WHERE delivery_id=? AND seat_id=?',
+        )
+        .get(delivery.deliveryId, 'reviewer'),
+    ).toEqual({ n: 1 });
+  } finally {
+    db.close();
+  }
+});
+
+it('rejects an already consumed membership key before fencing or physical cleanup', async () => {
+  const { host, recovery } = prepareRecipientRecovery();
+  await expect(
+    host.recoverCreation({ ...recovery, idempotencyKey: 'initial-reviewer' }),
+  ).rejects.toThrow(/idempotency key/);
+  expect(store.getPendingSymposiumCreationRecovery('chat', 'reviewer', 1)).toBeNull();
+  expect(store.getSymposiumSeatSandbox('chat', 'reviewer', 1)?.state).toBe('reserved');
+  expect(store.getLatestSymposiumMembership('chat', 'reviewer')?.reconciliation).toBe('confirmed');
+});
+it('reserves pending recovery keys against other seat transitions and recoveries', async () => {
+  const { host, recovery } = prepareRecipientRecovery();
+  store.beginSymposiumCreationRecovery(recovery);
+  const competing = new EventStore(dbPath);
+  try {
+    expect(() =>
+      competing.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId: 'builder',
+        action: 'suspend',
+        expectedGeneration: 1,
+        configRevision: 4,
+        actor: 'owner',
+        reason: 'competing',
+        idempotencyKey: recovery.idempotencyKey,
+        occurredAt: 2,
+      }),
+    ).toThrow(/reserved by creation recovery/);
+    expect(() =>
+      competing.beginSymposiumCreationRecovery({ ...recovery, seatId: 'builder' }),
+    ).toThrow(/idempotency key/);
+  } finally {
+    competing.close();
+  }
+  expect((await host.recoverCreation(recovery)).generation).toBe(2);
+  expect((await host.recoverCreation(recovery)).generation).toBe(2);
+});
+
+it.each(['cleanup-before', 'cleanup-after', 'seal-before', 'seal-after'] as const)(
+  'keeps denied delivery retryable across the %s claim boundary',
+  async (mode) => {
+    const { host, recovery } = prepareRecipientRecovery();
+    const delivery = host.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'unaffected work',
+      idempotencyKey: 'fence-race',
+    });
+    host.intervene({
+      deliveryId: delivery.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve',
+    });
+    const competing = new EventStore(dbPath);
+    const fence = () => {
+      if (mode.startsWith('cleanup')) competing.beginSymposiumCreationRecovery(recovery);
+      else
+        competing.beginSymposiumArtifactSeal({
+          sessionId: 'chat',
+          expectedConfigRevision: 4,
+          idempotencyKey: 'seal',
+          custody: { workspaceId: 'work', gatewayLaunchDigest: 'a'.repeat(64) },
+          artifact: {
+            driver: 'podman',
+            volumeName: 'volume',
+            volumeGeneration: 'generation',
+            leaseRevision: 'lease',
+            leaseTokenHash: 'b'.repeat(64),
+          },
+        });
+    };
+    try {
+      if (mode.endsWith('before')) fence();
+      else builder.prepare = () => fence();
+      await expect(host.deliver(delivery.deliveryId)).rejects.toThrow(/fenced/);
+      expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('ready');
+      expect(store.getSymposiumDelivery(delivery.deliveryId)?.recipients[0].status).toBe('pending');
+      expect(store.getSymposiumRecipientAttempts(delivery.deliveryId)).toHaveLength(0);
+      expect(builder.calls).toHaveLength(0);
+      if (mode.startsWith('cleanup')) {
+        builder.prepare = undefined;
+        await host.recoverCreation(recovery);
+        expect((await host.deliver(delivery.deliveryId)).status).toBe('delivered');
+        expect(builder.calls).toHaveLength(1);
+      }
+    } finally {
+      competing.close();
+    }
+  },
+);
+
+it('preserves a live recipient claim when another recipient hits a concurrent seal fence', async () => {
+  const { host } = prepareRecipientRecovery();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const execute = builder.execute.bind(builder);
+  builder.execute = async (input) => {
+    await gate;
+    return execute(input);
+  };
+  const competing = new EventStore(dbPath);
+  reviewer.prepare = () => {
+    competing.beginSymposiumArtifactSeal({
+      sessionId: 'chat',
+      expectedConfigRevision: 4,
+      idempotencyKey: 'seal-active',
+      custody: { workspaceId: 'work', gatewayLaunchDigest: 'a'.repeat(64) },
+      artifact: {
+        driver: 'podman',
+        volumeName: 'volume',
+        volumeGeneration: 'generation',
+        leaseRevision: 'lease',
+        leaseTokenHash: 'b'.repeat(64),
+      },
+    });
+  };
+  const delivery = host.stageDelivery({
+    sessionId: 'chat',
+    sourceSeatId: null,
+    recipientSeatIds: ['builder', 'reviewer'],
+    originalContent: 'mixed fence',
+    idempotencyKey: 'mixed-fence',
+  });
+  host.intervene({ deliveryId: delivery.deliveryId, action: 'approve', idempotencyKey: 'approve' });
+  const running = host.deliver(delivery.deliveryId);
+  try {
+    await vi.waitFor(() => expect(store.getSymposiumArtifactSealIntent('chat')).not.toBeNull());
+    const attempts = store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder');
+    expect(attempts[0].status).toBe('executing');
+    competing.requeueIdleSymposiumDelivery(delivery.deliveryId, 100);
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('delivering');
+    expect(store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder')).toEqual(attempts);
+    release();
+    await expect(running).rejects.toThrow(/fenced/);
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('ready');
+    expect(
+      store.getSymposiumDelivery(delivery.deliveryId)?.recipients.map((r) => r.status),
+    ).toEqual(['delivered', 'pending']);
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+  } finally {
+    release();
+    competing.close();
+  }
 });
