@@ -1,3 +1,5 @@
+import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
+import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
@@ -1166,6 +1168,7 @@ app.use(
     },
   }),
 );
+const symposiumReviewActionAuthority = new SymposiumReviewActionAuthority();
 const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -1192,6 +1195,40 @@ app.use(
   operatorAuthMiddleware,
   createSymposiumReviewRouter({
     store: symposiumReviewStore,
+    authorizeContext(req, res, context) {
+      const session = res.locals.authSession as AuthSession | undefined;
+      if (!session) throw new Error('Interactive authorization required');
+      const retained = custodianRequestAuthority(req);
+      let current = true;
+      const unregister = registerAuthSession(session, () => {
+        current = false;
+      });
+      const assertCurrent = () => {
+        if (!current || res.writableEnded || session.expiresAt <= Date.now())
+          throw new Error('Review request authorization expired');
+        if (retained && custodianRequestAuthority(req)?.id !== retained.id)
+          throw new Error('Custodian review request authority changed');
+      };
+      let release: (() => void) | undefined;
+      try {
+        release = symposiumReviewActionAuthority.bind(
+          context,
+          String(req.body?.action ?? ''),
+          assertCurrent,
+        );
+      } catch (error) {
+        unregister();
+        throw error;
+      }
+      const close = () => {
+        current = false;
+        release?.();
+        unregister();
+      };
+      res.once('close', close);
+      res.once('finish', close);
+      return context;
+    },
     getPublicationPreflight: (sessionId) =>
       symposiumProductionHost?.reviewHost &&
       symposiumProductionHost.reviewPublication &&
