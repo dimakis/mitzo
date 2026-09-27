@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -2715,7 +2716,7 @@ it.each([
                   {
                     type: 'volume' as const,
                     source: 'artifacts-1',
-                    target: '/sandbox/symposium-artifacts',
+                    target: SYMPOSIUM_ARTIFACT_TARGET,
                     read_only: failure === 'artifact-reader',
                   },
                 ],
