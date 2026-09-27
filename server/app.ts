@@ -1,5 +1,6 @@
 import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
+import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import {
   createSymposiumApplicationDispatchPolicy,
@@ -1151,6 +1152,15 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     };
   },
 });
+const symposiumReaderAuthorityBridge = createSymposiumReaderAuthorityBridge();
+
+/** Trusted app composition installs the concrete owner once; requests never supply this callback. */
+export function installSymposiumReaderAuthority(
+  assertAdmissionCurrent: Parameters<typeof symposiumReaderAuthorityBridge.install>[0],
+): void {
+  symposiumReaderAuthorityBridge.install(assertAdmissionCurrent);
+}
+
 export function getSymposiumBootstrapDependencies() {
   return {
     facts: eventStore,
@@ -1160,6 +1170,7 @@ export function getSymposiumBootstrapDependencies() {
       events: eventStore,
       grants: symposiumHostGrants,
     }),
+    readerAuthority: symposiumReaderAuthorityBridge.authority,
   };
 }
 
