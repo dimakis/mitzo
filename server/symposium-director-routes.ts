@@ -717,11 +717,9 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         }),
       );
     } catch (error) {
-      res
-        .status(409)
-        .json({
-          error: error instanceof Error ? error.message : 'Primary transfer requires recovery',
-        });
+      res.status(409).json({
+        error: error instanceof Error ? error.message : 'Primary transfer requires recovery',
+      });
     }
   });
 

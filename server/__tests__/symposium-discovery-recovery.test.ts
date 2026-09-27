@@ -1,7 +1,11 @@
 import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
-import { recoverSymposiumModelDiscovery } from '../symposium-model-discovery.js';
+import {
+  createSymposiumModelDiscoveryRecovery,
+  recoverSymposiumModelDiscovery,
+} from '../symposium-model-discovery.js';
 import type { DiscoveryOperations } from '../symposium-model-discovery.js';
+import { guardDiscoveryOperations } from '../symposium-discovery-custody.js';
 const config = {
   cliSha256: 'a'.repeat(64),
   workloadImage: `sha256:${'b'.repeat(64)}`,
@@ -70,4 +74,68 @@ it('rejects changed custody before cleanup', async () => {
   );
   expect(ops.list).not.toHaveBeenCalled();
   expect(ops.clearReceipt).not.toHaveBeenCalled();
+});
+
+it.each(['post-clear-guard', 'lock-release'] as const)(
+  'retains exact physical cleanup proof after %s fails',
+  async (phase) => {
+    const { receipt, ops } = fixture();
+    let journal: unknown = receipt;
+    let fail = true;
+    let authorized = true;
+    ops.readReceipt = async () => journal;
+    ops.clearReceipt = vi.fn(async () => {
+      journal = undefined;
+      if (phase === 'post-clear-guard' && fail) authorized = false;
+    });
+    ops.withExclusiveAttempt = async (fn) => {
+      const result = await fn();
+      if (phase === 'lock-release' && fail) throw new Error('Lock release failed');
+      return result;
+    };
+    const guarded = guardDiscoveryOperations(
+      ops,
+      () => {
+        if (!authorized) throw new Error('Custody postcheck failed');
+      },
+      { email: 'test@example.test', planType: 'test' },
+    );
+    const recover = createSymposiumModelDiscoveryRecovery(config, receipt);
+    expect((await recover(guarded)).status).toBe('reconciliation_required');
+    expect(journal).toBeUndefined();
+    fail = false;
+    authorized = true;
+    // A new process/capability cannot adopt the old closure's cleanup proof.
+    expect((await createSymposiumModelDiscoveryRecovery(config, receipt)(guarded)).status).toBe(
+      'reconciliation_required',
+    );
+    expect((await recover(guarded)).status).toBe('reconciled');
+    expect(ops.clearReceipt).toHaveBeenCalledTimes(1);
+    expect(ops.create).not.toHaveBeenCalled();
+    expect(ops.openClient).not.toHaveBeenCalled();
+  },
+);
+
+it('retained cleanup proof does not bypass changed journal, custody or an occupied lock', async () => {
+  const { receipt, ops } = fixture();
+  let journal: unknown = receipt;
+  ops.readReceipt = async () => journal;
+  ops.clearReceipt = async () => {
+    journal = undefined;
+    throw new Error('Postclear failure');
+  };
+  const recover = createSymposiumModelDiscoveryRecovery(config, receipt);
+  expect((await recover(ops)).status).toBe('reconciliation_required');
+  journal = { ...receipt, configHash: 'f'.repeat(64) };
+  expect((await recover(ops)).status).toBe('reconciliation_required');
+  journal = undefined;
+  ops.verifyCustody = async () => {
+    throw new Error('Changed custody');
+  };
+  expect((await recover(ops)).status).toBe('reconciliation_required');
+  ops.verifyCustody = async () => {};
+  ops.withExclusiveAttempt = async () => {
+    throw new Error('Still locked');
+  };
+  expect((await recover(ops)).status).toBe('reconciliation_required');
 });

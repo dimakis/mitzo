@@ -108,40 +108,72 @@ export async function runSymposiumModelDiscovery(
     };
   }
 }
-/** Cleanup-only capability. Missing/changed journals never become a fresh discovery. */
+/** Same-process cleanup capability, pinned to one exact known sandbox and config.
+ * Physical cleanup proof survives a later journal-clear/postcheck/lock-release failure.
+ * Every retry still requires fresh custody checks and acquisition of the attempt lock. */
+export function createSymposiumModelDiscoveryRecovery(
+  input: DiscoveryConfig,
+  retained: DiscoveryReceipt,
+): (ops: DiscoveryOperations) => Promise<DiscoveryResult> {
+  const pinnedConfig = structuredClone(input);
+  const pinnedReceipt = structuredClone(retained);
+  let physicalCleanupProven = false;
+  return async (ops) => {
+    try {
+      const expected = receiptSchema.parse(pinnedReceipt);
+      const config = configSchema.parse(pinnedConfig);
+      if (
+        !expected.id ||
+        expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
+      )
+        throw new Error('Creation completion or config is unproven');
+      return await ops.withExclusiveAttempt(async () => {
+        await ops.verifyCustody(config);
+        const journal = await ops.readReceipt();
+        // This is retained positive evidence, never an inference from bare absence.
+        if (journal === undefined && physicalCleanupProven)
+          return { status: 'reconciled', inference: false };
+        const current = receiptSchema.parse(journal);
+        if (JSON.stringify(current) !== JSON.stringify(expected))
+          throw new Error('Discovery journal changed');
+        return runExclusiveDiscovery(
+          config,
+          {
+            ...ops,
+            readReceipt: async () => current,
+            create: async () => {
+              throw new Error('Cleanup cannot create');
+            },
+            openClient: async () => {
+              throw new Error('Cleanup cannot open native client');
+            },
+          },
+          undefined,
+          (cleaned) => {
+            if (JSON.stringify(cleaned) !== JSON.stringify(expected))
+              throw new Error('Discovery cleanup identity changed');
+            physicalCleanupProven = true;
+          },
+        );
+      });
+    } catch {
+      return { status: 'reconciliation_required', inference: false };
+    }
+  };
+}
+/** Stateless cleanup rejects missing journals. Retain the factory capability for retries. */
 export async function recoverSymposiumModelDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   retained: DiscoveryReceipt,
 ): Promise<DiscoveryResult> {
-  try {
-    const expected = receiptSchema.parse(retained);
-    // No observed identity means external creation may still arrive later.
-    if (!expected.id) throw new Error('Creation completion is unproven');
-    return await ops.withExclusiveAttempt(async () => {
-      await ops.verifyCustody(input);
-      const current = receiptSchema.parse(await ops.readReceipt());
-      if (JSON.stringify(current) !== JSON.stringify(expected))
-        throw new Error('Discovery journal changed');
-      return runExclusiveDiscovery(input, {
-        ...ops,
-        readReceipt: async () => current,
-        create: async () => {
-          throw new Error('Cleanup cannot create');
-        },
-        openClient: async () => {
-          throw new Error('Cleanup cannot open native client');
-        },
-      });
-    });
-  } catch {
-    return { status: 'reconciliation_required', inference: false };
-  }
+  return createSymposiumModelDiscoveryRecovery(input, retained)(ops);
 }
 async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,
+  onPhysicalCleanup?: (receipt: DiscoveryReceipt) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
@@ -358,6 +390,9 @@ async function runExclusiveDiscovery(
         result = { status: 'reconciliation_required', inference: false };
         if (!failureDetails) await diagnose(cleanupFailure ?? new Error('Cleanup unconfirmed'));
       } else {
+        // Capture positive cleanup proof before a guarded clear can delete the journal
+        // and then fail its postcheck. This never authorizes credential cleanup itself.
+        onPhysicalCleanup?.(receipt);
         await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')
           result = { status: resumed ? 'reconciled' : 'failed', inference: false };
