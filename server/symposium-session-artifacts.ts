@@ -43,6 +43,7 @@ type Row = {
   custody: string;
   volume_name: string;
   generation: string;
+  revision: number;
   state: 'reserved' | 'creating' | 'ready' | 'uncertain' | 'quarantined';
 };
 /** A host-only lifecycle ledger. No deletion, lease release or caller-selected volume.
@@ -67,8 +68,13 @@ export class SymposiumSessionArtifacts {
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_session_artifacts (
    session_id TEXT PRIMARY KEY, workspace TEXT NOT NULL, custody TEXT NOT NULL,
-   volume_name TEXT NOT NULL UNIQUE, generation TEXT NOT NULL, state TEXT NOT NULL
+   volume_name TEXT NOT NULL UNIQUE, generation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL
    CHECK(state IN ('reserved','creating','ready','uncertain','quarantined')))`);
+    const columns = this.db.pragma('table_info(symposium_session_artifacts)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'revision'))
+      this.db.exec(
+        'ALTER TABLE symposium_session_artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
+      );
   }
   close() {
     this.db.close();
@@ -89,6 +95,13 @@ export class SymposiumSessionArtifacts {
     this.verifyCustody();
     if (row.workspace !== this.workspace || row.custody !== this.custody)
       throw new Error('Session artifact belongs to different host custody');
+  }
+  /** Identity only for retiring an existing sandbox/lease, never new admission. */
+  getRetained(sessionId: string): SessionArtifactMapping | null {
+    const row = this.read(sessionId);
+    if (!row) return null;
+    this.assertOwner(row);
+    return this.mapping(row);
   }
   getReady(sessionId: string): SessionArtifactMapping | null {
     const row = this.read(sessionId);
@@ -114,7 +127,9 @@ export class SymposiumSessionArtifacts {
           return prior;
         }
         this.db
-          .prepare('INSERT INTO symposium_session_artifacts VALUES (?,?,?,?,?,?)')
+          .prepare(
+            'INSERT INTO symposium_session_artifacts (session_id,workspace,custody,volume_name,generation,state) VALUES (?,?,?,?,?,?)',
+          )
           .run(
             sessionId,
             this.workspace,
@@ -129,13 +144,15 @@ export class SymposiumSessionArtifacts {
     this.assertOwner(row);
     const mapping = this.mapping(row);
     if (row.state === 'quarantined') return { state: 'recovery_required' };
+    let revision = row.revision;
+    let creationStarted = false;
     const ready = () => {
       this.assertOwner(row);
       const updated = this.db
         .prepare(
-          "UPDATE symposium_session_artifacts SET state='ready' WHERE session_id=? AND state IN ('creating','uncertain','ready')",
+          "UPDATE symposium_session_artifacts SET state='ready', revision=revision+1 WHERE session_id=? AND revision=? AND state IN ('creating','uncertain','ready')",
         )
-        .run(sessionId);
+        .run(sessionId, revision);
       return {
         state: updated.changes === 1 ? 'ready' : 'recovery_required',
       } as SessionArtifactPreparation;
@@ -151,12 +168,12 @@ export class SymposiumSessionArtifacts {
           // from a transport outage: only actual evidence invalidates readiness.
           // Evidence collected while creation was unsettled cannot revoke a
           // newer ready transition made by another ledger instance.
-          if (row.state === 'ready')
+          if (row.state === 'ready' || row.state === 'uncertain')
             this.db
               .prepare(
-                "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state='ready'",
+                "UPDATE symposium_session_artifacts SET state='uncertain', revision=revision+1 WHERE session_id=? AND revision=? AND state IN ('ready','uncertain')",
               )
-              .run(sessionId);
+              .run(sessionId, revision);
           throw error;
         }
         return ready();
@@ -165,17 +182,19 @@ export class SymposiumSessionArtifacts {
       if (volume) {
         this.db
           .prepare(
-            "UPDATE symposium_session_artifacts SET state='quarantined' WHERE session_id=? AND state='reserved'",
+            "UPDATE symposium_session_artifacts SET state='quarantined', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
           )
-          .run(sessionId);
+          .run(sessionId, revision);
         return { state: 'recovery_required' };
       }
       const claimed = this.db
         .prepare(
-          "UPDATE symposium_session_artifacts SET state='creating' WHERE session_id=? AND state='reserved'",
+          "UPDATE symposium_session_artifacts SET state='creating', revision=revision+1 WHERE session_id=? AND revision=? AND state='reserved'",
         )
-        .run(sessionId);
+        .run(sessionId, revision);
       if (claimed.changes !== 1) return { state: 'pending' };
+      revision += 1;
+      creationStarted = true;
       this.assertOwner(row);
       await this.host.create(mapping.volumeName, artifactVolumeLabels(this.workspace, mapping));
       this.assertOwner(row);
@@ -187,11 +206,12 @@ export class SymposiumSessionArtifacts {
       this.assertOwner(row);
       return ready();
     } catch {
-      this.db
-        .prepare(
-          "UPDATE symposium_session_artifacts SET state='uncertain' WHERE session_id=? AND state IN ('creating','uncertain')",
-        )
-        .run(sessionId);
+      if (creationStarted)
+        this.db
+          .prepare(
+            "UPDATE symposium_session_artifacts SET state='uncertain', revision=revision+1 WHERE session_id=? AND revision=? AND state='creating'",
+          )
+          .run(sessionId, revision);
       return { state: 'recovery_required' };
     }
   }
