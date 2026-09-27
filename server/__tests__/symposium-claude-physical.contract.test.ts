@@ -8,6 +8,12 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { REVIEWED_CLAUDE_OWNED_CONTRACT as contract } from '../symposium-claude-owned-contract.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME as runtime } from '../symposium-owned-runtime-contract.js';
+// Test artifact built from source55404f20; never used as production authority.
+const candidate = {
+  image: 'sha256:bc45660bfe2c50516fb65d7379b7799f7352f9a4da6d5e2562cd1da4e6022127',
+  landlock: '2a32470d6854637311cb790553b5c251a46176dced12eb6568f7582852500c34',
+  launcher: '46a1ebd449a5e5c61539c7d0d68ddc2fa4151ffceb642b991e4c3f7b7119438f',
+};
 
 it.skipIf(process.env.MITZO_CLAUDE_PHYSICAL_CONTRACT !== '1')(
   'confines two claim homes and executes only the pinned Claude version under the real controller',
@@ -77,8 +83,10 @@ assert (workspace/'retained').read_text()=='parent'
 assert (workspace/'writer').read_text()=='allowed'
 for c in (a,b): assert (homes/c/'sentinel').read_text()==c
 invoke('c'*64,'read',['/usr/local/bin/claude','--version'])
+os.environ.update({'VERTEX_AI_PROJECT_ID':'project-1','VERTEX_AI_REGION':'global','GOOGLE_VERTEX_AI_TOKEN':'openshell:resolve:env:GOOGLE_VERTEX_AI_TOKEN'})
+invoke('d'*64,'read',['/usr/local/bin/symposium-claude-vertex','project-1','global','--version'])
 paths=${JSON.stringify(Object.keys(runtime.build.nativeArtifacts))}
-paths.append('/usr/local/bin/claude')
+paths.extend(['/usr/local/bin/claude','/usr/local/bin/symposium-claude-vertex'])
 measured={p:hashlib.sha256(P(p).read_bytes()).hexdigest() for p in paths}
 print(json.dumps({'receipts':receipts,'measured':measured,'isolation':True}))
 `;
@@ -106,7 +114,7 @@ print(json.dumps({'receipts':receipts,'measured':measured,'isolation':True}))
         '--tmpfs',
         '/sandbox:rw,mode=1777',
         '--entrypoint=/usr/bin/python3',
-        contract.image,
+        candidate.image,
         '-I',
         '-B',
         '-c',
@@ -117,10 +125,13 @@ print(json.dumps({'receipts':receipts,'measured':measured,'isolation':True}))
       const output = run(['start', '--attach', id]);
       const lines = output.split('\n');
       expect(lines[0]).toBe(`${contract.version} (Claude Code)`);
+      expect(lines[1]).toBe(`${contract.version} (Claude Code)`);
       const evidence = JSON.parse(lines.at(-1)!);
       expect(evidence.measured).toEqual({
         ...runtime.build.nativeArtifacts,
         [contract.executable]: contract.sha256,
+        '/usr/local/bin/symposium-seat-landlock': candidate.landlock,
+        '/usr/local/bin/symposium-claude-vertex': candidate.launcher,
       });
       expect(evidence.isolation).toBe(true);
       const [observed] = JSON.parse(run(['inspect', id]));
@@ -134,6 +145,7 @@ print(json.dumps({'receipts':receipts,'measured':measured,'isolation':True}))
         id,
         removed,
         contract,
+        candidate,
         evidence,
         modelCalls: 0,
         applicationCredentials: false,
