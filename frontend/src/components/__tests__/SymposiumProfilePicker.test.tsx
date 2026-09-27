@@ -211,3 +211,41 @@ it('resets template contents when switching to a custom profile', async () => {
     false,
   );
 });
+
+it('restricts reviewer placement to reviewer profiles and editor roles', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response([
+      version,
+      {
+        ...version,
+        profileId: 'coder',
+        definition: { ...version.definition, name: 'Builder', role: 'coder' },
+      },
+    ]),
+  );
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} requiredRole="reviewer" />);
+  await screen.findByText('Independent reviewer · v2');
+  expect(screen.queryByText('Builder · v2')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
+  expect(
+    Array.from((screen.getByLabelText('Role') as HTMLSelectElement).options).map(
+      (option) => option.value,
+    ),
+  ).toEqual(['reviewer']);
+});
+
+it('does not select an imported profile with an incompatible role', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    response(
+      path.endsWith('/import')
+        ? { ...version, definition: { ...version.definition, role: 'coder' } }
+        : [],
+    ),
+  );
+  const onChange = vi.fn();
+  render(<SymposiumProfilePicker value={null} onChange={onChange} requiredRole="reviewer" />);
+  fireEvent.change(screen.getByLabelText('Import profile JSON'), { target: { value: '{}' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Import profile' }));
+  await screen.findByText('Choose a profile with the reviewer role.');
+  expect(onChange).not.toHaveBeenCalled();
+});

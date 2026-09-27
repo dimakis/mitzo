@@ -18,6 +18,7 @@ interface Props {
   onChange(value: SymposiumProfileSelection | null): void;
   disabled?: boolean;
   compact?: boolean;
+  requiredRole?: SymposiumProfileDefinition['role'];
 }
 const empty: SymposiumProfileDefinition = {
   name: '',
@@ -48,6 +49,7 @@ export function SymposiumProfilePicker({
   onChange,
   disabled = false,
   compact = false,
+  requiredRole,
 }: Props) {
   const [versions, setVersions] = useState<Version[]>([]);
   const [editing, setEditing] = useState(false);
@@ -74,7 +76,10 @@ export function SymposiumProfilePicker({
     };
   }, []);
 
-  const selected = versions.find(
+  const eligible = versions.filter(
+    (version) => !requiredRole || version.definition.role === requiredRole,
+  );
+  const selected = eligible.find(
     (version) => version.profileId === value?.profileId && version.revision === value.revision,
   );
   const isHistorical =
@@ -116,6 +121,8 @@ export function SymposiumProfilePicker({
           }),
         }),
       );
+      if (requiredRole && saved.definition.role !== requiredRole)
+        throw new Error(`Choose a profile with the ${requiredRole} role.`);
       setVersions((current) => [
         ...current.filter(
           (row) => row.profileId !== saved.profileId || row.revision !== saved.revision,
@@ -142,6 +149,8 @@ export function SymposiumProfilePicker({
           body: JSON.stringify({ artifact, idempotencyKey: crypto.randomUUID() }),
         }),
       );
+      if (requiredRole && saved.definition.role !== requiredRole)
+        throw new Error(`Choose a profile with the ${requiredRole} role.`);
       setVersions((current) => [
         ...current.filter(
           (row) => row.profileId !== saved.profileId || row.revision !== saved.revision,
@@ -179,14 +188,14 @@ export function SymposiumProfilePicker({
           disabled={disabled || busy}
           value={value ? `${value.profileId}:${value.revision}` : ''}
           onChange={(event) => {
-            const version = versions.find(
+            const version = eligible.find(
               (row) => `${row.profileId}:${row.revision}` === event.target.value,
             );
             onChange(version ? { profileId: version.profileId, revision: version.revision } : null);
           }}
         >
           <option value="">Use seat guidance</option>
-          {versions.map((version) => (
+          {eligible.map((version) => (
             <option
               key={`${version.profileId}:${version.revision}`}
               value={`${version.profileId}:${version.revision}`}
@@ -204,7 +213,7 @@ export function SymposiumProfilePicker({
           onClick={() => {
             setProfileId('');
             setExpectedRevision(0);
-            setDefinition(empty);
+            setDefinition({ ...empty, role: requiredRole ?? empty.role });
             setEditing(true);
           }}
         >
@@ -253,24 +262,26 @@ export function SymposiumProfilePicker({
                 <select
                   defaultValue=""
                   onChange={(event) => {
-                    const template = symposiumProfileTemplates.find(
-                      (item) => item.id === event.target.value,
-                    );
+                    const template = symposiumProfileTemplates
+                      .filter((item) => !requiredRole || item.definition.role === requiredRole)
+                      .find((item) => item.id === event.target.value);
                     if (template) {
                       setDefinition(template.definition);
                       setProfileId(`${template.id}-reviewer`);
                     } else {
-                      setDefinition(empty);
+                      setDefinition({ ...empty, role: requiredRole ?? empty.role });
                       setProfileId('');
                     }
                   }}
                 >
                   <option value="">Custom profile</option>
-                  {symposiumProfileTemplates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.definition.name}
-                    </option>
-                  ))}
+                  {symposiumProfileTemplates
+                    .filter((item) => !requiredRole || item.definition.role === requiredRole)
+                    .map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.definition.name}
+                      </option>
+                    ))}
                 </select>
               </label>
             )}
@@ -301,7 +312,7 @@ export function SymposiumProfilePicker({
                   update('role', event.target.value as SymposiumProfileDefinition['role'])
                 }
               >
-                {roles.map((role) => (
+                {(requiredRole ? [requiredRole] : roles).map((role) => (
                   <option key={role} value={role}>
                     {role}
                   </option>

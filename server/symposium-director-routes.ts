@@ -170,6 +170,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       .getSymposiumDeliveries(sessionId)
       .filter((delivery) => {
         if (delivery.status !== 'delivered') return false;
+        // Timestamps do not order changes within one millisecond. Without an
+        // immutable cross-stream sequence, a tied membership boundary cannot
+        // prove that this delivery's fixed audience included every active seat.
+        if (history.some((member) => member.occurredAt === delivery.createdAt)) return false;
         const latest = new Map<string, (typeof history)[number]>();
         for (const member of history) {
           if (member.occurredAt > delivery.createdAt) continue;

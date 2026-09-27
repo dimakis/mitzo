@@ -278,10 +278,7 @@ export function SymposiumPersonalConnections({
                 );
                 if (!pending) void refresh();
               }}
-              onAccountsChanged={() => {
-                void refresh();
-                notifyAccountsChanged();
-              }}
+              onAccountsChanged={notifyAccountsChanged}
             />
           )}
           {!connection.modelDiscovery &&

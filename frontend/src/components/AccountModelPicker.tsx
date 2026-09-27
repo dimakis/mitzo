@@ -236,6 +236,7 @@ export function AccountModelPicker({
             { ...next, reasoningEffort: previous?.reasoningEffort },
             first,
           );
+          setDraftUnavailable(false);
           setSelection(selected);
           callbacks.current.onChange(explicitSelection ? null : selected);
         }
