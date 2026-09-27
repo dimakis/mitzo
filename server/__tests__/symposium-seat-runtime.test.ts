@@ -670,6 +670,109 @@ describe('last native Symposium dispatch fence', () => {
     );
     expect(send).not.toHaveBeenCalled();
   });
+  it('checks application policy before setup and consumes it only at final native dispatch', async () => {
+    const work = fixture();
+    const order: string[] = [];
+    const applicationPolicy = {
+      assertCurrent: () => {
+        order.push('policy-check');
+      },
+      consume: () => {
+        order.push('policy-consumed');
+      },
+      accepted: (_input: SymposiumSeatExecution, thread: string, turn: string) => {
+        order.push(`accepted:${thread}:${turn}`);
+      },
+      completed: () => {
+        order.push('completed');
+      },
+    };
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      applicationPolicy,
+      owner: {
+        ensure: async () => {
+          order.push('setup');
+          return {
+            sandboxName: 'shared',
+            workdir: '/sandbox/workspaces/mgmt',
+            cli: 'openshell',
+            gateway: 'test-gateway',
+            workspace: 'test-workspace',
+            gatewayInsecure: false,
+          };
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => {
+        order.push('event-receipt');
+        return true;
+      },
+      openNative: async () => ({
+        run: async (_input, callbacks) => {
+          callbacks.beforeDispatch('thread-1');
+          order.push('send');
+          callbacks.accepted('thread-1', 'turn-1');
+          return { providerThreadId: 'thread-1', content: 'reviewed' };
+        },
+        cancel: async () => undefined,
+      }),
+    });
+    await executor.execute(work.input);
+    expect(order[0]).toBe('policy-check');
+    expect(order.filter((value) => value === 'policy-consumed')).toHaveLength(1);
+    expect(order.indexOf('policy-consumed')).toBeLessThan(order.indexOf('send'));
+    expect(order.indexOf('event-receipt')).toBeLessThan(order.indexOf('accepted:thread-1:turn-1'));
+    expect(order.at(-1)).toBe('completed');
+  });
+  it('blocks stopped application work before sandbox setup and after native initialization', async () => {
+    for (const stopDuringInitialization of [false, true]) {
+      const work = fixture();
+      let stopped = !stopDuringInitialization;
+      const send = vi.fn();
+      const ensure = vi.fn(async () => ({
+        sandboxName: 'shared',
+        workdir: '/sandbox/workspaces/mgmt',
+        cli: 'openshell',
+        gateway: 'test-gateway',
+        workspace: 'test-workspace',
+        gatewayInsecure: false,
+      }));
+      const consume = vi.fn();
+      const executor = new SymposiumOpenShellSeatExecutor({
+        facts: work.facts,
+        profiles,
+        hostGrants,
+        applicationPolicy: {
+          assertCurrent: () => {
+            if (stopped) throw new Error('Application run stopped');
+          },
+          consume,
+          accepted: () => undefined,
+          completed: () => undefined,
+        },
+        owner: { ensure, readOnlyEnforced: { openaiApi: true, claudeVertex: false } },
+        recordAccepted: () => true,
+        openNative: async () => {
+          stopped = true;
+          return {
+            run: async (_input, callbacks) => {
+              callbacks.beforeDispatch('thread-1');
+              send();
+              return { providerThreadId: 'thread-1', content: 'unexpected' };
+            },
+            cancel: async () => undefined,
+          };
+        },
+      });
+      await expect(executor.execute(work.input)).rejects.toThrow('Application run stopped');
+      expect(send).not.toHaveBeenCalled();
+      expect(consume).not.toHaveBeenCalled();
+      expect(ensure).toHaveBeenCalledTimes(stopDuringInitialization ? 1 : 0);
+    }
+  });
   it('rechecks the host grant after sandbox setup and records only exact accepted turns', async () => {
     const work = fixture();
     let permitted = true;
