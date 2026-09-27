@@ -91,9 +91,7 @@ export class SymposiumHostGrants {
       throw new Error('Symposium activation revision conflict');
     if (current.version !== 2 || current.state !== 'draft')
       throw new Error('Only a v2 draft can be activated');
-    const contextSourceRefs = z
-      .array(Id)
-      .parse(input.contextSourceRefs ?? [`session:${sessionId}`]);
+    const contextSourceRefs = z.array(Id).parse(input.contextSourceRefs ?? []);
     const profileSelections = z
       .record(Id, SymposiumProfileSelectionSchema)
       .parse(input.profileSelections ?? {});
@@ -170,7 +168,7 @@ export class SymposiumHostGrants {
       sessionId,
       actor,
       input.seat,
-      z.array(Id).parse(input.contextSourceRefs ?? [`session:${sessionId}`]),
+      z.array(Id).parse(input.contextSourceRefs ?? []),
       domain,
       input.profileSelection,
     );
