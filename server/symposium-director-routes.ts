@@ -292,6 +292,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
       return;
     }
+    let mutationStarted = false;
     try {
       const current = deps.store.getActiveSymposiumConfig(sessionId);
       if (current.version !== 2) throw new Error('Multi-seat configuration is required');
@@ -320,6 +321,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       };
       const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;
+      mutationStarted = true;
       res.json(
         deps.reviseSeat({
           sessionId,
@@ -333,7 +335,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     } catch (error) {
       res
         .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Seat revision failed' });
+        .json({
+          error: error instanceof Error ? error.message : 'Seat revision failed',
+          ...(!mutationStarted ? { seatMutation: 'not-started' } : {}),
+        });
     }
   });
   router.post('/activate', (req, res) => {

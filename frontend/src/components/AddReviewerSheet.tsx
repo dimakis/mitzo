@@ -15,6 +15,14 @@ type Status = {
 };
 type Mode = 'independent' | 'summary' | 'selected-turns' | 'full-context';
 const confirmation = 'ADD CROSS-ACCOUNT SEAT';
+class ReviewerRequestError extends Error {
+  constructor(
+    message: string,
+    readonly noSeatMutation: boolean,
+  ) {
+    super(message);
+  }
+}
 async function request<T>(path: string, body?: unknown, method = 'POST'): Promise<T> {
   const response = await apiFetch(
     path,
@@ -27,7 +35,11 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
         },
   );
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || 'Reviewer request failed');
+  if (!response.ok)
+    throw new ReviewerRequestError(
+      result.error || 'Reviewer request failed',
+      result.seatMutation === 'not-started',
+    );
   return result as T;
 }
 
@@ -176,6 +188,7 @@ function ReviewerForm({
     if (!ready || !selection || !profile || busy) return;
     setBusy(true);
     setError('');
+    let reviewerMutationAttempted = false;
     try {
       const selectedProfile = await request<{ definition: { role: string } }>(
         `/api/symposium/profiles/${encodeURIComponent(profile.profileId)}/${profile.revision}`,
@@ -218,8 +231,10 @@ function ReviewerForm({
         ...(typed === confirmation ? { crossAccountConfirmation: confirmation } : {}),
       };
       const seatId = operation.current.seatId;
-      if (!config.seats.some((seat) => seat.id === seatId)) {
+      reviewerMutationAttempted = config.seats.some((seat) => seat.id === seatId);
+      if (!reviewerMutationAttempted) {
         if (config.state === 'active') {
+          reviewerMutationAttempted = true;
           config = await request<SymposiumConfig>(`${base}/seats/revise`, {
             expectedRevision: config.revision,
             seatId,
@@ -240,6 +255,7 @@ function ReviewerForm({
             model: selection.model,
             ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
           });
+          reviewerMutationAttempted = true;
           config = await request<SymposiumConfig>(
             `${base}/config`,
             {
@@ -305,7 +321,20 @@ function ReviewerForm({
       window.dispatchEvent(new Event('symposium-roster-changed'));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not add reviewer');
-      setStatus(await request<Status>(base).catch(() => null));
+      const refreshed = await request<Status>(base).catch(() => null);
+      setStatus(refreshed);
+      // Absence alone does not exclude an in-flight write after a lost response.
+      if (
+        !locked &&
+        refreshed &&
+        !refreshed.config?.seats.some((seat) => seat.id === operation.current.seatId) &&
+        (!reviewerMutationAttempted ||
+          (cause instanceof ReviewerRequestError && cause.noSeatMutation))
+      ) {
+        setLocked(false);
+        packageSnapshot.current = null;
+        setProgress('');
+      }
     } finally {
       setBusy(false);
     }

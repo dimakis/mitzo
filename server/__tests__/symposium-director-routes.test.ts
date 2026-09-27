@@ -298,6 +298,7 @@ describe('Symposium director routes', () => {
     };
     const missing = await request(app).post('/api/sessions/chat/symposium/seats/revise').send(body);
     expect(missing.status).toBe(409);
+    expect(missing.body.seatMutation).toBe('not-started');
     const spoof = await request(app)
       .post('/api/sessions/chat/symposium/seats/revise')
       .send({
@@ -328,6 +329,14 @@ describe('Symposium director routes', () => {
       }),
     );
     expect(reviseSeat.mock.calls[0]?.[0]).not.toHaveProperty('seat.profileSelection');
+    reviseSeat.mockImplementation(() => {
+      throw new Error('Mutation outcome unknown');
+    });
+    const uncertain = await request(app)
+      .post('/api/sessions/chat/symposium/seats/revise')
+      .send({ ...body, crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT' });
+    expect(uncertain.status).toBe(409);
+    expect(uncertain.body).not.toHaveProperty('seatMutation');
   });
   it.each(['reviewer', 'new-seat'])(
     'does not mint or reissue %s grants without a runtime',

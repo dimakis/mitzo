@@ -351,3 +351,87 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   expect(screen.getByText('Choose profile').closest('fieldset')).not.toBeDisabled();
 });
+
+it.each(['active', 'draft'])(
+  'unlocks rejected %s reviewer selections only after confirming no seat was saved',
+  async (state) => {
+    const config = {
+      version: 2,
+      revision: 1,
+      state,
+      anchorSeatId: 'anchor',
+      seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.startsWith('/api/symposium/profiles/'))
+        return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
+      if (path.endsWith('/symposium'))
+        return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
+      if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+      return new Response(
+        JSON.stringify({ error: 'Selected model is unavailable', seatMutation: 'not-started' }),
+        { status: 400 },
+      );
+    });
+    render(<AddReviewerSheet sessionId="chat" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+    fireEvent.click(await screen.findByText('Choose account'));
+    fireEvent.click(screen.getByText('Choose profile'));
+    fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+    await screen.findByText(/Selected model is unavailable/);
+    await waitFor(() =>
+      expect(screen.getByText('Choose account').closest('fieldset')).not.toBeDisabled(),
+    );
+    expect(screen.getByLabelText('Review package')).toBeEnabled();
+  },
+);
+
+it('keeps a lost mutation response frozen when a temporarily absent seat may commit later', async () => {
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'anchor',
+    seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+  };
+  let lateSeat = '';
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const path = String(url);
+    if (path.startsWith('/api/symposium/profiles/'))
+      return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
+    if (path.endsWith('/symposium'))
+      return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
+    if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+    lateSeat = JSON.parse(String(init?.body)).seatId;
+    throw new Error('Response lost while mutation may still be running');
+  });
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Frozen diff' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Response lost/);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  expect(config.seats).toHaveLength(1);
+  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  config.seats.push({ id: lateSeat, accountBinding: { accountId: 'a' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/seats/revise')),
+  ).toHaveLength(1);
+});
