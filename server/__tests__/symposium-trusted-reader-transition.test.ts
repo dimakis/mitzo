@@ -80,6 +80,12 @@ function fixture() {
     occurredAt: 1,
   });
   events.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
+  new SymposiumOrchestrator({ store: events, executors: {} }).recordProviderAdmission({
+    sessionId: 'symposium',
+    seatId: 'reviewer',
+    decision: 'admitted',
+    idempotencyKey: 'initial-admission',
+  });
   const selection = {
     sessionId: 'symposium',
     expectedConfigRevision: 4,
