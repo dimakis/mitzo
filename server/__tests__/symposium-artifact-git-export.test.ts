@@ -261,3 +261,17 @@ it('imports the exact successor bundle into an empty child without changing its 
     execFileSync('git', ['-C', child, 'config', '--get', 'remote.origin.url']).toString().trim(),
   ).toBe(value.selection.originUrl);
 });
+
+it('rejects successor metadata whose default ref is outside the selected self-contained refs', () => {
+  const f = fixture();
+  f.git('update-ref', 'refs/remotes/origin/other', 'refs/remotes/origin/main');
+  expect(() =>
+    f.run({
+      kind: 'successor',
+      baseBranch: 'other',
+      sourceBranch: 'feature',
+      sourceOid: f.proof.commit,
+      maxBytes: 1048576,
+    }),
+  ).toThrow();
+});

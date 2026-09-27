@@ -15,6 +15,7 @@ if type(limit)!=int or limit<1 or limit>8388608: raise ValueError('bundle byte b
 data=sys.stdin.buffer.read(limit+1)
 if len(data)!=limit or hashlib.sha256(data).hexdigest()!=options['bundleSha256']: raise ValueError('bundle integrity')
 source=selection['sourceRef']; base=selection['baseRef']
+if 'refs/remotes/origin/'+selection['defaultBranch']!=base: raise ValueError('successor default ref must be selected base')
 for ref,prefix in [(source,'refs/heads/'),(base,'refs/remotes/origin/')]:
  if not ref.startswith(prefix) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,254}',ref[len(prefix):]): raise ValueError('selected ref')
 if selection['sourceOid']!=expected['commit']: raise ValueError('selected commit')

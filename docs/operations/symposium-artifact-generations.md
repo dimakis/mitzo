@@ -21,6 +21,8 @@ this contract, so this capability remains unavailable there.
 The existing incremental publication bundle contract is unchanged. Successor
 export is a separate mode of the same retained export job: a self-contained bundle
 contains only the selected source and base refs, including their required history.
+The selected base must be the origin default branch; unsupported dangling default
+metadata and missing refs/prerequisite objects are rejected.
 The completed receipt binds job and operation, exact parent seal and generation,
 volume, selected refs/OIDs, bundle size/hash, pinned helper image/code, terminal
 success and exact helper removal. The copier verifies this retained job, not a

@@ -45,6 +45,7 @@ if options['kind']=='inspect':
  if len(encoded.encode('utf-8'))>${ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES}: raise ValueError('inspection byte bound')
  sys.stdout.write(encoded)
 elif options['kind'] in ('bundle','successor'):
+ if options['kind']=='successor' and default_ref!=base_ref: raise ValueError('successor default ref must be selected base')
  if source_branch!=options['sourceBranch'] or commit!=options['sourceOid']: raise ValueError('export selection changed')
  limit=options['maxBytes']
  if type(limit)!=int or limit<1 or limit>8388608: raise ValueError('bundle bound')
