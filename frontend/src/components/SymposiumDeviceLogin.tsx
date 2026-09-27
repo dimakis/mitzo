@@ -75,7 +75,10 @@ export function SymposiumDeviceLogin({
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
     // Idle before allocation is acknowledged does not prove the start failed.
-    if (next.state === 'idle' && startingVersion.current === version.current)
+    if (
+      next.state === 'idle' &&
+      (startingVersion.current === version.current || receipt.current.state !== 'idle')
+    )
       return receipt.current;
     // A late allocation reply cannot reopen an attempt already observed terminal.
     if (
