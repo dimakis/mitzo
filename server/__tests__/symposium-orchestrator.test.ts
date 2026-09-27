@@ -602,6 +602,29 @@ describe('SymposiumOrchestrator', () => {
     return delivery.deliveryId;
   }
 
+  it('fences an approved delivery before any executor call when sealing begins', async () => {
+    await prepareConcurrentSeats();
+    const id = readyFor(['builder'], 'seal-before-claim');
+    const intent = store.beginSymposiumArtifactSeal({
+      sessionId: 'chat',
+      expectedConfigRevision: 4,
+      idempotencyKey: 'seal',
+      custody: { workspaceId: 'workspace', gatewayLaunchDigest: 'a'.repeat(64) },
+      artifact: {
+        driver: 'podman',
+        volumeName: 'volume',
+        volumeGeneration: 'generation',
+        leaseRevision: 'lease',
+        leaseTokenHash: 'b'.repeat(64),
+      },
+    });
+    expect(intent.memberships).toHaveLength(3);
+    await expect(orchestrator.deliver(id)).rejects.toThrow(/fenced/);
+    expect(builder.calls).toHaveLength(0);
+    expect(store.getSymposiumRecipientAttempts(id)).toHaveLength(0);
+    expect(store.getSymposiumArtifactSealIntent('chat')?.status).toBe('pending_unsealed');
+  });
+
   it('starts three independent v2 seats before any finishes and retains results after one fails', async () => {
     const architect = await prepareConcurrentSeats();
     let release!: () => void;

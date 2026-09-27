@@ -13,6 +13,7 @@ import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 
 /** Read-only projection of the durable admission facts needed at the last dispatch boundary. */
 export interface SymposiumDispatchFacts {
+  assertSymposiumArtifactWorkAllowed(sessionId: string): void;
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig;
   getLatestSymposiumMembership(
     sessionId: string,
@@ -114,6 +115,7 @@ export function admitSymposiumSeatDispatch(
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
   input.signal.throwIfAborted();
+  facts.assertSymposiumArtifactWorkAllowed(input.sessionId);
   const config = facts.getActiveSymposiumConfig(input.sessionId);
   if (
     config.version !== 2 ||

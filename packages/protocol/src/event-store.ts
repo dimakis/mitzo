@@ -1,5 +1,10 @@
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  SymposiumArtifactSealSelectionSchema,
+  type SymposiumArtifactSealSelection,
+  type SymposiumArtifactSealIntent,
+} from './symposium-artifact-seal.js';
 import type {
   MitzoMode,
   StoredEvent,
@@ -965,6 +970,11 @@ export class EventStore {
         CREATE TABLE IF NOT EXISTS symposium_seat_lifecycle_fences (
           session_id TEXT NOT NULL, seat_id TEXT NOT NULL, token TEXT NOT NULL,
           PRIMARY KEY(session_id, seat_id)
+        );
+        -- A seal intent is an enduring deny fence, never a completed artifact receipt.
+        CREATE TABLE IF NOT EXISTS symposium_artifact_seal_intents (
+          session_id TEXT PRIMARY KEY, fence_id TEXT NOT NULL UNIQUE,
+          selection_json TEXT NOT NULL, intent_json TEXT NOT NULL
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_one_replacement
           ON symposium_membership(session_id,replaces_seat_id)
@@ -2022,6 +2032,7 @@ export class EventStore {
   ): SymposiumConfig {
     const config = SymposiumConfigSchema.parse(input);
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(sessionId);
       const session = this.getSession(sessionId);
       if (!session) throw new Error('Cannot configure Symposium for an unknown session');
       if (!session.symposiumConfig && this.ordinaryStartups.has(sessionId))
@@ -2117,6 +2128,7 @@ export class EventStore {
     idempotencyKey: string;
   }): SymposiumConfig {
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const request = JSON.stringify(input);
       const prior = this.db!.prepare(
         'SELECT request, config FROM symposium_anchor_transfers WHERE session_id=? AND idempotency_key=?',
@@ -2246,7 +2258,94 @@ export class EventStore {
     return row ? rowToSymposiumMembership(row) : undefined;
   }
 
-  /** Reserve an immutable seat-generation runtime before its first gateway mutation. */
+  /** Trusted-host internal prerequisite. No HTTP route or native review adapter installs it.
+   * IMMEDIATE serializes against admission/allocation/dispatch claims across processes.
+   * There is deliberately no clear/complete method: restart or empty inventory cannot
+   * turn this pending fence into quiescence, an immutable artifact, or review authority.
+   */
+  beginSymposiumArtifactSeal(input: SymposiumArtifactSealSelection): SymposiumArtifactSealIntent {
+    const selection = SymposiumArtifactSealSelectionSchema.parse(input);
+    const selectionJson = JSON.stringify(selection);
+    // The intent must reach the WAL before the host begins physical drain.
+    this.db!.pragma('synchronous = FULL');
+    if (Number(this.db!.pragma('synchronous', { simple: true })) < 2)
+      throw new Error('Artifact seal requires durable SQLite synchronization');
+    return this.db!.transaction(() => {
+      const existing = this.db!.prepare(
+        'SELECT selection_json, intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
+      ).get(selection.sessionId) as { selection_json: string; intent_json: string } | undefined;
+      if (existing) {
+        if (existing.selection_json !== selectionJson)
+          throw new Error('Artifact seal intent identity changed');
+        return JSON.parse(existing.intent_json) as SymposiumArtifactSealIntent;
+      }
+      const config = this.getActiveSymposiumConfig(selection.sessionId);
+      if (
+        config.version !== 2 ||
+        config.state !== 'active' ||
+        config.revision !== selection.expectedConfigRevision
+      )
+        throw new Error('Artifact seal requires the exact active Symposium configuration');
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_seat_lifecycle_fences WHERE session_id=? LIMIT 1',
+        ).get(selection.sessionId)
+      )
+        throw new Error('Artifact seal must wait for active seat lifecycle operations');
+      const digest = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      const memberships = [
+        ...new Map(
+          this.getSymposiumMembershipHistory(selection.sessionId)
+            .sort((a, b) => a.generation - b.generation)
+            .map((member) => [member.seatId, member]),
+        ).values(),
+      ]
+        .map((member) => ({
+          seatId: member.seatId,
+          generation: member.generation,
+          state: member.state,
+          reconciliation: member.reconciliation,
+          bindingDigest: digest(member.bindingKey),
+        }))
+        .sort((a, b) => a.seatId.localeCompare(b.seatId));
+      const intent: SymposiumArtifactSealIntent = {
+        kind: 'artifact_seal_intent',
+        version: 1,
+        status: 'pending_unsealed',
+        fenceId: randomUUID(),
+        selection,
+        configDigest: digest(config),
+        memberships,
+        capturedAt: Date.now(),
+      };
+      this.db!.prepare('INSERT INTO symposium_artifact_seal_intents VALUES(?,?,?,?)').run(
+        selection.sessionId,
+        intent.fenceId,
+        selectionJson,
+        JSON.stringify(intent),
+      );
+      return intent;
+    }).immediate();
+  }
+
+  getSymposiumArtifactSealIntent(sessionId: string): SymposiumArtifactSealIntent | null {
+    const row = this.db!.prepare(
+      'SELECT intent_json FROM symposium_artifact_seal_intents WHERE session_id=?',
+    ).get(sessionId) as { intent_json: string } | undefined;
+    return row ? (JSON.parse(row.intent_json) as SymposiumArtifactSealIntent) : null;
+  }
+
+  /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
+  assertSymposiumArtifactWorkAllowed(sessionId: string): void {
+    if (
+      this.db!.prepare('SELECT 1 FROM symposium_artifact_seal_intents WHERE session_id=?').get(
+        sessionId,
+      )
+    )
+      throw new Error('Symposium artifact seal is pending; new seat work is fenced');
+  }
+
   claimSymposiumSeatLifecycle(sessionId: string, seatId: string, token: string): boolean {
     const result = this.db!.prepare(
       `INSERT OR IGNORE INTO symposium_seat_lifecycle_fences(session_id,seat_id,token)
@@ -2270,6 +2369,7 @@ export class EventStore {
     >,
   ): SymposiumSeatSandboxRecord {
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const existing = this.getSymposiumSeatSandbox(
         input.sessionId,
         input.seatId,
@@ -2362,12 +2462,15 @@ export class EventStore {
     generation: number;
     runtimeId: string;
   }): void {
-    const result = this.db!.prepare(
-      `UPDATE symposium_seat_sandboxes SET creation_started=1
+    this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
+      const result = this.db!.prepare(
+        `UPDATE symposium_seat_sandboxes SET creation_started=1
        WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
        AND state='reserved' AND creation_started=0`,
-    ).run(input.sessionId, input.seatId, input.generation, input.runtimeId);
-    if (result.changes !== 1) throw new Error('Symposium seat creation requires reconciliation');
+      ).run(input.sessionId, input.seatId, input.generation, input.runtimeId);
+      if (result.changes !== 1) throw new Error('Symposium seat creation requires reconciliation');
+    }).immediate();
   }
 
   /** Only the retained live owner, before invoking external dispatch, may undo local intent. */
@@ -2524,6 +2627,7 @@ export class EventStore {
         throw new Error('Symposium membership generation conflict');
       const activating =
         input.action === 'admit' || input.action === 'restore' || input.action === 'replace';
+      if (activating) this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       if ((input.action === 'replace') !== Boolean(input.replacesSeatId)) {
         throw new Error('Symposium replacement requires a predecessor seat');
       }
@@ -2760,6 +2864,7 @@ export class EventStore {
 
   recordSymposiumAdmission(record: SymposiumAdmissionRecord): SymposiumAdmissionRecord {
     return this.db!.transaction(() => {
+      if (record.decision === 'admitted') this.assertSymposiumArtifactWorkAllowed(record.sessionId);
       const prior = this.db!.prepare(
         'SELECT * FROM symposium_admissions WHERE session_id = ? AND idempotency_key = ?',
       ).get(record.sessionId, record.idempotencyKey) as Record<string, unknown> | undefined;
@@ -3335,6 +3440,7 @@ export class EventStore {
     provenance: SymposiumProvenance;
   }): { claimToken: string; thread: SymposiumSeatThreadRecord | undefined } | undefined {
     return this.db!.transaction(() => {
+      this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const recipient = this.db!.prepare(
         `SELECT r.status AS recipient_status, r.idempotency_key, r.membership_generation,
           d.status AS delivery_status,

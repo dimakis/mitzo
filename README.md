@@ -608,3 +608,7 @@ Personal Connections offers explicit model-discovery cleanup only when the same
 running host retains an exact, known-sandbox recovery capability. Successful cleanup
 requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
 restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
+
+A dormant [pending artifact seal fence](docs/operations/symposium-artifact-seal.md) denies
+new Symposium seat work while trusted-host sealing is pending. Physical drain, immutable
+Git proof and native trusted-review dispatch remain unimplemented prerequisites.

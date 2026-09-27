@@ -461,6 +461,8 @@ export function snapshotSymposiumSeatProvider(
     )
       throw new Error('Symposium seat membership is not confirmed');
     const narrowedFacts: SymposiumDispatchFacts = {
+      assertSymposiumArtifactWorkAllowed: (...args) =>
+        facts.assertSymposiumArtifactWorkAllowed(...args),
       getActiveSymposiumConfig: () => ({ ...config, seats: [seat], anchorSeatId: seatId }),
       getLatestSymposiumMembership: (...args) => facts.getLatestSymposiumMembership(...args),
       getLatestSymposiumAdmission: (...args) => facts.getLatestSymposiumAdmission(...args),
@@ -1227,6 +1229,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     admitSeat: ({ sessionId, seatId, generation, retained }) => {
       if (sessionId !== deps.sessionId)
         throw new Error('Symposium admission belongs to another session');
+      deps.store.assertSymposiumArtifactWorkAllowed(sessionId);
       const config = deps.store.getActiveSymposiumConfig(sessionId);
       if (config.version !== 2 || config.state !== 'active')
         throw new Error('Native admission requires active Symposium v2');
