@@ -209,6 +209,14 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
     expect(readFileSync(f.options.attestationPath, 'utf8')).toBe(before);
     expect(host.runtimeConfig.cliContract).toBeUndefined();
+    volume!.Labels['mitzo.symposium.session'] = 'wrong';
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+      state: 'recovery_required',
+    });
+    expect(() => host.artifactRequest('new-session', 'seat', 2)).toThrow('mapping');
+    expect(host.artifactRequest('new-session', 'seat', 2, 'cleanup').volumeName).toBe(
+      request.volumeName,
+    );
     host.stop();
     const nextDirectory = join(f.root, 'next-gateway');
     mkdirSync(nextDirectory, { mode: 0o700 });

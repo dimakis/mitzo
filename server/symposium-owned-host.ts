@@ -267,9 +267,14 @@ export async function createOwnedSymposiumHost(
       sessionId: string,
       seatId: string,
       generation: number,
+      purpose: 'admission' | 'cleanup' = 'admission',
     ): ArtifactLeaseRequest => {
       custody();
-      const mapped = artifacts.get(sessionId) ?? sessionArtifacts!.getReady(sessionId);
+      const mapped =
+        artifacts.get(sessionId) ??
+        (purpose === 'cleanup'
+          ? sessionArtifacts!.getRetained(sessionId)
+          : sessionArtifacts!.getReady(sessionId));
       const config = options.facts.getActiveSymposiumConfig(sessionId);
       const seat = config.seats.find((row) => row.id === seatId);
       const membership = options.facts.getLatestSymposiumMembership(sessionId, seatId);

@@ -96,6 +96,13 @@ export class SymposiumSessionArtifacts {
     if (row.workspace !== this.workspace || row.custody !== this.custody)
       throw new Error('Session artifact belongs to different host custody');
   }
+  /** Identity only for retiring an existing sandbox/lease, never new admission. */
+  getRetained(sessionId: string): SessionArtifactMapping | null {
+    const row = this.read(sessionId);
+    if (!row) return null;
+    this.assertOwner(row);
+    return this.mapping(row);
+  }
   getReady(sessionId: string): SessionArtifactMapping | null {
     const row = this.read(sessionId);
     if (!row) return null;

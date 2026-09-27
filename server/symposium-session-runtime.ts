@@ -545,6 +545,7 @@ export class SymposiumPerSeatSandboxOwner {
         sessionId: string,
         seatId: string,
         generation: number,
+        purpose?: 'admission' | 'cleanup',
       ) => ArtifactLeaseRequest;
       artifactLeaseHost?: SqliteArtifactLeaseHost;
     },
@@ -812,7 +813,12 @@ export class SymposiumPerSeatSandboxOwner {
               if (this.deps.artifactLeaseHost) {
                 if (!this.deps.artifactRequest)
                   throw new Error('Artifact lease request is unavailable');
-                const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+                const request = this.deps.artifactRequest(
+                  sessionId,
+                  seatId,
+                  record.generation,
+                  'cleanup',
+                );
                 if (
                   request.sessionId !== sessionId ||
                   request.seatId !== seatId ||
@@ -881,7 +887,12 @@ export class SymposiumPerSeatSandboxOwner {
             );
             if (record.sandboxName !== expectedName)
               throw new Error('Artifact seat sandbox name changed before deletion');
-            const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+            const request = this.deps.artifactRequest(
+              sessionId,
+              seatId,
+              record.generation,
+              'cleanup',
+            );
             if (
               request.sessionId !== sessionId ||
               request.seatId !== seatId ||
@@ -981,7 +992,12 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   allowedSeatRoles?: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
   allowedAccountProviders?: ReadonlySet<'openai' | 'anthropic-vertex' | 'openai-codex'>;
   /** Re-probe selected host capability before every provider mutation/admission. */
-  artifactRequest?: (sessionId: string, seatId: string, generation: number) => ArtifactLeaseRequest;
+  artifactRequest?: (
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ) => ArtifactLeaseRequest;
   artifactLeaseHost?: SqliteArtifactLeaseHost;
 }
 

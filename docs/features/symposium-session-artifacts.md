@@ -44,5 +44,7 @@ Restart does not silently adopt old mappings or rebind active seats. Explicit
 cross-gateway recovery remains unimplemented; the original volume is retained.
 Transient inspection errors preserve an already-ready mapping for cleanup; fresh
 runtime admission still performs its existing physical verification. Contradictory
-physical evidence invalidates readiness. Native review terminal receipts, hard token-budget evidence
+physical evidence invalidates readiness for new admission. Existing seat shutdown
+uses a cleanup-only retained identity, still requiring the exact sandbox deletion
+and lease-release proofs; it does not require the volume to remain admissible. Native review terminal receipts, hard token-budget evidence
 and attended runtime acceptance remain separate work.
