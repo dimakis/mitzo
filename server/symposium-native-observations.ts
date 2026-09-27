@@ -32,6 +32,7 @@ export interface NativeTurnObservation {
   status: 'accepted' | 'completed' | 'interrupted' | 'failed';
   acceptedAt: number;
   terminalAt: number | null;
+  terminalConflict: boolean;
   usageStatus: 'unknown';
   observedUsage: null;
 }
@@ -51,6 +52,9 @@ export class SymposiumNativeObservations {
       usage_status TEXT NOT NULL DEFAULT 'unknown' CHECK(usage_status = 'unknown'),
       observed_usage TEXT CHECK(observed_usage IS NULL)
     )`);
+    db.exec(
+      `CREATE TABLE IF NOT EXISTS symposium_native_terminal_conflicts (claim_token TEXT PRIMARY KEY, observed_status TEXT NOT NULL, observed_at INTEGER NOT NULL)`,
+    );
   }
   accept(input: NativeObservationIdentity): void {
     const identity = identitySchema.parse(input);
@@ -73,6 +77,17 @@ export class SymposiumNativeObservations {
   }
   terminal(input: z.infer<typeof terminalSchema>): void {
     const terminal = terminalSchema.parse(input);
+    const existing = this.get(terminal.claimToken);
+    if (
+      existing &&
+      existing.identity.providerThreadId === terminal.providerThreadId &&
+      existing.identity.providerTurnId === terminal.providerTurnId &&
+      existing.status !== 'accepted' &&
+      existing.status !== terminal.status
+    ) {
+      this.conflict(terminal);
+      throw new Error('Native terminal observation changed');
+    }
     this.db.transaction(() => {
       const previous = this.get(terminal.claimToken);
       if (
@@ -93,6 +108,23 @@ export class SymposiumNativeObservations {
         .run(terminal.status, Date.now(), terminal.claimToken);
     })();
   }
+  conflict(input: z.infer<typeof terminalSchema>): void {
+    const terminal = terminalSchema.parse(input);
+    const previous = this.get(terminal.claimToken);
+    if (
+      !previous ||
+      previous.identity.providerThreadId !== terminal.providerThreadId ||
+      previous.identity.providerTurnId !== terminal.providerTurnId ||
+      previous.status === 'accepted' ||
+      previous.status === terminal.status
+    )
+      throw new Error('Native terminal conflict does not match accepted terminal identity');
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO symposium_native_terminal_conflicts (claim_token, observed_status, observed_at) VALUES (?, ?, ?)',
+      )
+      .run(terminal.claimToken, terminal.status, Date.now());
+  }
   get(claimToken: string): NativeTurnObservation | undefined {
     const row = this.db
       .prepare(
@@ -112,6 +144,9 @@ export class SymposiumNativeObservations {
     if (!row) return undefined;
     return {
       ...row,
+      terminalConflict: !!this.db
+        .prepare('SELECT 1 FROM symposium_native_terminal_conflicts WHERE claim_token = ?')
+        .get(claimToken),
       identity: identitySchema.parse(JSON.parse(row.identity)),
       usageStatus: 'unknown',
       observedUsage: null,

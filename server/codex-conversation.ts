@@ -81,6 +81,12 @@ export interface CodexConversationOptions {
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void;
+  onProviderTerminalConflict?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void;
   loadConversationHistory?: () => ConversationHistoryEntry[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
@@ -173,6 +179,7 @@ export class CodexConversation {
     abort: AbortController;
     span?: Span;
   };
+  private terminalTurns = new Map<string, { commandId: string; status: string }>();
   private paused = false;
   private closed = false;
   private ready = false;
@@ -1014,7 +1021,29 @@ export class CodexConversation {
       this.active.turnId = turn.data.id;
     }
     if (method === 'turn/completed') {
-      if (!turn.success || !this.active) return;
+      if (!turn.success) return;
+      const terminalKey = JSON.stringify([params.threadId, turn.data.id]);
+      const previous = this.terminalTurns.get(terminalKey);
+      if (previous) {
+        if (
+          ['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '') &&
+          previous.status !== turn.data.status
+        ) {
+          try {
+            this.opts.onProviderTerminalConflict?.(
+              previous.commandId,
+              this.threadId!,
+              turn.data.id,
+              turn.data.status as 'completed' | 'interrupted' | 'failed',
+            );
+          } finally {
+            this.opts.onError?.(new Error('Conflicting provider terminal status'));
+            this.close();
+          }
+        }
+        return;
+      }
+      if (!this.active) return;
       if (!this.active.turnId) {
         // Wait for the start response to confirm identity; do not accept a stale turn.
         this.active.completion = params;
@@ -1070,8 +1099,10 @@ export class CodexConversation {
             })
           : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
-      if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? ''))
+      if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? '')) {
         this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
+        this.terminalTurns.set(terminalKey, { commandId: this.active.command.id, status });
+      }
       this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);

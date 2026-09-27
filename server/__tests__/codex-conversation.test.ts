@@ -115,6 +115,12 @@ async function setup(
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
+  onProviderTerminalConflict?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -197,6 +203,7 @@ async function setup(
     onProviderComplete,
     onProviderAccepted,
     onProviderTerminal,
+    onProviderTerminalConflict,
     loadConversationHistory: () => [
       { role: 'user', text: 'Keep the existing workstream.' },
       { role: 'assistant', text: 'The workstream is active.' },
@@ -1806,5 +1813,55 @@ it.each([undefined, 'unrecognized'])(
       turn: { id: 'turn-1', status },
     });
     expect(terminal).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  'fails closed on conflicting terminal replay after completion (next turn active: %s)',
+  async (nextActive) => {
+    const terminal = vi.fn();
+    const conflict = vi.fn();
+    const { c, callbacks, onError, rpc } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+      conflict,
+    );
+    await c.send({ id: 'first-command', prompt: 'mock' });
+    const completed = { threadId: 'provider-thread', turn: { id: 'turn-1', status: 'completed' } };
+    callbacks.onNotification('turn/completed', completed);
+    callbacks.onNotification('turn/completed', completed);
+    expect(terminal).toHaveBeenCalledExactlyOnceWith('first-command', 'turn-1', 'completed');
+    expect(onError).not.toHaveBeenCalled();
+    if (nextActive) await c.send({ id: 'next-command', prompt: 'mock follow-up' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'unrelated-thread',
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).not.toHaveBeenCalled();
+    callbacks.onNotification('turn/completed', {
+      ...completed,
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+    );
+    expect(conflict).toHaveBeenCalledExactlyOnceWith(
+      'first-command',
+      'provider-thread',
+      'turn-1',
+      'failed',
+    );
+    expect(rpc.close).toHaveBeenCalled();
+    expect(terminal).toHaveBeenCalledOnce();
   },
 );
