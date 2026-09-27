@@ -5,6 +5,7 @@ import {
 } from './connections/capabilities/github-publish-pr-transport.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 
+const safeWorkspace = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const safeSandbox = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const safeBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 function checked(value: string, expression: RegExp, message: string) {
@@ -38,7 +39,7 @@ export class OpenShellSymposiumGitInspection {
       !repositoryPath.startsWith(SYMPOSIUM_ARTIFACT_TARGET + '/')
     )
       throw new Error('Repository path is invalid');
-    checked(this.workspace, safeSandbox, 'OpenShell workspace is invalid');
+    checked(this.workspace, safeWorkspace, 'OpenShell workspace is invalid');
     try {
       return await this.run(
         [

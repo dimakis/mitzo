@@ -83,7 +83,9 @@ export interface ReviewPublicationDependencies {
   control: OpenShellControlRunner;
   workspaceId: string;
   publisher: Pick<GithubHostPublisher, 'policy' | 'findOpen'>;
-  getConnection(id: string): CapabilityConnection | undefined;
+  getConnection(
+    id: string,
+  ): (CapabilityConnection & { gatewayProviderId: string | null }) | undefined;
   /** Current seat-scoped lifecycle attachment; never reconstructed from durable operation metadata. */
   getLiveAttachment(
     context: ReviewContext,
@@ -181,6 +183,7 @@ export function createSymposiumReviewPublicationPreflight(deps: ReviewPublicatio
           attachment.connectionId !== operation.connectionId ||
           attachment.connectionRevision !== operation.connectionRevision ||
           !attachment.gatewayProviderId ||
+          attachment.gatewayProviderId !== connection.gatewayProviderId ||
           attachment.sandboxName !== current.sandboxName ||
           attachment.workspace !== SYMPOSIUM_ARTIFACT_TARGET
         )
