@@ -158,6 +158,7 @@ function fixture() {
     ],
   };
   const facts: SymposiumDispatchFacts = {
+    assertSymposiumArtifactWorkAllowed: () => {},
     getActiveSymposiumConfig: () => currentConfig,
     getLatestSymposiumMembership: () => currentMembership,
     getLatestSymposiumAdmission: () => currentAdmission,
@@ -206,6 +207,16 @@ function fixture() {
     },
   };
 }
+
+it('checks the durable seal at final dispatch even for an already claimed recipient', () => {
+  const { facts, input } = fixture();
+  facts.assertSymposiumArtifactWorkAllowed = () => {
+    throw new Error('artifact seal pending');
+  };
+  expect(() => admitSymposiumSeatDispatch(facts, profiles, input, hostGrants)).toThrow(
+    'artifact seal pending',
+  );
+});
 
 function seatSandboxRegistry() {
   const rows = new Map<string, SymposiumSeatSandboxRecord>();
@@ -908,6 +919,7 @@ describe('last native Symposium dispatch fence', () => {
     } as SymposiumConfig;
     const facts = {
       ...work.facts,
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => mixed,
       getLatestSymposiumMembership: (_sessionId: string, seatId: string) =>
         seatId === 'claude'
@@ -1033,6 +1045,7 @@ describe('last native Symposium dispatch fence', () => {
     const secondSeat = { ...seat, id: 'builder', name: 'Builder', role: 'implementer' };
     const facts = {
       ...work.facts,
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => ({ ...config, seats: [seat, secondSeat] }),
       getLatestSymposiumMembership: (_sessionId: string, seatId: string) => ({
         ...membership,
@@ -1080,6 +1093,7 @@ describe('last native Symposium dispatch fence', () => {
     const secondSeat = { ...seat, id: 'builder', name: 'Builder', role: 'implementer' };
     const facts: SymposiumDispatchFacts = {
       ...work.facts,
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => ({ ...config, seats: [seat, secondSeat] }),
       getLatestSymposiumMembership: (_sessionId, seatId) => ({ ...membership, seatId }),
       getLatestSymposiumAdmission: (_sessionId, seatId) => ({ ...admission, seatId }),
@@ -1431,6 +1445,7 @@ describe('last native Symposium dispatch fence', () => {
       reconciliation: 'pending',
     };
     const facts: SymposiumDispatchFacts = {
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => config,
       getLatestSymposiumMembership: () => currentMembership,
       getLatestSymposiumAdmission: () => currentAdmission,
@@ -1482,6 +1497,7 @@ describe('last native Symposium dispatch fence', () => {
     // The admission changes between the two ensure attempts in this test.
     let currentAdmission: SymposiumAdmissionRecord | undefined = undefined;
     const facts: SymposiumDispatchFacts = {
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => config,
       getLatestSymposiumMembership: () => ({ ...membership, reconciliation: 'pending' }),
       getLatestSymposiumAdmission: () => currentAdmission,
@@ -2754,6 +2770,7 @@ describe('mixed personal subscription and work seat isolation', () => {
     ];
     const facts: SymposiumDispatchFacts = {
       ...fixture().facts,
+      assertSymposiumArtifactWorkAllowed: () => {},
       getActiveSymposiumConfig: () => ({ ...config, seats }),
       getLatestSymposiumMembership: (_sessionId, seatId) => ({ ...membership, seatId }),
       getLatestSymposiumAdmission: (_sessionId, seatId) => {

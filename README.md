@@ -214,6 +214,14 @@ readiness. Reviewer and Claude admission still require independent host attestat
 and live acceptance; environment settings alone do not enable them. See the
 [integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
+A dormant Symposium publication executor now composes the existing forced-approval
+capability service with the saved review record, exact committed tree, current
+writer/session/grant authority, and a mandatory completed host publication seal.
+It revalidates those bindings after approval and uses read-only recovery for an
+ambiguous external outcome. It is **not installed in the live host**: a pending
+seal intent or unfenced Git observation cannot satisfy its seal contract. Trusted
+hard-budget review execution and physical seal completion remain prerequisites.
+
 ### Symposium OpenShell 0.1 per-seat runtime
 
 The experimental 0.1 runtime gives each seat generation its own sandbox and exact
@@ -561,6 +569,7 @@ Discovery journal ownership is exclusive across host adapters; interrupted owner
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
 
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+Owned Podman hosts must explicitly bind the driver namespace label, including the pinned driver’s empty value; see [Podman namespace evidence](docs/operations/symposium-podman-namespace.md).
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
@@ -608,3 +617,7 @@ Personal Connections offers explicit model-discovery cleanup only when the same
 running host retains an exact, known-sandbox recovery capability. Successful cleanup
 requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
 restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
+
+A dormant [pending artifact seal fence](docs/operations/symposium-artifact-seal.md) denies
+new Symposium seat work while trusted-host sealing is pending. Physical drain, immutable
+Git proof and native trusted-review dispatch remain unimplemented prerequisites.

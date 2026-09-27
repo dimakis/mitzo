@@ -1,3 +1,4 @@
+import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { discoveryClaimLabel } from './symposium-model-discovery.js';
 import {
   DiscoveryDiagnosticSchema,
@@ -113,7 +114,7 @@ export function createDiscoveryHostOperations(
   if (
     ![options.cli, options.podman, options.policy, options.journal].every(isAbsolute) ||
     !options.configPins.length ||
-    !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(options.namespace)
+    !isPodmanSandboxNamespace(options.namespace)
   )
     throw new Error('Explicit discovery host configuration required');
   const environment = { ...options.environment };

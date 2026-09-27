@@ -1,3 +1,4 @@
+import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs';
@@ -63,7 +64,7 @@ const Config = z.strictObject({
       XDG_CONFIG_HOME: path.optional(),
       CONTAINER_CONNECTION: id.optional(),
     }),
-    sandboxNamespace: id,
+    sandboxNamespace: z.string().refine(isPodmanSandboxNamespace),
   }),
   personal: z.strictObject({
     workProfiles: z.array(Work),
