@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
-import { canonicalReviewJson } from './symposium-review-records.js';
+import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import { parseUntrustedReviewOutput, ReviewOutputScopeSchema } from './symposium-review-output.js';
 const id = z.string().min(1).max(256);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -44,6 +44,7 @@ type Row = {
   native: string | null;
   output: string | null;
   itemId: string | null;
+  rawHash: string | null;
   conflict: number;
 };
 
@@ -59,8 +60,15 @@ export class SymposiumReviewAttemptStaging {
     db.exec(`CREATE TABLE IF NOT EXISTS symposium_review_attempt_staging (
       attempt_id TEXT PRIMARY KEY, native_claim TEXT NOT NULL UNIQUE,
       link TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('linked','dispatch_uncertain','accepted')),
-      native TEXT UNIQUE, output TEXT, item_id TEXT, conflict INTEGER NOT NULL DEFAULT 0 CHECK(conflict IN (0,1))
+      native TEXT UNIQUE, output TEXT, item_id TEXT, raw_hash TEXT, conflict INTEGER NOT NULL DEFAULT 0 CHECK(conflict IN (0,1))
     )`);
+    const columns = db.pragma('table_info(symposium_review_attempt_staging)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'raw_hash')) {
+      db.exec('ALTER TABLE symposium_review_attempt_staging ADD COLUMN raw_hash TEXT');
+    }
+    db.exec(
+      'UPDATE symposium_review_attempt_staging SET conflict=1 WHERE output IS NOT NULL AND raw_hash IS NULL',
+    );
   }
   private validate(link: ReviewAttemptLink): void {
     if (this.validateCurrentLink(link) !== true)
@@ -69,7 +77,7 @@ export class SymposiumReviewAttemptStaging {
   private row(context: Context, attemptId: string): Row {
     const row = this.db
       .prepare(
-        'SELECT link,state,native,output,item_id AS itemId,conflict FROM symposium_review_attempt_staging WHERE attempt_id=?',
+        'SELECT link,state,native,output,item_id AS itemId,raw_hash AS rawHash,conflict FROM symposium_review_attempt_staging WHERE attempt_id=?',
       )
       .get(attemptId) as Row | undefined;
     if (!row) throw new Error('Review attempt not found');
@@ -152,7 +160,10 @@ export class SymposiumReviewAttemptStaging {
       throw new Error('Review output is not from accepted attempt');
     const link = ReviewAttemptLinkSchema.parse(JSON.parse(row.link));
     this.validate(link);
-    id.parse(item.itemId);
+    if (!id.safeParse(item?.itemId).success) {
+      this.taint(attemptId);
+      throw new Error('Invalid final review item identity');
+    }
     if (item.final !== true || item.truncated !== false) {
       this.taint(attemptId);
       throw new Error('Final complete review item required');
@@ -164,6 +175,7 @@ export class SymposiumReviewAttemptStaging {
       this.taint(attemptId);
       throw new Error('Invalid structured review output');
     }
+    const rawHash = reviewRecordHash(item.text);
     const conflict = this.db
       .transaction(() => {
         const current = this.row(context, attemptId);
@@ -171,7 +183,11 @@ export class SymposiumReviewAttemptStaging {
         if (current.conflict || current.native !== native)
           throw new Error('Review evidence changed');
         if (current.output !== null) {
-          if (current.output !== output || current.itemId !== item.itemId) {
+          if (
+            current.output !== output ||
+            current.itemId !== item.itemId ||
+            current.rawHash !== rawHash
+          ) {
             this.taint(attemptId);
             return true;
           }
@@ -179,9 +195,9 @@ export class SymposiumReviewAttemptStaging {
         }
         this.db
           .prepare(
-            'UPDATE symposium_review_attempt_staging SET output=?,item_id=? WHERE attempt_id=? AND output IS NULL',
+            'UPDATE symposium_review_attempt_staging SET output=?,item_id=?,raw_hash=? WHERE attempt_id=? AND output IS NULL',
           )
-          .run(output, item.itemId, attemptId);
+          .run(output, item.itemId, rawHash, attemptId);
         return false;
       })
       .immediate();

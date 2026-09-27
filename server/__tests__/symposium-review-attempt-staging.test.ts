@@ -242,3 +242,35 @@ it('requires synchronous affirmative validation before persistence', () => {
     n: 0,
   });
 });
+it.each(['', undefined])('permanently taints invalid final item ID %s', (badId) => {
+  const f = accepted();
+  expect(() =>
+    f.store.stageOutput(context, link.attemptId, native, { ...item, itemId: badId as string }),
+  ).toThrow('identity');
+  expect(() => f.store.stageOutput(context, link.attemptId, native, item)).toThrow(
+    'accepted attempt',
+  );
+  expect(f.store.pending(context, link.attemptId).conflict).toBe(true);
+});
+it('different raw final text taints even when parsed content is identical, including after restart', () => {
+  const f = accepted();
+  f.store.stageOutput(context, link.attemptId, native, item);
+  f.db.close();
+  const db = new Database(f.path);
+  dbs.push(db);
+  const reopened = new SymposiumReviewAttemptStaging(db, f.validate);
+  expect(() =>
+    reopened.stageOutput(context, link.attemptId, native, {
+      ...item,
+      text: JSON.stringify(output, null, 2),
+    }),
+  ).toThrow('conflict');
+  expect(reopened.pending(context, link.attemptId)).toMatchObject({ conflict: true, output: null });
+});
+it('fails closed for legacy output without raw commitment, including interrupted schema migration', () => {
+  const f = accepted();
+  f.store.stageOutput(context, link.attemptId, native, item);
+  f.db.exec('UPDATE symposium_review_attempt_staging SET raw_hash=NULL');
+  const reopened = new SymposiumReviewAttemptStaging(f.db, f.validate);
+  expect(reopened.pending(context, link.attemptId)).toMatchObject({ conflict: true, output: null });
+});
