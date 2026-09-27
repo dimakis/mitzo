@@ -305,3 +305,59 @@ it('notifies an open picker when callback recovery reports a completed login', a
   await personal.findByText(/Previous login completed/);
   expect(changed).toHaveBeenCalledOnce();
 });
+
+it('releases callback lock when refresh unmounts a disconnecting callback control', async () => {
+  let state = rows[1].state;
+  let started = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [rows[0], { ...rows[1], state }] }
+        : init?.method === 'POST'
+          ? {
+              attemptId: 'callback',
+              authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+            }
+          : started
+            ? { state: 'pending', attemptId: 'callback', connectionId: 'personal-b' }
+            : { state: 'idle' },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('two@example.test');
+  const second = within(screen.getByRole('region', { name: 'Second account' }));
+  fireEvent.click(second.getByText('Browser callback alternative for Second account'));
+  fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  await second.findByText('Where will you open the login browser?');
+  fireEvent.click(second.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(second.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(second.getByRole('button', { name: 'Start personal login' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login',
+      expect.objectContaining({
+        body: JSON.stringify({
+          callbackTransport: 'host-local',
+          connectionId: 'personal-b',
+          expectedRevision: 3,
+        }),
+      }),
+    ),
+  );
+  started = true;
+  await waitFor(() =>
+    expect((second.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    ),
+  );
+  state = 'disconnecting';
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await second.findByText('Wait for disconnect to finish, then refresh.');
+  state = 'disconnected';
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await waitFor(() =>
+    expect((second.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+});

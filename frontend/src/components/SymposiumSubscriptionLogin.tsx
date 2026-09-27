@@ -44,6 +44,7 @@ export function SymposiumSubscriptionLogin({
   useEffect(() => {
     pendingChanged.current?.(busy || state === 'pending' || state === 'status-error');
   }, [busy, state]);
+  useEffect(() => () => pendingChanged.current?.(false), []);
   useEffect(() => {
     setReady(false);
   }, [connectionId, expectedRevision]);
