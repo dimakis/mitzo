@@ -328,3 +328,24 @@ it('terminates the cancellation SSH proxy process group when execFile times out'
     kill.mockRestore();
   }
 });
+
+it('marks external creation immediately before dispatch, after host preflight', async () => {
+  const { config, options } = fixture();
+  const order: string[] = [];
+  options.attestGateway.mockImplementation(async () => {
+    order.push('custody');
+  });
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    order.push('dispatch');
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  const ops = createDiscoveryHostOperations(config, options);
+  await ops.create(inventoryReceipt, config, () => {
+    order.push('mark');
+  });
+  expect(order).toEqual(['custody', 'mark', 'dispatch', 'custody']);
+  options.attestGateway.mockRejectedValue(new Error('preflight'));
+  const mark = vi.fn();
+  await expect(ops.create(inventoryReceipt, config, mark)).rejects.toThrow('preflight');
+  expect(mark).not.toHaveBeenCalled();
+});

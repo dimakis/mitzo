@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumModelDiscovery,
+  DiscoveryNotDispatchedError,
   type DiscoveryOperations,
   type DiscoveryReceipt,
 } from '../symposium-model-discovery.js';
@@ -226,4 +227,31 @@ it('accepts owned-host dotted identifiers and repository-pinned workload images'
   f.config.gateway = 'owned.gateway';
   f.config.workloadImage = `registry.example.test/team/runtime@sha256:${'b'.repeat(64)}`;
   expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
+});
+
+it('clears only a proven undispatched attempt without claiming inventory cleanup', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryNotDispatchedError('preflight');
+  };
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    status: 'failed',
+    inference: false,
+  });
+  expect(f.receipt()).toBeUndefined();
+  expect(f.operations.physicalAbsent).not.toHaveBeenCalled();
+});
+it('retains reconciliation when an undispatched journal cannot be cleared', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryNotDispatchedError('preflight');
+  };
+  f.operations.clearReceipt = async () => {
+    throw new Error('disk');
+  };
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    status: 'reconciliation_required',
+    inference: false,
+  });
+  expect(f.receipt()).toBeDefined();
 });
