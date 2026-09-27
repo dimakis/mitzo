@@ -811,3 +811,36 @@ it('marks only a retained transport precheck rejection as not dispatched', async
     host.stop();
   }
 });
+
+it('passes bounded successor stdin through the owned transport with the attached deadline', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'terminal');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const input = Buffer.from('disposable test bundle');
+    const args = ['start', '--attach', '--interactive', 'a'.repeat(64)];
+    await host.artifactLeaseHost.snapshotCommand()(args, 4096, input);
+    expect(command).toHaveBeenCalledWith(args, { timeout: 60000, input });
+  } finally {
+    await host.stop();
+  }
+});
+
+it('keeps the production successor capability unavailable without a trusted fix authority', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => 'unexpected');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    await expect(
+      host.copySuccessorArtifact(
+        {} as never,
+        {} as never,
+        Buffer.alloc(0),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow(/fix authority unavailable/);
+    expect(command).not.toHaveBeenCalled();
+  } finally {
+    await host.stop();
+  }
+});

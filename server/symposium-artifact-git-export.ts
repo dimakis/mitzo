@@ -44,11 +44,13 @@ if options['kind']=='inspect':
  encoded=json.dumps({'inspection':inspection,'proof':proof},sort_keys=True)+'\n'
  if len(encoded.encode('utf-8'))>${ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES}: raise ValueError('inspection byte bound')
  sys.stdout.write(encoded)
-elif options['kind']=='bundle':
+elif options['kind'] in ('bundle','successor'):
+ if options['kind']=='successor' and default_ref!=base_ref: raise ValueError('successor default ref must be selected base')
  if source_branch!=options['sourceBranch'] or commit!=options['sourceOid']: raise ValueError('export selection changed')
  limit=options['maxBytes']
  if type(limit)!=int or limit<1 or limit>8388608: raise ValueError('bundle bound')
- args=['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','pack.threads=1','-c','pack.windowMemory=16m','bundle','create','-',base_ref+'..'+source_ref]
+ refs=[base_ref,source_ref] if options['kind']=='successor' else [base_ref+'..'+source_ref]
+ args=['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','pack.threads=1','-c','pack.windowMemory=16m','bundle','create','-',*refs]
  p=subprocess.Popen(args,cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
  selector=selectors.DefaultSelector(); selector.register(p.stdout,selectors.EVENT_READ); chunks=[]; length=0; deadline=time.monotonic()+20
  try:
@@ -67,6 +69,8 @@ elif options['kind']=='bundle':
    os.killpg(p.pid,signal.SIGKILL);p.wait(timeout=5)
  data=b''.join(chunks)
  if not data: raise ValueError('empty bundle')
- print(json.dumps({'proof':proof,'bundle':base64.b64encode(data).decode(),'bundleSha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)},sort_keys=True))
+ result={'proof':proof,'bundle':base64.b64encode(data).decode(),'bundleSha256':hashlib.sha256(data).hexdigest(),'bytes':len(data)}
+ if options['kind']=='successor': result['selection']={'sourceRef':source_ref,'sourceOid':commit,'baseRef':base_ref,'baseOid':base_oid,'defaultBranch':default_branch,'originUrl':origin}
+ print(json.dumps(result,sort_keys=True))
 else: raise ValueError('export operation')
 `;

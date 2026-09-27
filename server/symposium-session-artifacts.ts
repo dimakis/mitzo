@@ -48,6 +48,9 @@ type Row = {
   initialization_contract: string | null;
   admission_issued: number;
   source_import_json: string | null;
+  initializer_name: string | null;
+  initializer_id: string | null;
+  initializer_removed: number;
   state: 'reserved' | 'creating' | 'ready' | 'uncertain' | 'quarantined';
 };
 /** A host-only lifecycle ledger. No deletion, lease release or caller-selected volume.
@@ -162,7 +165,8 @@ export class SymposiumSessionArtifacts {
     return this.db
       .transaction(() => {
         const mapping = this.getReady(sessionId);
-        if (!mapping) throw new Error('Artifact source import or preparation mapping is incomplete');
+        if (!mapping)
+          throw new Error('Artifact source import or preparation mapping is incomplete');
         this.db
           .prepare('UPDATE symposium_session_artifacts SET admission_issued=1 WHERE session_id=?')
           .run(sessionId);
@@ -251,6 +255,26 @@ export class SymposiumSessionArtifacts {
       if (!value.helperRemoved) throw new Error('Source helper cleanup receipt required');
       value.receipt = receipt;
     });
+  }
+  initializationReceipt(sessionId: string) {
+    const mapping = this.getReady(sessionId);
+    const row = this.read(sessionId);
+    if (
+      !mapping ||
+      !row ||
+      row.initializer_name !== `${mapping.volumeName}-init` ||
+      !row.initializer_id ||
+      !/^[a-f0-9]{64}$/.test(row.initializer_id) ||
+      row.initializer_removed !== 1
+    )
+      return null;
+    return {
+      mapping,
+      workspace: row.workspace,
+      custody: row.custody,
+      contract: row.initialization_contract!,
+      helper: { name: row.initializer_name, id: row.initializer_id, removed: true as const },
+    };
   }
   ensure(sessionId: string): Promise<SessionArtifactPreparation> {
     if (!id.test(sessionId)) return Promise.reject(new Error('Invalid Symposium session identity'));
