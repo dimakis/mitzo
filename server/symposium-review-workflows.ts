@@ -162,6 +162,15 @@ const FixAuthorizationSchema = z.strictObject({
   findingFingerprints: z.array(Sha256).min(1),
   reason: Id,
 });
+const ApplicationFixIntentSchema = z.strictObject({
+  workflowId: Id,
+  artifactRevision: Id,
+  artifactHash: Sha256,
+  actor: Id,
+  authorizationId: Id,
+  findingFingerprints: z.array(Sha256).min(1),
+  reason: Id,
+});
 const FixSchema = z.strictObject({
   workflowId: Id,
   result: WorkResultSchema,
@@ -198,6 +207,7 @@ type RoleAdmission = {
 };
 type Review = z.infer<typeof ReviewSchema>;
 type FixAuthorization = z.infer<typeof FixAuthorizationSchema>;
+type ApplicationFixIntent = z.infer<typeof ApplicationFixIntentSchema>;
 type Fix = z.infer<typeof FixSchema>;
 type Evidence = z.infer<typeof OutcomeEvidenceSchema>;
 type WorkResult = z.infer<typeof WorkResultSchema>;
@@ -278,6 +288,7 @@ type Workflow = Omit<Create, 'implementation'> & {
     requestHash: string;
   }>;
   authorizations: FixAuthorization[];
+  applicationFixIntents: ApplicationFixIntent[];
   evidence: Array<{ item: Evidence; artifactHash: string; source: 'host' | 'model' }>;
 };
 
@@ -458,6 +469,7 @@ export class SymposiumReviewStore {
   private hydrate(state: Workflow): Workflow {
     state.applicationAttempts ??= [];
     state.applicationPreparations ??= [];
+    state.applicationFixIntents ??= [];
     state.hostTurns ??= 0;
     state.reviewCycles ??= 0;
     state.progressSignatures ??= [];
@@ -567,6 +579,7 @@ export class SymposiumReviewStore {
       reviewCycles: 0,
       applicationAttempts: [],
       applicationPreparations: [],
+      applicationFixIntents: [],
       progressSignatures: [],
       tokensUsed: 0,
       usageCompleteness: { tokens: 'complete', cost: 'complete' },
@@ -1502,6 +1515,35 @@ export class SymposiumReviewStore {
       .immediate();
   }
 
+  authorizeApplicationFixIntent(input: ApplicationFixIntent): Workflow {
+    const parsed = ApplicationFixIntentSchema.parse(input);
+    return this.db
+      .transaction(() => {
+        const state = this.read(parsed.workflowId);
+        if (!isApplicationPolicy(state.limits)) throw new Error('Application policy required');
+        this.requireArtifact(state, parsed.artifactRevision, parsed.artifactHash);
+        if (state.status !== 'awaiting_fix') throw new Error('Fix authority is not due');
+        if (parsed.actor !== state.owner) throw new Error('Owner authority is required');
+        const open = state.findings.filter((finding) => finding.status === 'open');
+        if (
+          parsed.findingFingerprints.length !== open.length ||
+          new Set(parsed.findingFingerprints).size !== open.length ||
+          open.some((finding) => !parsed.findingFingerprints.includes(finding.fingerprint))
+        )
+          throw new Error('Exact open finding scope required');
+        const prior = state.applicationFixIntents.find(
+          (intent) => intent.authorizationId === parsed.authorizationId,
+        );
+        if (prior) {
+          if (digest(prior) !== digest(parsed)) throw new Error('Fix intent idempotency conflict');
+          return state;
+        }
+        state.applicationFixIntents.push(parsed);
+        return this.write(state, 'application_fix_intent_authorized', parsed);
+      })
+      .immediate();
+  }
+
   dismissFinding(input: z.infer<typeof DismissalSchema>): Workflow {
     const parsed = DismissalSchema.parse(input);
     return this.db
@@ -1595,6 +1637,16 @@ export class SymposiumReviewStore {
         )
         .flatMap((auth) => auth.findingFingerprints),
     );
+    if (isApplicationPolicy(state.limits)) {
+      for (const intent of state.applicationFixIntents) {
+        if (
+          intent.artifactRevision === state.artifactRevision &&
+          intent.artifactHash === state.artifactHash &&
+          intent.actor === state.owner
+        )
+          for (const fingerprint of intent.findingFingerprints) authorized.add(fingerprint);
+      }
+    }
     if (state.findings.some((item) => item.status === 'open' && !authorized.has(item.fingerprint)))
       throw new Error('Fix authority is required for every open finding');
   }

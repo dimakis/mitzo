@@ -112,7 +112,8 @@ export interface SymposiumReviewHost {
    * Never construct this result from an interactive caller's review payload.
    */
   completedReview(context: ReviewContext, attemptId: string): CompletedReview | null;
-  /** This must verify a fresh, authenticated user action and current write authority. */
+  /** This must verify a fresh, authenticated user action. Application mode binds
+   * successor write authority only after its confirmed physical transition. */
   authorizeFix(input: {
     context: ReviewContext;
     workflowId: string;
@@ -120,7 +121,10 @@ export interface SymposiumReviewHost {
     reason: string;
     artifactRevision: string;
     artifactHash: string;
-  }): { actor: string; authorityGrantId: string; authorityRevision: number } | null;
+  }):
+    | { actor: string; authorizationId: string }
+    | { actor: string; authorityGrantId: string; authorityRevision: number }
+    | null;
   /** Only the host can attest a new artifact after a fix attempt. */
   fixedArtifact(context: ReviewContext, attemptId: string): WorkResult | null;
   /** Verification evidence must be produced by a host check bound to the current artifact. */
@@ -566,6 +570,17 @@ export class SymposiumReviewCoordinator {
     });
     if (!approval || approval.actor !== context.owner)
       return decision('interactive_fix_authority_required');
+    if (isApplicationPolicy(state.limits)) {
+      if (!('authorizationId' in approval)) return decision('interactive_fix_authority_required');
+      return this.store.authorizeApplicationFixIntent({
+        ...input,
+        actor: approval.actor,
+        authorizationId: approval.authorizationId,
+        artifactRevision: state.artifactRevision,
+        artifactHash: state.artifactHash,
+      });
+    }
+    if (!('authorityGrantId' in approval)) return decision('interactive_fix_authority_required');
     return this.store.authorizeFix({
       ...input,
       ...approval,

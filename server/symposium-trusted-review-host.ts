@@ -596,10 +596,12 @@ export function createSymposiumTrustedReviewHost(
     },
     authorizeFix(input) {
       const state = workflow(input.context, input.workflowId);
-      const { seat } = selected(input.context, state.implementer.seatId);
       const { context, ...action } = input;
       const authorized = deps.authorizeAction(context, { kind: 'fix', ...action });
       if (!authorized) return null;
+      if (isApplicationPolicy(state.limits))
+        return { actor: context.owner, authorizationId: authorized.authorizationId };
+      const { seat } = selected(input.context, state.implementer.seatId);
       return {
         actor: context.owner,
         authorityGrantId: seat.authorityGrant!.grantId,

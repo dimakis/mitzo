@@ -145,6 +145,30 @@ it('accepts trusted completion with unknown usage and preserves unknown observat
   expect(state.attempts[0].tokens).toBeNull();
   a.close();
 });
+it('retains exact user fix intent without borrowing an old writer grant', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create(create());
+  a.reserveApplicationAttempt(request('one'));
+  const state = terminalReview(a, 'one', [
+    { criterion: 'works', summary: 'missing', location: 'file', evidenceRefs: ['diff'] },
+  ]);
+  const intent = {
+    workflowId: 'w',
+    artifactRevision: 'a',
+    artifactHash: hash,
+    actor: 'user',
+    authorizationId: 'fresh-user-action',
+    findingFingerprints: [state.findings[0].fingerprint],
+    reason: 'fix selected finding',
+  };
+  expect(a.authorizeApplicationFixIntent(intent)).toMatchObject({ status: 'awaiting_fix' });
+  expect(a.get('w')?.applicationFixIntents).toEqual([intent]);
+  expect(a.get('w')?.authorizations).toEqual([]);
+  expect(() => a.authorizeApplicationFixIntent({ ...intent, findingFingerprints: [hash] })).toThrow(
+    /scope/i,
+  );
+  a.close();
+});
 it('refuses dispatch-only completion and conflicting terminal outcomes', () => {
   const a = new SymposiumReviewStore(':memory:');
   a.create(create());
