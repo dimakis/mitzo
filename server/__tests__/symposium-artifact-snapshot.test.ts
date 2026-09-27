@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
-import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
+import { SqliteArtifactLeaseHost, ArtifactPodmanContext } from '../symposium-artifact-host.js';
 import {
   acquireSymposiumArtifactLease,
   type ArtifactLeaseRequest,
@@ -22,26 +22,6 @@ async function fixture() {
     driver: 'podman',
     access: 'writer',
   };
-  const host = new SqliteArtifactLeaseHost(
-    join(root, 'leases'),
-    { verifyGateway: async () => {}, verifyMount: async () => {} },
-    async () => ({
-      Name: 'v',
-      Driver: 'local',
-      Options: {},
-      Labels: {
-        'openshell.ai/sandbox-attachable': 'true',
-        'openshell.ai/sandbox-attachable-workspace': 'w',
-        'mitzo.symposium.purpose': 'artifacts',
-        'mitzo.symposium.session': 's',
-        'mitzo.symposium.workspace': 'w',
-        'mitzo.symposium.generation': 'g',
-      },
-    }),
-  );
-  const lease = await acquireSymposiumArtifactLease(host, request);
-  host.markCreationStarted(lease.token, lease.revision, 'seat');
-  host.bindSandbox(lease.token, lease.revision, 'seat', 'physical');
   const command = vi.fn(async (args: readonly string[]): Promise<string> =>
     args[0] === 'start'
       ? '[]'
@@ -49,6 +29,30 @@ async function fixture() {
         ? '[{"State":{"Running":false,"ExitCode":0}}]'
         : '',
   );
+  const host = new SqliteArtifactLeaseHost(
+    join(root, 'leases'),
+    { verifyGateway: async () => {}, verifyMount: async () => {} },
+    new ArtifactPodmanContext(async (args) =>
+      args[0] === 'volume'
+        ? JSON.stringify({
+            Name: 'v',
+            Driver: 'local',
+            Options: {},
+            Labels: {
+              'openshell.ai/sandbox-attachable': 'true',
+              'openshell.ai/sandbox-attachable-workspace': 'w',
+              'mitzo.symposium.purpose': 'artifacts',
+              'mitzo.symposium.session': 's',
+              'mitzo.symposium.workspace': 'w',
+              'mitzo.symposium.generation': 'g',
+            },
+          })
+        : command(args),
+    ),
+  );
+  const lease = await acquireSymposiumArtifactLease(host, request);
+  host.markCreationStarted(lease.token, lease.revision, 'seat');
+  host.bindSandbox(lease.token, lease.revision, 'seat', 'physical');
   const verifyCustody = vi.fn(async () => {});
   const options = {
     databasePath: join(root, 'snapshots'),
@@ -60,7 +64,6 @@ async function fixture() {
     },
     leaseHost: host,
     verifyCustody,
-    command,
   };
   const observer = new ArtifactSnapshotObserver(options);
   return {
@@ -176,4 +179,28 @@ it('rejects lease drift after scanning and removes the verifier', async () => {
   expect(f.command.mock.calls.at(-1)![0][0]).toBe('rm');
   f.observer.close();
   f.host.close();
+});
+it('refuses a legacy lease host with no verifier command context', () => {
+  const host = new SqliteArtifactLeaseHost(':memory:', {
+    verifyGateway: async () => {},
+    verifyMount: async () => {},
+  });
+  try {
+    expect(
+      () =>
+        new ArtifactSnapshotObserver({
+          databasePath: ':memory:',
+          leaseHost: host,
+          verifyCustody: async () => {},
+          gateway: {
+            name: 'g',
+            workspace: 'w',
+            endpoint: 'https://localhost:1',
+            launchDirectoryHash: 'a'.repeat(64),
+          },
+        }),
+    ).toThrow('context');
+  } finally {
+    host.close();
+  }
 });

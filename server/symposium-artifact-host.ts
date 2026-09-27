@@ -32,6 +32,20 @@ export interface ArtifactHostEvidence {
 export type VolumeRunner = (driver: ArtifactDriver, name: string) => Promise<unknown>;
 const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
+/** One retained Podman command closure owns both admission inspection and verifier
+ * operations. Snapshot callers cannot select a second engine/store/environment. */
+export class ArtifactPodmanContext {
+  constructor(private readonly command: (args: readonly string[]) => Promise<string>) {}
+  async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
+    if (driver !== 'podman' || !safeName.test(name))
+      throw new Error('Invalid artifact context inspection');
+    return JSON.parse(await this.command(['volume', 'inspect', name]));
+  }
+  verifierCommand(): (args: readonly string[]) => Promise<string> {
+    return (args) => this.command(args);
+  }
+}
+
 /** Uses argv rather than a shell and never accepts an arbitrary engine name. */
 export const inspectLocalArtifactVolume: VolumeRunner = (driver, name) => {
   if ((driver !== 'podman' && driver !== 'docker') || !safeName.test(name))
@@ -95,12 +109,19 @@ function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
  */
 export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   private readonly db: Database.Database;
+  private readonly volumeRunner: VolumeRunner;
+  private readonly podmanContext?: ArtifactPodmanContext;
 
   constructor(
     dbPath: string,
     private readonly evidence: ArtifactHostEvidence,
-    private readonly volumeRunner: VolumeRunner = inspectLocalArtifactVolume,
+    volumeRunner: VolumeRunner | ArtifactPodmanContext = inspectLocalArtifactVolume,
   ) {
+    this.podmanContext = volumeRunner instanceof ArtifactPodmanContext ? volumeRunner : undefined;
+    this.volumeRunner =
+      volumeRunner instanceof ArtifactPodmanContext
+        ? (driver, name) => volumeRunner.inspect(driver, name)
+        : volumeRunner;
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
@@ -141,6 +162,12 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       released_at INTEGER NOT NULL,
       UNIQUE(sandbox_name, sandbox_id)
     );`);
+  }
+
+  snapshotCommand(): (args: readonly string[]) => Promise<string> {
+    if (!this.podmanContext)
+      throw new Error('Artifact snapshot requires the lease host Podman context');
+    return this.podmanContext.verifierCommand();
   }
 
   close(): void {

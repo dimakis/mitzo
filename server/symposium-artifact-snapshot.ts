@@ -1,7 +1,5 @@
 import Database from 'better-sqlite3';
-import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { isAbsolute } from 'node:path';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { z } from 'zod';
 import { ARTIFACT_SCANNER } from './symposium-artifact-scanner.js';
@@ -66,44 +64,22 @@ export interface ArtifactSnapshotObservation {
 }
 export type ArtifactSnapshotCommand = (args: readonly string[]) => Promise<string>;
 
-/** Only host bootstrap may supply the retained Podman executable/environment.
- * No process environment, HTTP input, or sandbox program selects the command.
- */
-export function createArtifactSnapshotCommand(
-  executable: string,
-  environment: NodeJS.ProcessEnv,
-): ArtifactSnapshotCommand {
-  if (!isAbsolute(executable)) throw new Error('Snapshot Podman executable must be absolute');
-  const env = { ...environment };
-  return (args) =>
-    new Promise((resolve, reject) => {
-      execFile(
-        executable,
-        [...args],
-        { env, encoding: 'utf8', timeout: 30_000, maxBuffer: ARTIFACT_SNAPSHOT_LIMITS.outputBytes },
-        (error, stdout) => {
-          if (error) reject(new Error('Artifact verifier command failed'));
-          else resolve(stdout);
-        },
-      );
-    });
-}
-
 /** Host-only dormant prerequisite. No application route or execution hook installs
  * this observer. A later integration must supply a durable other-writer fence.
  */
 export class ArtifactSnapshotObserver {
   private readonly db: Database.Database;
+  private readonly command: ArtifactSnapshotCommand;
   constructor(
     private readonly options: {
       databasePath: string;
       leaseHost: SqliteArtifactLeaseHost;
       /** Real retained-host custody verification, not a caller-supplied assertion. */
       verifyCustody: () => Promise<void>;
-      command: ArtifactSnapshotCommand;
       gateway: ArtifactSnapshotObservation['gateway'];
     },
   ) {
+    this.command = options.leaseHost.snapshotCommand();
     this.db = new Database(options.databasePath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
@@ -113,7 +89,7 @@ export class ArtifactSnapshotObserver {
   }
   private async cleanup(name: string): Promise<void> {
     try {
-      await this.options.command(['rm', '--force', '--ignore', name]);
+      await this.command(['rm', '--force', '--ignore', name]);
     } catch {
       throw new Error('Artifact verifier cleanup is uncertain; reconciliation required');
     }
@@ -178,7 +154,7 @@ export class ArtifactSnapshotObserver {
     try {
       initialLease = await verify();
       createAttempted = true;
-      await this.options.command([
+      await this.command([
         'create',
         '--pull=never',
         '--name',
@@ -202,11 +178,11 @@ export class ArtifactSnapshotObserver {
         String(ARTIFACT_SNAPSHOT_LIMITS.bytes),
         String(ARTIFACT_SNAPSHOT_LIMITS.seconds),
       ]);
-      const output = await this.options.command(['start', '--attach', name]);
+      const output = await this.command(['start', '--attach', name]);
       const status = z
         .array(z.object({ State: z.object({ Running: z.literal(false), ExitCode: z.literal(0) }) }))
         .length(1)
-        .safeParse(JSON.parse(await this.options.command(['inspect', name])));
+        .safeParse(JSON.parse(await this.command(['inspect', name])));
       if (!status.success) throw new Error('Artifact verifier exit was not successful');
       if (Buffer.byteLength(output) > ARTIFACT_SNAPSHOT_LIMITS.outputBytes)
         throw new Error('Artifact verifier output limit');
@@ -262,8 +238,6 @@ export function createOwnedArtifactSnapshotObserver(options: {
   databasePath: string;
   gateway: OwnedSymposiumGateway;
   leaseHost: SqliteArtifactLeaseHost;
-  podmanExecutable: string;
-  podmanEnvironment: NodeJS.ProcessEnv;
 }): ArtifactSnapshotObserver {
   const gateway = options.gateway;
   return new ArtifactSnapshotObserver({
@@ -276,6 +250,5 @@ export function createOwnedArtifactSnapshotObserver(options: {
       endpoint: gateway.endpoint,
       launchDirectoryHash: hash(gateway.stateDirectory),
     },
-    command: createArtifactSnapshotCommand(options.podmanExecutable, options.podmanEnvironment),
   });
 }

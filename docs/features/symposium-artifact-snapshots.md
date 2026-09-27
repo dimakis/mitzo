@@ -7,8 +7,11 @@ Git commit, or evidence of token-budget enforcement. The current hard-cap gate i
 unchanged.
 
 `createOwnedArtifactSnapshotObserver` binds an observer to the retained owned
-OpenShell gateway, the existing SQLite artifact lease host, and the host's explicit
-Podman executable/environment. Callers cannot select an image, executable inside
+OpenShell gateway and the existing SQLite artifact lease host. The lease host owns
+one retained Podman command context shared by admission volume inspection and
+verifier execution; the observer cannot supply another executable/environment or
+select another Podman store. Legacy inspection-only lease hosts remain supported
+for their existing operations but refuse snapshot construction. Callers cannot select an image, executable inside
 the verifier, mount target, scanner, or budgets per observation. Construction alone
 does not run commands. The low-level constructor permits dependency injection for
 mocked tests; it is not an untrusted request boundary.
@@ -23,8 +26,9 @@ with isolated interpreter mode; no Git configuration, hooks, filters, imports fr
 the artifact tree, or shell scripts are executed.
 
 The scanner limits traversal to 10,000 entries, 64 MiB of file contents, 64 levels,
-4 KiB paths, and 20 seconds. Host commands time out after 30 seconds with an 8 MiB
-output ceiling. Descriptor-relative no-follow opens reject symlinks, hard links,
+4 KiB paths, and 20 seconds. The owned-host command context uses its existing 15-second command timeout and
+2 MiB buffer ceiling; the observer also rejects outputs over 8 MiB. A scanner
+exceeding the tighter host limit fails closed. Descriptor-relative no-follow opens reject symlinks, hard links,
 special files, malformed paths, and detected changes while reading. The top-level
 `.git` directory is excluded metadata (a linked or regular-file `.git` is rejected).
 Empty trees and uncommitted files are supported. Executable bits are recorded;
@@ -79,3 +83,8 @@ activation was involved. This is direct Podman mount/ownership evidence, not an
 OpenShell lease, revocation, scanner end-to-end, or execution-fencing proof.
 Application integration still requires those separate checks. Files unreadable to
 the builder's image user fail closed; no automatic chmod/chown is performed.
+
+The shared context is installed in owned-host lease construction only; no snapshot
+observer or route is automatically created. Cleanup uses the same retained command
+context as inspection and scanning. If custody is lost and cleanup cannot run, the
+durable verifier reservation remains for explicit reconciliation.
