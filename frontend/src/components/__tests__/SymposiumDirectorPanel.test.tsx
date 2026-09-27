@@ -666,3 +666,38 @@ it('resumes a durable failed cleanup after remount using the retained operation 
     ).toBe(true),
   );
 });
+
+it.each(['reauthorization_required', 'cleanup_running'])(
+  'distinguishes pending cleanup %s from lost physical custody',
+  async (state) => {
+    const initial = status(true);
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({
+        ...initial,
+        seats: initial.seats.map((seat, index) =>
+          index
+            ? seat
+            : {
+                ...seat,
+                admitted: false,
+                creationDiagnostic: {
+                  phase: 'upload',
+                  code: 'SEAT_UPLOAD_FAILED',
+                  canCleanup: false,
+                  recoveryAuthorization: { operationId: 'a'.repeat(64), revision: 1, state },
+                },
+              },
+        ),
+      }),
+    );
+    render(<SymposiumDirectorPanel sessionId="session" />);
+    await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+    await screen.findByText(
+      state === 'cleanup_running'
+        ? /Cleanup is still running/
+        : /Fresh app reauthorization is required/,
+    );
+    expect(screen.queryByText(/Exact retained creation proof is unavailable/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Clean up failed seat' })).toBeNull();
+  },
+);

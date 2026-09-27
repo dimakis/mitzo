@@ -21,6 +21,11 @@ interface DirectorSeat {
     code: string;
     canCleanup: boolean;
     recoveryIdempotencyKey?: string;
+    recoveryAuthorization?: {
+      operationId: string;
+      revision: number;
+      state: 'reauthorization_required' | 'cleanup_running' | 'authorized';
+    };
   } | null;
   admission?: Pick<
     SymposiumAdmissionRecord,
@@ -801,6 +806,19 @@ function SessionDirectorPanel({
                               Clean up failed seat
                             </button>
                           </>
+                        ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                          'reauthorization_required' ? (
+                          <p>
+                            Fresh app reauthorization is required to resume this pending cleanup.
+                            The scoped operator recovery API is available; this screen does not yet
+                            transfer authorization.
+                          </p>
+                        ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
+                          'cleanup_running' ? (
+                          <p>
+                            Cleanup is still running. Refresh status after it settles; do not retry
+                            or transfer authorization.
+                          </p>
                         ) : (
                           <p>
                             Exact retained creation proof is unavailable. Host recovery is required.
