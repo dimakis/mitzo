@@ -211,7 +211,9 @@ Shared artifacts use an explicitly admitted named volume, mounted read-write for
 a writer and read-only for a reviewer. Host-side leases fence writers, verify the
 physical mount, and release only after gateway and compute-host deletion proof.
 Exact release receipts allow cleanup to finish after a crash without releasing a
-replacement lease.
+replacement lease. Cleanup uses the retained sandbox and original lease identity even
+after seat removal, suspension, or role changes; current authority is still required
+for new admission.
 
 Production remains disabled by default. A trusted server bootstrap must install
 matching host attestation for the selected CLI, gateway, images, policy, provider
