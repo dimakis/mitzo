@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
-import type { ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -15,7 +15,7 @@ const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal') {
   const root = mkdtempSync(join(tmpdir(), 'symposium-owned-test-'));
   roots.push(root);
   chmodSync(root, 0o700);
@@ -49,6 +49,27 @@ function fixture() {
     },
     jwt: { signingKey: file('jwt-key'), publicKey: file('jwt-pub'), kid: file('jwt-kid') },
   };
+  execFileSync(
+    'openssl',
+    [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-days',
+      '1',
+      '-subj',
+      '/CN=localhost',
+      '-addext',
+      `subjectAltName=${san}`,
+      '-keyout',
+      options.tls.serverKey,
+      '-out',
+      options.tls.serverCert,
+    ],
+    { stdio: 'ignore' },
+  );
   const child = Object.assign(new EventEmitter(), {
     pid: 4321,
     killed: false,
@@ -212,4 +233,52 @@ describe('owned upstream gateway evidence', () => {
     owned.stop();
     expect(() => owned.verifyOwnedNativeHost(binding)).toThrow();
   });
+});
+
+it('rejects localhost-only certificates before starting gateway or issuer', async () => {
+  const { options, operations } = fixture('DNS:localhost,IP:127.0.0.1');
+  await expect(OwnedSymposiumGateway.launch(options, operations)).rejects.toThrow(
+    'host.containers.internal',
+  );
+  expect(operations.start).not.toHaveBeenCalled();
+  expect(operations.startIssuer).not.toHaveBeenCalled();
+});
+it('requires an IP SAN for the host issuer', async () => {
+  const { options, operations } = fixture('DNS:localhost,DNS:host.containers.internal');
+  await expect(OwnedSymposiumGateway.launch(options, operations)).rejects.toThrow('127.0.0.1');
+  expect(operations.start).not.toHaveBeenCalled();
+});
+
+it('does not accept a wildcard guest SAN', async () => {
+  const { options, operations } = fixture('DNS:*.containers.internal,IP:127.0.0.1');
+  await expect(OwnedSymposiumGateway.launch(options, operations)).rejects.toThrow(
+    'host.containers.internal',
+  );
+  expect(operations.start).not.toHaveBeenCalled();
+});
+
+it('async custody verifies files and process again after asynchronous listener observation', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const operations = {
+    ...f.operations,
+    listenerPidAsync: vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    ),
+  };
+  const gateway = await OwnedSymposiumGateway.launch(f.options, operations);
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    const rejected = expect(pending).rejects.toThrow('no longer live');
+    await vi.waitFor(() => expect(operations.listenerPidAsync).toHaveBeenCalledTimes(1));
+    Object.assign(f.child, { exitCode: 1 });
+    complete(4321);
+    await rejected;
+    expect(operations.listenerPidAsync).toHaveBeenCalledTimes(1);
+  } finally {
+    gateway.stop();
+  }
 });

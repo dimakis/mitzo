@@ -75,7 +75,17 @@ preview simulates only the exact supported POST and revision; it makes no upstre
 request or real sandbox operation.
 A retained host coordinator serializes sandbox creation with credential cleanup.
 Creation revalidates its seat binding after acquiring the fence and durably marks
-the external operation before dispatch. Rejection or host loss leaves a persistent
+the external operation immediately before the create command, after read-only
+preflight. The trusted adapter must call the supplied dispatch marker; an
+unmarked success is refused. Preflight rejection leaves cleanup available and
+does not stamp a seat or artifact as creation-started. Rejection after dispatch or host loss leaves a persistent
 uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
 for in-flight creation and refuses uncertain outcomes. Interrupted login rows
 without a live adapter also remain blocked even when account metadata is absent.
+
+All mounted Symposium account pickers subscribe to catalog invalidation after
+connection mutations, including pending reconnect. Removed account/model drafts
+stay unavailable until an explicit selection; a refresh never substitutes one.
+Device receipts remain attempt-scoped across cancellation, status polling and
+late allocation replies. The preview assigns fresh synthetic attempt identities
+and verifies a second code can be requested without contacting an upstream host.

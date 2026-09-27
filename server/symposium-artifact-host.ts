@@ -357,6 +357,57 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
     if (deleted.changes !== 1) throw new Error('Artifact lease changed during release');
   }
 
+  /** Read original cleanup authority from the durable lease or its release receipt.
+   * This grants no new access and never derives rights from a replacement seat. */
+  retainedCleanupRequest(identity: {
+    sessionId: string;
+    seatId: string;
+    sandboxName: string | null;
+    physicalId: string | null;
+    creationStarted: boolean;
+  }): ArtifactLeaseRequest | null {
+    if (identity.physicalId) {
+      if (!identity.sandboxName) throw new Error('Retained artifact sandbox name is unavailable');
+      const rows = this.db
+        .prepare(
+          `SELECT request_json FROM symposium_artifact_leases
+        WHERE sandbox_name=? AND sandbox_id=?
+        UNION ALL SELECT request_json FROM symposium_artifact_release_receipts
+        WHERE sandbox_name=? AND sandbox_id=?`,
+        )
+        .all(
+          identity.sandboxName,
+          identity.physicalId,
+          identity.sandboxName,
+          identity.physicalId,
+        ) as { request_json: string }[];
+      if (rows.length !== 1) throw new Error('Retained artifact lease identity is unavailable');
+      const request = JSON.parse(rows[0].request_json) as ArtifactLeaseRequest;
+      if (request.sessionId !== identity.sessionId || request.seatId !== identity.seatId)
+        throw new Error('Retained artifact lease seat changed');
+      return request;
+    }
+    if (identity.creationStarted || identity.sandboxName)
+      throw new Error('Artifact creation requires physical identity reconciliation');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM symposium_artifact_leases
+      WHERE json_extract(request_json, '$.sessionId')=?
+        AND json_extract(request_json, '$.seatId')=?`,
+      )
+      .all(identity.sessionId, identity.seatId) as LeaseRow[];
+    if (!rows.length) return null;
+    if (
+      rows.length !== 1 ||
+      rows[0].creation_started !== 0 ||
+      rows[0].intended_sandbox_name ||
+      rows[0].sandbox_name ||
+      rows[0].sandbox_id
+    )
+      throw new Error('Retained artifact reservation identity is ambiguous');
+    return JSON.parse(rows[0].request_json) as ArtifactLeaseRequest;
+  }
+
   /** Reconcile a crash before the durable create intent. The seat lifecycle
    * fence must be held by the caller. A started lease is never releasable by
    * absence alone, since an in-flight create could complete later. */

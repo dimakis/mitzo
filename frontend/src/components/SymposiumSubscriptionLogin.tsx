@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './SymposiumSubscriptionLogin.css';
@@ -8,15 +8,17 @@ const receiptSchema = z.object({
   authorizationUrl: z.string().url(),
 });
 const statusSchema = z.object({
-  state: z.enum(['idle', 'pending', 'completed', 'failed', 'unknown']),
+  state: z.enum(['idle', 'pending', 'completed', 'failed', 'unknown', 'cancelled', 'expired']),
   attemptId: z.string().optional(),
   connectionId: z.string().optional(),
+  method: z.literal('device-code').optional(),
 });
 
 export function SymposiumSubscriptionLogin({
   onComplete,
   onCatalogRefresh,
   disabled = false,
+  recoveryOnly = false,
   connectionId,
   expectedRevision,
   onPendingChange,
@@ -24,10 +26,12 @@ export function SymposiumSubscriptionLogin({
   onComplete(): void;
   onCatalogRefresh?(): void;
   disabled?: boolean;
+  recoveryOnly?: boolean;
   connectionId?: string;
   expectedRevision?: number;
   onPendingChange?(pending: boolean): void;
 }) {
+  const transportGroup = useId();
   const [recoveryAttempt, setRecoveryAttempt] = useState(0);
   const [open, setOpen] = useState(false);
   const [transport, setTransport] = useState('');
@@ -38,6 +42,12 @@ export function SymposiumSubscriptionLogin({
   );
   const requestVersion = useRef(0);
   const [state, setState] = useState('idle');
+  const previousRecoveryOnly = useRef(recoveryOnly);
+  useEffect(() => {
+    if (previousRecoveryOnly.current && !recoveryOnly)
+      setState((current) => (current === 'device-pending' ? 'idle' : current));
+    previousRecoveryOnly.current = recoveryOnly;
+  }, [recoveryOnly]);
   const [error, setError] = useState('');
   const pendingChanged = useRef(onPendingChange);
   pendingChanged.current = onPendingChange;
@@ -68,7 +78,17 @@ export function SymposiumSubscriptionLogin({
         if (connectionId && status.attemptId && status.connectionId !== connectionId)
           throw new Error('Mismatched connection receipt');
         if (!live || requestVersion.current !== version) return;
-        if (status.state === 'pending' && status.attemptId) {
+        if (
+          status.state !== 'idle' &&
+          !(status.method === 'device-code' && status.state === 'pending')
+        )
+          refreshCatalog.current?.();
+        if (status.method === 'device-code' && status.state === 'pending') {
+          setReceipt(null);
+          setReady(false);
+          setState('device-pending');
+          setError('');
+        } else if (status.state === 'pending' && status.attemptId) {
           setReceipt((current) =>
             current?.attemptId === status.attemptId ? current : { attemptId: status.attemptId! },
           );
@@ -77,14 +97,11 @@ export function SymposiumSubscriptionLogin({
         } else if (status.state === 'completed') {
           setState('previous-completed');
           setError('');
-          refreshCatalog.current?.();
-        } else if (status.state === 'failed') {
+        } else if (['failed', 'cancelled', 'expired'].includes(status.state)) {
           setState('failed');
           setReceipt(null);
           setReady(false);
-          setError(
-            'Previous login failed or expired. Prepare the callback setup before starting again.',
-          );
+          setError('Previous login ended. Prepare the callback setup before starting again.');
         } else {
           setState('idle');
           setReceipt(null);
@@ -129,6 +146,14 @@ export function SymposiumSubscriptionLogin({
         if (connectionId && status.attemptId && status.connectionId !== connectionId)
           throw new Error('Mismatched connection receipt');
         if (!live) return;
+        if (status.method === 'device-code') {
+          if (status.state !== 'pending') refreshCatalog.current?.();
+          setReceipt(null);
+          setReady(false);
+          setState(status.state === 'pending' ? 'device-pending' : 'idle');
+          setError('');
+          return;
+        }
         if (status.state === 'pending' && status.attemptId === receipt.attemptId) {
           timer = setTimeout(() => void poll(), 2000);
           return;
@@ -138,6 +163,7 @@ export function SymposiumSubscriptionLogin({
           setState('completed');
           complete.current();
         } else {
+          refreshCatalog.current?.();
           setState('failed');
           setReady(false);
           setError(
@@ -164,6 +190,8 @@ export function SymposiumSubscriptionLogin({
   const start = async () => {
     if (
       disabled ||
+      recoveryOnly ||
+      ['pending', 'device-pending', 'status-error', 'recovery-error'].includes(state) ||
       !ready ||
       !transport ||
       busy ||
@@ -201,7 +229,8 @@ export function SymposiumSubscriptionLogin({
       setReceipt(result);
       setState('pending');
     } catch (cause) {
-      setState('failed');
+      setState('recovery-error');
+      setRecoveryAttempt((value) => value + 1);
       setReady(false);
       setError(
         cause instanceof Error && !('issues' in cause)
@@ -209,6 +238,7 @@ export function SymposiumSubscriptionLogin({
           : 'The login response was invalid. Check the host configuration.',
       );
     } finally {
+      refreshCatalog.current?.();
       setBusy(false);
     }
   };
@@ -216,7 +246,7 @@ export function SymposiumSubscriptionLogin({
   if (!open)
     return (
       <button type="button" disabled={disabled} onClick={() => setOpen(true)}>
-        Connect personal subscription
+        {recoveryOnly ? 'Recover callback sign-in' : 'Connect personal subscription'}
       </button>
     );
   return (
@@ -229,6 +259,8 @@ export function SymposiumSubscriptionLogin({
       <fieldset
         disabled={
           disabled ||
+          recoveryOnly ||
+          state === 'device-pending' ||
           busy ||
           state === 'pending' ||
           state === 'status-error' ||
@@ -239,7 +271,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name={`callback-transport-${connectionId ?? 'legacy'}`}
+            name={transportGroup}
             checked={transport === 'host-local'}
             onChange={() => {
               setTransport('host-local');
@@ -251,7 +283,7 @@ export function SymposiumSubscriptionLogin({
         <label>
           <input
             type="radio"
-            name={`callback-transport-${connectionId ?? 'legacy'}`}
+            name={transportGroup}
             checked={transport === 'ssh-forwarded'}
             onChange={() => {
               setTransport('ssh-forwarded');
@@ -292,6 +324,9 @@ export function SymposiumSubscriptionLogin({
           {busy ? 'Starting login…' : 'Start personal login'}
         </button>
       </fieldset>
+      {state === 'device-pending' && (
+        <p>A device login is pending. Continue or cancel it in device sign-in.</p>
+      )}
       {receipt && (
         <>
           {receipt.authorizationUrl ? (

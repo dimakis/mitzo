@@ -3,6 +3,7 @@ import {
   constants,
   closeSync,
   fstatSync,
+  fsyncSync,
   openSync,
   readFileSync,
   renameSync,
@@ -24,6 +25,7 @@ const Row = z
       'disconnecting',
       'recovery_required',
     ]),
+    modelDiscovery: z.enum(['pending', 'reconciliation_required']).optional(),
     account: z
       .object({ email: z.string().max(254), planType: z.enum(['free', 'plus', 'pro']) })
       .optional(),
@@ -75,7 +77,11 @@ export class PersonalConnections<T extends Adapter> {
       if (new Set(this.rows.map((r) => r.id)).size !== this.rows.length)
         throw new Error('Duplicate connection metadata');
       for (const row of this.rows) {
-        if (row.state === 'connected') {
+        if (row.modelDiscovery === 'pending') {
+          row.state = 'recovery_required';
+          row.modelDiscovery = 'reconciliation_required';
+          row.revision++;
+        } else if (row.state === 'connected') {
           row.state = 'reauth_required';
           row.revision++;
         } else if (row.state === 'connecting' || row.state === 'disconnecting') {
@@ -91,8 +97,27 @@ export class PersonalConnections<T extends Adapter> {
   private save() {
     const temp = `${this.path}.${randomUUID()}`;
     try {
-      writeFileSync(temp, JSON.stringify(this.rows), { mode: 0o600, flag: 'wx' });
+      const fd = openSync(
+        temp,
+        constants.O_RDWR | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeFileSync(fd, JSON.stringify(this.rows));
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
       renameSync(temp, this.path);
+      const parent = openSync(
+        dirname(this.path),
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      try {
+        fsyncSync(parent);
+      } finally {
+        closeSync(parent);
+      }
     } catch {
       for (const adapter of this.adapters.values()) adapter.invalidate();
       for (const row of this.rows) row.state = 'recovery_required';
@@ -158,9 +183,37 @@ export class PersonalConnections<T extends Adapter> {
     if (!a) throw new Error('Fresh authentication required');
     return a;
   }
+  beginDiscovery(id: string, revision: number) {
+    const row = this.row(id, revision);
+    if (row.state !== 'connected' || row.modelDiscovery)
+      throw new Error('Discovery is unavailable');
+    const adapter = this.adapter(id);
+    row.modelDiscovery = 'pending';
+    row.revision++;
+    this.save();
+    return { id, revision: row.revision, adapter };
+  }
+  assertDiscovery(lease: { id: string; revision: number }) {
+    const row = this.row(lease.id, lease.revision);
+    if (row.state !== 'connected' || row.modelDiscovery !== 'pending')
+      throw new Error('Discovery changed');
+  }
+  finishDiscovery(lease: { id: string; revision: number }, clean: boolean) {
+    this.assertDiscovery(lease);
+    const row = this.row(lease.id, lease.revision);
+    if (clean) delete row.modelDiscovery;
+    else {
+      row.modelDiscovery = 'reconciliation_required';
+      row.state = 'recovery_required';
+      this.adapters.get(row.id)?.invalidate();
+    }
+    row.revision++;
+    this.save();
+    return structuredClone(row);
+  }
   async disconnect(id: string, revision: number) {
     const row = this.row(id, revision);
-    if (row.state === 'disconnecting' || row.state === 'connecting')
+    if (row.modelDiscovery || row.state === 'disconnecting' || row.state === 'connecting')
       throw new Error('Cancel the pending login before disconnecting');
     const adapter = this.adapters.get(id);
     const requiresRecovery = row.state === 'recovery_required';

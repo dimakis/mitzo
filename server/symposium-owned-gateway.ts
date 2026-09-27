@@ -1,5 +1,7 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { open, lstat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { createHash, X509Certificate } from 'node:crypto';
 import {
   chmodSync,
   lstatSync,
@@ -52,9 +54,35 @@ interface HostOperations {
   check(executable: string, args: string[], env: NodeJS.ProcessEnv): void;
   start(executable: string, args: string[], env: NodeJS.ProcessEnv): ChildProcess;
   listenerPid(port: number): number | null;
+  listenerPidAsync?(port: number): Promise<number | null>;
   startIssuer(cert: Buffer, key: Buffer): Promise<SymposiumHostIssuer>;
 }
 const host: HostOperations = {
+  listenerPidAsync: (port) =>
+    new Promise((resolve, reject) => {
+      execFile(
+        'lsof',
+        ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'],
+        { encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024 },
+        (error, stdout) => {
+          if (error && (error.code !== 1 || stdout)) {
+            reject(new Error('Owned gateway listener inspection failed'));
+            return;
+          }
+          if (error?.code === 1 && !stdout) {
+            resolve(null);
+            return;
+          }
+          const pids = new Set(stdout.split('\n').filter((line) => /^p[0-9]+$/.test(line)));
+          if (pids.size !== 1) {
+            reject(new Error('Gateway listener has ambiguous physical ownership'));
+            return;
+          }
+          resolve(Number([...pids][0].slice(1)));
+        },
+      );
+    }),
+
   startIssuer: (cert, key) => SymposiumHostIssuer.start(cert, key),
   check(executable, args, env) {
     const result = spawnSync(executable, args, { env, encoding: 'utf8', timeout: 15_000 });
@@ -89,6 +117,41 @@ function privateDirectory(path: string): void {
   )
     throw new Error('Gateway state must be a private host-owned directory');
 }
+async function verifyOwnedFileAsync(
+  path: string,
+  mode: number,
+  expectedHash: string,
+): Promise<void> {
+  const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const before = await file.stat();
+    if (!before.isFile() || (before.mode & 0o777) !== mode || before.uid !== process.getuid?.())
+      throw new Error('Owned gateway launch material changed');
+    const digest = createHash('sha256');
+    const buffer = Buffer.alloc(64 * 1024);
+    for (;;) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+      if (!bytesRead) break;
+      digest.update(buffer.subarray(0, bytesRead));
+    }
+    const after = await file.stat();
+    const named = await lstat(path);
+    if (
+      !named.isFile() ||
+      named.isSymbolicLink() ||
+      named.dev !== before.dev ||
+      named.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeMs !== before.mtimeMs ||
+      after.ctimeMs !== before.ctimeMs ||
+      digest.digest('hex') !== expectedHash
+    )
+      throw new Error('Owned gateway launch material changed');
+  } finally {
+    await file.close();
+  }
+}
+
 function regularBytes(path: string): Buffer {
   if (!isAbsolute(path) || !lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())
     throw new Error('Gateway input must be an absolute regular file');
@@ -161,6 +224,26 @@ export class OwnedSymposiumGateway {
     if (hash(cliBytes) !== options.cliSha256) throw new Error('Gateway CLI digest changed');
     if (hash(binary) !== options.executableSha256)
       throw new Error('Gateway executable digest changed');
+    // Validate the exact bytes later frozen into this launch. The management
+    // client and issuer use loopback; Podman supervisors use the advertised host.
+    const serverCertBytes = regularBytes(options.tls.serverCert);
+    let serverCertificate: X509Certificate;
+    try {
+      serverCertificate = new X509Certificate(serverCertBytes);
+    } catch {
+      throw new Error('Owned gateway server certificate is invalid');
+    }
+    if (
+      !serverCertificate.checkHost('host.containers.internal', {
+        subject: 'never',
+        wildcards: false,
+      })
+    )
+      throw new Error(
+        'Owned gateway server certificate requires a host.containers.internal DNS SAN',
+      );
+    if (!serverCertificate.checkIP('127.0.0.1'))
+      throw new Error('Owned gateway server certificate requires a 127.0.0.1 IP SAN');
     const root = mkdtempSync(join(options.stateParent, 'gateway-'));
     chmodSync(root, 0o700);
     const files = new Map<string, { sha256: string; mode: number }>();
@@ -176,7 +259,7 @@ export class OwnedSymposiumGateway {
     const tls = Object.fromEntries(
       Object.entries(options.tls).map(([name, path]) => [
         name,
-        freeze(`${name}.pem`, regularBytes(path)),
+        freeze(`${name}.pem`, name === 'serverCert' ? serverCertBytes : regularBytes(path)),
       ]),
     );
     const jwt = Object.fromEntries(
@@ -351,7 +434,7 @@ enabled = true
     this.tokenTimer.unref();
   }
 
-  private verifyFilesAndProcess(): void {
+  private assertProcessLive(): void {
     this.issuer.assertLive();
     if (
       this.failure ||
@@ -361,6 +444,10 @@ enabled = true
       this.child.signalCode !== null
     )
       throw new Error('Owned gateway process is no longer live');
+  }
+
+  private verifyFilesAndProcess(): void {
+    this.assertProcessLive();
     privateDirectory(this.stateDirectory);
     if (this.tokenSha256) {
       if (!this.tokenExpiresAt || this.tokenExpiresAt <= Math.floor(Date.now() / 1000) + 30)
@@ -394,6 +481,10 @@ enabled = true
 
   verifyOwnedNativeHost(binding: SymposiumOwnedNativeHostBinding): void {
     this.verifyCustody();
+    this.verifyNativeBinding(binding);
+  }
+
+  private verifyNativeBinding(binding: SymposiumOwnedNativeHostBinding): void {
     if (
       binding.cli !== this.cli ||
       binding.gateway !== this.gateway ||
@@ -408,6 +499,65 @@ enabled = true
     const actual = Object.entries(binding.cliEnvironment).sort();
     if (JSON.stringify(actual) !== JSON.stringify(expected))
       throw new Error('Owned native management environment changed');
+  }
+
+  private async verifyFilesAndProcessAsync(): Promise<void> {
+    this.assertProcessLive();
+    privateDirectory(this.stateDirectory);
+    const token = this.tokenSha256;
+    if (token) {
+      if (!this.tokenExpiresAt || this.tokenExpiresAt <= Math.floor(Date.now() / 1000) + 30)
+        throw new Error('Host management token expired');
+      await verifyOwnedFileAsync(
+        join(
+          this.stateDirectory,
+          'config',
+          'openshell',
+          'gateways',
+          this.gateway,
+          'oidc_token.json',
+        ),
+        0o600,
+        token,
+      );
+      if (this.tokenSha256 !== token)
+        throw new Error('Management token changed during observation');
+    }
+    for (const [path, expected] of this.files)
+      await verifyOwnedFileAsync(path, expected.mode, expected.sha256);
+    if (
+      token &&
+      (this.tokenSha256 !== token ||
+        !this.tokenExpiresAt ||
+        this.tokenExpiresAt <= Math.floor(Date.now() / 1000) + 30)
+    )
+      throw new Error('Management token changed during observation');
+    this.assertProcessLive();
+    privateDirectory(this.stateDirectory);
+  }
+
+  async verifyCustodyAsync(): Promise<void> {
+    await this.verifyGatewayDriverConfigAsync(this.gateway, this.workspace, 'podman');
+  }
+
+  async verifyOwnedNativeHostAsync(binding: SymposiumOwnedNativeHostBinding): Promise<void> {
+    await this.verifyCustodyAsync();
+    this.verifyNativeBinding(binding);
+  }
+
+  async verifyGatewayDriverConfigAsync(
+    gateway: string,
+    workspace: string,
+    driver: 'podman' | 'docker',
+  ): Promise<void> {
+    if (gateway !== this.gateway || workspace !== this.workspace || driver !== 'podman')
+      throw new Error('Artifact request differs from owned gateway identity');
+    await this.verifyFilesAndProcessAsync();
+    const pid = this.operations.listenerPidAsync
+      ? await this.operations.listenerPidAsync(this.port)
+      : this.operations.listenerPid(this.port);
+    await this.verifyFilesAndProcessAsync();
+    if (pid !== this.child.pid) throw new Error('Gateway endpoint belongs to a different process');
   }
 
   verifyCustody(): void {

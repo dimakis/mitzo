@@ -5,25 +5,22 @@ Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
 ## Status at 27 September 2026
 
 This page describes the implemented feature stack and its acceptance evidence.
-It does not assert that the branches are merged, deployed, or production-ready.
-This documentation branch is stacked on the personal-account/model-refresh UI
-(PR #627). Its checkout does **not** contain all sibling implementations below.
-Add-reviewer/context UI is in [PR #611](https://github.com/dimakis/mitzo/pull/611);
-mounted review UI/routes are in [PR #613](https://github.com/dimakis/mitzo/pull/613);
-immutable records are in [PR #615](https://github.com/dimakis/mitzo/pull/615);
-publication preflight is in [PR #620](https://github.com/dimakis/mitzo/pull/620);
-session artifact preparation is in [PR #624](https://github.com/dimakis/mitzo/pull/624).
-These are implemented sibling branches, not functionality installed by this
-documentation change. The combined acceptance checkout composes them separately.
-The canonical product contract is the
+It does not assert deployment or production readiness. The source now composes
+personal-account/model-refresh UI ([PR #627](https://github.com/dimakis/mitzo/pull/627)),
+reviewer setup ([PR #611](https://github.com/dimakis/mitzo/pull/611)), mounted review
+routes ([PR #613](https://github.com/dimakis/mitzo/pull/613)), immutable records
+([PR #615](https://github.com/dimakis/mitzo/pull/615)), publication preflight
+([PR #620](https://github.com/dimakis/mitzo/pull/620)), and session artifact
+preparation ([PR #624](https://github.com/dimakis/mitzo/pull/624)). The canonical
+product contract is the
 [workspace redesign Symposium reconciliation](../design/workspace-redesign/mitzo-redesign-launch-plan.md#symposium-reconciliation).
 
-The base checkout implements the director, durable membership and delivery
-records, portable profiles, personal connection slots, and explicit model refresh
-with mocked tests. The sibling PRs above implement shared reviewer setup, mounted
-review workflows, immutable records, session artifact preparation, and publication
-preflight as separate guarded slices. They do not install a native review host or
-publish a pull request.
+The director, durable membership and delivery records, portable profiles,
+personal connection slots, explicit model refresh, shared reviewer setup,
+review workflows, immutable records, artifact preparation, and publication
+preflight have mocked tests. These guarded slices do not install a trusted
+native review host or publish a pull request. The panel reports the unavailable
+host capability; ordinary chat cannot bypass the gate.
 
 Phone device sign-in has been exercised against an isolated host. A separate
 attended native smoke completed two real `gpt-5.6-luna` turns through the personal
@@ -108,15 +105,15 @@ checks pass. Claude admission remains unavailable through these contracts.
 Shared artifacts use a separately admitted named volume: writer access is
 read-write and reviewer access is read-only. Host leases check the physical mount
 and retain writer reservations until exact stop/deletion evidence permits release.
-PR #624's session artifact service can prepare a bounded owned volume and durable
-mapping; the base checkout only reads a configured mapping. The service cannot
+The session artifact service can prepare a bounded owned volume and durable
+mapping. A saved draft exposes Prepare/retry after reopening, without activating
+the roster or dispatching work. The service cannot
 mint runtime admission or replace a failed host attestation.
 
 TLS setup requires the Podman guest hostname as well as loopback in the gateway
 certificate. The newer runtime image also carries the guest CA/launcher fixes
 used by the attended smoke. These fixes do not automatically update production
-build pins. The measured new image differs from the older literal gate pins;
-the focused pin update is tracked separately in
+build pins. The measured image update replaced the older literal gate pins through
 [PR #629](https://github.com/dimakis/mitzo/pull/629) with physical and live evidence.
 Admission requires whichever reviewed pins are present in the selected source to
 match the actual image. A caller-supplied hash cannot override the schema.

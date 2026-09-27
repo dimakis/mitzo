@@ -298,7 +298,7 @@ export class CodexConversation {
         this.threadId,
         toolSurfaceRevision,
       );
-    this.resetMapper(this.threadId);
+    this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
@@ -850,12 +850,13 @@ export class CodexConversation {
     }
   }
 
-  private resetMapper(threadId: string) {
+  private resetMapper(threadId: string, freshThread = false) {
     this.mapper = new CodexSessionEvents(
       this.opts.conversationId,
       threadId,
       this.binding!.model,
       this.opts.emit,
+      { freshThread },
     );
   }
 

@@ -211,6 +211,7 @@ function SessionDirectorPanel({
   setOpen: (value: (current: boolean) => boolean) => void;
 }) {
   const [status, setStatus] = useState<DirectorStatus | null>(null);
+  const [artifactMessage, setArtifactMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -279,6 +280,7 @@ function SessionDirectorPanel({
         body: JSON.stringify({ ...payload, idempotencyKey }),
       });
       pendingKeys.current.delete(fingerprint);
+      window.dispatchEvent(new Event('symposium-roster-changed'));
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Director action failed');
@@ -296,6 +298,31 @@ function SessionDirectorPanel({
       await refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create draft');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function prepareArtifacts() {
+    if (busy || status?.config?.state !== 'draft') return;
+    setBusy(true);
+    setError('');
+    setArtifactMessage('');
+    try {
+      const result = await readJson<{ state: string }>(
+        `/api/symposium/sessions/${encodeURIComponent(sessionId)}/artifacts`,
+        { method: 'POST', headers: jsonHeaders, body: '{}' },
+      );
+      if (result.state !== 'ready')
+        throw new Error(
+          'Shared files are still unavailable. Your draft is saved; retry here when ready.',
+        );
+      await refresh();
+      setArtifactMessage(
+        'Shared files are ready. Review your choices before activating the roster.',
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare shared files');
     } finally {
       setBusy(false);
     }
@@ -523,6 +550,18 @@ function SessionDirectorPanel({
                   ? 'Draft — provider seats are not admitted.'
                   : `${status.reservedSeats} of ${status.config.version === 2 ? status.config.activeSeatCap : 2} seats reserved.`}
               </p>
+              {status.config.state === 'draft' && (
+                <div>
+                  <button
+                    type="button"
+                    disabled={busy || loading}
+                    onClick={() => void prepareArtifacts()}
+                  >
+                    Prepare or retry shared files
+                  </button>
+                  {artifactMessage && <p role="status">{artifactMessage}</p>}
+                </div>
+              )}
               {!status.runtimeAvailable && (
                 <p role="status">
                   Provider runtime unavailable. Admission and dispatch remain pending; revocation

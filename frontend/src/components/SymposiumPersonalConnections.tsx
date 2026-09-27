@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { invalidateSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
 import './SymposiumPersonalConnections.css';
@@ -47,10 +48,20 @@ export function SymposiumPersonalConnections({
   const [callbackId, setCallbackId] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const version = useRef(0);
+  const mounted = useRef(false);
+  const observedRevisions = useRef(new Map<string, number>());
   const mutation = useRef(false);
+  const observedPendingDiscovery = useRef(new Set<string>());
+  const accountsChanged = useRef(onAccountsChanged);
+  accountsChanged.current = onAccountsChanged;
+  const notifyAccountsChanged = useCallback(() => {
+    invalidateSymposiumAccountCatalog();
+    accountsChanged.current?.();
+  }, []);
   const discoveryBlocked = connections.some((row) => !!row.modelDiscovery);
   const discoveryPending = connections.some((row) => row.modelDiscovery === 'pending');
   const refresh = useCallback(async () => {
+    if (!mounted.current) return;
     const request = ++version.current;
     try {
       const response = await apiFetch(endpoint);
@@ -59,7 +70,18 @@ export function SymposiumPersonalConnections({
         .object({ connections: z.array(connectionSchema) })
         .parse(await response.json());
       if (request !== version.current) return;
+      const pending = new Set(
+        body.connections.filter((row) => row.modelDiscovery === 'pending').map((row) => row.id),
+      );
+      const finished = [...observedPendingDiscovery.current].some((id) => !pending.has(id));
+      const revisions = new Map(body.connections.map((row) => [row.id, row.revision]));
+      const revised = [...observedRevisions.current].some(
+        ([id, revision]) => revisions.get(id) !== revision,
+      );
+      observedRevisions.current = revisions;
+      observedPendingDiscovery.current = pending;
       setConnections(body.connections);
+      if (finished || revised) notifyAccountsChanged();
       setActiveId((current) =>
         current &&
         body.connections.some(
@@ -69,11 +91,7 @@ export function SymposiumPersonalConnections({
           : null,
       );
       setCallbackId((current) =>
-        current &&
-        body.connections.some(
-          (row) =>
-            row.id === current && !['disconnecting', 'recovery_required'].includes(row.state),
-        )
+        current && body.connections.some((row) => row.id === current && row.state === 'connecting')
           ? current
           : null,
       );
@@ -83,17 +101,28 @@ export function SymposiumPersonalConnections({
       if (request === version.current)
         setError('Could not load personal accounts. Refresh before changing a saved connection.');
     }
-  }, []);
+  }, [notifyAccountsChanged]);
   useEffect(() => {
+    mounted.current = true;
     void refresh();
     return () => {
+      mounted.current = false;
       version.current += 1;
     };
   }, [refresh]);
   useEffect(() => {
     if (!discoveryPending) return;
-    const timer = window.setInterval(() => void refresh(), 2500);
-    return () => window.clearInterval(timer);
+    let stopped = false;
+    let timer: number;
+    const poll = async () => {
+      await refresh();
+      if (!stopped) timer = window.setTimeout(() => void poll(), 2500);
+    };
+    timer = window.setTimeout(() => void poll(), 2500);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
   }, [discoveryPending, refresh]);
   async function refreshModels(connection: Connection) {
     if (disabled || mutation.current || discoveryBlocked) return;
@@ -119,6 +148,7 @@ export function SymposiumPersonalConnections({
           modelCount: z.number().int().nonnegative().optional(),
         })
         .parse(await response.json());
+      if (!mounted.current) return;
       if (result.status === 'complete' && result.modelCount !== undefined) {
         setMessage(
           `${result.modelCount} supported ${result.modelCount === 1 ? 'model is' : 'models are'} ready for ${connection.label}. Explicitly choose an account and model to rebind existing seats.`,
@@ -132,15 +162,16 @@ export function SymposiumPersonalConnections({
           'No new model catalog was confirmed. Review the refreshed connection status before retrying.',
         );
       }
-      onAccountsChanged?.();
+      notifyAccountsChanged();
     } catch {
+      if (!mounted.current) return;
       setMessage(
         'Model discovery could not be confirmed. Refresh connection status before retrying; cleanup may still be pending on the Mac.',
       );
     } finally {
       await refresh();
       mutation.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   async function mutate(path: string, body: unknown, success: string) {
@@ -155,21 +186,24 @@ export function SymposiumPersonalConnections({
         body: JSON.stringify(body),
       });
       if (!response.ok) throw new Error('Request failed');
+      if (!mounted.current) return;
       setMessage(success);
       if (path === endpoint) setLabel('');
-      onAccountsChanged?.();
+      notifyAccountsChanged();
     } catch {
+      if (!mounted.current) return;
       setMessage(
         'Could not confirm the change. Check the refreshed account status before trying again.',
       );
     } finally {
       await refresh();
       mutation.current = false;
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   const pendingId =
     activeId ??
+    callbackId ??
     connections.find((item) => item.state === 'connecting' || item.state === 'disconnecting')?.id;
   return (
     <section className="personal-connections" aria-label="Personal ChatGPT accounts">
@@ -201,6 +235,7 @@ export function SymposiumPersonalConnections({
         >
           <div>
             <h3>{connection.label}</h3>
+            <p>Connection version {connection.revision}</p>
             <p>{connection.account?.email ?? 'No verified account yet'}</p>
             {connection.account && <span>{connection.account.planType}</span>}
             <p className="personal-connection-status">{stateLabels[connection.state]}</p>
@@ -243,10 +278,7 @@ export function SymposiumPersonalConnections({
                 );
                 if (!pending) void refresh();
               }}
-              onAccountsChanged={() => {
-                void refresh();
-                onAccountsChanged?.();
-              }}
+              onAccountsChanged={notifyAccountsChanged}
             />
           )}
           {!connection.modelDiscovery &&
@@ -263,19 +295,19 @@ export function SymposiumPersonalConnections({
                     !!error ||
                     (!!pendingId && pendingId !== connection.id)
                   }
+                  recoveryOnly={!!pendingId && callbackId !== connection.id}
                   onPendingChange={(pending) => {
-                    setCallbackId(pending ? connection.id : null);
-                    setActiveId((current) =>
+                    setCallbackId((current) =>
                       pending ? connection.id : current === connection.id ? null : current,
                     );
                   }}
                   onComplete={() => {
                     void refresh();
-                    onAccountsChanged?.();
+                    notifyAccountsChanged();
                   }}
                   onCatalogRefresh={() => {
                     void refresh();
-                    onAccountsChanged?.();
+                    notifyAccountsChanged();
                   }}
                 />
               </details>

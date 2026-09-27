@@ -274,6 +274,21 @@ export class SymposiumReviewCoordinator {
     });
   }
 
+  dismissFinding(
+    context: ReviewContext,
+    input: { workflowId: string; fingerprint: string; reason: string; evidenceRefs: string[] },
+  ): Workflow | CoordinatorDecision {
+    const state = this.scoped(context, input.workflowId);
+    if (!this.host) return decision('trusted_review_host_unavailable');
+    if (!this.current(context, state)) return decision('artifact_changed');
+    return this.store.dismissFinding({
+      ...input,
+      actor: context.owner,
+      artifactRevision: state.artifactRevision,
+      artifactHash: state.artifactHash,
+    });
+  }
+
   recordFix(
     context: ReviewContext,
     workflowId: string,
@@ -322,6 +337,31 @@ export class SymposiumReviewCoordinator {
     const evidence = this.host.evidence(context, evidenceId);
     if (!evidence || evidence.evidenceId !== evidenceId) return decision('host_evidence_required');
     return this.store.recordEvidence(workflowId, evidence, state.artifactHash, 'host');
+  }
+
+  exportRecord(context: ReviewContext, workflowId: string) {
+    const finalized = this.finalize(context, workflowId);
+    if (finalized.kind !== 'verified') return finalized;
+    const artifactChanged = new Error('Artifact changed during record export');
+    try {
+      const record = this.store.exportVerifiedRecord(
+        {
+          ...context,
+          workflowId,
+          artifactRevision: finalized.artifactRevision,
+          artifactHash: finalized.artifactHash,
+        },
+        () => {
+          // Keep the final host check inside the storage transaction so a failed
+          // gate cannot leave a newly persisted permanent record behind.
+          if (!this.current(context, this.scoped(context, workflowId))) throw artifactChanged;
+        },
+      );
+      return { ...finalized, record };
+    } catch (error) {
+      if (error === artifactChanged) return decision('artifact_changed');
+      throw error;
+    }
   }
 
   finalize(context: ReviewContext, workflowId: string) {

@@ -1,3 +1,11 @@
+export class SymposiumPhysicalCleanupError extends Error {}
+/** Only the host spawn result can establish that no CLI process was started.
+ * Remote nonzero exits, timeouts and error messages never provide this proof. */
+export class SymposiumPhysicalCommandNotStarted extends Error {
+  constructor(readonly code: 'ENOENT' | 'EACCES') {
+    super('Host physical process did not start');
+  }
+}
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -24,6 +32,13 @@ const command: Command = (executable, args, env) => {
     timeout: 30_000,
     maxBuffer: 4 * 1024 * 1024,
   });
+  if (
+    result.error &&
+    ['ENOENT', 'EACCES'].includes((result.error as NodeJS.ErrnoException).code ?? '')
+  )
+    throw new SymposiumPhysicalCommandNotStarted(
+      (result.error as NodeJS.ErrnoException).code as 'ENOENT' | 'EACCES',
+    );
   if (result.error || result.status !== 0) throw new Error('Host physical inspection failed');
   return result.stdout;
 };
@@ -151,31 +166,68 @@ export class LocalSymposiumProductionPhysicalProof implements SymposiumProductio
     const root = mkdtempSync(join(tmpdir(), 'symposium-image-proof-'));
     const name = `symposium-image-proof-${randomUUID()}`;
     let created = false;
+    let createSettled = false;
     try {
-      this.podman([
-        'create',
-        '--pull=never',
-        '--network=none',
-        '--name',
-        name,
-        '--entrypoint',
-        '/bin/false',
-        inspect.Id,
-      ]);
-      created = true;
+      created = true; // A failed create may have taken effect before its response was lost.
+      try {
+        this.podman([
+          'create',
+          '--pull=never',
+          '--network=none',
+          '--name',
+          name,
+          '--entrypoint',
+          '/bin/false',
+          inspect.Id,
+        ]);
+        createSettled = true;
+      } catch (error) {
+        createSettled = error instanceof SymposiumPhysicalCommandNotStarted;
+        throw error;
+      }
       const path = join(root, 'controller');
       this.podman(['cp', `${name}:${controllerPath}`, path]);
       const stat = lstatSync(path);
       if (!stat.isFile() || stat.isSymbolicLink() || hash(readFileSync(path)) !== controllerSha256)
         throw new Error('Runtime controller digest changed');
     } finally {
-      try {
-        if (created) this.podman(['rm', name]);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
+      this.cleanupImageProbe(created ? name : undefined, root, createSettled);
     }
   }
+  private cleanupImageProbe(name: string | undefined, root: string, createSettled: boolean): void {
+    let failed = Boolean(name) && !createSettled;
+    try {
+      if (name) this.podman(['rm', name]);
+    } catch {
+      // Only a completed successful create or proven local spawn failure excludes
+      // a late create. An empty inventory cannot clear a remote timeout or
+      // nonzero CLI exit: it may still finish after this observation.
+      try {
+        const remaining: unknown = JSON.parse(
+          this.podman([
+            'container',
+            'ls',
+            '--all',
+            '--filter',
+            `name=^${name}$`,
+            '--format',
+            'json',
+          ]),
+        );
+        failed = !createSettled || !Array.isArray(remaining) || remaining.length !== 0;
+      } catch {
+        failed = true;
+      }
+    }
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      failed = true;
+    }
+    if (failed)
+      throw new SymposiumPhysicalCleanupError('Physical probe cleanup requires operator recovery');
+  }
+
   verifyProviderProfile(name: string, expected: string, workspace: string): void {
     if (!identifier.test(name) || !sha256.test(expected)) throw new Error('Invalid profile proof');
     const profile = object(
