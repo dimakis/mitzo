@@ -125,6 +125,13 @@ outcomes and uncertain cleanup block subsequent export; no retry clears evidence
 Inspection requires existing local origin base/default refs and a credential-free
 GitHub origin URL. It never fetches missing refs. Inspection JSON, including Unicode
 escaping and its trailing newline, has a shared 4 MiB producer/transport ceiling.
+Changed paths cover every exported commit, including later deletions and reversions.
+The raw history-diff path stream is limited to 1 MiB before decoding/deduplication,
+with at most 500 unique paths and a 2 KiB origin URL. These export-history bounds
+are separate from the sealed tree bound; exceeding them rejects export explicitly.
+Known pre-dispatch abort/custody failure creates no export job. Successful helper
+create/removal results reach the journal before post-command custody checks; a
+removal observation alone does not complete export without the remaining checks.
 Runtime binding is checked before a seal intent, retention lock or job is persisted;
 an invalid runtime leaves the ledgers and work admission unchanged. Bundle output is bounded to at
 most 8 MiB, hash checked before the journal completes, and returned only after

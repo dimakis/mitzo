@@ -22,8 +22,8 @@ for base, dirs, files in os.walk(repo, followlinks=False):
 for name in ['objects/info/alternates','objects/info/http-alternates','shallow','commondir','gitdir']:
  if os.path.lexists(gitdir+'/'+name): raise ValueError('external or incomplete objects')
 env={'PATH':'/usr/bin:/bin','HOME':'/nonexistent','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null','GIT_TERMINAL_PROMPT':'0','GIT_NO_LAZY_FETCH':'1','GIT_NO_REPLACE_OBJECTS':'1','GIT_OPTIONAL_LOCKS':'0','LC_ALL':'C'}
-def git(*args):
- p=subprocess.run(['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','core.untrackedCache=false',*args],cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
+def git(*args, input=None):
+ p=subprocess.run(['git','--git-dir='+gitdir,'-c','core.fsmonitor=false','-c','core.hooksPath=/dev/null','-c','core.untrackedCache=false',*args],cwd=repo,env=env,input=input,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=15)
  if p.returncode or len(p.stdout)>67108864: raise ValueError('git read failed')
  return p.stdout
 commit=git('rev-parse','--verify','HEAD^{commit}').decode().strip()

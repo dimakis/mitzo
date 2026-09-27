@@ -235,7 +235,9 @@ export async function createOwnedSymposiumHost(
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
       artifactEvidence,
-      new ArtifactPodmanContext(podmanText),
+      new ArtifactPodmanContext(podmanText, (args, maxOutputBytes) =>
+        podmanText(args, maxOutputBytes, true),
+      ),
       gateway,
     );
     chmodSync(leasePath, 0o600);

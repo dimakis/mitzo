@@ -754,3 +754,26 @@ it.each(['create', 'rm'])(
     }
   },
 );
+
+it.each(['create', 'rm'])(
+  'preserves exact snapshot %s result before post-command custody loss',
+  async (boundary) => {
+    const f = fixture();
+    const command = vi.fn(async () => {
+      f.gateway.verifyCustody.mockImplementation(() => {
+        throw new Error('custody lost');
+      });
+      return 'b'.repeat(64);
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+    try {
+      const snapshot = host.artifactLeaseHost.snapshotCommand();
+      await expect(snapshot([boundary, 'exact-helper'])).resolves.toBe('b'.repeat(64));
+      await expect(snapshot(['inspect', 'exact-helper'])).rejects.toThrow('custody lost');
+      expect(command).toHaveBeenCalledTimes(1);
+    } finally {
+      f.gateway.verifyCustody.mockReset();
+      host.stop();
+    }
+  },
+);
