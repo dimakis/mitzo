@@ -1,3 +1,4 @@
+import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { permissionRevision, type ResumePermission } from './session-permission-revision.js';
 import { GoogleAuth } from 'google-auth-library';
@@ -1040,6 +1041,7 @@ async function _startChatInner(
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
+      requireCustodianOrdinaryRuntime(custodianControllerMode, accountBinding.provider);
       openShellRequested =
         openShellAvailable &&
         (accountBinding.provider === 'openai-codex' ||

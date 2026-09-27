@@ -1,3 +1,4 @@
+import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
@@ -423,6 +424,7 @@ async function openCodexChatBound(
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
     managedConnections[0] ??
     null;
+  if (custodianControllerMode) requireCustodianOrdinaryRuntime(true, options.binding.provider);
   const configuredRuntime = openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
   const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
