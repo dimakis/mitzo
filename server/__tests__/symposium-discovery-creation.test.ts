@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { fenceDiscoveryCreation } from '../symposium-discovery-creation.js';
-import type { DiscoveryOperations } from '../symposium-model-discovery.js';
-const receipt = () => ({ name: 'md-aaaaaaaaaaaaaaaa', claim: 'claim', configHash: 'hash' });
+import { discoveryClaimLabel, type DiscoveryOperations } from '../symposium-model-discovery.js';
+const receipt = () => ({ name: 'md-aaaaaaaaaaaaaaaa', claim: 'a'.repeat(64), configHash: 'hash' });
 it('retains the workspace creation fence until exact Ready identity is durably journaled', async () => {
   const events: string[] = [];
   const r = receipt();
@@ -16,7 +16,10 @@ it('retains the workspace creation fence until exact Ready identity is durably j
         name: r.name,
         workspace: 'work',
         phase: 'Ready',
-        labels: { 'mitzo.discovery': 'models', 'mitzo.discovery.claim': r.claim },
+        labels: {
+          'mitzo.discovery': 'models',
+          'mitzo.discovery.claim': discoveryClaimLabel(r.claim),
+        },
       },
     ],
     persistReceipt: async () => {
