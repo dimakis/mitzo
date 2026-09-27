@@ -423,3 +423,31 @@ it('rejects mixing old image with new helper hashes or adding Vertex to old imag
     ).toThrow();
   }
 });
+it('collects Claude image evidence from selected owned host and requires the existing live receipt', () => {
+  const f = claudeFixture();
+  const selection = {
+    providerInstances: f.attestation.providerInstances,
+    allowedRoles: f.attestation.allowedRoles,
+    allowedAccountProviders: f.attestation.allowedAccountProviders,
+    artifactVolume: f.attestation.artifactVolume,
+  };
+  const invoke = (cli: string, args: string[]) =>
+    args[0] === 'profile'
+      ? JSON.stringify({ id: args[2], provider: args[2] })
+      : f.invoke(cli, args);
+  const candidate = collectOwnedAdmissionEvidence(
+    {
+      config: f.config,
+      endpoint: f.attestation.gatewayEndpoint,
+      physical: f.physical,
+      custody: vi.fn(),
+    },
+    selection,
+    { invoke },
+  );
+  expect(candidate.image).toBe(REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image);
+  expect(candidate.nativeArtifacts).toEqual(
+    REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts,
+  );
+  expect(f.physical.captureClaudeProvider).toHaveBeenCalledWith('vertex-id');
+});
