@@ -460,7 +460,18 @@ export function AccountModelPicker({
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
       {requireExplicitSelection && (
-        <button type="button" disabled={disabled} onClick={() => onChange(selection)}>
+        <button
+          type="button"
+          disabled={
+            disabled ||
+            draftUnavailable ||
+            !account.models.some((model) => model.id === selection.model)
+          }
+          onClick={() => {
+            if (!draftUnavailable && account.models.some((model) => model.id === selection.model))
+              onChange(selection);
+          }}
+        >
           Use {account.label} ·{' '}
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>

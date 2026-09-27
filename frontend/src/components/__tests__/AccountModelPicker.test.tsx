@@ -467,6 +467,7 @@ it.each(['model', 'account'])(
     render(
       <AccountModelPicker
         scope="symposium"
+        requireExplicitSelection
         sessionId={null}
         preferredModel="old-model"
         onChange={onChange}
@@ -478,6 +479,10 @@ it.each(['model', 'account'])(
     fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
     await screen.findByText(/Selected account or model is unavailable/);
     expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    const confirmation = screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement;
+    expect(confirmation.disabled).toBe(true);
+    fireEvent.click(confirmation);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
     if (removed === 'account')
       fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
         target: { value: 'replacement' },
@@ -486,6 +491,7 @@ it.each(['model', 'account'])(
       fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
         target: { value: 'new-model' },
       });
+    fireEvent.click(screen.getByRole('button', { name: /^Use / }));
     expect(onChange).toHaveBeenLastCalledWith({
       accountId: removed === 'account' ? 'replacement' : 'personal',
       model: 'new-model',
@@ -530,6 +536,7 @@ it.each(['model', 'account'])(
     render(
       <AccountModelPicker
         scope="symposium"
+        requireExplicitSelection
         sessionId={null}
         preferredModel="old-model"
         onChange={onChange}
@@ -541,6 +548,10 @@ it.each(['model', 'account'])(
     fireEvent.click(await screen.findByRole('button', { name: 'Disconnect' }));
     await screen.findByText(/Selected account or model is unavailable/);
     expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+    const confirmation = screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement;
+    expect(confirmation.disabled).toBe(true);
+    fireEvent.click(confirmation);
+    expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
     if (removed === 'account')
       fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
         target: { value: 'replacement' },
@@ -549,6 +560,7 @@ it.each(['model', 'account'])(
       fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
         target: { value: 'new-model' },
       });
+    fireEvent.click(screen.getByRole('button', { name: /^Use / }));
     expect(onChange).toHaveBeenLastCalledWith({
       accountId: removed === 'account' ? 'replacement' : 'personal',
       model: 'new-model',
