@@ -1,3 +1,8 @@
+import { load } from 'js-yaml';
+import {
+  createSymposiumWorkVertexProvider,
+  SymposiumWorkVertexProfile,
+} from './symposium-work-vertex-provider.js';
 import { PublicationCredentialRegistrationSchema } from './symposium-publication-registration.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { spawnSync } from 'node:child_process';
@@ -69,7 +74,7 @@ const Config = z.strictObject({
     sandboxNamespace: z.string().refine(isPodmanSandboxNamespace),
   }),
   personal: z.strictObject({
-    workProfiles: z.array(Work),
+    workProfiles: z.array(z.discriminatedUnion('provider', [Work, SymposiumWorkVertexProfile])),
     accountId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
     selectedModel: z.string().min(1),
@@ -102,11 +107,13 @@ interface BootstrapTools {
   launch: typeof OwnedSymposiumGateway.launch;
   run: typeof spawnSync;
   provisionWork: typeof createSymposiumWorkApiProvider;
+  provisionVertex?: typeof createSymposiumWorkVertexProvider;
 }
 const defaults: BootstrapTools = {
   launch: OwnedSymposiumGateway.launch,
   run: spawnSync,
   provisionWork: createSymposiumWorkApiProvider,
+  provisionVertex: createSymposiumWorkVertexProvider,
 };
 export async function bootstrapConfiguredSymposiumHost(
   filename: string,
@@ -125,6 +132,22 @@ export async function bootstrapConfiguredSymposiumHost(
       throw new Error('Pinned provider profile digest changed');
     return bytes;
   });
+  if (config.personal.workProfiles.some((profile) => profile.provider === 'anthropic-vertex')) {
+    try {
+      const vertex = profiles.filter((bytes) => {
+        const document = load(bytes.toString('utf8')) as { id?: unknown } | undefined;
+        return document?.id === 'google-vertex-ai';
+      });
+      if (
+        vertex.length !== 1 ||
+        createHash('sha256').update(vertex[0]).digest('hex') !==
+          'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d'
+      )
+        throw Error();
+    } catch {
+      throw new Error('Vertex requires exactly one reviewed endpointless provider profile');
+    }
+  }
   return createOwnedSymposiumHost({ ...config, ...dependencies }, tools.launch, async (gateway) => {
     const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
     const invoke = (args: string[]) => {
@@ -157,7 +180,11 @@ export async function bootstrapConfiguredSymposiumHost(
     }
     const work = [];
     for (const source of config.personal.workProfiles)
-      work.push(await tools.provisionWork(gateway, source));
+      work.push(
+        source.provider === 'anthropic-vertex'
+          ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
+          : await tools.provisionWork(gateway, source),
+      );
     return work;
   });
 }
