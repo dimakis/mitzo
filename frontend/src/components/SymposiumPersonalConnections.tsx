@@ -261,7 +261,7 @@ export function SymposiumPersonalConnections({
                     busy ||
                     discoveryBlocked ||
                     !!error ||
-                    (!!pendingId && pendingId !== connection.id)
+                    (!!pendingId && (pendingId !== connection.id || callbackId !== connection.id))
                   }
                   onPendingChange={(pending) => {
                     setCallbackId(pending ? connection.id : null);
