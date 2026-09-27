@@ -128,6 +128,7 @@ export function createPersonalSubscriptionHost(
         if (connections.list().some((row) => ['connecting', 'disconnecting'].includes(row.state)))
           throw new Error('Account change is pending');
         const lease = connections.beginDiscovery(id, revision);
+        let discoveryEntered = false;
         try {
           const proof = lease.adapter.captureDiscovery();
           const assertCurrent = () => {
@@ -136,6 +137,7 @@ export function createPersonalSubscriptionHost(
             proof.assertCurrent();
           };
           assertCurrent();
+          discoveryEntered = true;
           const discovered = await discover({
             provider: proof.provider,
             account: proof.account,
@@ -156,12 +158,20 @@ export function createPersonalSubscriptionHost(
             ...(discovered.result.status === 'complete' ? { models: discovered.models } : {}),
           };
         } catch {
+          let locallyReleased = false;
           try {
-            connections.finishDiscovery(lease, false);
+            // Before entering the discovery capability, only this local marker exists.
+            // Once entered, an exception cannot prove remote allocation was absent.
+            connections.finishDiscovery(lease, !discoveryEntered);
+            locallyReleased = !discoveryEntered;
           } catch {
             /* retained recovery state */
           }
-          throw new Error('Personal model discovery requires recovery');
+          throw new Error(
+            locallyReleased
+              ? 'Personal model discovery preflight failed'
+              : 'Personal model discovery requires recovery',
+          );
         }
       },
     },

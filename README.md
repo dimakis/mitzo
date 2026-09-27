@@ -541,3 +541,6 @@ Owned native personal accounts expose an operator-only, revision-scoped model re
 endpoint. It performs account/model reads without inference, then publishes the catalog
 only after sandbox and physical cleanup. A new catalog revision requires explicit seat
 selection; interrupted discovery retains host recovery state.
+
+Personal discovery preflight can release its local marker before the discovery
+capability is entered; uncertain allocation still requires recovery.
