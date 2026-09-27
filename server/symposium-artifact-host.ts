@@ -48,15 +48,32 @@ const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
 /** One retained Podman command closure owns both admission inspection and verifier
  * operations. Snapshot callers cannot select a second engine/store/environment. */
+/** Only the retained transport may assert that its custody precheck rejected before dispatch. */
+export class ArtifactCommandNotDispatched extends Error {
+  constructor(cause?: unknown) {
+    super(cause instanceof Error ? cause.message : 'Artifact command was not dispatched');
+    this.name = 'ArtifactCommandNotDispatched';
+  }
+}
+
 export class ArtifactPodmanContext {
-  constructor(private readonly command: (args: readonly string[]) => Promise<string>) {}
+  constructor(
+    private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>,
+    private readonly terminalCommand = command,
+  ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
     if (driver !== 'podman' || !safeName.test(name))
       throw new Error('Invalid artifact context inspection');
     return JSON.parse(await this.command(['volume', 'inspect', name]));
   }
-  verifierCommand(): (args: readonly string[]) => Promise<string> {
-    return (args) => this.command(args);
+  verifierCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
+    // Successful create/removal must reach the caller journal before post-command custody checks.
+    // The retained command still checks custody before dispatch. Other reads keep both checks.
+    return (args, maxOutputBytes) =>
+      (args[0] === 'create' || args[0] === 'rm' ? this.terminalCommand : this.command)(
+        args,
+        maxOutputBytes,
+      );
   }
 }
 
@@ -200,7 +217,7 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       throw new Error('Artifact snapshot gateway differs from retained lease host');
   }
 
-  snapshotCommand(): (args: readonly string[]) => Promise<string> {
+  snapshotCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
     if (!this.podmanContext)
       throw new Error('Artifact snapshot requires the lease host Podman context');
     return this.podmanContext.verifierCommand();
@@ -315,6 +332,35 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
         return retention;
       })
       .immediate();
+  }
+
+  pendingArtifactRetention(
+    driver: ArtifactDriver,
+    volumeName: string,
+  ): PendingArtifactRetention | null {
+    const row = this.db
+      .prepare(
+        'SELECT retention_json FROM symposium_artifact_pending_retention WHERE driver=? AND volume_name=?',
+      )
+      .get(driver, volumeName) as { retention_json: string } | undefined;
+    return row ? (JSON.parse(row.retention_json) as PendingArtifactRetention) : null;
+  }
+
+  sealLeaseIdentities(driver: ArtifactDriver, volumeName: string) {
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=? ORDER BY token',
+      )
+      .all(driver, volumeName) as LeaseRow[];
+    return rows.map((row) => ({
+      tokenHash: createHash('sha256').update(row.token).digest('hex'),
+      revision: row.revision,
+      request: JSON.parse(row.request_json) as ArtifactLeaseRequest,
+      sandboxName: row.sandbox_name,
+      sandboxId: row.sandbox_id,
+      creationStarted: row.creation_started === 1,
+      intendedSandboxName: row.intended_sandbox_name,
+    }));
   }
 
   private assertVolumeNotRetained(driver: ArtifactDriver, volumeName: string): void {

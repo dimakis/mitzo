@@ -676,3 +676,52 @@ it('retains the lease ledger across different launch directories and blocks lega
   );
   expect(launch).not.toHaveBeenCalled();
 });
+
+it.each(['create', 'rm'])(
+  'preserves exact snapshot %s result before post-command custody loss',
+  async (boundary) => {
+    const f = fixture();
+    const command = vi.fn(async () => {
+      f.gateway.verifyCustody.mockImplementation(() => {
+        throw new Error('custody lost');
+      });
+      return 'b'.repeat(64);
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+    try {
+      const snapshot = host.artifactLeaseHost.snapshotCommand();
+      await expect(snapshot([boundary, 'exact-helper'])).resolves.toBe('b'.repeat(64));
+      await expect(snapshot(['inspect', 'exact-helper'])).rejects.toThrow('custody lost');
+      expect(command).toHaveBeenCalledTimes(1);
+    } finally {
+      f.gateway.verifyCustody.mockReset();
+      host.stop();
+    }
+  },
+);
+
+it('marks only a retained transport precheck rejection as not dispatched', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => {
+    throw new Error('command completion unknown');
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const snapshot = host.artifactLeaseHost.snapshotCommand();
+    f.gateway.verifyCustody.mockImplementation(() => {
+      throw new Error('custody lost');
+    });
+    await expect(snapshot(['create', 'exact-helper'])).rejects.toMatchObject({
+      name: 'ArtifactCommandNotDispatched',
+    });
+    expect(command).not.toHaveBeenCalled();
+    f.gateway.verifyCustody.mockReset();
+    await expect(snapshot(['create', 'exact-helper'])).rejects.not.toMatchObject({
+      name: 'ArtifactCommandNotDispatched',
+    });
+    expect(command).toHaveBeenCalledOnce();
+  } finally {
+    f.gateway.verifyCustody.mockReset();
+    host.stop();
+  }
+});

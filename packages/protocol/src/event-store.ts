@@ -2354,6 +2354,40 @@ export class EventStore {
     return row ? (JSON.parse(row.intent_json) as SymposiumArtifactSealIntent) : null;
   }
 
+  /** Hold the session write fence while a trusted host persists/reads a seal receipt.
+   * The callback is synchronous: no unprotected await separates snapshot validation
+   * from the receipt database CAS. No authority is supplied by an HTTP request.
+   */
+  withSymposiumArtifactSealSnapshot(intent: SymposiumArtifactSealIntent, action: () => void): void {
+    this.db!.transaction(() => {
+      const current = this.getSymposiumArtifactSealIntent(intent.selection.sessionId);
+      const digest = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      const memberships = [
+        ...new Map(
+          this.getSymposiumMembershipHistory(intent.selection.sessionId)
+            .sort((a, b) => a.generation - b.generation)
+            .map((member) => [member.seatId, member]),
+        ).values(),
+      ]
+        .map((member) => ({
+          seatId: member.seatId,
+          generation: member.generation,
+          state: member.state,
+          reconciliation: member.reconciliation,
+          bindingDigest: digest(member.bindingKey),
+        }))
+        .sort((a, b) => a.seatId.localeCompare(b.seatId));
+      if (
+        JSON.stringify(current) !== JSON.stringify(intent) ||
+        digest(this.getActiveSymposiumConfig(intent.selection.sessionId)) !== intent.configDigest ||
+        JSON.stringify(memberships) !== JSON.stringify(intent.memberships)
+      )
+        throw new Error('Artifact seal snapshot changed');
+      action();
+    }).immediate();
+  }
+
   /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
   assertSymposiumArtifactWorkAllowed(sessionId: string): void {
     if (
@@ -2447,6 +2481,13 @@ export class EventStore {
       WHERE session_id=? AND seat_id=? AND generation=?`,
     ).get(sessionId, seatId, generation) as Record<string, unknown> | undefined;
     return row ? this.rowToSymposiumSeatSandbox(row) : undefined;
+  }
+
+  listSymposiumSessionSandboxes(sessionId: string): SymposiumSeatSandboxRecord[] {
+    const rows = this.db!.prepare(
+      'SELECT * FROM symposium_seat_sandboxes WHERE session_id=? ORDER BY seat_id,generation',
+    ).all(sessionId) as Record<string, unknown>[];
+    return rows.map((row) => this.rowToSymposiumSeatSandbox(row));
   }
 
   listUnstoppedSymposiumSeatSandboxes(
