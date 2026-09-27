@@ -229,7 +229,8 @@ export function SymposiumSubscriptionLogin({
       setReceipt(result);
       setState('pending');
     } catch (cause) {
-      setState('failed');
+      setState('recovery-error');
+      setRecoveryAttempt((value) => value + 1);
       setReady(false);
       setError(
         cause instanceof Error && !('issues' in cause)
