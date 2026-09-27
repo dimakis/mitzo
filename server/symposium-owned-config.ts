@@ -1,3 +1,4 @@
+import { load } from 'js-yaml';
 import {
   createSymposiumWorkVertexProvider,
   SymposiumWorkVertexProfile,
@@ -131,15 +132,22 @@ export async function bootstrapConfiguredSymposiumHost(
       throw new Error('Pinned provider profile digest changed');
     return bytes;
   });
-  if (
-    config.personal.workProfiles.some((profile) => profile.provider === 'anthropic-vertex') &&
-    !profiles.some(
-      (bytes) =>
-        createHash('sha256').update(bytes).digest('hex') ===
-        'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d',
-    )
-  )
-    throw new Error('Vertex requires the reviewed endpointless provider profile');
+  if (config.personal.workProfiles.some((profile) => profile.provider === 'anthropic-vertex')) {
+    try {
+      const vertex = profiles.filter((bytes) => {
+        const document = load(bytes.toString('utf8')) as { id?: unknown } | undefined;
+        return document?.id === 'google-vertex-ai';
+      });
+      if (
+        vertex.length !== 1 ||
+        createHash('sha256').update(vertex[0]).digest('hex') !==
+          'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d'
+      )
+        throw Error();
+    } catch {
+      throw new Error('Vertex requires exactly one reviewed endpointless provider profile');
+    }
+  }
   return createOwnedSymposiumHost({ ...config, ...dependencies }, tools.launch, async (gateway) => {
     const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
     const invoke = (args: string[]) => {

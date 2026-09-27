@@ -277,3 +277,42 @@ it('rejects Vertex bootstrap without the exact endpointless profile before gatew
   ).rejects.toThrow('endpointless');
   expect(f.tools.launch).not.toHaveBeenCalled();
 });
+
+it('rejects a later broad Vertex profile override before any gateway or credential work', async () => {
+  const f = fixture();
+  (f.config.personal.workProfiles as unknown[]).push({
+    id: 'vertex-work',
+    label: 'Vertex',
+    provider: 'anthropic-vertex',
+    credentialRef: join(f.root, 'selected-adc.json'),
+    expectedPrincipal: 'selected@example.test',
+    projectId: 'selected-project',
+    region: 'global',
+    models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+  });
+  for (const [name, bytes] of [
+    [
+      'endpointless',
+      readFileSync(
+        new URL('../../infra/openshell/providers/vertex-seat-endpointless.yaml', import.meta.url),
+      ),
+    ],
+    ['broad', Buffer.from('id: google-vertex-ai\nendpoints: [{host: "*.googleapis.com"}]\n')],
+  ] as const) {
+    const path = join(f.root, name + '.yaml');
+    writeFileSync(path, bytes);
+    f.config.providerProfiles.push({
+      path,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    });
+  }
+  f.save();
+  await expect(
+    bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+      f.tools as never,
+    ),
+  ).rejects.toThrow('endpointless');
+  expect(f.tools.launch).not.toHaveBeenCalled();
+});

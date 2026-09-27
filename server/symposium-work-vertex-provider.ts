@@ -28,7 +28,6 @@ const Adc = z.object({
   quota_project_id: z.string().optional(),
 });
 type Material = z.infer<typeof Adc>;
-type Profile = z.infer<typeof SymposiumWorkVertexProfile>;
 interface Dependencies {
   authenticate?(material: Material): Promise<{ email: string; accessToken: string }>;
   run?: typeof spawnSync;
@@ -74,7 +73,7 @@ function snapshot(path: string): Material {
  * partial provider operation or adopt an existing provider. */
 export async function createSymposiumWorkVertexProvider(
   gateway: OwnedSymposiumGateway,
-  input: Profile,
+  input: unknown,
   dependencies: Dependencies = {},
 ) {
   try {
