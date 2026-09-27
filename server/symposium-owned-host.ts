@@ -375,18 +375,19 @@ export async function createOwnedSymposiumHost(
         let recover;
         if (result.status === 'reconciliation_required') {
           const receipt = structuredClone(await operations.readReceipt()) as DiscoveryReceipt;
-          recover = (check: () => void) =>
-            workspaceLifecycle.cleanup(async () => {
-              const cleanup = guardDiscoveryOperations(
-                operations,
-                () => {
-                  custody();
-                  check();
-                },
-                proof.account,
-              );
-              return recoverSymposiumModelDiscovery(config, cleanup, receipt);
-            });
+          if (receipt?.id)
+            recover = (check: () => void) =>
+              workspaceLifecycle.cleanup(async () => {
+                const cleanup = guardDiscoveryOperations(
+                  operations,
+                  () => {
+                    custody();
+                    check();
+                  },
+                  proof.account,
+                );
+                return recoverSymposiumModelDiscovery(config, cleanup, receipt);
+              });
         }
         return { result, models, recover };
       },

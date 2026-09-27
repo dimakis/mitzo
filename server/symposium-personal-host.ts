@@ -136,7 +136,15 @@ export function createPersonalSubscriptionHost(
       );
     },
     personalConnections: {
-      list: () => connections.list(),
+      list: () =>
+        connections.list().map((row) => ({
+          ...row,
+          ...(row.state === 'recovery_required' &&
+          row.modelDiscovery === 'reconciliation_required' &&
+          recoveries.get(row.id)?.revision === row.revision
+            ? { discoveryRecoveryAvailable: true }
+            : {}),
+        })),
       create: (label: string) => {
         assertNoDiscovery();
         return connections.create(label);

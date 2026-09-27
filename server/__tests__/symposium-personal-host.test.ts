@@ -326,6 +326,7 @@ it('recovers only a retained revision-bound capability and requires explicit fre
   const row = await connected(host);
   await host.personalConnections.discoverModels(row.id, row.revision, () => {});
   const quarantined = host.personalConnections.list()[0];
+  expect(quarantined.discoveryRecoveryAvailable).toBe(true);
   await expect(
     host.personalConnections.recoverDiscovery(row.id, row.revision, () => {}),
   ).rejects.toThrow();
