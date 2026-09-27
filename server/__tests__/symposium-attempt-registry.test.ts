@@ -27,6 +27,16 @@ const sandbox = {
 const claim = { claimToken: 'claim-1', sessionId: 'session-1', sandbox };
 
 describe('durable native attempt registry', () => {
+  it('retains historical session claim presence after a preparation is closed', async () => {
+    const registry = new SymposiumAttemptRegistry(registryPath());
+    expect(registry.hasSessionClaims('session-1')).toBe(false);
+    registry.prepare(claim);
+    expect(registry.hasSessionClaims('session-1')).toBe(true);
+    await registry.recover(claim.claimToken);
+    expect(registry.pendingPreparations()).toEqual([]);
+    expect(registry.hasSessionClaims('session-1')).toBe(true);
+    registry.close();
+  });
   it('reserves before launch and keeps a sandbox quarantined after restart', () => {
     const path = registryPath();
     const first = new SymposiumAttemptRegistry(path);

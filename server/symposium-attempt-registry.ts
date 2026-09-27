@@ -313,6 +313,16 @@ export class SymposiumAttemptRegistry {
       .map((row) => this.decodeRow(row));
   }
 
+  /** Historical absence proof for sealing a source before any native work. */
+  hasSessionClaims(sessionId: string): boolean {
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM symposium_native_attempts WHERE session_id=?
+      UNION SELECT 1 FROM symposium_native_preparations WHERE session_id=? LIMIT 1`,
+      )
+      .get(sessionId, sessionId);
+  }
+
   /** A failed probe retains the quarantine; callers must not infer sandbox safety. */
   async recover(
     claimToken: string,

@@ -13,6 +13,10 @@ import {
   captureSymposiumWorkVertexProviderAsync,
 } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
+import {
+  sealImportedSourceArtifact,
+  requireCompletedImportedSourceSeal,
+} from './symposium-source-artifact-seal.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import {
   withOwnedArtifactSuccessor,
@@ -931,6 +935,39 @@ export async function createOwnedSymposiumHost(
         status: sourceImporter.status,
         import: (...args: Parameters<typeof sourceImporter.import>) =>
           track(() => sourceImporter.import(...args)),
+        seal: (sessionId: string, operationId: string, signal: AbortSignal) =>
+          track(() =>
+            sealImportedSourceArtifact(
+              {
+                artifacts: sessionArtifacts!,
+                owner: artifactOwner,
+                workspace: gateway.workspace,
+                custody: () => gateway.verifyCustodyAsync(),
+                assertNoNativeClaims: (selectedSession) => {
+                  if (!(options.facts instanceof EventStore))
+                    throw new Error('Imported source seal requires retained EventStore');
+                  if (
+                    native!.registry.hasSessionClaims(selectedSession) ||
+                    options.facts.getSymposiumDeliveries(selectedSession).length ||
+                    options.facts.listSymposiumSessionSandboxes(selectedSession).length
+                  )
+                    throw new Error('Imported source has prior native work');
+                  const selected = sessionArtifacts!.sourceSealStatus(selectedSession);
+                  if (
+                    !selected ||
+                    leaseHost!.sealLeaseIdentities('podman', selected.volumeName).length
+                  )
+                    throw new Error('Imported source has retained artifact leases');
+                },
+                command: leaseHost!.snapshotCommand(),
+              },
+              sessionId,
+              operationId,
+              signal,
+            ),
+          ),
+        requireSeal: (sessionId: string) =>
+          requireCompletedImportedSourceSeal(sessionArtifacts!, artifactOwner, sessionId),
       },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: (

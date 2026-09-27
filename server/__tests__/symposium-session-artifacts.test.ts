@@ -474,6 +474,7 @@ it('durably fences original source admission before an imported generation can b
   expect(() => reopened.claimAdmission('source')).toThrow(/source seal/);
   expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
   const proof = reopened.sourceSealHelperReceipt('source', 'source-seal-op');
+  proof.verifier('pinned-image', '8'.repeat(64));
   proof.intent(`${mapping.volumeName}-source-seal`);
   proof.created('9'.repeat(64));
   proof.observed(receipt.git);
@@ -487,6 +488,7 @@ it('durably fences original source admission before an imported generation can b
     state: 'complete',
     helperId: '9'.repeat(64),
     git: receipt.git,
+    verifier: { image: 'pinned-image', codeDigest: '8'.repeat(64) },
   });
   expect(f.store.sourceSealStatus('source')).toEqual(completed);
   expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);

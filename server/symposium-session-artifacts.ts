@@ -247,9 +247,15 @@ export class SymposiumSessionArtifacts {
   }
   sourceSealHelperReceipt(sessionId: string, operationId: string) {
     return {
+      verifier: (image: string, codeDigest: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!image || !/^[a-f0-9]{64}$/.test(codeDigest) || value.verifier || value.helperName)
+            throw new Error('source seal verifier identity changed');
+          value.verifier = { image, codeDigest };
+        }),
       intent: (name: string) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
-          if (name !== `${value.volumeName}-source-seal` || value.helperName)
+          if (name !== `${value.volumeName}-source-seal` || value.helperName || !value.verifier)
             throw new Error('source seal helper intent changed');
           value.helperName = name;
         }),
@@ -295,6 +301,7 @@ export class SymposiumSessionArtifacts {
           !value.helperId ||
           !value.helperRemoved ||
           !value.git ||
+          !value.verifier ||
           value.terminal?.helperId !== value.helperId ||
           value.terminal?.exitCode !== 0 ||
           row.admission_issued
