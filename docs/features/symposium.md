@@ -166,9 +166,10 @@ grant checks.
 
 ## Review records and publication boundary
 
-This section describes PRs #613, #615, and #620. The base checkout has standalone
-review persistence/coordinator services; it does not mount these routes or provide
-immutable export, snapshot retrieval, or publication preflight.
+The application mounts authenticated review routes with persistence/coordinator
+services, immutable export and snapshot retrieval, and guarded publication
+preflight. These routes do not supply the trusted native review host, enforce a
+native spending cap, or authorize publication dispatch.
 
 The review workflow records structured findings, fix/dismissal decisions, exact
 artifact revisions, and delta-review history. The interactive panel reports an
