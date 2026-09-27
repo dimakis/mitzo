@@ -8,11 +8,11 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { REVIEWED_CLAUDE_OWNED_CONTRACT as contract } from '../symposium-claude-owned-contract.js';
 import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME as runtime } from '../symposium-owned-runtime-contract.js';
-// Test artifact built from source55404f20; never used as production authority.
+// Test artifact built from source03537c23; never used as production authority.
 const candidate = {
-  image: 'sha256:bc45660bfe2c50516fb65d7379b7799f7352f9a4da6d5e2562cd1da4e6022127',
+  image: 'sha256:df8fd2214ee37f8a306ce98ad722f766f4d5c343ce4e8eda023fdbbc5ab92e47',
   landlock: '2a32470d6854637311cb790553b5c251a46176dced12eb6568f7582852500c34',
-  launcher: '46a1ebd449a5e5c61539c7d0d68ddc2fa4151ffceb642b991e4c3f7b7119438f',
+  launcher: 'd9cefeef981bc0927b1bd954f358671329ad18488460cc6074a13a0bb634ef5e',
 };
 
 it.skipIf(process.env.MITZO_CLAUDE_PHYSICAL_CONTRACT !== '1')(
