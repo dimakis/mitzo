@@ -818,8 +818,23 @@ const symposiumSessionRuntimes = new Map<
   {
     orchestrator: SymposiumOrchestrator;
     runtimeFingerprint: string;
+    runtime: ReturnType<typeof createSymposiumSessionRuntime>;
   }
 >();
+let symposiumShuttingDown = false;
+export function beginSymposiumShutdown() {
+  symposiumShuttingDown = true;
+  for (const entry of symposiumSessionRuntimes.values()) entry.runtime.beginShutdown();
+}
+export async function drainSymposiumRuntimes(signal: AbortSignal) {
+  beginSymposiumShutdown();
+  const results = await Promise.allSettled(
+    [...symposiumSessionRuntimes.values()].map((entry) => entry.runtime.drain(signal)),
+  );
+  signal.throwIfAborted();
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('Symposium runtime cleanup incomplete');
+}
 export interface SymposiumProductionHost {
   runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
@@ -872,6 +887,7 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
   sessionId,
 ) => {
+  if (symposiumShuttingDown) return null;
   if (eventStore.getSession(sessionId)?.sessionType !== 'symposium') return null;
   const host = symposiumProductionHost;
   if (!host) return null;
@@ -881,6 +897,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   let verified: ReturnType<typeof verifySymposiumProductionGate>;
   let attestationIdentity: string | undefined;
   const verifyHostCapability = () => {
+    if (symposiumShuttingDown) throw new Error('Symposium is shutting down');
     if (!attestationPath || !symposiumProductionHost)
       throw new Error('Symposium production host or attestation is unavailable');
     const attestation = readSymposiumProductionAttestation(attestationPath);
@@ -916,7 +933,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   if (cached && cached.runtimeFingerprint !== runtimeFingerprint) return null;
   let runtime = cached?.orchestrator;
   if (!runtime) {
-    runtime = createSymposiumSessionRuntime({
+    const retainedRuntime = createSymposiumSessionRuntime({
       sessionId,
       store: eventStore,
       profiles: host.currentProfiles(),
@@ -951,8 +968,13 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       },
       recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
       recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
-    }).orchestrator;
-    symposiumSessionRuntimes.set(sessionId, { orchestrator: runtime, runtimeFingerprint });
+    });
+    runtime = retainedRuntime.orchestrator;
+    symposiumSessionRuntimes.set(sessionId, {
+      orchestrator: runtime,
+      runtimeFingerprint,
+      runtime: retainedRuntime,
+    });
   }
   return runtime;
 };

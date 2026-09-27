@@ -82,6 +82,7 @@ function fixture(san = 'DNS:localhost,IP:127.0.0.1,DNS:host.containers.internal'
     assertLive: vi.fn(),
     onLoss: vi.fn(),
     stop: vi.fn(),
+    stopAndWait: vi.fn(async () => {}),
     tokenBundle: vi.fn(() => ({
       access_token: 'host-only',
       expires_at: Math.floor(Date.now() / 1000) + 300,
@@ -281,4 +282,33 @@ it('async custody verifies files and process again after asynchronous listener o
   } finally {
     gateway.stop();
   }
+});
+
+it('awaits exact gateway child exit and issuer shutdown rather than accepting SIGTERM as proof', async () => {
+  const f = fixture();
+  const gateway = await OwnedSymposiumGateway.launch(f.options, f.operations);
+  let complete = false;
+  const pending = gateway.stopAndWait(new AbortController().signal).then(() => {
+    complete = true;
+  });
+  await Promise.resolve();
+  expect(f.child.kill).toHaveBeenCalledWith('SIGTERM');
+  expect(complete).toBe(false);
+  Object.assign(f.child, { exitCode: 0 });
+  f.child.emit('exit', 0, null);
+  await pending;
+  expect(complete).toBe(true);
+});
+
+it('reports aborted child-exit observation as incomplete and removes the waiter', async () => {
+  const f = fixture();
+  const gateway = await OwnedSymposiumGateway.launch(f.options, f.operations);
+  const controller = new AbortController();
+  const before = f.child.listenerCount('exit');
+  const pending = gateway.stopAndWait(controller.signal);
+  const rejected = expect(pending).rejects.toThrow('deadline');
+  controller.abort(new Error('deadline'));
+  await rejected;
+  expect(f.child.listenerCount('exit')).toBe(before);
+  expect(f.child.exitCode).toBeNull();
 });

@@ -42,6 +42,7 @@ function fixture() {
     managementEnvironment: { HOME: root, XDG_CONFIG_HOME: root, PATH: '/usr/bin:/bin' },
     verifyCustody: vi.fn(),
     stop: vi.fn(),
+    stopAndWait: vi.fn().mockResolvedValue(undefined),
     verifyGatewayDriverConfig: vi.fn(),
   };
   const seat = {
@@ -89,6 +90,42 @@ function fixture() {
   return { root, gateway, options, launch, seat, membership };
 }
 describe('explicit owned Symposium host composition', () => {
+  it('fences admission and keeps custody stores readable until exact gateway exit completes', async () => {
+    const f = fixture();
+    let exited!: () => void;
+    f.gateway.stopAndWait.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          exited = resolve;
+        }),
+    );
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const signal = new AbortController().signal;
+    host.beginShutdown();
+    expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('shutting down');
+    await expect(host.ensureSessionArtifacts('session')).rejects.toThrow('shutting down');
+    await expect(host.beginDeviceLogin()).rejects.toThrow('shutting down');
+    await host.drain(signal);
+    const closing = host.closeAfterDrain(signal);
+    expect(() => host.currentProfiles()).not.toThrow();
+    exited();
+    await closing;
+    expect(() => host.currentProfiles()).toThrow('stopped');
+  });
+
+  it('retains host stores when gateway exit cannot be established', async () => {
+    const f = fixture();
+    f.gateway.stopAndWait.mockRejectedValue(new Error('exit unknown'));
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const signal = new AbortController().signal;
+    host.beginShutdown();
+    await host.drain(signal);
+    await expect(host.closeAfterDrain(signal)).rejects.toThrow('exit unknown');
+    expect(() => host.currentProfiles()).not.toThrow();
+    host.markShutdownUncertain();
+    host.stop();
+  });
+
   it('composes isolated private registries and named gateway without admission or login side effects', async () => {
     const f = fixture();
     const host = await createOwnedSymposiumHost(f.options, f.launch);
@@ -439,4 +476,99 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   } finally {
     host.stop();
   }
+});
+
+it.each(['beginLogin', 'beginDeviceLogin'] as const)(
+  'drains a confirmed shutdown cancellation while %s is still allocating',
+  async (method) => {
+    const f = fixture();
+    let finish!: (value: never) => void;
+    const allocate = vi.fn(
+      () =>
+        new Promise<never>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const original = personalHost.createPersonalSubscriptionHost;
+    vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => {
+      const subscription = original(...args);
+      return { ...subscription, [method]: allocate };
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const pending = host[method]();
+    const rejected = expect(pending).rejects.toThrow('stopped');
+    host.beginShutdown();
+    const draining = host.drain(new AbortController().signal);
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    finish({ completed: new Promise(() => {}), cancel } as never);
+    await rejected;
+    await expect(draining).resolves.toBeUndefined();
+    expect(cancel).toHaveBeenCalledOnce();
+    await host.closeAfterDrain(new AbortController().signal);
+  },
+);
+
+it('does not suppress a failed cancellation of a late login', async () => {
+  const f = fixture();
+  let finish!: (value: never) => void;
+  const original = personalHost.createPersonalSubscriptionHost;
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...original(...args),
+    beginDeviceLogin: () =>
+      new Promise<never>((resolve) => {
+        finish = resolve;
+      }),
+  }));
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const pending = host.beginDeviceLogin();
+  const rejected = expect(pending).rejects.toThrow('cleanup unknown');
+  host.beginShutdown();
+  const draining = expect(host.drain(new AbortController().signal)).rejects.toThrow(
+    'did not settle cleanly',
+  );
+  finish({
+    completed: new Promise(() => {}),
+    cancel: vi.fn().mockRejectedValue(new Error('cleanup unknown')),
+  } as never);
+  await rejected;
+  await draining;
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  host.stop();
+});
+
+it('still cancels active login and drains workspace when a tracked operation fails', async () => {
+  const { SymposiumWorkspaceLifecycle } = await import('../symposium-workspace-lifecycle.js');
+  const f = fixture();
+  let finish!: () => void;
+  const cancel = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const original = personalHost.createPersonalSubscriptionHost;
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...original(...args),
+    beginLogin: async () =>
+      ({
+        authorizationUrl: 'https://example.invalid',
+        completed: new Promise(() => {}),
+        cancel,
+      }) as never,
+  }));
+  const workspace = vi.spyOn(SymposiumWorkspaceLifecycle.prototype, 'drain');
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  await host.beginLogin();
+  const failed = host.ensureSessionArtifacts('session').catch(() => {});
+  host.beginShutdown();
+  const drain = expect(host.drain(new AbortController().signal)).rejects.toThrow(
+    'did not settle cleanly',
+  );
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  expect(workspace).not.toHaveBeenCalled();
+  finish();
+  await drain;
+  await failed;
+  expect(workspace).toHaveBeenCalledOnce();
+  host.stop();
 });

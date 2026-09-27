@@ -1,3 +1,4 @@
+import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import 'dotenv/config';
@@ -55,6 +56,8 @@ import { createLogger } from './logger.js';
 import {
   app,
   installSymposiumProductionHost,
+  beginSymposiumShutdown,
+  drainSymposiumRuntimes,
   getSymposiumBootstrapDependencies,
   sseRegistry,
   chatSseRegistry,
@@ -1306,15 +1309,46 @@ setSkillWatcher(skillWatcher);
 
 let ownedSymposiumHost: Awaited<ReturnType<typeof bootstrapConfiguredSymposiumHost>> | undefined;
 
+let ownedSymposiumStartup: Promise<void> | undefined;
+let shuttingDown = false;
+const drainOwnedSymposium = createSymposiumShutdown({
+  fence: () => {
+    beginSymposiumShutdown();
+    ownedSymposiumHost?.beginShutdown();
+  },
+  drain: async (signal) => {
+    await ownedSymposiumStartup;
+    signal.throwIfAborted();
+    ownedSymposiumHost?.beginShutdown();
+    await settleSymposiumCleanup([
+      drainSymposiumRuntimes(signal),
+      ownedSymposiumHost?.drain(signal),
+    ]);
+  },
+  close: async (signal) => {
+    await ownedSymposiumHost?.closeAfterDrain(signal);
+  },
+  uncertain: () => {
+    ownedSymposiumHost?.markShutdownUncertain();
+  },
+});
 async function shutdown(signal: string) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   log.info(`${signal} received — shutting down gracefully`);
-  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
+
   server.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   openShellLifecycle?.store.close();
+  try {
+    await drainOwnedSymposium();
+  } catch {
+    log.error('Symposium shutdown incomplete; retained resources require recovery');
+    process.exit(1);
+  }
   symposiumNativeHost?.registry.close();
-  ownedSymposiumHost?.stop();
+  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
   skillWatcher.destroy();
   await signalProc.unwatchAll();
   wfTemplateStore.close();
@@ -1335,6 +1369,7 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 import { checkPort } from './port-check.js';
 
 checkPort(PORT).then(async (inUse) => {
+  if (shuttingDown) return;
   if (inUse) {
     log.error(`Port ${PORT} already in use. Another Mitzo instance may be running.`);
     log.error('Kill it or set a different PORT in .env.');
@@ -1344,11 +1379,16 @@ checkPort(PORT).then(async (inUse) => {
   const symposiumConfig = process.env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG;
   if (symposiumConfig) {
     try {
-      ownedSymposiumHost = await bootstrapConfiguredSymposiumHost(
+      ownedSymposiumStartup = bootstrapConfiguredSymposiumHost(
         symposiumConfig,
         getSymposiumBootstrapDependencies(),
-      );
-      installSymposiumProductionHost(ownedSymposiumHost);
+      ).then((host) => {
+        ownedSymposiumHost = host;
+        if (shuttingDown) host.beginShutdown();
+        else installSymposiumProductionHost(host);
+      });
+      await ownedSymposiumStartup;
+      if (shuttingDown) return;
     } catch {
       ownedSymposiumHost?.stop();
       log.error(

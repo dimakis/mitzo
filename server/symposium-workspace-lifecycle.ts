@@ -28,6 +28,16 @@ export class SandboxCreationPreflightError extends Error {
 export class SymposiumWorkspaceLifecycle {
   private tail: Promise<unknown> = Promise.resolve();
   private uncertain = false;
+  private draining = false;
+  beginDrain() {
+    this.draining = true;
+  }
+  async drain(signal: AbortSignal) {
+    this.beginDrain();
+    await this.tail;
+    signal.throwIfAborted();
+    if (this.uncertain) throw new Error('Workspace creation outcome requires host recovery');
+  }
   constructor(
     private readonly path: string,
     private readonly custody: () => void,
@@ -92,9 +102,11 @@ export class SymposiumWorkspaceLifecycle {
   }
   create: SandboxCreationFence = (verify, operation) =>
     this.run(async () => {
+      if (this.draining) throw new Error('Workspace is shutting down');
       verify();
       let dispatched = false;
       const result = await operation(() => {
+        if (this.draining) throw new Error('Workspace is shutting down');
         if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
         try {
           verify();

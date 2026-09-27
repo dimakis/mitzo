@@ -75,12 +75,34 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
   >();
 
   constructor(private deps: SymposiumOpenShellSeatExecutorDeps) {}
+  private draining = false;
+  private runs = new Set<Promise<unknown>>();
+  beginShutdown() {
+    this.draining = true;
+  }
+  async drain(signal: AbortSignal) {
+    this.beginShutdown();
+    const results = await Promise.allSettled(
+      [...this.attempts.keys()].map((claimToken) => this.cancel({ claimToken })),
+    );
+    await Promise.allSettled([...this.runs]);
+    signal.throwIfAborted();
+    if (results.some((result) => result.status === 'rejected'))
+      throw new Error('Native shutdown cleanup incomplete');
+  }
 
   prepare(input: { sessionId: string; claimToken: string }) {
     this.deps.attemptRegistry?.prepare(input);
   }
 
-  async execute(input: SymposiumSeatExecution) {
+  execute(input: SymposiumSeatExecution) {
+    if (this.draining) return Promise.reject(new Error('Symposium runtime is shutting down'));
+    const run = this.executeCurrent(input);
+    this.runs.add(run);
+    void run.finally(() => this.runs.delete(run)).catch(() => {});
+    return run;
+  }
+  private async executeCurrent(input: SymposiumSeatExecution) {
     this.prepare(input);
     const attempt: {
       native?: SymposiumNativeSeat;
@@ -88,13 +110,15 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       opening: boolean;
     } = { execution: input, opening: false };
     this.attempts.set(input.claimToken, attempt);
-    const admission = () =>
-      admitSymposiumSeatDispatch(
+    const admission = () => {
+      if (this.draining) throw new Error('Symposium runtime is shutting down');
+      return admitSymposiumSeatDispatch(
         this.deps.facts,
         this.deps.currentProfiles?.() ?? this.deps.profiles,
         input,
         this.deps.hostGrants,
       );
+    };
     let route = admission();
     if (
       route.readOnly &&

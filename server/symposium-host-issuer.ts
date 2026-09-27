@@ -97,10 +97,18 @@ export class SymposiumHostIssuer {
       client_id: 'symposium-host',
     };
   }
+  private stopped: Promise<void> | undefined;
+  stopAndWait(): Promise<void> {
+    if (!this.stopped) {
+      this.stopped = Promise.resolve()
+        .then(() => this.worker.terminate())
+        .then(() => undefined);
+      this.active = false;
+      this.closed?.();
+    }
+    return this.stopped;
+  }
   stop(): void {
-    if (!this.active) return;
-    this.active = false;
-    this.closed?.();
-    void this.worker.terminate();
+    void this.stopAndWait().catch(() => {});
   }
 }

@@ -101,3 +101,34 @@ it('refuses a successful create result without its trusted dispatch marker', asy
   ).rejects.toThrow('dispatch was not recorded');
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
+
+it('fences queued creates and waits for an already dispatched create before draining', async () => {
+  const { fence } = fixture();
+  let release!: () => void;
+  const first = fence.create(
+    () => {},
+    async (mark) => {
+      mark();
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    },
+  );
+  await Promise.resolve();
+  const queuedOperation = vi.fn(async () => {});
+  const queued = expect(fence.create(() => {}, queuedOperation)).rejects.toThrow('shutting down');
+  let drained = false;
+  fence.beginDrain();
+  const drain = fence.drain(new AbortController().signal).then(() => {
+    drained = true;
+  });
+  await Promise.resolve();
+  expect(drained).toBe(false);
+  release();
+  await first;
+  await queued;
+  await drain;
+  expect(queuedOperation).not.toHaveBeenCalled();
+  await expect(fence.create(() => {}, queuedOperation)).rejects.toThrow('shutting down');
+  await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
+});
