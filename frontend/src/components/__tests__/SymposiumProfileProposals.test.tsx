@@ -30,7 +30,10 @@ it('exposes proposed recipe fields for editing before explicit save', async () =
     target: { value: 'risk-scan' },
   });
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Save reusable profile' }));
+  const save = screen.getByRole('button', { name: 'Save reusable profile' });
+  // The proposal can render before its separate revision catalog is loaded.
+  await waitFor(() => expect((save as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(save);
   await waitFor(() =>
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
   );

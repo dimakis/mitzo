@@ -134,6 +134,19 @@ Claude's native tool path remains unavailable pending its independent evidence
 gate. Mitzo owns profile authoring and version history; ContexGin remains a
 context source, with explicit imports rather than implicit write-back.
 
+The seat Landlock launcher permits read-only access to the supervisor's two public
+CA certificate files under `/run/openshell-supervisor-ca/material`; it grants no
+access to that directory, private keys, or other `/run` content. The
+[offline CA regression](docs/spikes/openshell-codex/SEAT-PUBLIC-CA.md) records the
+physical denial and the bounded fix. Existing runtime images must be rebuilt and
+reviewed before this source change can affect them.
+
+The disposable native-seat image now normalizes the reviewed Linux arm64 Codex
+0.153.4 package to a regular `/usr/bin/codex` ELF during its build. This aligns
+kernel executable identity with the existing exact-path network policy; it adds
+no binary grants. See the [canonical native image proof](docs/spikes/openshell-codex/CANONICAL-CODEX.md).
+The host device-login CLI version is separate and unchanged.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
@@ -491,4 +504,7 @@ authorization does not. See [personal connection lifecycle](docs/operations/symp
 Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
 
 Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
+
+Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
