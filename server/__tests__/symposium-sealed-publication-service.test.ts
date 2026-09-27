@@ -235,3 +235,35 @@ it('canonicalizes a mixed-case selected repository before persisting its grant',
   expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
   f.close();
 });
+
+it.each(['invalid branch', 'main'])(
+  'uses the current base branch after an earlier %s request under the same grant',
+  async (firstBaseBranch) => {
+    const f = await fixture();
+    const firstApproval = vi.fn(async () => false);
+    const first = await f.service.invoke(
+      { ...f.input, publication: { ...f.input.publication, baseBranch: firstBaseBranch } },
+      f.signal,
+      firstApproval,
+    );
+    expect(first.status).toBe(firstBaseBranch === 'main' ? 'denied' : 'failed');
+    const currentApproval = vi.fn(async (card) => {
+      expect(card.input.baseBranch).toBe('release');
+      return false;
+    });
+    const current = await f.service.invoke(
+      {
+        ...f.input,
+        idempotencyKey: 'current-base-branch',
+        publication: { ...f.input.publication, baseBranch: 'release' },
+      },
+      f.signal,
+      currentApproval,
+    );
+    expect(current.status).toBe('denied');
+    expect(currentApproval).toHaveBeenCalledTimes(1);
+    expect(f.exportBundle).not.toHaveBeenCalled();
+    expect(f.run.mock.calls.some(([, args]) => args.includes('POST'))).toBe(false);
+    f.close();
+  },
+);

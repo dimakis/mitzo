@@ -109,6 +109,7 @@ export class SealedPublicationService {
         operation: CapabilityOperation,
         requestSignal: AbortSignal,
         recovery = false,
+        preflightBaseBranch?: unknown,
       ) => {
         await requireAuthority(requestSignal);
         const source = recovery
@@ -175,7 +176,7 @@ export class SealedPublicationService {
             allowedBaseBranches: [
               String(
                 (operation.approvalInput as Record<string, unknown> | null)?.baseBranch ??
-                  input.publication.baseBranch,
+                  preflightBaseBranch,
               ),
             ],
           }),
@@ -236,7 +237,8 @@ export class SealedPublicationService {
           const suffix = `Review record: ${grant.scope.recordId}\nSHA256: ${grant.scope.recordHash}`;
           if (typeof context.input.body !== 'string' || !context.input.body.endsWith(suffix))
             throw new Error('Exact review record reference required');
-          return (await create(context.operation, context.signal)).preflight!(context);
+          return (await create(context.operation, context.signal, false, context.input.baseBranch))
+            .preflight!(context);
         },
         execute: async (context) =>
           (await create(context.operation, context.signal)).execute(context),
