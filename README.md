@@ -244,8 +244,8 @@ distinguishes mocked application coverage from the attended two-turn native
 probe cleanup; it did not establish full application or production admission.
 Multiple personal account slots and explicit supported-model refresh are
 implemented. Saved metadata survives restart, but personal authorization requires
-fresh sign-in. The newer CA-enabled image still requires a reviewed build-pin
-update before it can satisfy the production gate.
+fresh sign-in. The newer CA-enabled image requires the separately reviewed build-pin
+update and matching physical proof before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
