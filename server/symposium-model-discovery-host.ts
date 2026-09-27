@@ -1,3 +1,8 @@
+import {
+  DiscoveryDiagnosticSchema,
+  DiscoveryCommandFailure,
+  classifyDiscoveryCommandFailure,
+} from './symposium-discovery-diagnostics.js';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -48,12 +53,17 @@ function jsonCommand(
         ...(processGroup ? { detached: true, shell: false } : {}),
       },
       (error, stdout) => {
-        if (processGroup) child.kill();
-        if (error) return reject(new Error('Discovery host operation failed'));
+        if (processGroup) child?.kill();
+        if (error) return reject(classifyDiscoveryCommandFailure(error, child?.pid));
         try {
           resolve(JSON.parse(stdout));
         } catch {
-          reject(new Error('Invalid discovery host response'));
+          reject(
+            new DiscoveryCommandFailure({
+              failureClass: 'invalid-response',
+              commandDispatch: 'possibly-started',
+            }),
+          );
         }
       },
     );
@@ -231,6 +241,22 @@ export function createDiscoveryHostOperations(
         assertAttemptLock = undefined;
         await release();
       }
+    },
+    async recordDiagnostic(value) {
+      if (!activeAttempt || !assertAttemptLock) throw new Error('Journal lock proof required');
+      await assertAttemptLock();
+      const diagnostic = DiscoveryDiagnosticSchema.parse(value);
+      privateDirectory(dirname(options.journal));
+      const temporary = `${options.journal}.diagnostic.${randomBytes(8).toString('hex')}`;
+      const file = await open(temporary, 'wx', 0o600);
+      try {
+        await file.writeFile(JSON.stringify(diagnostic));
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      await rename(temporary, options.journal + '.diagnostic.json');
+      await syncDirectory(dirname(options.journal));
     },
     async verifyCustody(expected) {
       if (
