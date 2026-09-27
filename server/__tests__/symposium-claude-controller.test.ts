@@ -242,7 +242,7 @@ describe('Claude fixture over claim controller and durable registry', () => {
     restarted.close();
   });
 
-  it('binds resumed fixture events to the pinned prior thread', async () => {
+  it('rejects foreign thread events during host-history migration', async () => {
     const confirm = vi.fn().mockResolvedValue(undefined) as SymposiumAttemptTransport['confirm'];
     const { child, registry } = harness(confirm);
     const resumed = { ...execution, providerThreadId: 'prior-thread' } as SymposiumSeatExecution;
@@ -250,9 +250,13 @@ describe('Claude fixture over claim controller and durable registry', () => {
       sandbox,
       route,
       execution: resumed,
+      loadConversationHistory: () => [
+        { role: 'user', text: 'Prior' },
+        { role: 'assistant', text: 'Reply' },
+      ],
       attemptRegistry: registry,
     });
-    expect(claudeVertexArgv(route, resumed)).toContain('--resume');
+    expect(() => claudeVertexArgv(route, resumed)).toThrow(/continuity/);
     const accepted = vi.fn();
     const run = native.run(resumed, { beforeDispatch: () => undefined, accepted });
     event(child, {
@@ -266,7 +270,7 @@ describe('Claude fixture over claim controller and durable registry', () => {
     registry.close();
   });
 
-  it('accepts a matching resumed thread and never starts a replacement session', async () => {
+  it('accepts the fresh planned thread while carrying complete host history', async () => {
     const confirm = vi.fn().mockResolvedValue(undefined) as SymposiumAttemptTransport['confirm'];
     const { child, registry, launch } = harness(confirm);
     const resumed = { ...execution, providerThreadId: 'prior-thread' } as SymposiumSeatExecution;
@@ -274,22 +278,27 @@ describe('Claude fixture over claim controller and durable registry', () => {
       sandbox,
       route,
       execution: resumed,
+      loadConversationHistory: () => [
+        { role: 'user', text: 'Prior' },
+        { role: 'assistant', text: 'Reply' },
+      ],
       attemptRegistry: registry,
     });
     const accepted = vi.fn();
     const run = native.run(resumed, { beforeDispatch: () => undefined, accepted });
     const command = vi.mocked(launch).mock.calls[0][3];
-    expect(command).toContain('--resume');
-    expect(command).not.toContain('--session-id');
+    expect(command).not.toContain('--resume');
+    const thread = command[command.indexOf('--session-id') + 1];
+    expect(thread).not.toBe('prior-thread');
     event(child, {
       type: 'assistant',
-      session_id: 'prior-thread',
+      session_id: thread,
       message: { id: 'resume-message', content: [{ type: 'text', text: 'Continued.' }] },
     });
-    event(child, { type: 'result', session_id: 'prior-thread', is_error: false });
+    event(child, { type: 'result', session_id: thread, is_error: false });
     child.emit('close', 0);
-    await expect(run).resolves.toEqual({ providerThreadId: 'prior-thread', content: 'Continued.' });
-    expect(accepted).toHaveBeenCalledWith('prior-thread', 'resume-message');
+    await expect(run).resolves.toEqual({ providerThreadId: thread, content: 'Continued.' });
+    expect(accepted).toHaveBeenCalledWith(thread, 'resume-message');
     registry.close();
   });
 });

@@ -1,3 +1,4 @@
+import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 import { z } from 'zod';
 import { PersonalEvidenceSelection } from './symposium-personal-evidence.js';
 import type { RequestHandler } from 'express';
@@ -24,8 +25,8 @@ export const OwnedEvidenceSelection = z
           .object({
             name: identifier,
             id: identifier,
-            type: z.enum(['openai', 'codex']),
-            profileName: z.enum(['openai', 'codex']),
+            type: z.enum(['openai', 'codex', 'google-vertex-ai']),
+            profileName: z.enum(['openai', 'codex', 'google-vertex-ai']),
           })
           .strict(),
       )
@@ -37,9 +38,9 @@ export const OwnedEvidenceSelection = z
       .min(1)
       .max(3),
     allowedAccountProviders: z
-      .array(z.enum(['openai', 'openai-codex']))
+      .array(z.enum(['openai', 'openai-codex', 'anthropic-vertex']))
       .min(1)
-      .max(2),
+      .max(3),
   })
   .strict();
 type Invoke = NonNullable<Parameters<typeof verifySymposiumProductionGate>[3]>;
@@ -84,7 +85,9 @@ export function collectOwnedAdmissionEvidence(
   const config = host.config;
   const policy = lstatSync(config.policy);
   if (!policy.isFile() || policy.isSymbolicLink()) throw new Error('Policy must be a regular file');
-  const build = TESTED_SYMPOSIUM_NATIVE_BUILD;
+  const build = reviewedSymposiumOwnedRuntime(
+    config.image ?? TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+  ).build;
   const candidate: SymposiumProductionAttestation = {
     contract: 'openshell-v0.1-owned-native-seats',
     cliVersion: build.version,

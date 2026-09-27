@@ -1,3 +1,4 @@
+import { assertSymposiumAttestedClaudeProvider } from '../symposium-production-gate.js';
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -337,4 +338,132 @@ it.each(['controllerSha256', 'imageDigest'] as const)('rejects wrong measured %s
     ),
   ).toThrow();
   expect(f.invoke).not.toHaveBeenCalled();
+});
+
+import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from '../symposium-owned-runtime-contract.js';
+import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
+const vertexReceipt = {
+  principal: 'work@example.test',
+  accountId: 'vertex-work',
+  provider: 'vertex-work',
+  providerId: 'vertex-id',
+  projectId: 'project-1',
+  region: 'global' as const,
+  model: 'claude-haiku-4-5@20251001' as const,
+  workspace: 'symposium',
+};
+function claudeFixture() {
+  const f = fixture();
+  const claude = REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build;
+  f.config.image = claude.image;
+  Object.assign(f.attestation, {
+    image: claude.image,
+    imageDigest: claude.imageDigest,
+    nativeArtifacts: claude.nativeArtifacts,
+  });
+  f.attestation.providerProfiles.push({ name: 'google-vertex-ai', sha256: hash('vertex') });
+  f.attestation.providerInstances.push({
+    name: 'vertex-work',
+    id: 'vertex-id',
+    type: 'google-vertex-ai',
+    profileName: 'google-vertex-ai',
+  });
+  f.attestation.allowedAccountProviders.push('anthropic-vertex');
+  f.physical.captureClaudeProvider = vi.fn(() => vertexReceipt);
+  return f;
+}
+it('admits the separate measured Claude variant only with live retained selected-provider proof', () => {
+  const f = claudeFixture();
+  const verified = verifySymposiumProductionGate(f.config, f.attestation, f.physical, f.invoke);
+  expect(verified.claudeProviders.get('vertex-work')).toEqual(vertexReceipt);
+  expect(() => assertSymposiumAttestedClaudeProvider(verified, vertexReceipt)).not.toThrow();
+  for (const field of [
+    'accountId',
+    'provider',
+    'providerId',
+    'projectId',
+    'region',
+    'model',
+    'workspace',
+  ] as const)
+    expect(() =>
+      assertSymposiumAttestedClaudeProvider(verified, { ...vertexReceipt, [field]: 'drift' }),
+    ).toThrow();
+  expect(f.physical.captureClaudeProvider).toHaveBeenCalledWith('vertex-id');
+  expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
+    f.config.image,
+    f.attestation.imageDigest,
+    REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts,
+  );
+  expect(symposiumArtifactOwner(f.config.image)).toEqual({
+    image: f.config.image,
+    uid: 998,
+    gid: 998,
+  });
+  const old = fixture();
+  expect(
+    verifySymposiumProductionGate(old.config, old.attestation, old.physical, old.invoke)
+      .claudeProviders.size,
+  ).toBe(0);
+});
+it.each(['missing', 'changed-provider', 'changed-workspace', 'lost-custody'] as const)(
+  'rejects Claude capability with %s',
+  (failure) => {
+    const f = claudeFixture();
+    if (failure === 'missing') delete f.physical.captureClaudeProvider;
+    if (failure === 'changed-provider')
+      f.physical.captureClaudeProvider = () => ({ ...vertexReceipt, providerId: 'other' });
+    if (failure === 'changed-workspace')
+      f.physical.captureClaudeProvider = () => ({ ...vertexReceipt, workspace: 'other' });
+    if (failure === 'lost-custody')
+      f.physical.captureClaudeProvider = () => {
+        throw Error('custody unavailable');
+      };
+    expect(() =>
+      verifySymposiumProductionGate(f.config, f.attestation, f.physical, f.invoke),
+    ).toThrow();
+  },
+);
+it('rejects mixing old image with new helper hashes or adding Vertex to old image', () => {
+  for (const patch of [
+    { image: build.image, imageDigest: build.imageDigest },
+    { nativeArtifacts: build.nativeArtifacts },
+  ]) {
+    const f = claudeFixture();
+    Object.assign(f.attestation, patch);
+    f.config.image = f.attestation.image;
+    expect(() =>
+      verifySymposiumProductionGate(f.config, f.attestation, f.physical, f.invoke),
+    ).toThrow();
+  }
+});
+it('collects Claude image evidence from selected owned host and requires the existing live receipt', () => {
+  const f = claudeFixture();
+  const selection = {
+    providerInstances: f.attestation.providerInstances,
+    allowedRoles: f.attestation.allowedRoles,
+    allowedAccountProviders: f.attestation.allowedAccountProviders,
+    artifactVolume: f.attestation.artifactVolume,
+  };
+  const invoke = (cli: string, args: string[]) =>
+    args[0] === 'profile'
+      ? JSON.stringify({ id: args[2], provider: args[2] })
+      : f.invoke(cli, args);
+  const candidate = collectOwnedAdmissionEvidence(
+    {
+      config: f.config,
+      endpoint: f.attestation.gatewayEndpoint,
+      physical: f.physical,
+      custody: vi.fn(),
+    },
+    selection,
+    { invoke },
+  );
+  expect(candidate.image).toBe(REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image);
+  if (candidate.contract !== 'openshell-v0.1-owned-native-seats')
+    throw new Error('Expected owned candidate');
+  expect(candidate.nativeArtifacts).toEqual(
+    REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts,
+  );
+  expect(f.physical.captureClaudeProvider).toHaveBeenCalledWith('vertex-id');
 });

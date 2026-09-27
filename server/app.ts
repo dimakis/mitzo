@@ -1020,11 +1020,10 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
             assertSubscriptionDispatch: host.assertSubscriptionDispatch,
           }
         : {}),
-      // Claude remains unavailable until its independent native evidence gate.
       readOnlyEnforced: {
         openaiApi: verified.readOnlyEnforced,
         chatgptSubscription: verified.readOnlyEnforced,
-        claudeVertex: false,
+        claudeVertex: verified.claudeProviders.size > 0,
       },
       recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
       recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),

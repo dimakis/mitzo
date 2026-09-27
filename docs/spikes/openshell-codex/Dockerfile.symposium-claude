@@ -1,0 +1,11 @@
+# Disposable local candidate only. Existing owned Codex image remains unchanged.
+ARG OPENSHELL_BASE_IMAGE=sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161
+FROM ${OPENSHELL_BASE_IMAGE}
+USER root
+COPY symposium-seat-landlock.c /tmp/symposium-seat-landlock.c
+COPY symposium-claude-vertex /usr/local/bin/symposium-claude-vertex
+RUN gcc -O2 -Wall -Wextra -Werror /tmp/symposium-seat-landlock.c \
+      -o /usr/local/bin/symposium-seat-landlock \
+    && rm /tmp/symposium-seat-landlock.c \
+    && chmod 0755 /usr/local/bin/symposium-seat-landlock /usr/local/bin/symposium-claude-vertex
+USER sandbox

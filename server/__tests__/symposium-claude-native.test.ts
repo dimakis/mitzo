@@ -137,13 +137,10 @@ describe('Claude Vertex native seat', () => {
       'Authorization: Bearer openshell:resolve:env:v2_GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN',
     );
   });
-  it('resumes only the provider thread pinned to this seat attempt', () => {
-    const argv = claudeVertexArgv(route, {
-      ...execution,
-      providerThreadId: 'pinned-thread',
-    } as SymposiumSeatExecution);
-    expect(argv.slice(-2)).toEqual(['--resume', 'pinned-thread']);
-    expect(argv).not.toContain('--session-id');
+  it('refuses naked resume across fresh attempt homes', () => {
+    expect(() =>
+      claudeVertexArgv(route, { ...execution, providerThreadId: 'pinned-thread' }),
+    ).toThrow(/continuity/i);
   });
   it('accepts the exact dated Vertex Haiku model and rejects model argument injection', () => {
     const haiku = claudeVertexArgv({ ...route, model: 'claude-haiku-4-5@20251001' }, execution);

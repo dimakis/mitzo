@@ -160,8 +160,8 @@ catalog revision, with revision conflict checks. Rebinding a seat remains a
 separate director action. These tools recheck the current seat, durable attempt,
 account route, and host grants before each call. Reviewer seats may propose
 portable guidance for review but cannot save profiles or mutate shared artifacts.
-Claude's native tool path remains unavailable pending its independent evidence
-gate. Mitzo owns profile authoring and version history; ContexGin remains a
+Claude's profile-authoring tool path remains unavailable; its reviewed Vertex
+launcher exposes only the explicitly selected native tool set. Mitzo owns profile authoring and version history; ContexGin remains a
 context source, with explicit imports rather than implicit write-back.
 
 The seat Landlock launcher permits read-only access to the supervisor's two public
@@ -221,7 +221,7 @@ remains unavailable until a trusted adapter supplies enforced token budgets,
 terminal usage, structured results, and artifact-bound verification. The panel
 reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
-readiness. Reviewer and Claude admission still require independent host attestation
+readiness. Reviewer and Claude admission require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
 [integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
 
@@ -261,7 +261,9 @@ name, ID and type to its reviewed profile; the host must verify that association
 in the selected workspace. Missing instance mappings or physical proof fail closed.
 The legacy attestation scope is OpenAI writer roles. The separate owned-native
 contract includes personal Codex and reviewer capability when all of its physical
-and authorization gates pass; Claude via Vertex remains unavailable. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
+and authorization gates pass. Claude via Vertex requires the separate measured
+Claude image variant and a retained, same-custodian selected-provider receipt;
+legacy attestations cannot enable it. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
 uses upstream Codex provider attachments and a private native authentication bootstrap.
 It rejects the older private-gateway OAuth binding and host login imports, and keeps
 subscription production admission closed pending independent account, credential
@@ -663,3 +665,33 @@ stores immutable linkage and bounded untrusted findings without enabling dispatc
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
 
 [Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. This bootstrap groundwork keeps Vertex seat admission closed pending native runtime and isolation evidence.
+
+Owned Claude's reviewed variant preserves the original Codex-only image contract.
+It pins Claude 2.1.156, its fixed Vertex launcher, and the local Landlock helper.
+The helper grants read access only to its current process maps inode for Claude;
+that inode remains readable by fork descendants, but no proc subtree, memory,
+environment, other seat home, or credential file is granted. The launcher checks
+project/region and the exact OpenShell credential placeholder, clears inherited
+model/provider overrides, and execs the fixed native binary in the same PID.
+
+Each Claude claim uses a fresh native session UUID. Follow-up turns carry the
+complete eligible same-seat conversation as explicitly untrusted user context,
+with a 64 KiB UTF-8 ceiling; unavailable or oversized history rejects dispatch.
+No native state is copied and `--resume` is denied. Exact init/assistant model
+receipts and actual session IDs are checked before native events are projected.
+Claude buffers each message until its matching assistant ID/model receipt;
+verified messages can appear across tool turns, but its unverified token deltas
+are not shown live. Cancellation discards the bounded pending message buffer.
+A planned UUID is not provider acceptance. Account/profile, host grants, provider
+identity and the retained Vertex capability are rechecked at admission and dispatch.
+Every capability capture pairs current refresh status with stable installed-token
+expiry before and after it, requires a 60-second lifetime margin, and rejects
+pending or uncertain readiness. Identity receipts never cache credential readiness.
+
+The credential-free physical contract can be run explicitly with
+`MITZO_CLAUDE_PHYSICAL_CONTRACT=1 npx vitest run server/__tests__/symposium-claude-physical.contract.test.ts`.
+`MITZO_CONTRACT_PODMAN` optionally selects the Podman executable. It uses the
+reviewed local candidate image with no network or mounts, isolated disposable
+homes, dummy placeholders, and actual native `--version` only. It retains exact
+uncertain helper identity on failure. This proves local launch/isolation, not
+Vertex inference permission, live multi-turn acceptance, or enforced native review budgets.

@@ -27,3 +27,29 @@ export const REVIEWED_SYMPOSIUM_OWNED_RUNTIME = {
     workdir: '/sandbox/workspaces/mgmt',
   },
 } as const;
+
+/** Separately measured Claude-capable variant. The original Codex build above
+ * remains accepted verbatim; existing resources are never migrated implicitly. */
+export const REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME = {
+  ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  build: {
+    ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build,
+    image: 'sha256:df8fd2214ee37f8a306ce98ad722f766f4d5c343ce4e8eda023fdbbc5ab92e47',
+    imageDigest: '05ab31eaa28ac9535456f454a39c351d4673bd1d6df024caf17843f65cf77432',
+    nativeArtifacts: {
+      ...REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.nativeArtifacts,
+      '/usr/local/bin/symposium-seat-landlock':
+        '2a32470d6854637311cb790553b5c251a46176dced12eb6568f7582852500c34',
+      '/usr/local/bin/claude': '7ed95d0a93aeb40e2b98e234b760d9295b7044ef678c62db8d1f5e14bfd57878',
+      '/usr/local/bin/symposium-claude-vertex':
+        'd9cefeef981bc0927b1bd954f358671329ad18488460cc6074a13a0bb634ef5e',
+    },
+  },
+} as const;
+export function reviewedSymposiumOwnedRuntime(image: string) {
+  if (image === REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_OWNED_RUNTIME;
+  if (image === REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image)
+    return REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME;
+  throw new Error('Artifact workload image identity is not reviewed');
+}
