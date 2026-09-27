@@ -8,10 +8,11 @@ const issuer = 'https://auth.openai.com';
 const clientId = 'app_EMoamEEZ73f0CkXaXp7hrann';
 const redirect = 'http://localhost:1455/auth/callback';
 const random = () => randomBytes(32).toString('base64url');
-interface Tokens {
+export interface SubscriptionTokens {
   access_token: string;
   refresh_token: string;
   id_token: string;
+  account_id?: string;
 }
 export interface SubscriptionIdentity {
   subject: string;
@@ -31,7 +32,7 @@ export interface SubscriptionProvisioningHost {
 }
 interface OAuthDependencies {
   fetch: typeof fetch;
-  verifyIdToken(token: string, nonce: string): Promise<JWTPayload>;
+  verifyIdToken(token: string, nonce?: string): Promise<JWTPayload>;
 }
 const oauth: OAuthDependencies = {
   fetch: (...args) => fetch(...args),
@@ -50,10 +51,10 @@ const oauth: OAuthDependencies = {
       issuer,
       audience: clientId,
       algorithms: ['RS256'],
-      requiredClaims: ['exp', 'iat', 'sub', 'nonce'],
+      requiredClaims: ['exp', 'iat', 'sub', ...(nonce ? ['nonce'] : [])],
       maxTokenAge: '10m',
     });
-    if (payload.nonce !== nonce) throw new Error('OAuth identity nonce changed');
+    if (nonce && payload.nonce !== nonce) throw new Error('OAuth identity nonce changed');
     return payload;
   },
 };
@@ -170,95 +171,138 @@ export class SymposiumSubscriptionProvisioner {
         }),
       });
       if (!response.ok) throw new Error('OAuth token exchange failed');
-      const tokens = (await response.json()) as Tokens;
-      if (
-        ['access_token', 'refresh_token', 'id_token'].some(
-          (key) => typeof tokens[key as keyof Tokens] !== 'string' || !tokens[key as keyof Tokens],
-        )
-      )
-        throw new Error('OAuth token response is incomplete');
-      const verified = identity(await this.auth.verifyIdToken(tokens.id_token, pending.nonce));
-      assertCurrent();
-      const provider = `symposium-personal-${randomBytes(12).toString('hex')}`;
-      await this.host.run(
-        [
-          'provider',
-          'create',
-          '--name',
-          provider,
-          '--type',
-          'codex',
-          '--credential',
-          'CODEX_AUTH_ACCESS_TOKEN',
-          '--credential',
-          'CODEX_AUTH_ACCOUNT_ID',
-        ],
-        { CODEX_AUTH_ACCESS_TOKEN: tokens.access_token, CODEX_AUTH_ACCOUNT_ID: verified.accountId },
-      );
-      assertCurrent();
-      const matches: Array<Record<string, unknown>> = [];
-      const seen = new Set<string>();
-      let pageToken = '';
-      do {
-        const page = (await this.host.run([
-          'provider',
-          'list',
-          '--output',
-          'json',
-          '--page-size',
-          '100',
-          ...(pageToken ? ['--page-token', pageToken] : []),
-        ])) as { providers?: Array<Record<string, unknown>>; next_page_token?: string };
-        assertCurrent();
-        if (!Array.isArray(page.providers) || typeof page.next_page_token !== 'string')
-          throw new Error('Invalid provider inventory');
-        matches.push(...page.providers.filter((row) => row.name === provider));
-        pageToken = page.next_page_token;
-        if (pageToken && seen.has(pageToken)) throw new Error('Repeated inventory page');
-        seen.add(pageToken);
-        if (seen.size > 1000) throw new Error('Provider inventory exceeded bound');
-      } while (pageToken);
-      const providerId = matches[0]?.id;
-      if (
-        matches.length !== 1 ||
-        typeof providerId !== 'string' ||
-        !providerId ||
-        matches[0].type !== 'codex' ||
-        matches[0].workspace !== this.host.workspace
-      )
-        throw new Error('Created provider identity is missing');
-      assertCurrent();
-      await this.host.run(
-        [
-          'provider',
-          'refresh',
-          'configure',
-          provider,
-          '--credential-key',
-          'CODEX_AUTH_ACCESS_TOKEN',
-          '--strategy',
-          'oauth2-refresh-token',
-          '--material',
-          `client_id=${clientId}`,
-          '--secret-material-env',
-          'refresh_token=CODEX_AUTH_REFRESH_TOKEN',
-        ],
-        { CODEX_AUTH_REFRESH_TOKEN: tokens.refresh_token },
-      );
-      // Re-check custody after each awaited external boundary; no partial receipt.
-      assertCurrent();
-      const binding = await this.host.installProfile({ ...verified, provider, providerId });
-      if (binding.provider !== 'openai-codex' || !binding.profileRevision)
-        throw new Error('Installed subscription binding is invalid');
-      assertCurrent();
-      this.receipt = { identity: verified, provider, providerId, binding: { ...binding } };
-      return { ...verified, binding };
+      const tokens = (await response.json()) as SubscriptionTokens;
+      return await this.installTokens(tokens, pending.nonce, assertCurrent);
     } catch {
       // Neither OAuth bodies, gateway output, nor credential-bearing errors escape.
       throw new Error('Personal subscription provisioning failed; authorization remains closed');
     } finally {
       this.busy = false;
     }
+  }
+
+  /** Host-only import from a fresh isolated upstream device login, never an HTTP token body. */
+  beginDevice(
+    expires = Date.now() + 10 * 60_000,
+  ): (tokens: SubscriptionTokens) => Promise<SubscriptionIdentity & { binding: AccountBinding }> {
+    this.verifyCustody();
+    if (this.busy) throw new Error('Subscription provisioning is already running');
+    this.invalidate();
+    const generation = this.generation;
+    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 10 * 60_000)
+      throw new Error('Invalid device authorization deadline');
+    let consumed = false;
+    return async (tokens) => {
+      const assertCurrent = () => {
+        this.verifyCustody();
+        if (this.generation !== generation || Date.now() >= expires)
+          throw new Error('Subscription authorization was cancelled or expired');
+      };
+      if (consumed || this.busy) throw new Error('Device authorization is no longer available');
+      consumed = true;
+      this.busy = true;
+      try {
+        assertCurrent();
+        return await this.installTokens(tokens, undefined, assertCurrent);
+      } catch {
+        throw new Error('Personal subscription provisioning failed; authorization remains closed');
+      } finally {
+        this.busy = false;
+      }
+    };
+  }
+
+  private async installTokens(
+    tokens: SubscriptionTokens,
+    nonce: string | undefined,
+    assertCurrent: () => void,
+  ) {
+    if (
+      ['access_token', 'refresh_token', 'id_token'].some(
+        (key) =>
+          typeof tokens[key as keyof SubscriptionTokens] !== 'string' ||
+          !tokens[key as keyof SubscriptionTokens],
+      )
+    )
+      throw new Error('OAuth token response is incomplete');
+    const verified = identity(await this.auth.verifyIdToken(tokens.id_token, nonce));
+    if (tokens.account_id !== undefined && tokens.account_id !== verified.accountId)
+      throw new Error('Subscription cached account identity changed');
+    assertCurrent();
+    const provider = `symposium-personal-${randomBytes(12).toString('hex')}`;
+    await this.host.run(
+      [
+        'provider',
+        'create',
+        '--name',
+        provider,
+        '--type',
+        'codex',
+        '--credential',
+        'CODEX_AUTH_ACCESS_TOKEN',
+        '--credential',
+        'CODEX_AUTH_ACCOUNT_ID',
+      ],
+      { CODEX_AUTH_ACCESS_TOKEN: tokens.access_token, CODEX_AUTH_ACCOUNT_ID: verified.accountId },
+    );
+    assertCurrent();
+    const matches: Array<Record<string, unknown>> = [];
+    const seen = new Set<string>();
+    let pageToken = '';
+    do {
+      const page = (await this.host.run([
+        'provider',
+        'list',
+        '--output',
+        'json',
+        '--page-size',
+        '100',
+        ...(pageToken ? ['--page-token', pageToken] : []),
+      ])) as { providers?: Array<Record<string, unknown>>; next_page_token?: string };
+      assertCurrent();
+      if (!Array.isArray(page.providers) || typeof page.next_page_token !== 'string')
+        throw new Error('Invalid provider inventory');
+      matches.push(...page.providers.filter((row) => row.name === provider));
+      pageToken = page.next_page_token;
+      if (pageToken && seen.has(pageToken)) throw new Error('Repeated inventory page');
+      seen.add(pageToken);
+      if (seen.size > 1000) throw new Error('Provider inventory exceeded bound');
+    } while (pageToken);
+    const providerId = matches[0]?.id;
+    if (
+      matches.length !== 1 ||
+      typeof providerId !== 'string' ||
+      !providerId ||
+      matches[0].type !== 'codex' ||
+      matches[0].workspace !== this.host.workspace
+    )
+      throw new Error('Created provider identity is missing');
+    assertCurrent();
+    await this.host.run(
+      [
+        'provider',
+        'refresh',
+        'configure',
+        provider,
+        '--credential-key',
+        'CODEX_AUTH_ACCESS_TOKEN',
+        '--strategy',
+        'oauth2-refresh-token',
+        '--material',
+        `client_id=${clientId}`,
+        '--secret-material-env',
+        'refresh_token=CODEX_AUTH_REFRESH_TOKEN',
+      ],
+      { CODEX_AUTH_REFRESH_TOKEN: tokens.refresh_token },
+    );
+    // Re-check custody after each awaited external boundary; no partial receipt.
+    assertCurrent();
+    const binding = await this.host.installProfile({ ...verified, provider, providerId });
+    if (binding.provider !== 'openai-codex' || !binding.profileRevision)
+      throw new Error('Installed subscription binding is invalid');
+    assertCurrent();
+    this.receipt = { identity: verified, provider, providerId, binding: { ...binding } };
+    return { ...verified, binding };
   }
 
   invalidate(): void {

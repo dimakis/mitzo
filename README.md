@@ -474,4 +474,7 @@ The OpenAI Responses route uses bearer authentication in the Authorization heade
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
+
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) can authorize the same running Mitzo server from a phone using an upstream link and one-time code. Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. Login remains explicit, isolated and mock-tested; restart requires fresh sign-in, and reconnect never silently rebinds active seats.
+
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.

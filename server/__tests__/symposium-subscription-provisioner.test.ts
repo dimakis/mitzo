@@ -177,3 +177,66 @@ it('closes a failed attended login so another attempt can bind immediately', asy
     login.cancel();
   }
 });
+
+it('imports only a fresh device login through verified identity and the same custody installer', async () => {
+  const f = fixture();
+  const finish = f.service.beginDevice();
+  await finish({
+    access_token: 'device-access',
+    refresh_token: 'device-refresh',
+    id_token: 'device-id',
+    account_id: 'actual-account',
+  });
+  expect(f.auth.verifyIdToken).toHaveBeenCalledWith('device-id', undefined);
+  expect(f.host.installProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ accountId: 'actual-account' }),
+  );
+  expect(f.auth.fetch).not.toHaveBeenCalled();
+  await expect(
+    finish({
+      access_token: 'device-access',
+      refresh_token: 'device-refresh',
+      id_token: 'device-id',
+      account_id: 'actual-account',
+    }),
+  ).rejects.toThrow();
+});
+it('fences a cancelled device completion and rejects a mismatched cached identity', async () => {
+  const f = fixture();
+  const finish = f.service.beginDevice();
+  f.service.invalidate();
+  await expect(
+    finish({ access_token: 'a', refresh_token: 'r', id_token: 'i', account_id: 'actual-account' }),
+  ).rejects.toThrow();
+  expect(f.host.run).not.toHaveBeenCalled();
+  const g = fixture();
+  await expect(
+    g.service.beginDevice()({
+      access_token: 'a',
+      refresh_token: 'r',
+      id_token: 'i',
+      account_id: 'another',
+    }),
+  ).rejects.toThrow();
+  expect(g.host.run).not.toHaveBeenCalled();
+});
+
+it('uses the supplied attempt deadline without extending custody', async () => {
+  const f = fixture();
+  const deadline = Date.now() + 10000;
+  const finish = f.service.beginDevice(deadline);
+  const now = vi.spyOn(Date, 'now').mockReturnValue(deadline);
+  try {
+    await expect(
+      finish({
+        access_token: 'a',
+        refresh_token: 'r',
+        id_token: 'i',
+        account_id: 'actual-account',
+      }),
+    ).rejects.toThrow();
+    expect(f.host.run).not.toHaveBeenCalled();
+  } finally {
+    now.mockRestore();
+  }
+});

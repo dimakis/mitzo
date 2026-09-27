@@ -1,3 +1,4 @@
+import { beginDeviceLogin, DeviceLoginCleanupError } from './symposium-device-login.js';
 import { spawnSync } from 'node:child_process';
 import { AccountProfiles } from './account-profiles.js';
 import { CatalogModel } from './model-catalog.js';
@@ -139,6 +140,21 @@ export function createSymposiumSubscriptionHost(
       throw new Error('Personal subscription selection changed');
   };
 
+  const activate = (completed: Promise<unknown>) =>
+    completed
+      .then((result) => {
+        gateway.verifyCustody();
+        if (!staged) throw new Error('Subscription profile installation did not complete');
+        active = staged;
+        staged = undefined;
+        return result;
+      })
+      .catch((error) => {
+        invalidate();
+        if (error instanceof DeviceLoginCleanupError) throw error;
+        throw new Error('Personal subscription login did not complete');
+      });
+
   return {
     get currentProfiles(): AccountProfiles {
       try {
@@ -161,6 +177,11 @@ export function createSymposiumSubscriptionHost(
       options.seatProof.assertCurrent(input);
     },
     invalidate,
+    async beginDeviceLogin() {
+      invalidate();
+      const login = await beginDeviceLogin(service);
+      return { ...login, completed: activate(login.completed) };
+    },
     async beginLogin() {
       invalidate();
       const login = await attendSubscriptionLogin(service);
