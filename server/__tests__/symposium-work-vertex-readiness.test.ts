@@ -38,7 +38,10 @@ function run(outputs = [census(), status(), census()]) {
   assertSymposiumWorkVertexReadiness({ ...expected, invoke });
   return invoke;
 }
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 describe('owned Vertex current refresh readiness', () => {
   it('reads exact supported commands with bounded timeout and stable installed expiry', () => {
     vi.spyOn(Date, 'now').mockReturnValue(now);
@@ -97,5 +100,32 @@ describe('owned Vertex current refresh readiness', () => {
         },
       }),
     ).toThrow('Vertex credential readiness unavailable');
+  });
+  it('rejects a late subprocess result rather than admitting after its deadline', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    let elapsed = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsed);
+    expect(() =>
+      assertSymposiumWorkVertexReadiness({
+        ...expected,
+        invoke() {
+          elapsed = 10001;
+          return census();
+        },
+      }),
+    ).toThrow('Vertex credential readiness unavailable');
+  });
+  it('rejects wall-clock reversal and renewed expiry without matching refresh proof', () => {
+    vi.spyOn(Date, 'now')
+      .mockReturnValueOnce(now)
+      .mockReturnValue(now - 1);
+    expect(() => run()).toThrow();
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    expect(() => run([census(), status('refreshed', expires + 1000), census()])).toThrow();
+  });
+  it('preserves rendered-second precision for installed millisecond expiry', () => {
+    vi.spyOn(Date, 'now').mockReturnValue(now);
+    const precise = { ...row, credential_expires_at_ms: { GOOGLE_VERTEX_AI_TOKEN: expires + 999 } };
+    expect(() => run([census(precise), status(), census(precise)])).not.toThrow();
   });
 });
