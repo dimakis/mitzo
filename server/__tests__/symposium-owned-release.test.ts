@@ -27,6 +27,7 @@ function fixture() {
   roots.push(root);
   for (const p of [
     'release/dist',
+    'release/scripts',
     'release/frontend/dist',
     'release/packages/protocol/dist',
     'release/packages/harness/dist',
@@ -39,6 +40,8 @@ function fixture() {
   ])
     mkdirSync(join(root, p), { recursive: true, mode: 0o700 });
   for (const p of [
+    'scripts/start-owned-custodian.mjs',
+    'scripts/prepare-owned-custodian-release.mjs',
     'dist/symposium-custodian-main.js',
     'dist/symposium-owned-runtime-contract.js',
     'frontend/dist/index.html',
@@ -105,6 +108,7 @@ function fixture() {
   const configPath = join(root, 'config.json');
   const save = () => writeFileSync(configPath, JSON.stringify(config), { mode: 0o600 });
   save();
+  writeFileSync(join(root, 'plan', 'empty-accounts.json'), '[]\n', { mode: 0o600 });
   const input = {
     releaseRoot: join(root, 'release'),
     configPath,
@@ -179,4 +183,53 @@ it('renders explicit manual custodian launch without parent restart and preserve
   expect(plist).toContain('<key>ExitTimeOut</key><integer>180</integer>');
   expect(plist).toContain('start-owned-custodian.mjs');
   expect(readFileSync('scripts/start.sh', 'utf8')).toContain('exec node dist/index.js');
+});
+it('binds launch script bytes and rejects substituted ordinary account catalog before claiming', () => {
+  const f = fixture(),
+    plan = prepareOwnedRelease(f.input, f.digest);
+  writeFileSync(join(f.input.releaseRoot, 'scripts/start-owned-custodian.mjs'), 'mutated');
+  expect(() => verifyOwnedRelease(plan, f.digest)).toThrow();
+  const g = fixture(),
+    other = prepareOwnedRelease(g.input, g.digest);
+  writeFileSync(join(g.input.planDirectory, 'empty-accounts.json'), '[{"provider":"openai"}]');
+  expect(() => claimOwnedLaunch(other, g.digest)).toThrow();
+});
+it('rejects inherited state and all nonempty repository content for unsupported migration', () => {
+  const f = fixture();
+  writeFileSync(join(f.input.repositoryPath, 'ordinary-history.db'), 'old');
+  expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
+});
+it('validates Vertex reference metadata without reading credential or TLS material', () => {
+  const f = fixture(),
+    reference = join(f.root, 'selected-adc');
+  writeFileSync(reference, 'DO_NOT_READ', { mode: 0o600 });
+  Object.assign(f.config.personal, {
+    workProfiles: [
+      {
+        id: 'work',
+        label: 'Work',
+        provider: 'anthropic-vertex',
+        credentialRef: reference,
+        expectedPrincipal: 'operator@example.com',
+        projectId: 'project-example',
+        region: 'global',
+        models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+      },
+    ],
+  });
+  f.config.providerProfiles[0].sha256 =
+    'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d';
+  f.save();
+  const observed: string[] = [];
+  const digest = (path: string) => {
+    observed.push(path);
+    return path === f.config.providerProfiles[0].path
+      ? f.config.providerProfiles[0].sha256
+      : f.digest(path);
+  };
+  expect(prepareOwnedRelease(f.input, digest).admissionVerified).toBe(false);
+  expect(observed).not.toContain(reference);
+  for (const path of Object.values(f.config.gateway.tls)) expect(observed).not.toContain(path);
+  chmodSync(reference, 0o644);
+  expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
 });

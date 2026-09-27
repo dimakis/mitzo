@@ -87,6 +87,7 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   mode: 'owned-custodian';
   entry: 'dist/symposium-custodian-main.js';
   configSha256: string;
+  appHome: string;
   buildSha256: string;
   inputsSha256: string;
   runtime: ReturnType<typeof reviewedSymposiumOwnedRuntime>['build'];
@@ -97,7 +98,7 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
   pathMetadata(input.planDirectory, true, true);
   pathMetadata(input.repositoryPath, true, true);
   pathMetadata(input.configPath, false, true);
-  if (existsSync(join(input.repositoryPath, '.mitzo'))) fail();
+  if (readdirSync(input.repositoryPath).length) fail();
   const raw = bytes(input.configPath, 1024 * 1024),
     config = OwnedSymposiumConfigSchema.parse(JSON.parse(raw.toString('utf8')));
   const reviewed = reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
@@ -166,10 +167,17 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
         'packages/protocol/dist',
         'packages/harness/dist',
         'packages/client/dist',
+        'scripts',
       ].map((p) => tree(join(input.releaseRoot, p))),
     ),
   );
-  return { configSha256: sha(raw), buildSha256, inputsSha256, runtime: reviewed };
+  return {
+    configSha256: sha(raw),
+    appHome: config.podman.environment.HOME,
+    buildSha256,
+    inputsSha256,
+    runtime: reviewed,
+  };
 }
 export function prepareOwnedRelease(
   input: OwnedReleaseInput,
@@ -193,11 +201,14 @@ export function verifyOwnedRelease(plan: OwnedReleasePlan, digest = fileDigest):
   )
     fail();
   const actual = inspect(plan, digest);
-  for (const key of ['configSha256', 'buildSha256', 'inputsSha256', 'runtime'] as const)
+  for (const key of ['configSha256', 'appHome', 'buildSha256', 'inputsSha256', 'runtime'] as const)
     if (JSON.stringify(plan[key]) !== JSON.stringify(actual[key])) fail();
 }
 export function claimOwnedLaunch(plan: OwnedReleasePlan, digest = fileDigest) {
   verifyOwnedRelease(plan, digest);
+  const accounts = join(plan.planDirectory, 'empty-accounts.json');
+  pathMetadata(accounts, false, true);
+  if (bytes(accounts, 16).toString('utf8') !== '[]\n') fail();
   const marker = join(plan.planDirectory, 'launch.intent');
   // O_EXCL refuses existing regular files, dangling symlinks and previous uncertain starts alike.
   const fd = openSync(
