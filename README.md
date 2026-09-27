@@ -572,3 +572,5 @@ and leaves model choice and active-seat rebinding explicit.
 Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
 
 Before external seat creation, local artifact and seat intent writes complete before workspace dispatch uncertainty is recorded. A live owner can undo its exact unbound local intent if those writes fail before dispatch; failed rollback and interrupted processes retain recovery requirements. Inventory absence never discharges an uncertain dispatched create.
+
+A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
