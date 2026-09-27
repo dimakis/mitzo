@@ -83,10 +83,20 @@ export async function runSymposiumModelDiscovery(
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,
 ): Promise<DiscoveryResult> {
+  let attempt: DiscoveryResult | undefined;
   try {
-    return await ops.withExclusiveAttempt(() => runExclusiveDiscovery(input, ops, onCatalog));
+    return await ops.withExclusiveAttempt(async () => {
+      attempt = await runExclusiveDiscovery(input, ops, onCatalog);
+      return attempt;
+    });
   } catch {
-    return { status: 'reconciliation_required', inference: false };
+    return {
+      status: 'reconciliation_required',
+      inference: false,
+      ...(attempt && 'diagnostic' in attempt && attempt.diagnostic
+        ? { diagnostic: attempt.diagnostic, diagnosticPersisted: attempt.diagnosticPersisted }
+        : {}),
+    };
   }
 }
 /** Cleanup-only capability. Missing/changed journals never become a fresh discovery. */
@@ -353,8 +363,9 @@ async function runExclusiveDiscovery(
   if (result.status === 'complete' && discovered && onCatalog) {
     try {
       onCatalog(structuredClone(discovered));
-    } catch {
-      return { status: 'failed', inference: false };
+    } catch (error) {
+      stage = 'catalog-publication';
+      return { status: 'failed', inference: false, ...(await diagnose(error)) };
     }
   }
   return { ...result, ...failureDetails };

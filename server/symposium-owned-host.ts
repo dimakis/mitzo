@@ -371,7 +371,7 @@ export async function createOwnedSymposiumHost(
         custody();
         proof.assertCurrent();
         if (fenced.creationUncertain())
-          return { result: { status: 'reconciliation_required', inference: false } };
+          return { result: { ...result, status: 'reconciliation_required', inference: false } };
         let recover;
         if (result.status === 'reconciliation_required') {
           const receipt = structuredClone(await operations.readReceipt()) as DiscoveryReceipt;

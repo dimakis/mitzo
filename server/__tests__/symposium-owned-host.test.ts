@@ -1,3 +1,5 @@
+import * as discoveryCore from '../symposium-model-discovery.js';
+import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
 import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
@@ -571,4 +573,46 @@ it('still cancels active login and drains workspace when a tracked operation fai
   await failed;
   expect(workspace).toHaveBeenCalledOnce();
   host.stop();
+});
+
+it('preserves safe diagnostic fields when the host forces creation reconciliation', async () => {
+  const f = fixture();
+  writeFileSync(join(f.root, 'gateway.toml'), 'owned config', { mode: 0o400 });
+  const compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue({} as never);
+  vi.spyOn(discoveryCreation, 'fenceDiscoveryCreation').mockReturnValue({
+    operations: {} as never,
+    creationUncertain: () => true,
+  });
+  const diagnostic = {
+    stage: 'create',
+    failureClass: 'timeout',
+    createDispatch: 'possibly-dispatched',
+    commandDispatch: 'possibly-started',
+    recordedAt: new Date().toISOString(),
+  } as const;
+  vi.spyOn(discoveryCore, 'runSymposiumModelDiscovery').mockResolvedValue({
+    status: 'failed',
+    inference: false,
+    diagnostic,
+    diagnosticPersisted: false,
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const response = await compose.mock.calls[0][2]!({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'mock@example.test', planType: 'plus' },
+      assertCurrent() {},
+    });
+    expect(response).toEqual({
+      result: {
+        status: 'reconciliation_required',
+        inference: false,
+        diagnostic,
+        diagnosticPersisted: false,
+      },
+    });
+  } finally {
+    host.stop();
+  }
 });
