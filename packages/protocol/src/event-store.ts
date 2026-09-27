@@ -85,6 +85,23 @@ export interface SymposiumCreationRecoveryRequest {
   idempotencyKey: string;
 }
 
+export interface SymposiumCreationRecoveryHandoff {
+  sessionId: string;
+  seatId: string;
+  expectedGeneration: number;
+  expectedRevision: number;
+  operationId: string;
+  expectedAuthorizationRevision: number;
+  actor: string;
+  idempotencyKey: string;
+}
+export interface SymposiumCreationRecoveryClaim {
+  request: SymposiumCreationRecoveryRequest;
+  actor: string;
+  authorizationRevision: number;
+  token: string;
+}
+
 /**
  * Map internal 7-state lifecycle to client-facing 3-state.
  * Note: 'requires_action' is never returned here — it is emitted separately
@@ -993,6 +1010,16 @@ export class EventStore {
           session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
           request_json TEXT NOT NULL, result_json TEXT,
           PRIMARY KEY(session_id,seat_id,generation)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_creation_recovery_authorizations (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          actor TEXT NOT NULL, revision INTEGER NOT NULL, execution_token TEXT,
+          PRIMARY KEY(session_id,seat_id,generation)
+        );
+        CREATE TABLE IF NOT EXISTS symposium_creation_recovery_handoffs (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          idempotency_key TEXT NOT NULL, request_json TEXT NOT NULL, receipt_json TEXT NOT NULL,
+          PRIMARY KEY(session_id,seat_id,generation,idempotency_key)
         );
         CREATE TABLE IF NOT EXISTS symposium_late_results (
           delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
@@ -2706,6 +2733,147 @@ export class EventStore {
     return row ? (JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest) : null;
   }
 
+  getSymposiumCreationRecoveryAuthorization(
+    input: Pick<SymposiumCreationRecoveryRequest, 'sessionId' | 'seatId' | 'expectedGeneration'>,
+  ) {
+    const row = this.db!.prepare(
+      'SELECT request_json FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string } | undefined;
+    if (!row) return null;
+    const request = JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest;
+    const auth = this.db!.prepare(
+      'SELECT actor,revision,execution_token FROM symposium_creation_recovery_authorizations WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { actor: string; revision: number; execution_token: string | null } | undefined;
+    return {
+      actor: auth?.actor ?? request.actor,
+      authorizationRevision: auth?.revision ?? 0,
+      executing: !!auth?.execution_token,
+      operationId: createHash('sha256').update(row.request_json).digest('hex'),
+    };
+  }
+
+  /** Resolve only after authenticating the current executor; never rewrite the initiating request. */
+  resolveSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumCreationRecoveryRequest {
+    const row = this.db!.prepare(
+      'SELECT request_json FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string } | undefined;
+    if (!row) return input;
+    const original = JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest;
+    const auth = this.getSymposiumCreationRecoveryAuthorization(input)!;
+    if (
+      auth.actor !== input.actor ||
+      original.expectedRevision !== input.expectedRevision ||
+      original.idempotencyKey !== input.idempotencyKey
+    )
+      throw new Error('Creation recovery executor or operation changed');
+    return original;
+  }
+
+  reauthorizeSymposiumCreationRecovery(input: SymposiumCreationRecoveryHandoff) {
+    return this.db!.transaction(() => {
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input);
+      if (!auth || auth.operationId !== input.operationId)
+        throw new Error('Pending recovery identity changed');
+      const prior = this.db!.prepare(
+        'SELECT request_json,receipt_json FROM symposium_creation_recovery_handoffs WHERE session_id=? AND seat_id=? AND generation=? AND idempotency_key=?',
+      ).get(input.sessionId, input.seatId, input.expectedGeneration, input.idempotencyKey) as
+        { request_json: string; receipt_json: string } | undefined;
+      if (prior) {
+        if (prior.request_json !== JSON.stringify(input))
+          throw new Error('Recovery authorization key reused');
+        const receipt = JSON.parse(prior.receipt_json) as {
+          operationId: string;
+          authorizationRevision: number;
+        };
+        if (
+          auth.actor !== input.actor ||
+          auth.authorizationRevision !== receipt.authorizationRevision
+        )
+          throw new Error('Recovery authorization superseded');
+        return receipt;
+      }
+      const pending = this.getPendingSymposiumCreationRecovery(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      if (
+        !pending ||
+        pending.expectedRevision !== input.expectedRevision ||
+        this.getActiveSymposiumConfig(input.sessionId).revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'recovery_required' ||
+        auth.authorizationRevision !== input.expectedAuthorizationRevision
+      )
+        throw new Error('Pending recovery authorization is stale');
+      if (auth.executing) throw new Error('Creation recovery executor is still running');
+      const revision = auth.authorizationRevision + 1;
+      this.db!.prepare(
+        `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,NULL)
+        ON CONFLICT(session_id,seat_id,generation) DO UPDATE SET actor=excluded.actor,revision=excluded.revision WHERE execution_token IS NULL`,
+      ).run(input.sessionId, input.seatId, input.expectedGeneration, input.actor, revision);
+      const receipt = { operationId: input.operationId, authorizationRevision: revision };
+      this.db!.prepare('INSERT INTO symposium_creation_recovery_handoffs VALUES (?,?,?,?,?,?)').run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        input.idempotencyKey,
+        JSON.stringify(input),
+        JSON.stringify(receipt),
+      );
+      return receipt;
+    }).immediate();
+  }
+
+  claimSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumCreationRecoveryClaim {
+    return this.db!.transaction(() => {
+      const request = this.resolveSymposiumCreationRecovery(input);
+      this.beginSymposiumCreationRecovery(request);
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input)!;
+      if (auth.executing) throw new Error('Creation recovery executor is still running');
+      const token = randomUUID();
+      this.db!.prepare(
+        `INSERT INTO symposium_creation_recovery_authorizations VALUES (?,?,?,?,?,?)
+        ON CONFLICT(session_id,seat_id,generation) DO UPDATE SET execution_token=excluded.execution_token WHERE execution_token IS NULL`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        auth.actor,
+        auth.authorizationRevision,
+        token,
+      );
+      return {
+        request,
+        actor: auth.actor,
+        authorizationRevision: auth.authorizationRevision,
+        token,
+      };
+    }).immediate();
+  }
+
+  releaseSymposiumCreationRecovery(claim: SymposiumCreationRecoveryClaim): void {
+    const input = claim.request;
+    this.db!.prepare(
+      'UPDATE symposium_creation_recovery_authorizations SET execution_token=NULL WHERE session_id=? AND seat_id=? AND generation=? AND actor=? AND revision=? AND execution_token=?',
+    ).run(
+      input.sessionId,
+      input.seatId,
+      input.expectedGeneration,
+      claim.actor,
+      claim.authorizationRevision,
+      claim.token,
+    );
+  }
+
   getSymposiumCreationRecovery(
     input: SymposiumCreationRecoveryRequest,
   ): SymposiumMembershipRecord | null | undefined {
@@ -2826,8 +2994,23 @@ export class EventStore {
 
   completeSymposiumCreationRecovery(
     input: SymposiumCreationRecoveryRequest,
+    claim?: SymposiumCreationRecoveryClaim,
   ): SymposiumMembershipRecord {
     return this.db!.transaction(() => {
+      const auth = this.getSymposiumCreationRecoveryAuthorization(input);
+      const fence = this.db!.prepare(
+        'SELECT execution_token FROM symposium_creation_recovery_authorizations WHERE session_id=? AND seat_id=? AND generation=?',
+      ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+        { execution_token: string | null } | undefined;
+      if (
+        fence &&
+        (!claim ||
+          fence.execution_token !== claim.token ||
+          !fence.execution_token ||
+          auth?.actor !== claim.actor ||
+          auth.authorizationRevision !== claim.authorizationRevision)
+      )
+        throw new Error('Creation recovery execution authorization changed');
       const existing = this.getSymposiumCreationRecovery(input);
       if (existing === undefined) throw new Error('Creation recovery fence unavailable');
       if (existing) return existing;

@@ -3261,7 +3261,16 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
       expect(
         foreignStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
           .creationDiagnostic,
-      ).toEqual({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: false });
+      ).toEqual({
+        phase: 'upload',
+        code: 'SEAT_UPLOAD_FAILED',
+        canCleanup: false,
+        recoveryAuthorization: {
+          operationId: expect.any(String),
+          revision: 0,
+          state: 'reauthorization_required',
+        },
+      });
       expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(409);
       operator = 'owner';
       expect((await post({ ...body, idempotencyKey: resumeKey, expectedRevision: 3 })).status).toBe(
@@ -3791,4 +3800,209 @@ it('preserves a live recipient claim when another recipient hits a concurrent se
     release();
     competing.close();
   }
+});
+
+function pendingCreation() {
+  store.setSymposiumConfig('chat', {
+    ...config,
+    version: 2,
+    revision: 4,
+    anchorSeatId: 'builder',
+    activeSeatCap: 3,
+  });
+  store.transitionSymposiumMembership({
+    sessionId: 'chat',
+    seatId: 'builder',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'director',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  const physical = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    generation: 1,
+    runtimeId: 'runtime',
+    workspace: 'work',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'codex',
+    model: 'luna',
+  };
+  store.reserveSymposiumSeatSandbox(physical);
+  store.markSymposiumSeatSandboxCreationStarted(physical);
+  store.recordSymposiumSeatSandboxTerminalCreate({
+    ...physical,
+    sandboxName: 'sandbox',
+    physicalId: 'physical',
+  });
+  store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'upload', failed: true });
+  const input = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    actor: 'operator:old',
+    idempotencyKey: 'cleanup',
+  };
+  store.beginSymposiumCreationRecovery(input);
+  const authorization = store.getSymposiumCreationRecoveryAuthorization(input);
+  const handoff = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    actor: 'operator:new',
+    operationId: authorization!.operationId,
+    expectedAuthorizationRevision: 0,
+    idempotencyKey: 'handoff',
+  };
+  return { input, handoff, physical };
+}
+
+it('CAS-authorizes only the exact pending cleanup and preserves the immutable initiating request across SQLite connections', () => {
+  const { input, handoff } = pendingCreation();
+  const other = new EventStore(dbPath);
+  try {
+    const receipt = store.reauthorizeSymposiumCreationRecovery(handoff);
+    expect(receipt.authorizationRevision).toBe(1);
+    expect(other.reauthorizeSymposiumCreationRecovery(handoff)).toEqual(receipt);
+    expect(() =>
+      other.reauthorizeSymposiumCreationRecovery({
+        ...handoff,
+        actor: 'operator:competitor',
+        idempotencyKey: 'competing',
+      }),
+    ).toThrow();
+    expect(() => other.claimSymposiumCreationRecovery(input)).toThrow();
+    expect(store.getPendingSymposiumCreationRecovery('chat', 'builder', 1)).toEqual(input);
+    const claim = other.claimSymposiumCreationRecovery({ ...input, actor: 'operator:new' });
+    expect(claim.request).toEqual(input);
+    expect(() =>
+      store.reauthorizeSymposiumCreationRecovery({
+        ...handoff,
+        actor: 'operator:third',
+        expectedAuthorizationRevision: 1,
+        idempotencyKey: 'third',
+      }),
+    ).toThrow(/execut/i);
+    other.releaseSymposiumCreationRecovery(claim);
+    store.reauthorizeSymposiumCreationRecovery({
+      ...handoff,
+      actor: 'operator:third',
+      expectedAuthorizationRevision: 1,
+      idempotencyKey: 'third',
+    });
+    expect(() => other.completeSymposiumCreationRecovery(input, claim)).toThrow();
+    expect(() => other.completeSymposiumCreationRecovery(input)).toThrow();
+  } finally {
+    other.close();
+  }
+});
+
+it('retains a durable execution claim across reopen and refuses handoff, including stale scope', () => {
+  const { input, handoff } = pendingCreation();
+  store.claimSymposiumCreationRecovery(input);
+  const other = new EventStore(dbPath);
+  try {
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    expect(() => other.claimSymposiumCreationRecovery(input)).toThrow(/execut/i);
+    expect(() =>
+      other.reauthorizeSymposiumCreationRecovery({ ...handoff, operationId: '0'.repeat(64) }),
+    ).toThrow();
+  } finally {
+    other.close();
+  }
+});
+
+it('reauthorizes after a settled failed stop, resumes the original request and returns the immutable result without repeating physical cleanup', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  let retained = true;
+  let release!: () => void;
+  const stop = vi.fn(async () => {
+    await new Promise<void>((r) => {
+      release = r;
+    });
+    throw new Error('settled uncertain stop');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: {
+      diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: true }),
+      assertRetained: () => {
+        if (!retained) throw new Error('custody lost');
+      },
+    },
+  });
+  const stopping = host.recoverCreation(input);
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+  const other = new EventStore(dbPath);
+  expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+  other.close();
+  release();
+  await expect(stopping).rejects.toThrow('settled uncertain stop');
+  retained = false;
+  await expect(host.reauthorizeCreationRecovery(handoff)).rejects.toThrow();
+  retained = true;
+  await host.reauthorizeCreationRecovery(handoff);
+  await expect(host.recoverCreation(input)).rejects.toThrow();
+  store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+  const result = await host.recoverCreation({ ...input, actor: 'operator:new' });
+  expect(result).toMatchObject({ state: 'suspended', generation: 2, actor: 'operator:old' });
+  expect(stop).toHaveBeenCalledOnce();
+  retained = false;
+  expect(await host.recoverCreation({ ...input, actor: 'operator:new' })).toEqual(result);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+import { createConnectionsRouter } from '../connections-router.js';
+import { authMiddleware, login, authenticateToken, revokeAuthSession } from '../auth.js';
+it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the scoped handoff route', async () => {
+  const { handoff } = pendingCreation();
+  const apply = vi.fn(async () => ({ authorizationRevision: 1 }));
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.use('/api/connections', createConnectionsRouter({} as never));
+  app.use(
+    '/api/sessions/:id/symposium',
+    createSymposiumDirectorRouter({
+      store,
+      getRuntime: () => ({ reauthorizeCreationRecovery: apply }),
+    } as never),
+  );
+  const token = (await login('test-passphrase-for-vitest'))!;
+  const { actor: _actor, sessionId: _session, ...scope } = handoff;
+  const body = { ...scope, confirmation: 'RESUME FAILED SEAT CLEANUP' };
+  const post = (csrf = '', origin?: string) => {
+    const call = request(app)
+      .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-csrf-token', csrf);
+    if (origin) call.set('Origin', origin);
+    return call.send(body);
+  };
+  expect((await post()).status).toBe(403);
+  expect((await post('wrong')).status).toBe(403);
+  const auth = await request(app)
+    .post('/api/connections/reauthorize')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ passphrase: 'test-passphrase-for-vitest' });
+  expect(auth.status).toBe(200);
+  expect((await post(auth.body.csrf, 'https://foreign.example')).status).toBe(403);
+  expect(apply).not.toHaveBeenCalled();
+  expect((await post(auth.body.csrf)).status).toBe(200);
+  expect(apply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      actor: `operator:${(await authenticateToken(token))!.id}`,
+      operationId: handoff.operationId,
+    }),
+  );
+  revokeAuthSession((await authenticateToken(token))!);
+  expect((await post(auth.body.csrf)).status).toBe(401);
+  expect(apply).toHaveBeenCalledOnce();
 });

@@ -172,14 +172,25 @@ export class SymposiumOrchestrator {
       this.store.getPendingSymposiumCreationRecovery(sessionId, seatId, member.generation);
     if (!pending) return diagnostic;
     const current = this.store.getActiveSymposiumConfig(sessionId);
+    const authorization = this.store.getSymposiumCreationRecoveryAuthorization(pending)!;
     if (
       !diagnostic.canCleanup ||
-      pending.actor !== actor ||
       pending.expectedRevision !== current.revision ||
       pending.expectedGeneration !== member!.generation
     )
       return { ...diagnostic, canCleanup: false };
-    return { ...diagnostic, recoveryIdempotencyKey: pending.idempotencyKey };
+    const recoveryAuthorization = {
+      operationId: authorization.operationId,
+      revision: authorization.authorizationRevision,
+      state: authorization.executing
+        ? 'cleanup_running'
+        : authorization.actor === actor
+          ? 'authorized'
+          : 'reauthorization_required',
+    };
+    if (authorization.executing || authorization.actor !== actor)
+      return { ...diagnostic, canCleanup: false, recoveryAuthorization };
+    return { ...diagnostic, recoveryAuthorization, recoveryIdempotencyKey: pending.idempotencyKey };
   }
   async recoverCreation(
     input: SymposiumCreationRecoveryRequest,
@@ -188,7 +199,8 @@ export class SymposiumOrchestrator {
     const work = prior
       .catch(() => {})
       .then(async () => {
-        const saved = this.store.getSymposiumCreationRecovery(input);
+        const original = this.store.resolveSymposiumCreationRecovery(input);
+        const saved = this.store.getSymposiumCreationRecovery(original);
         if (saved) return saved;
         if (!this.creationRecovery || !this.stopSeat)
           throw new Error('Creation cleanup capability unavailable');
@@ -197,13 +209,57 @@ export class SymposiumOrchestrator {
           input.seatId,
           input.expectedGeneration,
         );
-        this.store.beginSymposiumCreationRecovery(input);
-        await this.stopSeat({
-          sessionId: input.sessionId,
-          seatId: input.seatId,
-          generation: input.expectedGeneration,
-        });
-        return this.store.completeSymposiumCreationRecovery(input);
+        const claim = this.store.claimSymposiumCreationRecovery(input);
+        try {
+          const physical = this.store.getSymposiumSeatSandbox(
+            input.sessionId,
+            input.seatId,
+            input.expectedGeneration,
+          );
+          // Durable terminal cleanup survives response/completion-persistence failure.
+          if (
+            physical?.state !== 'stopped' ||
+            this.store.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length
+          )
+            await this.stopSeat({
+              sessionId: input.sessionId,
+              seatId: input.seatId,
+              generation: input.expectedGeneration,
+            });
+          return this.store.completeSymposiumCreationRecovery(claim.request, claim);
+        } finally {
+          // Never timeout/unlock an in-flight stop. Process loss leaves this token fenced.
+          this.store.releaseSymposiumCreationRecovery(claim);
+        }
+      });
+    const tail = work.then(
+      () => {},
+      () => {},
+    );
+    this.reconciliationQueues.set(input.sessionId, tail);
+    try {
+      return await work;
+    } finally {
+      if (this.reconciliationQueues.get(input.sessionId) === tail)
+        this.reconciliationQueues.delete(input.sessionId);
+    }
+  }
+
+  async reauthorizeCreationRecovery(
+    input: Parameters<EventStore['reauthorizeSymposiumCreationRecovery']>[0],
+  ) {
+    const prior = this.reconciliationQueues.get(input.sessionId) ?? Promise.resolve();
+    const work = prior
+      .catch(() => {})
+      .then(() => {
+        if (!this.creationRecovery || !this.stopSeat)
+          throw new Error('Creation cleanup capability unavailable');
+        this.creationRecovery.assertRetained(
+          input.sessionId,
+          input.seatId,
+          input.expectedGeneration,
+        );
+        return this.store.reauthorizeSymposiumCreationRecovery(input);
       });
     const tail = work.then(
       () => {},
