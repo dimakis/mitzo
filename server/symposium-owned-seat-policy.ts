@@ -36,26 +36,33 @@ type PolicyInvoke = (args: readonly string[]) => string;
 // Pinned OpenShell serializer omits these explicit false endpoint defaults. No
 // unknown keys, added routes, protocol aliases, or provider rules are discarded.
 function canonicalPolicy(value: unknown): string {
+  const object = (input: unknown): input is Record<string, unknown> =>
+    !!input && typeof input === 'object' && !Array.isArray(input);
+  const normalized = structuredClone(value);
+  if (object(normalized) && object(normalized.network_policies)) {
+    for (const rule of Object.values(normalized.network_policies)) {
+      if (!object(rule) || !Array.isArray(rule.endpoints)) continue;
+      for (const endpoint of rule.endpoints) {
+        if (!object(endpoint)) continue;
+        for (const key of ['request_body_credential_rewrite', 'allow_uninspected_credentials']) {
+          if (endpoint[key] === false) delete endpoint[key];
+        }
+      }
+    }
+  }
   const visit = (input: unknown): unknown => {
     if (Array.isArray(input)) return input.map(visit);
-    if (input && typeof input === 'object')
+    if (object(input))
       return Object.fromEntries(
         Object.entries(input)
-          .filter(
-            ([key, v]) =>
-              !(
-                ['request_body_credential_rewrite', 'allow_uninspected_credentials'].includes(
-                  key,
-                ) && v === false
-              ),
-          )
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([key, v]) => [key, visit(v)]),
       );
     return input;
   };
-  return JSON.stringify(visit(value));
+  return JSON.stringify(visit(normalized));
 }
+
 const digest = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
 function readPolicy(path: string): Buffer {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -327,8 +334,11 @@ export function createOwnedSeatPolicySelector(options: {
         policy.verify();
       },
     });
-    policy.verify();
+    // Retain our exact exclusive-create identity even if a fresh post-write
+    // authority/readiness check fails. A later call must verify these same bytes;
+    // it never adopts an unknown file, overwrites it, or skips current authority.
     retained.set(key, policy);
+    policy.verify();
     return policy;
   };
 }

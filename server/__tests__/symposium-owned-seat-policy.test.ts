@@ -380,3 +380,68 @@ it('matches exact u64 maximum across raw effective config and string supervisor 
   installed.targets[0].observed.config_revision = '18446744073709551614';
   expect(() => p.verifyInstalled({ sandboxName: sandbox.name, sandboxId: sandbox.id })).toThrow();
 });
+
+it('retains its own exclusively created bytes after transient first post-write verification failure', () => {
+  const f = fixture();
+  let calls = 0;
+  f.capture.mockImplementation(() => {
+    if (++calls === 2) throw Error('readiness temporarily unavailable');
+    return f.receipt;
+  });
+  expect(() => f.resolve(f.request)).toThrow('readiness temporarily unavailable');
+  const recovered = f.resolve(f.request)!;
+  recovered.verify();
+  expect(f.resolve(f.request)?.path).toBe(recovered.path);
+});
+
+it.each(['root', 'filesystem', 'rule', 'binding', 'allow'])(
+  'rejects false credential options added outside endpoints at %s',
+  (location) => {
+    const f = fixture(true),
+      p = f.resolve(f.request)!;
+    const policy = structuredClone(upstreamCanonical);
+    const rule = policy.network_policies.claude_vertex_haiku;
+    const target =
+      location === 'root'
+        ? policy
+        : location === 'filesystem'
+          ? policy.filesystem_policy
+          : location === 'rule'
+            ? rule
+            : location === 'binding'
+              ? rule.endpoints[0].credential_binding
+              : rule.endpoints[0].rules[0].allow;
+    Object.assign(target, { request_body_credential_rewrite: false });
+    const sandbox = {
+      name: 'seat-box',
+      id: 'box-id',
+      workspace: 'workspace',
+      phase: 'Ready',
+      labels: { 'mitzo.account_provider': f.receipt.provider },
+    };
+    const effective = {
+      scope: 'sandbox',
+      sandbox: 'seat-box',
+      status: 'effective',
+      policy_source: 'sandbox',
+      version: 1,
+      active_version: 1,
+      config_revision: 1,
+      hash: 'a'.repeat(64),
+      policy,
+    };
+    const status = installedVertexStatus({
+      name: sandbox.name,
+      id: sandbox.id,
+      workspace: 'workspace',
+      provider: f.receipt.provider,
+      providerId: f.receipt.providerId,
+      hash: effective.hash,
+      revision: '1',
+    });
+    f.invoke.mockImplementation((args) =>
+      JSON.stringify(args[0] === 'policy' ? effective : args.includes('status') ? status : sandbox),
+    );
+    expect(() => p.verifyInstalled({ sandboxName: sandbox.name, sandboxId: sandbox.id })).toThrow();
+  },
+);
