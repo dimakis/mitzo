@@ -3252,6 +3252,15 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
       const getStatus = () => request(app).get('/api/sessions/chat/symposium');
       const resumedStatus = await getStatus();
       expect(resumedStatus.status).toBe(200);
+      if (failure === 'before-stop') {
+        expect(
+          resumedStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
+            .creationDiagnostic,
+        ).toMatchObject({ canCleanup: false, recoveryAuthorization: { state: 'cleanup_fenced' } });
+        expect((await post()).status).toBe(409);
+        expect(stop).toHaveBeenCalledOnce();
+        return;
+      }
       const resumeKey = resumedStatus.body.seats.find(
         (seat: { seatId: string }) => seat.seatId === 'builder',
       ).creationDiagnostic.recoveryIdempotencyKey;
@@ -3261,7 +3270,16 @@ it.each(['before-stop', 'after-stop', 'none'] as const)(
       expect(
         foreignStatus.body.seats.find((seat: { seatId: string }) => seat.seatId === 'builder')
           .creationDiagnostic,
-      ).toEqual({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: false });
+      ).toEqual({
+        phase: 'upload',
+        code: 'SEAT_UPLOAD_FAILED',
+        canCleanup: false,
+        recoveryAuthorization: {
+          operationId: expect.any(String),
+          revision: 0,
+          state: 'reauthorization_required',
+        },
+      });
       expect((await post({ ...body, idempotencyKey: resumeKey })).status).toBe(409);
       operator = 'owner';
       expect((await post({ ...body, idempotencyKey: resumeKey, expectedRevision: 3 })).status).toBe(
@@ -3355,6 +3373,10 @@ it.each(['suspend', 'remove'] as const)(
           first = false;
           entered();
           await stopped;
+          store.confirmSymposiumSeatSandboxStopped({
+            ...physical,
+            physicalId: 'physical-reviewer',
+          });
           throw Error('cleanup response unavailable');
         }
         store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical-reviewer' });
@@ -3790,5 +3812,309 @@ it('preserves a live recipient claim when another recipient hits a concurrent se
   } finally {
     release();
     competing.close();
+  }
+});
+
+function pendingCreation() {
+  store.setSymposiumConfig('chat', {
+    ...config,
+    version: 2,
+    revision: 4,
+    anchorSeatId: 'builder',
+    activeSeatCap: 3,
+  });
+  store.transitionSymposiumMembership({
+    sessionId: 'chat',
+    seatId: 'builder',
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'director',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  const physical = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    generation: 1,
+    runtimeId: 'runtime',
+    workspace: 'work',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'codex',
+    model: 'luna',
+  };
+  store.reserveSymposiumSeatSandbox(physical);
+  store.markSymposiumSeatSandboxCreationStarted(physical);
+  store.recordSymposiumSeatSandboxTerminalCreate({
+    ...physical,
+    sandboxName: 'sandbox',
+    physicalId: 'physical',
+  });
+  store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'upload', failed: true });
+  const input = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    actor: 'operator:old',
+    idempotencyKey: 'cleanup',
+  };
+  store.beginSymposiumCreationRecovery(input);
+  const authorization = store.getSymposiumCreationRecoveryAuthorization(input);
+  const handoff = {
+    sessionId: 'chat',
+    seatId: 'builder',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    actor: 'operator:new',
+    operationId: authorization!.operationId,
+    expectedAuthorizationRevision: 0,
+    idempotencyKey: 'handoff',
+  };
+  return { input, handoff, physical };
+}
+
+it('CAS-authorizes only the exact pending cleanup and preserves the immutable initiating request across SQLite connections', () => {
+  const { input, handoff } = pendingCreation();
+  const other = new EventStore(dbPath);
+  try {
+    const receipt = store.reauthorizeSymposiumCreationRecovery(handoff);
+    expect(receipt.authorizationRevision).toBe(1);
+    expect(other.reauthorizeSymposiumCreationRecovery(handoff)).toEqual(receipt);
+    expect(() =>
+      other.reauthorizeSymposiumCreationRecovery({
+        ...handoff,
+        actor: 'operator:competitor',
+        idempotencyKey: 'competing',
+      }),
+    ).toThrow();
+    expect(() => other.claimSymposiumCreationRecovery(input)).toThrow();
+    expect(store.getPendingSymposiumCreationRecovery('chat', 'builder', 1)).toEqual(input);
+    const claim = other.claimSymposiumCreationRecovery({ ...input, actor: 'operator:new' });
+    expect(claim.request).toEqual(input);
+    expect(() =>
+      store.reauthorizeSymposiumCreationRecovery({
+        ...handoff,
+        actor: 'operator:third',
+        expectedAuthorizationRevision: 1,
+        idempotencyKey: 'third',
+      }),
+    ).toThrow(/execut/i);
+    other.releaseSymposiumCreationRecovery(claim);
+    store.reauthorizeSymposiumCreationRecovery({
+      ...handoff,
+      actor: 'operator:third',
+      expectedAuthorizationRevision: 1,
+      idempotencyKey: 'third',
+    });
+    expect(() => other.completeSymposiumCreationRecovery(input, claim)).toThrow();
+    expect(() => other.completeSymposiumCreationRecovery(input)).toThrow();
+  } finally {
+    other.close();
+  }
+});
+
+it('retains a durable execution claim across reopen and refuses handoff, including stale scope', () => {
+  const { input, handoff } = pendingCreation();
+  store.claimSymposiumCreationRecovery(input);
+  const other = new EventStore(dbPath);
+  try {
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    expect(() => other.claimSymposiumCreationRecovery(input)).toThrow(/execut/i);
+    expect(() =>
+      other.reauthorizeSymposiumCreationRecovery({ ...handoff, operationId: '0'.repeat(64) }),
+    ).toThrow();
+  } finally {
+    other.close();
+  }
+});
+
+it('reauthorizes after a confirmed stop despite completion failure, resumes the original request and returns the immutable result without repeating physical cleanup', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  let retained = true;
+  let release!: () => void;
+  const stop = vi.fn(async () => {
+    await new Promise<void>((r) => {
+      release = r;
+    });
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    throw new Error('completion persistence failed');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: {
+      diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: true }),
+      assertRetained: () => {
+        if (!retained) throw new Error('custody lost');
+      },
+    },
+  });
+  const stopping = host.recoverCreation(input);
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+  const other = new EventStore(dbPath);
+  expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+  other.close();
+  release();
+  await expect(stopping).rejects.toThrow('completion persistence failed');
+  retained = false;
+  await expect(host.reauthorizeCreationRecovery(handoff)).rejects.toThrow();
+  retained = true;
+  await host.reauthorizeCreationRecovery(handoff);
+  await expect(host.recoverCreation(input)).rejects.toThrow();
+  store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+  const result = await host.recoverCreation({ ...input, actor: 'operator:new' });
+  expect(result).toMatchObject({ state: 'suspended', generation: 2, actor: 'operator:old' });
+  expect(stop).toHaveBeenCalledOnce();
+  retained = false;
+  expect(await host.recoverCreation({ ...input, actor: 'operator:new' })).toEqual(result);
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+import { createConnectionsRouter } from '../connections-router.js';
+import { authMiddleware, login, authenticateToken, revokeAuthSession } from '../auth.js';
+it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the scoped handoff route', async () => {
+  const { handoff } = pendingCreation();
+  const apply = vi.fn(async () => ({ authorizationRevision: 1 }));
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.use('/api/connections', createConnectionsRouter({} as never));
+  app.use(
+    '/api/sessions/:id/symposium',
+    createSymposiumDirectorRouter({
+      store,
+      getRuntime: () => ({ reauthorizeCreationRecovery: apply }),
+    } as never),
+  );
+  const token = (await login('test-passphrase-for-vitest'))!;
+  const scope = {
+    seatId: handoff.seatId,
+    expectedRevision: handoff.expectedRevision,
+    expectedGeneration: handoff.expectedGeneration,
+    operationId: handoff.operationId,
+    expectedAuthorizationRevision: handoff.expectedAuthorizationRevision,
+    idempotencyKey: handoff.idempotencyKey,
+  };
+  const body = { ...scope, confirmation: 'RESUME FAILED SEAT CLEANUP' };
+  const post = (csrf = '', origin?: string) => {
+    const call = request(app)
+      .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+      .set('Authorization', `Bearer ${token}`)
+      .set('x-csrf-token', csrf);
+    if (origin) call.set('Origin', origin);
+    return call.send(body);
+  };
+  expect((await post()).status).toBe(403);
+  expect((await post('wrong')).status).toBe(403);
+  const auth = await request(app)
+    .post('/api/connections/reauthorize')
+    .set('Authorization', `Bearer ${token}`)
+    .send({ passphrase: 'test-passphrase-for-vitest' });
+  expect(auth.status).toBe(200);
+  expect((await post(auth.body.csrf, 'https://foreign.example')).status).toBe(403);
+  expect(apply).not.toHaveBeenCalled();
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-csrf-token', auth.body.csrf)
+        .send({ ...body, actor: 'operator:old' })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post('/api/sessions/chat/symposium/creation/recovery/reauthorize')
+        .set('Authorization', `Bearer ${token}`)
+        .set('x-csrf-token', auth.body.csrf)
+        .type('text')
+        .send('RESUME FAILED SEAT CLEANUP')
+    ).status,
+  ).toBe(415);
+  expect((await post(auth.body.csrf)).status).toBe(200);
+  expect(apply).toHaveBeenCalledWith(
+    expect.objectContaining({
+      actor: `operator:${(await authenticateToken(token))!.id}`,
+      operationId: handoff.operationId,
+    }),
+    expect.any(Function),
+  );
+  revokeAuthSession((await authenticateToken(token))!);
+  expect((await post(auth.body.csrf)).status).toBe(401);
+  expect(apply).toHaveBeenCalledOnce();
+});
+
+it('rechecks fresh authorization after waiting for physical cleanup and preserves completed cleanup evidence', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  let release!: () => void;
+  const stop = vi.fn(async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    throw new Error('physical stop settled, response lost');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: { diagnostic: () => null, assertRetained: () => {} },
+  });
+  const stopping = host.recoverCreation(input);
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+  let authorized = true;
+  const handoffWork = host.reauthorizeCreationRecovery(handoff, () => {
+    if (!authorized) throw new Error('fresh authorization expired');
+  });
+  authorized = false;
+  release();
+  await expect(stopping).rejects.toThrow('response lost');
+  await expect(handoffWork).rejects.toThrow('authorization expired');
+  expect(store.getSymposiumCreationRecoveryAuthorization(input)).toMatchObject({
+    actor: input.actor,
+    authorizationRevision: 0,
+    executing: false,
+  });
+  expect(store.getSymposiumSeatSandbox('chat', 'builder', 1)?.state).toBe('stopped');
+  expect((await host.recoverCreation(input)).state).toBe('suspended');
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+it('keeps an uncertain cleanup fenced after local timeout and late physical completion', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  const stop = vi.fn(async () => {
+    throw new Error('remote command timed out');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: {
+      diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: true }),
+      assertRetained: () => {},
+    },
+  });
+  await expect(host.recoverCreation(input)).rejects.toThrow('remote command timed out');
+  const other = new EventStore(dbPath);
+  try {
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    await expect(host.recoverCreation(input)).rejects.toThrow(
+      'Creation recovery execution is fenced',
+    );
+    expect(host.creationDiagnostic('chat', 'builder', 'operator:new')).toMatchObject({
+      canCleanup: false,
+      recoveryAuthorization: { state: 'cleanup_fenced' },
+    });
+    // A late observed physical stop is preserved, but is not an automatic unlock.
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    expect(() => other.reauthorizeSymposiumCreationRecovery(handoff)).toThrow(/execut/i);
+    expect(other.getSymposiumSeatSandbox('chat', 'builder', 1)?.state).toBe('stopped');
+    expect(stop).toHaveBeenCalledOnce();
+  } finally {
+    other.close();
   }
 });

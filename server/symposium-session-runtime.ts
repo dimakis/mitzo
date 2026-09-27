@@ -943,19 +943,21 @@ export class SymposiumPerSeatSandboxOwner {
     );
     if (!record?.creationFailureCode || !['reserved', 'stopped'].includes(record.state))
       return null;
-    const retained = this.terminalCreates.get(record.runtimeId);
+    let canCleanup = false;
+    try {
+      this.assertCreationCleanup(seatId, member.generation);
+      canCleanup = true;
+    } catch {
+      /* Retained metadata does not establish current host custody. */
+    }
     return {
       phase: record.creationPhase ?? 'create',
       code: record.creationFailureCode,
-      canCleanup: !!(
-        record.creationCompleted &&
-        retained &&
-        retained.sandboxId === record.physicalId &&
-        retained.sandboxName === record.sandboxName
-      ),
+      canCleanup,
     };
   }
   assertCreationCleanup(seatId: string, generation: number) {
+    this.deps.verifyHostCapability?.();
     const record = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
       this.deps.sessionId,
       seatId,

@@ -645,3 +645,5 @@ completed seal/review bridge; no publication route or UI action is enabled.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.
+
+Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
