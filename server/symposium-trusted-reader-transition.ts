@@ -94,6 +94,7 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
     if (
       !workflow ||
       workflow.sessionId !== binding.sessionId ||
+      workflow.decisionCode ||
       !prep ||
       prep.status !== 'bound' ||
       prep.kind === 'fix' ||
