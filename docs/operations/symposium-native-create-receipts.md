@@ -33,9 +33,8 @@ cleanup never creates a replacement or calls a model. Retry uses the same durabl
 request; partial cleanup stays fenced, and a completed retry never repeats deletion.
 After a browser reload, authenticated status returns the pending operation key only
 to the original operator while the revision, generation, and retained host proof
-still match. The UI reuses that key after fresh typed confirmation. Another
-operator or stale binding cannot resume the operation; POST identity checks remain
-strict. Successful cleanup and session changes clear the typed confirmation.
+still match. The UI reuses that key after fresh typed confirmation. A new app session must explicitly obtain scoped fresh reauthorization as described
+below; stale bindings and superseded executors remain rejected. Successful cleanup and session changes clear the typed confirmation.
 
 Artifact lease release still requires native absence and driver deletion
 proof for that exact ID. No provider inventory, mount failure, or empty sandbox
@@ -64,3 +63,53 @@ its ready-to-delivering transition. If a different SQLite connection establishes
 fence before a recipient claim, finalization returns idle work to ready even when
 that claim throws. Existing executing recipients retain their claims and finish;
 failed, cancelled, and terminal deliveries are not revived by this requeue.
+
+### Fresh app authentication for a pending cleanup
+
+`POST /api/sessions/:id/symposium/creation/recovery/reauthorize` transfers execution
+authorization for one existing pending cleanup while its original host still
+retains the exact terminal creation receipt and current custody. This app uses a
+shared-passphrase operator identity; it does not independently identify a person.
+It does not recover gateway custody after restart, settle unknown creation, or
+create/restore a seat.
+
+1. In the new authenticated app session, GET the director status. A pending seat
+   with retained custody exposes `creationDiagnostic.recoveryAuthorization`:
+   `operationId` (opaque SHA256), `revision`, and `state`. Only the current
+   executor receives `recoveryIdempotencyKey`; a new session does not need it to
+   request reauthorization.
+2. POST `/api/connections/reauthorize` with `{ "passphrase": "..." }`, using the
+   current app auth and same-origin JSON. Retain the returned short-lived `csrf`
+   only in memory. Do not log or copy app auth, passphrases or prior session inputs.
+3. POST the scoped endpoint above with `x-csrf-token`, JSON `seatId`,
+   `expectedRevision` (config revision), `expectedGeneration`, `operationId`,
+   `expectedAuthorizationRevision`, a new handoff `idempotencyKey`, and
+   `confirmation: "RESUME FAILED SEAT CLEANUP"`. No initiating actor or physical
+   identity is accepted from the caller. Fresh auth and CSRF are rechecked after
+   any wait for in-flight cleanup. The response returns the operation ID and new
+   authorization revision. Exact handoff retries return the same receipt while
+   that authorization remains current; a superseded handoff cannot restore itself.
+4. GET status again. The newly authorized session receives the original cleanup
+   key. Call the existing `/creation/recover` with that key and fresh typed
+   `CLEAN UP FAILED SEAT` confirmation. Cleanup preserves its immutable original
+   request and initiating actor; append-only handoff records audit the executor
+   changes. A separate Restore remains necessary after successful suspension.
+
+SQLite immediate transactions serialize authorization CAS and execution claims
+across store connections. Handoff cannot proceed while an execution token is held.
+The token is released only after a durable stopped sandbox receipt and all native
+attempts have settled. A local CLI timeout does not prove remote settlement: the
+execution claim remains fenced, even if the remote operation later completes. A
+crash-held or uncertain claim is not expired or auto-unlocked. Terminal physical observations persist even
+if authentication expires or membership completion fails. A retry may finish from
+that stopped receipt without repeating deletion, while the current executor and
+retained host checks still apply. Historical completed result reads never delete.
+
+The director UI offers a fresh passphrase and typed authorization form only for
+an eligible pending operation. It clears the passphrase immediately after submission,
+uses the existing recent-auth endpoint and scoped operation reference, then refreshes
+status. Cleanup still requires a separate typed confirmation and click. Expired or
+rejected authorization cannot trigger cleanup. A fenced execution may still be
+running or have an uncertain outcome; the UI does not offer retry or handoff in
+that state. Lost custody remains unavailable. No restart-recovery action is offered. Mixed-version
+controllers/downgrade across the new authorization ledger are not supported.

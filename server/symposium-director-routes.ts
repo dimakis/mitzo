@@ -1,3 +1,8 @@
+import { registerAuthSession, type AuthSession } from './auth.js';
+import {
+  requireSameOriginJson,
+  requireRecentConnectionAuthorization,
+} from './connections-router.js';
 import {
   buildSymposiumContextPackage,
   SymposiumContextPackageSchema,
@@ -730,6 +735,76 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(409).json({
         error: error instanceof Error ? error.message : 'Primary transfer requires recovery',
       });
+    }
+  });
+
+  router.post('/creation/recovery/reauthorize', requireSameOriginJson, async (req, res) => {
+    if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) return;
+    const parsed = z
+      .strictObject({
+        seatId: z.string().trim().min(1),
+        expectedRevision: z.number().int().positive(),
+        expectedGeneration: z.number().int().positive(),
+        operationId: z.string().regex(/^[a-f0-9]{64}$/),
+        expectedAuthorizationRevision: z.number().int().nonnegative(),
+        idempotencyKey: z.string().trim().min(1).max(200),
+        confirmation: z.literal('RESUME FAILED SEAT CLEANUP'),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Exact pending cleanup and typed reauthorization required' });
+      return;
+    }
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const runtime = deps.getRuntime(sessionId);
+    if (!runtime) {
+      res.status(503).json({ error: 'Retained creation cleanup custody unavailable' });
+      return;
+    }
+    const auth = res.locals.authSession as AuthSession;
+    let invalidated = false;
+    const unregister = registerAuthSession(auth, () => {
+      invalidated = true;
+    });
+    const authorize = () => {
+      if (invalidated) {
+        res.status(401).json({ error: 'App authentication expired or revoked' });
+        throw new Error('Authorization invalidated');
+      }
+      if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? ''))
+        throw new Error('Recent reauthorization required');
+    };
+    try {
+      const scope = {
+        seatId: parsed.data.seatId,
+        expectedRevision: parsed.data.expectedRevision,
+        expectedGeneration: parsed.data.expectedGeneration,
+        operationId: parsed.data.operationId,
+        expectedAuthorizationRevision: parsed.data.expectedAuthorizationRevision,
+        idempotencyKey: parsed.data.idempotencyKey,
+      };
+      res.json(
+        await runtime.reauthorizeCreationRecovery(
+          {
+            ...scope,
+            sessionId,
+            actor: `operator:${auth.id}`,
+          },
+          authorize,
+        ),
+      );
+    } catch {
+      if (res.headersSent) return;
+      res.status(409).json({
+        error:
+          'Cleanup reauthorization is stale, busy, or lacks retained host custody. Refresh status.',
+      });
+    } finally {
+      unregister();
     }
   });
 
