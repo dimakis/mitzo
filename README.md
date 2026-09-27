@@ -717,3 +717,9 @@ Supervised Symposium publication now retains configured publication credential r
 uses the current browser permission queue through the custodian channel. It still requires a
 trusted review record, completed seal and explicit per-operation approval; this does not enable
 native trusted review dispatch without its separate budget and final-usage guarantees.
+
+
+An uncertain sealed publication can be verified after fresh app authentication while its original
+custodian and credential handle remain retained. The explicit exact-operation action performs
+read-only reconciliation; it never reissues Create PR, replaces an approval, or reconstructs
+credentials after custodian loss. See [publication recovery](docs/operations/symposium-sealed-publication-authority.md#fresh-app-authentication-and-read-only-recovery).

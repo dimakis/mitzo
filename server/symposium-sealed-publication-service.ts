@@ -22,6 +22,8 @@ import {
   PublicationCredentialHttpError,
   guardSealedPublicationExecutor,
   type SealedPublicationScope,
+  type SealedPublicationGrant,
+  type PublicationCredentialHandle,
 } from './symposium-sealed-publication-authority.js';
 
 /** Host-owned completed-seal transport. Implementations must freshly prove exact
@@ -48,10 +50,44 @@ export interface SealedPublicationArtifactTransport {
   ): Promise<Buffer>;
 }
 
+export interface PublicationRecoverySelection {
+  recordId: string;
+  recordHash: string;
+  sealId: string;
+  sealHash: string;
+  repository: string;
+  operationId: string;
+  grantId: string;
+  bindingHash: string;
+  sessionId: string;
+  connectionId: string;
+  connectionRevision: number;
+  credentialGeneration: string;
+}
+interface RecoveryContext {
+  operationId: string;
+  observerId: string;
+  signal: AbortSignal;
+  snapshot: string;
+}
+interface RetainedPublication {
+  service: CapabilityService;
+  grant: SealedPublicationGrant;
+  handle: PublicationCredentialHandle;
+  recovery?: RecoveryContext;
+}
+const recoverySnapshot = (operation: CapabilityOperation) =>
+  canonicalJson(
+    Object.fromEntries(
+      Object.entries(operation).filter(
+        ([key, value]) => !['status', 'updatedAt'].includes(key) && value !== undefined,
+      ),
+    ),
+  );
 /** Separate controller-only service. No route installs it. Missing registration is
  * actionable unavailability; no live sandbox grant or ambient credential fallback. */
 export class SealedPublicationService {
-  private readonly services = new Map<string, CapabilityService>();
+  private readonly services = new Map<string, RetainedPublication>();
   constructor(
     private readonly deps: {
       authority: SealedPublicationAuthority;
@@ -60,6 +96,192 @@ export class SealedPublicationService {
       credentialCustodianRegistered: boolean;
     },
   ) {}
+  private assertRecovery(
+    retained: RetainedPublication,
+    operation: CapabilityOperation,
+    context: RecoveryContext,
+  ) {
+    context.signal.throwIfAborted();
+    const current = this.deps.operations.get(operation.id);
+    if (
+      retained.recovery !== context ||
+      context.operationId !== operation.id ||
+      !current ||
+      recoverySnapshot(current) !== context.snapshot ||
+      !this.deps.authority.isRecoveryCurrent(
+        retained.grant.id,
+        retained.grant.bindingHash,
+        context.observerId,
+        retained.handle,
+      )
+    )
+      throw Error('Recovery observation changed');
+  }
+  private validateRecoveryOperation(retained: RetainedPublication, operation: CapabilityOperation) {
+    const grant = retained.grant;
+    const approved = operation.approvalInput as Record<string, unknown> | null;
+    const saved = operation.recoveryIntent as Record<string, unknown> | null;
+    if (
+      operation.status !== 'verification_pending' ||
+      operation.connectionId !== `sealed-publication-${grant.id}` ||
+      operation.accountId !== `operator:${grant.scope.operatorId}` ||
+      operation.conversationId !== grant.scope.sessionId ||
+      operation.capabilityId !== 'github.publish-pr' ||
+      operation.capabilityVersion !== 1 ||
+      !approved ||
+      !saved ||
+      createHash('sha256').update(canonicalJson(approved)).digest('hex') !== operation.approvalHash
+    )
+      throw Error('Exact approved pending operation required');
+    const capabilityGrant = this.deps.operations.getGrant(
+      operation.connectionId,
+      operation.connectionRevision,
+      operation.capabilityId,
+      operation.capabilityVersion,
+    );
+    if (
+      !capabilityGrant ||
+      capabilityGrant.id !== operation.grantId ||
+      capabilityGrant.status !== 'active' ||
+      !capabilityGrant.accountIds.includes(operation.accountId)
+    )
+      throw Error('Original capability grant unavailable');
+    const proof = {
+      publicationGrantId: grant.id,
+      publicationBindingHash: grant.bindingHash,
+      publicationOperator: grant.scope.operatorId,
+      publicationGithubId: String(grant.principal.numericId),
+      publicationGithubLogin: grant.principal.login,
+      publicationCredentialGeneration: grant.scope.credentialGeneration,
+    };
+    for (const [key, value] of Object.entries(proof))
+      if (approved[key] !== value || saved[key] !== value)
+        throw Error('Original publication approval changed');
+    const fields = [
+      'repository',
+      'sourceBranch',
+      'sourceOid',
+      'baseBranch',
+      'title',
+      'body',
+      'draft',
+      'existingPullRequestId',
+      'existingPullRequestUrl',
+    ];
+    if (
+      saved.operationId !== operation.id ||
+      Object.keys(saved).some(
+        (key) => !fields.includes(key) && !Object.hasOwn(proof, key) && key !== 'operationId',
+      ) ||
+      fields.some((key) => saved[key] !== approved[key]) ||
+      approved.repository !== grant.scope.repository ||
+      typeof approved.body !== 'string' ||
+      !approved.body.endsWith(
+        `Review record: ${grant.scope.recordId}\nSHA256: ${grant.scope.recordHash}`,
+      )
+    )
+      throw Error('Original recovery intent changed');
+    const input = Object.fromEntries(
+      ['repositoryPath', 'baseBranch', 'title', 'body', 'draft', 'connectionId'].map((key) => [
+        key,
+        approved[key],
+      ]),
+    );
+    if (createHash('sha256').update(canonicalJson(input)).digest('hex') !== operation.inputHash)
+      throw Error('Original publication input changed');
+  }
+  private async verifyRecovery(
+    retained: RetainedPublication,
+    operation: CapabilityOperation,
+    context: RecoveryContext,
+  ) {
+    this.assertRecovery(retained, operation, context);
+    this.validateRecoveryOperation(retained, operation);
+    await this.deps.authority.requireRecovery(
+      retained.grant.id,
+      retained.grant.bindingHash,
+      context.observerId,
+      retained.handle,
+      context.signal,
+    );
+    const artifact = await this.deps.artifact.require(retained.grant.scope, context.signal);
+    const approved = operation.approvalInput as Record<string, unknown>;
+    if (
+      artifact.sourceOid !== approved.sourceOid ||
+      artifact.repositoryPath !== approved.repositoryPath
+    )
+      throw Error('Original sealed artifact changed');
+    this.assertRecovery(retained, operation, context);
+  }
+  recoveryCandidates(sessionId: string, recordId: string, recordHash: string) {
+    return this.deps.operations.pendingRecovery().flatMap((operation) => {
+      const retained = [...this.services.values()].find(
+        (entry) =>
+          operation.connectionId === `sealed-publication-${entry.grant.id}` &&
+          entry.grant.scope.sessionId === sessionId &&
+          entry.grant.scope.recordId === recordId &&
+          entry.grant.scope.recordHash === recordHash,
+      );
+      if (!retained) return [];
+      try {
+        this.validateRecoveryOperation(retained, operation);
+      } catch {
+        return [];
+      }
+      const grant = retained.grant;
+      return [
+        {
+          operationId: operation.id,
+          grantId: grant.id,
+          bindingHash: grant.bindingHash,
+          sessionId,
+          connectionId: grant.scope.connectionId,
+          connectionRevision: grant.scope.connectionRevision,
+          credentialGeneration: grant.scope.credentialGeneration,
+          repository: grant.scope.repository,
+          recordId: grant.scope.recordId,
+          recordHash: grant.scope.recordHash,
+          sealHash: grant.scope.sealHash,
+          sealId: grant.scope.sealId,
+          principal: grant.principal,
+        },
+      ];
+    });
+  }
+  async recoverExact(input: PublicationRecoverySelection, observerId: string, signal: AbortSignal) {
+    const retained = this.services.get(input.grantId),
+      operation = this.deps.operations.get(input.operationId);
+    if (!retained || !operation || retained.recovery)
+      throw Error('Retained exact recovery unavailable');
+    const { grant } = retained;
+    if (
+      input.recordId !== grant.scope.recordId ||
+      input.recordHash !== grant.scope.recordHash ||
+      input.sealId !== grant.scope.sealId ||
+      input.sealHash !== grant.scope.sealHash ||
+      input.repository !== grant.scope.repository ||
+      input.bindingHash !== grant.bindingHash ||
+      input.sessionId !== grant.scope.sessionId ||
+      input.connectionId !== grant.scope.connectionId ||
+      input.connectionRevision !== grant.scope.connectionRevision ||
+      input.credentialGeneration !== grant.scope.credentialGeneration
+    )
+      throw Error('Recovery selection changed');
+    this.validateRecoveryOperation(retained, operation);
+    const context = {
+      operationId: operation.id,
+      observerId,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(60_000)]),
+      snapshot: recoverySnapshot(operation),
+    };
+    try {
+      return await retained.service.recoverExactOperation(operation.id, context.signal, () => {
+        retained.recovery = context;
+      });
+    } finally {
+      if (retained.recovery === context) retained.recovery = undefined;
+    }
+  }
   availability() {
     return this.deps.credentialCustodianRegistered
       ? { available: true as const }
@@ -92,10 +314,11 @@ export class SealedPublicationService {
     const grant = initial.grant;
     const connectionId = `sealed-publication-${grant.id}`;
     const accountId = `operator:${grant.scope.operatorId}`;
-    let service = this.services.get(grant.id);
+    let retained = this.services.get(grant.id);
+    let service = retained?.service;
     if (!service) {
       const selection = { grantId: grant.id, bindingHash: grant.bindingHash };
-      const requireAuthority = async (requestSignal: AbortSignal) => {
+      const requireWriteAuthority = async (requestSignal: AbortSignal) => {
         const current = await this.deps.authority.require(
           selection.grantId,
           selection.bindingHash,
@@ -111,6 +334,13 @@ export class SealedPublicationService {
         recovery = false,
         preflightBaseBranch?: unknown,
       ) => {
+        const requireAuthority = async (checkSignal: AbortSignal) => {
+          const context = recovery ? retained?.recovery : undefined;
+          if (context) {
+            await this.verifyRecovery(retained!, operation, context);
+            checkSignal.throwIfAborted();
+          } else await requireWriteAuthority(checkSignal);
+        };
         await requireAuthority(requestSignal);
         const source = recovery
           ? undefined
@@ -273,6 +503,13 @@ export class SealedPublicationService {
       };
       service = new CapabilityService({
         ownsOperation: (operation) => operation.connectionId === connectionId,
+        beforeRecoveryPersist: (operation) => {
+          const context = retained?.recovery;
+          if (context) {
+            this.assertRecovery(retained!, operation, context);
+            this.validateRecoveryOperation(retained!, this.deps.operations.get(operation.id)!);
+          }
+        },
         store: this.deps.operations,
         executorRegistry: new CapabilityExecutorRegistry({ [template.executor]: executor }),
         getTemplate: (id, version) => (id === template.id && version === 1 ? template : undefined),
@@ -297,7 +534,8 @@ export class SealedPublicationService {
         accountIds: [accountId],
         status: 'active',
       });
-      this.services.set(grant.id, service);
+      retained = { service, grant, handle: initial.handle };
+      this.services.set(grant.id, retained);
     }
     return service.invoke(
       {

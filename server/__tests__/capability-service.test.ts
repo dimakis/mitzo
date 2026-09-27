@@ -40,6 +40,7 @@ afterEach(async () => {
 async function fixture(
   options: {
     approved?: boolean;
+    explicitOwner?: boolean;
     active?: boolean;
     revision?: number;
     preflight?: CapabilityExecutor['preflight'];
@@ -74,6 +75,7 @@ async function fixture(
   let active = options.active ?? true;
   const service = new CapabilityService({
     store,
+    ...(options.explicitOwner ? { ownsOperation: () => true } : {}),
     executorRegistry: new CapabilityExecutorRegistry({
       'test-mutate-v1': {
         ...(options.preflight ? { preflight: options.preflight } : {}),
@@ -664,4 +666,40 @@ describe('CapabilityService', () => {
       }),
     ).toThrow('cannot fit a complete approval projection');
   });
+});
+
+it('generic bulk and reconnect cannot enter an exact fresh-auth recovery claim', async () => {
+  const f = await fixture({ explicitOwner: true });
+  f.execute.mockRejectedValueOnce(Error('Uncertain write'));
+  const pending = await f.service.invoke(request(), new AbortController().signal);
+  let entered!: () => void, release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const hold = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const claim = vi.fn();
+  f.recover.mockImplementationOnce(async () => {
+    entered();
+    await hold;
+  });
+  const exact = f.service.recoverExactOperation(pending.id, new AbortController().signal, claim);
+  await waiting;
+  try {
+    expect(claim).toHaveBeenCalledOnce();
+    const bulk = await f.service.recoverPending(new AbortController().signal);
+    const reconnect = await f.service.recoverPendingForConversation(
+      'account-1',
+      'conversation-1',
+      new AbortController().signal,
+    );
+    expect(bulk[0]).toEqual(pending);
+    expect(reconnect[0]).toEqual(pending);
+    expect(f.recover).toHaveBeenCalledOnce(); // no second recovery transport under borrowed context
+    expect(f.execute).toHaveBeenCalledOnce();
+  } finally {
+    release();
+  }
+  expect((await exact).status).toBe('succeeded');
 });

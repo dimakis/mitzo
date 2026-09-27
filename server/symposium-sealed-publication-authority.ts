@@ -113,9 +113,13 @@ export class SealedPublicationAuthority {
   close() {
     this.db.close();
   }
-  private async verify(scope: SealedPublicationScope, signal: AbortSignal) {
+  private async verify(
+    scope: SealedPublicationScope,
+    signal: AbortSignal,
+    observerId = scope.operatorId,
+  ) {
     signal.throwIfAborted();
-    if (this.deps.assertOperator(scope.operatorId, scope.sessionId) !== true)
+    if (this.deps.assertOperator(observerId, scope.sessionId) !== true)
       throw new Error('Authenticated publication operator required');
     await this.deps.assertArtifact(scope, signal);
     const handle = this.deps.resolveCredential(scope);
@@ -140,7 +144,7 @@ export class SealedPublicationAuthority {
     if (handle.assertCurrent() !== true) throw new Error('Current publication credential required');
     if (this.deps.resolveCredential(scope) !== handle)
       throw new Error('Publication credential handle changed');
-    if (this.deps.assertOperator(scope.operatorId, scope.sessionId) !== true)
+    if (this.deps.assertOperator(observerId, scope.sessionId) !== true)
       throw new Error('Authenticated publication operator required');
     await this.deps.assertArtifact(scope, signal);
     signal.throwIfAborted();
@@ -223,6 +227,49 @@ export class SealedPublicationAuthority {
     } catch {
       return false;
     }
+  }
+  /** Read-only observation authority. This never changes or reauthorizes the old grant. */
+  isRecoveryCurrent(
+    grantId: string,
+    bindingHash: string,
+    observerId: string,
+    expectedHandle: PublicationCredentialHandle,
+  ): boolean {
+    try {
+      const grant = this.read(grantId);
+      const handle = this.deps.resolveCredential(grant.scope);
+      return (
+        grant.bindingHash === bindingHash &&
+        this.deps.assertOperator(observerId, grant.scope.sessionId) === true &&
+        handle === expectedHandle &&
+        handle.connectionId === grant.scope.connectionId &&
+        handle.revision === grant.scope.connectionRevision &&
+        handle.generation === grant.scope.credentialGeneration &&
+        handle.assertCurrent() === true
+      );
+    } catch {
+      return false;
+    }
+  }
+  async requireRecovery(
+    grantId: string,
+    bindingHash: string,
+    observerId: string,
+    expectedHandle: PublicationCredentialHandle,
+    signal: AbortSignal,
+  ) {
+    const grant = this.read(grantId);
+    if (!this.isRecoveryCurrent(grantId, bindingHash, observerId, expectedHandle))
+      throw Error('Recovery observation authority unavailable');
+    const proof = await this.verify(grant.scope, signal, observerId);
+    if (
+      proof.handle !== expectedHandle ||
+      canonicalJson(proof.principal) !== canonicalJson(grant.principal) ||
+      !this.isRecoveryCurrent(grantId, bindingHash, observerId, expectedHandle)
+    )
+      throw Error('Recovery observation binding changed');
+    signal.throwIfAborted();
+    return { grant, handle: proof.handle };
   }
   /** Must run at preflight AND after forced approval. Returned public fields belong
    * in CapabilityService's exact approval projection and durable recovery intent. */

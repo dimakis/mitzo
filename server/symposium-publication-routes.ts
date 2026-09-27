@@ -2,7 +2,11 @@ import { custodianPublicationSignal } from './symposium-custodian-authority.js';
 import express from 'express';
 import { z } from 'zod';
 import type { AuthSession } from './auth.js';
-import { requireSameOriginJson } from './connections-router.js';
+import {
+  requireSameOriginJson,
+  requireRecentConnectionAuthorization,
+  recentAppReauthorizationHandlers,
+} from './connections-router.js';
 import type { PublicationRegistration } from './symposium-publication-registration.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 const id = z.string().min(1).max(256);
@@ -41,6 +45,22 @@ export function createPublicationRouter(deps: {
       return res.status(404).json({ error: 'Symposium session not found' });
     next();
   });
+  // App-local credential-free reauthorization remains available in supervised mode.
+  router.post('/recovery/reauthorize', ...recentAppReauthorizationHandlers());
+  router.get('/recovery', (req: express.Request, res: express.Response) => {
+    try {
+      const query = z.strictObject({ recordId: id, recordHash: hash }).parse(req.query);
+      res.json({
+        operations:
+          deps
+            .registration()
+            ?.service.recoveryCandidates(String(req.params.id), query.recordId, query.recordHash) ??
+          [],
+      });
+    } catch {
+      res.status(409).json({ error: 'Exact review record recovery unavailable' });
+    }
+  });
   router.get('/', (_req, res) => {
     const runtime = deps.registration();
     res.json({
@@ -62,6 +82,11 @@ export function createPublicationRouter(deps: {
     ) => Promise<unknown>,
   ) =>
     router.post(path, async (req, res) => {
+      if (
+        path === '/recovery' &&
+        !requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')
+      )
+        return;
       const runtime = deps.registration();
       if (!runtime) return res.status(503).json({ error: 'Publication registration unavailable' });
       const session = res.locals.authSession as AuthSession;
@@ -84,12 +109,36 @@ export function createPublicationRouter(deps: {
       } catch {
         res.status(409).json({
           error:
-            'Publication request unavailable or changed; refresh the selected credential and reviewed artifact',
+            path === '/recovery'
+              ? 'Read-only recovery unavailable; the original operation remains unchanged'
+              : 'Publication request unavailable or changed; refresh the selected credential and reviewed artifact',
         });
       } finally {
         res.off('close', close);
       }
     });
+  route('/recovery', async (runtime, req, session, signal) => {
+    const selected = z
+      .strictObject({
+        recordId: id,
+        recordHash: hash,
+        sealId: id,
+        sealHash: hash,
+        repository: selection.shape.repository,
+        operationId: id,
+        grantId: id,
+        bindingHash: hash,
+        connectionId: id,
+        connectionRevision: z.number().int().positive(),
+        credentialGeneration: id,
+      })
+      .parse(req.body);
+    return runtime.service.recoverExact(
+      { ...selected, sessionId: String(req.params.id) },
+      session.id,
+      signal,
+    );
+  });
   route('/artifact', async (runtime, req, _session, signal) => {
     const input = z.strictObject({ recordId: id }).parse(req.body);
     if (!runtime.describeArtifact) throw new Error('Completed artifact unavailable');

@@ -50,6 +50,7 @@ it('keeps native review prerequisites explicit without fabricating a record', as
 it('requires principal preview and a separate grant before requesting normal approval', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) => {
     const path = String(url);
+    if (path.includes('/recovery?')) return response({ operations: [] });
     if (path.endsWith('/select'))
       return response({
         connectionId: 'write',
@@ -96,7 +97,7 @@ it('requires principal preview and a separate grant before requesting normal app
   expect(new Headers(call[1]?.headers).get('X-Connection-ID')).toBe('initiating-tab');
 });
 
-it('retains the exact publication operation for recovery after remount', async () => {
+it('never invokes a saved uncertain publication after remount', async () => {
   const saved = {
     grantId: 'grant',
     bindingHash: 'c'.repeat(64),
@@ -104,104 +105,87 @@ it('retains the exact publication operation for recovery after remount', async (
     idempotencyKey: 'same-key',
     baseBranch: 'main',
     title: 'Reviewed',
-    body: 'Exact reviewed body',
+    body: 'Reviewed body',
     draft: true,
   };
   sessionStorage.setItem('mitzo-publication:session:record', JSON.stringify(saved));
-  vi.mocked(apiFetch).mockImplementation(async (url) =>
-    response(
-      String(url).endsWith('/publish')
-        ? { status: 'verification_pending' }
-        : { available: true, credentials: [] },
-    ),
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ available: true, credentials: [], operations: [] }),
   );
   render(
     <SymposiumPublication sessionId="session" record={{ id: 'record', hash: 'a'.repeat(64) }} />,
   );
-  fireEvent.click(await screen.findByRole('button', { name: 'Check publication result' }));
-  await screen.findByText('verification_pending');
-  const call = vi.mocked(apiFetch).mock.calls.find(([url]) => String(url).endsWith('/publish'))!;
-  expect(JSON.parse(String(call[1]?.body))).toEqual(saved);
-  expect(new Headers(call[1]?.headers).get('X-Connection-ID')).toBe('initiating-tab');
-  currentSocket.onmessage?.({
-    data: JSON.stringify({ type: 'welcome', protocolVersion: 2, connectionId: 'reconnected-tab' }),
+  const button = await screen.findByRole('button', {
+    name: 'Publication outcome requires verification',
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Check publication result' }));
-  await vi.waitFor(() =>
-    expect(
-      vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/publish')),
-    ).toHaveLength(2),
+  expect((button as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(button);
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/publish'))).toBe(
+    false,
   );
-  const retry = vi
-    .mocked(apiFetch)
-    .mock.calls.filter(([url]) => String(url).endsWith('/publish'))[1];
-  expect(JSON.parse(String(retry[1]?.body))).toEqual(saved);
-  expect(new Headers(retry[1]?.headers).get('X-Connection-ID')).toBe('reconnected-tab');
+  expect(JSON.parse(sessionStorage.getItem('mitzo-publication:session:record')!)).toEqual(saved);
 });
 
+async function prepareInitialPublication(result: unknown) {
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    const path = String(url);
+    if (path.includes('/recovery?')) return response({ operations: [] });
+    if (path.endsWith('/select'))
+      return response({
+        connectionId: 'write',
+        connectionRevision: 1,
+        credentialGeneration: 'generation',
+      });
+    if (path.endsWith('/artifact'))
+      return response({
+        recordId: 'record',
+        recordHash: 'a'.repeat(64),
+        sealId: 'seal',
+        sealHash: 'b'.repeat(64),
+      });
+    if (path.endsWith('/preview'))
+      return response({ principal: { host: 'github.com', numericId: 42, login: 'selected-user' } });
+    if (path.endsWith('/grant')) return response({ id: 'grant', bindingHash: 'c'.repeat(64) });
+    if (path.endsWith('/publish')) return response(result);
+    return response({
+      available: true,
+      credentials: [{ id: 'write', label: 'Write account', revision: 1 }],
+    });
+  });
+  render(
+    <SymposiumPublication sessionId="session" record={{ id: 'record', hash: 'a'.repeat(64) }} />,
+  );
+  fireEvent.change(await screen.findByLabelText('Publication credential'), {
+    target: { value: 'write' },
+  });
+  fireEvent.change(screen.getByLabelText('Repository'), { target: { value: 'owner/repo' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview selected account' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use this account and artifact' }));
+  fireEvent.change(screen.getByLabelText('PR title'), { target: { value: 'Reviewed' } });
+  return screen.findByRole('button', { name: 'Create PR' });
+}
 it.each(['failed', 'cancelled', 'denied'])(
-  'releases terminal %s identity and requires a fresh selection',
+  'initial publication releases terminal %s identity and requires fresh selection',
   async (status) => {
-    const key = 'mitzo-publication:session:record';
-    sessionStorage.setItem(
-      key,
-      JSON.stringify({
-        grantId: 'grant',
-        bindingHash: 'c'.repeat(64),
-        turnId: 'old-turn',
-        idempotencyKey: 'old-key',
-        baseBranch: 'main',
-        title: 'Reviewed',
-        body: 'Reviewed body',
-        draft: true,
-      }),
-    );
-    vi.mocked(apiFetch).mockImplementation(async (url) =>
-      response(
-        String(url).endsWith('/publish')
-          ? { status }
-          : {
-              available: true,
-              credentials: [{ id: 'write', label: 'Write account', revision: 1 }],
-            },
-      ),
-    );
-    render(
-      <SymposiumPublication sessionId="session" record={{ id: 'record', hash: 'a'.repeat(64) }} />,
-    );
-    fireEvent.click(await screen.findByRole('button', { name: 'Check publication result' }));
+    fireEvent.click(await prepareInitialPublication({ status }));
     await screen.findByText(status);
-    expect(sessionStorage.getItem(key)).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Check publication result' })).toBeNull();
+    expect(sessionStorage.getItem('mitzo-publication:session:record')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Create PR' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Publication outcome requires verification' }),
+    ).toBeNull();
     expect(
       (screen.getByLabelText('Publication credential').closest('fieldset') as HTMLFieldSetElement)
         .disabled,
     ).toBe(false);
   },
 );
-
-it('does not dispatch publication without a live initiating transport', async () => {
-  const saved = {
-    grantId: 'grant',
-    bindingHash: 'c'.repeat(64),
-    turnId: 'same-turn',
-    idempotencyKey: 'same-key',
-    baseBranch: 'main',
-    title: 'Reviewed',
-    body: 'Exact body',
-    draft: true,
-  };
-  sessionStorage.setItem('mitzo-publication:session:record', JSON.stringify(saved));
-  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, credentials: [] }));
-  render(
-    <SymposiumPublication sessionId="session" record={{ id: 'record', hash: 'a'.repeat(64) }} />,
-  );
+it('does not dispatch initial Create PR after authentication invalidates the live transport', async () => {
+  const button = await prepareInitialPublication({ status: 'succeeded' });
   currentStore.getState().invalidateAuthentication();
-  fireEvent.click(await screen.findByRole('button', { name: 'Check publication result' }));
+  fireEvent.click(button);
   await screen.findByText('Connect this tab to the session before publishing');
   expect(
     vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/publish')),
   ).toEqual([]);
-  expect(JSON.parse(sessionStorage.getItem('mitzo-publication:session:record')!)).toEqual(saved);
 });
