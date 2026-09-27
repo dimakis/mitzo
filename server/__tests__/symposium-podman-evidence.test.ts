@@ -198,3 +198,98 @@ describe('local Podman artifact evidence', () => {
     );
   });
 });
+
+describe('reviewed workload artifact ownership', () => {
+  const image = 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161';
+  it.each([
+    [{ uid: 998, gid: 998, ownerUid: 998, ownerGid: 998, mode: '755', writable: false }, true],
+    [{ uid: 998, gid: 998, ownerUid: 0, ownerGid: 0, mode: '755', writable: false }, false],
+    [{ uid: 1000, gid: 998, ownerUid: 998, ownerGid: 998, mode: '755', writable: false }, false],
+    [{ uid: 998, gid: 998, ownerUid: 998, ownerGid: 998, mode: '777', writable: false }, false],
+    [{ uid: 998, gid: 998, ownerUid: 998, ownerGid: 998, mode: '755', writable: true }, false],
+  ])('requires effective read-only identity and owner evidence %j', async (probe, allowed) => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce([{ ...inspected[0], Image: image }])
+      .mockResolvedValueOnce(probe);
+    const evidence = new LocalPodmanArtifactEvidence(
+      'symposium-1',
+      'gateway-local',
+      run,
+      undefined,
+      image,
+    );
+    if (allowed)
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
+    else
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
+        'identity or effective access',
+      );
+    expect(run.mock.calls[2][0].slice(0, 6)).toEqual([
+      'exec',
+      '--user',
+      'sandbox',
+      physicalId,
+      '/bin/bash',
+      '-c',
+    ]);
+  });
+  it('requires successful writer permission evidence and rejects probe failure', async () => {
+    const writerConfig = { podman: { mounts: [{ ...config.podman.mounts[0], read_only: false }] } };
+    const writerDetails = [
+      { ...inspected[0], Image: image, Mounts: [{ ...inspected[0].Mounts[0], RW: true }] },
+    ];
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce(writerDetails)
+      .mockResolvedValueOnce({
+        uid: 998,
+        gid: 998,
+        ownerUid: 998,
+        ownerGid: 998,
+        mode: '755',
+        writable: true,
+      });
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        run,
+        undefined,
+        image,
+      ).verifyMount(sandboxName, sandboxId, writerConfig),
+    ).resolves.toBeUndefined();
+    const failed = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce(writerDetails)
+      .mockRejectedValueOnce(new Error('probe unavailable'));
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        failed,
+        undefined,
+        image,
+      ).verifyMount(sandboxName, sandboxId, writerConfig),
+    ).rejects.toThrow('probe unavailable');
+  });
+  it('rejects a different physical image before probing', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce([{ ...inspected[0], Image: 'b'.repeat(64) }]);
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        run,
+        undefined,
+        image,
+      ).verifyMount(sandboxName, sandboxId, config),
+    ).rejects.toThrow('image differs');
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+});

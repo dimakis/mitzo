@@ -1,3 +1,4 @@
+import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { execFile } from 'node:child_process';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
@@ -59,6 +60,7 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
     private readonly sandboxNamespace: string,
     private readonly run: PodmanCommand = localPodmanCommand,
     private readonly ownedGateway?: OwnedSymposiumGateway,
+    private readonly workloadImage?: string,
   ) {
     if (!identifier.test(workspaceId) || !isPodmanSandboxNamespace(sandboxNamespace))
       throw new Error('Invalid expected OpenShell workspace or namespace');
@@ -142,6 +144,37 @@ export class LocalPodmanArtifactEvidence implements ArtifactHostEvidence {
       mount.RW !== !expected.read_only
     )
       throw new Error('Physical artifact volume or access differs from lease');
+    if (this.workloadImage) {
+      const owner = symposiumArtifactOwner(this.workloadImage);
+      const image =
+        typeof inspected.Image === 'string' ? inspected.Image.replace(/^sha256:/, '') : '';
+      if (image !== owner.image.replace(/^sha256:/, ''))
+        throw new Error('Artifact workload image differs from reviewed identity');
+      // Read-only OS evidence under the image's own sandbox identity. This never
+      // writes a marker into the shared artifact volume or runs a model.
+      const probe = record(
+        await this.run([
+          'exec',
+          '--user',
+          'sandbox',
+          physicalId,
+          '/bin/bash',
+          '-c',
+          'set -eu; uid=$(/usr/bin/id -u); gid=$(/usr/bin/id -g); set -- $(/usr/bin/stat -c "%u %g %a" /sandbox/symposium-artifacts); writable=false; if test -w /sandbox/symposium-artifacts; then writable=true; fi; printf \'{"uid":%s,"gid":%s,"ownerUid":%s,"ownerGid":%s,"mode":"%s","writable":%s}\\n\' "$uid" "$gid" "$1" "$2" "$3" "$writable"',
+        ]),
+      );
+      if (
+        probe.uid !== owner.uid ||
+        probe.gid !== owner.gid ||
+        probe.ownerUid !== owner.uid ||
+        probe.ownerGid !== owner.gid ||
+        typeof probe.mode !== 'string' ||
+        !/^[0-7]{3,4}$/.test(probe.mode) ||
+        (Number.parseInt(probe.mode, 8) & 0o022) !== 0 ||
+        probe.writable !== !expected.read_only
+      )
+        throw new Error('Artifact owner identity or effective access is not ready');
+    }
   }
 
   async verifyDeleted(sandboxName: string, sandboxId: string): Promise<void> {

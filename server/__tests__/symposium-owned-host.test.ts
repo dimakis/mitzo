@@ -63,7 +63,7 @@ function fixture() {
       stateParent: root,
       gateway: 'owned',
       workspace: 'workspace',
-      workloadImage: `sha256:${'a'.repeat(64)}`,
+      workloadImage: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
     },
     attestationPath: attestation,
     runtime: {
@@ -370,7 +370,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
           labels[key] = parts.join('=');
         }
       });
-      expect(args.slice(0, 4)).toEqual(['volume', 'create', '--driver', 'local']);
+      expect(args.slice(0, 8)).toEqual([
+        'volume',
+        'create',
+        '--driver',
+        'local',
+        '--uid',
+        '998',
+        '--gid',
+        '998',
+      ]);
       volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
       return volume.Name + '\n';
     }
@@ -615,4 +624,13 @@ it('preserves safe diagnostic fields when the host forces creation reconciliatio
   } finally {
     host.stop();
   }
+});
+
+it('rejects an unreviewed workload owner before launching the gateway', async () => {
+  const f = fixture();
+  f.options.gateway.workloadImage = `sha256:${'f'.repeat(64)}`;
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow(
+    'identity is not reviewed',
+  );
+  expect(f.launch).not.toHaveBeenCalled();
 });

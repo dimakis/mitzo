@@ -1,3 +1,4 @@
+import { symposiumArtifactOwner, artifactOwnerContract } from './symposium-artifact-owner.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
   collectPersonalAdmissionEvidence,
@@ -87,6 +88,7 @@ export async function createOwnedSymposiumHost(
     !isAbsolute(options.runtime.seed)
   )
     throw new Error('Owned Symposium host requires explicit private paths and namespace');
+  const artifactOwner = symposiumArtifactOwner(options.gateway.workloadImage);
   try {
     const evidence = lstatSync(options.attestationPath);
     if (!evidence.isFile() || evidence.isSymbolicLink() || evidence.mode & 0o077)
@@ -201,6 +203,7 @@ export async function createOwnedSymposiumHost(
       options.podman.sandboxNamespace,
       podman,
       gateway,
+      options.gateway.workloadImage,
     );
     const leasePath = join(gateway.stateDirectory, 'artifact-leases.db');
     leaseHost = new SqliteArtifactLeaseHost(
@@ -229,6 +232,9 @@ export async function createOwnedSymposiumHost(
       gateway.stateDirectory,
       custody,
       {
+        get initializationContract() {
+          return artifactOwnerContract(artifactOwner);
+        },
         async inspect(name) {
           const listed = await podman([
             'volume',
@@ -247,11 +253,16 @@ export async function createOwnedSymposiumHost(
           return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
         },
         async create(name, labels) {
+          const owner = artifactOwner;
           const result = await podmanText([
             'volume',
             'create',
             '--driver',
             'local',
+            '--uid',
+            String(owner.uid),
+            '--gid',
+            String(owner.gid),
             ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
             name,
           ]);
