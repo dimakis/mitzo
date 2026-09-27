@@ -1,3 +1,4 @@
+import { SymposiumNativeObservations } from './symposium-native-observations.js';
 import Database from 'better-sqlite3';
 import { dirname } from 'node:path';
 import { chmodSync, lstatSync, statSync } from 'node:fs';
@@ -25,6 +26,7 @@ export interface SymposiumAttemptTransport {
 /** Host-owned durable mapping; never populate it from client-supplied sandbox names. */
 export class SymposiumAttemptRegistry {
   private readonly db: Database.Database;
+  readonly observations: SymposiumNativeObservations;
 
   constructor(
     path: string,
@@ -65,6 +67,11 @@ export class SymposiumAttemptRegistry {
     }>;
     if (!columns.some((column) => column.name === 'transport_route'))
       this.db.exec('ALTER TABLE symposium_native_attempts ADD COLUMN transport_route TEXT');
+    this.observations = new SymposiumNativeObservations(this.db, (claim, session) => {
+      const attempt = this.get(claim);
+      if (!attempt || attempt.sessionId !== session)
+        throw new Error('Native observation requires the exact reserved session claim');
+    });
   }
 
   /** Registered before asynchronous setup. Every native launch must pass reserve(). */

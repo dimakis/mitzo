@@ -115,6 +115,12 @@ async function setup(
     turnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ) => void,
+  onProviderTerminalConflict?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    status: 'completed' | 'interrupted' | 'failed',
+  ) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -197,6 +203,7 @@ async function setup(
     onProviderComplete,
     onProviderAccepted,
     onProviderTerminal,
+    onProviderTerminalConflict,
     loadConversationHistory: () => [
       { role: 'user', text: 'Keep the existing workstream.' },
       { role: 'assistant', text: 'The workstream is active.' },
@@ -1035,27 +1042,28 @@ it('retains early completion until the start response confirms its turn identity
   expect(c.queue()[0].status).toBe('completed');
 });
 
-it('fails safely and recovers queued work after an unconfirmed stale completion', async () => {
-  const { c, rpc, callbacks, requests } = await setup();
+it('ignores unrelated buffered completion when accepting the current turn', async () => {
+  const { c, rpc, callbacks } = await setup();
   const request = rpc.request.getMockImplementation()!;
-  let first = true;
   rpc.request.mockImplementation(async (method, params) => {
-    if (method !== 'turn/start' || !first) return request(method, params);
-    first = false;
-    requests.push({ method, params });
+    if (method !== 'turn/start') return request(method, params);
     callbacks.onNotification('turn/completed', {
       threadId: 'provider-thread',
       turn: { id: 'stale', status: 'completed' },
     });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'stale', status: 'failed' },
+    });
     return { turn: { id: 'current' } };
   });
-  c.enqueue({ id: 'current-command', prompt: 'hello' });
-  c.enqueue({ id: 'next-command', prompt: 'recover me' });
-  await expect(c.startQueued()).rejects.toThrow('identity mismatch');
-  expect(c.queue().map((command) => command.status)).toEqual(['failed', 'queued']);
-  expect(c.isPaused()).toBe(true);
-  await c.acknowledgeRecovery();
-  expect(requests.filter((entry) => entry.method === 'turn/start')).toHaveLength(2);
+  await c.send({ id: 'current-command', prompt: 'mock' });
+  expect(c.queue()[0].status).toBe('running');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'current', status: 'completed' },
+  });
+  expect(c.queue()[0].status).toBe('completed');
 });
 
 it('does not reconnect or replay interrupted work until a new send explicitly requests recovery', async () => {
@@ -1780,4 +1788,192 @@ it('rejects unsupported image types before persisting or starting work', async (
   ).toThrow();
   expect(c.queue()).toEqual([]);
   expect(requests.some((r) => r.method === 'turn/start')).toBe(false);
+});
+
+it.each([undefined, 'unrecognized'])(
+  'does not attest an unspecified native terminal status %s',
+  async (status) => {
+    const terminal = vi.fn();
+    const { c, callbacks } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+    );
+    await c.send({ id: 'unknown-status', prompt: 'mock' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status },
+    });
+    expect(terminal).not.toHaveBeenCalled();
+  },
+);
+
+it.each([false, true])(
+  'fails closed on conflicting terminal replay after completion (next turn active: %s)',
+  async (nextActive) => {
+    const terminal = vi.fn();
+    const conflict = vi.fn();
+    const { c, callbacks, onError, rpc } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+      conflict,
+    );
+    await c.send({ id: 'first-command', prompt: 'mock' });
+    const completed = { threadId: 'provider-thread', turn: { id: 'turn-1', status: 'completed' } };
+    callbacks.onNotification('turn/completed', completed);
+    callbacks.onNotification('turn/completed', completed);
+    expect(terminal).toHaveBeenCalledExactlyOnceWith('first-command', 'turn-1', 'completed');
+    expect(onError).not.toHaveBeenCalled();
+    if (nextActive) await c.send({ id: 'next-command', prompt: 'mock follow-up' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'unrelated-thread',
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).not.toHaveBeenCalled();
+    callbacks.onNotification('turn/completed', {
+      ...completed,
+      turn: { id: 'turn-1', status: 'failed' },
+    });
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+    );
+    expect(conflict).toHaveBeenCalledExactlyOnceWith(
+      'first-command',
+      'provider-thread',
+      'turn-1',
+      'failed',
+      'completed',
+    );
+    expect(rpc.close).toHaveBeenCalled();
+    expect(terminal).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  'waits for acceptance and reconciles buffered terminal duplicates (started notification: %s)',
+  async (started) => {
+    for (const conflicting of [false, true]) {
+      const terminal = vi.fn();
+      const accepted = vi.fn();
+      const conflict = vi.fn();
+      const { c, rpc, callbacks, onError } = await setup(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        accepted,
+        terminal,
+        conflict,
+      );
+      const request = rpc.request.getMockImplementation()!;
+      rpc.request.mockImplementation(async (method, params) => {
+        if (method !== 'turn/start') return request(method, params);
+        if (started)
+          callbacks.onNotification('turn/started', {
+            threadId: 'provider-thread',
+            turn: { id: 'early' },
+          });
+        callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'early', status: 'completed' },
+        });
+        callbacks.onNotification('turn/completed', {
+          threadId: 'provider-thread',
+          turn: { id: 'early', status: conflicting ? 'failed' : 'completed' },
+        });
+        expect(accepted).not.toHaveBeenCalled();
+        expect(terminal).not.toHaveBeenCalled();
+        expect(conflict).not.toHaveBeenCalled();
+        return { turn: { id: 'early' } };
+      });
+      await c.send({ id: 'early-command', prompt: 'mock' });
+      expect(accepted).toHaveBeenCalledExactlyOnceWith('early-command', 'provider-thread', 'early');
+      expect(terminal).toHaveBeenCalledExactlyOnceWith('early-command', 'early', 'completed');
+      if (conflicting) {
+        expect(conflict).toHaveBeenCalledExactlyOnceWith(
+          'early-command',
+          'provider-thread',
+          'early',
+          'failed',
+          'completed',
+        );
+        expect(onError).toHaveBeenCalledWith(
+          expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+        );
+      } else expect(conflict).not.toHaveBeenCalled();
+      c.close();
+    }
+  },
+);
+
+it('fails closed on a conflicting terminal while the completion hook is pending', async () => {
+  let finish!: () => void;
+  const terminal = vi.fn();
+  const conflict = vi.fn();
+  const { c, callbacks, onError } = await setup(
+    undefined,
+    undefined,
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    terminal,
+    conflict,
+  );
+  await c.send({ id: 'hook-command', prompt: 'mock' });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'failed' },
+  });
+  expect(conflict).toHaveBeenCalledExactlyOnceWith(
+    'hook-command',
+    'provider-thread',
+    'turn-1',
+    'failed',
+    'completed',
+  );
+  expect(terminal).not.toHaveBeenCalled();
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'Conflicting provider terminal status' }),
+  );
+  finish();
+  await Promise.resolve();
+  expect(terminal).not.toHaveBeenCalled();
 });
