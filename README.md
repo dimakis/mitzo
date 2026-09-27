@@ -15,6 +15,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Native subscription continuity](docs/operations/symposium-attempt-continuity.md) carries all eligible completed seat text into explicitly recorded replacement threads across isolated attempt homes, within a strict 64 KiB bound.
 
+Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
+
 Symposium director status resolves the verified runtime once per request and reuses it for per-seat diagnostics; each later request still performs fresh verification.
 
 [Local Symposium source import](docs/operations/symposium-local-source.md) previews and explicitly imports bounded committed history from a configured local repository before any seat admission permission is issued. It uses fresh app authorization and a credential-free networkless helper; oversized, unsupported and uncertain imports remain fenced. Native budget, review and publication still require their own authority.
