@@ -903,3 +903,136 @@ describe('Symposium persistence', () => {
     }
   });
 });
+
+describe('explicit primary routing transfer', () => {
+  function fixture(path = ':memory:') {
+    const store = open(path);
+    store.upsertSession({ sessionId: 'chat', accountBinding: config.seats[0].accountBinding });
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+    });
+    for (const seat of config.seats) {
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId: seat.id,
+        action: 'admit',
+        expectedGeneration: 0,
+        configRevision: 1,
+        actor: 'operator',
+        reason: 'admit',
+        idempotencyKey: seat.id,
+        occurredAt: 1,
+      });
+      store.markSymposiumMembershipReconciled('chat', seat.id, 1, 'confirmed');
+      store.recordSymposiumAdmission({
+        admissionId: seat.id,
+        sessionId: 'chat',
+        seatId: seat.id,
+        membershipGeneration: 1,
+        decision: 'admitted',
+        reason: null,
+        idempotencyKey: seat.id,
+        configRevision: 1,
+        provider: seat.accountBinding!.provider,
+        accountId: seat.accountBinding!.accountId,
+        model: seat.model,
+        accountProfileRevision: seat.accountBinding!.profileRevision,
+        isolationDomainId: seat.isolationRequest!.trustDomainId,
+        isolationDomainRevision: seat.isolationRequest!.revision,
+        decidedAt: 1,
+      });
+    }
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 1,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Retire original writer',
+      idempotencyKey: 'transfer',
+    };
+    return { store, input };
+  }
+  it('moves routing ownership without promoting read-only authority and permits normal old-writer cleanup', () => {
+    const { store, input } = fixture();
+    const next = store.transferSymposiumAnchor(input);
+    expect(next).toMatchObject({ revision: 2, anchorSeatId: 'reviewer' });
+    expect(next.seats).toEqual(config.seats);
+    expect(store.getSession('chat')!.accountBinding).toEqual(config.seats[1].accountBinding);
+    expect(store.transferSymposiumAnchor(input)).toEqual(next);
+    expect(() => store.transferSymposiumAnchor({ ...input, reason: 'changed' })).toThrow(
+      /idempotency/,
+    );
+    const removed = store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'remove',
+      expectedGeneration: 1,
+      configRevision: 2,
+      actor: 'operator',
+      reason: 'retire',
+      idempotencyKey: 'remove',
+      occurredAt: 2,
+    });
+    expect(removed).toMatchObject({ state: 'removed', reconciliation: 'pending' });
+    expect(store.getSymposiumMembershipHistory('chat', 'builder')).toHaveLength(2);
+    expect(() =>
+      store.transitionSymposiumMembership({
+        sessionId: 'chat',
+        seatId: 'reviewer',
+        action: 'remove',
+        expectedGeneration: 1,
+        configRevision: 2,
+        actor: 'operator',
+        reason: 'retire',
+        idempotencyKey: 'remove-reviewer',
+        occurredAt: 3,
+      }),
+    ).toThrow(/anchor/);
+  });
+  it('retains the exact transfer receipt and ownership for another store connection', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-primary-transfer-'));
+    dirs.push(dir);
+    const path = join(dir, 'events.db');
+    const { store, input } = fixture(path);
+    const transferred = store.transferSymposiumAnchor(input);
+    const reopened = open(path);
+    expect(reopened.transferSymposiumAnchor(input)).toEqual(transferred);
+    expect(reopened.getSession('chat')!.accountBinding).toEqual(config.seats[1].accountBinding);
+    expect(reopened.getSymposiumMembershipHistory('chat')).toHaveLength(2);
+  });
+  it('rejects stale revision and generation without changing account ownership', () => {
+    const { store, input } = fixture();
+    expect(() => store.transferSymposiumAnchor({ ...input, expectedRevision: 0 })).toThrow(/stale/);
+    expect(() => store.transferSymposiumAnchor({ ...input, expectedGeneration: 2 })).toThrow(
+      /admitted/,
+    );
+    expect(store.getSession('chat')!.accountBinding).toEqual(config.seats[0].accountBinding);
+  });
+  it('waits for physical seat lifecycle reconciliation without clearing its fence', () => {
+    const { store, input } = fixture();
+    expect(store.claimSymposiumSeatLifecycle('chat', 'builder', 'physical-operation')).toBe(true);
+    expect(() => store.transferSymposiumAnchor(input)).toThrow(/lifecycle/);
+    store.releaseSymposiumSeatLifecycle('chat', 'builder', 'physical-operation');
+    expect(store.transferSymposiumAnchor(input)).toMatchObject({ anchorSeatId: 'reviewer' });
+  });
+  it('requires selected primary to be active and reconciled', () => {
+    const { store, input } = fixture();
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'reviewer',
+      action: 'suspend',
+      expectedGeneration: 1,
+      configRevision: 1,
+      actor: 'operator',
+      reason: 'suspend',
+      idempotencyKey: 'suspend',
+      occurredAt: 2,
+    });
+    expect(() => store.transferSymposiumAnchor(input)).toThrow(/admitted/);
+  });
+});

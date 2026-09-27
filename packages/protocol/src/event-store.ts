@@ -780,6 +780,11 @@ export class EventStore {
         db.exec('ALTER TABLE events ADD COLUMN symposium_provenance TEXT');
       }
       db.exec(`
+        CREATE TABLE IF NOT EXISTS symposium_anchor_transfers (
+          session_id TEXT NOT NULL, idempotency_key TEXT NOT NULL,
+          request TEXT NOT NULL, config TEXT NOT NULL, occurred_at INTEGER NOT NULL,
+          PRIMARY KEY(session_id, idempotency_key)
+        );
         CREATE TABLE IF NOT EXISTS symposium_session_allocations (
           idempotency_key TEXT PRIMARY KEY,
           request_fingerprint TEXT NOT NULL,
@@ -2096,6 +2101,96 @@ export class EventStore {
         throw new Error('Symposium configuration revision must increase');
       }
       return config;
+    }).immediate();
+  }
+
+  /** Explicit routing ownership change. Seat authority, grants, runtime identity and
+   * artifact leases are deliberately unchanged; old writer removal uses normal cleanup. */
+  transferSymposiumAnchor(input: {
+    sessionId: string;
+    fromSeatId: string;
+    toSeatId: string;
+    expectedRevision: number;
+    expectedGeneration: number;
+    actor: string;
+    reason: string;
+    idempotencyKey: string;
+  }): SymposiumConfig {
+    return this.db!.transaction(() => {
+      const request = JSON.stringify(input);
+      const prior = this.db!.prepare(
+        'SELECT request, config FROM symposium_anchor_transfers WHERE session_id=? AND idempotency_key=?',
+      ).get(input.sessionId, input.idempotencyKey) as
+        { request: string; config: string } | undefined;
+      const current = this.getActiveSymposiumConfig(input.sessionId);
+      if (prior) {
+        if (prior.request !== request) throw new Error('Anchor transfer idempotency conflict');
+        const result = SymposiumConfigSchema.parse(JSON.parse(prior.config));
+        if (current.revision !== result.revision)
+          throw new Error('Anchor transfer receipt has been superseded');
+        return result;
+      }
+      if (
+        current.version !== 2 ||
+        current.revision !== input.expectedRevision ||
+        current.anchorSeatId !== input.fromSeatId ||
+        input.fromSeatId === input.toSeatId
+      )
+        throw new Error('Anchor transfer configuration is stale or invalid');
+      const selected = current.seats.find((seat) => seat.id === input.toSeatId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.toSeatId);
+      const admission = this.getLatestSymposiumAdmission(
+        input.sessionId,
+        input.toSeatId,
+        current.revision,
+      );
+      if (
+        !selected?.accountBinding ||
+        member?.state !== 'active' ||
+        member.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'confirmed' ||
+        admission?.decision !== 'admitted' ||
+        admission.membershipGeneration !== member.generation
+      )
+        throw new Error('Select a current admitted and reconciled primary seat');
+      for (const seat of current.seats) {
+        const membership = this.getLatestSymposiumMembership(input.sessionId, seat.id);
+        if (membership && membership.reconciliation !== 'confirmed')
+          throw new Error('Membership cleanup must finish before primary transfer');
+        if (this.getUnsettledSymposiumSeatExecutions(input.sessionId, seat.id).length)
+          throw new Error('Execution cleanup must finish before primary transfer');
+      }
+      const lifecycle = this.db!.prepare(
+        'SELECT 1 FROM symposium_seat_lifecycle_fences WHERE session_id=? LIMIT 1',
+      ).get(input.sessionId);
+      if (lifecycle)
+        throw new Error('Seat lifecycle operation must finish before primary transfer');
+      const queued = this.db!.prepare(
+        "SELECT 1 FROM symposium_deliveries WHERE session_id=? AND status IN ('awaiting_intervention','ready','delivering') LIMIT 1",
+      ).get(input.sessionId);
+      if (queued) throw new Error('Finish or cancel queued deliveries before primary transfer');
+      const next = SymposiumConfigSchema.parse({
+        ...current,
+        revision: current.revision + 1,
+        anchorSeatId: input.toSeatId,
+      });
+      this.db!.prepare(
+        `UPDATE sessions SET symposium_config=?, symposium_revision=?, account_binding=?,
+         updated_at=unixepoch('now', 'subsec')*1000 WHERE session_id=?`,
+      ).run(
+        JSON.stringify(next),
+        next.revision,
+        JSON.stringify(selected.accountBinding),
+        input.sessionId,
+      );
+      this.db!.prepare('INSERT INTO symposium_anchor_transfers VALUES (?,?,?,?,?)').run(
+        input.sessionId,
+        input.idempotencyKey,
+        request,
+        JSON.stringify(next),
+        Date.now(),
+      );
+      return next;
     }).immediate();
   }
 

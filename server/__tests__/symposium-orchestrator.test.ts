@@ -377,6 +377,155 @@ describe('SymposiumOrchestrator', () => {
     return architect;
   }
 
+  it('transfers an idle primary, rechecks all retained admissions, then cleans the original writer', async () => {
+    await prepareConcurrentSeats();
+    const stopSeat = vi.fn(async () => {});
+    const admitSeat = vi.fn(({ seatId }: { seatId: string }) => {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `refresh-${seatId}`,
+      });
+    });
+    orchestrator = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      admitSeat,
+      stopSeat,
+      reconcileProviders: async () => {},
+    });
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Replace writer',
+      idempotencyKey: 'transfer',
+    };
+    const next = orchestrator.transferPrimary(input);
+    expect(next).toMatchObject({ revision: 5, anchorSeatId: 'reviewer' });
+    expect(admitSeat).toHaveBeenCalledTimes(3);
+    expect(next.seats[1].authorityGrant!.filesystem).toBe('read');
+    expect(stopSeat).not.toHaveBeenCalled();
+    expect(
+      await orchestrator.transitionMembership({
+        sessionId: 'chat',
+        seatId: 'builder',
+        action: 'remove',
+        expectedGeneration: 1,
+        configRevision: 5,
+        actor: 'operator',
+        reason: 'Replace writer',
+        idempotencyKey: 'remove',
+      }),
+    ).toMatchObject({ state: 'removed', reconciliation: 'confirmed' });
+    expect(stopSeat).toHaveBeenCalledWith({ sessionId: 'chat', seatId: 'builder', generation: 2 });
+  });
+
+  it('rejects primary transfer while a queued delivery exists', async () => {
+    await prepareConcurrentSeats();
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Replace writer',
+      idempotencyKey: 'transfer',
+    };
+    const delivery = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'queued',
+      idempotencyKey: 'queued',
+    });
+    expect(() => store.transferSymposiumAnchor(input)).toThrow(/queued/);
+    await orchestrator.cancel({
+      deliveryId: delivery.deliveryId,
+      idempotencyKey: 'cancel-transfer-queue',
+    });
+    expect(store.transferSymposiumAnchor(input)).toMatchObject({ anchorSeatId: 'reviewer' });
+  });
+
+  it('does not treat a cancelled queue as physical execution cleanup proof', async () => {
+    await prepareConcurrentSeats();
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    builder.execute = vi.fn(async (input: SymposiumSeatExecution) => {
+      builder.calls.push(input);
+      await waiting;
+      return { providerThreadId: 'old-writer-thread', content: 'late completion' };
+    });
+    builder.cancel = vi.fn(async () => {
+      throw new Error('Physical cleanup unavailable');
+    });
+    const deliveryId = readyFor(['builder'], 'running-before-transfer');
+    const running = orchestrator.deliver(deliveryId);
+    await vi.waitFor(() => expect(builder.calls).toHaveLength(1));
+    await orchestrator.cancel({ deliveryId, idempotencyKey: 'cancel-running' });
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Replace writer',
+      idempotencyKey: 'transfer',
+    };
+    expect(() => store.transferSymposiumAnchor(input)).toThrow(/Execution cleanup/);
+    expect(store.getActiveSymposiumConfig('chat')).toMatchObject({
+      anchorSeatId: 'builder',
+      revision: 4,
+    });
+    release();
+    await running;
+    expect(store.transferSymposiumAnchor(input)).toMatchObject({
+      anchorSeatId: 'reviewer',
+      revision: 5,
+    });
+  });
+
+  it('leaves stale admissions fenced when post-transfer host verification fails and permits exact retry', async () => {
+    await prepareConcurrentSeats();
+    const admitSeat = vi.fn((_input: { seatId: string }): void => {
+      throw new Error('Host unavailable');
+    });
+    orchestrator = new SymposiumOrchestrator({ store, executors: {}, admitSeat });
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Replace writer',
+      idempotencyKey: 'transfer',
+    };
+    expect(() => orchestrator.transferPrimary(input)).toThrow(/transfer saved.*rechecking/);
+    expect(store.getActiveSymposiumConfig('chat').revision).toBe(5);
+    expect(store.getLatestSymposiumAdmission('chat', 'reviewer', 5)).toBeUndefined();
+    admitSeat.mockImplementation(({ seatId }: { seatId: string }) => {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `retry-${seatId}`,
+      });
+    });
+    expect(orchestrator.transferPrimary(input)).toMatchObject({
+      revision: 5,
+      anchorSeatId: 'reviewer',
+    });
+  });
+
   function readyFor(recipients: string[], key: string) {
     const delivery = orchestrator.stageDelivery({
       sessionId: 'chat',

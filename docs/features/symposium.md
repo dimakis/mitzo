@@ -125,15 +125,24 @@ authority after login.
 
 ## Durable delivery, attribution, and recovery
 
-Version-2 configuration supports one stable anchor and a bounded active roster
+Version-2 configuration supports one explicitly selected anchor and a bounded active roster
 of up to eight seats. Membership generations are append-only. Suspension or
 removal fences queued and running work before cleanup; replacement creates a new
 identity. Historical seat metadata remains available to interpret the ledger.
 
-The primary (anchor) seat cannot currently be suspended, removed, or rebound.
-Director controls explain this restriction instead of offering rejected actions;
-other seats retain their lifecycle controls. Primary-writer removal remains an
-acceptance gap: removing a non-anchor seat does not demonstrate that capability.
+Use **Transfer primary seat** to explicitly select an already admitted, reconciled
+seat before suspending, removing, or rebinding the original primary. Transfer
+requires an idle queue and confirmed execution and membership cleanup. It changes
+conversation routing and its account binding atomically, preserving all seat
+identities, grants, physical mounts, and membership history. A read-only reviewer
+stays read-only. Retained admissions are reverified against the new revision.
+
+Then remove the old writer through normal cleanup and explicitly select a new
+writer profile/account/model. Replacement admission still waits for confirmed
+cleanup and exclusive artifact-lease enforcement. This path is mocked-tested;
+physical primary transfer and writer replacement remain live acceptance gaps.
+Existing review records remain historical: transfer alone does not prove a new
+review or approval, and writer removal invalidates its membership/lease binding.
 
 Every recipient retains immutable configuration, account/profile, context/tool
 grant, and membership provenance. Provider acceptance receipts pin the exact

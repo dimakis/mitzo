@@ -97,6 +97,15 @@ const ReviseSeatBody = z.strictObject({
   sharedBoundaryAcknowledged: z.literal(true),
   crossAccountConfirmation: z.literal('ADD CROSS-ACCOUNT SEAT').optional(),
 });
+const TransferPrimaryBody = z.strictObject({
+  fromSeatId: z.string().trim().min(1),
+  toSeatId: z.string().trim().min(1),
+  expectedRevision: z.number().int().positive(),
+  expectedGeneration: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(1000),
+  idempotencyKey: z.string().trim().min(1).max(200),
+  confirmation: z.literal('TRANSFER PRIMARY SEAT'),
+});
 const PerspectiveQuery = z.strictObject({
   kind: z.enum(['all', 'seat']),
   seatId: z.string().trim().min(1).optional(),
@@ -673,6 +682,46 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res
         .status(409)
         .json({ error: error instanceof Error ? error.message : 'Admission refresh failed' });
+    }
+  });
+
+  router.post('/primary/transfer', (req, res) => {
+    const parsed = TransferPrimaryBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Explicit primary transfer confirmation is required' });
+      return;
+    }
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const runtime = deps.getRuntime(sessionId);
+    if (!runtime) {
+      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      return;
+    }
+    const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;
+    const input = parsed.data;
+    try {
+      res.json(
+        runtime.transferPrimary({
+          fromSeatId: input.fromSeatId,
+          toSeatId: input.toSeatId,
+          expectedRevision: input.expectedRevision,
+          expectedGeneration: input.expectedGeneration,
+          reason: input.reason,
+          idempotencyKey: input.idempotencyKey,
+          sessionId,
+          actor: actorId ? `operator:${actorId}` : 'internal-operator',
+        }),
+      );
+    } catch (error) {
+      res
+        .status(409)
+        .json({
+          error: error instanceof Error ? error.message : 'Primary transfer requires recovery',
+        });
     }
   });
 

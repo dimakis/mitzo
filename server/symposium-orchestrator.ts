@@ -137,6 +137,18 @@ export class SymposiumOrchestrator {
     return active.map((member) => member.seatId);
   }
 
+  /** Transfer only the routing anchor; retained seat authority is reverified. */
+  transferPrimary(input: Parameters<EventStore['transferSymposiumAnchor']>[0]): SymposiumConfig {
+    if (!this.admitSeat) throw new Error('Verified host admission is unavailable');
+    const config = this.store.transferSymposiumAnchor(input);
+    try {
+      this.refreshActiveAdmissions(input.sessionId, config.revision);
+    } catch {
+      throw new Error('Primary transfer saved; retained seat admissions require rechecking');
+    }
+    return config;
+  }
+
   /** Persist revocation and fence dispatch before requesting runtime cleanup. */
   async transitionMembership(input: {
     sessionId: string;

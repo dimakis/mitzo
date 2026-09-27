@@ -599,5 +599,5 @@ Before external seat creation, local artifact and seat intent writes complete be
 
 A final seat or custody rejection from the retained workspace fence may undo local creation intent only before the fence attempts its durable uncertainty write. Failure during that write remains quarantined.
 
-Symposium director controls identify the current primary-seat lifecycle restriction;
-primary-writer removal remains unsupported. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
+Symposium director controls support explicit primary routing transfer to an admitted seat
+without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).

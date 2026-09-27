@@ -73,6 +73,7 @@ function fixture(runtimeAvailable = false) {
     setSymposiumConfig: vi.fn((_id: string, next: unknown) => next),
   };
   const orchestrator = {
+    transferPrimary: vi.fn(() => ({ ...config, revision: 5, anchorSeatId: 'reviewer' })),
     refreshActiveAdmissions: vi.fn(() => ['architect']),
     transitionMembership: vi.fn(async () => ({
       ...membership,
@@ -971,4 +972,29 @@ it('distinguishes rejected draft validation from an entered store mutation', asy
     .send({ expectedRevision: 4, config: next });
   expect(uncertain.status).toBe(409);
   expect(uncertain.body).not.toHaveProperty('seatMutation');
+});
+
+it('requires explicit primary transfer confirmation and binds operator identity', async () => {
+  const { app, orchestrator } = fixture(true);
+  const input = {
+    fromSeatId: 'architect',
+    toSeatId: 'reviewer',
+    expectedRevision: 4,
+    expectedGeneration: 2,
+    reason: 'Retire original writer',
+    idempotencyKey: 'transfer',
+  };
+  expect(
+    (await request(app).post('/api/sessions/chat/symposium/primary/transfer').send(input)).status,
+  ).toBe(400);
+  expect(orchestrator.transferPrimary).not.toHaveBeenCalled();
+  const result = await request(app)
+    .post('/api/sessions/chat/symposium/primary/transfer')
+    .send({ ...input, confirmation: 'TRANSFER PRIMARY SEAT' });
+  expect(result.status).toBe(200);
+  expect(orchestrator.transferPrimary).toHaveBeenCalledWith({
+    ...input,
+    sessionId: 'chat',
+    actor: 'operator:operator-1',
+  });
 });

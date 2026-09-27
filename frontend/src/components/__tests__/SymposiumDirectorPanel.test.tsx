@@ -433,7 +433,9 @@ it('keeps primary lifecycle controls unavailable while reviewer removal remains 
   expect(primary.queryByRole('button', { name: 'Suspend' })).toBeNull();
   expect(primary.queryByRole('button', { name: 'Remove' })).toBeNull();
   expect(
-    primary.getByText('The primary seat cannot yet be suspended, removed, or rebound.'),
+    primary.getByText(
+      'Transfer primary ownership before suspending, removing, or rebinding this seat.',
+    ),
   ).toBeTruthy();
   expect(reviewer.getByRole('button', { name: 'Suspend' }).hasAttribute('disabled')).toBe(false);
   await userEvent.click(reviewer.getByRole('button', { name: 'Remove' }));
@@ -465,4 +467,52 @@ it('retains explicit admission for an anchor without membership after activation
       body: expect.stringContaining('"seatId":"architect","action":"admit"'),
     }),
   );
+});
+
+it('requires an explicit admitted primary selection and confirmation without changing seat permissions', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response(status(true)));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  const action = await screen.findByRole('button', { name: 'Transfer primary seat' });
+  expect(action.hasAttribute('disabled')).toBe(true);
+  await userEvent.selectOptions(screen.getByLabelText('New primary seat'), 'reviewer');
+  expect(action.hasAttribute('disabled')).toBe(true);
+  await userEvent.type(
+    screen.getByLabelText('Type TRANSFER PRIMARY SEAT to confirm'),
+    'TRANSFER PRIMARY SEAT',
+  );
+  await userEvent.click(action);
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([path]) => String(path).endsWith('/primary/transfer'))!;
+  expect(JSON.parse(call[1]!.body as string)).toMatchObject({
+    fromSeatId: 'architect',
+    toSeatId: 'reviewer',
+    expectedRevision: 4,
+    expectedGeneration: 1,
+    confirmation: 'TRANSFER PRIMARY SEAT',
+  });
+  expect(JSON.parse(call[1]!.body as string)).not.toHaveProperty('authorityGrant');
+});
+
+it('provides admission recovery after a saved transfer without silently moving primary again', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      ...status(false),
+      runtimeAvailable: true,
+      config: { ...config, revision: 5, anchorSeatId: 'reviewer' },
+    }),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Recheck retained seat admissions' }),
+  );
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([path]) => String(path).endsWith('/admissions/refresh'))!;
+  expect(JSON.parse(call[1]!.body as string)).toEqual({ expectedRevision: 5 });
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/primary/transfer')),
+  ).toBe(false);
 });
