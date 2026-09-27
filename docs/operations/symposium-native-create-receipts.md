@@ -45,3 +45,16 @@ Unknown creates remain fenced. The previous live fixture has no terminal receipt
 and cannot be upgraded by this code. Restart or custody loss does not restore an
 incomplete seat's cleanup authority from its durable metadata. No blind retries,
 credential copying, or metadata clearing are introduced.
+
+### Recipient and operation-key isolation
+
+Failed-seat cleanup and ordinary seat removal cancel only that seat's recipients.
+Other pending recipients retain their queue state; other executing recipients retain
+claims and may finish normally. A delivery settles when its remaining recipients
+finish, while cancelled recipients cannot dispatch again. A cancelled executing seat
+still retains an unsettled physical attempt until terminal cleanup is proved.
+
+The cleanup fence reserves its operation key in the same SQLite transaction used by
+membership transitions. Existing membership keys and other recovery keys are rejected
+before physical cleanup, and another seat cannot consume a pending recovery key.
+Exact retries reuse the original request and completed membership result.
