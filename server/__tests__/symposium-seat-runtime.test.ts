@@ -3105,3 +3105,140 @@ describe('mixed personal subscription and work seat isolation', () => {
     ).toThrow('physical provider type');
   });
 });
+
+it('retains the recovery claim when the production stop path times out before a late remote stop', async () => {
+  const { EventStore } = await import('../event-store.js');
+  const root = mkdtempSync(join(tmpdir(), 'cleanup-timeout-'));
+  const store = new EventStore(join(root, 'events.sqlite'));
+  const personal = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal',
+        provider: 'openai-codex',
+        nativeAuth: 'sandbox-chatgpt',
+        email: 'personal@example.test',
+        planType: 'plus',
+        sandboxProvider: 'codex-personal',
+        sandboxProviderId: 'codex-object',
+        sandboxProviderType: 'codex',
+        models: [{ id: 'luna', label: 'Luna' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const selectedSeat = {
+    ...seat,
+    model: 'luna',
+    accountBinding: AccountBindingSchema.parse(personal.resolve('personal', 'luna')),
+  };
+  let remoteStopped = false;
+  const stop = vi.fn(async () => {
+    throw new Error('CLI timeout after gateway dispatch');
+  });
+  try {
+    store.upsertSession({ sessionId: 'symposium', accountBinding: selectedSeat.accountBinding });
+    store.setSymposiumConfig('symposium', { ...config, seats: [selectedSeat] });
+    store.transitionSymposiumMembership({
+      sessionId: 'symposium',
+      seatId: 'reviewer',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'initial',
+      idempotencyKey: 'initial',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('symposium', 'reviewer', 1, 'confirmed');
+    store.recordSymposiumAdmission({
+      ...admission,
+      membershipGeneration: 1,
+      provider: 'openai-codex',
+      accountId: 'personal',
+      model: 'luna',
+      accountProfileRevision: selectedSeat.accountBinding.profileRevision,
+    });
+    const runtime = createSymposiumSessionRuntime({
+      sessionId: 'symposium',
+      store,
+      profiles: personal,
+      hostGrants,
+      codexStore: {} as never,
+      recordAccepted: () => true,
+      verifiedSubscriptionControllerCommand: ['/usr/local/bin/symposium-subscription-app-server'],
+      verifySubscriptionPrivateAuth: async () => {},
+      resolveProviderIdentity: (name, id) => ({ name, id, type: 'codex', workspace: 'default' }),
+      runtimeConfig: {
+        cli: 'openshell',
+        cliContract: 'v0.1',
+        image: 'image',
+        policy: '/policy',
+        seed: '/seed',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        workspace: 'default',
+        gateway: 'openshell',
+        gatewayInsecure: false,
+        createDetached: true,
+        sandboxIdLength: 13,
+        workdir: '/sandbox/workspaces/mgmt',
+        webSearch: 'disabled',
+      },
+      readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      perSeatSandboxVerified: true,
+      runSandboxCreation: async (_verify, operation) =>
+        operation(
+          () => {},
+          () => {},
+        ),
+      managerFactory: (configuration) => ({
+        ensure: async (runtimeId) => {
+          configuration.beforeSandboxCreate!();
+          configuration.onSandboxCreateSettled!({
+            sandboxName: sandboxNameForConversation(runtimeId, 13),
+            sandboxId: 'terminal-id',
+            workspace: 'default',
+            owner: 'mock-owner',
+            accountProvider: 'codex-personal',
+          });
+          configuration.onSandboxCreationPhase?.('upload');
+          throw new Error('upload failed');
+        },
+        inspect: async () => ({ id: 'terminal-id', phase: remoteStopped ? 'Stopped' : 'Ready' }),
+        inspectReserved: async () => undefined,
+        stop,
+      }),
+    });
+    await expect(
+      runtime.owner.ensure('symposium', 'reviewer', new AbortController().signal),
+    ).rejects.toThrow('upload failed');
+    const input = {
+      sessionId: 'symposium',
+      seatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator:old',
+      idempotencyKey: 'cleanup',
+    };
+    await expect(runtime.orchestrator.recoverCreation(input)).rejects.toThrow('cleanup incomplete');
+    expect(stop).toHaveBeenCalledOnce();
+    remoteStopped = true; // The gateway finishes after the local CLI timeout.
+    await expect(runtime.orchestrator.recoverCreation(input)).rejects.toThrow(/execut/i);
+    const auth = store.getSymposiumCreationRecoveryAuthorization(input)!;
+    await expect(
+      runtime.orchestrator.reauthorizeCreationRecovery({
+        ...input,
+        actor: 'operator:new',
+        idempotencyKey: 'handoff',
+        operationId: auth.operationId,
+        expectedAuthorizationRevision: 0,
+      }),
+    ).rejects.toThrow(/execut/i);
+    expect(store.getSymposiumSeatSandbox('symposium', 'reviewer', 1)?.state).toBe('reserved');
+    expect(stop).toHaveBeenCalledOnce();
+  } finally {
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
