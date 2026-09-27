@@ -12,7 +12,8 @@ path observed in the sandbox. The only accepted model is
 `claude-haiku-4-5@20251001`. Add the separately reviewed filesystem policy and
 write the result as the sandbox's initial policy before attaching the provider
 or launching Claude. The generator allows only POST to that project's two
-Haiku `rawPredict` and `streamRawPredict` paths on the exact regional host.
+Haiku `rawPredict` and `streamRawPredict` paths on the exact regional host, or `aiplatform.googleapis.com` when the selected
+region is explicitly `global` (the path still uses `/locations/global`).
 The provider's opaque bearer placeholder resolves only inside the bound
 endpoint paths. The policy names the exact `claude` executable; verify that
 the sandbox image runs a native executable at that path and that OpenShell
@@ -26,3 +27,25 @@ not suppress the sandbox policy. Test denied alternate project, region, model,
 method, host, and process paths without credentials before making the approved
 Haiku model call. No profile import, sandbox mutation, or model call is made by
 these files.
+
+
+## Global Haiku selection evidence (27 September 2026)
+
+[Google's endpoint documentation](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models)
+lists Haiku 4.5 for the global endpoint and specifies the unprefixed host above.
+[Anthropic's model table](https://platform.claude.com/docs/en/models/overview)
+identifies `claude-haiku-4-5@20251001` as its Google Cloud model ID.
+[Google's Haiku page](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/haiku-4-5)
+also lists the undated `claude-haiku-4-5`. This generator deliberately requires
+an explicit dated selection; it never translates a saved catalog alias, changes
+a region, or grants permission for both identifiers. A fresh test profile must
+select the dated ID separately from its display label/catalog alias. Existing
+profiles are not changed. Announce the exact selected account and model before
+an authorized inference test.
+
+The policy generator is offline groundwork, not owned-host admission. The
+current production attestation still excludes Vertex. Provider custody,
+selected-credential identity/IAM, effective endpointless profile, native binary
+attribution, and negative cross-account/filesystem checks remain independent
+requirements. Global availability in documentation does not establish access
+for a particular project or credential.
