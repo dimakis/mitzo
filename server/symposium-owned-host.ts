@@ -183,7 +183,16 @@ export async function createOwnedSymposiumHost(
     };
     native = initializeSymposiumNativeHost(join(gateway.stateDirectory, 'native-attempts'));
     const podmanEnv = { ...options.podman.environment };
-    const podmanText = async (args: readonly string[]): Promise<string> => {
+    const podmanText = async (
+      args: readonly string[],
+      maxOutputBytes = 2 * 1024 * 1024,
+    ): Promise<string> => {
+      if (
+        !Number.isSafeInteger(maxOutputBytes) ||
+        maxOutputBytes < 1 ||
+        maxOutputBytes > 12 * 1024 * 1024
+      )
+        throw new Error('Owned Podman output bound is invalid');
       custody();
       const text = podmanCommand
         ? await podmanCommand(args)
@@ -191,7 +200,7 @@ export async function createOwnedSymposiumHost(
             execFile(
               options.podman.executable,
               [...args],
-              { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
+              { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: maxOutputBytes },
               (error, stdout) => {
                 if (error) reject(new Error('Owned Podman operation failed'));
                 else resolve(stdout);
@@ -587,6 +596,38 @@ export async function createOwnedSymposiumHost(
       currentProfiles,
       physical,
       attemptRegistry: native.registry,
+      async inspectCompletedArtifact(
+        input: Parameters<PhysicalArtifactSealer['inspectCompletedArtifact']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.inspectCompletedArtifact(input, signal));
+      },
+      async exportCompletedArtifactBundle(
+        input: Parameters<PhysicalArtifactSealer['exportCompletedArtifactBundle']>[0],
+        signal: AbortSignal,
+      ) {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        if (!(options.facts instanceof EventStore))
+          throw new Error('Artifact sealing requires the retained event store');
+        artifactSealer ??= new PhysicalArtifactSealer({
+          store: options.facts,
+          leaseHost: leaseHost!,
+          gateway,
+          attemptRegistry: native!.registry,
+          runtimeConfig,
+        });
+        return track(() => artifactSealer!.exportCompletedArtifactBundle(input, signal));
+      },
       async requireCompletedArtifactSeal(fenceId: string, signal: AbortSignal) {
         if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
         if (!(options.facts instanceof EventStore))

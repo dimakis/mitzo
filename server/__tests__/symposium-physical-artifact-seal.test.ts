@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { artifactVolumeLabels } from '../symposium-session-artifacts.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -136,6 +137,18 @@ async function fixture() {
   let phase = 'Ready';
   let verifierExists = false;
   const verifierId = 'd'.repeat(64);
+  let helperId = verifierId;
+  let exportJob: string | undefined;
+  let exportOptions: Record<string, unknown> | undefined;
+  const proof = {
+    version: 1,
+    commit: 'a'.repeat(40),
+    tree: 'b'.repeat(40),
+    entries: 1,
+    bytes: 5,
+    manifestDigest: 'c'.repeat(64),
+    committedTreeDigest: 'f'.repeat(64),
+  };
   const state = { failCreate: false, failDelete: false, extraMount: false, uncertain: false };
   const gateway = {
     workspace: 'workspace',
@@ -158,14 +171,17 @@ async function fixture() {
       ]);
     if (args[0] === 'ps')
       return JSON.stringify(
-        verifierExists ? [{ Id: verifierId }] : state.extraMount ? [{ Id: 'e'.repeat(64) }] : [],
+        verifierExists ? [{ Id: helperId }] : state.extraMount ? [{ Id: 'e'.repeat(64) }] : [],
       );
     if (args[0] === 'inspect')
       return JSON.stringify([
         {
           Id: args[1],
           ImageName: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
-          Config: { User: 'sandbox' },
+          Config: {
+            User: 'sandbox',
+            Labels: exportJob ? { 'mitzo.artifact-export-job': exportJob } : {},
+          },
           HostConfig: { NetworkMode: 'none', ReadonlyRootfs: true, Privileged: false },
           State: { Running: false, ExitCode: 0 },
           Mounts: [
@@ -181,18 +197,45 @@ async function fixture() {
     if (args[0] === 'create') {
       if (state.failCreate) throw new Error('create uncertain');
       verifierExists = true;
-      return verifierId;
+      if (args.includes('--label')) {
+        exportJob = args[args.indexOf('--label') + 1].split('=')[1];
+        exportOptions = JSON.parse(args.at(-1)!);
+        helperId = 'e'.repeat(64);
+      } else {
+        helperId = verifierId;
+        exportOptions = undefined;
+        exportJob = undefined;
+      }
+      return helperId;
     }
-    if (args[0] === 'start')
-      return JSON.stringify({
-        version: 1,
-        commit: 'a'.repeat(40),
-        tree: 'b'.repeat(40),
-        entries: 1,
-        bytes: 5,
-        manifestDigest: 'c'.repeat(64),
-        committedTreeDigest: 'f'.repeat(64),
-      });
+    if (args[0] === 'start') {
+      if (exportOptions?.kind === 'inspect')
+        return JSON.stringify({
+          proof,
+          inspection: {
+            canonicalRepositoryPath: SYMPOSIUM_ARTIFACT_TARGET,
+            status: 'clean',
+            sourceBranch: 'feature',
+            sourceOid: proof.commit,
+            defaultBranch: 'main',
+            originUrl: 'https://github.com/example/repo',
+            commitsAhead: 1,
+            changedFiles: ['file'],
+            sourceBranchProtected: false,
+            symlinkFree: true,
+          },
+        });
+      if (exportOptions?.kind === 'bundle') {
+        const bundle = Buffer.from('synthetic bounded bundle');
+        return JSON.stringify({
+          proof,
+          bundle: bundle.toString('base64'),
+          bytes: bundle.length,
+          bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+        });
+      }
+      return JSON.stringify(proof);
+    }
     if (args[0] === 'rm') {
       if (state.failDelete) throw new Error('delete uncertain');
       verifierExists = false;
@@ -395,4 +438,71 @@ it('blocks a lease with no retained sandbox generation instead of treating inven
     /orphan or uncertain/,
   );
   expect(f.command.mock.calls.some(([args]) => args[0] === 'create')).toBe(false);
+});
+
+it('exports only through a fresh completed seal and retains exact helper cleanup records', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const selected = { fenceId: receipt.fenceId, operationId: 'publication-1', baseBranch: 'main' };
+  expect(
+    await f.sealer.inspectCompletedArtifact(selected, new AbortController().signal),
+  ).toMatchObject({ sourceOid: receipt.git.commit, status: 'clean' });
+  expect(
+    (
+      await f.sealer.exportCompletedArtifactBundle(
+        { ...selected, sourceBranch: 'feature', sourceOid: receipt.git.commit, maxBytes: 1024 },
+        new AbortController().signal,
+      )
+    ).toString(),
+  ).toBe('synthetic bounded bundle');
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,container_id FROM symposium_seal_export_jobs').all()).toEqual([
+    { state: 'complete', container_id: 'e'.repeat(64) },
+    { state: 'complete', container_id: 'e'.repeat(64) },
+  ]);
+  db.close();
+  expect(() => f.store.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
+});
+it('retains uncertain export create intent and blocks another export without blind retry', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  f.state.failCreate = true;
+  const input = { fenceId: receipt.fenceId, operationId: 'publication-1', baseBranch: 'main' };
+  await expect(
+    f.sealer.inspectCompletedArtifact(input, new AbortController().signal),
+  ).rejects.toThrow(/export failed/);
+  f.state.failCreate = false;
+  await expect(
+    f.sealer.inspectCompletedArtifact(input, new AbortController().signal),
+  ).rejects.toThrow(/helper reconciliation/);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,container_id FROM symposium_seal_export_jobs').get()).toEqual({
+    state: 'create_uncertain',
+    container_id: null,
+  });
+  db.close();
+});
+it('never returns a bundle if exact helper cleanup is uncertain', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  f.state.failDelete = true;
+  await expect(
+    f.sealer.exportCompletedArtifactBundle(
+      {
+        fenceId: receipt.fenceId,
+        operationId: 'publication-1',
+        baseBranch: 'main',
+        sourceBranch: 'feature',
+        sourceOid: receipt.git.commit,
+        maxBytes: 1024,
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow(/export failed/);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,container_id FROM symposium_seal_export_jobs').get()).toEqual({
+    state: 'terminal',
+    container_id: 'e'.repeat(64),
+  });
+  db.close();
 });

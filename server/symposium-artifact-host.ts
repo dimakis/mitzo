@@ -48,14 +48,16 @@ const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 /** One retained Podman command closure owns both admission inspection and verifier
  * operations. Snapshot callers cannot select a second engine/store/environment. */
 export class ArtifactPodmanContext {
-  constructor(private readonly command: (args: readonly string[]) => Promise<string>) {}
+  constructor(
+    private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>,
+  ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
     if (driver !== 'podman' || !safeName.test(name))
       throw new Error('Invalid artifact context inspection');
     return JSON.parse(await this.command(['volume', 'inspect', name]));
   }
-  verifierCommand(): (args: readonly string[]) => Promise<string> {
-    return (args) => this.command(args);
+  verifierCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
+    return (args, maxOutputBytes) => this.command(args, maxOutputBytes);
   }
 }
 
@@ -199,7 +201,7 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       throw new Error('Artifact snapshot gateway differs from retained lease host');
   }
 
-  snapshotCommand(): (args: readonly string[]) => Promise<string> {
+  snapshotCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
     if (!this.podmanContext)
       throw new Error('Artifact snapshot requires the lease host Podman context');
     return this.podmanContext.verifierCommand();

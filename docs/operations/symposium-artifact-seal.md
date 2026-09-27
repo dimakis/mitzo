@@ -110,3 +110,29 @@ sealed parent, with explicit fresh writer authority and parent revision/hash bin
 The parent retention and receipt remain immutable. After actual fix completion, the new
 generation must be drained and sealed before delta review. No automatic unseal, synthetic
 live writer, or reopened parent volume is provided here.
+
+## Local sealed export prerequisite
+
+The internal owned host exposes `inspectCompletedArtifact({fenceId, operationId,
+baseBranch}, signal)` and `exportCompletedArtifactBundle({fenceId, operationId,
+sourceBranch, baseBranch, sourceOid, maxBytes}, signal)`. Both require a fresh
+completed seal in the original session/custody epoch. They create a journaled,
+pinned, credential-free Podman helper with no network and a read-only source
+volume, recheck the complete Git proof, prove terminal exit and exact helper
+cleanup, then revalidate custody and the durable session snapshot. Unknown create
+outcomes and uncertain cleanup block subsequent export; no retry clears evidence.
+
+Inspection requires existing local origin base/default refs and a credential-free
+GitHub origin URL. It never fetches missing refs. Bundle output is bounded to at
+most 8 MiB, hash checked before the journal completes, and returned only after
+cleanup. The inspection's branch-protection placeholder is not policy authority;
+the eventual publication host must independently resolve protected/default branch
+policy and operator-selected GitHub authority. No live writer identity is invented.
+
+This increment is local, not an enabled review/publication route. Offline real-Git
+and mocked host-boundary tests cover inspection, bundle verification, size and
+identity rejection, unknown create and failed cleanup. Exact combined-source
+physical export remains pending. Existing earlier physical verifier evidence used
+an explicitly reported canonical-target projection and does not prove this new
+exporter. Child artifact generations will require a reviewed generation-scoped
+parent lookup; current snapshot checks intentionally remain strict.

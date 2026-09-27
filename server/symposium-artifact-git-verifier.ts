@@ -1,7 +1,7 @@
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 /** Pinned credential-free verifier code. Git only reads committed objects; it never
  * runs status/diff filters, hooks, a remote, or a caller-provided command. */
-export const ARTIFACT_GIT_VERIFIER = String.raw`
+export const ARTIFACT_GIT_VERIFIER_CORE = String.raw`
 import os, sys, stat, json, hashlib, subprocess
 root='${SYMPOSIUM_ARTIFACT_TARGET}'
 relative=sys.argv[1]
@@ -58,5 +58,8 @@ if actual!=tracked: raise ValueError('untracked working tree')
 manifest.sort(key=lambda x:x['path'].encode('utf-8'))
 tree_manifest=[{'mode':item['mode'],'oid':item['oid'],'path':item['path']} for item in manifest]
 tree_digest=hashlib.sha256(b'mitzo-committed-tree-v1\0'+json.dumps(tree_manifest,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode('utf-8')).hexdigest()
-print(json.dumps({'version':1,'commit':commit,'tree':tree,'entries':len(manifest),'bytes':total,'committedTreeDigest':tree_digest,'manifestDigest':hashlib.sha256(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()},sort_keys=True))
+proof={'version':1,'commit':commit,'tree':tree,'entries':len(manifest),'bytes':total,'committedTreeDigest':tree_digest,'manifestDigest':hashlib.sha256(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode()).hexdigest()}
 `;
+
+export const ARTIFACT_GIT_VERIFIER =
+  ARTIFACT_GIT_VERIFIER_CORE + '\nprint(json.dumps(proof,sort_keys=True))\n';

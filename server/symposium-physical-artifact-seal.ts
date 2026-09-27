@@ -1,3 +1,5 @@
+import { ARTIFACT_GIT_EXPORT } from './symposium-artifact-git-export.js';
+import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
@@ -64,9 +66,39 @@ export interface CompletedArtifactSeal {
 /** Concrete host-only operation. No request route installs it and no model runs here.
  * Stable pending locks never imply reconstructed custody on a new gateway lifetime.
  */
+const sealedInspectionSchema = z.strictObject({
+  canonicalRepositoryPath: z.string(),
+  status: z.literal('clean'),
+  sourceBranch: z.string(),
+  sourceOid: oid,
+  defaultBranch: z.string(),
+  originUrl: z.string(),
+  commitsAhead: z.number().int().nonnegative(),
+  changedFiles: z.array(z.string()).max(500),
+  sourceBranchProtected: z.literal(false),
+  symlinkFree: z.literal(true),
+});
+
+function parseSealedBundle(value: Record<string, unknown>, maxBytes: number): Buffer {
+  if (
+    typeof value.bundle !== 'string' ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value.bundle)
+  )
+    throw new Error('Sealed bundle encoding is invalid');
+  const bundle = Buffer.from(value.bundle, 'base64');
+  if (
+    !bundle.length ||
+    bundle.length > maxBytes ||
+    value.bytes !== bundle.length ||
+    value.bundleSha256 !== createHash('sha256').update(bundle).digest('hex')
+  )
+    throw new Error('Sealed bundle integrity changed');
+  return bundle;
+}
+
 export class PhysicalArtifactSealer {
   private readonly db: Database.Database;
-  private readonly command: (args: readonly string[]) => Promise<string>;
+  private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>;
   constructor(
     private readonly deps: {
       store: EventStore;
@@ -84,6 +116,9 @@ export class PhysicalArtifactSealer {
     this.db.pragma('busy_timeout=5000');
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS symposium_physical_seal_jobs(fence_id TEXT PRIMARY KEY,request_json TEXT NOT NULL,custody_digest TEXT NOT NULL,phase TEXT NOT NULL,records_json TEXT NOT NULL,verifier_name TEXT NOT NULL,verifier_id TEXT,receipt_json TEXT);`,
+    );
+    this.db.exec(
+      `CREATE TABLE IF NOT EXISTS symposium_seal_export_jobs(job_id TEXT PRIMARY KEY,fence_id TEXT NOT NULL,operation_id TEXT NOT NULL,kind TEXT NOT NULL,input_json TEXT NOT NULL,custody_digest TEXT NOT NULL,state TEXT NOT NULL,container_name TEXT NOT NULL,container_id TEXT,result_hash TEXT);`,
     );
   }
   close() {
@@ -221,6 +256,214 @@ export class PhysicalArtifactSealer {
     signal.throwIfAborted();
     this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {});
     return structuredClone(receipt);
+  }
+
+  async inspectCompletedArtifact(
+    input: { fenceId: string; operationId: string; baseBranch: string },
+    signal: AbortSignal,
+  ): Promise<GithubSandboxInspection> {
+    const value = await this.exportOperation({ ...input, kind: 'inspect' }, signal);
+    return sealedInspectionSchema.parse(value.inspection);
+  }
+
+  async exportCompletedArtifactBundle(
+    input: {
+      fenceId: string;
+      operationId: string;
+      sourceBranch: string;
+      baseBranch: string;
+      sourceOid: string;
+      maxBytes: number;
+    },
+    signal: AbortSignal,
+  ): Promise<Buffer> {
+    const value = await this.exportOperation({ ...input, kind: 'bundle' }, signal);
+    return parseSealedBundle(value, input.maxBytes);
+  }
+
+  private async exportOperation(
+    raw: {
+      fenceId: string;
+      operationId: string;
+      baseBranch: string;
+      kind: 'inspect' | 'bundle';
+      sourceBranch?: string;
+      sourceOid?: string;
+      maxBytes?: number;
+    },
+    signal: AbortSignal,
+  ): Promise<Record<string, unknown>> {
+    const input = z
+      .strictObject({
+        fenceId: z.string(),
+        operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
+        baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
+        kind: z.enum(['inspect', 'bundle']),
+        sourceBranch: z
+          .string()
+          .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
+          .optional(),
+        sourceOid: oid.optional(),
+        maxBytes: z
+          .number()
+          .int()
+          .min(1)
+          .max(8 * 1024 * 1024)
+          .optional(),
+      })
+      .parse(raw);
+    if (input.kind === 'bundle' && (!input.sourceBranch || !input.sourceOid || !input.maxBytes))
+      throw new Error('Sealed bundle selection is incomplete');
+    const receipt = await this.requireCompleted(input.fenceId, signal);
+    if (input.sourceOid && input.sourceOid !== receipt.git.commit)
+      throw new Error('Sealed bundle commit changed');
+    const intent = this.deps.store.getSymposiumArtifactSealIntent(receipt.sessionId)!;
+    const volume = intent.selection.artifact.volumeName;
+    const jobId = randomUUID(),
+      name = `mitzo-seal-export-${jobId}`;
+    this.db
+      .transaction(() => {
+        if (
+          this.db
+            .prepare(
+              "SELECT 1 FROM symposium_seal_export_jobs WHERE fence_id=? AND state NOT IN ('complete','failed_cleaned')",
+            )
+            .get(input.fenceId)
+        )
+          throw new Error('Sealed export requires helper reconciliation');
+        this.db
+          .prepare('INSERT INTO symposium_seal_export_jobs VALUES(?,?,?,?,?,?,?,?,NULL,NULL)')
+          .run(
+            jobId,
+            input.fenceId,
+            input.operationId,
+            input.kind,
+            JSON.stringify(input),
+            receipt.custodyDigest,
+            'create_uncertain',
+            name,
+          );
+      })
+      .immediate();
+    let id: string | undefined;
+    const outputLimit =
+      input.kind === 'bundle' ? Math.ceil((input.maxBytes! * 4) / 3) + 16384 : 128 * 1024;
+    const verify = async () => {
+      const found: unknown = JSON.parse(await this.command(['inspect', id!]));
+      if (!Array.isArray(found) || found.length !== 1)
+        throw new Error('Sealed export helper identity changed');
+      const c = found[0];
+      if (
+        c.Id !== id ||
+        c.Config?.Labels?.['mitzo.artifact-export-job'] !== jobId ||
+        c.ImageName !== TESTED_SYMPOSIUM_NATIVE_BUILD.image ||
+        c.Config?.User !== 'sandbox' ||
+        c.HostConfig?.NetworkMode !== 'none' ||
+        c.HostConfig?.ReadonlyRootfs !== true ||
+        c.HostConfig?.Privileged !== false ||
+        !Array.isArray(c.Mounts) ||
+        c.Mounts.length !== 1 ||
+        c.Mounts[0].Type !== 'volume' ||
+        c.Mounts[0].Name !== volume ||
+        c.Mounts[0].Destination !== SYMPOSIUM_ARTIFACT_TARGET ||
+        c.Mounts[0].RW !== false
+      )
+        throw new Error('Sealed export isolation changed');
+      return c;
+    };
+    const cleanup = async () => {
+      const c = await verify();
+      if (c.State?.Running !== false) await this.command(['stop', '--time', '1', id!]);
+      if ((await verify()).State?.Running !== false)
+        throw new Error('Sealed export helper stop is uncertain');
+      await this.command(['rm', id!]);
+      if ((await this.census()).some((row) => row.id === id))
+        throw new Error('Sealed export helper deletion is uncertain');
+    };
+    try {
+      signal.throwIfAborted();
+      await this.custody();
+      const result = (
+        await this.command([
+          'create',
+          '--pull=never',
+          '--name',
+          name,
+          '--label',
+          `mitzo.artifact-export-job=${jobId}`,
+          '--network=none',
+          '--read-only',
+          '--cap-drop=ALL',
+          '--security-opt=no-new-privileges',
+          '--user',
+          'sandbox',
+          '--pids-limit=32',
+          '--memory=256m',
+          '--cpus=1',
+          '--mount',
+          `type=volume,src=${volume},dst=${SYMPOSIUM_ARTIFACT_TARGET},readonly`,
+          '--entrypoint=/usr/bin/python3',
+          TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+          '-I',
+          '-c',
+          ARTIFACT_GIT_EXPORT,
+          receipt.repositoryPath,
+          JSON.stringify({ ...input, expected: receipt.git }),
+        ])
+      ).trim();
+      if (!containerId.test(result)) throw new Error('Sealed export create outcome is uncertain');
+      id = result;
+      this.db
+        .prepare(
+          "UPDATE symposium_seal_export_jobs SET state='created',container_id=? WHERE job_id=?",
+        )
+        .run(id, jobId);
+      await verify();
+      signal.throwIfAborted();
+      await this.custody();
+      const output = await this.command(['start', '--attach', id], outputLimit);
+      if (Buffer.byteLength(output) > outputLimit)
+        throw new Error('Sealed export output exceeded bound');
+      const terminal = await verify();
+      if (terminal.State?.Running !== false || terminal.State?.ExitCode !== 0)
+        throw new Error('Sealed export terminal success is unconfirmed');
+      const value = JSON.parse(output) as Record<string, unknown>;
+      if (JSON.stringify(gitProofSchema.parse(value.proof)) !== JSON.stringify(receipt.git))
+        throw new Error('Exported Git proof differs from seal');
+      if (input.kind === 'inspect') sealedInspectionSchema.parse(value.inspection);
+      else parseSealedBundle(value, input.maxBytes!);
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
+        .run(jobId);
+      await cleanup();
+      id = undefined;
+      const current = await this.requireCompleted(input.fenceId, signal);
+      if (JSON.stringify(current) !== JSON.stringify(receipt))
+        throw new Error('Sealed export custody changed');
+      this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
+        const updated = this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=? WHERE job_id=? AND state='terminal'",
+          )
+          .run(hash(output), jobId);
+        if (updated.changes !== 1) throw new Error('Sealed export journal changed');
+      });
+      return value;
+    } catch {
+      if (id) {
+        try {
+          await cleanup();
+          this.db
+            .prepare("UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=?")
+            .run(jobId);
+        } catch {
+          /* Exact helper remains journaled; never infer absence from an error. */
+        }
+      }
+      throw new Error(
+        'Sealed artifact export failed; retained helper state may require reconciliation',
+      );
+    }
   }
 
   async seal(
