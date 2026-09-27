@@ -546,3 +546,79 @@ it('refreshes an open picker when recovered discovery finishes during polling', 
     vi.useRealTimers();
   }
 });
+
+it('waits for a slow discovery poll before scheduling another and stops after unmount', async () => {
+  vi.useFakeTimers();
+  const changed = vi.fn();
+  let finish!: (value: Response) => void;
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response({ connections: [{ ...rows[0], modelDiscovery: 'pending' }] }))
+    .mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  try {
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finish(response({ connections: [rows[0]] }));
+    });
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.queryByText(/Model discovery is pending/)).toBeNull();
+    view.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10000);
+    });
+    expect(apiFetch).toHaveBeenCalledTimes(2);
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
+});
+
+it.each(['lost', 'malformed'] as const)(
+  'refreshes the account catalog after a %s discovery response and unseen revision change',
+  async (failure) => {
+    let revision = 2;
+    const changed = vi.fn();
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      if (url.endsWith('/models/refresh')) {
+        revision = 3;
+        if (failure === 'lost') throw new Error('Lost response');
+        return response({ status: 'complete' });
+      }
+      return response({ connections: [{ ...rows[0], revision }] });
+    });
+    render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+    await screen.findByText('Connection version 3');
+    expect(changed).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Model discovery could not be confirmed/)).toBeTruthy();
+  },
+);
+
+it('ignores discovery completion after unmount without refreshing or notifying the catalog', async () => {
+  let finish!: (value: Response) => void;
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/refresh'))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    return response({ connections: [rows[0]] });
+  });
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  view.unmount();
+  await act(async () => {
+    finish(response({ status: 'complete', inference: false, modelCount: 1 }));
+  });
+  expect(changed).not.toHaveBeenCalled();
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});

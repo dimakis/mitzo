@@ -211,7 +211,13 @@ it('persists three directed turns across profile revision, seat removal/addition
   app.use(
     '/api/sessions/:id/symposium',
     createSymposiumDirectorRouter({
-      store,
+      // Keep the actual durable store reader current when this test reopens SQLite.
+      store: new Proxy(store, {
+        get: (_target, key) => {
+          const value = Reflect.get(store, key);
+          return typeof value === 'function' ? value.bind(store) : value;
+        },
+      }),
       getRuntime: () => runtime,
       getSafetyOrchestrator: () => runtime,
       validateSelection: (seat) =>
@@ -418,6 +424,10 @@ it('persists three directed turns across profile revision, seat removal/addition
     const aside =
       'Auditor only: independently inspect the input validation boundary and report missing evidence.';
     const asideId = await turn('auditor-aside', ['auditor'], aside);
+    expect(
+      (await request(app).post(`${base}/context-package`).send({ mode: 'full-context' })).body
+        .content,
+    ).not.toContain(aside);
     expect(calls.at(-1)?.seat.id).toBe('auditor');
     expect(calls.filter((call) => call.seat.id === 'writer')).toHaveLength(3);
     expect(
@@ -454,6 +464,17 @@ it('persists three directed turns across profile revision, seat removal/addition
       definition.instructions,
     );
     expect(store.getLatestSymposiumMembership('discussion', 'reviewer')?.state).toBe('removed');
+    expect(
+      (await request(app).post(`${base}/context-package`).send({ mode: 'full-context' })).body
+        .content,
+    ).not.toContain(aside);
+    expect(
+      (
+        await request(app)
+          .post(`${base}/context-package`)
+          .send({ mode: 'selected-turns', turnIds: [`delivery:${asideId}`] })
+      ).status,
+    ).toBe(409);
     expect(store.getSymposiumDelivery(first)?.status).toBe('delivered');
     expect(store.getSymposiumDelivery(third)?.status).toBe('delivered');
     expect(calls).toHaveLength(7);

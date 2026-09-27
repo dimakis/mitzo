@@ -170,6 +170,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       .getSymposiumDeliveries(sessionId)
       .filter((delivery) => {
         if (delivery.status !== 'delivered') return false;
+        // Timestamps do not order changes within one millisecond. Without an
+        // immutable cross-stream sequence, a tied membership boundary cannot
+        // prove that this delivery's fixed audience included every active seat.
+        if (history.some((member) => member.occurredAt === delivery.createdAt)) return false;
         const latest = new Map<string, (typeof history)[number]>();
         for (const member of history) {
           if (member.occurredAt > delivery.createdAt) continue;
@@ -386,7 +390,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
   });
   router.post('/draft', (req, res) => {
-    if (!z.strictObject({}).safeParse(req.body).success) {
+    const body = z
+      .strictObject({ expectedAccountId: z.string().min(1).max(200).optional() })
+      .safeParse(req.body);
+    if (!body.success) {
       res.status(400).json({ error: 'Invalid draft request' });
       return;
     }
@@ -415,6 +422,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(409).json({ error: 'Session account binding is unavailable' });
       return;
     }
+    if (body.data.expectedAccountId && body.data.expectedAccountId !== binding.data.accountId) {
+      res.status(409).json({ error: 'Conversation account changed before draft creation' });
+      return;
+    }
     const draft = {
       version: 2 as const,
       revision: (session.symposiumRevision ?? 0) + 1,
@@ -424,8 +435,8 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       seats: [
         {
           id: 'architect',
-          name: 'Architect',
-          role: 'architect',
+          name: 'Primary agent',
+          role: 'implementer',
           model: binding.data.model,
           systemPrompt: '',
           color: '#335577',
@@ -470,9 +481,11 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
     const runtimeAvailable = deps.getRuntime(sessionId) !== null;
     if (session.sessionType !== 'symposium' || !session.symposiumConfig) {
+      const binding = AccountBindingSchema.safeParse(session.accountBinding);
       res.json({
         sessionId,
         config: null,
+        ordinaryAccountId: binding.success ? binding.data.accountId : null,
         seats: [],
         reservedSeats: 0,
         capacityRemaining: 0,

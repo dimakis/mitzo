@@ -206,6 +206,22 @@ export async function createCodexNativeSeat(
       acceptedTurnId = providerTurnId;
       callbacks?.accepted(providerThreadId, providerTurnId);
     },
+    onProviderTerminalConflict: (commandId, threadId, turnId, status, previousStatus) => {
+      if (
+        commandId !== execution.claimToken ||
+        threadId !== acceptedThreadId ||
+        turnId !== acceptedTurnId
+      )
+        return;
+      if (observationContext)
+        input.attemptRegistry!.observations.conflict({
+          claimToken: commandId,
+          providerThreadId: threadId,
+          providerTurnId: turnId,
+          status,
+          previousStatus,
+        });
+    },
     onProviderTerminal: (commandId, turnId, status) => {
       if (commandId !== execution.claimToken || turnId !== acceptedTurnId) return;
       if (observationContext && acceptedThreadId)

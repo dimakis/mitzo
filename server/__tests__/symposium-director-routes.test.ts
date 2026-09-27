@@ -178,14 +178,26 @@ describe('Symposium director routes', () => {
         profileRevision: 'rev-1',
       },
     } as never);
-    const response = await request(app).post('/api/sessions/chat/symposium/draft').send({});
+    expect((await request(app).get('/api/sessions/chat/symposium')).body.ordinaryAccountId).toBe(
+      'claude-work',
+    );
+    const stale = await request(app)
+      .post('/api/sessions/chat/symposium/draft')
+      .send({ expectedAccountId: 'old-account' });
+    expect(stale.status).toBe(409);
+    expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/draft')
+      .send({ expectedAccountId: 'claude-work' });
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({
       version: 2,
       revision: 1,
       state: 'draft',
       anchorSeatId: 'architect',
-      seats: [{ id: 'architect', accountBinding: { accountId: 'claude-work' } }],
+      seats: [
+        { id: 'architect', role: 'implementer', accountBinding: { accountId: 'claude-work' } },
+      ],
     });
     expect(store.setSymposiumConfig).toHaveBeenCalledWith('chat', expect.any(Object), 0);
   });
@@ -877,3 +889,39 @@ it('refreshes retained admissions only through the verified runtime at an explic
     (await request(app).post('/api/sessions/chat/symposium/admissions/refresh').send({})).status,
   ).toBe(400);
 });
+
+it.each(['removed', 'suspended'])(
+  'fails closed when %s membership and private delivery share a millisecond',
+  async (state) => {
+    const { app, store } = fixture();
+    store.getSymposiumMembershipHistory.mockReturnValue([
+      ...['architect', 'reviewer', 'third'].map((seatId) => ({
+        seatId,
+        generation: 1,
+        state: 'active',
+        occurredAt: 1,
+      })),
+      { seatId: 'third', generation: 2, state, occurredAt: 20 },
+    ] as never);
+    store.getSymposiumDeliveries.mockReturnValue([
+      {
+        deliveryId: 'private-tie',
+        status: 'delivered',
+        recipientSeatIds: ['architect', 'reviewer'],
+        originalContent: 'Private same-millisecond message',
+        deliveredContent: null,
+        createdAt: 20,
+      },
+    ] as never);
+    const full = await request(app)
+      .post('/api/sessions/chat/symposium/context-package')
+      .send({ mode: 'full-context' });
+    expect(full.status).toBe(409);
+    expect(JSON.stringify(full.body)).not.toContain('Private same-millisecond message');
+    const selected = await request(app)
+      .post('/api/sessions/chat/symposium/context-package')
+      .send({ mode: 'selected-turns', turnIds: ['delivery:private-tie'] });
+    expect(selected.status).toBe(409);
+    expect(JSON.stringify(selected.body)).not.toContain('Private same-millisecond message');
+  },
+);
