@@ -1,7 +1,7 @@
-import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
-import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
+import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
+import { sandboxNameForConversation } from '../openshell-runtime.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -233,6 +233,39 @@ describe('explicit owned Symposium host composition', () => {
   });
 });
 
+it('requires the discovery policy pin before launching an owned gateway', async () => {
+  const f = fixture();
+  f.options.runtime.policy = join(f.root, 'missing-policy');
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow();
+  expect(f.launch).not.toHaveBeenCalled();
+});
+
+it('pins the owned gateway immutable config using its actual read-only file mode', async () => {
+  const f = fixture();
+  const path = join(f.root, 'gateway.toml');
+  writeFileSync(path, 'owned config', { mode: 0o400 });
+  const compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  const operations = vi
+    .spyOn(discoveryHost, 'createDiscoveryHostOperations')
+    .mockImplementation(() => {
+      throw new Error('captured');
+    });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const discover = compose.mock.calls[0][2]!;
+  await expect(
+    discover({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'mock@example.test', planType: 'plus' },
+      assertCurrent() {},
+    }),
+  ).rejects.toThrow('captured');
+  expect(operations.mock.calls[0][1].configPins).toEqual([
+    { path, sha256: expect.any(String), mode: statSync(path).mode & 0o777 },
+  ]);
+  expect(operations.mock.calls[0][1].configPins[0].mode).toBe(0o400);
+  host.stop();
+});
+
 it('provisions a new draft through owned argv and makes its checked mapping available without replacing attestation', async () => {
   const f = fixture();
   const config = {
@@ -339,37 +372,4 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   } finally {
     host.stop();
   }
-});
-
-it('requires the discovery policy pin before launching an owned gateway', async () => {
-  const f = fixture();
-  f.options.runtime.policy = join(f.root, 'missing-policy');
-  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow();
-  expect(f.launch).not.toHaveBeenCalled();
-});
-
-it('pins the owned gateway immutable config using its actual read-only file mode', async () => {
-  const f = fixture();
-  const path = join(f.root, 'gateway.toml');
-  writeFileSync(path, 'owned config', { mode: 0o400 });
-  const compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
-  const operations = vi
-    .spyOn(discoveryHost, 'createDiscoveryHostOperations')
-    .mockImplementation(() => {
-      throw new Error('captured');
-    });
-  const host = await createOwnedSymposiumHost(f.options, f.launch);
-  const discover = compose.mock.calls[0][2]!;
-  await expect(
-    discover({
-      provider: { name: 'personal', id: 'id' },
-      account: { email: 'mock@example.test', planType: 'plus' },
-      assertCurrent() {},
-    }),
-  ).rejects.toThrow('captured');
-  expect(operations.mock.calls[0][1].configPins).toEqual([
-    { path, sha256: expect.any(String), mode: statSync(path).mode & 0o777 },
-  ]);
-  expect(operations.mock.calls[0][1].configPins[0].mode).toBe(0o400);
-  host.stop();
 });

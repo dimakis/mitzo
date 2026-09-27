@@ -44,52 +44,6 @@ it('provides deterministic three-seat and ordinary fallback fixtures', async () 
   expect(proposals).toHaveLength(1);
 });
 
-it('provides reviewer context choices and a saved profile without enabling writes', async () => {
-  const profiles = await (await window.fetch('/api/symposium/profiles')).json();
-  expect(profiles[0].definition.role).toBe('reviewer');
-  const context = await (
-    await window.fetch('/api/sessions/preview-1/symposium/context-turns')
-  ).json();
-  expect(context.turns[0].content).toContain('acceptance');
-  const mutation = await window.fetch('/api/sessions/preview-1/symposium/context-package', {
-    method: 'POST',
-    body: '{}',
-  });
-  expect(mutation.status).toBe(405);
-});
-
-it('provides a model catalog for the dedicated Symposium account picker', async () => {
-  const accounts = await (await window.fetch('/api/symposium/accounts')).json();
-  expect(Array.isArray(accounts)).toBe(true);
-  expect(accounts[0]).toMatchObject({
-    id: 'preview',
-    label: 'Preview account',
-    models: [{ id: 'preview-model', label: 'Preview model' }],
-  });
-});
-
-it('serves findings, delta and unavailable review panels entirely from preview data', async () => {
-  const findings = await (await window.fetch('/api/sessions/preview-1/symposium/reviews')).json();
-  expect(findings.available).toBe(true);
-  expect(findings.workflows[0]).toMatchObject({ status: 'awaiting_fix' });
-  expect(findings.workflows[0].findings[0].status).toBe('open');
-  const delta = await (await window.fetch('/api/sessions/preview-3/symposium/reviews')).json();
-  expect(delta.workflows[0]).toMatchObject({
-    status: 'awaiting_delta_review',
-    artifactRevision: 'preview-commit-b34',
-  });
-  const unavailable = await (
-    await window.fetch('/api/sessions/preview-2/symposium/reviews')
-  ).json();
-  expect(unavailable).toEqual({ available: false, workflows: [] });
-  const denied = await window.fetch(
-    '/api/sessions/preview-1/symposium/reviews/preview-review/actions',
-    { method: 'POST', body: JSON.stringify({ action: 'fix' }) },
-  );
-  expect(denied.status).toBe(405);
-  expect(upstreamFetch).not.toHaveBeenCalled();
-});
-
 it('reports idle personal login without enabling preview OAuth', async () => {
   const response = await window.fetch('/api/symposium/personal/login/status');
   const body = await response.json();
@@ -100,29 +54,6 @@ it('reports idle personal login without enabling preview OAuth', async () => {
     body: '{}',
   });
   expect(mutation.status).toBe(405);
-  expect(upstreamFetch).not.toHaveBeenCalled();
-});
-
-it('serves scoped saved review decision history without contacting a host', async () => {
-  const response = await window.fetch('/api/sessions/preview-3/symposium/reviews/preview-review');
-  const detail = await response.json();
-  expect(detail.workflow.status).toBe('awaiting_delta_review');
-  expect(detail.history).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        action: 'fix_authorized',
-        detail: expect.objectContaining({
-          reason: 'Keep the selected connection across reconnect',
-        }),
-      }),
-    ]),
-  );
-  expect(
-    (await window.fetch('/api/sessions/preview-2/symposium/reviews/preview-review')).status,
-  ).toBe(404);
-  expect((await window.fetch('/api/sessions/preview-3/symposium/reviews/unknown')).status).toBe(
-    404,
-  );
   expect(upstreamFetch).not.toHaveBeenCalled();
 });
 
@@ -227,6 +158,76 @@ it('simulates only explicit model refresh of the current connected fixture revis
       })
     ).status,
   ).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('provides reviewer context choices and a saved profile without enabling writes', async () => {
+  const profiles = await (await window.fetch('/api/symposium/profiles')).json();
+  expect(profiles[0].definition.role).toBe('reviewer');
+  const context = await (
+    await window.fetch('/api/sessions/preview-1/symposium/context-turns')
+  ).json();
+  expect(context.turns[0].content).toContain('acceptance');
+  const mutation = await window.fetch('/api/sessions/preview-1/symposium/context-package', {
+    method: 'POST',
+    body: '{}',
+  });
+  expect(mutation.status).toBe(405);
+});
+
+it('provides a model catalog for the dedicated Symposium account picker', async () => {
+  const accounts = await (await window.fetch('/api/symposium/accounts')).json();
+  expect(Array.isArray(accounts)).toBe(true);
+  expect(accounts[0]).toMatchObject({
+    id: 'preview',
+    label: 'Preview account',
+    models: [{ id: 'preview-model', label: 'Preview model' }],
+  });
+});
+
+it('serves findings, delta and unavailable review panels entirely from preview data', async () => {
+  const findings = await (await window.fetch('/api/sessions/preview-1/symposium/reviews')).json();
+  expect(findings.available).toBe(true);
+  expect(findings.workflows[0]).toMatchObject({ status: 'awaiting_fix' });
+  expect(findings.workflows[0].findings[0].status).toBe('open');
+  const delta = await (await window.fetch('/api/sessions/preview-3/symposium/reviews')).json();
+  expect(delta.workflows[0]).toMatchObject({
+    status: 'awaiting_delta_review',
+    artifactRevision: 'preview-commit-b34',
+  });
+  const unavailable = await (
+    await window.fetch('/api/sessions/preview-2/symposium/reviews')
+  ).json();
+  expect(unavailable).toEqual({ available: false, workflows: [] });
+  const denied = await window.fetch(
+    '/api/sessions/preview-1/symposium/reviews/preview-review/actions',
+    { method: 'POST', body: JSON.stringify({ action: 'fix' }) },
+  );
+  expect(denied.status).toBe(405);
+  expect(upstreamFetch).not.toHaveBeenCalled();
+});
+
+it('serves scoped saved review decision history without contacting a host', async () => {
+  const response = await window.fetch('/api/sessions/preview-3/symposium/reviews/preview-review');
+  const detail = await response.json();
+  expect(detail.workflow.status).toBe('awaiting_delta_review');
+  expect(detail.history).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        action: 'fix_authorized',
+        detail: expect.objectContaining({
+          reason: 'Keep the selected connection across reconnect',
+        }),
+      }),
+    ]),
+  );
+  expect(
+    (await window.fetch('/api/sessions/preview-2/symposium/reviews/preview-review')).status,
+  ).toBe(404);
+  expect((await window.fetch('/api/sessions/preview-3/symposium/reviews/unknown')).status).toBe(
+    404,
+  );
+  expect(upstreamFetch).not.toHaveBeenCalled();
 });
 
 it('uses a fresh device identity for retry and rejects cancellation of the previous attempt', async () => {
