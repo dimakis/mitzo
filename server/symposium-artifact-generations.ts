@@ -318,13 +318,7 @@ export class SymposiumArtifactGenerations {
           receipt.helperName !== intent.helperName ||
           receipt.generationId !== generationId ||
           receipt.volumeName !== intent.volumeName ||
-          receipt.intentDigest !== reviewRecordHash(canonicalReviewJson(intent)) ||
-          receipt.exportReceiptDigest !== intent.request.exportReceiptDigest ||
-          receipt.commit !== intent.request.parentCommit ||
-          receipt.tree !== intent.request.parentTree ||
-          receipt.manifestDigest !== intent.request.parentManifestDigest ||
-          receipt.committedTreeDigest !== intent.request.parentCommittedTreeDigest ||
-          receipt.bundleSha256 !== intent.request.bundleSha256
+          receipt.intentDigest !== reviewRecordHash(canonicalReviewJson(intent))
         )
           throw new Error('Copy terminal receipt does not match dispatched intent');
         const observed = this.db
@@ -350,6 +344,17 @@ export class SymposiumArtifactGenerations {
         }
         if (row.state !== 'copy_uncertain') throw new Error('Copy is quarantined');
         this.require(this.proof.authority(intent.request));
+        // A bound helper may report a failed import. Retain that observation,
+        // but never promote mismatched lineage or replace its immutable evidence.
+        if (
+          receipt.exportReceiptDigest !== intent.request.exportReceiptDigest ||
+          receipt.commit !== intent.request.parentCommit ||
+          receipt.tree !== intent.request.parentTree ||
+          receipt.manifestDigest !== intent.request.parentManifestDigest ||
+          receipt.committedTreeDigest !== intent.request.parentCommittedTreeDigest ||
+          receipt.bundleSha256 !== intent.request.bundleSha256
+        )
+          throw new Error('Copy terminal lineage differs from dispatched intent');
         this.parent(intent);
         this.require(this.proof.copy(intent, receipt));
         this.db

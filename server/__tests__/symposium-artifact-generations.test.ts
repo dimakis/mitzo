@@ -349,6 +349,36 @@ it('retains terminal observation but cannot verify after authority is revoked', 
     /authority revoked/,
   );
 });
+it.each([
+  'exportReceiptDigest',
+  'commit',
+  'tree',
+  'manifestDigest',
+  'committedTreeDigest',
+  'bundleSha256',
+] as const)('retains failed %s lineage evidence across reopen without promoting it', (field) => {
+  const f = prepared();
+  f.store.claimCopy(context, f.intent.generationId);
+  const terminal = {
+    ...receipt(f.intent),
+    [field]: 'c'.repeat(field === 'commit' || field === 'tree' ? 40 : 64),
+  };
+  f.store.bindHelper(context, f.intent.generationId, terminal.helperId);
+  expect(() => f.store.recordCopy(context, f.intent.generationId, terminal)).toThrow();
+  f.db.close();
+  const reopened = f.open().store;
+  expect(reopened.historical(context, f.intent.generationId)).toMatchObject({
+    state: 'copy_uncertain',
+    terminalObservation: terminal,
+    receipt: null,
+  });
+  expect(f.proof.copy).not.toHaveBeenCalled();
+  expect(() => reopened.activate(context, f.intent.generationId)).toThrow('receipt');
+  expect(() => reopened.recordCopy(context, f.intent.generationId, terminal)).toThrow('lineage');
+  expect(() => reopened.recordCopy(context, f.intent.generationId, receipt(f.intent))).toThrow(
+    'observation conflict',
+  );
+});
 it('scopes operation replay to session and migrates legacy keys without changing intent', () => {
   const f = prepared();
   f.db
