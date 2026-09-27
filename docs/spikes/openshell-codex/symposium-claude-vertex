@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+# Fixed reviewed executable; project/region are noncredential route parameters.
+project=$1; region=$2; shift 2
+test "${VERTEX_AI_PROJECT_ID-}" = "$project" || exit 64
+test "${VERTEX_AI_REGION-}" = "$region" || exit 64
+token=${GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN-}
+adc_token=${GOOGLE_VERTEX_AI_TOKEN-}
+test -z "$token" || test -z "$adc_token" || exit 64
+if test -z "$token"; then
+  token=$adc_token
+  key=GOOGLE_VERTEX_AI_TOKEN
+else
+  key=GOOGLE_VERTEX_AI_SERVICE_ACCOUNT_TOKEN
+fi
+case "$token" in
+  "openshell:resolve:env:$key"|openshell:resolve:env:v[0-9]*_"$key"|"provider-OPENSHELL-RESOLVE-ENV-$key") ;;
+  *) exit 64 ;;
+esac
+unset ANTHROPIC_VERTEX_BASE_URL ANTHROPIC_BASE_URL ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN GOOGLE_APPLICATION_CREDENTIALS
+export CLAUDE_CODE_USE_VERTEX=1 CLAUDE_CODE_SKIP_VERTEX_AUTH=1
+export ANTHROPIC_VERTEX_PROJECT_ID="$project" CLOUD_ML_REGION="$region"
+export ANTHROPIC_CUSTOM_HEADERS="Authorization: Bearer $token"
+exec /usr/local/bin/claude "$@"
