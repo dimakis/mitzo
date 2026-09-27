@@ -109,7 +109,8 @@ Shared artifacts use a separately admitted named volume: writer access is
 read-write and reviewer access is read-only. Host leases check the physical mount
 and retain writer reservations until exact stop/deletion evidence permits release.
 PR #624's session artifact service can prepare a bounded owned volume and durable
-mapping; the base checkout only reads a configured mapping. The service it cannot mint runtime admission or replace a failed host attestation.
+mapping; the base checkout only reads a configured mapping. The service cannot
+mint runtime admission or replace a failed host attestation.
 
 TLS setup requires the Podman guest hostname as well as loopback in the gateway
 certificate. The newer runtime image also carries the guest CA/launcher fixes
