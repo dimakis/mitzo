@@ -52,6 +52,15 @@ it('real worker keeps event loop responsive during a slow CLI, fails closed, and
       f.custody,
     );
     const pending = collect(selection);
+    let settled = false;
+    void pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
     const rejected = expect(pending).rejects.toThrow('Evidence could not be verified');
     await expect(collect(selection)).rejects.toThrow('already in progress');
     await vi.waitFor(() => expect(existsSync(started)).toBe(true));
@@ -63,6 +72,7 @@ it('real worker keeps event loop responsive during a slow CLI, fails closed, and
       }, 10),
     );
     expect(timer).toBe(true);
+    expect(settled).toBe(false);
     await rejected;
     expect(f.custody.verifyCustodyAsync.mock.calls.length).toBeGreaterThanOrEqual(2);
     await expect(collect(selection)).rejects.toThrow('Evidence could not be verified');
