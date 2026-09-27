@@ -154,12 +154,31 @@ async function runExclusiveDiscovery(
         .object({ account: z.object({ type: z.literal('chatgpt') }) })
         .parse(await client.request('account/read', { refreshToken: false }));
       void account;
-      const models = await readCodexModels({
-        request: (method, params) => {
-          if (method !== 'model/list') throw new Error('Read-only discovery');
-          return client!.request(method, params);
-        },
+      let pages = 0;
+      let expired = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => {
+          expired = true;
+          reject(new Error('Model discovery deadline exceeded'));
+        }, 60_000);
       });
+      let models;
+      try {
+        models = await Promise.race([
+          readCodexModels({
+            request: (method, params) => {
+              if (method !== 'model/list' || expired || ++pages > 100)
+                throw new Error('Bounded read-only discovery');
+              return client!.request(method, params);
+            },
+          }),
+          deadline,
+        ]);
+      } finally {
+        expired = true;
+        clearTimeout(timeout);
+      }
       const lunaModels = models
         .map((model) => model.id)
         .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
