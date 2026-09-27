@@ -3,6 +3,7 @@ import type { CodexAccountProfile } from './codex-account.js';
 import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-native.js';
 import type {
   AccountBinding,
+  ArtifactAdmissionReferenceV1,
   SeatConfig,
   SymposiumConfig,
   SymposiumMembershipRecord,
@@ -13,7 +14,15 @@ import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 
 /** Read-only projection of the durable admission facts needed at the last dispatch boundary. */
 export interface SymposiumDispatchFacts {
-  assertSymposiumArtifactWorkAllowed(sessionId: string): void;
+  assertSymposiumArtifactWorkAllowed(
+    sessionId: string,
+    artifact?: ArtifactAdmissionReferenceV1 | null,
+  ): void;
+  getSymposiumArtifactReference?(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): ArtifactAdmissionReferenceV1 | null;
   getActiveSymposiumConfig(sessionId: string): SymposiumConfig;
   getLatestSymposiumMembership(
     sessionId: string,
@@ -103,6 +112,7 @@ export function symposiumSeatRuntimeId(input: SymposiumSeatExecution): string {
     input.seat.contextGrant,
     input.seat.authorityGrant,
     input.seat.isolationRequest,
+    ...(input.provenance.version === 3 ? [input.provenance.artifact] : []),
   ]);
   return `symposium:${createHash('sha256').update(key).digest('hex')}`;
 }
@@ -115,7 +125,10 @@ export function admitSymposiumSeatDispatch(
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
   input.signal.throwIfAborted();
-  facts.assertSymposiumArtifactWorkAllowed(input.sessionId);
+  facts.assertSymposiumArtifactWorkAllowed(
+    input.sessionId,
+    input.provenance.version === 3 ? input.provenance.artifact : undefined,
+  );
   const config = facts.getActiveSymposiumConfig(input.sessionId);
   if (
     config.version !== 2 ||
@@ -130,7 +143,7 @@ export function admitSymposiumSeatDispatch(
     throw new Error('Symposium seat binding changed before native dispatch');
   if (
     !('version' in input.provenance) ||
-    input.provenance.version !== 2 ||
+    (input.provenance.version !== 2 && input.provenance.version !== 3) ||
     !sameBinding(input.provenance.accountBinding, seat.accountBinding)
   )
     throw new Error('Symposium execution provenance does not match the seat');

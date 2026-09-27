@@ -297,6 +297,33 @@ function applicationFixture(work: ReturnType<typeof fixture>) {
     },
   };
 }
+it('binds successor provenance into runtime identity and the final artifact fence', () => {
+  const work = fixture();
+  const artifact = {
+    version: 1 as const,
+    transitionId: 'transition',
+    artifactGenerationId: 'child',
+    pointerRevision: 1,
+    bindingDigest: 'a'.repeat(64),
+  };
+  const child = {
+    ...work.input,
+    provenance: { ...work.input.provenance, version: 3 as const, artifact },
+  } as SymposiumSeatExecution;
+  const fence = vi.fn();
+  const facts = { ...work.facts, assertSymposiumArtifactWorkAllowed: fence };
+  expect(admitSymposiumSeatDispatch(facts, profiles, child, hostGrants).kind).toBe('openai-api');
+  expect(fence).toHaveBeenCalledWith(child.sessionId, artifact);
+  expect(symposiumSeatRuntimeId(child)).not.toBe(symposiumSeatRuntimeId(work.input));
+  const other = {
+    ...child,
+    provenance: {
+      ...child.provenance,
+      artifact: { ...artifact, artifactGenerationId: 'different' },
+    },
+  } as SymposiumSeatExecution;
+  expect(symposiumSeatRuntimeId(other)).not.toBe(symposiumSeatRuntimeId(child));
+});
 it('selects only the reserved recipient claim and fences ordinary work in an application session', () => {
   const work = fixture();
   const f = applicationFixture(work);
