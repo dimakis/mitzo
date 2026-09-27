@@ -42,7 +42,7 @@ async function fixture() {
   const lease = await acquireSymposiumArtifactLease(host, request);
   host.markCreationStarted(lease.token, lease.revision, 'seat');
   host.bindSandbox(lease.token, lease.revision, 'seat', 'physical');
-  const command = vi.fn(async (args: readonly string[]) =>
+  const command = vi.fn(async (args: readonly string[]): Promise<string> =>
     args[0] === 'start'
       ? '[]'
       : args[0] === 'inspect'
@@ -52,6 +52,12 @@ async function fixture() {
   const verifyCustody = vi.fn(async () => {});
   const options = {
     databasePath: join(root, 'snapshots'),
+    gateway: {
+      name: 'gateway',
+      workspace: 'w',
+      endpoint: 'https://localhost:18800',
+      launchDirectoryHash: 'a'.repeat(64),
+    },
     leaseHost: host,
     verifyCustody,
     command,

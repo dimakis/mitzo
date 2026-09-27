@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute } from 'node:path';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { z } from 'zod';
 import { ARTIFACT_SCANNER } from './symposium-artifact-scanner.js';
 import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
@@ -61,6 +62,7 @@ export interface ArtifactSnapshotObservation {
   scannerSha256: string;
   manifest: ManifestEntry[];
   observedAt: number;
+  gateway: { name: string; workspace: string; endpoint: string; launchDirectoryHash: string };
 }
 export type ArtifactSnapshotCommand = (args: readonly string[]) => Promise<string>;
 
@@ -99,6 +101,7 @@ export class ArtifactSnapshotObserver {
       /** Real retained-host custody verification, not a caller-supplied assertion. */
       verifyCustody: () => Promise<void>;
       command: ArtifactSnapshotCommand;
+      gateway: ArtifactSnapshotObservation['gateway'];
     },
   ) {
     this.db = new Database(options.databasePath);
@@ -134,6 +137,8 @@ export class ArtifactSnapshotObserver {
   async observe(input: ArtifactSnapshotInput): Promise<ArtifactSnapshotObservation> {
     // Clone before yielding so even host callers cannot change identity mid-flight.
     const selection: ArtifactSnapshotInput = structuredClone(input);
+    if (selection.request.workspaceId !== this.options.gateway.workspace)
+      throw new Error('Artifact snapshot workspace differs from retained gateway');
     if (selection.request.driver !== 'podman')
       throw new Error('Snapshot requires retained Podman volume');
     const name = `mitzo-artifact-observer-${randomUUID()}`;
@@ -244,10 +249,34 @@ export class ArtifactSnapshotObserver {
       scannerSha256: hash(ARTIFACT_SCANNER),
       manifest,
       observedAt: Date.now(),
+      gateway: structuredClone(this.options.gateway),
     };
     this.db
       .prepare('INSERT INTO artifact_snapshot_observations(revision,receipt) VALUES(?,?)')
       .run(receipt.revision, JSON.stringify(receipt));
     return receipt;
   }
+}
+
+/** Explicit host construction only; never invoked automatically by app bootstrap. */
+export function createOwnedArtifactSnapshotObserver(options: {
+  databasePath: string;
+  gateway: OwnedSymposiumGateway;
+  leaseHost: SqliteArtifactLeaseHost;
+  podmanExecutable: string;
+  podmanEnvironment: NodeJS.ProcessEnv;
+}): ArtifactSnapshotObserver {
+  const gateway = options.gateway;
+  return new ArtifactSnapshotObserver({
+    databasePath: options.databasePath,
+    leaseHost: options.leaseHost,
+    verifyCustody: () => gateway.verifyCustodyAsync(),
+    gateway: {
+      name: gateway.gateway,
+      workspace: gateway.workspace,
+      endpoint: gateway.endpoint,
+      launchDirectoryHash: hash(gateway.stateDirectory),
+    },
+    command: createArtifactSnapshotCommand(options.podmanExecutable, options.podmanEnvironment),
+  });
 }

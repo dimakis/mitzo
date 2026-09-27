@@ -7,6 +7,8 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 ## Features
 
+The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
+
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.

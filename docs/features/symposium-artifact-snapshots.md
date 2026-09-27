@@ -1,0 +1,68 @@
+# Host artifact snapshot observations
+
+This dormant host prerequisite captures regular-file manifests from an existing
+Symposium artifact volume. It has no HTTP route and is not installed in dispatch,
+completion, or admission. It does not create a `WorkResult`, a `ReviewReceipt`, a
+Git commit, or evidence of token-budget enforcement. The current hard-cap gate is
+unchanged.
+
+`createOwnedArtifactSnapshotObserver` binds an observer to the retained owned
+OpenShell gateway, the existing SQLite artifact lease host, and the host's explicit
+Podman executable/environment. Callers cannot select an image, executable inside
+the verifier, mount target, scanner, or budgets per observation. Construction alone
+does not run commands. The low-level constructor permits dependency injection for
+mocked tests; it is not an untrusted request boundary.
+
+Before and after scanning, the observer verifies retained gateway custody, the
+exact bound sandbox and lease revision, admitted physical named-volume metadata,
+driver configuration, and the sandbox's actual mount. It uses the reviewed image
+ID from `TESTED_SYMPOSIUM_NATIVE_BUILD`, without pulling. The verifier has no
+network, a read-only root and artifact mount, no capabilities, no-new-privileges,
+and fixed CPU/memory/process limits. It executes only a literal Python scanner
+with isolated interpreter mode; no Git configuration, hooks, filters, imports from
+the artifact tree, or shell scripts are executed.
+
+The scanner limits traversal to 10,000 entries, 64 MiB of file contents, 64 levels,
+4 KiB paths, and 20 seconds. Host commands time out after 30 seconds with an 8 MiB
+output ceiling. Descriptor-relative no-follow opens reject symlinks, hard links,
+special files, malformed paths, and detected changes while reading. The top-level
+`.git` directory is excluded metadata (a linked or regular-file `.git` is rejected).
+Empty trees and uncommitted files are supported. Executable bits are recorded;
+empty directories and other permission bits are outside the manifest contract.
+
+The host validates the output, independently checks successful stopped-container
+exit, and hashes a sorted JSON manifest containing path, executable flag, length,
+and SHA-256. Each immutable SQLite observation stores a fresh revision, content
+digest, manifest, scanner hash, pinned image, lease token hash/revision, session,
+seat, workspace, volume generation, sandbox identity, and retained gateway launch
+provenance. It remains readable after restart. It is a historical observation,
+never an automatically current artifact pointer.
+
+A durable singleton reservation is written before creating the verifier. Every
+create attempt, including an ambiguous timeout, requires exact-name forced cleanup.
+Cleanup failure or host crash leaves the reservation in place and blocks retries
+across instances/restarts until explicit operator reconciliation. There is no
+automatic TTL or recovery deletion. Successful receipt persistence happens only
+after cleanup and a final host verification. No existing sandbox is deleted.
+
+## Consistency and remaining integration
+
+Receipts are explicitly `unfenced_observation`. File checks detect many mutations,
+but cannot prove a coherent whole-tree point in time while another writer is
+active. Neither a lease nor two matching hashes alone establishes that proof.
+The next executor integration must hold the durable execution claim's other-writer
+fence throughout input/output capture, prove native process-tree shutdown before
+output capture, and atomically commit the result, recipient completion, and cleanup
+confirmation with cancellation/generation checks. This PR deliberately does not
+install that integration or enable model dispatch.
+
+Snapshot revisions are not source OIDs. Publication still needs an explicit
+committed-tree equivalence proof under the artifact lease plus the existing
+approval/preflight/idempotency boundary. Repository import/initialization and
+committing are separate explicit actions; this observer never performs them.
+
+Validation uses temporary local directories, a real SQLite lease store, and mocked
+Podman/custody operations. No Podman container, gateway, model call, OAuth flow, or
+production activation was run for this slice. The pinned image's Python scanner
+execution and resource limits still require a separately authorized offline
+physical smoke before application integration.
