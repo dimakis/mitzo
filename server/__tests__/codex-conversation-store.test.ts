@@ -607,3 +607,45 @@ it('preserves an explicit reasoning reset separately from an omitted value in me
   expect(s.queueSummary('missing', binding).reasoningEffort).toBeUndefined();
   s.close();
 });
+it('recovers only positively owned ordinary commands for a replacement controller', () => {
+  const { path } = setup();
+  const store = new CodexConversationStore(path);
+  try {
+    for (const [id, owner] of [
+      ['ordinary', 'ordinary'],
+      ['native', 'symposium'],
+      ['legacy', 'ordinary'],
+    ] as const) {
+      store.create(id, binding, '/workspace', null, owner);
+      store.enqueue(id, binding, { id: 'command', prompt: 'test' });
+      store.claimNext(id, binding);
+    }
+    const raw = new Database(path);
+    raw.prepare('UPDATE codex_conversations SET owner_kind=NULL WHERE id=?').run('legacy');
+    raw.close();
+    store.recoverAtStartup('ordinary');
+    expect(store.commands('ordinary', binding)[0].status).toBe('interrupted');
+    expect(store.commands('native', binding)[0].status).toBe('running');
+    expect(store.commands('legacy', binding)[0].status).toBe('running');
+  } finally {
+    store.close();
+  }
+});
+it('does not reassign an existing owner through another connection or adopt legacy ownership', () => {
+  const { path } = setup();
+  const first = new CodexConversationStore(path),
+    second = new CodexConversationStore(path, { requireOwner: true });
+  try {
+    first.create('same', binding, '/workspace', null, 'symposium');
+    expect(() => second.create('same', binding, '/workspace', null, 'ordinary')).toThrow('owner');
+    first.create('legacy', binding, '/workspace');
+    const raw = new Database(path);
+    raw.prepare('UPDATE codex_conversations SET owner_kind=NULL WHERE id=?').run('legacy');
+    raw.close();
+    expect(() => second.create('legacy', binding, '/workspace')).toThrow('owner');
+    expect(first.read('legacy', binding).conversationId).toBe('legacy');
+  } finally {
+    first.close();
+    second.close();
+  }
+});

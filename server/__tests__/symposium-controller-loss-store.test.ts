@@ -54,7 +54,7 @@ function fixture() {
       placement: 'reuse-compatible' as const,
     },
   };
-  store.upsertSession({ sessionId: 's', sessionType: 'symposium', accountBinding: binding });
+  store.upsertSession({ sessionId: 's', accountBinding: binding });
   store.setSymposiumConfig('s', {
     version: 2,
     revision: 1,
