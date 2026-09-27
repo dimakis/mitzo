@@ -212,6 +212,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string) {
     config.gateway.executable,
     ...config.providerProfiles.map((profile) => profile.path),
   ];
+  // Validate private references before deriving identities or reading public inputs.
+  // Otherwise lstat on a private symlink describes the link, not its hard-linked target.
+  for (const path of privateFiles) pathMetadata(path, false, true);
   // Compare canonical identities before any public hashing can read a known
   // configured private file, including a public symlink or hard-link alias.
   const privateIdentities = privateFiles.map((path) => ({

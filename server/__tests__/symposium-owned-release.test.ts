@@ -443,3 +443,26 @@ it('rejects overlap between every pair of mutable runtime directories', () => {
       expect(() => prepareOwnedRelease(f.input, f.digest)).toThrow();
     }
 });
+it.each(['tls', 'jwt'] as const)(
+  'rejects a private %s symlink before hashing a public executable hard link to its target',
+  (kind) => {
+    const f = fixture();
+    const target =
+      kind === 'tls' ? f.config.gateway.tls.serverKey : f.config.gateway.jwt.signingKey;
+    const privateLink = join(f.root, 'private-link');
+    symlinkSync(target, privateLink);
+    if (kind === 'tls') f.config.gateway.tls.serverKey = privateLink;
+    else f.config.gateway.jwt.signingKey = privateLink;
+    unlinkSync(f.config.gateway.cliExecutable);
+    linkSync(target, f.config.gateway.cliExecutable);
+    f.save();
+    const observed: string[] = [];
+    expect(() =>
+      prepareOwnedRelease(f.input, (path) => {
+        observed.push(path);
+        return f.digest(path);
+      }),
+    ).toThrow();
+    expect(observed).toEqual([]);
+  },
+);
