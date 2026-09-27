@@ -280,9 +280,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     Options: object;
     Labels: Record<string, string>;
   } | null = null;
+  let afterInspection: (() => Promise<void>) | undefined;
   const command = vi.fn(async (args: readonly string[]) => {
     if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
-    if (args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[1] === 'inspect') {
+      const result = JSON.stringify([volume]);
+      const hook = afterInspection;
+      afterInspection = undefined;
+      await hook?.();
+      return result;
+    }
     if (args[1] === 'create') {
       const labels: Record<string, string> = {};
       args.forEach((v, i) => {
@@ -328,6 +335,21 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
       sessionType: 'symposium',
       symposiumConfig: JSON.stringify(config),
     } as never);
+
+    collect.mockImplementationOnce(async (selection) => {
+      afterInspection = async () => {
+        volume!.Labels['mitzo.symposium.session'] = 'contradictory-session';
+        expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+          state: 'recovery_required',
+        });
+        volume!.Labels['mitzo.symposium.session'] = 'new-session';
+      };
+      return selection as never;
+    });
+    await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow(
+      'readiness changed',
+    );
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
 
     const request = host.artifactRequest('new-session', 'seat', 2);
     await host.artifactLeaseHost.reserve(request);

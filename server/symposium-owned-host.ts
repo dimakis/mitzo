@@ -526,7 +526,15 @@ export async function createOwnedSymposiumHost(
             );
             custody();
             assertDraft();
-            return mapping;
+            const current = sessionArtifacts!.getReady(sessionId);
+            if (
+              !current ||
+              current.sessionId !== mapping.sessionId ||
+              current.volumeName !== mapping.volumeName ||
+              current.volumeGeneration !== mapping.volumeGeneration
+            )
+              throw new Error('Session artifact readiness changed');
+            return current;
           },
           collect: collectExplicitEvidence,
         });
