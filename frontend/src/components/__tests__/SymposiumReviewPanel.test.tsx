@@ -133,6 +133,37 @@ it('attaches only a host evidence reference before preparing the current review 
   );
 });
 
+it('shows a durable scoped record reference without claiming a PR was created', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = { ...symposiumReviewPreviewResponses.findings.workflows[0], status: 'verified' };
+  const recordId = `review-${'c'.repeat(64)}`;
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    response(
+      init?.method === 'POST'
+        ? {
+            kind: 'verified',
+            publication: 'not_created',
+            record: { recordId, contentHash: 'c'.repeat(64), snapshot: { historySequence: 5 } },
+          }
+        : { available: true, workflows: [workflow] },
+    ),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Prepare PR review record' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Open saved review record' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      `/api/sessions/session/symposium/reviews/records/${recordId}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+  expect(
+    screen.getByRole('link', { name: 'Permanent saved review link' }).getAttribute('href'),
+  ).toBe(`/sessions/session/review-records/${recordId}?hash=${'c'.repeat(64)}`);
+  expect(screen.getByText(/No PR has been created/)).toBeTruthy();
+});
+
 it('shows only explicitly reported severity and leaves legacy findings unlabeled', async () => {
   const { symposiumReviewPreviewResponses } =
     await import('../../preview/symposium-review-fixtures');

@@ -154,6 +154,14 @@ decisions, and requests delta review after a fix. Select an older workflow to re
 its ordered decisions, reasons and evidence, or start a separate review of the current
 artifact without losing that history. A verified current revision can
 produce a PR review record; this action does **not** create or publish a PR.
+Records are immutable host-stored snapshots with a content-derived ID and SHA-256
+hash, binding the verified artifact to its exact workflow/history and evidence.
+Repeated export of the same snapshot returns the same record; changed verified
+history produces a new one. **Open saved review record** requires the Mitzo login
+and remains available after runtime shutdown. Copy **Permanent saved review link**
+to reopen the authenticated snapshot after a refresh or later visit. No record file is added to the
+reviewed Git tree. See [immutable review records](docs/design/immutable-review-records.md)
+for scope, integrity, and export limits.
 Interactive callers cannot submit fabricated findings, usage, or verification:
 the coordinator reads those facts from completed trusted host receipts.
 

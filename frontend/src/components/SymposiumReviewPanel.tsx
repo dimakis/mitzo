@@ -1,3 +1,4 @@
+import { SymposiumSavedReviewRecord } from './SymposiumSavedReviewRecord';
 import { SymposiumReviewHistory } from './SymposiumReviewHistory';
 import './SymposiumReviewPanel.css';
 import { useCallback, useEffect, useState } from 'react';
@@ -55,6 +56,8 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [tokens, setTokens] = useState(10000);
   const [rounds, setRounds] = useState(2);
   const [record, setRecord] = useState('');
+  const [savedRecordOpen, setSavedRecordOpen] = useState(false);
+  const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
   const [evidenceId, setEvidenceId] = useState('');
   const reload = useCallback(
     async (signal?: AbortSignal) => {
@@ -84,7 +87,9 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   async function action(path: string, body: unknown) {
     setBusy(true);
     setError('');
+    setSavedRecordOpen(false);
     setRecord('');
+    setRecordReference(null);
     try {
       const response = await apiFetch(path, {
         method: 'POST',
@@ -105,7 +110,14 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         setWorkflowId(result.workflowId);
         setNewReview(false);
       }
-      if (result.publication === 'not_created') setRecord(JSON.stringify(result, null, 2));
+      if (result.publication === 'not_created') {
+        setRecord(JSON.stringify(result.record, null, 2));
+        if (
+          /^review-[a-f0-9]{64}$/.test(result.record?.recordId) &&
+          /^[a-f0-9]{64}$/.test(result.record?.contentHash)
+        )
+          setRecordReference({ id: result.record.recordId, hash: result.record.contentHash });
+      }
       setSelected([]);
       setReason('');
       await reload();
@@ -366,8 +378,32 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         <label>
           Current revision review record
           <textarea readOnly value={record} />
-          <span>Copy this record into an explicitly created PR. No PR has been created.</span>
+          {recordReference && (
+            <>
+              <button
+                type="button"
+                aria-expanded={savedRecordOpen}
+                onClick={() => setSavedRecordOpen((open) => !open)}
+              >
+                {savedRecordOpen ? 'Close saved review record' : 'Open saved review record'}
+              </button>
+              <a
+                href={`/sessions/${encodeURIComponent(sessionId)}/review-records/${encodeURIComponent(recordReference.id)}?hash=${encodeURIComponent(recordReference.hash)}`}
+              >
+                Permanent saved review link
+              </a>
+              <span>SHA-256: {recordReference.hash}</span>
+            </>
+          )}
+          <span>This immutable record requires your Mitzo login. No PR has been created.</span>
         </label>
+      )}
+      {record && recordReference && savedRecordOpen && (
+        <SymposiumSavedReviewRecord
+          key={recordReference.id}
+          url={`${base}/records/${encodeURIComponent(recordReference.id)}`}
+          reference={recordReference}
+        />
       )}
       <button
         disabled={busy}
