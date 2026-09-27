@@ -2119,7 +2119,11 @@ app.get('/api/sessions', async (req, res) => {
 
 app.get(
   '/api/sessions/:id/messages',
-  createSessionMessagesHandler({ getMessages, getSessionTranscript, getReconnectTranscript }),
+  createSessionMessagesHandler({
+    getMessages: (sessionId) => getMessages(sessionId),
+    getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
+    getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
+  }),
 );
 
 app.delete('/api/sessions/:id', (req, res) => {
