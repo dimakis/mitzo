@@ -625,10 +625,13 @@ requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
 restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
 
 A dormant [pending artifact seal fence](docs/operations/symposium-artifact-seal.md) denies
-new Symposium seat work while trusted-host sealing is pending. Physical drain, immutable
-Git proof and native trusted-review dispatch remain unimplemented prerequisites.
+new Symposium seat work while trusted-host sealing is pending. The pending fence alone
+does not prove physical drain or immutable Git identity; native trusted-review dispatch remains disabled.
 The pending seal can also reserve its exact artifact lease identity across writer cleanup;
 this internal retention lock remains unsealed and does not prove physical revocation.
 An internal physical-seal operation now composes runtime drain, exact absence checks and a
 credential-free read-only Git verifier; its retained receipt still grants no native review
 or publication permission, and new gateway custody cannot adopt it.
+
+Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
+stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.
