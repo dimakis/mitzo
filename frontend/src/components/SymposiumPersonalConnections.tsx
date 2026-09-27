@@ -18,6 +18,7 @@ const connectionSchema = z.object({
     'disconnecting',
     'recovery_required',
   ]),
+  discoveryRecoveryAvailable: z.boolean().optional(),
   modelDiscovery: z.enum(['pending', 'reconciliation_required']).optional(),
   account: z.object({ email: z.string(), planType: z.string() }).optional(),
 });
@@ -124,6 +125,45 @@ export function SymposiumPersonalConnections({
       window.clearTimeout(timer);
     };
   }, [discoveryPending, refresh]);
+  async function recoverDiscovery(connection: Connection) {
+    if (disabled || mutation.current || !connection.discoveryRecoveryAvailable) return;
+    mutation.current = true;
+    setBusy(true);
+    setMessage('Checking model discovery cleanup…');
+    try {
+      const response = await apiFetch(
+        `${endpoint}/${encodeURIComponent(connection.id)}/models/recover`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expectedRevision: connection.revision }),
+        },
+      );
+      if (!response.ok) throw new Error('Cleanup unconfirmed');
+      const result = z
+        .object({
+          status: z.enum(['reconciled', 'reconciliation_required']),
+          inference: z.literal(false),
+        })
+        .parse(await response.json());
+      if (!mounted.current) return;
+      setMessage(
+        result.status === 'reconciled'
+          ? 'Cleanup confirmed. Sign in explicitly to use this connection again. Existing seats still require an explicit rebind.'
+          : 'Cleanup remains unconfirmed. This connection stays unavailable; host recovery is required.',
+      );
+      notifyAccountsChanged();
+    } catch {
+      if (mounted.current)
+        setMessage(
+          'Cleanup remains unconfirmed. Refresh connection status; host recovery may be required.',
+        );
+    } finally {
+      await refresh();
+      mutation.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
   async function refreshModels(connection: Connection) {
     if (disabled || mutation.current || discoveryBlocked) return;
     mutation.current = true;
@@ -247,10 +287,23 @@ export function SymposiumPersonalConnections({
             </p>
           ) : connection.state === 'recovery_required' ||
             connection.modelDiscovery === 'reconciliation_required' ? (
-            <p>
-              This connection needs recovery on the Mac before it can be used. Cleanup may include
-              other seats in the same owned workspace. Refresh after host recovery.
-            </p>
+            connection.discoveryRecoveryAvailable ? (
+              <div>
+                <p>Model discovery needs cleanup before this connection can be used again.</p>
+                <button
+                  type="button"
+                  disabled={disabled || busy || !!error}
+                  onClick={() => void recoverDiscovery(connection)}
+                >
+                  Clean up model discovery
+                </button>
+              </div>
+            ) : (
+              <p>
+                This connection needs recovery on the Mac before it can be used. Cleanup may include
+                other seats in the same owned workspace. Refresh after host recovery.
+              </p>
+            )
           ) : connection.state === 'disconnecting' ? (
             <p>Wait for disconnect to finish, then refresh.</p>
           ) : (

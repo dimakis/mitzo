@@ -211,6 +211,16 @@ export class PersonalConnections<T extends Adapter> {
     this.save();
     return structuredClone(row);
   }
+  finishDiscoveryRecovery(id: string, revision: number) {
+    const row = this.row(id, revision);
+    if (row.state !== 'recovery_required' || row.modelDiscovery !== 'reconciliation_required')
+      throw new Error('Discovery recovery changed');
+    delete row.modelDiscovery;
+    row.state = 'reauth_required';
+    row.revision++;
+    this.save();
+    return structuredClone(row);
+  }
   async disconnect(id: string, revision: number) {
     const row = this.row(id, revision);
     if (row.modelDiscovery || row.state === 'disconnecting' || row.state === 'connecting')

@@ -1608,6 +1608,7 @@ describe('mounted personal device login ownership', () => {
       list: vi.fn(() => [row]),
       create: vi.fn(() => row),
       disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
+      recoverDiscovery: vi.fn(async () => ({ status: 'reconciled', inference: false })),
       discoverModels: vi.fn(async () => ({
         status: 'complete',
         inference: false,
@@ -1690,6 +1691,24 @@ describe('mounted personal device login ownership', () => {
     expect(discovered.status).toBe(200);
     expect(discovered.headers['cache-control']).toBe('no-store');
     expect(personalConnections.discoverModels).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    const recoveryEndpoint = endpoint.replace('/refresh', '/recover');
+    expect((await request(app).post(recoveryEndpoint).send({ expectedRevision: 1 })).status).toBe(
+      401,
+    );
+    expect((await request(app).post(recoveryEndpoint).set('Cookie', first).send({})).status).toBe(
+      400,
+    );
+    const recovered = await request(app)
+      .post(recoveryEndpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(recovered.status).toBe(200);
+    expect(recovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.recoverDiscovery).toHaveBeenCalledWith(
       'personal_test',
       1,
       expect.any(Function),

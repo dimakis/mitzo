@@ -313,3 +313,91 @@ it('retains recovery if the discovery capability throws after it was entered', a
     modelDiscovery: 'reconciliation_required',
   });
 });
+
+it('recovers only a retained revision-bound capability and requires explicit fresh login', async () => {
+  const recover = vi.fn(async (check: () => void) => {
+    check();
+    return { status: 'reconciled' as const, inference: false as const };
+  });
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+    recover,
+  }));
+  const row = await connected(host);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const quarantined = host.personalConnections.list()[0];
+  expect(quarantined.discoveryRecoveryAvailable).toBe(true);
+  await expect(
+    host.personalConnections.recoverDiscovery(row.id, row.revision, () => {}),
+  ).rejects.toThrow();
+  expect(recover).not.toHaveBeenCalled();
+  await host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {});
+  expect(host.personalConnections.list()[0]).toMatchObject({ state: 'reauth_required' });
+  expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+  expect(host.currentProfiles.catalog()).toEqual([]);
+});
+it('preserves quarantine without retained cleanup proof', async () => {
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+  }));
+  const row = await connected(host);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const quarantined = host.personalConnections.list()[0];
+  await expect(
+    host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {}),
+  ).rejects.toThrow();
+  expect(host.personalConnections.list()[0]).toEqual(quarantined);
+});
+it('serializes recovery and preserves quarantine after operator revocation', async () => {
+  let release!: () => void;
+  const recover = vi.fn(async (check: () => void) => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    check();
+    return { status: 'reconciled' as const, inference: false as const };
+  });
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+    recover,
+  }));
+  const row = await connected(host);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const quarantined = host.personalConnections.list()[0];
+  let revoked = false;
+  const pending = host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {
+    if (revoked) throw new Error('Revoked');
+  });
+  await expect(
+    host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {}),
+  ).rejects.toThrow('already running');
+  revoked = true;
+  release();
+  await expect(pending).rejects.toThrow('Revoked');
+  expect(host.personalConnections.list()[0]).toEqual(quarantined);
+});
+
+it('requires retained credential cleanup after discovery cleanup and retries only the unfinished phase', async () => {
+  const recover = vi.fn(async () => ({ status: 'reconciled' as const, inference: false as const }));
+  const host = fixture(async () => ({
+    result: { status: 'reconciliation_required', inference: false },
+    recover,
+  }));
+  const row = await connected(host);
+  await host.personalConnections.discoverModels(row.id, row.revision, () => {});
+  const quarantined = host.personalConnections.list()[0];
+  const adapter = state.adapters.get(row.id)!;
+  adapter.disconnect.mockRejectedValueOnce(new Error('Workspace sandbox still uses credentials'));
+  await expect(
+    host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {}),
+  ).rejects.toThrow();
+  expect(host.personalConnections.list()[0]).toEqual(quarantined);
+  await expect(
+    host.beginDeviceLogin({ connectionId: row.id, expectedRevision: quarantined.revision }),
+  ).rejects.toThrow('discovery');
+  expect(recover).toHaveBeenCalledTimes(1);
+  await host.personalConnections.recoverDiscovery(row.id, quarantined.revision, () => {});
+  expect(recover).toHaveBeenCalledTimes(1);
+  expect(adapter.disconnect).toHaveBeenCalledTimes(2);
+  expect(host.personalConnections.list()[0].state).toBe('reauth_required');
+});

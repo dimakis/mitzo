@@ -622,3 +622,47 @@ it('ignores discovery completion after unmount without refreshing or notifying t
   expect(changed).not.toHaveBeenCalled();
   expect(apiFetch).toHaveBeenCalledTimes(2);
 });
+it('offers explicit revision-bound cleanup only with retained recovery capability, then asks for fresh sign-in', async () => {
+  let cleaned = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/recover')) {
+      cleaned = true;
+      return response({ status: 'reconciled', inference: false });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [
+          {
+            ...rows[0],
+            revision: cleaned ? 6 : 5,
+            state: cleaned ? 'reauth_required' : 'recovery_required',
+            ...(cleaned
+              ? {}
+              : { modelDiscovery: 'reconciliation_required', discoveryRecoveryAvailable: true }),
+          },
+        ],
+      });
+    return response({ state: 'idle' });
+  });
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Clean up model discovery' }));
+  await screen.findByText(/Cleanup confirmed. Sign in explicitly/);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/symposium/personal/connections/personal-a/models/recover',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedRevision: 5 }) }),
+  );
+  expect(screen.queryByRole('button', { name: 'Clean up model discovery' })).toBeNull();
+  expect(apiFetch).not.toHaveBeenCalledWith('/api/symposium/personal/login', expect.anything());
+});
+it('does not offer cleanup for legacy quarantine without retained proof', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      connections: [
+        { ...rows[0], state: 'recovery_required', modelDiscovery: 'reconciliation_required' },
+      ],
+    }),
+  );
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('Host recovery required');
+  expect(screen.queryByRole('button', { name: 'Clean up model discovery' })).toBeNull();
+});

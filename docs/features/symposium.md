@@ -214,3 +214,23 @@ The current mocked suites cover persistence, privacy, admission, restart fencing
 cleanup ordering, UI selection, and review-record integrity. Their results must
 remain distinct from the bounded live evidence above and from full application
 acceptance.
+
+## Model discovery recovery
+
+If discovery cleanup fails after the host has observed the sandbox identity and
+settled creation, Personal Connections can offer **Clean up model discovery**.
+This explicit action uses the current connection revision and the original host's
+retained journal/custody. It only cancels and deletes the exact discovery sandbox,
+checks gateway and physical absence, then proves retained provider and refresh
+credential cleanup before releasing the discovery marker. Credential cleanup refuses
+while any sandbox remains in the owned workspace; ambiguity keeps the connection
+quarantined. A retry resumes the unfinished cleanup phase. It never
+creates a sandbox, calls a model, publishes a catalog, reconnects, or rebinds a seat.
+Successful cleanup requires explicit fresh sign-in.
+
+The action is unavailable when the host lacks retained proof, including after
+restart, a legacy quarantine, or an uncertain dispatched create without a known
+sandbox identity. Empty inventories do not settle those cases. The authenticated
+`POST /api/symposium/personal/connections/:id/models/recover` endpoint requires
+`expectedRevision`; a stale revision or unavailable capability leaves quarantine
+intact. This is same-process recovery, not cross-custody migration.
