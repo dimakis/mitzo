@@ -401,3 +401,46 @@ it('preserves every claim bit while producing valid upstream labels', () => {
   }
   expect(() => discoveryClaimLabel('f'.repeat(63))).toThrow('Invalid discovery claim');
 });
+it('preserves the diagnosed attempt when the exclusive wrapper fails after its callback', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryCommandFailure({
+      failureClass: 'timeout',
+      commandDispatch: 'possibly-started',
+    });
+  };
+  f.operations.recordDiagnostic = vi.fn(async () => {});
+  f.operations.withExclusiveAttempt = async (operation) => {
+    await operation();
+    throw new Error('PRIVATE custody detail');
+  };
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'reconciliation_required',
+    diagnosticPersisted: true,
+    diagnostic: { stage: 'create', failureClass: 'timeout' },
+  });
+  expect(JSON.stringify(result)).not.toContain('PRIVATE');
+});
+it.each([false, true])(
+  'diagnoses catalog publication failure with persistence failure=%s',
+  async (fails) => {
+    const f = fixture();
+    f.operations.recordDiagnostic = vi.fn(async () => {
+      if (fails) throw new Error('PRIVATE disk');
+    });
+    const result = await runSymposiumModelDiscovery(f.config, f.operations, () => {
+      throw new Error('PRIVATE catalog');
+    });
+    expect(result).toMatchObject({
+      status: 'failed',
+      diagnosticPersisted: !fails,
+      diagnostic: { stage: 'catalog-publication', failureClass: 'operation-failed' },
+    });
+    expect(f.receipt()).toBeUndefined();
+    expect(f.operations.recordDiagnostic).toHaveBeenCalledWith(
+      expect.objectContaining({ stage: 'catalog-publication' }),
+    );
+    expect(JSON.stringify(result)).not.toContain('PRIVATE');
+  },
+);
