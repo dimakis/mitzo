@@ -46,6 +46,8 @@ type Row = {
   generation: string;
   revision: number;
   initialization_contract: string | null;
+  admission_issued: number;
+  source_import_json: string | null;
   state: 'reserved' | 'creating' | 'ready' | 'uncertain' | 'quarantined';
 };
 /** A host-only lifecycle ledger. No deletion, lease release or caller-selected volume.
@@ -92,6 +94,14 @@ export class SymposiumSessionArtifacts {
       if (!columns.some((column) => column.name === name))
         this.db.exec(`ALTER TABLE symposium_session_artifacts ADD COLUMN ${name} ${definition}`);
     }
+    // Existing rows may already have issued descriptors: migration cannot infer pristine use.
+    for (const [name, definition] of [
+      ['admission_issued', 'INTEGER NOT NULL DEFAULT 1'],
+      ['source_import_json', 'TEXT'],
+    ]) {
+      if (!columns.some((column) => column.name === name))
+        this.db.exec(`ALTER TABLE symposium_session_artifacts ADD COLUMN ${name} ${definition}`);
+    }
     if (!columns.some((column) => column.name === 'revision'))
       this.db.exec(
         'ALTER TABLE symposium_session_artifacts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0',
@@ -128,9 +138,114 @@ export class SymposiumSessionArtifacts {
     const row = this.read(sessionId);
     if (!row) return null;
     this.assertOwner(row);
-    return row.state === 'ready' && row.initialization_contract === this.host.initializationContract
+    return row.state === 'ready' &&
+      (!row.source_import_json || JSON.parse(row.source_import_json).receipt) &&
+      row.initialization_contract === this.host.initializationContract
       ? this.mapping(row)
       : null;
+  }
+  sourceImportStatus(sessionId: string) {
+    const row = this.read(sessionId);
+    if (!row) return { available: false, state: 'unprepared' };
+    this.assertOwner(row);
+    const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
+    return {
+      available: !!this.getReady(sessionId) && !row.admission_issued && !source,
+      state: source ? (source.receipt ? 'imported' : 'importing') : 'empty',
+      admissionIssued: !!row.admission_issued,
+      volumeGeneration: row.generation,
+      receipt: source?.receipt ?? null,
+    };
+  }
+  /** Permanent issuance marker: an already returned descriptor can never race a later import. */
+  claimAdmission(sessionId: string): SessionArtifactMapping {
+    return this.db
+      .transaction(() => {
+        const mapping = this.getReady(sessionId);
+        if (!mapping) throw new Error('Artifact source import or preparation is incomplete');
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET admission_issued=1 WHERE session_id=?')
+          .run(sessionId);
+        return mapping;
+      })
+      .immediate();
+  }
+  beginSourceImport(
+    sessionId: string,
+    request: { operationId: string; expectedGeneration: string; source: unknown },
+  ) {
+    return this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('Artifact preparation unavailable');
+        this.assertOwner(row);
+        if (row.generation !== request.expectedGeneration)
+          throw new Error('Artifact generation changed');
+        if (row.admission_issued) throw new Error('Artifact admission was already issued');
+        if (!this.getReady(sessionId) || row.source_import_json)
+          throw new Error('Artifact source import unavailable');
+        const claim = { ...this.mapping(row), token: randomUUID() };
+        this.db
+          .prepare(
+            'UPDATE symposium_session_artifacts SET source_import_json=?,revision=revision+1 WHERE session_id=?',
+          )
+          .run(JSON.stringify({ request, token: claim.token }), sessionId);
+        return claim;
+      })
+      .immediate();
+  }
+  private updateSourceImport(
+    claim: SessionArtifactMapping & { token: string },
+    update: (value: Record<string, unknown>) => void,
+  ) {
+    this.db
+      .transaction(() => {
+        const row = this.read(claim.sessionId);
+        const source = row?.source_import_json ? JSON.parse(row.source_import_json) : null;
+        if (
+          !row ||
+          row.generation !== claim.volumeGeneration ||
+          row.volume_name !== claim.volumeName ||
+          source?.token !== claim.token ||
+          source.receipt
+        )
+          throw new Error('Source import claim changed');
+        update(source);
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET source_import_json=? WHERE session_id=?')
+          .run(JSON.stringify(source), claim.sessionId);
+      })
+      .immediate();
+  }
+  sourceImportHelperReceipt(
+    claim: SessionArtifactMapping & { token: string },
+  ): ArtifactInitializerReceipt {
+    return {
+      intent: (name) =>
+        this.updateSourceImport(claim, (value) => {
+          if (name !== `${claim.volumeName}-import` || value.helperName)
+            throw new Error('Source helper intent changed');
+          value.helperName = name;
+        }),
+      created: (id) =>
+        this.updateSourceImport(claim, (value) => {
+          if (!value.helperName || value.helperId || !/^[a-f0-9]{64}$/.test(id))
+            throw new Error('Source helper identity changed');
+          value.helperId = id;
+        }),
+      removed: () =>
+        this.updateSourceImport(claim, (value) => {
+          if (!value.helperId || value.helperRemoved)
+            throw new Error('Source helper removal changed');
+          value.helperRemoved = true;
+        }),
+    };
+  }
+  completeSourceImport(claim: SessionArtifactMapping & { token: string }, receipt: unknown): void {
+    this.updateSourceImport(claim, (value) => {
+      if (!value.helperRemoved) throw new Error('Source helper cleanup receipt required');
+      value.receipt = receipt;
+    });
   }
   ensure(sessionId: string): Promise<SessionArtifactPreparation> {
     if (!id.test(sessionId)) return Promise.reject(new Error('Invalid Symposium session identity'));
@@ -151,7 +266,7 @@ export class SymposiumSessionArtifacts {
         }
         this.db
           .prepare(
-            'INSERT INTO symposium_session_artifacts (session_id,workspace,custody,volume_name,generation,state) VALUES (?,?,?,?,?,?)',
+            'INSERT INTO symposium_session_artifacts (session_id,workspace,custody,volume_name,generation,state,admission_issued) VALUES (?,?,?,?,?,?,0)',
           )
           .run(
             sessionId,
@@ -166,6 +281,8 @@ export class SymposiumSessionArtifacts {
       .immediate();
     this.assertOwner(row);
     const mapping = this.mapping(row);
+    if (row.source_import_json && !JSON.parse(row.source_import_json).receipt)
+      return { state: 'recovery_required' };
     if (row.state === 'quarantined') return { state: 'recovery_required' };
     let revision = row.revision;
     let creationStarted = false;
