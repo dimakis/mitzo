@@ -1,7 +1,9 @@
 # Sealed artifact publication authority prerequisite
 
-This local module is not an installed publication route or a working Create PR flow.
-The existing live-builder publication mode remains unchanged.
+The controller publication route and review-panel flow are installed when explicit
+private credential references are registered. This is a local integration increment,
+not proof of fresh-workspace end-to-end publication. The existing live-builder mode
+remains unchanged.
 
 A physically completed seal revokes writer leases and sandbox attachments. Those
 objects cannot be reconstructed to satisfy the live-builder publication adapter.
@@ -12,7 +14,7 @@ operator and a separately selected controller credential generation explicitly.
 
 `SealedPublicationAuthority` requires an injected credential custodian. The handle
 must retain one immutable generation and perform commands with that credential
-only. There is no default custodian or ambient-token fallback. A fixed GitHub
+only. There is no ambient-token fallback; explicit registration supplies the process custodian. A fixed GitHub
 `GET /user` read verifies numeric user ID and login. Bot/application credentials
 are intentionally unsupported in this increment. Credential material never enters
 the grant database, approval projection, seal, or model context.
@@ -32,8 +34,8 @@ read-only and must preserve exact approved title/body/draft checks. The guard
 alone does not install this service or implement its export transport.
 
 The service increment below supplies the dedicated controller CapabilityService
-and sealed executor integration. Real credential registration, the physical
-seal/review bridge and authenticated product UI remain unavailable.
+and sealed executor integration. Explicit reference registration, the physical seal/review bridge and authenticated
+product UI are now provided by the registration increment below.
 No GitHub network or model calls were made by the mocked prerequisite tests.
 
 ## Local service increment
@@ -60,22 +62,75 @@ integration must implement the additional `require(scope)` bridge by validating
 the exact trusted review record against the physical completed seal and returning
 its canonical repository path and commit. An arbitrary callback is not a receipt.
 
-## Remaining product wiring
+## Explicit registration and operator flow
 
-1. Install a reviewed private credential custodian with explicit registration and
-   immutable handle generations. No managed provider credential extraction.
-2. Install the completed seal/review bridge and shared owned-host lifecycle gates.
-3. Add authenticated API selection/preview endpoints binding operator, session,
-   exact review/seal, repository, selected connection and verified numeric principal.
-4. Add Create PR to the review panel: show unavailable registration state first;
-   then explicit account/repository selection and the exact forced approval card.
-5. Preserve the durable operation ID across reloads; read-only recovery must display
-   pending outcomes without offering blind retry or auto-publication.
-6. Run reviewed full integration and live acceptance before enabling the route.
+The existing private `MITZO_SYMPOSIUM_OWNED_HOST_CONFIG` accepts an optional
+`publicationCredentials` array. Each entry is `{ id, label, reference: { provider,
+service, account } }`; only registered CredentialResolver providers are supported.
+Grant records use a private `.mitzo/publication/authority.db` directory without changing
+existing workspace permissions. Inline credential values and unknown fields are rejected. Listing references never
+resolves them. No deployment configuration was changed by this increment.
 
-No route, UI action or production credential registration is enabled by this code.
+The authenticated review panel explicitly selects a registered reference, obtains
+fresh numeric GitHub identity, displays the review/seal scope, and requests a separate
+grant. Create PR then uses the existing CapabilityService permission queue. The
+controller must belong to the current authenticated login before and after approval.
+Native switch/watch uses ConnectionRegistry rather than an SDK session. While approval
+is pending, the bridge borrows SessionRegistry only for its existing permission queue
+and permission-response ownership check. Bridge-created entries are refcounted for
+concurrent approvals, never report SDK activity, and are removed only at zero users
+with exact identity. Existing owners are never removed. Watch lifecycle notifications,
+auth expiry and disconnect abort pending approval; reconnect cannot restore it under a
+new actor. Writer leases and builder bindings are deliberately not required.
+Both connection and publication bootstrap obtain the same canonical `.mitzo/capabilities.db`
+owner, regardless of initialization order. Individual services do not close it. Global
+shutdown fences and drains tracked invocation/recovery tasks before closing the owner.
+Legacy startup/reconnect recovery explicitly excludes the sealed-publication namespace;
+sealed recovery is scoped to its exact grant connection.
+
+API mutations use operator authentication and the existing same-origin JSON guard.
+The service derives canonical paths from the reviewed artifact mount and the seal's
+validated relative repository path; request bodies cannot supply filesystem paths.
+
+`PublicationCredentialCustodian` holds immutable secret material only in memory.
+Each command re-resolves the exact selected reference before and after dispatch,
+rejecting a changed value rather than silently switching credentials. Disconnect
+invalidates the revision and cancels in-flight commands. Restart loses all handles
+and requires explicit selection. Keychain changes cannot instantly revoke an already
+dispatched network request; the provider controls credential revocation. Such an
+uncertain result remains subject to the existing read-only recovery rules.
+
+Commands have a 60-second limit and 4-MiB output cap, an empty private temporary cwd,
+scrubbed environment and disabled user/system Git config and hooks. No credential
+is placed in argv, a profile, a Git config file, diagnostics or durable state. The
+fixed Git helper answers only `get` for HTTPS github.com and ignores store/erase.
+Only an exact sanitized gh HTTP 404 crosses the subprocess failure boundary.
+
+The UI retains the exact turn/idempotency identity and request in sessionStorage for
+uncertain recovery across remounts; it does not allocate a new write on retry.
+The reviewed operation store remains authoritative. Tests use real SQLite, the real
+permission queue with a removed builder, and injected credential/command providers;
+no real credential, GitHub request or model call is involved.
+
+## Remaining acceptance prerequisites
+
+- Supported native hard attempt budgets and authoritative final accounting remain
+  unavailable for the selected pinned Personal ChatGPT path. Native review admission
+  remains closed; this code never creates a trusted review receipt.
+- `symposium-artifact-initializer.ts` creates an empty Git repository with `main`.
+  `symposium-session-artifacts.ts` and the owned host contain no operator-authorized
+  repository/base materialization action. `symposium-artifact-git-export.ts` and the
+  GitHub executor require origin/default/base/source refs. Therefore a fresh artifact
+  cannot reach publication merely by registering a credential. A separate reviewed
+  initial repository import contract is required; no arbitrary seed `.git` import,
+  provider credential extraction or test-only remote setup is an application path.
+- Physical completed sealing and a current trusted immutable review record must
+  already exist. Missing prerequisites remain explicit unavailability. Live acceptance
+  must be performed only after these contracts are available and separately authorized.
 
 The selected credential custodian must report HTTP failures using the sanitized
 `PublicationCredentialHttpError` status contract. An exact 404 maps to the host
 publisher's missing-resource branch-rule check; raw stderr/error text is never
-parsed. Selected repository names are canonicalized before durable grant hashing.
+retained or exposed; the custodian recognizes the fixed gh status diagnostic. Selected repository names are canonicalized before durable grant hashing.
+
+Publication requests bind to the current tab’s server-issued chat transport ID at dispatch. Reconnect updates only that transport binding; uncertain publication retries retain the original operation payload and idempotency key. Multiple authenticated watchers cannot redirect the initiating tab’s approval. Direct saved-record links require an explicit **Open session for approval** action, keep the immutable record visible, and render the existing permission banner without starting a model.
