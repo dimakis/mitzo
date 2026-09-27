@@ -1,3 +1,4 @@
+import type { CapabilityApproval } from './connections/capabilities/types.js';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 import type { Express, Request, Response } from 'express';
@@ -13,6 +14,8 @@ export async function dispatchCustodianHttp(
   app: Express,
   input: CustodianRequest,
   assertCurrent: () => void,
+  publicationApproval?: CapabilityApproval,
+  publicationSignal?: AbortSignal,
 ): Promise<CustodianResponse> {
   const command = decodeCustodianRequest(input);
   assertCurrent();
@@ -30,6 +33,8 @@ export async function dispatchCustodianHttp(
   const release = bindCustodianAuthority(request, {
     authorization: command.authorization,
     assertCurrent,
+    publicationApproval,
+    publicationSignal,
   });
   request.push(body);
   request.push(null);

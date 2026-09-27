@@ -16,6 +16,7 @@ async function fixture(
   mixedCase = false,
   unbornBranch = false,
   useCustodian = false,
+  onCreate?: () => Promise<void>,
 ) {
   const scope: SealedPublicationScope = {
     operatorId: 'operator',
@@ -67,6 +68,7 @@ async function fixture(
       return { stdout: JSON.stringify({ protected: false, commit: { sha: oid } }) };
     if (endpoint === 'repos/owner/repo/pulls' && args.includes('POST')) {
       created = true;
+      await onCreate?.();
       if (loseResponse) throw Error('response lost');
       return { stdout: JSON.stringify(pr()) };
     }
@@ -329,4 +331,130 @@ it('keeps sealed operations outside legacy shared-ledger startup and reconnect r
   expect(f.operations.get(pending.id)?.status).toBe('verification_pending');
   expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
   f.close();
+});
+
+it('retains the canonical pending publication after a supervised response is lost', async () => {
+  const { EventEmitter } = await import('node:events');
+  const { createCustodianIpcClient, serveCustodianController } =
+    await import('../symposium-custodian-ipc.js');
+  const { SymposiumCustodianController } = await import('../symposium-custodian-controller.js');
+  class Channel extends EventEmitter {
+    peer!: Channel;
+    send(frame: unknown) {
+      queueMicrotask(() => this.peer.emit('message', frame));
+      return true;
+    }
+  }
+  const parent = new Channel(),
+    child = new Channel();
+  parent.peer = child;
+  child.peer = parent;
+  const f = await fixture();
+  f.loseResponse();
+  let resultId = '';
+  const controller = new SymposiumCustodianController({
+    pause() {},
+    resume() {},
+    async drain() {},
+    invalidate() {},
+    async dispatch(_request, _current, approval, signal) {
+      const result = await f.service.invoke(f.input, signal!, approval!);
+      resultId = result.id;
+      child.emit('disconnect');
+      parent.emit('disconnect');
+      return { status: 200, body: result };
+    },
+  });
+  const stopped = serveCustodianController(parent, controller);
+  const client = createCustodianIpcClient(child);
+  try {
+    await expect(
+      client.request(
+        {
+          requestId: 'lost',
+          operation: 'publication.publish',
+          sessionId: 'session',
+          body: {},
+          query: {},
+          authorization: { id: 'operator', expiresAt: Date.now() + 10000 },
+        },
+        async () => true,
+      ),
+    ).rejects.toThrow('channel');
+    await stopped;
+    expect(f.operations.get(resultId)?.status).toBe('verification_pending');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+    // The retained owner uses the same canonical operation; no second export/write.
+    const result = await f.service.invoke(f.input, f.signal, async () => {
+      throw Error('Unexpected repeated approval');
+    });
+    expect(result.status).toBe('succeeded');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  } finally {
+    f.close();
+  }
+});
+
+it('HTTP disconnect after approved mocked dispatch leaves canonical verification pending without retry', async () => {
+  const { default: express } = await import('express');
+  const { default: request } = await import('supertest');
+  const { login } = await import('../auth.js');
+  const { createCustodianProxy } = await import('../symposium-custodian-proxy.js');
+  let dispatched!: () => void, release!: () => void;
+  const ready = new Promise<void>((resolve) => {
+    dispatched = resolve;
+  });
+  const settle = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const f = await fixture(true, false, false, false, async () => {
+    dispatched();
+    await settle;
+  });
+  f.loseResponse();
+  let resultId = '';
+  let completed!: () => void;
+  const done = new Promise<void>((resolve) => {
+    completed = resolve;
+  });
+  const app = express();
+  app.use(express.json());
+  app.use(
+    createCustodianProxy(
+      {
+        invalidate() {},
+        async request(_command, approval, signal) {
+          signal!.addEventListener('abort', release, { once: true });
+          try {
+            const result = await f.service.invoke(f.input, signal!, approval!);
+            resultId = result.id;
+            return { status: 200, body: result };
+          } finally {
+            completed();
+          }
+        },
+      },
+      () => async () => true,
+    ),
+  );
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const call = request(app)
+    .post('/api/sessions/session/symposium/publication/publish')
+    .set('Authorization', `Bearer ${token}`)
+    .send({});
+  const response = call.then(
+    () => {},
+    () => {},
+  );
+  try {
+    await ready;
+    call.abort();
+    await response;
+    await done;
+    expect(f.operations.get(resultId)?.status).toBe('verification_pending');
+    expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  } finally {
+    release();
+    f.close();
+  }
 });

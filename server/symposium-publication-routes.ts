@@ -1,3 +1,4 @@
+import { custodianPublicationSignal } from './symposium-custodian-authority.js';
 import express from 'express';
 import { z } from 'zod';
 import type { AuthSession } from './auth.js';
@@ -70,7 +71,12 @@ export function createPublicationRouter(deps: {
       };
       res.on('close', close);
       try {
-        const signal = AbortSignal.any([runtime.authorize(session), disconnected.signal]);
+        const retainedSignal = custodianPublicationSignal(req);
+        const signal = AbortSignal.any([
+          runtime.authorize(session),
+          disconnected.signal,
+          ...(retainedSignal ? [retainedSignal] : []),
+        ]);
         signal.throwIfAborted();
         const result = await run(runtime, req, session, signal);
         signal.throwIfAborted();

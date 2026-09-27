@@ -21,7 +21,7 @@ async function main() {
     filename,
     engine.getSymposiumBootstrapDependencies(),
   );
-  engine.installSymposiumProductionHost({ ...host, publicationCredentials: undefined });
+  engine.installSymposiumProductionHost(host);
   const identity = randomUUID();
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
@@ -48,7 +48,7 @@ async function main() {
     invalidate(id) {
       revokeAuthSession({ id, expiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000 });
     },
-    async dispatch(command, assertCurrent) {
+    async dispatch(command, assertCurrent, approval, signal) {
       let invalidated = false;
       const unregister = registerAuthSession(command.authorization, () => {
         invalidated = true;
@@ -76,7 +76,13 @@ async function main() {
         }
         if (command.sessionId && !engine.hasRetainedCustodianSession(command.sessionId))
           throw Error('This session is not held by the current custodian');
-        const result = await dispatchCustodianHttp(engine.app, command, authorize);
+        const result = await dispatchCustodianHttp(
+          engine.app,
+          command,
+          authorize,
+          approval,
+          signal,
+        );
         if (command.operation === 'session.create' && result.status < 300) {
           const sessionId = (result.body as { sessionId?: unknown } | null)?.sessionId;
           if (typeof sessionId !== 'string' || !engine.hasRetainedCustodianSession(sessionId))

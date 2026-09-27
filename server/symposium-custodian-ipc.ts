@@ -1,3 +1,8 @@
+import {
+  controllerPublicationApproval,
+  serveControllerPublicationApproval,
+} from './symposium-custodian-publication.js';
+import { decodeCustodianRequest } from './symposium-custodian-protocol.js';
 import type { EventEmitter } from 'node:events';
 import { z } from 'zod';
 import type { CustodianClient } from './symposium-custodian-proxy.js';
@@ -45,6 +50,7 @@ export function createCustodianIpcClient(
       resolve: (value: CustodianResponse) => void;
       reject: (error: Error) => void;
       timer: ReturnType<typeof setTimeout>;
+      closeApproval(): void;
     }
   >();
   let startResolve!: () => void, startReject!: (error: Error) => void;
@@ -63,6 +69,7 @@ export function createCustodianIpcClient(
     startReject(error);
     for (const item of pending.values()) {
       clearTimeout(item.timer);
+      item.closeApproval();
       item.reject(error);
     }
     pending.clear();
@@ -110,6 +117,7 @@ export function createCustodianIpcClient(
     if (!item) return;
     pending.delete(parsed.data.requestId);
     clearTimeout(item.timer);
+    item.closeApproval();
     if (parsed.data.result && !parsed.data.failed) item.resolve(parsed.data.result);
     else item.reject(Error('Custodian operation unavailable; inspect retained status'));
   };
@@ -124,21 +132,38 @@ export function createCustodianIpcClient(
   startTimer.unref?.();
   send({ kind: 'hello' });
   return {
-    async request(input) {
+    async request(input, approval, signal) {
       await started;
+      signal?.throwIfAborted();
       if (closed || !epoch) throw Error('Custodian channel unavailable');
       if (pending.size >= 64 || pending.has(input.requestId))
         throw Error('Custodian request capacity unavailable');
       return new Promise<CustodianResponse>((resolve, reject) => {
+        const removeApproval =
+          approval && input.operation === 'publication.publish'
+            ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
+            : () => {};
+        const cancel = () => {
+          if (input.operation === 'publication.publish' && !closed)
+            send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
+        };
+        const closeApproval = () => {
+          removeApproval();
+          signal?.removeEventListener('abort', cancel);
+        };
+        signal?.addEventListener('abort', cancel, { once: true });
         const timer = setTimeout(() => {
+          cancel();
           pending.delete(input.requestId);
+          closeApproval();
           reject(Error('Custodian response timed out; operation outcome unknown'));
         }, options.requestTimeoutMs ?? 600_000);
-        pending.set(input.requestId, { resolve, reject, timer });
+        pending.set(input.requestId, { resolve, reject, timer, closeApproval });
         try {
           send({ kind: 'request', command: { ...input, epoch } });
         } catch (error) {
           clearTimeout(timer);
+          closeApproval();
           pending.delete(input.requestId);
           reject(error);
         }
@@ -159,10 +184,12 @@ export function serveCustodianController(
   let lost = false,
     lastHeartbeat = Date.now();
   const heartbeatMs = options.heartbeatMs ?? 120_000;
+  const publications = new Map<string, AbortController>();
   return new Promise<void>((resolve, reject) => {
     const stop = () => {
       if (lost) return;
       lost = true;
+      for (const abort of publications.values()) abort.abort();
       clearInterval(timer);
       channel.off('message', message);
       void connection.lost().then(resolve, reject);
@@ -203,14 +230,46 @@ export function serveCustodianController(
         connection.invalidate(frame.jti);
         return;
       }
+      if (
+        frame.kind === 'publication-request-cancel' &&
+        frame.epoch === connection.epoch &&
+        typeof frame.requestId === 'string' &&
+        Object.keys(frame).length === 3
+      ) {
+        publications.get(frame.requestId)?.abort();
+        return;
+      }
       if (frame.kind !== 'request' || Object.keys(frame).length !== 2) return;
       const command = frame.command as Record<string, unknown> | undefined;
       if (!command || typeof command.requestId !== 'string' || command.requestId.length > 200)
         return;
-      void connection.request(command).then(
-        (result) => send({ kind: 'response', requestId: command.requestId, result }),
-        () => send({ kind: 'response', requestId: command.requestId, failed: true }),
-      );
+      let parsed;
+      try {
+        parsed = decodeCustodianRequest(command);
+      } catch {
+        send({ kind: 'response', requestId: command.requestId, failed: true });
+        return;
+      }
+      if (publications.has(parsed.requestId)) {
+        send({ kind: 'response', requestId: parsed.requestId, failed: true });
+        return;
+      }
+      const publicationAbort =
+        parsed.operation === 'publication.publish' ? new AbortController() : undefined;
+      if (publicationAbort) publications.set(parsed.requestId, publicationAbort);
+      void connection
+        .request(
+          parsed,
+          parsed.operation === 'publication.publish'
+            ? controllerPublicationApproval(channel, parsed)
+            : undefined,
+          publicationAbort?.signal,
+        )
+        .then(
+          (result) => send({ kind: 'response', requestId: command.requestId, result }),
+          () => send({ kind: 'response', requestId: command.requestId, failed: true }),
+        )
+        .finally(() => publications.delete(parsed.requestId));
     };
     channel.on('message', message);
     channel.once('disconnect', stop);
