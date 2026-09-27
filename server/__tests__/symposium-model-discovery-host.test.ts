@@ -439,3 +439,36 @@ it('clears a completed journal only when the exact identity remains under its lo
     expect(await ops.readReceipt()).toBeUndefined();
   });
 });
+
+it('classifies actual command timeout without leaking stderr and persists private diagnostics', async () => {
+  const { config, options } = fixture();
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const child = { pid: 123, kill: vi.fn() };
+    queueMicrotask(() =>
+      (args[3] as (error: unknown, stdout: string) => void)(
+        { code: null, killed: true, signal: 'SIGTERM', stderr: 'SECRET' },
+        'TOKEN',
+      ),
+    );
+    return child;
+  }) as unknown as typeof execFile);
+  const ops = createDiscoveryHostOperations(config, options);
+  await expect(ops.list()).rejects.toMatchObject({
+    detail: { failureClass: 'timeout', commandDispatch: 'possibly-started' },
+  });
+  const diagnostic = {
+    stage: 'create',
+    createDispatch: 'possibly-dispatched',
+    failureClass: 'timeout',
+    commandDispatch: 'possibly-started',
+    recordedAt: new Date().toISOString(),
+  } as const;
+  await ops.withExclusiveAttempt(async () => {
+    await ops.recordDiagnostic!(diagnostic);
+  });
+  const fs = await import('node:fs');
+  expect(JSON.parse(fs.readFileSync(options.journal + '.diagnostic.json', 'utf8'))).toEqual(
+    diagnostic,
+  );
+  expect(fs.statSync(options.journal + '.diagnostic.json').mode & 0o777).toBe(0o600);
+});

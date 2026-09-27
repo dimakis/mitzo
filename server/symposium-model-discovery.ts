@@ -1,3 +1,8 @@
+import {
+  DiscoveryCommandFailure,
+  DiscoveryDiagnosticSchema,
+  type DiscoveryDiagnostic,
+} from './symposium-discovery-diagnostics.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { readCodexModels, type CatalogModel } from './model-catalog.js';
@@ -41,6 +46,7 @@ export interface DiscoveryReadClient {
 /** Internal proof from the host adapter that no external create was dispatched. */
 export class DiscoveryNotDispatchedError extends Error {}
 export interface DiscoveryOperations {
+  recordDiagnostic?(diagnostic: DiscoveryDiagnostic): Promise<void>;
   withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
@@ -64,7 +70,12 @@ export interface DiscoveryOperations {
 }
 export type DiscoveryResult =
   | { status: 'complete'; inference: false; modelCount: number; lunaModels: string[] }
-  | { status: 'failed' | 'reconciliation_required' | 'reconciled'; inference: false };
+  | {
+      status: 'failed' | 'reconciliation_required' | 'reconciled';
+      inference: false;
+      diagnostic?: DiscoveryDiagnostic;
+      diagnosticPersisted?: boolean;
+    };
 
 /** Account and model metadata only. No thread/turn API, inference, or automatic retry. */
 export async function runSymposiumModelDiscovery(
@@ -91,6 +102,30 @@ async function runExclusiveDiscovery(
   let discovered: CatalogModel[] | undefined;
   let resumed = false;
   let creationConfirmed = false;
+  let stage: DiscoveryDiagnostic['stage'] = 'preflight';
+  let createDispatch: DiscoveryDiagnostic['createDispatch'] = 'not-entered';
+  let failureDetails: { diagnostic: DiscoveryDiagnostic; diagnosticPersisted: boolean } | undefined;
+  const diagnose = async (error: unknown) => {
+    const diagnostic = DiscoveryDiagnosticSchema.parse({
+      stage,
+      createDispatch,
+      ...(error instanceof DiscoveryCommandFailure
+        ? error.detail
+        : { failureClass: 'operation-failed', commandDispatch: 'not-observed' }),
+      recordedAt: new Date().toISOString(),
+    });
+    let diagnosticPersisted = false;
+    try {
+      if (ops.recordDiagnostic) {
+        await ops.recordDiagnostic(diagnostic);
+        diagnosticPersisted = true;
+      }
+    } catch {
+      /* Never turn failed persistence into cleanup evidence. */
+    }
+    failureDetails = { diagnostic, diagnosticPersisted };
+    return failureDetails;
+  };
   const verify = async () => ops.verifyCustody(config);
   const owned = (row: Sandbox, expected: DiscoveryReceipt) =>
     row.name === expected.name &&
@@ -109,6 +144,7 @@ async function runExclusiveDiscovery(
         return { status: 'reconciliation_required', inference: false };
       receipt = parsed;
       resumed = true;
+      createDispatch = 'possibly-dispatched';
       creationConfirmed = !!receipt.id;
     } else {
       journalAbsenceConfirmed = true;
@@ -124,9 +160,12 @@ async function runExclusiveDiscovery(
         // This local preflight precedes create; no external allocation was dispatched.
         throw new DiscoveryNotDispatchedError('Custody preflight failed');
       }
+      stage = 'create';
+      createDispatch = 'possibly-dispatched';
       await ops.create(receipt, config);
     }
     if (!resumed) {
+      stage = 'readiness';
       let selected: Sandbox | undefined;
       for (let i = 0; i < 12; i++) {
         await verify();
@@ -144,6 +183,7 @@ async function runExclusiveDiscovery(
         await ops.wait();
       }
       if (!selected || selected.phase !== 'Ready') throw new Error('Not ready');
+      stage = 'provider-verification';
       const attached = z
         .array(z.object({ name: identifier, type: z.literal('codex') }))
         .parse(await ops.attachedProviders(receipt));
@@ -166,12 +206,15 @@ async function runExclusiveDiscovery(
       )
         throw new Error('Wrong provider');
       await verify();
+      stage = 'native-initialize';
       client = await ops.openClient(receipt);
       await client.initialize();
+      stage = 'account-read';
       const account = z
         .object({ account: z.object({ type: z.literal('chatgpt') }) })
         .parse(await client.request('account/read', { refreshToken: false }));
       void account;
+      stage = 'model-list';
       let pages = 0;
       let expired = false;
       let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -219,8 +262,10 @@ async function runExclusiveDiscovery(
     result = {
       status: receipt || !journalAbsenceConfirmed ? 'reconciliation_required' : 'failed',
       inference: false,
+      ...(await diagnose(error)),
     };
   }
+  stage = 'cleanup';
   try {
     client?.close();
   } catch {
@@ -257,14 +302,22 @@ async function runExclusiveDiscovery(
         }
         await ops.wait();
       }
-      if (!clean) result = { status: 'reconciliation_required', inference: false };
-      else {
+      if (!clean) {
+        result = { status: 'reconciliation_required', inference: false };
+        if (!failureDetails) await diagnose(new Error('Cleanup unconfirmed'));
+      } else {
         await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')
           result = { status: resumed ? 'reconciled' : 'failed', inference: false };
       }
-    } catch {
-      result = { status: 'reconciliation_required', inference: false };
+    } catch (error) {
+      result = {
+        status: 'reconciliation_required',
+        inference: false,
+        ...('diagnostic' in result && result.diagnostic
+          ? { diagnostic: result.diagnostic, diagnosticPersisted: result.diagnosticPersisted }
+          : await diagnose(error)),
+      };
     }
   }
   if (result.status === 'complete' && discovered && onCatalog) {
@@ -274,5 +327,5 @@ async function runExclusiveDiscovery(
       return { status: 'failed', inference: false };
     }
   }
-  return result;
+  return { ...result, ...failureDetails };
 }
