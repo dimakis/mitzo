@@ -78,6 +78,40 @@ export function createSubscriptionLoginController(
       ? { ...receipt, ...(verificationUrl ? { verificationUrl, userCode } : {}) }
       : { ...receipt, ...(quarantined ? { retryBlocked: true } : {}) };
   };
+  const retained = new Map<
+    string,
+    { owner: string; deadline: number; receipt: ReturnType<typeof publicReceipt> }
+  >();
+  const pruneReceipts = () => {
+    for (const [id, saved] of retained) if (Date.now() >= saved.deadline) retained.delete(id);
+  };
+  const retainedReceipt = (
+    authenticatedOwner: string | undefined,
+    attemptId: unknown,
+    connectionId?: unknown,
+  ) => {
+    pruneReceipts();
+    if (!authenticatedOwner) return { state: 'unknown' };
+    const entries = [...retained.entries()].reverse();
+    return (
+      entries.find(
+        ([id, saved]) =>
+          saved.owner === authenticatedOwner &&
+          (!attemptId || id === attemptId) &&
+          (!connectionId ||
+            ('connectionId' in saved.receipt && saved.receipt.connectionId === connectionId)),
+      )?.[1].receipt ?? { state: 'unknown' }
+    );
+  };
+  const retainTerminal = () => {
+    pruneReceipts();
+    if (!attempt || !owner || attempt.state === 'pending' || Date.now() >= receiptDeadline)
+      return true;
+    // Never evict another owner's still-valid recovery receipt to admit a new login.
+    if (retained.size >= 128 && !retained.has(attempt.attemptId)) return false;
+    retained.set(attempt.attemptId, { owner, deadline: receiptDeadline, receipt: publicReceipt() });
+    return true;
+  };
   const cleanupAttempt = (terminal: 'cancelled' | 'expired'): Promise<void> => {
     if (cleanupPending) return cleanupPending;
     const current = attempt;
@@ -107,16 +141,21 @@ export function createSubscriptionLoginController(
 
   const status: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
-    if (
-      (owner && owner !== getOwner(req, res)) ||
-      (req.query.attemptId && req.query.attemptId !== attempt?.attemptId) ||
-      (req.query.connectionId && req.query.connectionId !== attempt?.connectionId)
-    ) {
-      res.json({ state: 'unknown' });
+    const authenticatedOwner = getOwner(req, res);
+    const matchesCurrent = () =>
+      (!owner || owner === authenticatedOwner) &&
+      (!req.query.attemptId || req.query.attemptId === attempt?.attemptId) &&
+      (!req.query.connectionId || req.query.connectionId === attempt?.connectionId);
+    if (!matchesCurrent()) {
+      res.json(retainedReceipt(authenticatedOwner, req.query.attemptId, req.query.connectionId));
       return;
     }
     await expire();
-    res.json(publicReceipt());
+    res.json(
+      matchesCurrent()
+        ? publicReceipt()
+        : retainedReceipt(authenticatedOwner, req.query.attemptId, req.query.connectionId),
+    );
   };
   const start: RequestHandler = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -184,6 +223,12 @@ export function createSubscriptionLoginController(
         });
         return;
       }
+    }
+    if (!retainTerminal()) {
+      res.status(409).json({
+        error: 'Login receipt capacity is full. Retry after the recovery window expires.',
+      });
+      return;
     }
     const current = {
       attemptId: randomUUID(),
@@ -318,8 +363,14 @@ export function createSubscriptionLoginController(
       res.json(publicReceipt());
       return;
     }
+    const requestedOwner = owner;
+    const requestedAttempt = attempt.attemptId;
     await cleanupAttempt('cancelled');
-    res.json(publicReceipt());
+    res.json(
+      owner === requestedOwner && attempt?.attemptId === requestedAttempt
+        ? publicReceipt()
+        : retainedReceipt(requestedOwner, requestedAttempt),
+    );
   };
   return { start, status, cancel };
 }

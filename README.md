@@ -565,3 +565,5 @@ Native Codex acceptance and exact terminal notifications now persist as private
 of controller cleanup. Usage remains explicitly unknown; these records do not enable
 review admission or prove a hard token budget. Storage replay covers the same private
 registry file, not automatic history adoption after fresh gateway custody.
+
+Before external seat creation, local artifact and seat intent writes complete before workspace dispatch uncertainty is recorded. A live owner can undo its exact unbound local intent if those writes fail before dispatch; failed rollback and interrupted processes retain recovery requirements. Inventory absence never discharges an uncertain dispatched create.

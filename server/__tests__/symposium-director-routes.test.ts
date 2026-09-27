@@ -298,6 +298,7 @@ describe('Symposium director routes', () => {
     };
     const missing = await request(app).post('/api/sessions/chat/symposium/seats/revise').send(body);
     expect(missing.status).toBe(409);
+    expect(missing.body.seatMutation).toBe('not-started');
     const spoof = await request(app)
       .post('/api/sessions/chat/symposium/seats/revise')
       .send({
@@ -328,6 +329,14 @@ describe('Symposium director routes', () => {
       }),
     );
     expect(reviseSeat.mock.calls[0]?.[0]).not.toHaveProperty('seat.profileSelection');
+    reviseSeat.mockImplementation(() => {
+      throw new Error('Mutation outcome unknown');
+    });
+    const uncertain = await request(app)
+      .post('/api/sessions/chat/symposium/seats/revise')
+      .send({ ...body, crossAccountConfirmation: 'ADD CROSS-ACCOUNT SEAT' });
+    expect(uncertain.status).toBe(409);
+    expect(uncertain.body).not.toHaveProperty('seatMutation');
   });
   it.each(['reviewer', 'new-seat'])(
     'does not mint or reissue %s grants without a runtime',
@@ -490,6 +499,7 @@ describe('Symposium director routes', () => {
       .put('/api/sessions/chat/symposium/config')
       .send({ expectedRevision: 3, config: next });
     expect(stale.status).toBe(409);
+    expect(stale.body.seatMutation).toBe('not-started');
     expect(store.setSymposiumConfig).not.toHaveBeenCalled();
     const accepted = await request(app)
       .put('/api/sessions/chat/symposium/config')
@@ -925,3 +935,40 @@ it.each(['removed', 'suspended'])(
     expect(JSON.stringify(selected.body)).not.toContain('Private same-millisecond message');
   },
 );
+
+it('distinguishes rejected draft validation from an entered store mutation', async () => {
+  const { app, store, validateSelection } = fixture();
+  const next = {
+    ...config,
+    revision: 5,
+    state: 'draft',
+    seats: config.seats.map((seat) => ({
+      ...seat,
+      accountBinding: {
+        accountId: 'claude-work',
+        accountLabel: 'Claude',
+        provider: 'anthropic-vertex',
+        model: seat.model,
+        profileRevision: 'rev-1',
+      },
+    })),
+  };
+  validateSelection.mockImplementation(() => {
+    throw new Error('Model unavailable');
+  });
+  const rejected = await request(app)
+    .put('/api/sessions/chat/symposium/config')
+    .send({ expectedRevision: 4, config: next });
+  expect(rejected.status).toBe(409);
+  expect(rejected.body.seatMutation).toBe('not-started');
+  expect(store.setSymposiumConfig).not.toHaveBeenCalled();
+  validateSelection.mockImplementation(() => {});
+  store.setSymposiumConfig.mockImplementation(() => {
+    throw new Error('Unknown write result');
+  });
+  const uncertain = await request(app)
+    .put('/api/sessions/chat/symposium/config')
+    .send({ expectedRevision: 4, config: next });
+  expect(uncertain.status).toBe(409);
+  expect(uncertain.body).not.toHaveProperty('seatMutation');
+});

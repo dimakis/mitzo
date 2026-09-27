@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
   LocalSymposiumProductionPhysicalProof,
+  SymposiumPhysicalCommandNotStarted,
   digestSymposiumPublicProfile,
 } from '../symposium-production-physical.js';
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -197,7 +198,97 @@ it('attempts exact temporary-container removal after an ambiguous create failure
       '/usr/bin/controller',
       sha('controller'),
     ),
-  ).toThrow('response lost');
+  ).toThrow('cleanup requires operator recovery');
   const created = run.mock.calls.find((call) => call[1][0] === 'create')![1];
   expect(run.mock.calls.at(-1)![1]).toEqual(['rm', created[created.indexOf('--name') + 1]]);
+});
+
+it('keeps a proven local spawn failure retryable after exact-name absence proof', () => {
+  const { proof, run } = setup((args) => {
+    if (args[0] === 'image')
+      return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+    if (args[0] === 'create') throw new SymposiumPhysicalCommandNotStarted('ENOENT');
+    if (args[0] === 'rm') throw new Error('container missing');
+    if (args[0] === 'container') return '[]';
+    throw new Error('unexpected');
+  });
+  expect(() =>
+    proof.verifyImageAndController(
+      'runtime',
+      sha('image'),
+      '/usr/bin/controller',
+      sha('controller'),
+    ),
+  ).toThrow('process did not start');
+  const create = run.mock.calls.find((call) => call[1][0] === 'create')![1];
+  expect(run.mock.calls.at(-1)![1]).toEqual([
+    'container',
+    'ls',
+    '--all',
+    '--filter',
+    `name=^${create[create.indexOf('--name') + 1]}$`,
+    '--format',
+    'json',
+  ]);
+});
+it.each(['[{"Names":["retained"]}]', '{}', 'invalid'])(
+  'quarantines failed removal with non-absence evidence %s',
+  (output) => {
+    const { proof } = setup((args) => {
+      if (args[0] === 'image')
+        return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+      if (args[0] === 'create' || args[0] === 'rm') throw new Error('uncertain');
+      if (args[0] === 'container') return output;
+      return '';
+    });
+    expect(() =>
+      proof.verifyImageAndController(
+        'runtime',
+        sha('image'),
+        '/usr/bin/controller',
+        sha('controller'),
+      ),
+    ).toThrow('cleanup requires operator recovery');
+  },
+);
+
+it.each([false, true])(
+  'retains quarantine for ambiguous create even with immediate absence (rm succeeds: %s)',
+  (removed) => {
+    const { proof } = setup((args) => {
+      if (args[0] === 'image')
+        return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+      if (args[0] === 'create') throw new Error('timeout or lost response');
+      if (args[0] === 'rm' && !removed) throw new Error('missing for now');
+      if (args[0] === 'container') return '[]';
+      return '';
+    });
+    expect(() =>
+      proof.verifyImageAndController(
+        'runtime',
+        sha('image'),
+        '/usr/bin/controller',
+        sha('controller'),
+      ),
+    ).toThrow('cleanup requires operator recovery');
+  },
+);
+
+it('accepts exact absence after completed create and lost removal response', () => {
+  const { proof } = setup((args) => {
+    if (args[0] === 'image')
+      return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+    if (args[0] === 'cp') writeFileSync(args[2], 'controller');
+    if (args[0] === 'rm') throw new Error('removal response lost');
+    if (args[0] === 'container') return '[]';
+    return '';
+  });
+  expect(() =>
+    proof.verifyImageAndController(
+      'runtime',
+      sha('image'),
+      '/usr/bin/controller',
+      sha('controller'),
+    ),
+  ).not.toThrow();
 });

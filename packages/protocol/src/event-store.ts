@@ -2278,6 +2278,32 @@ export class EventStore {
     if (result.changes !== 1) throw new Error('Symposium seat creation requires reconciliation');
   }
 
+  /** Only the retained live owner, before invoking external dispatch, may undo local intent. */
+  rollbackUndispatchedSymposiumSeatCreation(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    fenceToken: string;
+  }): void {
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_started=0
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+      AND state='reserved' AND physical_id IS NULL AND creation_completed=0
+      AND EXISTS(SELECT 1 FROM symposium_seat_lifecycle_fences
+        WHERE session_id=? AND seat_id=? AND token=?)`,
+    ).run(
+      input.sessionId,
+      input.seatId,
+      input.generation,
+      input.runtimeId,
+      input.sessionId,
+      input.seatId,
+      input.fenceToken,
+    );
+    if (result.changes !== 1) throw new Error('Undispatched seat intent requires recovery');
+  }
+
   /** Only a completed create response can discharge uncertainty about late creation. */
   markSymposiumSeatSandboxCreationCompleted(input: {
     sessionId: string;

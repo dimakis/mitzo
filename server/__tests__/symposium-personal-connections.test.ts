@@ -1,10 +1,16 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import * as fs from 'node:fs';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+vi.mock('node:fs', async (original) => ({
+  ...(await original<typeof import('node:fs')>()),
+  fsyncSync: vi.fn((await original<typeof import('node:fs')>()).fsyncSync),
+}));
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PersonalConnections } from '../symposium-personal-connections.js';
 const roots: string[] = [];
 afterEach(() => {
+  vi.mocked(fs.fsyncSync).mockRestore();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function setup() {
@@ -100,4 +106,42 @@ it('never clears interrupted login recovery after restart without a live cleanup
   expect(recovered.state).toBe('recovery_required');
   await expect(restarted.disconnect(recovered.id, recovered.revision)).rejects.toThrow('cleanup');
   expect(restarted.list()[0].state).toBe('recovery_required');
+});
+
+it.each(['file', 'directory'] as const)(
+  'blocks lifecycle mutation when %s durability cannot be confirmed',
+  async (kind) => {
+    const { manager, adapters } = setup();
+    const row = manager.create('Phone');
+    const lease = manager.begin(row.id, row.revision);
+    manager.complete(lease, { email: 'a@example.test', planType: 'plus' });
+    vi.mocked(fs.fsyncSync).mockImplementation((fd) => {
+      if (fs.fstatSync(fd).isDirectory() === (kind === 'directory')) throw new Error('sync failed');
+    });
+    await expect(manager.disconnect(row.id, manager.list()[0].revision)).rejects.toThrow(
+      'persistence',
+    );
+    expect(adapters.get(row.id)!.disconnect).not.toHaveBeenCalled();
+    expect(adapters.get(row.id)!.invalidate).toHaveBeenCalled();
+    expect(manager.list()[0].state).toBe('recovery_required');
+  },
+);
+it('syncs the connecting file before rename and the parent before returning its lease', () => {
+  const { manager, path } = setup();
+  const row = manager.create('Phone');
+  const seen: string[] = [];
+  vi.mocked(fs.fsyncSync).mockImplementation((fd) => {
+    if (fs.fstatSync(fd).isDirectory()) {
+      expect(JSON.parse(readFileSync(path, 'utf8'))[0].state).toBe('connecting');
+      seen.push('directory');
+    } else {
+      const contents = Buffer.alloc(fs.fstatSync(fd).size);
+      fs.readSync(fd, contents, 0, contents.length, 0);
+      expect(JSON.parse(contents.toString('utf8'))[0].state).toBe('connecting');
+      expect(JSON.parse(readFileSync(path, 'utf8'))[0].state).toBe('disconnected');
+      seen.push('file');
+    }
+  });
+  manager.begin(row.id, row.revision);
+  expect(seen).toEqual(['file', 'directory']);
 });

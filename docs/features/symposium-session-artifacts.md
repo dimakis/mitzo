@@ -6,7 +6,7 @@ session, including when the original account is temporarily unavailable. An
 operator-only `POST /api/symposium/sessions/:sessionId/artifacts` retries preparation
 for an existing Symposium; it accepts no volume, path, driver, labels or grants.
 Preparation failure retains the draft. The creation panel offers **Retry shared
-files** and **Open draft**. An absent owned host reports pending preparation.
+files** and **Open draft**. Reopened saved drafts expose **Prepare or retry shared files** in Director controls, so recovery survives navigation or a page reload. This preparation action never activates the roster or dispatches a prompt. An absent owned host reports pending preparation.
 
 The owned host stores a lifecycle ledger inside its stable private gateway state parent directory.
 Each session receives a generated volume name and generation before a create command

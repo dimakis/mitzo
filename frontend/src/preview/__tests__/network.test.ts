@@ -134,12 +134,12 @@ it('simulates only explicit device-code start, status, and cancellation', async 
   const code = await start.json();
   expect(code).toMatchObject({
     state: 'pending',
-    attemptId: 'preview-device',
+    attemptId: expect.stringMatching(/^preview-device-\d+$/),
     userCode: 'DEMO-CODE',
   });
   expect(
     await (
-      await window.fetch('/api/symposium/personal/login/status?attemptId=preview-device')
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${code.attemptId}`)
     ).json(),
   ).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
   const cancelled = await window.fetch('/api/symposium/personal/login/cancel', {
@@ -184,13 +184,14 @@ it('isolates saved personal fixture revisions and never sends mutations upstream
       expectedRevision: selected.revision,
     }),
   });
-  expect(await start.json()).toMatchObject({ state: 'pending', connectionId: selected.id });
+  const started = await start.json();
+  expect(started).toMatchObject({ state: 'pending', connectionId: selected.id });
   expect(
     await (await window.fetch('/api/symposium/personal/login/status?connectionId=other')).json(),
   ).toMatchObject({ state: 'idle' });
   await window.fetch('/api/symposium/personal/login/cancel', {
     method: 'POST',
-    body: JSON.stringify({ attemptId: 'preview-device' }),
+    body: JSON.stringify({ attemptId: started.attemptId }),
   });
   await window.fetch(`${url}/${before.connections[0].id}/disconnect`, {
     method: 'POST',
@@ -226,4 +227,41 @@ it('simulates only explicit model refresh of the current connected fixture revis
       })
     ).status,
   ).toBe(405);
+});
+
+it('uses a fresh device identity for retry and rejects cancellation of the previous attempt', async () => {
+  const begin = async () =>
+    (
+      await window.fetch('/api/symposium/personal/login', {
+        method: 'POST',
+        body: JSON.stringify({ method: 'device-code' }),
+      })
+    ).json();
+  const first = await begin();
+  await window.fetch('/api/symposium/personal/login/cancel', {
+    method: 'POST',
+    body: JSON.stringify({ attemptId: first.attemptId }),
+  });
+  const second = await begin();
+  expect(second.attemptId).not.toBe(first.attemptId);
+  expect(second).toMatchObject({ state: 'pending', userCode: 'DEMO-CODE' });
+  expect(
+    (
+      await window.fetch('/api/symposium/personal/login/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ attemptId: first.attemptId }),
+      })
+    ).status,
+  ).toBe(405);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${second.attemptId}`)
+    ).json(),
+  ).toMatchObject(second);
+  expect(
+    await (
+      await window.fetch(`/api/symposium/personal/login/status?attemptId=${first.attemptId}`)
+    ).json(),
+  ).toMatchObject({ state: 'unknown' });
+  expect(upstreamFetch).not.toHaveBeenCalled();
 });
