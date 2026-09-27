@@ -889,3 +889,39 @@ it('refreshes retained admissions only through the verified runtime at an explic
     (await request(app).post('/api/sessions/chat/symposium/admissions/refresh').send({})).status,
   ).toBe(400);
 });
+
+it.each(['removed', 'suspended'])(
+  'fails closed when %s membership and private delivery share a millisecond',
+  async (state) => {
+    const { app, store } = fixture();
+    store.getSymposiumMembershipHistory.mockReturnValue([
+      ...['architect', 'reviewer', 'third'].map((seatId) => ({
+        seatId,
+        generation: 1,
+        state: 'active',
+        occurredAt: 1,
+      })),
+      { seatId: 'third', generation: 2, state, occurredAt: 20 },
+    ] as never);
+    store.getSymposiumDeliveries.mockReturnValue([
+      {
+        deliveryId: 'private-tie',
+        status: 'delivered',
+        recipientSeatIds: ['architect', 'reviewer'],
+        originalContent: 'Private same-millisecond message',
+        deliveredContent: null,
+        createdAt: 20,
+      },
+    ] as never);
+    const full = await request(app)
+      .post('/api/sessions/chat/symposium/context-package')
+      .send({ mode: 'full-context' });
+    expect(full.status).toBe(409);
+    expect(JSON.stringify(full.body)).not.toContain('Private same-millisecond message');
+    const selected = await request(app)
+      .post('/api/sessions/chat/symposium/context-package')
+      .send({ mode: 'selected-turns', turnIds: ['delivery:private-tie'] });
+    expect(selected.status).toBe(409);
+    expect(JSON.stringify(selected.body)).not.toContain('Private same-millisecond message');
+  },
+);
