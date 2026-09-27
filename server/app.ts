@@ -820,6 +820,9 @@ const symposiumSessionRuntimes = new Map<
 >();
 export interface SymposiumProductionHost {
   runSandboxCreation?: SandboxCreationFence;
+  ensureSessionArtifacts?: (
+    sessionId: string,
+  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
   /** Optional until native hard budgets and durable review receipts are available. */
   reviewHost?: SymposiumInteractiveReviewHost;
   /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
@@ -847,7 +850,12 @@ export interface SymposiumProductionHost {
   physical: SymposiumProductionPhysicalProof;
   attemptRegistry: SymposiumAttemptRegistry;
   artifactLeaseHost: SqliteArtifactLeaseHost;
-  artifactRequest(sessionId: string, seatId: string, generation: number): ArtifactLeaseRequest;
+  artifactRequest(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ): ArtifactLeaseRequest;
 }
 let symposiumProductionHost: SymposiumProductionHost | undefined;
 /** Trusted server bootstrap only. No request handler accepts or supplies this capability. */
@@ -999,6 +1007,8 @@ app.use(
     store: eventStore,
     profiles: symposiumProfileStore,
     currentAccounts: symposiumAccountProfiles,
+    ensureSessionArtifacts: async (sessionId) =>
+      symposiumProductionHost?.ensureSessionArtifacts?.(sessionId) ?? { state: 'pending' },
   }),
 );
 const symposiumReviewStore = new SymposiumReviewStore(

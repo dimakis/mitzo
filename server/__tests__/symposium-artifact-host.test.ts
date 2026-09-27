@@ -175,6 +175,24 @@ describe('durable artifact host', () => {
     const gatewayAbsent = vi.fn(async () => {});
     try {
       evidence.verifyDeleted.mockClear();
+      expect(
+        reopened.retainedCleanupRequest({
+          sessionId: request.sessionId,
+          seatId: request.seatId,
+          sandboxName: 'seat-writer',
+          physicalId: 'physical-1',
+          creationStarted: true,
+        }),
+      ).toEqual(request);
+      expect(() =>
+        reopened.retainedCleanupRequest({
+          sessionId: request.sessionId,
+          seatId: 'other',
+          sandboxName: 'seat-writer',
+          physicalId: 'physical-1',
+          creationStarted: true,
+        }),
+      ).toThrow('seat changed');
       await reopened.releaseBoundSandbox(request, 'seat-writer', 'physical-1', gatewayAbsent);
       expect(gatewayAbsent).toHaveBeenCalledTimes(2);
       expect(evidence.verifyDeleted).toHaveBeenCalledExactlyOnceWith('seat-writer', 'physical-1');

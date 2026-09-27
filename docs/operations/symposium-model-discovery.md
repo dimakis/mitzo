@@ -80,3 +80,9 @@ A replaced journal, lost lock, observed sandbox ID, or dispatched create retains
 reconciliation rather than claiming cleanup. The host records dispatch immediately
 before the CLI process starts; inventory and physical cleanup remain required
 for any dispatched attempt.
+
+An unreadable or malformed journal, or custody failure before journal absence is
+proved, reports reconciliation required. Successful cleanup deletes only the exact
+receipt under the retained lock; a replaced receipt or lost lock remains for host
+recovery instead of being erased. These checks apply to ordinary completion as
+well as undispatched rollback.

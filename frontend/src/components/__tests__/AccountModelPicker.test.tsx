@@ -440,6 +440,10 @@ it.each(['recovered', 'new'] as const)(
     let finish!: (value: Response) => void;
     const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
     vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (url === '/api/symposium/personal/connections')
+        return response({
+          connections: [{ id: 'personal', label: 'Personal', revision: 1, state: 'disconnected' }],
+        });
       if (url === '/api/symposium/accounts') {
         if (++catalogs === 1) return response([]);
         return new Promise<Response>((resolve) => {
@@ -449,10 +453,16 @@ it.each(['recovered', 'new'] as const)(
       if (init?.method === 'POST')
         return response({
           attemptId: 'login',
+          connectionId: 'personal',
           authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=mock',
         });
-      if (url.includes('?attemptId=')) return response({ state: 'completed', attemptId: 'login' });
-      return response({ state: mode === 'recovered' ? 'completed' : 'idle', attemptId: 'login' });
+      if (url.includes('?attemptId='))
+        return response({ state: 'completed', attemptId: 'login', connectionId: 'personal' });
+      return response({
+        state: mode === 'recovered' ? 'completed' : 'idle',
+        attemptId: 'login',
+        connectionId: 'personal',
+      });
     });
     const onChange = vi.fn();
     render(
@@ -464,7 +474,10 @@ it.each(['recovered', 'new'] as const)(
       />,
     );
     await screen.findByText('No Symposium account profiles configured.');
-    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    fireEvent.change(await screen.findByLabelText('Saved account for sign-in'), {
+      target: { value: 'personal' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect personal subscription' }));
     if (mode === 'new') {
       fireEvent.click(await screen.findByLabelText(/Browser on the Mitzo server/));
       fireEvent.click(screen.getByLabelText(/ready/i));
