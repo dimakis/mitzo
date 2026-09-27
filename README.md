@@ -658,3 +658,5 @@ Dormant [pending native review evidence](docs/operations/symposium-review-attemp
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.
 
 Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/operations/symposium-native-create-receipts.md#fresh-app-authentication-for-a-pending-cleanup) in the Director UI and operator API while the original host retains custody. Authorization and cleanup require separate explicit actions; this does not provide restart recovery.
+
+[Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. This bootstrap groundwork keeps Vertex seat admission closed pending native runtime and isolation evidence.
