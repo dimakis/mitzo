@@ -351,6 +351,8 @@ function SessionDirectorPanel({
         const next = await readJson<DirectorStatus>(base);
         if (generation !== refreshGeneration.current) return;
         setStatus(next);
+        // Typed cleanup consent belongs to the status the operator inspected.
+        setCleanupConfirmation({});
         setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
         setSelected((current) =>
           current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
@@ -905,7 +907,13 @@ function SessionDirectorPanel({
                             sessionId={sessionId}
                             seat={seat}
                             revision={status.config!.revision}
-                            onSaved={() => refresh()}
+                            onSaved={async () => {
+                              setCleanupConfirmation((current) => ({
+                                ...current,
+                                [seat.seatId]: '',
+                              }));
+                              await refresh();
+                            }}
                           />
                         ) : seat.creationDiagnostic.recoveryAuthorization?.state ===
                           'cleanup_fenced' ? (

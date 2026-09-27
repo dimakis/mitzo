@@ -804,3 +804,69 @@ it.each(['success', 'auth-rejected', 'auth-expired', 'handoff-rejected'])(
     ).toBe(false);
   },
 );
+
+it('requires freshly typed cleanup confirmation after another session handoff and reauthorization', async () => {
+  const initial = status(true);
+  let phase: 'original' | 'foreign' | 'returned' = 'original';
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url === '/api/connections/reauthorize')
+      return response({ csrf: 'csrf', expiresAt: Date.now() + 60000 });
+    if (String(url).endsWith('/creation/recovery/reauthorize')) {
+      phase = 'returned';
+      return response({ authorizationRevision: 2 });
+    }
+    return response({
+      ...initial,
+      seats: initial.seats.map((seat, index) =>
+        index
+          ? seat
+          : {
+              ...seat,
+              admitted: false,
+              creationDiagnostic: {
+                phase: 'upload',
+                code: 'SEAT_UPLOAD_FAILED',
+                canCleanup: phase !== 'foreign',
+                recoveryIdempotencyKey: phase !== 'foreign' ? 'cleanup-key' : undefined,
+                recoveryAuthorization: {
+                  operationId: 'a'.repeat(64),
+                  revision: phase === 'original' ? 0 : phase === 'foreign' ? 1 : 2,
+                  state: phase === 'foreign' ? 'reauthorization_required' : 'authorized',
+                },
+              },
+            },
+      ),
+    });
+  });
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.type(
+    await screen.findByLabelText('Type CLEAN UP FAILED SEAT for Architect'),
+    'CLEAN UP FAILED SEAT',
+  );
+  expect(
+    screen.getByRole('button', { name: 'Clean up failed seat' }).hasAttribute('disabled'),
+  ).toBe(false);
+  phase = 'foreign';
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh director status' }));
+  await userEvent.type(
+    await screen.findByLabelText('App passphrase for Architect cleanup'),
+    'fresh-passphrase',
+  );
+  await userEvent.type(
+    screen.getByLabelText('Type RESUME FAILED SEAT CLEANUP for Architect'),
+    'RESUME FAILED SEAT CLEANUP',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Authorize pending cleanup' }));
+  const cleanup = await screen.findByRole('button', { name: 'Clean up failed seat' });
+  expect(cleanup.hasAttribute('disabled')).toBe(true);
+  const confirmation = screen.getByLabelText(
+    'Type CLEAN UP FAILED SEAT for Architect',
+  ) as HTMLInputElement;
+  expect(confirmation.value).toBe('');
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/creation/recover')),
+  ).toBe(false);
+  await userEvent.type(confirmation, 'CLEAN UP FAILED SEAT');
+  expect(cleanup.hasAttribute('disabled')).toBe(false);
+});
