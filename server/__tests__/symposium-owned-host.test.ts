@@ -41,6 +41,7 @@ function fixture() {
     managementEnvironment: { HOME: root, XDG_CONFIG_HOME: root, PATH: '/usr/bin:/bin' },
     verifyCustody: vi.fn(),
     stop: vi.fn(),
+    stopAndWait: vi.fn().mockResolvedValue(undefined),
     verifyGatewayDriverConfig: vi.fn(),
   };
   const seat = {
@@ -88,6 +89,42 @@ function fixture() {
   return { root, gateway, options, launch, seat, membership };
 }
 describe('explicit owned Symposium host composition', () => {
+  it('fences admission and keeps custody stores readable until exact gateway exit completes', async () => {
+    const f = fixture();
+    let exited!: () => void;
+    f.gateway.stopAndWait.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          exited = resolve;
+        }),
+    );
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const signal = new AbortController().signal;
+    host.beginShutdown();
+    expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('shutting down');
+    await expect(host.ensureSessionArtifacts('session')).rejects.toThrow('shutting down');
+    await expect(host.beginDeviceLogin()).rejects.toThrow('shutting down');
+    await host.drain(signal);
+    const closing = host.closeAfterDrain(signal);
+    expect(() => host.currentProfiles()).not.toThrow();
+    exited();
+    await closing;
+    expect(() => host.currentProfiles()).toThrow('stopped');
+  });
+
+  it('retains host stores when gateway exit cannot be established', async () => {
+    const f = fixture();
+    f.gateway.stopAndWait.mockRejectedValue(new Error('exit unknown'));
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    const signal = new AbortController().signal;
+    host.beginShutdown();
+    await host.drain(signal);
+    await expect(host.closeAfterDrain(signal)).rejects.toThrow('exit unknown');
+    expect(() => host.currentProfiles()).not.toThrow();
+    host.markShutdownUncertain();
+    host.stop();
+  });
+
   it('composes isolated private registries and named gateway without admission or login side effects', async () => {
     const f = fixture();
     const host = await createOwnedSymposiumHost(f.options, f.launch);

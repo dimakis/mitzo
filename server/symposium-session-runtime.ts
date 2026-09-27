@@ -1045,6 +1045,15 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
 
 /** Host-held factory. Callers must supply durable grants, exact receipts, and verified policy. */
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {
+  let draining = false;
+  const originalVerify = deps.verifyHostCapability;
+  deps = {
+    ...deps,
+    verifyHostCapability: () => {
+      if (draining) throw new Error('Symposium runtime is shutting down');
+      return originalVerify?.();
+    },
+  } as SymposiumSessionRuntimeDeps;
   const defaultEvents = new SymposiumNativeEventSink(deps.store, deps.broadcastEvent ?? (() => {}));
   const recordEvent: NonNullable<SymposiumOpenShellSeatExecutorDeps['recordEvent']> =
     deps.recordEvent ?? ((execution, event) => defaultEvents!.record(execution, event));
@@ -1140,6 +1149,32 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       return executor;
     },
   });
+  const stopSeat = async ({
+    sessionId,
+    seatId,
+    generation,
+  }: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+  }) => {
+    if (sessionId !== deps.sessionId) throw new Error('Symposium stop belongs to another session');
+    const attempts = deps.store.getUnsettledSymposiumSeatExecutions(sessionId, seatId);
+    await Promise.all(
+      attempts.map(async (attempt) => {
+        if (!attempt.claimToken) throw new Error('Legacy native attempt cleanup is unknown');
+        await executors[seatId].cancel!({
+          idempotencyKey: attempt.idempotencyKey,
+          attemptId: attempt.attemptId,
+          claimToken: attempt.claimToken,
+        });
+        // Persist each confirmed stop independently. One uncertain sibling must
+        // not make already-stopped attempts impossible to reconcile later.
+        deps.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+      }),
+    );
+    await owner.stop(sessionId, seatId, generation, new AbortController().signal);
+  };
   const orchestrator = new SymposiumOrchestrator({
     store: deps.store,
     executors,
@@ -1266,25 +1301,36 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       for (const snapshot of snapshots) snapshot.verify();
     },
     retainedProviders: () => [],
-    stopSeat: async ({ sessionId, seatId, generation }) => {
-      if (sessionId !== deps.sessionId)
-        throw new Error('Symposium stop belongs to another session');
-      const attempts = deps.store.getUnsettledSymposiumSeatExecutions(sessionId, seatId);
-      await Promise.all(
-        attempts.map(async (attempt) => {
-          if (!attempt.claimToken) throw new Error('Legacy native attempt cleanup is unknown');
-          await executors[seatId].cancel!({
-            idempotencyKey: attempt.idempotencyKey,
-            attemptId: attempt.attemptId,
-            claimToken: attempt.claimToken,
-          });
-          // Persist each confirmed stop independently. One uncertain sibling must
-          // not make already-stopped attempts impossible to reconcile later.
-          deps.store.confirmSymposiumAttemptCleanup(attempt.attemptId, attempt.idempotencyKey);
+    stopSeat,
+  });
+  return {
+    orchestrator,
+    owner,
+    executors,
+    beginShutdown() {
+      draining = true;
+      for (const executor of cache.values()) executor.beginShutdown();
+    },
+    async drain(signal: AbortSignal) {
+      draining = true;
+      for (const executor of cache.values()) executor.beginShutdown();
+      const native = await Promise.allSettled(
+        [...cache.values()].map((executor) => executor.drain(signal)),
+      );
+      if (native.some((result) => result.status === 'rejected'))
+        throw new Error('Native shutdown cleanup incomplete');
+      const seats = new Map<string, number>();
+      for (const member of deps.store.getSymposiumMembershipHistory(deps.sessionId))
+        seats.set(member.seatId, Math.max(seats.get(member.seatId) ?? 0, member.generation));
+      const results = await Promise.allSettled(
+        [...seats].map(async ([seatId, generation]) => {
+          signal.throwIfAborted();
+          await stopSeat({ sessionId: deps.sessionId, seatId, generation });
         }),
       );
-      await owner.stop(sessionId, seatId, generation, new AbortController().signal);
+      signal.throwIfAborted();
+      if (results.some((result) => result.status === 'rejected'))
+        throw new Error('Symposium seat cleanup incomplete');
     },
-  });
-  return { orchestrator, owner, executors };
+  };
 }

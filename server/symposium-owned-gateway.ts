@@ -586,6 +586,28 @@ enabled = true
       throw new Error('Artifact driver config differs from lease');
   }
 
+  async stopAndWait(signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const exited =
+      this.child.exitCode !== null || this.child.signalCode !== null
+        ? Promise.resolve()
+        : new Promise<void>((resolve, reject) => {
+            const exit = () => {
+              signal.removeEventListener('abort', abort);
+              resolve();
+            };
+            const abort = () => {
+              this.child.removeListener('exit', exit);
+              reject(signal.reason);
+            };
+            this.child.once('exit', exit);
+            signal.addEventListener('abort', abort, { once: true });
+          });
+    this.stop();
+    await Promise.all([exited, this.issuer.stopAndWait()]);
+    signal.throwIfAborted();
+  }
+
   /** Stops only the exact owned child. Its state is retained for reconciliation. */
   stop(): void {
     this.failure = true;

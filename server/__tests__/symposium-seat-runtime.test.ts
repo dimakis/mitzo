@@ -465,6 +465,42 @@ describe('last native Symposium dispatch fence', () => {
     registry.close();
   });
 
+  it('shutdown waits for already-started setup, fences new work and prevents late native launch', async () => {
+    const work = fixture();
+    const host = initializeSymposiumNativeHost(registryDirectory());
+    let finish!: (value: { sandboxName: string; workdir: string }) => void;
+    const openNative = vi.fn();
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      attemptRegistry: host.registry,
+      owner: {
+        ensure: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => true,
+      openNative,
+    });
+    const running = executor.execute(work.input);
+    const rejected = expect(running).rejects.toThrow('shutting down');
+    let drained = false;
+    const drain = executor.drain(new AbortController().signal).then(() => {
+      drained = true;
+    });
+    await expect(executor.execute(work.input)).rejects.toThrow('shutting down');
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    finish({ sandboxName: 'shared', workdir: '/work' });
+    await rejected;
+    await drain;
+    expect(openNative).not.toHaveBeenCalled();
+    host.registry.close();
+  });
+
   it('prevents setup from launching after a concurrent prelaunch cancellation', async () => {
     const work = fixture();
     const host = initializeSymposiumNativeHost(registryDirectory());

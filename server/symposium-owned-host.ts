@@ -114,6 +114,16 @@ export async function createOwnedSymposiumHost(
   let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let stopped = false;
+  let draining = false;
+  const pendingHostOperations = new Set<Promise<unknown>>();
+  const track = <T>(operation: () => Promise<T>): Promise<T> => {
+    if (stopped) return Promise.reject(new Error('Owned Symposium host stopped'));
+    if (draining) return Promise.reject(new Error('Owned Symposium host is shutting down'));
+    const promise = operation();
+    pendingHostOperations.add(promise);
+    void promise.finally(() => pendingHostOperations.delete(promise)).catch(() => {});
+    return promise;
+  };
   let loginStarting = false;
   let loginQuarantined = false;
   let login:
@@ -234,7 +244,7 @@ export async function createOwnedSymposiumHost(
       },
     );
     chmodSync(sessionArtifactsPath, 0o600);
-    const ensureSessionArtifacts = async (
+    const prepareSessionArtifacts = async (
       sessionId: string,
     ): Promise<SessionArtifactPreparation> => {
       custody();
@@ -257,6 +267,8 @@ export async function createOwnedSymposiumHost(
       }
       return sessionArtifacts!.ensure(sessionId);
     };
+    const ensureSessionArtifacts = (sessionId: string) =>
+      track(() => prepareSessionArtifacts(sessionId));
     const physical = new LocalSymposiumProductionPhysicalProof({
       cli: gateway.cli,
       podman: options.podman.executable,
@@ -355,6 +367,8 @@ export async function createOwnedSymposiumHost(
       generation: number,
       purpose: 'admission' | 'cleanup' = 'admission',
     ): ArtifactLeaseRequest => {
+      if (draining && purpose === 'admission')
+        throw new Error('Owned Symposium host is shutting down');
       custody();
       const mapped =
         artifacts.get(sessionId) ??
@@ -427,7 +441,7 @@ export async function createOwnedSymposiumHost(
             : 'writer',
       };
     };
-    const startLogin = async (device: boolean, selection?: ConnectionSelection) => {
+    const allocateLogin = async (device: boolean, selection?: ConnectionSelection) => {
       custody();
       if (loginQuarantined || login || loginStarting)
         throw new Error('Subscription login is already pending');
@@ -445,7 +459,7 @@ export async function createOwnedSymposiumHost(
       } finally {
         loginStarting = false;
       }
-      if (stopped) {
+      if (stopped || draining) {
         void pending.completed.catch(() => undefined);
         await pending.cancel();
         throw new Error('Owned Symposium host stopped');
@@ -462,34 +476,38 @@ export async function createOwnedSymposiumHost(
       );
       return pending;
     };
+    const startLogin = (device: boolean, selection?: ConnectionSelection) =>
+      track(() => allocateLogin(device, selection));
+    const collectAdmissionEvidence = createOwnedEvidenceCollector(
+      runtimeConfig,
+      gateway.endpoint,
+      {
+        cli: gateway.cli,
+        podman: options.podman.executable,
+        cliEnv: gateway.managementEnvironment,
+        podmanEnv,
+      },
+      {
+        verifyCustodyAsync: async () => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyCustodyAsync();
+        },
+        verifyOwnedNativeHostAsync: async (binding) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyOwnedNativeHostAsync(binding);
+        },
+        verifyGatewayDriverConfigAsync: async (...args) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyGatewayDriverConfigAsync(...args);
+        },
+      },
+    );
     return {
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
-      collectAdmissionEvidence: createOwnedEvidenceCollector(
-        runtimeConfig,
-        gateway.endpoint,
-        {
-          cli: gateway.cli,
-          podman: options.podman.executable,
-          cliEnv: gateway.managementEnvironment,
-          podmanEnv,
-        },
-        {
-          verifyCustodyAsync: async () => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyCustodyAsync();
-          },
-          verifyOwnedNativeHostAsync: async (binding) => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyOwnedNativeHostAsync(binding);
-          },
-          verifyGatewayDriverConfigAsync: async (...args) => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyGatewayDriverConfigAsync(...args);
-          },
-        },
-      ),
+      collectAdmissionEvidence: (...args: Parameters<typeof collectAdmissionEvidence>) =>
+        track(() => collectAdmissionEvidence(...args)),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,
@@ -497,9 +515,30 @@ export async function createOwnedSymposiumHost(
       artifactRequest,
       ensureSessionArtifacts,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
-      assertSubscriptionDispatch: subscription.assertPrivateAuth,
+      assertSubscriptionDispatch: (
+        ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>
+      ) => {
+        if (draining) throw new Error('Owned Symposium host is shutting down');
+        return subscription!.assertPrivateAuth(...args);
+      },
       runSandboxCreation: workspaceLifecycle.create,
-      personalConnections: subscription.personalConnections,
+      personalConnections: {
+        ...subscription.personalConnections,
+        create: (
+          ...args: Parameters<NonNullable<typeof subscription>['personalConnections']['create']>
+        ) => {
+          if (draining) throw new Error('Owned Symposium host is shutting down');
+          return subscription!.personalConnections.create(...args);
+        },
+        disconnect: (
+          ...args: Parameters<NonNullable<typeof subscription>['personalConnections']['disconnect']>
+        ) => track(() => subscription!.personalConnections.disconnect(...args)),
+        discoverModels: (
+          ...args: Parameters<
+            NonNullable<NonNullable<typeof subscription>['personalConnections']['discoverModels']>
+          >
+        ) => track(() => subscription!.personalConnections.discoverModels!(...args)),
+      },
       beginLogin: (selection?: ConnectionSelection) =>
         startLogin(false, selection) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
       beginDeviceLogin: (selection?: ConnectionSelection) =>
@@ -507,6 +546,35 @@ export async function createOwnedSymposiumHost(
           NonNullable<typeof subscription>['beginDeviceLogin']
         >,
 
+      beginShutdown() {
+        draining = true;
+        workspaceLifecycle.beginDrain();
+      },
+      async drain(signal: AbortSignal) {
+        draining = true;
+        workspaceLifecycle.beginDrain();
+        const pending = await Promise.allSettled([...pendingHostOperations]);
+        if (pending.some((result) => result.status === 'rejected'))
+          throw new Error('Host operation did not settle cleanly');
+        signal.throwIfAborted();
+        if (login) await login.cancel();
+        if (loginQuarantined) throw new Error('Login cleanup incomplete');
+        await workspaceLifecycle.drain(signal);
+      },
+      markShutdownUncertain() {
+        for (const claim of native!.registry.pending())
+          native!.registry.markUncertain(claim.claimToken);
+      },
+      async closeAfterDrain(signal: AbortSignal) {
+        signal.throwIfAborted();
+        await gateway.stopAndWait(signal);
+        signal.throwIfAborted();
+        stopped = true;
+        subscription!.invalidate();
+        native!.registry.close();
+        leaseHost!.close();
+        sessionArtifacts!.close();
+      },
       stop() {
         if (stopped) return;
         stopped = true;
