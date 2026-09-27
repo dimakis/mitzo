@@ -6,14 +6,81 @@ import {
 } from './symposium-review-fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
+let deviceState = 'idle';
+let deviceAttemptId: string | undefined;
+let deviceAttemptSequence = 0;
+let deviceExpiresAt = 0;
 window.fetch = async (input, init) => {
   const url = new URL(
     typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
     location.origin,
   );
   if (!url.pathname.startsWith('/api/')) return nativeFetch(input, init);
-  if (init?.method && init.method !== 'GET')
-    return Response.json({ error: 'Preview is read-only' }, { status: 405 });
+  const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const denied = () => Response.json({ error: 'Unsupported preview request' }, { status: 405 });
+  const login = '/api/symposium/personal/login';
+  if (url.pathname.startsWith(login)) {
+    let body: Record<string, unknown> | undefined;
+    if (method === 'POST') {
+      try {
+        const raw: unknown =
+          init?.body !== undefined
+            ? JSON.parse(String(init.body))
+            : input instanceof Request
+              ? await input.clone().json()
+              : undefined;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw))
+          body = raw as Record<string, unknown>;
+      } catch {
+        return denied();
+      }
+    }
+    if (
+      url.pathname === login &&
+      method === 'POST' &&
+      body?.method === 'device-code' &&
+      Object.keys(body).length === 1
+    ) {
+      deviceAttemptId = `preview-device-${++deviceAttemptSequence}`;
+      deviceState = 'pending';
+      deviceExpiresAt = Date.now() + 600000;
+    } else if (
+      url.pathname === `${login}/cancel` &&
+      method === 'POST' &&
+      deviceAttemptId &&
+      body?.attemptId === deviceAttemptId &&
+      Object.keys(body).length === 1
+    ) {
+      deviceState = 'cancelled';
+    } else if (url.pathname === `${login}/status` && method === 'GET') {
+      const id = url.searchParams.get('attemptId');
+      if (id && id !== deviceAttemptId) return Response.json({ state: 'unknown', attemptId: id });
+    } else return denied();
+    return Response.json(
+      deviceState === 'pending'
+        ? {
+            state: deviceState,
+            attemptId: deviceAttemptId,
+            method: 'device-code',
+            verificationUrl: 'https://auth.openai.com/codex/device',
+            userCode: 'DEMO-CODE',
+            expiresAt: deviceExpiresAt,
+          }
+        : {
+            state: deviceState,
+            ...(deviceState === 'idle' ? {} : { attemptId: deviceAttemptId }),
+          },
+    );
+  }
+  if (method !== 'GET') return denied();
+  if (url.pathname === '/api/connections')
+    return Response.json({
+      connections: [],
+      legacy: [],
+      eligibleAccounts: [],
+      appliesTo: 'new conversations only',
+    });
+  if (url.pathname === '/api/connections/templates') return Response.json({ templates: [] });
   if (/^\/api\/sessions\/[^/]+\/symposium\/reviews$/.test(url.pathname)) {
     // preview-1: findings; preview-3: changed artifact; preview-2: unavailable host.
     const sessionId = url.pathname.split('/')[3];
@@ -37,8 +104,6 @@ window.fetch = async (input, init) => {
       history: symposiumReviewPreviewHistory[scenario],
     });
   }
-  if (url.pathname === '/api/symposium/personal/login/status')
-    return Response.json({ state: 'idle' });
   if (url.pathname === '/api/symposium/profile-proposals')
     return Response.json(
       url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],
