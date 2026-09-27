@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumDirectorPanel } from '../SymposiumDirectorPanel';
@@ -109,7 +109,7 @@ it('shows distinct seat accounts and does not offer dispatch while runtime admis
   expect(
     screen.getByRole('button', { name: 'Inject to selected seats' }).hasAttribute('disabled'),
   ).toBe(true);
-  expect(screen.getAllByRole('button', { name: 'Suspend' })).toHaveLength(2);
+  expect(screen.getAllByRole('button', { name: 'Suspend' })).toHaveLength(1);
   expect(screen.getByText(/Shared artifacts and provider account retention/)).toBeTruthy();
 });
 
@@ -365,7 +365,7 @@ it('keeps old mutation completion and its refresh isolated from the new session'
   const { rerender } = render(<SymposiumDirectorPanel sessionId="session" />);
   await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
   await screen.findByText(/OpenAI work · gpt/);
-  await userEvent.click(screen.getAllByRole('button', { name: 'Suspend' })[1]);
+  await userEvent.click(screen.getByRole('button', { name: 'Suspend' }));
   rerender(<SymposiumDirectorPanel sessionId="next" />);
   await screen.findByText('This conversation has no Symposium roster.');
   await act(async () => {
@@ -408,5 +408,37 @@ it('recovers shared files from a reopened saved draft without activating or disp
   );
   expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
     2,
+  );
+});
+
+it('keeps primary lifecycle controls unavailable while reviewer removal remains explicit', async () => {
+  const current = status(true);
+  current.config = {
+    ...config,
+    anchorSeatId: 'primary',
+    seats: config.seats.map((seat, i) =>
+      i === 0 ? { ...seat, id: 'primary', name: 'Primary' } : seat,
+    ),
+  };
+  current.seats = current.seats.map((row, i) =>
+    i === 0 ? { ...row, seatId: 'primary', seat: current.config.seats[0] } : row,
+  );
+  vi.mocked(apiFetch).mockResolvedValue(response(current));
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  const primary = within(
+    (await screen.findByText('Primary', { selector: 'strong' })).closest('li')!,
+  );
+  const reviewer = within(screen.getByText('Reviewer', { selector: 'strong' }).closest('li')!);
+  expect(primary.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  expect(primary.queryByRole('button', { name: 'Remove' })).toBeNull();
+  expect(
+    primary.getByText('The primary seat cannot yet be suspended, removed, or rebound.'),
+  ).toBeTruthy();
+  expect(reviewer.getByRole('button', { name: 'Suspend' }).hasAttribute('disabled')).toBe(false);
+  await userEvent.click(reviewer.getByRole('button', { name: 'Remove' }));
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/sessions/session/symposium/membership',
+    expect.objectContaining({ body: expect.stringContaining('"seatId":"reviewer"') }),
   );
 });

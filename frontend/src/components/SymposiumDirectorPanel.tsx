@@ -612,7 +612,9 @@ function SessionDirectorPanel({
                           ? 'Cleanup required'
                           : 'Pending runtime admission'}
                     </span>
-                    {seat.membership?.state === 'active' ? (
+                    {status.config?.version === 2 && seat.seatId === status.config.anchorSeatId ? (
+                      <span>The primary seat cannot yet be suspended, removed, or rebound.</span>
+                    ) : seat.membership?.state === 'active' ? (
                       <>
                         <button
                           type="button"
