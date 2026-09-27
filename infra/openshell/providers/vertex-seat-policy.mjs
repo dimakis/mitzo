@@ -2,11 +2,11 @@
 // import vertex-seat-endpointless.yaml as its google-vertex-ai profile first.
 import { writeFile } from 'node:fs/promises';
 const identifier = /^[a-z][a-z0-9-]*[a-z0-9]$/;
-const regionPattern = /^[a-z]+-[a-z]+[0-9]+$/;
+const regionPattern = /^(?:global|[a-z]+-[a-z]+[0-9]+)$/;
 const modelPattern = /^claude-haiku-4-5@20251001$/;
 
 function requireMatch(value, pattern, label) {
-  if (typeof value !== 'string' || !pattern.test(value)) {
+  if (typeof value !== 'string' || /[\r\n]/.test(value) || !pattern.test(value)) {
     throw new TypeError(`Invalid ${label}`);
   }
   return value;
@@ -17,7 +17,7 @@ export function createVertexSeatPolicy({ project, region, model, claudeBinary, p
   requireMatch(region, regionPattern, 'Vertex region');
   requireMatch(model, modelPattern, 'Haiku model');
   requireMatch(providerName, identifier, 'provider name');
-  if (typeof claudeBinary !== 'string' || !/^\/(?:[A-Za-z0-9._-]+\/)*claude$/.test(claudeBinary)) {
+  if (typeof claudeBinary !== 'string' || /[\r\n]/.test(claudeBinary) || !/^\/(?:[A-Za-z0-9._-]+\/)*claude$/.test(claudeBinary)) {
     throw new TypeError('Claude binary must be an exact absolute path ending in /claude');
   }
 
@@ -25,7 +25,7 @@ export function createVertexSeatPolicy({ project, region, model, claudeBinary, p
   const endpoint = (operation) => {
     const path = `${base}:${operation}`;
     return {
-      host: `${region}-aiplatform.googleapis.com`,
+      host: region === 'global' ? 'aiplatform.googleapis.com' : `${region}-aiplatform.googleapis.com`,
       path,
       port: 443,
       protocol: 'rest',
