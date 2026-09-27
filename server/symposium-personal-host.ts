@@ -99,6 +99,27 @@ export function createPersonalSubscriptionHost(
   const adapter = (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>
     connections.adapter(input.execution.seat.accountBinding?.accountId ?? '');
   return {
+    captureAdmissionProvider(selection: ConnectionSelection) {
+      options.gateway.verifyCustody();
+      assertNoDiscovery();
+      const row = select(selection);
+      if (row.state !== 'connected') throw new Error('Connected personal slot required');
+      const captured = connections.adapter(row.id);
+      const proof = captured.captureDiscovery();
+      const assertCurrent = () => {
+        options.gateway.verifyCustody();
+        assertNoDiscovery();
+        const current = select(selection);
+        if (current.state !== 'connected' || connections.adapter(current.id) !== captured)
+          throw new Error('Personal slot changed');
+        proof.assertCurrent();
+      };
+      assertCurrent();
+      return {
+        provider: { ...proof.provider, type: 'codex' as const, profileName: 'codex' as const },
+        assertCurrent,
+      };
+    },
     get currentProfiles() {
       options.gateway.verifyCustody();
       return new AccountProfiles(

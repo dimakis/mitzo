@@ -130,3 +130,35 @@ it('trims actual command stdout for exact version comparisons', () => {
     }),
   ).toBe('openshell reviewed');
 });
+it('accepts explicit personal-slot candidate selection but rejects mixed caller provider or volume authority', async () => {
+  const collect = vi.fn(async () => ({ proof: true }) as never);
+  const app = express();
+  app.use(express.json());
+  app.post(
+    '/evidence',
+    ownedEvidenceHandler(() => collect),
+  );
+  const selection = {
+    personalConnection: { connectionId: 'personal', expectedRevision: 3 },
+    sessionId: 'session',
+    allowedRoles: ['coder', 'reviewer'],
+  };
+  const response = await request(app).post('/evidence').send(selection);
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ candidate: { proof: true }, activated: false });
+  expect(collect).toHaveBeenCalledWith(selection);
+  expect(
+    (
+      await request(app)
+        .post('/evidence')
+        .send({ ...selection, artifactVolume: { driver: 'podman', name: 'other' } })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post('/evidence')
+        .send({ ...selection, providerInstances: [] })
+    ).status,
+  ).toBe(400);
+});
