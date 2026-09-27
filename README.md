@@ -134,6 +134,13 @@ Claude's native tool path remains unavailable pending its independent evidence
 gate. Mitzo owns profile authoring and version history; ContexGin remains a
 context source, with explicit imports rather than implicit write-back.
 
+The seat Landlock launcher permits read-only access to the supervisor's two public
+CA certificate files under `/run/openshell-supervisor-ca/material`; it grants no
+access to that directory, private keys, or other `/run` content. The
+[offline CA regression](docs/spikes/openshell-codex/SEAT-PUBLIC-CA.md) records the
+physical denial and the bounded fix. Existing runtime images must be rebuilt and
+reviewed before this source change can affect them.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
@@ -494,6 +501,8 @@ The no-inference discovery helper requires complete, bounded paginated sandbox a
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
+Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
