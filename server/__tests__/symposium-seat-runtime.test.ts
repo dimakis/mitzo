@@ -1312,7 +1312,7 @@ describe('last native Symposium dispatch fence', () => {
       type: 'openai',
       workspace: 'default',
     });
-    const snapshot = (phase: 'candidate' | 'reconciling' | 'confirmed') =>
+    const snapshot = (phase: 'candidate' | 'retained' | 'reconciling' | 'confirmed') =>
       snapshotSymposiumSeatProvider(
         'symposium',
         'reviewer',
@@ -1335,6 +1335,18 @@ describe('last native Symposium dispatch fence', () => {
     currentMembership = { ...membership };
     expect(snapshot('confirmed').generation).toBe(2);
     expect(() => snapshot('candidate')).toThrow(/membership/i);
+    currentAdmission = undefined;
+    const retained = snapshot('retained');
+    expect(retained.generation).toBe(2);
+    expect(() => snapshot('confirmed')).toThrow(/admission/i);
+    currentAdmission = { ...admission, decision: 'refused' };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = { ...admission, membershipGeneration: 999 };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = undefined;
+    currentMembership = { ...membership, reconciliation: 'pending' };
+    expect(() => snapshot('retained')).toThrow(/membership/i);
+    expect(() => retained.verify()).toThrow(/membership/i);
   });
   it('does not create a pending seat sandbox until its provider admission is recorded', async () => {
     // The admission changes between the two ensure attempts in this test.

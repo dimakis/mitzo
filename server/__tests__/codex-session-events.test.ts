@@ -35,7 +35,7 @@ it('maps streamed text and completion using application identity and ignores oth
     },
   ]);
   expect(events.filter((e) => e.type === 'result')).toEqual([
-    { type: 'result', session_id: 'app-id', is_error: false },
+    { type: 'result', session_id: 'app-id', is_error: false, usage_status: 'unknown' },
   ]);
   expect(JSON.stringify(events)).not.toContain('provider-id');
   expect(JSON.stringify(events)).not.toContain('secret');
@@ -69,15 +69,24 @@ it('handles final-only text, repeated completion, and flushes partial text on in
     message: { content: [{ type: 'text', text: 'partial' }] },
   });
 });
-it('reports provider token usage without double-counting cached input', () => {
+it('does not certify a valid cached-input snapshot without a terminal total', () => {
   const events: Record<string, unknown>[] = [];
-  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event));
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event), {
+    freshThread: true,
+  });
+  mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'turn' } });
   mapper.notification('thread/tokenUsage/updated', {
     threadId: 'provider',
     turnId: 'turn',
     tokenUsage: {
       last: { inputTokens: 100, cachedInputTokens: 70, outputTokens: 20 },
-      total: {},
+      total: {
+        inputTokens: 100,
+        cachedInputTokens: 70,
+        outputTokens: 20,
+        reasoningOutputTokens: 5,
+        totalTokens: 120,
+      },
     },
   });
   mapper.notification('turn/completed', {
@@ -86,8 +95,9 @@ it('reports provider token usage without double-counting cached input', () => {
   });
   expect(events.at(-1)).toMatchObject({
     type: 'result',
-    usage: { input_tokens: 30, cache_read_input_tokens: 70, output_tokens: 20 },
+    usage_status: 'unknown',
   });
+  expect(events.at(-1)).not.toHaveProperty('usage');
 });
 it('renders host tool calls and results without putting provider continuation IDs into public events', () => {
   const events: Record<string, unknown>[] = [];
@@ -442,4 +452,62 @@ it('drops late item events after a result and accepts them after the next turn s
   expect(JSON.stringify(events)).not.toContain('too late');
   expect(JSON.stringify(events)).not.toContain('must-not-render');
   expect(JSON.stringify(events)).toContain('current summary');
+});
+
+it('leaves native usage unknown when a cumulative update precedes completion and final usage is late', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'model', (event) => events.push(event), {
+    freshThread: true,
+  });
+  mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'turn' } });
+  const tokenUsage = (inputTokens: number, outputTokens: number) => ({
+    last: { inputTokens: 5, cachedInputTokens: 0, outputTokens: 2 },
+    total: {
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      reasoningOutputTokens: 0,
+      totalTokens: inputTokens + outputTokens,
+    },
+  });
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: tokenUsage(100, 20),
+  });
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'other',
+    turnId: 'turn',
+    tokenUsage: tokenUsage(9000, 9000),
+  });
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: tokenUsage(200, 40),
+  });
+  mapper.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'turn', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({
+    usage_status: 'unknown',
+  });
+  expect(events.at(-1)).not.toHaveProperty('usage');
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'turn',
+    tokenUsage: tokenUsage(210, 42),
+  });
+  mapper.notification('turn/started', { threadId: 'provider', turn: { id: 'next' } });
+  mapper.notification('thread/tokenUsage/updated', {
+    threadId: 'provider',
+    turnId: 'next',
+    tokenUsage: tokenUsage(300, 60),
+  });
+  mapper.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'next', status: 'completed' },
+  });
+  expect(events.at(-1)).toMatchObject({ usage_status: 'unknown' });
+  expect(events.at(-1)).not.toHaveProperty('usage');
 });

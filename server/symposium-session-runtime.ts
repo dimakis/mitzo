@@ -154,7 +154,9 @@ export interface SymposiumProviderUnion {
   verify(): void;
 }
 
-type SeatProviderPhase = 'candidate' | 'reconciling' | 'confirmed';
+// Retained admission revalidates an already-confirmed generation at a new config
+// revision. It never authorizes sandbox attachment or dispatch without admission.
+type SeatProviderPhase = 'candidate' | 'retained' | 'reconciling' | 'confirmed';
 
 /** Freeze the exact admitted generation and physical provider inventory for one reconciliation. */
 export function snapshotSymposiumProviderUnion(
@@ -186,11 +188,13 @@ export function snapshotSymposiumProviderUnion(
     for (const seat of config.seats) {
       const membership = facts.getLatestSymposiumMembership(sessionId, seat.id);
       if (membership?.state !== 'active') continue;
+      if (phase === 'retained' && membership.reconciliation !== 'confirmed')
+        throw new Error('Retained Symposium seat membership is not confirmed');
       const binding = seat.accountBinding;
       if (!binding) throw new Error('Active Symposium seat lacks account binding');
       const admission = facts.getLatestSymposiumAdmission(sessionId, seat.id, config.revision);
       if (
-        (phase !== 'candidate' && admission?.decision !== 'admitted') ||
+        (phase !== 'candidate' && phase !== 'retained' && admission?.decision !== 'admitted') ||
         (admission != null &&
           (admission.decision !== 'admitted' ||
             admission.membershipGeneration !== membership.generation ||
@@ -442,7 +446,8 @@ export function snapshotSymposiumSeatProvider(
     const membership = facts.getLatestSymposiumMembership(sessionId, seatId);
     if (
       membership?.state !== 'active' ||
-      (phase === 'confirmed' && membership.reconciliation !== 'confirmed') ||
+      ((phase === 'confirmed' || phase === 'retained') &&
+        membership.reconciliation !== 'confirmed') ||
       (phase === 'candidate' && membership.reconciliation !== 'pending') ||
       (phase === 'reconciling' &&
         membership.reconciliation !== 'pending' &&
@@ -1101,7 +1106,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
   const orchestrator = new SymposiumOrchestrator({
     store: deps.store,
     executors,
-    admitSeat: ({ sessionId, seatId, generation }) => {
+    admitSeat: ({ sessionId, seatId, generation, retained }) => {
       if (sessionId !== deps.sessionId)
         throw new Error('Symposium admission belongs to another session');
       const config = deps.store.getActiveSymposiumConfig(sessionId);
@@ -1151,7 +1156,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         deps.hostGrants,
         deps.resolveProviderIdentity,
         deps.runtimeConfig.workspace,
-        'candidate',
+        retained ? 'retained' : 'candidate',
       );
       if (capability)
         for (const binding of snapshot.bindings)
