@@ -5,7 +5,11 @@ import './SymposiumReviewPanel.css';
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
-import type { ApplicationPolicy, ReviewWorkflow as Workflow } from '../types/symposium-review';
+import type {
+  InitialApplicationRun,
+  ApplicationPolicy,
+  ReviewWorkflow as Workflow,
+} from '../types/symposium-review';
 export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   return (
@@ -28,6 +32,11 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [newReview, setNewReview] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
   const [available, setAvailable] = useState(false);
+  const [stopAvailable, setStopAvailable] = useState(false);
+  const [applicationRun, setApplicationRun] = useState<InitialApplicationRun>({
+    available: false,
+    initialArtifact: null,
+  });
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -55,6 +64,8 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
         );
       if (signal?.aborted) return;
       setAvailable(data.available);
+      setStopAvailable(data.stopAvailable ?? data.available);
+      setApplicationRun(data.applicationRun ?? { available: false, initialArtifact: null });
       setWorkflows(data.workflows);
       setHistoryVersion((version) => version + 1);
       setLoaded(true);
@@ -90,7 +101,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || result.code || 'Review action failed');
-      if (path === base && typeof result.workflowId === 'string') {
+      if (
+        (path === base || path === `${base}/application-runs`) &&
+        typeof result.workflowId === 'string'
+      ) {
         setWorkflowId(result.workflowId);
         setNewReview(false);
       }
@@ -139,6 +153,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const pending = (application ? workflow?.applicationAttempts : workflow?.reservations)?.find(
     (attempt) => !attempt.settled,
   );
+  const pendingKind =
+    pending && 'effectiveKind' in pending ? (pending.effectiveKind ?? pending.kind) : pending?.kind;
+  const recoveryKind =
+    pendingKind === 'delta' ? 'review' : pendingKind === 'retry' ? undefined : pendingKind;
   const limitFields = (
     <fieldset disabled={busy}>
       <legend>{workflow ? 'Amend application limits' : 'Application limits'}</legend>
@@ -253,7 +271,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               <p>Application limits; no guaranteed token or spend cap.</p>
               {!workflow.decisionCode && (
                 <button
-                  disabled={busy || !available}
+                  disabled={busy || !stopAvailable}
                   onClick={() => void action(endpoint, { action: 'stop' })}
                 >
                   Stop review
@@ -394,6 +412,17 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               </p>
             </>
           )}
+          {workflow.status === 'awaiting_initial' && (
+            <>
+              <p>The selected limits are saved. Initial implementation has not been recorded.</p>
+              <button
+                disabled={busy || !available || Boolean(pending)}
+                onClick={() => void action(endpoint, { action: 'initial' })}
+              >
+                Run initial implementation
+              </button>
+            </>
+          )}
           {['awaiting_review', 'awaiting_delta_review'].includes(workflow.status) && (
             <button
               disabled={busy || !available || Boolean(pending)}
@@ -406,12 +435,12 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           )}
           {pending && (
             <button
-              disabled={busy || !available}
+              disabled={busy || !available || !recoveryKind}
               onClick={() =>
                 void action(endpoint, {
                   action: 'recover',
                   attemptId: pending.attemptId,
-                  kind: pending.kind,
+                  kind: recoveryKind,
                 })
               }
             >
@@ -457,6 +486,46 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
             <textarea value={criteria} onChange={(event) => setCriteria(event.target.value)} />
           </label>
           {limitFields}
+          {applicationRun.available && applicationRun.initialArtifact ? (
+            <p>
+              Initial artifact: {applicationRun.initialArtifact.revision} · SHA-256:{' '}
+              {applicationRun.initialArtifact.hash}
+            </p>
+          ) : (
+            <p>
+              A verified initial artifact is required before creating an implementation and review
+              run.
+            </p>
+          )}
+          <button
+            disabled={
+              busy ||
+              !criteria.trim() ||
+              !validLimits ||
+              !applicationRun.available ||
+              !applicationRun.initialArtifact
+            }
+            onClick={() => {
+              const artifact = applicationRun.initialArtifact;
+              if (!artifact) return;
+              void action(`${base}/application-runs`, {
+                workflowId: crypto.randomUUID(),
+                acceptanceCriteria: criteria
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter(Boolean),
+                limits,
+                expectedArtifactRevision: artifact.revision,
+                expectedArtifactHash: artifact.hash,
+              });
+            }}
+          >
+            Create implementation and review run
+          </button>
+          <p>
+            Creates a run before implementation. Its initial turn starts only when you choose Run
+            initial implementation.
+          </p>
           <button
             disabled={busy || !criteria.trim() || !validLimits}
             onClick={() =>

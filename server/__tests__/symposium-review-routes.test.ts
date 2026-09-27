@@ -42,6 +42,12 @@ it('reports missing native review authority without creating a workflow or dispa
   expect(response.body.code).toBe('trusted_review_host_unavailable');
   expect((await request(app).get('/api/sessions/session/symposium/reviews')).body).toEqual({
     available: false,
+    stopAvailable: false,
+    applicationRun: {
+      available: false,
+      initialArtifact: null,
+      reason: 'Trusted initial artifact unavailable',
+    },
     workflows: [],
   });
 });

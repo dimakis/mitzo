@@ -14,7 +14,12 @@ type Roles = Parameters<SymposiumReviewStore['createWithPolicies']>[1];
 type Limits = Workflow['limits'];
 type Selection = Workflow['reviewer'];
 
-export type ReviewContext = { owner: string; sessionId: string };
+export type ReviewContext = {
+  owner: string;
+  sessionId: string;
+  /** Opaque request-scoped capability issued by trusted HTTP authentication wiring. Never persisted. */
+  interactiveAuthorization?: object;
+};
 export type ReviewAttemptKind = 'initial' | 'review' | 'fix';
 export type ReviewReceipt = {
   workflowId: string;
@@ -154,7 +159,8 @@ export class SymposiumReviewCoordinator {
     if (isApplicationPolicy(input.limits) && this.host.selectApplicationRoles) {
       return this.store.create({
         workflowId: input.workflowId,
-        ...context,
+        owner: context.owner,
+        sessionId: context.sessionId,
         implementation,
         acceptanceCriteria: input.acceptanceCriteria,
         limits: input.limits,
@@ -210,7 +216,8 @@ export class SymposiumReviewCoordinator {
     if (this.host.selectApplicationRoles) {
       return this.store.createApplicationRun({
         workflowId: input.workflowId,
-        ...context,
+        owner: context.owner,
+        sessionId: context.sessionId,
         initialArtifact,
         acceptanceCriteria: input.acceptanceCriteria,
         limits: input.limits,
@@ -220,7 +227,8 @@ export class SymposiumReviewCoordinator {
     return this.store.createApplicationRunWithPolicies(
       {
         workflowId: input.workflowId,
-        ...context,
+        owner: context.owner,
+        sessionId: context.sessionId,
         initialArtifact,
         acceptanceCriteria: input.acceptanceCriteria,
         limits: input.limits,
@@ -564,7 +572,8 @@ export class SymposiumReviewCoordinator {
     try {
       const record = this.store.exportVerifiedRecord(
         {
-          ...context,
+          owner: context.owner,
+          sessionId: context.sessionId,
           workflowId,
           artifactRevision: finalized.artifactRevision,
           artifactHash: finalized.artifactHash,

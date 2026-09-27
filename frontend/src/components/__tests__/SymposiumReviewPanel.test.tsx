@@ -491,3 +491,126 @@ it('blocks continuation for unresolved application attempts and clears choices w
   expect((screen.getByLabelText('Maximum host turns') as HTMLInputElement).value).toBe('');
   expect((screen.getByLabelText('Reason for continuation') as HTMLInputElement).value).toBe('');
 });
+
+it('creates a preinitial application run bound to the trusted initial artifact and then offers its initial dispatch', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const initialArtifact = { revision: 'imported-source', hash: 'c'.repeat(64) };
+  const created = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    workflowId: 'initial-run',
+    status: 'awaiting_initial',
+    artifactRevision: initialArtifact.revision,
+    artifactHash: initialArtifact.hash,
+    limits: policy,
+    hostTurns: 0,
+    reviewCycles: 0,
+    applicationAttempts: [],
+    findings: [],
+  };
+  let workflows: (typeof created)[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    if (init?.method === 'POST') {
+      workflows = [created];
+      return response(created);
+    }
+    return response({
+      available: true,
+      applicationRun: { available: true, initialArtifact },
+      workflows,
+    });
+  });
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const start = await screen.findByRole('button', { name: 'Create implementation and review run' });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Implement the requested change' },
+  });
+  chooseLimits();
+  expect(screen.getByText(/Initial artifact: imported-source/)).toBeTruthy();
+  fireEvent.click(start);
+  await screen.findByRole('button', { name: 'Run initial implementation' });
+  const creation = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(creation[0]).toBe('/api/sessions/session/symposium/reviews/application-runs');
+  expect(JSON.parse(creation[1]!.body as string)).toMatchObject({
+    acceptanceCriteria: ['Implement the requested change'],
+    limits: policy,
+    expectedArtifactRevision: initialArtifact.revision,
+    expectedArtifactHash: initialArtifact.hash,
+  });
+  expect(JSON.parse(creation[1]!.body as string)).not.toHaveProperty('implementation');
+  fireEvent.click(screen.getByRole('button', { name: 'Run initial implementation' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/sessions/session/symposium/reviews/initial-run/actions',
+      expect.objectContaining({
+        body: JSON.stringify({
+          action: 'initial',
+          expectedArtifactRevision: initialArtifact.revision,
+          expectedArtifactHash: initialArtifact.hash,
+        }),
+      }),
+    ),
+  );
+});
+it('leaves initial run creation unavailable without a trusted artifact and recovers initial attempts explicitly', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      available: true,
+      applicationRun: { available: false, initialArtifact: null },
+      workflows: [],
+    }),
+  );
+  const mounted = render(<SymposiumReviewPanel sessionId="session" />);
+  const create = await screen.findByRole('button', {
+    name: 'Create implementation and review run',
+  });
+  expect((create as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText(/A verified initial artifact is required/)).toBeTruthy();
+  mounted.unmount();
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_initial',
+    limits: policy,
+    applicationAttempts: [{ attemptId: 'initial-pending', kind: 'initial', settled: false }],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [workflow] }));
+  render(<SymposiumReviewPanel sessionId="session" />);
+  expect(
+    (
+      (await screen.findByRole('button', {
+        name: 'Run initial implementation',
+      })) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Recover completed attempt' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/actions'),
+      expect.objectContaining({ body: expect.stringContaining('"kind":"initial"') }),
+    ),
+  );
+});
+
+it('keeps Stop available when artifact refresh disables execution', async () => {
+  const { symposiumReviewPreviewResponses } =
+    await import('../../preview/symposium-review-fixtures');
+  const workflow = {
+    ...symposiumReviewPreviewResponses.findings.workflows[0],
+    status: 'awaiting_initial',
+    limits: policy,
+    applicationAttempts: [],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ available: false, stopAvailable: true, workflows: [workflow] }),
+  );
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const stop = await screen.findByRole('button', { name: 'Stop review' });
+  expect((stop as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    (screen.getByRole('button', { name: 'Run initial implementation' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+});

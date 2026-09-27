@@ -1,5 +1,5 @@
 import type { createSymposiumReviewPublicationPreflight } from './symposium-review-publication.js';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
@@ -17,6 +17,8 @@ import {
  * bind the reservation to its native attempt, and resolve only on terminal completion.
  * Recovery reads durable receipts; HTTP requests never supply provider output. */
 export interface SymposiumInteractiveReviewHost extends SymposiumReviewHost {
+  /** Refresh host-owned physical artifact facts using the current authenticated owner. */
+  refreshArtifact?(context: ReviewContext): Promise<void>;
   dispatch(
     context: ReviewContext,
     reservation: Extract<
@@ -72,11 +74,14 @@ export function createSymposiumReviewRouter(deps: {
   store: SymposiumReviewStore;
   getHost(sessionId: string): SymposiumInteractiveReviewHost | null;
   hasSession(sessionId: string): boolean;
+  /** Trusted request authorization hook; never derives capabilities from HTTP bodies. */
+  authorizeContext?(req: Request, res: Response, context: ReviewContext): ReviewContext;
   getPublicationPreflight?(
     sessionId: string,
   ): ReturnType<typeof createSymposiumReviewPublicationPreflight> | null;
 }): Router {
   const router = Router({ mergeParams: true });
+  const requestContexts = new WeakMap<Request, ReviewContext>();
   router.use((req, res, next) => {
     if (!(res.locals.authSession as { id?: string } | undefined)?.id) {
       res.status(403).json({ error: 'Interactive authentication required' });
@@ -86,32 +91,72 @@ export function createSymposiumReviewRouter(deps: {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
+    try {
+      const baseContext = { sessionId: (req.params as { id: string }).id, owner: 'user' };
+      const authorized = deps.authorizeContext
+        ? deps.authorizeContext(req, res, baseContext)
+        : baseContext;
+      if (authorized.owner !== baseContext.owner || authorized.sessionId !== baseContext.sessionId)
+        throw new Error('Authorization scope changed');
+      requestContexts.set(req, authorized);
+    } catch {
+      res.status(403).json({ error: 'Current interactive authorization required' });
+      return;
+    }
     next();
   });
-  // The verified app subject is single-user; JWT JTI changes on every login.
-  const context = (sessionId: string): ReviewContext => ({
-    sessionId,
-    owner: 'user',
-  });
-  router.get('/', (req, res) => {
-    const ctx = context((req.params as { id: string; workflowId: string }).id);
+  const context = (req: Request): ReviewContext => {
+    const authorized = requestContexts.get(req);
+    if (!authorized) throw new Error('Interactive context unavailable');
+    return authorized;
+  };
+  router.get('/', async (req, res) => {
+    const ctx = context(req);
+    const host = deps.getHost(ctx.sessionId);
+    let available = Boolean(host);
+    let applicationRun: {
+      available: boolean;
+      initialArtifact: { revision: string; hash: string } | null;
+      reason?: string;
+    } = { available: false, initialArtifact: null, reason: 'Trusted initial artifact unavailable' };
+    try {
+      await host?.refreshArtifact?.(ctx);
+      if (host?.initialArtifact) {
+        const initial = z
+          .strictObject({ revision: Id, hash: z.string().regex(/^[a-f0-9]{64}$/) })
+          .parse(host.initialArtifact(ctx));
+        const current = host.currentArtifact(ctx);
+        if (initial.revision === current.revision && initial.hash === current.hash)
+          applicationRun = { available: true, initialArtifact: initial };
+        else applicationRun.reason = 'Initial artifact has changed';
+      }
+    } catch {
+      available = false;
+      applicationRun = {
+        available: false,
+        initialArtifact: null,
+        reason: 'Host artifact verification unavailable',
+      };
+    }
+    res.set('Cache-Control', 'no-store');
     res.json({
-      available: Boolean(deps.getHost(ctx.sessionId)),
+      available,
+      stopAvailable: Boolean(host),
+      applicationRun,
       workflows: deps.store.list(ctx.owner, ctx.sessionId),
     });
   });
-  router.post('/', (req, res) => {
+  router.post('/', async (req, res) => {
     const input = Start.safeParse(req.body);
     if (!input.success) {
       res.status(400).json({ error: 'Invalid review request' });
       return;
     }
-    const ctx = context((req.params as { id: string; workflowId: string }).id);
+    const ctx = context(req);
     try {
-      const result = new SymposiumReviewCoordinator(deps.store, deps.getHost(ctx.sessionId)).start(
-        ctx,
-        input.data,
-      );
+      const host = deps.getHost(ctx.sessionId);
+      await host?.refreshArtifact?.(ctx);
+      const result = new SymposiumReviewCoordinator(deps.store, host).start(ctx, input.data);
       res.status('kind' in result ? 409 : 200).json(result);
     } catch (error) {
       res
@@ -119,18 +164,20 @@ export function createSymposiumReviewRouter(deps: {
         .json({ error: error instanceof Error ? error.message : 'Review unavailable' });
     }
   });
-  router.post('/application-runs', (req, res) => {
+  router.post('/application-runs', async (req, res) => {
     const input = StartApplicationRun.safeParse(req.body);
     if (!input.success) {
       res.status(400).json({ error: 'Invalid application run request' });
       return;
     }
-    const ctx = context((req.params as { id: string }).id);
+    const ctx = context(req);
     try {
-      const result = new SymposiumReviewCoordinator(
-        deps.store,
-        deps.getHost(ctx.sessionId),
-      ).startApplicationRun(ctx, input.data);
+      const host = deps.getHost(ctx.sessionId);
+      await host?.refreshArtifact?.(ctx);
+      const result = new SymposiumReviewCoordinator(deps.store, host).startApplicationRun(
+        ctx,
+        input.data,
+      );
       res.status('kind' in result ? 409 : 200).json(result);
     } catch (error) {
       res
@@ -139,7 +186,7 @@ export function createSymposiumReviewRouter(deps: {
     }
   });
   router.get('/records/:recordId', (req, res) => {
-    const ctx = context((req.params as { id: string; recordId: string }).id);
+    const ctx = context(req);
     res.set('Cache-Control', 'no-store');
     try {
       const record = deps.store.getReviewRecord(ctx.owner, ctx.sessionId, req.params.recordId);
@@ -153,15 +200,16 @@ export function createSymposiumReviewRouter(deps: {
     }
   });
   router.post('/records/:recordId/publication-preflight', async (req, res) => {
-    const ctx = context((req.params as { id: string; recordId: string }).id);
+    const ctx = context(req);
     res.set('Cache-Control', 'no-store');
     try {
       if (!deps.store.getReviewRecord(ctx.owner, ctx.sessionId, req.params.recordId)) {
         res.status(404).json({ error: 'Review record not found' });
         return;
       }
-      const preflight =
-        deps.getHost(ctx.sessionId) && deps.getPublicationPreflight?.(ctx.sessionId);
+      const host = deps.getHost(ctx.sessionId);
+      await host?.refreshArtifact?.(ctx);
+      const preflight = host && deps.getPublicationPreflight?.(ctx.sessionId);
       if (!preflight) {
         res.status(409).json({
           kind: 'decision_required',
@@ -189,7 +237,7 @@ export function createSymposiumReviewRouter(deps: {
     }
   });
   router.get('/:workflowId', (req, res) => {
-    const ctx = context((req.params as { id: string; workflowId: string }).id);
+    const ctx = context(req);
     try {
       const workflow = new SymposiumReviewCoordinator(
         deps.store,
@@ -206,7 +254,7 @@ export function createSymposiumReviewRouter(deps: {
       res.status(400).json({ error: 'Invalid review action' });
       return;
     }
-    const ctx = context((req.params as { id: string; workflowId: string }).id);
+    const ctx = context(req);
     const host = deps.getHost(ctx.sessionId);
     const coordinator = new SymposiumReviewCoordinator(deps.store, host);
     const workflowId = req.params.workflowId;
@@ -226,6 +274,8 @@ export function createSymposiumReviewRouter(deps: {
         return;
       }
       const action = input.data;
+      // Stop fences known work even when physical verification is unavailable.
+      if (action.action !== 'stop') await host.refreshArtifact?.(ctx);
       let result: unknown;
       if (action.action === 'stop') result = await coordinator.stop(ctx, workflowId);
       else if (action.action === 'continue')
@@ -273,6 +323,7 @@ export function createSymposiumReviewRouter(deps: {
             return;
           }
           await host.dispatch(ctx, reservation);
+          await host.refreshArtifact?.(ctx);
         }
         if (kind === 'initial')
           result = coordinator.recordInitialResult(ctx, workflowId, attemptId);

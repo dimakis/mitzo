@@ -26,7 +26,13 @@ export type ReviewWorkflow = {
   reviewCycles?: number;
   decisionCode?: string;
   usageCompleteness?: { tokens: 'complete' | 'partial'; cost: 'complete' | 'partial' };
-  applicationAttempts?: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
+  applicationAttempts?: Array<{
+    attemptId: string;
+    kind: 'initial' | 'review' | 'fix' | 'delta' | 'retry';
+    effectiveKind?: 'initial' | 'review' | 'fix' | 'delta';
+    settled: boolean;
+  }>;
+
   findings: Array<{
     fingerprint: string;
     severity?: 'critical' | 'high' | 'medium' | 'low';
@@ -38,4 +44,10 @@ export type ReviewWorkflow = {
   }>;
   reviews: Array<{ reviewId: string; kind: string; artifactRevision: string }>;
   reservations: Array<{ attemptId: string; kind: 'review' | 'fix'; settled: boolean }>;
+};
+
+export type InitialApplicationRun = {
+  available: boolean;
+  initialArtifact: { revision: string; hash: string } | null;
+  reason?: string;
 };
