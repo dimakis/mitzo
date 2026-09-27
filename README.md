@@ -557,3 +557,5 @@ selection; interrupted discovery retains host recovery state.
 Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
+
+Before external seat creation, local artifact and seat intent writes complete before workspace dispatch uncertainty is recorded. A live owner can undo its exact unbound local intent if those writes fail before dispatch; failed rollback and interrupted processes retain recovery requirements. Inventory absence never discharges an uncertain dispatched create.
