@@ -1,3 +1,5 @@
+import { mkdirSync, realpathSync } from 'node:fs';
+import { join } from 'node:path';
 import { type AuthSession, registerAuthSession } from './auth.js';
 import { credentials, type CredentialResolver } from './credentials.js';
 import {
@@ -20,6 +22,14 @@ export const PublicationCredentialRegistrationSchema = z.strictObject({
 export type PublicationCredentialRegistration = z.infer<
   typeof PublicationCredentialRegistrationSchema
 >;
+/** Grant custody is private even when the existing workspace metadata directory
+ * is ordinarily readable. The authority validates the resulting directory/file. */
+export function publicationAuthorityPath(directory: string): string {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const parent = join(realpathSync(directory), 'publication');
+  mkdirSync(parent, { mode: 0o700, recursive: true });
+  return join(parent, 'authority.db');
+}
 /** Server-owned installation. Constructor registers references only; resolution
  * happens only after explicit authenticated selection. */
 export class PublicationRegistration {

@@ -106,3 +106,30 @@ it('registers metadata without credential resolution, authenticates selection an
   registration.close();
   operations.close();
 });
+it('creates grant custody beneath a normal workspace directory without changing its mode', async () => {
+  const { mkdtempSync, mkdirSync, statSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { publicationAuthorityPath } = await import('../symposium-publication-registration.js');
+  const root = mkdtempSync(join(tmpdir(), 'publication-registration-'));
+  const directory = join(root, '.mitzo');
+  mkdirSync(directory, { mode: 0o755 });
+  const path = publicationAuthorityPath(directory);
+  expect(statSync(directory).mode & 0o777).toBe(0o755);
+  expect(statSync(join(directory, 'publication')).mode & 0o777).toBe(0o700);
+  const operations = new CapabilityOperationStore(':memory:');
+  const registration = new PublicationRegistration({
+    authorityPath: path,
+    operations,
+    credentials: [],
+    artifact: {
+      require: vi.fn(),
+      inspectCompletedArtifact: vi.fn(),
+      exportCompletedArtifactBundle: vi.fn(),
+    },
+  });
+  expect(registration.service.availability().available).toBe(false);
+  registration.close();
+  operations.close();
+  rmSync(root, { recursive: true, force: true });
+});

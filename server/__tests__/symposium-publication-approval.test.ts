@@ -44,6 +44,7 @@ it('uses the real permission queue after builder removal and rejects a changed c
     ),
   ).toBe(true);
   expect(send).toHaveBeenCalled();
+  expect(registry.findBySessionId('session')?.clientId).toBe('controller:session');
   owner = false;
   await expect(
     approval!(
@@ -59,4 +60,48 @@ it('uses the real permission queue after builder removal and rejects a changed c
     ),
   ).rejects.toThrow('controller');
   registry.dispose();
+});
+it('cancels a lost approval watch without aborting or deleting an existing session', async () => {
+  const { ConnectionRegistry } = await import('@mitzo/harness');
+  const connections = new ConnectionRegistry(),
+    registry = new SessionRegistry();
+  const send = vi.fn();
+  const transport = { send, isOpen: () => true };
+  connections.register('browser', transport);
+  connections.watch('browser', 'session');
+  const model = new AbortController();
+  registry.register('existing', {
+    sessionId: 'session',
+    ownerConnectionId: 'browser',
+    transport,
+    abortController: model,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  const approve = publicationControllerApproval(
+    registry,
+    () => true,
+    'session',
+    'login',
+    undefined,
+    connections,
+  )!;
+  const pending = approve(
+    {
+      capabilityId: 'github.publish-pr',
+      capabilityVersion: 1,
+      connectionId: 'write',
+      operationId: 'op',
+      input: {},
+      forcePrompt: true,
+    },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(send).toHaveBeenCalled());
+  connections.unwatch('browser', 'session');
+  await expect(pending).rejects.toThrow();
+  expect(model.signal.aborted).toBe(false);
+  expect(registry.get('existing')).toBeDefined();
+  registry.dispose();
+  connections.dispose();
 });

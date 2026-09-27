@@ -67,14 +67,21 @@ its canonical repository path and commit. An arbitrary callback is not a receipt
 The existing private `MITZO_SYMPOSIUM_OWNED_HOST_CONFIG` accepts an optional
 `publicationCredentials` array. Each entry is `{ id, label, reference: { provider,
 service, account } }`; only registered CredentialResolver providers are supported.
-Inline credential values and unknown fields are rejected. Listing references never
+Grant records use a private `.mitzo/publication/authority.db` directory without changing
+existing workspace permissions. Inline credential values and unknown fields are rejected. Listing references never
 resolves them. No deployment configuration was changed by this increment.
 
 The authenticated review panel explicitly selects a registered reference, obtains
 fresh numeric GitHub identity, displays the review/seal scope, and requests a separate
 grant. Create PR then uses the existing CapabilityService permission queue. The
-controller registry owner must belong to the current authenticated login before and
-after approval; writer leases and builder bindings are deliberately not required.
+controller must belong to the current authenticated login before and after approval.
+Native switch/watch uses ConnectionRegistry rather than an SDK session. While approval
+is pending, the bridge borrows SessionRegistry only for its existing permission queue
+and permission-response ownership check. Bridge-created entries are refcounted for
+concurrent approvals, never report SDK activity, and are removed only at zero users
+with exact identity. Existing owners are never removed. Watch lifecycle notifications,
+auth expiry and disconnect abort pending approval; reconnect cannot restore it under a
+new actor. Writer leases and builder bindings are deliberately not required.
 Both connection and publication bootstrap obtain the same canonical `.mitzo/capabilities.db`
 owner, regardless of initialization order. Individual services do not close it. Global
 shutdown fences and drains tracked invocation/recovery tasks before closing the owner.

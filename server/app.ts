@@ -1,6 +1,8 @@
+import { getConnectionRegistry } from './chat.js';
 import { publicationControllerApproval } from './symposium-publication-approval.js';
 import {
   PublicationRegistration,
+  publicationAuthorityPath,
   type PublicationCredentialRegistration,
 } from './symposium-publication-registration.js';
 import {
@@ -931,7 +933,7 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
           commit: seal.git.commit,
         };
       },
-      authorityPath: join(BASE_REPO || '.', '.mitzo', 'publication-authority.db'),
+      authorityPath: publicationAuthorityPath(join(BASE_REPO || '.', '.mitzo')),
       operations: capabilityOperationStore(join(BASE_REPO || '.', '.mitzo')),
       credentials: host.publicationCredentials,
       artifact,
@@ -1109,6 +1111,7 @@ app.use(
         conversationId,
         session.id,
         req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
       ),
   }),
 );
