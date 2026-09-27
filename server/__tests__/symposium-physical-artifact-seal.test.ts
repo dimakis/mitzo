@@ -333,7 +333,7 @@ async function fixture(inspectionPaths = ['file']) {
     idempotencyKey: 'seal',
     repositoryPath: '.',
   };
-  return { store, host, native, sealer, runtime, input, state, command, root, deps };
+  return { store, host, native, sealer, runtime, input, state, command, root, deps, gateway };
 }
 it('drains the anchor through the real runtime and commits only after exact verifier cleanup', async () => {
   const f = await fixture();
@@ -562,4 +562,77 @@ it('transports permitted long Unicode inspection paths above the old 128 KiB cei
   expect(f.command.mock.calls.filter(([args]) => args[0] === 'start').at(-1)?.[1]).toBeGreaterThan(
     Buffer.byteLength(JSON.stringify(inspection)),
   );
+});
+
+it.each(['abort', 'custody'] as const)(
+  'does not journal dispatch after known predispatch %s failure',
+  async (failure) => {
+    const f = await fixture();
+    const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+    const controller = new AbortController();
+    const requireCompleted = f.sealer.requireCompleted.bind(f.sealer);
+    const check = vi.spyOn(f.sealer, 'requireCompleted').mockImplementationOnce(async (...args) => {
+      const completed = await requireCompleted(...args);
+      if (failure === 'abort') controller.abort();
+      else f.gateway.verifyCustodyAsync.mockRejectedValueOnce(new Error('custody changed'));
+      return completed;
+    });
+    f.command.mockClear();
+    const selected = { fenceId: receipt.fenceId, operationId: 'predispatch', baseBranch: 'main' };
+    await expect(f.sealer.inspectCompletedArtifact(selected, controller.signal)).rejects.toThrow();
+    expect(f.command.mock.calls.some(([args]) => args[0] === 'create')).toBe(false);
+    const db = new Database(join(f.root, 'leases.db'));
+    expect(db.prepare('SELECT * FROM symposium_seal_export_jobs').all()).toEqual([]);
+    db.close();
+    check.mockRestore();
+    await expect(
+      f.sealer.inspectCompletedArtifact(selected, new AbortController().signal),
+    ).resolves.toMatchObject({ status: 'clean' });
+  },
+);
+
+it('retains successful verifier removal before later custody failure without completing', async () => {
+  const f = await fixture();
+  const command = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    const result = await command(...args);
+    if (args[0][0] === 'rm')
+      f.gateway.verifyCustodyAsync.mockRejectedValue(new Error('custody lost'));
+    return result;
+  });
+  await expect(f.sealer.seal(f.input, f.runtime, new AbortController().signal)).rejects.toThrow(
+    'custody lost',
+  );
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT phase,receipt_json FROM symposium_physical_seal_jobs').get()).toEqual({
+    phase: 'verifier_removed',
+    receipt_json: null,
+  });
+  db.close();
+});
+
+it('retains exact export removal observation when the absence census fails without retrying removal', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const command = f.command.getMockImplementation()!;
+  let removed = false;
+  f.command.mockClear();
+  f.command.mockImplementation(async (...args) => {
+    if (removed && args[0][0] === 'ps') throw new Error('census unavailable');
+    const result = await command(...args);
+    if (args[0][0] === 'rm') removed = true;
+    return result;
+  });
+  await expect(
+    f.sealer.inspectCompletedArtifact(
+      { fenceId: receipt.fenceId, operationId: 'removal-observed', baseBranch: 'main' },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow();
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(
+    db.prepare('SELECT state,container_id,result_hash FROM symposium_seal_export_jobs').get(),
+  ).toEqual({ state: 'removed', container_id: 'e'.repeat(64), result_hash: null });
+  db.close();
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'rm')).toHaveLength(1);
 });

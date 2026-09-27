@@ -327,6 +327,9 @@ export class PhysicalArtifactSealer {
     const volume = intent.selection.artifact.volumeName;
     const jobId = randomUUID(),
       name = `mitzo-seal-export-${jobId}`;
+    signal.throwIfAborted();
+    await this.custody();
+    signal.throwIfAborted();
     this.db
       .transaction(() => {
         if (
@@ -353,6 +356,7 @@ export class PhysicalArtifactSealer {
       .immediate();
     let id: string | undefined;
     let helperDeleted = false;
+    let helperRemovalObserved = false;
     const outputLimit =
       input.kind === 'bundle'
         ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
@@ -386,12 +390,14 @@ export class PhysicalArtifactSealer {
       if ((await verify()).State?.Running !== false)
         throw new Error('Sealed export helper stop is uncertain');
       await this.command(['rm', id!]);
+      helperRemovalObserved = true;
+      this.db
+        .prepare("UPDATE symposium_seal_export_jobs SET state='removed' WHERE job_id=?")
+        .run(jobId);
       if ((await this.census()).some((row) => row.id === id))
         throw new Error('Sealed export helper deletion is uncertain');
     };
     try {
-      signal.throwIfAborted();
-      await this.custody();
       const result = (
         await this.command([
           'create',
@@ -453,7 +459,7 @@ export class PhysicalArtifactSealer {
       this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
-            "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=? WHERE job_id=? AND state='terminal'",
+            "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=? WHERE job_id=? AND state='removed'",
           )
           .run(hash(output), jobId);
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
@@ -463,11 +469,11 @@ export class PhysicalArtifactSealer {
       if (helperDeleted) {
         this.db
           .prepare(
-            "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state='terminal'",
+            "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state='removed'",
           )
           .run(jobId);
       }
-      if (id) {
+      if (id && !helperRemovalObserved) {
         try {
           await cleanup();
           this.db
@@ -746,6 +752,9 @@ export class PhysicalArtifactSealer {
       .prepare("UPDATE symposium_physical_seal_jobs SET phase='verifier_terminal' WHERE fence_id=?")
       .run(intent.fenceId);
     await this.command(['rm', created]);
+    this.db
+      .prepare("UPDATE symposium_physical_seal_jobs SET phase='verifier_removed' WHERE fence_id=?")
+      .run(intent.fenceId);
     if ((await this.census()).some((row) => row.id === created))
       throw new Error('Artifact verifier deletion is uncertain');
     await this.absent(records, signal);
@@ -775,7 +784,7 @@ export class PhysicalArtifactSealer {
         .transaction(() => {
           const changed = this.db
             .prepare(
-              "UPDATE symposium_physical_seal_jobs SET phase='complete',receipt_json=? WHERE fence_id=? AND phase='verifier_terminal' AND verifier_id=? AND custody_digest=? AND receipt_json IS NULL",
+              "UPDATE symposium_physical_seal_jobs SET phase='complete',receipt_json=? WHERE fence_id=? AND phase='verifier_removed' AND verifier_id=? AND custody_digest=? AND receipt_json IS NULL",
             )
             .run(JSON.stringify(receipt), intent.fenceId, created, custodyDigest);
           if (changed.changes !== 1) throw new Error('Artifact seal completion identity changed');

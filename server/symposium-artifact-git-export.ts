@@ -1,6 +1,6 @@
 import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js';
 // Shared producer/transport ceiling includes JSON escaping and the trailing newline.
-// The 1 MiB committed tree can expand roughly threefold under Python's ASCII JSON encoding.
+// The 1 MiB history-path input expands at most threefold in ASCII JSON; metadata is bounded.
 export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
@@ -26,10 +26,14 @@ if not default_ref.startswith('refs/remotes/origin/'): raise ValueError('default
 default_branch=branch(default_ref[len('refs/remotes/origin/'):])
 origin=git('config','--get','remote.origin.url').decode().strip()
 # Never emit an origin containing credentials, query text or a non-GitHub host.
-if not re.fullmatch(r'(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?',origin): raise ValueError('origin URL')
+if len(origin)>2048 or not re.fullmatch(r'(https://github\.com/|git@github\.com:)[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?',origin): raise ValueError('origin URL')
 count=int(git('rev-list','--count',base_oid+'..'+commit).decode().strip())
 paths=set()
-for raw in git('diff-tree','--no-commit-id','--name-only','--no-ext-diff','--no-textconv','-r','-z',base_oid+'..'+commit).split(b'\0'):
+# Feed every exported commit; a two-endpoint diff hides reverted/deleted history.
+commits=git('rev-list',base_oid+'..'+commit)
+history_paths=git('diff-tree','--stdin','--root','-m','--no-commit-id','--name-only','--no-renames','--no-ext-diff','--no-textconv','-r','-z',input=commits)
+if len(history_paths)>1048576: raise ValueError('history path byte bound')
+for raw in history_paths.split(b'\0'):
  if not raw: continue
  path=raw.decode('utf-8','strict')
  if path.startswith('/') or '\\' in path or any(p in ('','.','..','.git') for p in path.split('/')) or any(ord(c)<32 or ord(c)==127 for c in path): raise ValueError('changed path')

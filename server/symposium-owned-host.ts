@@ -188,6 +188,7 @@ export async function createOwnedSymposiumHost(
     const podmanText = async (
       args: readonly string[],
       maxOutputBytes = 2 * 1024 * 1024,
+      deferPostCustody = false,
     ): Promise<string> => {
       if (
         !Number.isSafeInteger(maxOutputBytes) ||
@@ -216,7 +217,7 @@ export async function createOwnedSymposiumHost(
               },
             );
           });
-      custody();
+      if (!deferPostCustody) custody();
       return text;
     };
     const podman = async (args: readonly string[]): Promise<unknown> =>
@@ -231,7 +232,9 @@ export async function createOwnedSymposiumHost(
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
       artifactEvidence,
-      new ArtifactPodmanContext(podmanText),
+      new ArtifactPodmanContext(podmanText, (args, maxOutputBytes) =>
+        podmanText(args, maxOutputBytes, true),
+      ),
       gateway,
     );
     chmodSync(leasePath, 0o600);

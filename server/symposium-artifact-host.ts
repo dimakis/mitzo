@@ -51,6 +51,7 @@ const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 export class ArtifactPodmanContext {
   constructor(
     private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>,
+    private readonly terminalCommand = command,
   ) {}
   async inspect(driver: ArtifactDriver, name: string): Promise<unknown> {
     if (driver !== 'podman' || !safeName.test(name))
@@ -58,7 +59,13 @@ export class ArtifactPodmanContext {
     return JSON.parse(await this.command(['volume', 'inspect', name]));
   }
   verifierCommand(): (args: readonly string[], maxOutputBytes?: number) => Promise<string> {
-    return (args, maxOutputBytes) => this.command(args, maxOutputBytes);
+    // Successful create/removal must reach the caller journal before post-command custody checks.
+    // The retained command still checks custody before dispatch. Other reads keep both checks.
+    return (args, maxOutputBytes) =>
+      (args[0] === 'create' || args[0] === 'rm' ? this.terminalCommand : this.command)(
+        args,
+        maxOutputBytes,
+      );
   }
 }
 

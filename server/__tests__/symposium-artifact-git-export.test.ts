@@ -51,7 +51,13 @@ function fixture(populate?: (root: string) => void) {
     python(ARTIFACT_GIT_EXPORT, [
       JSON.stringify({ baseBranch: 'main', expected: proof, ...input }),
     ]);
-  return { root, git, proof, run };
+  return {
+    root,
+    git,
+    proof,
+    run,
+    refreshProof: () => Object.assign(proof, python(ARTIFACT_GIT_VERIFIER, [])),
+  };
 }
 it('inspects the sealed branch and exports a bounded reconstructable bundle', () => {
   const f = fixture();
@@ -132,4 +138,40 @@ it('transports a real Git inspection with long Unicode paths and JSON expansion'
   expect(result.inspection.changedFiles).toHaveLength(500);
   expect(result.inspection.changedFiles).toContain(paths[498]);
   expect(Buffer.byteLength(JSON.stringify(result))).toBeGreaterThan(128 * 1024);
+}, 60_000);
+
+it('includes paths changed then deleted or reverted across every exported commit', () => {
+  const f = fixture();
+  writeFileSync(join(f.root, 'temporary.txt'), 'temporary');
+  writeFileSync(join(f.root, 'base.txt'), 'changed then reverted');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'intermediate');
+  rmSync(join(f.root, 'temporary.txt'));
+  writeFileSync(join(f.root, 'base.txt'), 'BASE');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'restore');
+  f.refreshProof();
+  expect(f.run({ kind: 'inspect' }).inspection.changedFiles).toEqual([
+    'base.txt',
+    'feature.txt',
+    'temporary.txt',
+  ]);
+});
+
+it('bounds historical path bytes even when the final sealed tree is small', () => {
+  const f = fixture();
+  const dir = join(f.root, 'é'.repeat(60), 'é'.repeat(60));
+  mkdirSync(dir, { recursive: true });
+  const names = Array.from({ length: 499 }, (_, i) => `${i}${'é'.repeat(60)}`);
+  for (let round = 0; round < 3; round++) {
+    for (const name of names) writeFileSync(join(dir, name), 'temporary');
+    f.git('add', '.');
+    f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'historical paths');
+    for (const name of names) rmSync(join(dir, name));
+    f.git('add', '.');
+    f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'remove historical paths');
+  }
+  f.refreshProof();
+  expect(f.proof.entries).toBe(2);
+  expect(() => f.run({ kind: 'inspect' })).toThrow(/history path byte bound/);
 }, 60_000);
