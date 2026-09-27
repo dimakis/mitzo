@@ -699,3 +699,29 @@ it.each(['create', 'rm'])(
     }
   },
 );
+
+it('marks only a retained transport precheck rejection as not dispatched', async () => {
+  const f = fixture();
+  const command = vi.fn(async () => {
+    throw new Error('command completion unknown');
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    const snapshot = host.artifactLeaseHost.snapshotCommand();
+    f.gateway.verifyCustody.mockImplementation(() => {
+      throw new Error('custody lost');
+    });
+    await expect(snapshot(['create', 'exact-helper'])).rejects.toMatchObject({
+      name: 'ArtifactCommandNotDispatched',
+    });
+    expect(command).not.toHaveBeenCalled();
+    f.gateway.verifyCustody.mockReset();
+    await expect(snapshot(['create', 'exact-helper'])).rejects.not.toMatchObject({
+      name: 'ArtifactCommandNotDispatched',
+    });
+    expect(command).toHaveBeenCalledOnce();
+  } finally {
+    f.gateway.verifyCustody.mockReset();
+    host.stop();
+  }
+});

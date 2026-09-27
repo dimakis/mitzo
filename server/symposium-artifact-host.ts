@@ -48,6 +48,14 @@ const safeName = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
 /** One retained Podman command closure owns both admission inspection and verifier
  * operations. Snapshot callers cannot select a second engine/store/environment. */
+/** Only the retained transport may assert that its custody precheck rejected before dispatch. */
+export class ArtifactCommandNotDispatched extends Error {
+  constructor(cause?: unknown) {
+    super(cause instanceof Error ? cause.message : 'Artifact command was not dispatched');
+    this.name = 'ArtifactCommandNotDispatched';
+  }
+}
+
 export class ArtifactPodmanContext {
   constructor(
     private readonly command: (args: readonly string[], maxOutputBytes?: number) => Promise<string>,

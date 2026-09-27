@@ -73,7 +73,7 @@ import type { ArtifactLeaseRequest } from '../symposium-artifact-lease.js';
 
 import Database from 'better-sqlite3';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
-import { ArtifactPodmanContext } from '../symposium-artifact-host.js';
+import { ArtifactPodmanContext, ArtifactCommandNotDispatched } from '../symposium-artifact-host.js';
 import { createSymposiumSessionRuntime } from '../symposium-session-runtime.js';
 import { initializeSymposiumNativeHost } from '../symposium-native-host.js';
 import { OpenShellRuntimeManager, sandboxNameForConversation } from '../openshell-runtime.js';
@@ -635,4 +635,32 @@ it('retains exact export removal observation when the absence census fails witho
   ).toEqual({ state: 'removed', container_id: 'e'.repeat(64), result_hash: null });
   db.close();
   expect(f.command.mock.calls.filter(([args]) => args[0] === 'rm')).toHaveLength(1);
+});
+
+it('records known transport predispatch rejection without clearing real dispatch uncertainty', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const command = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (...args) => {
+    if (args[0][0] === 'create') throw new ArtifactCommandNotDispatched();
+    return command(...args);
+  });
+  const selected = {
+    fenceId: receipt.fenceId,
+    operationId: 'transport-predispatch',
+    baseBranch: 'main',
+  };
+  await expect(
+    f.sealer.inspectCompletedArtifact(selected, new AbortController().signal),
+  ).rejects.toThrow();
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,container_id FROM symposium_seal_export_jobs').get()).toEqual({
+    state: 'not_dispatched',
+    container_id: null,
+  });
+  db.close();
+  f.command.mockImplementation(command);
+  await expect(
+    f.sealer.inspectCompletedArtifact(selected, new AbortController().signal),
+  ).resolves.toMatchObject({ status: 'clean' });
 });

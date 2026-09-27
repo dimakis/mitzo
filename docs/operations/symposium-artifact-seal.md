@@ -129,7 +129,9 @@ Changed paths cover every exported commit, including later deletions and reversi
 The raw history-diff path stream is limited to 1 MiB before decoding/deduplication,
 with at most 500 unique paths and a 2 KiB origin URL. These export-history bounds
 are separate from the sealed tree bound; exceeding them rejects export explicitly.
-Known pre-dispatch abort/custody failure creates no export job. Successful helper
+Known outer pre-dispatch abort/custody failure creates no export job. A retained
+transport custody rejection before command invocation is explicitly journaled as
+`not_dispatched`; actual command errors retain `create_uncertain`. Successful helper
 create/removal results reach the journal before post-command custody checks; a
 removal observation alone does not complete export without the remaining checks.
 Runtime binding is checked before a seal intent, retention lock or job is persisted;

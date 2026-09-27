@@ -40,7 +40,11 @@ import {
   type OwnedSymposiumGatewayOptions,
 } from './symposium-owned-gateway.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
-import { SqliteArtifactLeaseHost, ArtifactPodmanContext } from './symposium-artifact-host.js';
+import {
+  SqliteArtifactLeaseHost,
+  ArtifactPodmanContext,
+  ArtifactCommandNotDispatched,
+} from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
 import { type SymposiumSubscriptionHostOptions } from './symposium-subscription-host.js';
@@ -196,7 +200,11 @@ export async function createOwnedSymposiumHost(
         maxOutputBytes > 12 * 1024 * 1024
       )
         throw new Error('Owned Podman output bound is invalid');
-      custody();
+      try {
+        custody();
+      } catch (error) {
+        throw new ArtifactCommandNotDispatched(error);
+      }
       const text = podmanCommand
         ? await podmanCommand(args)
         : await new Promise<string>((resolve, reject) => {
