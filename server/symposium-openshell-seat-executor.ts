@@ -40,6 +40,7 @@ export interface SymposiumOpenShellSeatExecutorDeps {
   verifyHostCapability?: () => SymposiumProviderCapability;
   /** A session-owned manager reconciles the exact provider for this seat. */
   owner: {
+    verifySeatPolicy?(sessionId: string, seatId: string): void;
     ensure(
       sessionId: string,
       seatId: string,
@@ -159,6 +160,11 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
         const current = admission();
         if (JSON.stringify(current) !== JSON.stringify(route))
           throw new Error('Symposium account provider changed before native turn');
+        if (current.kind === 'claude-vertex') {
+          if (!this.deps.owner.verifySeatPolicy)
+            throw new Error('Owned Vertex seat policy unavailable');
+          this.deps.owner.verifySeatPolicy(input.sessionId, input.seat.id);
+        }
         const capability = this.deps.verifyHostCapability?.();
         if (capability)
           assertSymposiumAttestedProvider(capability, {

@@ -1,3 +1,11 @@
+import { installedVertexStatus } from './fixtures/vertex-policy-status.js';
+import { createClaudeVertexSeat } from '../symposium-claude-native.js';
+import { SqliteArtifactLeaseHost } from '../symposium-artifact-host.js';
+import Database from 'better-sqlite3';
+import { OpenShellRuntimeManager } from '../openshell-runtime.js';
+import { createOwnedSeatPolicySelector } from '../symposium-owned-seat-policy.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -1126,7 +1134,12 @@ describe('production Symposium route to native runtime', () => {
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from '../symposium-owned-runtime-contract.js';
-it('runs real Claude adapter through EventStore admission, claim migration, and attributed event projection', async () => {
+it.each([
+  'valid',
+  'effective-policy-mismatch',
+  'policy-mutated-at-launch',
+  'provider-mutated-at-launch',
+])('runs real Claude manager and adapter through EventStore with %s policy', async (policyCase) => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-claude-runtime-'));
   chmodSync(root, 0o700);
   const model = 'claude-haiku-4-5@20251001';
@@ -1158,6 +1171,7 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
   let failModel = false;
   let failAssistant = false;
   let omitInit = false;
+  let installedPolicyChanged = false;
   const registry = new SymposiumAttemptRegistry(join(root, 'attempts.db'), {
     launch: (_sandbox, _claim, _access, command) => {
       (commands as string[][]).push([...command]);
@@ -1228,11 +1242,131 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
     workspace: 'default',
   };
   let providerCurrent = true;
+  const basePolicy = join(root, 'base-policy.json');
+  const baseBytes = JSON.stringify({
+    version: 1,
+    filesystem_policy: { include_workdir: true, read_only: ['/usr'], read_write: ['/sandbox'] },
+    landlock: { compatibility: 'best_effort' },
+    network_policies: { codex: {} },
+  });
+  writeFileSync(basePolicy, baseBytes, { mode: 0o600 });
+  let derivedPath = '';
+  let created:
+    | {
+        name: string;
+        id: string;
+        workspace: string;
+        phase: string;
+        labels: Record<string, string>;
+      }
+    | undefined;
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  const boxes = new Map<string, NonNullable<typeof created>>();
+  const policies = new Map<string, string>();
+  const managerCommands: readonly string[][] = [];
+  const resolveSeatPolicy = createOwnedSeatPolicySelector({
+    gateway: {
+      stateDirectory: root,
+      workspace: 'default',
+      gateway: 'owned',
+      verifyCustody: () => {},
+    } as never,
+    basePolicy,
+    baseDigest: createHash('sha256').update(baseBytes).digest('hex'),
+    facts: store,
+    currentProfiles: () => vertexProfiles,
+    hostGrants: { verifySeat: () => {} },
+    capture: () => receipt,
+    invoke: (args) =>
+      JSON.stringify(
+        args[0] === 'policy'
+          ? {
+              scope: 'sandbox',
+              sandbox: args[args.indexOf('get') + 1],
+              version: 1,
+              active_version: 1,
+              status: 'effective',
+              policy_source: 'sandbox',
+              config_revision: 1,
+              hash: 'a'.repeat(64),
+              policy:
+                policyCase === 'effective-policy-mismatch' || installedPolicyChanged
+                  ? {}
+                  : JSON.parse(readFileSync(policies.get(args[args.indexOf('get') + 1])!, 'utf8')),
+            }
+          : args.includes('status')
+            ? installedVertexStatus({
+                name: args[args.indexOf('status') + 1],
+                id: 'physical-claude',
+                workspace: 'default',
+                provider: 'vertex-work',
+                providerId: 'vertex-id',
+                hash: 'a'.repeat(64),
+                revision: '1',
+              })
+            : {
+                ...boxes.get(args[args.indexOf('get') + 1]),
+              },
+      ),
+  });
+  const artifactPath = join(root, 'leases.db');
+  const artifactRequest = {
+    sessionId: 'symposium',
+    seatId: 'builder',
+    workspaceId: 'default',
+    volumeName: 'test-artifact',
+    volumeGeneration: 'generation-1',
+    driver: 'podman' as const,
+    access: 'writer' as const,
+  };
+  const artifactLeaseHost = new SqliteArtifactLeaseHost(
+    artifactPath,
+    {
+      verifyGateway: async () => {},
+      verifyMount: async () => {},
+      verifyDeleted: async () => {
+        expect(boxes.size).toBe(0);
+      },
+    },
+    async () => [
+      {
+        Name: 'test-artifact',
+        Driver: 'local',
+        Options: {},
+        Labels: {
+          'openshell.ai/sandbox-attachable': 'true',
+          'openshell.ai/sandbox-attachable-workspace': 'default',
+          'mitzo.symposium.purpose': 'artifacts',
+          'mitzo.symposium.session': 'symposium',
+          'mitzo.symposium.workspace': 'default',
+          'mitzo.symposium.generation': 'generation-1',
+        },
+      },
+    ],
+  );
   const broadcast = vi.fn();
   const runtime = createSymposiumSessionRuntime({
+    artifactLeaseHost,
+    ...(policyCase.endsWith('-at-launch')
+      ? {
+          openNative: async (input: Parameters<typeof createClaudeVertexSeat>[0]) => {
+            const native = await createClaudeVertexSeat({
+              ...input,
+              attemptRegistry: registry,
+              requireModelReceipts: true,
+              verifiedLauncher: true,
+            });
+            if (policyCase === 'policy-mutated-at-launch') installedPolicyChanged = true;
+            if (policyCase === 'provider-mutated-at-launch') providerCurrent = false;
+            return native;
+          },
+        }
+      : {}),
+    artifactRequest: () => artifactRequest,
     sessionId: 'symposium',
     store,
     profiles: vertexProfiles,
+    resolveSeatPolicy,
     currentProfiles: () => vertexProfiles,
     hostGrants: { verifySeat: vi.fn() },
     codexStore: {} as never,
@@ -1262,16 +1396,75 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
     }),
     recordAccepted: (r) => store.markSymposiumRecipientAccepted(r),
     broadcastEvent: broadcast,
-    managerFactory: () => ({
-      ensure: async () => ({
-        sandboxName: 'claude-seat',
-        sandboxId: 'physical-claude',
-        workdir: runtimeConfig.workdir,
-      }),
-      inspectReserved: async () => ({ id: 'physical-claude', name: 'claude-seat', phase: 'Ready' }),
-      inspect: async () => ({ id: 'physical-claude', phase: 'Ready' }),
-      stop: async () => {},
-    }),
+    runSandboxCreation: async (verify, operation) => {
+      verify();
+      return operation(
+        () => {},
+        () => {},
+      );
+    },
+    managerFactory: (configuration) => {
+      derivedPath = configuration.policy;
+      return new OpenShellRuntimeManager(configuration, async (args) => {
+        (managerCommands as string[][]).push([...args]);
+        if (args.includes('list'))
+          return JSON.stringify({
+            providers: [
+              {
+                name: 'vertex-work',
+                id: 'vertex-id',
+                type: 'google-vertex-ai',
+                workspace: 'default',
+              },
+            ],
+            next_page_token: '',
+          });
+        if (args.includes('create')) {
+          expect(args[args.indexOf('--policy') + 1]).toBe(derivedPath);
+          expect(args).not.toContain('--upload');
+          const labels = Object.fromEntries(
+            args.flatMap((arg, i) => (arg === '--label' ? [args[i + 1].split('=')] : [])),
+          );
+          created = {
+            name: args[args.indexOf('--name') + 1],
+            id: 'physical-claude',
+            workspace: 'default',
+            phase: 'Ready',
+            labels,
+          };
+          boxes.set(created.name, created);
+          policies.set(created.name, configuration.policy);
+          return JSON.stringify(created);
+        }
+        if (args.includes('stop')) {
+          const found = boxes.get(args[args.indexOf('stop') + 1]);
+          if (found) found.phase = 'Stopped';
+          return '{}';
+        }
+        if (args.includes('delete')) {
+          boxes.delete(args[args.indexOf('delete') + 1]);
+          return '{}';
+        }
+        if (args.includes('get')) {
+          const found = boxes.get(args[args.indexOf('get') + 1]);
+          if (!found) throw Error('sandbox not found');
+          return JSON.stringify(found);
+        }
+        if (args.includes('upload')) {
+          expect(
+            store
+              .listSymposiumSessionSandboxes('symposium')
+              .some(
+                (row) =>
+                  row.sandboxName === args[args.indexOf('upload') + 1] &&
+                  row.physicalId === 'physical-claude',
+              ),
+          ).toBe(true);
+          return '{}';
+        }
+        return '{}';
+      });
+    },
   });
   try {
     const member = await runtime.orchestrator.transitionMembership({
@@ -1284,6 +1477,41 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
       reason: 'Approved',
       idempotencyKey: 'claude-admit',
     });
+    if (policyCase === 'effective-policy-mismatch') {
+      expect(member.reconciliation).toBe('recovery_required');
+      expect(
+        store.getSymposiumSeatSandbox('symposium', 'builder', member.generation),
+      ).toMatchObject({
+        physicalId: 'physical-claude',
+        state: 'reserved',
+      });
+      await expect(
+        runtime.owner.ensure('symposium', 'builder', new AbortController().signal),
+      ).rejects.toThrow('membership is not confirmed');
+      expect(managerCommands.filter((args) => args.includes('create'))).toHaveLength(1);
+      expect(commands).toHaveLength(0);
+      const db = new Database(artifactPath);
+      try {
+        expect(db.prepare('SELECT sandbox_id FROM symposium_artifact_leases').get()).toEqual({
+          sandbox_id: 'physical-claude',
+        });
+        await runtime.owner.stop(
+          'symposium',
+          'builder',
+          member.generation,
+          new AbortController().signal,
+        );
+        expect(db.prepare('SELECT count(*) AS n FROM symposium_artifact_leases').get()).toEqual({
+          n: 0,
+        });
+        expect(
+          store.getSymposiumSeatSandbox('symposium', 'builder', member.generation)?.state,
+        ).toBe('stopped');
+      } finally {
+        db.close();
+      }
+      return;
+    }
     expect(member.reconciliation).toBe('confirmed');
     const deliver = async (text: string) => {
       const d = runtime.orchestrator.stageDelivery({
@@ -1300,6 +1528,12 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
       });
       return runtime.orchestrator.deliver(d.deliveryId);
     };
+    if (policyCase.endsWith('-at-launch')) {
+      expect((await deliver('First')).status).toBe('failed');
+      expect(prompts).toHaveLength(0);
+      expect(broadcast.mock.calls.some(([, e]) => e.type === 'message_start')).toBe(false);
+      return;
+    }
     expect((await deliver('First')).status).toBe('delivered');
     expect((await deliver('Second')).status).toBe('delivered');
     expect((await deliver('Third')).status).toBe('delivered');
@@ -1360,6 +1594,8 @@ it('runs real Claude adapter through EventStore admission, claim migration, and 
     expect((await deliver('Revoked provider')).status).toBe('failed');
     expect(commands).toHaveLength(starts);
   } finally {
+    vi.unstubAllEnvs();
+    artifactLeaseHost.close();
     registry.close();
     store.close();
     rmSync(root, { recursive: true, force: true });

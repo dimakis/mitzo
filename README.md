@@ -669,7 +669,7 @@ Pending failed-seat cleanup supports [scoped fresh app reauthorization](docs/ope
 
 - [Local Symposium custodian](docs/operations/symposium-local-custodian.md): optional fresh-fixture owner process survives app loss, fences epochs and drains exact workloads before explicit restoration; custodian death remains quarantined.
 
-[Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. This bootstrap groundwork keeps Vertex seat admission closed pending native runtime and isolation evidence.
+[Selected Work Vertex provisioning](docs/operations/symposium-work-vertex.md) binds an explicit ADC snapshot and verified principal to a fresh gateway-owned provider. The reviewed native variant and retained owner require fresh provider readiness and a separately verified policy for each Vertex seat.
 
 Owned Claude's reviewed variant preserves the original Codex-only image contract.
 It pins Claude 2.1.156, its fixed Vertex launcher, and the local Landlock helper.
@@ -700,5 +700,13 @@ reviewed local candidate image with no network or mounts, isolated disposable
 homes, dummy placeholders, and actual native `--version` only. It retains exact
 uncertain helper identity on failure. This proves local launch/isolation, not
 Vertex inference permission, live multi-turn acceptance, or enforced native review budgets.
+
+Owned Vertex seats derive a private immutable policy from the reviewed base
+filesystem/Landlock contract and the exact selected account, provider, project,
+region and dated model. The common Codex network policy is never copied into a
+Vertex seat. Before ready/reuse and final dispatch, the owner brackets the
+supported effective-policy readback with immutable sandbox identity checks.
+API-backed seats now retain terminal create identity before later policy,
+provider or artifact checks, preserving exact cleanup after failure.
 
 The optional Symposium custodian rejects ordinary OpenAI/Codex host fallback: configure a separate ordinary OpenShell runtime, or keep ordinary accounts unavailable. See [custodian operations](docs/operations/symposium-local-custodian.md).

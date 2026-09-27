@@ -1,3 +1,4 @@
+import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js';
 import { captureSymposiumWorkVertexProvider } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
@@ -642,7 +643,16 @@ export async function createOwnedSymposiumHost(
         run,
       );
     };
+    const resolveSeatPolicy = createOwnedSeatPolicySelector({
+      gateway,
+      basePolicy: options.runtime.policy,
+      baseDigest: policyDigest,
+      facts: options.facts,
+      hostGrants: options.hostGrants,
+      currentProfiles,
+    });
     return {
+      resolveSeatPolicy,
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,

@@ -1109,7 +1109,7 @@ export class OpenShellRuntimeManager {
       if (
         phasedCreate &&
         (this.config.cliContract !== 'v0.1' ||
-          this.config.account.kind !== 'chatgpt-subscription-native')
+          !['chatgpt-subscription-native', 'api'].includes(this.config.account.kind))
       )
         throw new Error('Phased creation requires native OpenShell seats');
       const args = [

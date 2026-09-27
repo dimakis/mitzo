@@ -2679,14 +2679,16 @@ it('leaves owned cleanup available when actual manager provider preflight fails 
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
 
-it.each([
-  'upload',
-  'unknown-create',
-  'wrong-id',
-  'replaced-before-upload',
-  'artifact-reader',
-  'artifact-writer',
-] as const)('keeps native creation and %s outcome distinct', async (failure) => {
+it.each(
+  [
+    'upload',
+    'unknown-create',
+    'wrong-id',
+    'replaced-before-upload',
+    'artifact-reader',
+    'artifact-writer',
+  ].flatMap((failure) => ['chatgpt-subscription-native', 'api'].map((kind) => ({ failure, kind }))),
+)('keeps $kind creation and $failure outcome distinct', async ({ failure, kind }) => {
   const name = sandboxNameForConversation('conversation');
   const receipt = {
     name,
@@ -2695,10 +2697,14 @@ it.each([
     phase: 'Ready',
     labels: {
       'mitzo.conversation': owner,
-      'mitzo.account_provider': 'codex-personal',
+      'mitzo.account_provider': kind === 'api' ? 'vertex-work' : 'codex-personal',
     },
   };
-  const binding = { name: 'codex-personal', id: 'provider-native', type: 'codex' };
+  const binding = {
+    name: kind === 'api' ? 'vertex-work' : 'codex-personal',
+    id: 'provider-native',
+    type: kind === 'api' ? 'google-vertex-ai' : 'codex',
+  };
   const settled = vi.fn();
   let created = false;
   const run = vi.fn(async (args: readonly string[]) => {
@@ -2730,13 +2736,16 @@ it.each([
       cliContract: 'v0.1',
       serviceProviders: [],
       grantableServiceProviders: [],
-      account: {
-        kind: 'chatgpt-subscription-native',
-        provider: binding.name,
-        providerType: 'codex',
-        providerId: binding.id,
-        model: 'luna',
-      },
+      account:
+        kind === 'api'
+          ? { kind: 'api', provider: binding.name, model: 'claude-haiku-4-5@20251001' }
+          : {
+              kind: 'chatgpt-subscription-native',
+              provider: binding.name,
+              providerType: 'codex',
+              providerId: binding.id,
+              model: 'luna',
+            },
       accountProviderBindings: [binding],
       verifyAccountProviderUnion: () => {},
       onSandboxCreateSettled: settled,

@@ -32,6 +32,8 @@ const LegacyAttestation = z
     workspace: z.string().min(1),
     image: z.string().min(1),
     imageDigest: Sha256,
+    // Exact reviewed derivation base. Vertex effective seat policies are derived
+    // and checked separately by the retained owner, never equated to this hash.
     policySha256: Sha256,
     seedTreeSha256: Sha256,
     controllerPath: z.literal('/usr/bin/codex'),

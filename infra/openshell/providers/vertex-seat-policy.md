@@ -43,9 +43,12 @@ select the dated ID separately from its display label/catalog alias. Existing
 profiles are not changed. Announce the exact selected account and model before
 an authorized inference test.
 
-The policy generator is offline groundwork, not owned-host admission. The
-current production attestation still excludes Vertex. Provider custody,
-selected-credential identity/IAM, effective endpointless profile, native binary
-attribution, and negative cross-account/filesystem checks remain independent
-requirements. Global availability in documentation does not establish access
+The retained owned-host selector now invokes this generator from the exact
+selected account and supplies the immutable policy to the seat manager. The
+reviewed Claude variant requires fresh gateway credential readiness, effective
+policy readback, and matching supervisor installation receipts before dispatch.
+Provider custody, selected-credential identity/IAM, effective endpointless
+profile, native binary attribution, and negative cross-account/filesystem checks
+remain independent requirements. Offline regressions do not establish physical
+installation or live inference acceptance. Global availability in documentation does not establish access
 for a particular project or credential.
