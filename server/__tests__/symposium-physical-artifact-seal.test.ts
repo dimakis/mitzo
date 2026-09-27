@@ -714,7 +714,11 @@ it('retains exact successor export authority across reopen and rejects substitut
     { helper: { ...exported.receipt.helper, removed: false } },
   ]) {
     await expect(
-      reopened.requireSuccessorExport({ ...exported.receipt, ...patch }, exported.bundle, signal),
+      reopened.requireSuccessorExport(
+        { ...exported.receipt, ...patch } as typeof exported.receipt,
+        exported.bundle,
+        signal,
+      ),
     ).rejects.toThrow();
   }
   await expect(

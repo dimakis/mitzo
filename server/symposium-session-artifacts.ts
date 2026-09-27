@@ -46,6 +46,9 @@ type Row = {
   generation: string;
   revision: number;
   initialization_contract: string | null;
+  initializer_name: string | null;
+  initializer_id: string | null;
+  initializer_removed: number;
   state: 'reserved' | 'creating' | 'ready' | 'uncertain' | 'quarantined';
 };
 /** A host-only lifecycle ledger. No deletion, lease release or caller-selected volume.
@@ -131,6 +134,27 @@ export class SymposiumSessionArtifacts {
     return row.state === 'ready' && row.initialization_contract === this.host.initializationContract
       ? this.mapping(row)
       : null;
+  }
+  initializationReceipt(sessionId: string) {
+    const mapping = this.getReady(sessionId);
+    const row = this.read(sessionId);
+    if (
+      !mapping ||
+      !row ||
+      row.initializer_name !== `${mapping.volumeName}-init` ||
+      !row.initializer_id ||
+      !/^[a-f0-9]{64}$/.test(row.initializer_id) ||
+      row.initializer_removed !== 1
+    )
+      return null;
+    return {
+      mapping,
+      workspace: row.workspace,
+      custody: row.custody,
+      revision: row.revision,
+      contract: row.initialization_contract!,
+      helper: { name: row.initializer_name, id: row.initializer_id, removed: true as const },
+    };
   }
   ensure(sessionId: string): Promise<SessionArtifactPreparation> {
     if (!id.test(sessionId)) return Promise.reject(new Error('Invalid Symposium session identity'));

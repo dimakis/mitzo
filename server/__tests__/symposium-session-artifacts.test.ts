@@ -377,3 +377,22 @@ it('persists initializer intent and ID before failure and never retries or expos
   expect(store.getReady('session')).toBeNull();
   expect(create).toHaveBeenCalledOnce();
 });
+
+it('exposes only retained initialized helper cleanup as initial generation proof', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  expect(f.store.initializationReceipt('session')).toBeNull();
+  const db = new Database(join(f.root, 'db'));
+  const mapping = f.store.getReady('session')!;
+  db.prepare(
+    'UPDATE symposium_session_artifacts SET initializer_name=?,initializer_id=?,initializer_removed=1 WHERE session_id=?',
+  ).run(`${mapping.volumeName}-init`, 'a'.repeat(64), 'session');
+  expect(f.store.initializationReceipt('session')).toMatchObject({
+    mapping,
+    contract: f.host.initializationContract,
+    helper: { name: `${mapping.volumeName}-init`, id: 'a'.repeat(64), removed: true },
+  });
+  db.prepare('UPDATE symposium_session_artifacts SET initializer_removed=0').run();
+  expect(f.store.initializationReceipt('session')).toBeNull();
+  db.close();
+});
