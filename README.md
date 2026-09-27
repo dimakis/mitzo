@@ -7,6 +7,8 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 ## Features
 
+The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
+
 [Symposium admission candidates](docs/features/symposium-owned-evidence.md) can resolve an explicitly selected Personal connection and ready session volume inside the retained host, without installing or activating admission.
 
 - **Streaming chat** with thinking blocks, tool pills, and markdown
