@@ -706,7 +706,7 @@ it.each(['success', 'auth-rejected', 'auth-expired', 'handoff-rejected'])(
     const initial = status(true);
     let authorized = false;
     vi.mocked(apiFetch).mockImplementation(async (url) => {
-      if (String(url) === '/api/connections/reauthorize') {
+      if (String(url) === '/api/sessions/session/symposium/creation/recovery/app-reauthorize') {
         if (mode === 'auth-rejected')
           return { ok: false, json: async () => ({ error: 'Passphrase rejected' }) } as Response;
         return response({
@@ -759,12 +759,18 @@ it.each(['success', 'auth-rejected', 'auth-expired', 'handoff-rejected'])(
     await userEvent.click(action);
     await waitFor(() =>
       expect(
-        vi.mocked(apiFetch).mock.calls.some(([url]) => url === '/api/connections/reauthorize'),
+        vi
+          .mocked(apiFetch)
+          .mock.calls.some(
+            ([url]) => url === '/api/sessions/session/symposium/creation/recovery/app-reauthorize',
+          ),
       ).toBe(true),
     );
     const authCall = vi
       .mocked(apiFetch)
-      .mock.calls.find(([url]) => url === '/api/connections/reauthorize')!;
+      .mock.calls.find(
+        ([url]) => url === '/api/sessions/session/symposium/creation/recovery/app-reauthorize',
+      )!;
     expect(JSON.parse(authCall[1]!.body as string)).toEqual({ passphrase: 'fresh-passphrase' });
     if (mode === 'success') {
       const cleanup = await screen.findByRole('button', { name: 'Clean up failed seat' });
@@ -809,7 +815,7 @@ it('requires freshly typed cleanup confirmation after another session handoff an
   const initial = status(true);
   let phase: 'original' | 'foreign' | 'returned' = 'original';
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url === '/api/connections/reauthorize')
+    if (url === '/api/sessions/session/symposium/creation/recovery/app-reauthorize')
       return response({ csrf: 'csrf', expiresAt: Date.now() + 60000 });
     if (String(url).endsWith('/creation/recovery/reauthorize')) {
       phase = 'returned';

@@ -378,6 +378,80 @@ it('persists initializer intent and ID before failure and never retries or expos
   expect(create).toHaveBeenCalledOnce();
 });
 
+it('serializes source import against admission and permanently records permission issuance across connections', async () => {
+  const f = fixture();
+  await f.store.ensure('import-first');
+  await f.store.ensure('admission-first');
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  const request = {
+    operationId: 'operation',
+    expectedGeneration: f.store.getReady('import-first')!.volumeGeneration,
+    source: { commit: 'a'.repeat(40) },
+  };
+  const claim = f.store.beginSourceImport('import-first', request);
+  expect(() => other.claimAdmission('import-first')).toThrow(/source import/);
+  expect(other.getReady('import-first')).toBeNull();
+  expect(() => other.beginSourceImport('import-first', request)).toThrow(/source import/);
+  expect((await other.ensure('import-first')).state).toBe('recovery_required');
+  expect(() => other.claimAdmission('import-first')).toThrow(/source import/);
+  const helper = f.store.sourceImportHelperReceipt(claim);
+  helper.intent(`${claim.volumeName}-import`);
+  helper.created('b'.repeat(64));
+  helper.removed();
+  f.store.completeSourceImport(claim, { commit: 'a'.repeat(40), helperRemoved: true });
+  expect(other.claimAdmission('import-first')).toEqual(f.store.getReady('import-first'));
+  const issued = other.claimAdmission('admission-first');
+  expect(() =>
+    f.store.beginSourceImport('admission-first', {
+      ...request,
+      expectedGeneration: issued.volumeGeneration,
+    }),
+  ).toThrow(/admission/);
+  expect(f.store.sourceImportStatus('admission-first')).toMatchObject({
+    available: false,
+    admissionIssued: true,
+  });
+  expect(() => f.store.completeSourceImport({ ...claim, token: 'wrong' }, {})).toThrow(/claim/);
+});
+
+it('keeps interrupted source import fenced after reopening and rejects stale volume selection', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  expect(() =>
+    f.store.beginSourceImport('session', {
+      operationId: 'old',
+      expectedGeneration: 'wrong',
+      source: {},
+    }),
+  ).toThrow(/generation/);
+  f.store.beginSourceImport('session', {
+    operationId: 'import',
+    expectedGeneration: f.store.getReady('session')!.volumeGeneration,
+    source: {},
+  });
+  const reopened = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => reopened.close());
+  expect(reopened.getReady('session')).toBeNull();
+  expect(() => reopened.claimAdmission('session')).toThrow(/source import/);
+  expect(reopened.sourceImportStatus('session')).toMatchObject({
+    available: false,
+    state: 'recovery_required',
+  });
+});
+
 it('exposes only retained initialized helper cleanup as initial generation proof', async () => {
   const f = fixture();
   await f.store.ensure('session');

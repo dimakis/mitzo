@@ -1,0 +1,274 @@
+/** Credential-free real Podman initializer → mounted source API → source host → SQLite.
+ * App passphrase, configured local repository and custody are disposable test fixtures.
+ * No model, remote fetch, native admission or publication acceptance is claimed. */
+import { expect, it } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import Database from 'better-sqlite3';
+import { authMiddleware, login } from '../auth.js';
+import { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
+import { createSymposiumSourceHost } from '../symposium-source-service.js';
+import { createSymposiumSourceRouter } from '../symposium-source-routes.js';
+import { createArtifactGitVolume, artifactGitContract } from '../symposium-artifact-initializer.js';
+import { symposiumArtifactOwner } from '../symposium-artifact-owner.js';
+import { volumeEvidence } from '../symposium-artifact-host.js';
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME as runtime } from '../symposium-owned-runtime-contract.js';
+import { SYMPOSIUM_ARTIFACT_TARGET as target } from '../symposium-artifact-lease.js';
+const physical = process.env.MITZO_SOURCE_PHYSICAL_CONTRACT === '1';
+it.skipIf(!physical)(
+  'imports approved local history through the mounted API and exact stdin helper transport',
+  async () => {
+    const sourceReceipt = () => {
+      execFileSync('git', ['diff', '--quiet', 'HEAD']);
+      return {
+        head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+        tree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
+        trackedClean: true,
+      };
+    };
+    const sourceBefore = sourceReceipt();
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-source-contract-')),
+      repo = join(root, 'repo');
+    mkdirSync(repo);
+    const git = (...args: string[]) =>
+      execFileSync('git', ['-C', repo, ...args], {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          HOME: root,
+          GIT_CONFIG_NOSYSTEM: '1',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_AUTHOR_NAME: 'Fixture',
+          GIT_AUTHOR_EMAIL: 'fixture@example.invalid',
+          GIT_COMMITTER_NAME: 'Fixture',
+          GIT_COMMITTER_EMAIL: 'fixture@example.invalid',
+        },
+      }).trim();
+    git('init', '--quiet', '--template=', '--initial-branch=main');
+    writeFileSync(join(repo, 'first.txt'), 'first\n');
+    git('add', '.');
+    git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'first');
+    writeFileSync(join(repo, 'second.txt'), 'second\n');
+    git('add', '.');
+    git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'second');
+    git('remote', 'add', 'origin', 'https://github.com/example/project.git');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    writeFileSync(join(repo, 'untracked-private.txt'), 'must not be copied');
+    const selectedBefore = {
+      commit: git('rev-parse', 'HEAD'),
+      tree: git('rev-parse', 'HEAD^{tree}'),
+      config: readFileSync(join(repo, '.git/config'), 'utf8'),
+      status: git('status', '--porcelain'),
+    };
+    const command = async (args: readonly string[], input?: Buffer) =>
+      execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
+        env: { HOME: process.env.HOME, PATH: process.env.PATH },
+        input,
+        encoding: 'utf8',
+        timeout: args[0] === 'start' ? 60000 : 15000,
+        maxBuffer: 2 * 1024 * 1024,
+      });
+    const owner = symposiumArtifactOwner(runtime.build.image),
+      sessionId = randomUUID(),
+      workspace = 'source-contract',
+      database = join(root, 'custody.db');
+    const volumes: string[] = [],
+      helpers: string[] = [];
+    const artifacts = new SymposiumSessionArtifacts(database, workspace, root, () => {}, {
+      initializationContract: artifactGitContract(owner),
+      initializerRequired: true,
+      inspect: async (name) => {
+        const rows = JSON.parse(
+          await command(['volume', 'ls', '--filter', `name=^${name}$`, '--format', 'json']),
+        );
+        return rows.length
+          ? volumeEvidence(JSON.parse(await command(['volume', 'inspect', name])), name)
+          : null;
+      },
+      create: (name, labels, receipt) => {
+        volumes.push(name);
+        return createArtifactGitVolume(name, labels, owner, command, () => {}, receipt);
+      },
+    });
+    let completed = false;
+    try {
+      expect(await artifacts.ensure(sessionId)).toEqual({ state: 'ready' });
+      const mapping = artifacts.getReady(sessionId)!;
+      const config = {
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'seat',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'seat',
+            name: 'Fixture',
+            model: 'luna',
+            systemPrompt: 'Fixture only',
+            color: '#335577',
+            role: 'coder',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 1 },
+        interceptMode: 'manual',
+      };
+      const facts = {
+        getSession: () => ({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) }),
+      };
+      const host = createSymposiumSourceHost({
+        artifacts,
+        workspace,
+        owner,
+        facts: facts as never,
+        custody: () => {},
+        command,
+      });
+      const app = express();
+      app.use(express.json(), authMiddleware);
+      app.use(
+        '/api/sessions/:id/symposium/source',
+        createSymposiumSourceRouter({
+          repositories: () => ({ fixture: repo }),
+          getSession: facts.getSession as never,
+          getHost: () => host,
+        }),
+      );
+      const token = (await login('test-passphrase-for-vitest'))!;
+      const base = `/api/sessions/${sessionId}/symposium/source`;
+      const post = (path: string, body: object, csrf = '') =>
+        request(app)
+          .post(base + path)
+          .set('Authorization', `Bearer ${token}`)
+          .set('x-csrf-token', csrf)
+          .send(body);
+      const preview = await post('/preview', {
+        repositoryId: 'fixture',
+        targetRepository: 'example/project',
+        baseBranch: 'main',
+        featureBranch: 'symposium/change',
+      });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      const auth = await post('/reauthorize', { passphrase: 'test-passphrase-for-vitest' });
+      expect(auth.status).toBe(200);
+      const imported = await post(
+        '/import',
+        {
+          plan: preview.body.plan,
+          expectedRevision: preview.body.expectedRevision,
+          expectedGeneration: preview.body.expectedGeneration,
+          operationId: randomUUID(),
+          confirmation: 'IMPORT COMMITTED REPOSITORY HISTORY',
+        },
+        auth.body.csrf,
+      );
+      expect(imported.status, JSON.stringify(imported.body)).toBe(200);
+      expect(host.status(sessionId)).toMatchObject({
+        state: 'imported',
+        available: false,
+        admissionIssued: false,
+      });
+      const db = new Database(database, { readonly: true });
+      const row = db
+        .prepare('SELECT * FROM symposium_session_artifacts WHERE session_id=?')
+        .get(sessionId) as Record<string, unknown>;
+      db.close();
+      const importedState = JSON.parse(row.source_import_json as string);
+      expect(importedState.helperRemoved).toBe(true);
+      expect(importedState.receipt.terminal).toEqual({
+        helperId: importedState.helperId,
+        exitCode: 0,
+      });
+      helpers.push(importedState.helperId);
+      const code = `import subprocess,json,pathlib\nr='${target}'\ndef git(*args): return subprocess.check_output(['/usr/bin/git','-C',r,*args],env={'PATH':'/usr/bin:/bin','HOME':'/nonexistent','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null'},text=True).strip()\nassert not pathlib.Path(r+'/untracked-private.txt').exists()\nprint(json.dumps({'commit':git('rev-parse','HEAD'),'tree':git('rev-parse','HEAD^{tree}'),'history':git('rev-list','--count','HEAD'),'base':git('rev-parse','refs/remotes/origin/main'),'default':git('symbolic-ref','refs/remotes/origin/HEAD'),'branch':git('symbolic-ref','HEAD'),'origin':git('config','--get','remote.origin.url'),'first':pathlib.Path(r+'/first.txt').read_text(),'second':pathlib.Path(r+'/second.txt').read_text()}))`;
+      const verifyId = (
+        await command([
+          'create',
+          '--pull=never',
+          '--network=none',
+          '--read-only',
+          '--cap-drop=ALL',
+          '--security-opt=no-new-privileges',
+          '--timeout=20',
+          '--user',
+          '998:998',
+          '--mount',
+          `type=volume,src=${mapping.volumeName},dst=${target},readonly`,
+          '--entrypoint=/usr/bin/python3',
+          owner.image,
+          '-I',
+          '-B',
+          '-c',
+          code,
+        ])
+      ).trim();
+      expect(verifyId).toMatch(/^[a-f0-9]{64}$/);
+      helpers.push(verifyId);
+      const verified = JSON.parse(await command(['start', '--attach', verifyId]));
+      const [terminal] = JSON.parse(await command(['inspect', verifyId]));
+      expect(terminal.State).toMatchObject({ Running: false, ExitCode: 0 });
+      await command(['rm', verifyId]);
+      expect(verified).toEqual({
+        commit: selectedBefore.commit,
+        tree: selectedBefore.tree,
+        history: '2',
+        base: selectedBefore.commit,
+        default: 'refs/remotes/origin/main',
+        branch: 'refs/heads/symposium/change',
+        origin: 'https://github.com/example/project.git',
+        first: 'first\n',
+        second: 'second\n',
+      });
+      expect({
+        commit: git('rev-parse', 'HEAD'),
+        tree: git('rev-parse', 'HEAD^{tree}'),
+        config: readFileSync(join(repo, '.git/config'), 'utf8'),
+        status: git('status', '--porcelain'),
+      }).toEqual(selectedBefore);
+      expect(sourceReceipt()).toEqual(sourceBefore);
+      await command(['volume', 'rm', mapping.volumeName]);
+      completed = true;
+      writeFileSync(
+        join(root, 'evidence.json'),
+        JSON.stringify(
+          {
+            completed,
+            sourceBefore,
+            sourceAfter: sourceReceipt(),
+            selectedBefore,
+            preview: preview.body,
+            importedState,
+            verified,
+            mapping,
+            helpers,
+            cleanupComplete: true,
+            modelCalls: 0,
+            remoteFetch: false,
+            applicationCredentials: false,
+            simulatedBoundary:
+              'disposable app passphrase and custody fixture; no writer admission, native budget or publication acceptance',
+          },
+          null,
+          2,
+        ),
+      );
+      console.log(`Physical source evidence: ${root}/evidence.json`);
+    } finally {
+      artifacts.close();
+      if (!completed) {
+        writeFileSync(
+          join(root, 'retained.json'),
+          JSON.stringify({ volumes, helpers, completed: false }, null, 2),
+        );
+        console.error(`Retained exact physical source fixture: ${root}`);
+      }
+    }
+  },
+  240000,
+);

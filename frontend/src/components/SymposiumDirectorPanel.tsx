@@ -1,3 +1,4 @@
+import { SymposiumSourceImportPanel } from './SymposiumSourceImportPanel';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   SeatConfig,
@@ -8,7 +9,6 @@ import type {
   ValidAccountBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
-import { reauthorize } from '../lib/connections-api';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
 
@@ -108,7 +108,14 @@ function CreationRecoveryAuthorization({
     setBusy(true);
     setError('');
     try {
-      const auth = await reauthorize(secret);
+      const auth = await readJson<{ csrf: string; expiresAt: number }>(
+        `/api/sessions/${encodeURIComponent(sessionId)}/symposium/creation/recovery/app-reauthorize`,
+        {
+          method: 'POST',
+          headers: jsonHeaders,
+          body: JSON.stringify({ passphrase: secret }),
+        },
+      );
       if (!active.current) return;
       if (!auth.csrf || !Number.isFinite(auth.expiresAt) || auth.expiresAt <= Date.now())
         throw new Error('Recent app authorization expired. Enter the passphrase again.');
@@ -679,6 +686,7 @@ function SessionDirectorPanel({
       </button>
       {open && (
         <div className="symposium-director-panel">
+          <SymposiumSourceImportPanel key={sessionId} sessionId={sessionId} />
           <button type="button" disabled={loading || busy} onClick={() => void refresh()}>
             Refresh director status
           </button>

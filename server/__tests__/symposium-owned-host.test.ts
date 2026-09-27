@@ -403,12 +403,20 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(host.sourceImport.status('new-session')).toMatchObject({
+      available: true,
+      admissionIssued: false,
+    });
     const personalSelection = {
       personalConnection: { connectionId: 'personal', expectedRevision: 3 },
       sessionId: 'new-session',
       allowedRoles: ['coder'],
     };
     const candidate = await host.collectAdmissionEvidence(personalSelection);
+    expect(host.sourceImport.status('new-session')).toMatchObject({
+      available: false,
+      admissionIssued: true,
+    });
     expect(candidate).toMatchObject({
       providerInstances: [{ name: 'retained-personal', id: 'retained-id' }],
       artifactVolume: { name: volume!.Name },
@@ -835,4 +843,42 @@ it('keeps the production successor capability unavailable without a trusted fix 
   } finally {
     await host.stop();
   }
+});
+
+it('waits for the entire source import receipt lifecycle during shutdown between command boundaries', async () => {
+  const source = await import('../symposium-source-service.js');
+  const f = fixture();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let receiptPersisted = false;
+  vi.spyOn(source, 'createSymposiumSourceHost').mockReturnValue({
+    status: () => ({ available: false, state: 'recovery_required' }),
+    import: async () => {
+      entered();
+      await gate;
+      receiptPersisted = true;
+      return {} as never;
+    },
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const operation = host.sourceImport.import({} as never, () => {});
+  await started;
+  host.beginShutdown();
+  const stopping = (async () => {
+    const signal = new AbortController().signal;
+    await host.drain(signal);
+    await host.closeAfterDrain(signal);
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  release();
+  await operation;
+  await stopping;
+  expect(receiptPersisted).toBe(true);
+  expect(f.gateway.stopAndWait).toHaveBeenCalledOnce();
 });

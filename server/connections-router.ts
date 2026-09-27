@@ -1,5 +1,5 @@
 import express from 'express';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
@@ -84,6 +84,46 @@ const publicConnection = (c: Connection): PublicConnection => {
     updatedAt,
   };
 };
+const reauthorizationApps = new WeakMap<object, string>();
+const appReauthorizationLimiter = rateLimit({
+  keyGenerator: (req) => {
+    let appId = reauthorizationApps.get(req.app);
+    if (!appId) {
+      appId = randomUUID();
+      reauthorizationApps.set(req.app, appId);
+    }
+    return `${appId}:${ipKeyGenerator(req.ip ?? 'unknown')}`;
+  },
+  windowMs: 60_000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Too many reauthorization attempts, try again in a minute' },
+});
+/** Shared app-auth capability issuer, also available without legacy connections. */
+export function recentAppReauthorizationHandlers(): express.RequestHandler[] {
+  return [
+    appReauthorizationLimiter,
+    requireSameOriginJson,
+    express.json({ limit: '2kb' }),
+    (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      const auth = recentAuthorizationSession(res),
+        parsed = ConnectionReauthorizeBody.safeParse(req.body);
+      if (!auth || !parsed.success || !verifyPassphrase(parsed.data.passphrase))
+        return res.status(403).json({ error: 'Reauthorization failed' });
+      const now = Date.now();
+      for (const [id, item] of capabilities) if (item.expiresAt <= now) capabilities.delete(id);
+      while (capabilities.size >= MAX_CAPABILITIES)
+        capabilities.delete(capabilities.keys().next().value!);
+      const expiresAt = Math.min(auth.expiresAt, now + TTL),
+        csrf = randomUUID() + randomUUID();
+      capabilities.set(auth.id, { csrf, expiresAt });
+      return res.json({ csrf, expiresAt });
+    },
+  ];
+}
+
 export function recentAuthorizationSession(res: express.Response): AuthSession | undefined {
   const value = res.locals.authSession as AuthSession | undefined;
   if (!value || value.expiresAt <= Date.now()) {
@@ -156,7 +196,6 @@ export function createConnectionsRouter(options: {
       legacyHeaders: false,
       message: { error: message },
     });
-  const reauthorize = limiter(5, 'Too many reauthorization attempts, try again in a minute');
   const mutate = limiter(30, 'Too many connection requests, try again in a minute');
   router.use((_req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -203,26 +242,7 @@ export function createConnectionsRouter(options: {
       return res.status(503).json({ error: 'Capabilities are not configured.' });
     return res.json({ grants: options.capabilities.listGrants(connection.id) });
   });
-  router.post(
-    '/reauthorize',
-    reauthorize,
-    requireSameOriginJson,
-    express.json({ limit: '2kb' }),
-    (req, res) => {
-      const auth = recentAuthorizationSession(res),
-        parsed = ConnectionReauthorizeBody.safeParse(req.body);
-      if (!auth || !parsed.success || !verifyPassphrase(parsed.data.passphrase))
-        return res.status(403).json({ error: 'Reauthorization failed' });
-      const now = Date.now();
-      for (const [id, item] of capabilities) if (item.expiresAt <= now) capabilities.delete(id);
-      while (capabilities.size >= MAX_CAPABILITIES)
-        capabilities.delete(capabilities.keys().next().value!);
-      const expiresAt = Math.min(auth.expiresAt, now + TTL),
-        csrf = randomUUID() + randomUUID();
-      capabilities.set(auth.id, { csrf, expiresAt });
-      return res.json({ csrf, expiresAt });
-    },
-  );
+  router.post('/reauthorize', ...recentAppReauthorizationHandlers());
   router.post(
     '/',
     mutate,

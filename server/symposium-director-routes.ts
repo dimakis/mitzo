@@ -1,5 +1,6 @@
 import { registerAuthSession, type AuthSession } from './auth.js';
 import {
+  recentAppReauthorizationHandlers,
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
 } from './connections-router.js';
@@ -176,6 +177,7 @@ const CancelBody = z.strictObject({
 
 export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps): Router {
   const router = Router({ mergeParams: true });
+  router.post('/creation/recovery/app-reauthorize', ...recentAppReauthorizationHandlers());
   // A null author is not visibility proof. Only delivered broadcasts to every
   // active member at creation qualify; private/legacy authored turns fail closed.
   const sharedTurns = (sessionId: string) => {

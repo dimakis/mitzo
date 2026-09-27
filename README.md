@@ -13,6 +13,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Fresh Symposium artifacts](docs/operations/symposium-artifact-initialization.md) initialize an empty owned Git workspace before admission, retaining initializer identity and cleanup receipts. An opt-in credential-free physical contract checks native writer and read-only reviewer access; full application acceptance and restart recovery remain separate gates.
 
+[Local Symposium source import](docs/operations/symposium-local-source.md) previews and explicitly imports bounded committed history from a configured local repository before any seat admission permission is issued. It uses fresh app authorization and a credential-free networkless helper; oversized, unsupported and uncertain imports remain fenced. Native budget, review and publication still require their own authority.
+
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.

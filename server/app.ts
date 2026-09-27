@@ -1,3 +1,4 @@
+import { createSymposiumSourceRouter } from './symposium-source-routes.js';
 import { getConnectionRegistry } from './chat.js';
 import { publicationControllerApproval } from './symposium-publication-approval.js';
 import {
@@ -851,6 +852,7 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
     throw new Error('Symposium runtime cleanup incomplete');
 }
 export interface SymposiumProductionHost {
+  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
   publicationCredentials?: readonly PublicationCredentialRegistration[];
   requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
   inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
@@ -1134,6 +1136,15 @@ app.use(
       symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
         ? symposiumProductionHost.reviewHost
         : null,
+  }),
+);
+app.use(
+  '/api/sessions/:id/symposium/source',
+  operatorAuthMiddleware,
+  createSymposiumSourceRouter({
+    repositories: () => getRepoConfig().repos,
+    getSession: (id) => eventStore.getSession(id),
+    getHost: () => symposiumProductionHost?.sourceImport,
   }),
 );
 app.use(

@@ -1,3 +1,4 @@
+import { createSymposiumSourceHost } from './symposium-source-service.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
 import {
@@ -340,6 +341,17 @@ export async function createOwnedSymposiumHost(
     };
     const ensureSessionArtifacts = (sessionId: string) =>
       track(() => prepareSessionArtifacts(sessionId));
+    const sourceImporter = createSymposiumSourceHost({
+      workspace: gateway.workspace,
+      artifacts: sessionArtifacts,
+      facts: options.facts,
+      owner: artifactOwner,
+      custody: () => {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        custody();
+      },
+      command: (args, input) => podmanText(args, undefined, true, input),
+    });
     const physical = new LocalSymposiumProductionPhysicalProof({
       cli: gateway.cli,
       podman: options.podman.executable,
@@ -456,7 +468,7 @@ export async function createOwnedSymposiumHost(
           ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
           : artifacts.has(sessionId)
             ? null
-            : sessionArtifacts!.getReady(sessionId);
+            : sessionArtifacts!.claimAdmission(sessionId);
       if (purpose === 'cleanup') {
         const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
         if (
@@ -645,7 +657,7 @@ export async function createOwnedSymposiumHost(
               };
               custody();
               assertDraft();
-              const mapping = sessionArtifacts!.getReady(sessionId);
+              const mapping = sessionArtifacts!.claimAdmission(sessionId);
               if (!mapping) return null;
               assertSessionArtifactVolume(
                 gateway.workspace,
@@ -767,6 +779,11 @@ export async function createOwnedSymposiumHost(
       artifactLeaseHost: leaseHost,
       artifactRequest,
       ensureSessionArtifacts,
+      sourceImport: {
+        status: sourceImporter.status,
+        import: (...args: Parameters<typeof sourceImporter.import>) =>
+          track(() => sourceImporter.import(...args)),
+      },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: (
         ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>
