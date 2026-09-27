@@ -505,3 +505,18 @@ it('keeps device ownership when callback recovery observes its receipt against a
   await second.findByText(/Continue or cancel it in device sign-in/);
   expect((first.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('shows the saved revision and refreshes the picker catalog after completed callback recovery', async () => {
+  const onAccountsChanged = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [rows[1]] }
+        : { state: 'completed', attemptId: 'callback', connectionId: 'personal-b' },
+    ),
+  );
+  render(<SymposiumPersonalConnections onAccountsChanged={onAccountsChanged} />);
+  await screen.findByText('Connection version 3');
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(onAccountsChanged).toHaveBeenCalledOnce());
+});
