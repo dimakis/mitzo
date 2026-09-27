@@ -59,7 +59,7 @@ export interface ChatAreaProps {
 
 function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
   if (!provenance) return null;
-  if (!('version' in provenance) || provenance.version !== 2) {
+  if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
     return (
       <div className="chat-seat-attribution">
         {provenance.seatId.charAt(0).toUpperCase() + provenance.seatId.slice(1)} seat · account and
@@ -74,6 +74,7 @@ function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
       <span>{provenance.accountBinding.accountLabel}</span>
       <span>{provenance.accountBinding.model}</span>
       <span>{provenance.reasoningEffort ?? 'effort unspecified'}</span>
+      {provenance.version === 3 && <span>Artifact {provenance.artifact.artifactGenerationId}</span>}
     </div>
   );
 }
