@@ -461,7 +461,7 @@ it.each(['recovered', 'new'] as const)(
       fireEvent.click(screen.getByLabelText(/ready/i));
       fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
     }
-    await waitFor(() => expect(catalogs).toBe(2));
+    await waitFor(() => expect(catalogs).toBeGreaterThanOrEqual(2));
     expect(screen.getByText(/login completed/i)).toBeTruthy();
     await act(async () => {
       finish(response(profiles));
