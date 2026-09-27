@@ -368,7 +368,7 @@ export async function createOwnedSymposiumHost(
         custody();
         proof.assertCurrent();
         if (fenced.creationUncertain())
-          return { result: { status: 'reconciliation_required', inference: false } };
+          return { result: { ...result, status: 'reconciliation_required', inference: false } };
         return { result, models };
       },
     );
