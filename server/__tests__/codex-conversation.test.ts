@@ -1781,3 +1781,30 @@ it('rejects unsupported image types before persisting or starting work', async (
   expect(c.queue()).toEqual([]);
   expect(requests.some((r) => r.method === 'turn/start')).toBe(false);
 });
+
+it.each([undefined, 'unrecognized'])(
+  'does not attest an unspecified native terminal status %s',
+  async (status) => {
+    const terminal = vi.fn();
+    const { c, callbacks } = await setup(
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      terminal,
+    );
+    await c.send({ id: 'unknown-status', prompt: 'mock' });
+    callbacks.onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status },
+    });
+    expect(terminal).not.toHaveBeenCalled();
+  },
+);

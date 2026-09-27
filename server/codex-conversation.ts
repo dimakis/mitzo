@@ -1070,7 +1070,8 @@ export class CodexConversation {
             })
           : undefined;
       this.finishTurnSpan(status, status === 'failed' ? 'provider' : 'none');
-      this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
+      if (['completed', 'interrupted', 'failed'].includes(turn.data.status ?? ''))
+        this.opts.onProviderTerminal?.(this.active.command.id, turn.data.id, status);
       this.opts.onProviderComplete?.(this.active.command.id, status);
       const providerTransportFailed =
         status === 'failed' && isRecoverableProviderTransportFailure(turn.data.error);
