@@ -603,3 +603,8 @@ Native model-discovery failures retain [private staged diagnostics](docs/feature
 
 Symposium director controls identify the current primary-seat lifecycle restriction;
 primary-writer removal remains unsupported. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
+
+Personal Connections offers explicit model-discovery cleanup only when the same
+running host retains an exact, known-sandbox recovery capability. Successful cleanup
+requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
+restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
