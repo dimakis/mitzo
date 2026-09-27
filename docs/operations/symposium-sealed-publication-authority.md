@@ -135,7 +135,6 @@ retained or exposed; the custodian recognizes the fixed gh status diagnostic. Se
 
 Publication requests bind to the current tab’s server-issued chat transport ID at dispatch. Reconnect updates only that transport binding. Uncertain publication outcomes use the separate read-only recovery action, never another Create PR invocation. Multiple authenticated watchers cannot redirect the initiating tab’s approval. Direct saved-record links require an explicit **Open session for approval** action, keep the immutable record visible, and render the existing permission banner without starting a model.
 
-
 ### Fresh app authentication and read-only recovery
 
 Within the original retained custodian, a newly authenticated app operator can select an exact
