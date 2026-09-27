@@ -148,6 +148,7 @@ function fixture() {
     },
     getConnection: () => ({
       id: 'connection',
+      gatewayProviderId: 'gateway-provider',
       status: 'active',
       templateId: 'github-readonly',
       templateVersion: 1,
@@ -356,4 +357,44 @@ it('accepts an unchanged persisted approval but rejects an attachment to another
     sandboxName: 'other-sandbox',
   });
   await expect(f.inspect()).rejects.toThrow('live attachment');
+});
+
+it('accepts dotted OpenShell workspace identities without broadening sandbox names', async () => {
+  const f = fixture();
+  f.deps.workspaceId = 'work.test';
+  f.binding.lease.request.workspaceId = 'work.test';
+  const inspectVolume = f.deps.leaseHost.inspectVolume;
+  f.deps.leaseHost.inspectVolume = async () => {
+    const volume = await inspectVolume();
+    volume.labels['openshell.ai/sandbox-attachable-workspace'] = 'work.test';
+    volume.labels['mitzo.symposium.workspace'] = 'work.test';
+    return volume;
+  };
+  await expect(f.inspect()).resolves.toMatchObject({ kind: 'preview_only' });
+  expect(f.deps.control.mock.calls.every(([args]) => args[2] === 'work.test')).toBe(true);
+  f.binding.sandboxName = 'sandbox.invalid';
+  f.deps.getLiveAttachment.mockReturnValue({
+    ...f.deps.getLiveAttachment()!,
+    sandboxName: 'sandbox.invalid',
+  });
+  await expect(f.inspect()).rejects.toThrow('Sandbox identity is invalid');
+});
+
+it('rejects a live attachment belonging to a different physical connection provider', async () => {
+  const f = fixture();
+  const connection = f.deps.getConnection();
+  f.deps.getConnection = () => ({ ...connection, gatewayProviderId: 'replaced-provider' });
+  await expect(f.inspect()).rejects.toThrow('Publication live attachment unavailable');
+  expect(f.deps.control).not.toHaveBeenCalled();
+});
+
+it('rechecks the connection provider after asynchronous inspection', async () => {
+  const f = fixture();
+  const connection = f.deps.getConnection();
+  f.deps.getConnection = () => connection;
+  f.deps.publisher.policy.mockImplementation(async () => {
+    connection.gatewayProviderId = 'replacement-provider';
+    return { defaultBranch: 'main', sourceBranchProtected: false };
+  });
+  await expect(f.inspect()).rejects.toThrow('Publication live attachment unavailable');
 });
