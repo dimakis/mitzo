@@ -198,3 +198,122 @@ describe('local Podman artifact evidence', () => {
     );
   });
 });
+
+describe('reviewed workload artifact ownership', () => {
+  const image = 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161';
+  const good = {
+    uid: 998,
+    gid: 998,
+    ownerUid: 998,
+    ownerGid: 998,
+    mode: '755',
+    readable: true,
+    searchable: true,
+    writable: false,
+  };
+  it.each([
+    [{}, true],
+    [{ ownerUid: 0 }, false],
+    [{ uid: 1000 }, false],
+    [{ mode: '777' }, false],
+    [{ writable: true }, false],
+    [{ readable: false }, false],
+    [{ searchable: false }, false],
+  ])('requires native read/search and exact owner identity %j', async (delta, allowed) => {
+    const details = [{ ...inspected[0], Image: image }];
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce(details)
+      .mockResolvedValueOnce(details);
+    const native = vi.fn().mockResolvedValue({ ...good, ...delta });
+    const evidence = new LocalPodmanArtifactEvidence(
+      'symposium-1',
+      'gateway-local',
+      run,
+      undefined,
+      image,
+      native,
+    );
+    if (allowed)
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).resolves.toBeUndefined();
+    else
+      await expect(evidence.verifyMount(sandboxName, sandboxId, config)).rejects.toThrow(
+        'identity or effective access',
+      );
+    expect(native).toHaveBeenCalledWith(
+      sandboxName,
+      sandboxId,
+      expect.stringContaining('/usr/bin/id -u'),
+    );
+    expect(run.mock.calls.every(([args]) => args[0] !== 'exec')).toBe(true);
+  });
+  it('requires successful native writer probe; failure is not read-only proof', async () => {
+    const writerConfig = { podman: { mounts: [{ ...config.podman.mounts[0], read_only: false }] } };
+    const details = [
+      { ...inspected[0], Image: image, Mounts: [{ ...inspected[0].Mounts[0], RW: true }] },
+    ];
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce(details)
+      .mockResolvedValueOnce(details);
+    const native = vi.fn().mockResolvedValue({ ...good, writable: true });
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        run,
+        undefined,
+        image,
+        native,
+      ).verifyMount(sandboxName, sandboxId, writerConfig),
+    ).resolves.toBeUndefined();
+    const failed = vi.fn().mockRejectedValue(new Error('native probe unavailable'));
+    const next = vi.fn().mockResolvedValueOnce(listed).mockResolvedValueOnce(details);
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        next,
+        undefined,
+        image,
+        failed,
+      ).verifyMount(sandboxName, sandboxId, writerConfig),
+    ).rejects.toThrow('native probe unavailable');
+  });
+  it('rejects physical identity drift after native probe', async () => {
+    const details = [{ ...inspected[0], Image: image }];
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce(details)
+      .mockResolvedValueOnce([{ ...details[0], Id: 'b'.repeat(64) }]);
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        run,
+        undefined,
+        image,
+        vi.fn().mockResolvedValue(good),
+      ).verifyMount(sandboxName, sandboxId, config),
+    ).rejects.toThrow('physical identity changed');
+  });
+  it('rejects a different physical image before probing', async () => {
+    const run = vi
+      .fn()
+      .mockResolvedValueOnce(listed)
+      .mockResolvedValueOnce([{ ...inspected[0], Image: 'b'.repeat(64) }]);
+    await expect(
+      new LocalPodmanArtifactEvidence(
+        'symposium-1',
+        'gateway-local',
+        run,
+        undefined,
+        image,
+      ).verifyMount(sandboxName, sandboxId, config),
+    ).rejects.toThrow('image differs');
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+});
