@@ -90,9 +90,21 @@ export interface OpenShellRuntime {
   cliEnvironment?: OpenShellCliEnvironment;
 }
 
+export interface OpenShellSandboxCreationReceipt {
+  sandboxName: string;
+  sandboxId: string;
+  workspace: string;
+  owner: string;
+  accountProvider: string;
+}
+
 export interface OpenShellRuntimeConfig {
   /** Trusted host marker immediately before the external sandbox create command. */
   beforeSandboxCreate?: () => void;
+  /** Native-only: persist terminal successful create identity before upload/configuration.
+   * This is cleanup evidence, never admission or mount attestation. */
+  onSandboxCreateSettled?: (receipt: OpenShellSandboxCreationReceipt) => void;
+  onSandboxCreationPhase?: (phase: 'create' | 'upload' | 'provider' | 'mount') => void;
   /** Explicit CLI wire contract. Omitted retains the deployed 0.0.x behavior. */
   cliContract?: 'v0.1';
   /** Host-validated, lease-bound mount for a single seat. Never read from model output. */
@@ -1066,6 +1078,7 @@ export class OpenShellRuntimeManager {
     )
       throw new Error('Recorded seat sandbox physical identity changed or is not Ready');
     let created = false;
+    let terminalSandboxId: string | undefined;
     if (!sandbox) {
       const legacyName = legacySandboxNameForConversation(conversationHash);
       const legacy = await this.get(legacyName, signal);
@@ -1089,6 +1102,13 @@ export class OpenShellRuntimeManager {
     else await this.config.verifyConnections?.(name, signal, []);
     if (!sandbox) {
       created = true;
+      const phasedCreate = !!this.config.onSandboxCreateSettled;
+      if (
+        phasedCreate &&
+        (this.config.cliContract !== 'v0.1' ||
+          this.config.account.kind !== 'chatgpt-subscription-native')
+      )
+        throw new Error('Phased creation requires native OpenShell seats');
       const args = [
         'sandbox',
         ...this.base(),
@@ -1099,11 +1119,15 @@ export class OpenShellRuntimeManager {
         this.config.image,
         '--policy',
         this.config.policy,
-        '--upload',
-        // OpenShell uploads a source directory as a child of the destination.
-        // Target the fixed parent so the MGMT seed lands at the canonical cwd
-        // instead of /sandbox/workspaces/mgmt/mgmt.
-        `${this.config.seed}:/sandbox/workspaces`,
+        ...(!phasedCreate && !artifactConfig
+          ? [
+              '--upload',
+              // OpenShell uploads a source directory as a child of the destination.
+              // Target the fixed parent so the MGMT seed lands at the canonical cwd
+              // instead of /sandbox/workspaces/mgmt/mgmt.
+              `${this.config.seed}:/sandbox/workspaces`,
+            ]
+          : []),
         '--label',
         `mitzo.conversation=${owner}`,
         '--label',
@@ -1142,10 +1166,47 @@ export class OpenShellRuntimeManager {
         this.providerPolicyState.write(name, { automatic: automaticProviders(), granted: [] });
       }
       this.config.beforeSandboxCreate?.();
+      this.config.onSandboxCreationPhase?.('create');
       try {
-        await this.run(args, signal);
+        const output = await this.run(args, signal);
+        if (phasedCreate) {
+          const receipt = Sandbox.parse(JSON.parse(output));
+          if (
+            !receipt.id ||
+            receipt.name !== name ||
+            receipt.workspace !== this.config.workspace ||
+            receipt.phase !== 'Ready' ||
+            receipt.labels?.['mitzo.conversation'] !== owner ||
+            receipt.labels?.['mitzo.account_provider'] !== accountProvider
+          )
+            throw new Error('Terminal sandbox create identity is unavailable');
+          terminalSandboxId = receipt.id;
+          this.config.onSandboxCreateSettled!({
+            sandboxName: name,
+            sandboxId: receipt.id,
+            workspace: this.config.workspace,
+            owner,
+            accountProvider,
+          });
+          if (!artifactConfig) {
+            this.config.onSandboxCreationPhase?.('upload');
+            const beforeUpload = await this.get(name, signal);
+            if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
+              throw new Error('Created sandbox identity changed before seed upload');
+            await this.run(
+              ['sandbox', ...this.base(), 'upload', name, this.config.seed, '/sandbox/workspaces'],
+              signal,
+            );
+            const afterUpload = await this.get(name, signal);
+            if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
+              throw new Error('Created sandbox identity changed after seed upload');
+          }
+        }
       } catch (error) {
-        if (!/already exists|conflict|409/i.test(error instanceof Error ? error.message : ''))
+        if (
+          phasedCreate ||
+          !/already exists|conflict|409/i.test(error instanceof Error ? error.message : '')
+        )
           throw error;
       }
       sandbox = await this.waitForReady(name, owner, signal);
@@ -1155,6 +1216,9 @@ export class OpenShellRuntimeManager {
     } else if (sandbox.phase !== 'Ready') {
       sandbox = await this.waitForReady(name, owner, signal);
     }
+    if (terminalSandboxId) this.config.onSandboxCreationPhase?.('provider');
+    if (terminalSandboxId && sandbox?.id !== terminalSandboxId)
+      throw new Error('Created sandbox identity changed before configuration');
     await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       await this.serializeProviderPolicy(name, signal, async () => {
@@ -1228,6 +1292,7 @@ export class OpenShellRuntimeManager {
     if (!sandbox || sandbox.phase !== 'Ready')
       throw new Error(`OpenShell sandbox ${name} is ${sandbox?.phase ?? 'unavailable'}`);
     if (artifactConfig) {
+      if (terminalSandboxId) this.config.onSandboxCreationPhase?.('mount');
       if (!sandbox.id) throw new Error('Artifact sandbox has no immutable physical identity');
       await this.config.verifyArtifactMount!(name, sandbox.id, artifactConfig);
       const afterMount = await this.get(name, signal);

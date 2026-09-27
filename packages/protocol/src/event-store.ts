@@ -73,6 +73,16 @@ export interface SymposiumSeatSandboxRecord {
   creationStarted: boolean;
   creationCompleted: boolean;
   state: 'reserved' | 'ready' | 'stopped';
+  creationPhase?: 'create' | 'upload' | 'provider' | 'mount' | null;
+  creationFailureCode?: string | null;
+}
+export interface SymposiumCreationRecoveryRequest {
+  sessionId: string;
+  seatId: string;
+  expectedGeneration: number;
+  expectedRevision: number;
+  actor: string;
+  idempotencyKey: string;
 }
 
 /**
@@ -979,6 +989,11 @@ export class EventStore {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_symposium_one_replacement
           ON symposium_membership(session_id,replaces_seat_id)
           WHERE replaces_seat_id IS NOT NULL;
+        CREATE TABLE IF NOT EXISTS symposium_creation_recoveries (
+          session_id TEXT NOT NULL, seat_id TEXT NOT NULL, generation INTEGER NOT NULL,
+          request_json TEXT NOT NULL, result_json TEXT,
+          PRIMARY KEY(session_id,seat_id,generation)
+        );
         CREATE TABLE IF NOT EXISTS symposium_late_results (
           delivery_id TEXT NOT NULL, seat_id TEXT NOT NULL, claim_token TEXT NOT NULL,
           provider_thread_id TEXT NOT NULL, result_content TEXT NOT NULL,
@@ -999,6 +1014,9 @@ export class EventStore {
         db.exec(
           'ALTER TABLE symposium_seat_sandboxes ADD COLUMN creation_completed INTEGER NOT NULL DEFAULT 0',
         );
+      for (const column of ['creation_phase', 'creation_failure_code'])
+        if (!seatSandboxColumns.some((item) => item.name === column))
+          db.exec(`ALTER TABLE symposium_seat_sandboxes ADD COLUMN ${column} TEXT`);
       const deliveryColumns = db
         .prepare("PRAGMA table_info('symposium_deliveries')")
         .all() as Array<{ name: string }>;
@@ -2339,6 +2357,12 @@ export class EventStore {
   /** Session-wide denial includes readers until a later reviewed sealed-reader adapter exists. */
   assertSymposiumArtifactWorkAllowed(sessionId: string): void {
     if (
+      this.db!.prepare(
+        'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL',
+      ).get(sessionId)
+    )
+      throw new Error('Symposium creation cleanup is pending; new seat work is fenced');
+    if (
       this.db!.prepare('SELECT 1 FROM symposium_artifact_seal_intents WHERE session_id=?').get(
         sessionId,
       )
@@ -2451,6 +2475,8 @@ export class EventStore {
       physicalId: row.physical_id as string | null,
       creationStarted: Boolean(row.creation_started),
       creationCompleted: Boolean(row.creation_completed),
+      creationPhase: (row.creation_phase as SymposiumSeatSandboxRecord['creationPhase']) ?? null,
+      creationFailureCode: (row.creation_failure_code as string | null) ?? null,
       state: row.state as SymposiumSeatSandboxRecord['state'],
     };
   }
@@ -2513,6 +2539,33 @@ export class EventStore {
        AND physical_id=? AND state='ready' AND creation_started=1 AND creation_completed=0`,
     ).run(input.sessionId, input.seatId, input.generation, input.runtimeId, input.physicalId);
     if (result.changes !== 1) throw new Error('Symposium seat creation completion changed');
+  }
+
+  /** Exact successful terminal create response; still reserved until configuration passes. */
+  recordSymposiumSeatSandboxTerminalCreate(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+    physicalId: string;
+  }): void {
+    if (!input.sandboxName || !input.physicalId)
+      throw new Error('Missing terminal create identity');
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes
+      SET sandbox_name=?,physical_id=?,creation_completed=1
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+      AND state='reserved' AND creation_started=1 AND creation_completed=0 AND physical_id IS NULL`,
+    ).run(
+      input.sandboxName,
+      input.physicalId,
+      input.sessionId,
+      input.seatId,
+      input.generation,
+      input.runtimeId,
+    );
+    if (result.changes !== 1) throw new Error('Terminal seat creation identity changed');
   }
 
   confirmSymposiumSeatSandbox(input: {
@@ -2582,6 +2635,205 @@ export class EventStore {
     ).run(input.sessionId, input.seatId, input.generation);
   }
 
+  recordSymposiumSeatCreationDiagnostic(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    phase: 'create' | 'upload' | 'provider' | 'mount';
+    failed: boolean;
+  }): void {
+    if (!['create', 'upload', 'provider', 'mount'].includes(input.phase))
+      throw new Error('Invalid creation phase');
+    const code = input.failed ? `SEAT_${input.phase.toUpperCase()}_FAILED` : null;
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes SET creation_phase=?,creation_failure_code=?
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=? AND state='reserved'`,
+    ).run(input.phase, code, input.sessionId, input.seatId, input.generation, input.runtimeId);
+    if (result.changes !== 1) throw new Error('Creation diagnostic identity changed');
+  }
+
+  getPendingSymposiumCreationRecovery(
+    sessionId: string,
+    seatId: string,
+    generation: number,
+  ): SymposiumCreationRecoveryRequest | null {
+    const row = this.db!.prepare(
+      `SELECT request_json FROM symposium_creation_recoveries
+      WHERE session_id=? AND seat_id=? AND generation=? AND result_json IS NULL`,
+    ).get(sessionId, seatId, generation) as { request_json: string } | undefined;
+    return row ? (JSON.parse(row.request_json) as SymposiumCreationRecoveryRequest) : null;
+  }
+
+  getSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumMembershipRecord | null | undefined {
+    const row = this.db!.prepare(
+      'SELECT * FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND generation=?',
+    ).get(input.sessionId, input.seatId, input.expectedGeneration) as
+      { request_json: string; result_json: string | null } | undefined;
+    if (!row) return undefined;
+    if (row.request_json !== JSON.stringify(input))
+      throw new Error('Creation recovery request changed');
+    return row.result_json ? (JSON.parse(row.result_json) as SymposiumMembershipRecord) : null;
+  }
+
+  /** Called inside the caller's SQLite transaction. A seat-local fence must not
+   * cancel other recipients or retire their claims/results. */
+  private cancelSymposiumSeatRecipients(
+    sessionId: string,
+    seatId: string,
+    reason: string,
+    at: number,
+  ): void {
+    const affected = this.db!.prepare(
+      `SELECT r.delivery_id FROM symposium_delivery_recipients r JOIN symposium_deliveries d USING(delivery_id)
+       WHERE d.session_id=? AND r.seat_id=? AND r.status IN ('pending','executing','failed','recovery_required')
+         AND d.status NOT IN ('delivered','dropped','cancelled')`,
+    ).all(sessionId, seatId) as Array<{ delivery_id: string }>;
+    for (const { delivery_id: deliveryId } of affected) {
+      this.db!.prepare(
+        `UPDATE symposium_delivery_recipients SET status='cancelled',error=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status IN ('pending','executing','failed','recovery_required')`,
+      ).run(reason, at, deliveryId, seatId);
+      this.db!.prepare(
+        `UPDATE symposium_recipient_attempts SET status='recovery_required',error=?,completed_at=?,updated_at=? WHERE delivery_id=? AND seat_id=? AND status='executing'`,
+      ).run(reason, at, at, deliveryId, seatId);
+      this.db!.prepare(
+        'DELETE FROM symposium_seat_execution_claims WHERE delivery_id=? AND seat_id=?',
+      ).run(deliveryId, seatId);
+      this.reconcileSymposiumDeliveryRecipients(deliveryId, at, reason);
+    }
+  }
+
+  private reconcileSymposiumDeliveryRecipients(
+    deliveryId: string,
+    at: number,
+    reason = 'recipient cancelled',
+  ): void {
+    const delivery = this.getSymposiumDelivery(deliveryId);
+    if (!delivery || ['cancelled', 'dropped'].includes(delivery.status)) return;
+    const statuses = delivery.recipients.map((recipient) => recipient.status);
+    let status = delivery.status;
+    if (statuses.every((value) => value === 'cancelled')) status = 'cancelled';
+    else if (statuses.every((value) => value === 'delivered' || value === 'cancelled'))
+      status = 'delivered';
+    else if (statuses.includes('recovery_required')) status = 'recovery_required';
+    else if (statuses.includes('failed')) status = 'failed';
+    else if (statuses.includes('executing')) status = 'delivering';
+    else if (statuses.includes('pending') && ['failed', 'recovery_required'].includes(status))
+      status = delivery.deliveredContent === null ? 'awaiting_intervention' : 'ready';
+    this.db!.prepare(
+      `UPDATE symposium_deliveries SET status=?,updated_at=?,cancellation_reason=?,cancelled_at=? WHERE delivery_id=?`,
+    ).run(
+      status,
+      at,
+      status === 'cancelled' ? reason : null,
+      status === 'cancelled' ? at : null,
+      deliveryId,
+    );
+  }
+
+  beginSymposiumCreationRecovery(input: SymposiumCreationRecoveryRequest): void {
+    this.db!.transaction(() => {
+      if (this.getSymposiumCreationRecovery(input) !== undefined) return;
+      // The pending recovery reserves the membership operation key before any
+      // physical cleanup. All competing membership writers use this same transaction.
+      if (
+        this.db!.prepare(
+          'SELECT 1 FROM symposium_membership WHERE session_id=? AND idempotency_key=?',
+        ).get(input.sessionId, input.idempotencyKey) ||
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium recovery idempotency key was reused');
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      const physical = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      if (
+        config.version !== 2 ||
+        config.revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.state !== 'active' ||
+        physical?.state !== 'reserved' ||
+        !physical.creationCompleted ||
+        !physical.physicalId ||
+        !physical.creationFailureCode
+      )
+        throw new Error('Exact failed creation recovery is unavailable');
+      this.db!.prepare('INSERT INTO symposium_creation_recoveries VALUES (?,?,?,?,NULL)').run(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+        JSON.stringify(input),
+      );
+      this.db!.prepare(
+        `UPDATE symposium_membership_reconciliation SET status='recovery_required' WHERE session_id=? AND seat_id=? AND generation=?`,
+      ).run(input.sessionId, input.seatId, input.expectedGeneration);
+      this.cancelSymposiumSeatRecipients(
+        input.sessionId,
+        input.seatId,
+        'seat creation recovery',
+        Date.now(),
+      );
+    }).immediate();
+  }
+
+  completeSymposiumCreationRecovery(
+    input: SymposiumCreationRecoveryRequest,
+  ): SymposiumMembershipRecord {
+    return this.db!.transaction(() => {
+      const existing = this.getSymposiumCreationRecovery(input);
+      if (existing === undefined) throw new Error('Creation recovery fence unavailable');
+      if (existing) return existing;
+      const config = this.getActiveSymposiumConfig(input.sessionId);
+      const member = this.getLatestSymposiumMembership(input.sessionId, input.seatId);
+      const physical = this.getSymposiumSeatSandbox(
+        input.sessionId,
+        input.seatId,
+        input.expectedGeneration,
+      );
+      if (
+        config.revision !== input.expectedRevision ||
+        member?.generation !== input.expectedGeneration ||
+        member.reconciliation !== 'recovery_required' ||
+        physical?.state !== 'stopped' ||
+        this.getUnsettledSymposiumSeatExecutions(input.sessionId, input.seatId).length
+      )
+        throw new Error('Creation cleanup proof is incomplete or stale');
+      const generation = input.expectedGeneration + 1;
+      this.db!.prepare(
+        `INSERT INTO symposium_membership(session_id,seat_id,generation,state,action,config_revision,binding_key,actor,reason,idempotency_key,occurred_at)
+        VALUES (?,?,?,'suspended','suspend',?,?,?,?,?,?)`,
+      ).run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        config.revision,
+        member.bindingKey,
+        input.actor,
+        'Explicit failed creation cleanup',
+        input.idempotencyKey,
+        Date.now(),
+      );
+      this.db!.prepare('INSERT INTO symposium_membership_reconciliation VALUES (?,?,?,?)').run(
+        input.sessionId,
+        input.seatId,
+        generation,
+        'confirmed',
+      );
+      const result = this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
+      this.db!.prepare(
+        'UPDATE symposium_creation_recoveries SET result_json=? WHERE session_id=? AND seat_id=? AND generation=?',
+      ).run(JSON.stringify(result), input.sessionId, input.seatId, input.expectedGeneration);
+      return result;
+    }).immediate();
+  }
+
   /** SQLite IMMEDIATE transaction makes generation and cap reservation one CAS. */
   transitionSymposiumMembership(input: {
     sessionId: string;
@@ -2616,6 +2868,19 @@ export class EventStore {
         }
         return prior;
       }
+      if (
+        this.db!.prepare(
+          "SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND result_json IS NULL AND json_extract(request_json,'$.idempotencyKey')=?",
+        ).get(input.sessionId, input.idempotencyKey)
+      )
+        throw new Error('Symposium membership idempotency key is reserved by creation recovery');
+      // Recovery owns this seat generation until exact cleanup and rotation commit.
+      // Revocation is also a generation transition; allowing it here would strand
+      // the durable recovery even when admission/dispatch are already fenced.
+      const recovering = this.db!.prepare(
+        'SELECT 1 FROM symposium_creation_recoveries WHERE session_id=? AND seat_id=? AND result_json IS NULL LIMIT 1',
+      ).get(input.sessionId, input.seatId);
+      if (recovering) throw new Error('Symposium seat creation cleanup is pending');
       const config = this.getActiveSymposiumConfig(input.sessionId);
       if (config.version !== 2) throw new Error('Membership transitions require Symposium v2');
       if (config.revision !== input.configRevision)
@@ -2718,28 +2983,12 @@ export class EventStore {
         'pending',
       );
       if (!activating) {
-        // Durable revocation wins over queued approvals and execution claims.
-        this.db!.prepare(
-          `UPDATE symposium_deliveries SET status = 'cancelled',
-          cancellation_reason = 'recipient seat revoked', cancelled_at = ?, updated_at = ?
-          WHERE session_id = ? AND status IN ('awaiting_intervention','ready','delivering')
-          AND delivery_id IN (SELECT delivery_id FROM symposium_delivery_recipients WHERE seat_id = ?
-            AND status IN ('pending','executing'))`,
-        ).run(input.occurredAt, input.occurredAt, input.sessionId, input.seatId);
-        this.db!.prepare(
-          `UPDATE symposium_delivery_recipients SET status = 'cancelled', error = 'seat revoked', updated_at = ?
-          WHERE seat_id = ? AND status IN ('pending','executing') AND delivery_id IN
-          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
-        ).run(input.occurredAt, input.seatId, input.sessionId);
-        this.db!.prepare(
-          `UPDATE symposium_recipient_attempts SET status = 'recovery_required',
-          error = 'seat revoked during execution', completed_at = ?, updated_at = ?
-          WHERE seat_id = ? AND status = 'executing' AND delivery_id IN
-          (SELECT delivery_id FROM symposium_deliveries WHERE session_id = ?)`,
-        ).run(input.occurredAt, input.occurredAt, input.seatId, input.sessionId);
-        this.db!.prepare(
-          `DELETE FROM symposium_seat_execution_claims WHERE session_id = ? AND seat_id = ?`,
-        ).run(input.sessionId, input.seatId);
+        this.cancelSymposiumSeatRecipients(
+          input.sessionId,
+          input.seatId,
+          'seat revoked',
+          input.occurredAt,
+        );
       }
       return this.getLatestSymposiumMembership(input.sessionId, input.seatId)!;
     }).immediate();
@@ -3307,6 +3556,7 @@ export class EventStore {
       const delivery = this.getSymposiumDelivery(deliveryId);
       if (!delivery) throw new Error('Unknown Symposium delivery');
       if (delivery.status !== 'ready') return false;
+      this.assertSymposiumArtifactWorkAllowed(delivery.sessionId);
       if (maxTurns !== undefined) {
         const reserved = this.db!.prepare(
           `SELECT
@@ -3822,16 +4072,7 @@ export class EventStore {
         this.db!.prepare(`DELETE FROM symposium_seat_execution_claims WHERE claim_token = ?`).run(
           input.claimToken,
         );
-        const remaining = this.db!.prepare(
-          `SELECT 1 FROM symposium_delivery_recipients
-           WHERE delivery_id = ? AND status != 'delivered' LIMIT 1`,
-        ).get(input.deliveryId);
-        if (!remaining) {
-          this.db!.prepare(
-            `UPDATE symposium_deliveries SET status = 'delivered', updated_at = ?
-             WHERE delivery_id = ? AND status = 'delivering'`,
-          ).run(input.updatedAt, input.deliveryId);
-        }
+        this.reconcileSymposiumDeliveryRecipients(input.deliveryId, input.updatedAt);
       }
       return this.getSymposiumDelivery(input.deliveryId)!;
     }).immediate();

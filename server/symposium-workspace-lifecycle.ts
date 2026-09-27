@@ -13,7 +13,7 @@ import {
 import { dirname } from 'node:path';
 export type SandboxCreationFence = <T>(
   verify: () => void,
-  operation: (markDispatched: () => void) => Promise<T>,
+  operation: (markDispatched: () => void, markSettled?: () => void) => Promise<T>,
 ) => Promise<T>;
 /** Produced only by the retained fence before it attempts the durable dispatch write. */
 export class SandboxCreationPreflightError extends Error {
@@ -105,18 +105,27 @@ export class SymposiumWorkspaceLifecycle {
       if (this.draining) throw new Error('Workspace is shutting down');
       verify();
       let dispatched = false;
-      const result = await operation(() => {
-        if (this.draining) throw new Error('Workspace is shutting down');
-        if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
-        try {
-          verify();
+      let settled = false;
+      const result = await operation(
+        () => {
+          if (this.draining) throw new Error('Workspace is shutting down');
+          if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
+          try {
+            verify();
+            this.custody();
+          } catch (error) {
+            throw new SandboxCreationPreflightError(error);
+          }
+          this.save(true);
+          dispatched = true;
+        },
+        () => {
+          if (!dispatched || settled) throw new Error('Sandbox terminal receipt changed');
           this.custody();
-        } catch (error) {
-          throw new SandboxCreationPreflightError(error);
-        }
-        this.save(true);
-        dispatched = true;
-      });
+          this.save(false);
+          settled = true;
+        },
+      );
       if (!dispatched) throw new Error('Sandbox creation dispatch was not recorded');
       this.custody();
       this.save(false);

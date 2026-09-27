@@ -224,6 +224,10 @@ hard-budget review execution and physical seal completion remain prerequisites.
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
+[Native create receipts](docs/operations/symposium-native-create-receipts.md) separate
+terminal native creation from upload and configuration. An incomplete known-ID
+seat remains cleanup-only; old unknown creates and restart adoption remain blocked.
+
 The experimental 0.1 runtime gives each seat generation its own sandbox and exact
 provider attachment inside one OpenShell workspace. Mitzo retains one conversation
 view and routes each seat to its own sandbox. Reuse rechecks the physical sandbox
@@ -627,3 +631,6 @@ this internal retention lock remains unsealed and does not prove physical revoca
 
 A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
 records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
+
+Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
+stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.
