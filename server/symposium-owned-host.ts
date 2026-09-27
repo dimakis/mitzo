@@ -1,4 +1,5 @@
 import { createSymposiumSourceHost } from './symposium-source-service.js';
+import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
 import {
   assertSuccessorFixAuthority,
@@ -75,6 +76,7 @@ class LoginCancelledForShutdown extends Error {
 }
 
 export interface OwnedSymposiumHostOptions {
+  publicationCredentials?: readonly PublicationCredentialRegistration[];
   gateway: OwnedSymposiumGatewayOptions;
   /** Absolute evidence destination. It may be absent until real provisioning
    * completes; bootstrap never fabricates an attestation or opens runtime admission. */
@@ -678,6 +680,7 @@ export async function createOwnedSymposiumHost(
           });
         }),
       currentProfiles,
+      publicationCredentials: options.publicationCredentials,
       physical,
       attemptRegistry: native.registry,
       async inspectCompletedArtifact(

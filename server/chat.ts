@@ -127,6 +127,9 @@ export function adaptSdkQuery(sdkQuery: Query): QueryInstance {
 }
 
 let _connRegistry: ConnectionRegistry | null = null;
+export function getConnectionRegistry(): ConnectionRegistry | null {
+  return _connRegistry;
+}
 export function setConnectionRegistry(registry: ConnectionRegistry): void {
   _connRegistry = registry;
 }

@@ -28,6 +28,8 @@ import type {
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
+  /** Existing permission queue owner only; never an SDK/model execution. */
+  symposiumPublicationUsers?: number;
   /** Current event connection; the registry key remains stable for the query lifetime. */
   ownerConnectionId?: string;
   transport: SessionTransport;
@@ -207,16 +209,19 @@ export class SessionRegistry {
     return this.sessions.get(clientId);
   }
 
-  entries(): IterableIterator<[string, ManagedSession]> {
-    return this.sessions.entries();
+  *entries(includePublicationOwners = false): IterableIterator<[string, ManagedSession]> {
+    for (const entry of this.sessions) {
+      if (includePublicationOwners || entry[1].symposiumPublicationUsers === undefined) yield entry;
+    }
   }
 
   isActive(clientId: string): boolean {
-    return this.sessions.has(clientId);
+    const session = this.sessions.get(clientId);
+    return Boolean(session && session.symposiumPublicationUsers === undefined);
   }
 
   isAttached(clientId: string): boolean {
-    return this.attached.has(clientId);
+    return this.isActive(clientId) && this.attached.has(clientId);
   }
 
   /**
@@ -331,9 +336,15 @@ export class SessionRegistry {
   /**
    * Find a session by its SDK session ID (for reconnection by session ID).
    */
-  findBySessionId(sessionId: string): { clientId: string; session: ManagedSession } | null {
+  findBySessionId(
+    sessionId: string,
+    includePublicationOwners = false,
+  ): { clientId: string; session: ManagedSession } | null {
     for (const [clientId, session] of this.sessions) {
-      if (session.sessionId === sessionId) {
+      if (
+        session.sessionId === sessionId &&
+        (includePublicationOwners || session.symposiumPublicationUsers === undefined)
+      ) {
         return { clientId, session };
       }
     }
@@ -531,6 +542,7 @@ export class SessionRegistry {
   getActiveSessions(): ActiveSessionInfo[] {
     const result: ActiveSessionInfo[] = [];
     for (const [clientId, session] of this.sessions) {
+      if (session.symposiumPublicationUsers !== undefined) continue;
       result.push({
         clientId,
         sessionId: session.sessionId,

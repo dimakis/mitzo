@@ -272,6 +272,7 @@ export class SealedPublicationService {
         desiredAccountIds: [accountId],
       };
       service = new CapabilityService({
+        ownsOperation: (operation) => operation.connectionId === connectionId,
         store: this.deps.operations,
         executorRegistry: new CapabilityExecutorRegistry({ [template.executor]: executor }),
         getTemplate: (id, version) => (id === template.id && version === 1 ? template : undefined),

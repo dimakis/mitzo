@@ -1361,7 +1361,7 @@ export function handlePermissionResponseV2(
     () => {
       const pendingSessionId = getPendingSessionId(msg.permId);
       if (pendingSessionId) {
-        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId);
+        const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
         const ownerConnection =
           found?.session?.ownerConnectionId ??
           (found ? getOwnerConnection(found.clientId) : undefined);

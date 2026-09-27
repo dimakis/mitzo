@@ -40,7 +40,7 @@ export function capabilityApprovalForConversation(
   conversationId: string,
 ): CapabilityApproval {
   return async (request, signal) => {
-    const owner = registry.findBySessionId(conversationId);
+    const owner = registry.findBySessionId(conversationId, true);
     if (!owner) return false;
     const decision = await buildPermissionHandler(owner.clientId, registry)(
       EXECUTE_CAPABILITY_TOOL,

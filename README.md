@@ -643,10 +643,12 @@ SQLite generation ledger. Activation moves only the ledger pointer; session admi
 still maps the initial volume and sealed sessions stay closed. Trusted fix authority is
 required and remains unavailable in the current application.
 
-The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
+The [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
-Create PR approval. It is unavailable without registered credential custody and the
-completed seal/review bridge; no publication route or UI action is enabled.
+Create PR approval. Explicit private credential references now enable operator selection
+and the completed-seal bridge in the review panel. Native hard-budget/final-usage review
+receipts and an authorized initial repository/base import remain prerequisites; this
+registration increment does not make fresh empty artifacts publishable.
 
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.

@@ -1,4 +1,18 @@
 import { createSymposiumSourceRouter } from './symposium-source-routes.js';
+import { getConnectionRegistry } from './chat.js';
+import { publicationControllerApproval } from './symposium-publication-approval.js';
+import {
+  PublicationRegistration,
+  publicationAuthorityPath,
+  type PublicationCredentialRegistration,
+} from './symposium-publication-registration.js';
+import {
+  completedPublicationArtifact,
+  completedSealHash,
+  type CompletedPublicationHost,
+} from './symposium-publication-artifact.js';
+import { createPublicationRouter } from './symposium-publication-routes.js';
+import { capabilityOperationStore } from './capability-operation-owner.js';
 import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
@@ -825,6 +839,7 @@ const symposiumSessionRuntimes = new Map<
 let symposiumShuttingDown = false;
 export function beginSymposiumShutdown() {
   symposiumShuttingDown = true;
+  symposiumPublication?.shutdown();
   for (const entry of symposiumSessionRuntimes.values()) entry.runtime.beginShutdown();
 }
 export async function drainSymposiumRuntimes(signal: AbortSignal) {
@@ -838,6 +853,10 @@ export async function drainSymposiumRuntimes(signal: AbortSignal) {
 }
 export interface SymposiumProductionHost {
   sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost;
+  publicationCredentials?: readonly PublicationCredentialRegistration[];
+  requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
+  inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
+  exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
   runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
     sessionId: string,
@@ -881,10 +900,47 @@ export interface SymposiumProductionHost {
   ): ArtifactLeaseRequest;
 }
 let symposiumProductionHost: SymposiumProductionHost | undefined;
+let symposiumPublication: PublicationRegistration | undefined;
 /** Trusted server bootstrap only. No request handler accepts or supplies this capability. */
 export function installSymposiumProductionHost(host: SymposiumProductionHost): void {
   if (symposiumProductionHost || symposiumSessionRuntimes.size)
     throw new Error('Symposium production host must be installed once before runtime creation');
+  if (host.publicationCredentials?.length) {
+    if (
+      !host.requireCompletedArtifactSeal ||
+      !host.inspectCompletedArtifact ||
+      !host.exportCompletedArtifactBundle
+    )
+      throw new Error('Publication registration requires completed artifact custody');
+    const artifact = completedPublicationArtifact({
+      store: symposiumReviewStore,
+      host: {
+        requireCompletedArtifactSeal: host.requireCompletedArtifactSeal.bind(host),
+        inspectCompletedArtifact: host.inspectCompletedArtifact.bind(host),
+        exportCompletedArtifactBundle: host.exportCompletedArtifactBundle.bind(host),
+      },
+    });
+    symposiumPublication = new PublicationRegistration({
+      describeArtifact: async (sessionId, recordId, signal) => {
+        const record = symposiumReviewStore.getReviewRecord('user', sessionId, recordId);
+        const intent = eventStore.getSymposiumArtifactSealIntent(sessionId);
+        if (!record || !intent)
+          throw new Error('Trusted review record and completed seal required');
+        const seal = await host.requireCompletedArtifactSeal!(intent.fenceId, signal);
+        return {
+          recordId: record.recordId,
+          recordHash: record.contentHash,
+          sealId: seal.fenceId,
+          sealHash: completedSealHash(seal),
+          commit: seal.git.commit,
+        };
+      },
+      authorityPath: publicationAuthorityPath(join(BASE_REPO || '.', '.mitzo')),
+      operations: capabilityOperationStore(join(BASE_REPO || '.', '.mitzo')),
+      credentials: host.publicationCredentials,
+      artifact,
+    });
+  }
   symposiumProductionHost = host;
 }
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
@@ -1043,6 +1099,23 @@ app.use(
 );
 const symposiumReviewStore = new SymposiumReviewStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+app.use(
+  '/api/sessions/:id/symposium/publication',
+  operatorAuthMiddleware,
+  createPublicationRouter({
+    registration: () => symposiumPublication,
+    hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
+    approval: (req, session, conversationId) =>
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+  }),
 );
 app.use(
   '/api/sessions/:id/symposium/reviews',

@@ -60,6 +60,15 @@ export class ConnectionRegistry {
   private snapshotOffers = new Map<string, Map<string, { cursor: number; offerId: string }>>();
   private syncTimer: ReturnType<typeof setInterval> | null = null;
   private eventStore: EventStoreAdapter | null = null;
+  private readonly watchListeners = new Set<() => void>();
+  /** Lifecycle observers can cancel controller approvals when a watch disappears. */
+  onWatchChange(listener: () => void): () => void {
+    this.watchListeners.add(listener);
+    return () => this.watchListeners.delete(listener);
+  }
+  private notifyWatchChange() {
+    for (const listener of this.watchListeners) listener();
+  }
 
   register(connectionId: string, transport: SessionTransport): void {
     this.connections.set(connectionId, {
@@ -72,6 +81,7 @@ export class ConnectionRegistry {
     this.cursors.set(connectionId, new Map());
     this.appliedSessions.set(connectionId, new Set());
     this.snapshotOffers.set(connectionId, new Map());
+    this.notifyWatchChange();
   }
 
   get(connectionId: string): Connection | undefined {
@@ -84,6 +94,7 @@ export class ConnectionRegistry {
     this.cursors.delete(connectionId);
     this.appliedSessions.delete(connectionId);
     this.snapshotOffers.delete(connectionId);
+    this.notifyWatchChange();
   }
 
   /**
@@ -98,6 +109,7 @@ export class ConnectionRegistry {
     const conn = this.connections.get(connectionId);
     if (!conn) return;
     conn.watchedSessions.add(sessionId);
+    this.notifyWatchChange();
   }
 
   unwatch(connectionId: string, sessionId: string): void {
@@ -109,6 +121,7 @@ export class ConnectionRegistry {
     if (conn.activeSession === sessionId) {
       conn.activeSession = null;
     }
+    this.notifyWatchChange();
   }
 
   setActive(connectionId: string, sessionId: string | null): void {
@@ -118,6 +131,7 @@ export class ConnectionRegistry {
       conn.watchedSessions.add(sessionId);
     }
     conn.activeSession = sessionId;
+    this.notifyWatchChange();
   }
 
   /**
@@ -381,6 +395,8 @@ export class ConnectionRegistry {
   dispose(): void {
     this.stopPeriodicSync();
     this.connections.clear();
+    this.notifyWatchChange();
+    this.watchListeners.clear();
     this.cursors.clear();
     this.appliedSessions.clear();
     this.snapshotOffers.clear();

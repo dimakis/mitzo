@@ -112,6 +112,7 @@ import { DesktopChatView } from '../DesktopChatView';
 
 function createMockStore() {
   const store = createStore<MitzoStoreState>(() => ({
+    getTransportConnectionId: () => null,
     sessions: { list: [], active: null, loading: false },
     messages: INITIAL_MESSAGES_STATE,
     connection: { status: 'connected', clientId: null },
