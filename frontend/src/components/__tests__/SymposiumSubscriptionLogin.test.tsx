@@ -212,3 +212,31 @@ it('releases the pending parent lock when its callback control unmounts', async 
   view.unmount();
   expect(onPendingChange).toHaveBeenLastCalledWith(false);
 });
+
+it('does not take callback ownership of a pending device-code receipt', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ state: 'pending', attemptId: 'device', method: 'device-code' }),
+  );
+  const onPendingChange = vi.fn();
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await screen.findByText(/Continue or cancel it in device sign-in/);
+  expect(onPendingChange).not.toHaveBeenCalledWith(true);
+  expect((screen.getByRole('group') as HTMLFieldSetElement).disabled).toBe(true);
+});
+
+it.each(['cancelled', 'expired'])(
+  'recovers terminal %s device receipts without a callback lock',
+  async (state) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({ state, attemptId: 'device', method: 'device-code' }),
+    );
+    const onPendingChange = vi.fn();
+    render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry status' })).toBeNull());
+    await screen.findByText(/Previous login ended/);
+    expect(onPendingChange).not.toHaveBeenCalledWith(true);
+    expect((screen.getByRole('group') as HTMLFieldSetElement).disabled).toBe(false);
+  },
+);
