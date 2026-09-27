@@ -51,3 +51,28 @@ Validation uses mocked public CLI/physical proofs and the real admission verifie
 including a contradictory-volume rejection. No live OAuth or model calls were
 made for this helper. The earlier reviewed native-image live proof remains a
 separate, limited prerequisite: see [reviewed native build](symposium-reviewed-native-build.md).
+
+## Probe scheduling and cleanup
+
+Candidate collection runs in a dedicated worker so synchronous public CLI and
+Podman probes do not occupy the HTTP event loop. Custody requests return to the
+actual retained app host: it checks its live child, immutable launch binding,
+private file bytes and listener PID. This endpoint uses asynchronous file hashing
+and a bounded asynchronous listener probe. No gateway object is adopted by the
+worker, and no custody result is supplied by the HTTP caller.
+
+Only one collection can run per host. A concurrent request fails rather than
+queuing more probes. Client disconnect does not terminate the worker halfway
+through stopped-container cleanup. A response waits for worker exit and a final
+retained-host custody check. Abnormal worker exit or failed physical cleanup
+quarantines further collection until operator recovery; it never claims that
+cleanup succeeded. Temporary containers are named by the existing physical
+verifier and remain never-started, with exact-name removal attempted even when a
+create response is lost.
+
+The existing synchronous production runtime admission gate remains synchronous
+and otherwise unchanged; this scheduling applies only to candidate collection.
+Offline validation covers real worker startup under TSX source and separately
+compiled JavaScript, slow synthetic CLI responsiveness, concurrent requests,
+client disconnect, stopped custody, and failed cleanup. No live model or OAuth
+calls are involved.

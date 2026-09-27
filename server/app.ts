@@ -836,7 +836,7 @@ export interface SymposiumProductionHost {
   attestationPath: string;
   collectAdmissionEvidence?: (
     selection: unknown,
-  ) => import('./symposium-production-gate.js').SymposiumProductionAttestation;
+  ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
   beginDeviceLogin?: (
     selection?: ConnectionSelection,
   ) => Promise<import('./symposium-device-login.js').DeviceLogin>;

@@ -102,14 +102,14 @@ describe('explicit owned Symposium host composition', () => {
     host.stop();
     expect(f.gateway.stop).toHaveBeenCalledOnce();
     expect(() => host.currentProfiles()).toThrow('stopped');
-    expect(() =>
+    await expect(
       host.collectAdmissionEvidence({
         providerInstances: [{ name: 'p', id: 'i', type: 'codex', profileName: 'codex' }],
         allowedRoles: ['reviewer'],
         allowedAccountProviders: ['openai-codex'],
         artifactVolume: { driver: 'podman', name: 'volume' },
       }),
-    ).toThrow('stopped');
+    ).rejects.toThrow('stopped');
   });
   it('derives artifact access from current host seat authority and generation', async () => {
     const f = fixture();
