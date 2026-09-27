@@ -237,7 +237,7 @@ function Publication({
                     setPending(true);
                     const result = await post('publish', operation.current);
                     setStatus(result.status);
-                    if (result.status === 'denied') {
+                    if (['denied', 'failed', 'cancelled'].includes(result.status)) {
                       setPending(false);
                       clearSelection();
                     }

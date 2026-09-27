@@ -91,3 +91,45 @@ it('retains the exact publication operation for recovery after remount', async (
   const call = vi.mocked(apiFetch).mock.calls.find(([url]) => String(url).endsWith('/publish'))!;
   expect(JSON.parse(String(call[1]?.body))).toEqual(saved);
 });
+
+it.each(['failed', 'cancelled', 'denied'])(
+  'releases terminal %s identity and requires a fresh selection',
+  async (status) => {
+    const key = 'mitzo-publication:session:record';
+    sessionStorage.setItem(
+      key,
+      JSON.stringify({
+        grantId: 'grant',
+        bindingHash: 'c'.repeat(64),
+        turnId: 'old-turn',
+        idempotencyKey: 'old-key',
+        baseBranch: 'main',
+        title: 'Reviewed',
+        body: 'Reviewed body',
+        draft: true,
+      }),
+    );
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      response(
+        String(url).endsWith('/publish')
+          ? { status }
+          : {
+              available: true,
+              credentials: [{ id: 'write', label: 'Write account', revision: 1 }],
+            },
+      ),
+    );
+    render(
+      <SymposiumPublication sessionId="session" record={{ id: 'record', hash: 'a'.repeat(64) }} />,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Check publication result' }));
+    await screen.findByText(status);
+    expect(sessionStorage.getItem(key)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Check publication result' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create PR' })).toBeNull();
+    expect(
+      (screen.getByLabelText('Publication credential').closest('fieldset') as HTMLFieldSetElement)
+        .disabled,
+    ).toBe(false);
+  },
+);
