@@ -1,3 +1,7 @@
+import {
+  collectPersonalAdmissionEvidence,
+  PersonalEvidenceSelection,
+} from './symposium-personal-evidence.js';
 import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -462,34 +466,57 @@ export async function createOwnedSymposiumHost(
       );
       return pending;
     };
+    const collectExplicitEvidence = createOwnedEvidenceCollector(
+      runtimeConfig,
+      gateway.endpoint,
+      {
+        cli: gateway.cli,
+        podman: options.podman.executable,
+        cliEnv: gateway.managementEnvironment,
+        podmanEnv,
+      },
+      {
+        verifyCustodyAsync: async () => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyCustodyAsync();
+        },
+        verifyOwnedNativeHostAsync: async (binding) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyOwnedNativeHostAsync(binding);
+        },
+        verifyGatewayDriverConfigAsync: async (...args) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyGatewayDriverConfigAsync(...args);
+        },
+      },
+    );
     return {
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
-      collectAdmissionEvidence: createOwnedEvidenceCollector(
-        runtimeConfig,
-        gateway.endpoint,
-        {
-          cli: gateway.cli,
-          podman: options.podman.executable,
-          cliEnv: gateway.managementEnvironment,
-          podmanEnv,
-        },
-        {
-          verifyCustodyAsync: async () => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyCustodyAsync();
+      collectAdmissionEvidence: (selection: unknown) => {
+        const personal = PersonalEvidenceSelection.safeParse(selection);
+        if (!personal.success) return collectExplicitEvidence(selection);
+        return collectPersonalAdmissionEvidence(personal.data, {
+          capture: (selected) => {
+            if (stopped || !subscription) throw new Error('Owned personal host unavailable');
+            return subscription.captureAdmissionProvider(selected);
           },
-          verifyOwnedNativeHostAsync: async (binding) => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyOwnedNativeHostAsync(binding);
+          getReady: async (sessionId) => {
+            custody();
+            const mapping = sessionArtifacts!.getReady(sessionId);
+            if (!mapping) return null;
+            assertSessionArtifactVolume(
+              gateway.workspace,
+              mapping,
+              await leaseHost!.inspectVolume(mapping.volumeName, 'podman'),
+            );
+            custody();
+            return mapping;
           },
-          verifyGatewayDriverConfigAsync: async (...args) => {
-            if (stopped) throw new Error('Owned Symposium host stopped');
-            await gateway.verifyGatewayDriverConfigAsync(...args);
-          },
-        },
-      ),
+          collect: collectExplicitEvidence,
+        });
+      },
       currentProfiles,
       physical,
       attemptRegistry: native.registry,

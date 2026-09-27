@@ -36,6 +36,7 @@ export async function collectPersonalAdmissionEvidence<T>(
   if (!mapping || mapping.sessionId !== input.sessionId)
     throw Error('Ready session artifact mapping required');
   const identity = structuredClone(mapping);
+  proof.assertCurrent();
   const candidate = await deps.collect({
     providerInstances: [{ ...proof.provider }],
     artifactVolume: { driver: 'podman', name: identity.volumeName },

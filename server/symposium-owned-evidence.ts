@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PersonalEvidenceSelection } from './symposium-personal-evidence.js';
 import type { RequestHandler } from 'express';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync } from 'node:fs';
@@ -144,7 +145,7 @@ export function ownedEvidenceHandler(
       res.status(503).json({ error: 'Owned admission evidence collection is unavailable.' });
       return;
     }
-    const parsed = OwnedEvidenceSelection.safeParse(req.body);
+    const parsed = z.union([OwnedEvidenceSelection, PersonalEvidenceSelection]).safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({
         error: 'Provide exact provider instances, roles, account providers, and artifact volume.',

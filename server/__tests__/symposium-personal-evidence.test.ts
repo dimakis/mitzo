@@ -36,7 +36,7 @@ it('derives exact provider and ready session volume without accepting caller pro
     allowedAccountProviders: ['openai-codex'],
   });
   expect(f.capture).toHaveBeenCalledWith({ connectionId: 'slot', expectedRevision: 3 });
-  expect(f.assertCurrent).toHaveBeenCalledTimes(3);
+  expect(f.assertCurrent).toHaveBeenCalledTimes(4);
   await expect(
     collectPersonalAdmissionEvidence({ ...selection, providerInstances: [] }, f),
   ).rejects.toThrow();
