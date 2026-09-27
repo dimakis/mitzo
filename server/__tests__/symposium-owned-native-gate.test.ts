@@ -1,3 +1,4 @@
+import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -121,6 +122,39 @@ function fixture() {
   return { config, attestation, physical, invoke };
 }
 describe('owned native admission contract', () => {
+  it('collects a candidate through the actual gate and refuses contradictory physical evidence', () => {
+    const f = fixture();
+    const custody = vi.fn();
+    const host = {
+      config: f.config,
+      endpoint: f.attestation.gatewayEndpoint,
+      physical: f.physical,
+      custody,
+    };
+    const selection = {
+      providerInstances: f.attestation.providerInstances,
+      allowedRoles: f.attestation.allowedRoles,
+      allowedAccountProviders: f.attestation.allowedAccountProviders,
+      artifactVolume: f.attestation.artifactVolume,
+    };
+    const invoke = (cli: string, args: string[]) =>
+      args[0] === 'profile'
+        ? JSON.stringify({ id: args[2], provider: args[2] })
+        : f.invoke(cli, args);
+    const candidate = collectOwnedAdmissionEvidence(host, selection, { invoke });
+    expect(candidate.providerInstances).toEqual(selection.providerInstances);
+    expect(f.physical.verifyArtifactVolume).toHaveBeenCalled();
+    expect(f.physical.verifyProviderInstance).toHaveBeenCalledTimes(2);
+    expect(f.physical.verifyOwnedNativeHost).toHaveBeenCalledTimes(2);
+    expect(custody).toHaveBeenCalledTimes(2);
+    vi.mocked(f.physical.verifyArtifactVolume).mockImplementation(() => {
+      throw new Error('volume drift');
+    });
+    expect(() => collectOwnedAdmissionEvidence(host, selection, { invoke })).toThrow(
+      'volume drift',
+    );
+  });
+
   it('requires live owned custody plus every reviewed artifact before reviewer and personal capability', () => {
     const f = fixture();
     const result = verifySymposiumProductionGate(f.config, f.attestation, f.physical, f.invoke);

@@ -1,3 +1,4 @@
+import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -811,6 +812,9 @@ export interface SymposiumProductionHost {
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
+  collectAdmissionEvidence?: (
+    selection: unknown,
+  ) => import('./symposium-production-gate.js').SymposiumProductionAttestation;
   beginDeviceLogin?: () => Promise<import('./symposium-device-login.js').DeviceLogin>;
   beginLogin?: () => Promise<{
     authorizationUrl: string;
@@ -1670,6 +1674,12 @@ app.put('/api/accounts/:id/alias', (req, res) => {
 const subscriptionLogin = createSubscriptionLoginController(
   () => symposiumProductionHost,
   (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
+// Retained owned-host candidate collection; never writes or activates admission.
+app.post(
+  '/api/symposium/admission-evidence',
+  operatorAuthMiddleware,
+  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);

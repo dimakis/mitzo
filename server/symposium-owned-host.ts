@@ -1,3 +1,4 @@
+import { collectOwnedAdmissionEvidence } from './symposium-owned-evidence.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
@@ -264,6 +265,11 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
+      collectAdmissionEvidence: (selection: unknown) =>
+        collectOwnedAdmissionEvidence(
+          { config: runtimeConfig, endpoint: gateway.endpoint, physical, custody },
+          selection,
+        ),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,
