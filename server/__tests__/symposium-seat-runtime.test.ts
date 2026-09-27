@@ -5,6 +5,7 @@ import {
 import { SymposiumReviewStore, type ApplicationAttempt } from '../symposium-review-workflows.js';
 import { SymposiumNativeObservations } from '../symposium-native-observations.js';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
@@ -266,7 +267,7 @@ function applicationFixture(work: ReturnType<typeof fixture>) {
     binding: {
       claimToken: work.input.claimToken,
       deliveryId: work.input.deliveryId,
-      contentHash: hash,
+      contentHash: createHash('sha256').update(work.input.content).digest('hex'),
       membershipGeneration: 2,
       configRevision: 4,
       accountId: seat.accountBinding.accountId,
@@ -428,6 +429,7 @@ it('binds the persisted application reservation to every actual native identity 
     expect(() => f.policy.assertCurrent(work.input)).not.toThrow();
     for (const changed of [
       { ...work.input, deliveryId: 'other' },
+      { ...work.input, content: 'Edited after reservation' },
       { ...work.input, sessionId: 'other' },
       { ...work.input, claimToken: 'other' },
       { ...work.input, provenance: { ...work.input.provenance, membershipGeneration: 3 } },

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumApplicationDispatchPolicy } from './symposium-openshell-seat-executor.js';
 import type { SymposiumNativeObservations } from './symposium-native-observations.js';
@@ -23,6 +24,7 @@ export function createSymposiumApplicationDispatchPolicy(deps: {
     const binding = {
       claimToken: input.claimToken,
       deliveryId: input.deliveryId,
+      contentHash: createHash('sha256').update(input.content, 'utf8').digest('hex'),
       membershipGeneration: input.provenance.membershipGeneration,
       configRevision: input.provenance.configRevision,
       accountId: seat.accountBinding.accountId,
