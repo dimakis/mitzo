@@ -1170,6 +1170,7 @@ export class SymposiumPerSeatSandboxOwner {
 export function symposiumSeatRolloverHistory(
   store: Pick<EventStore, 'getSymposiumDeliveries' | 'getSymposiumRecipientAttempts'>,
   execution: import('./symposium-orchestrator.js').SymposiumSeatExecution,
+  completeAttemptHistory = false,
 ) {
   const identity = (value: Record<string, unknown>) => {
     const rest = { ...value };
@@ -1178,7 +1179,7 @@ export function symposiumSeatRolloverHistory(
     return JSON.stringify(rest);
   };
   const expected = identity(execution.provenance as unknown as Record<string, unknown>);
-  return store
+  const matching = store
     .getSymposiumDeliveries(execution.sessionId)
     .flatMap((delivery) =>
       store.getSymposiumRecipientAttempts(delivery.deliveryId, execution.seat.id),
@@ -1187,16 +1188,21 @@ export function symposiumSeatRolloverHistory(
       (attempt) =>
         attempt.status === 'delivered' &&
         attempt.provenance &&
-        identity(attempt.provenance as unknown as Record<string, unknown>) === expected &&
-        attempt.dispatchedContent !== null &&
-        attempt.resultContent !== null,
+        identity(attempt.provenance as unknown as Record<string, unknown>) === expected,
     )
-    .sort((a, b) => a.attemptId - b.attemptId)
-    .slice(-20)
-    .flatMap((attempt) => [
-      { role: 'user' as const, text: attempt.dispatchedContent! },
-      { role: 'assistant' as const, text: attempt.resultContent! },
-    ]);
+    .sort((a, b) => a.attemptId - b.attemptId);
+  if (
+    completeAttemptHistory &&
+    matching.some((attempt) => attempt.dispatchedContent === null || attempt.resultContent === null)
+  )
+    throw new Error('Attempt continuity contains incomplete delivered history');
+  const completed = matching.filter(
+    (attempt) => attempt.dispatchedContent !== null && attempt.resultContent !== null,
+  );
+  return (completeAttemptHistory ? completed : completed.slice(-20)).flatMap((attempt) => [
+    { role: 'user' as const, text: attempt.dispatchedContent! },
+    { role: 'assistant' as const, text: attempt.resultContent! },
+  ]);
 }
 
 export interface SymposiumSessionRuntimeDeps extends Omit<
@@ -1342,7 +1348,11 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   })
                 : undefined;
               const loadConversationHistory = () =>
-                symposiumSeatRolloverHistory(deps.store, input.execution);
+                symposiumSeatRolloverHistory(
+                  deps.store,
+                  input.execution,
+                  input.route.kind === 'chatgpt-subscription-native',
+                );
               const resolveAttempt = (claim: string) => {
                 const attempt = deps.store.getSymposiumRecipientAttemptByClaimToken(claim);
                 if (

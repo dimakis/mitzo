@@ -137,6 +137,7 @@ describe('native personal subscription seat (mocked only)', () => {
       content: 'Personal answer',
     });
     expect(options.modelProvider).toBe('openai');
+    expect(options.providerThreadLifecycle).toBe('attempt');
     expect(options.runtimeConfig?.forced_login_method).toBe('chatgpt');
     expect(callbacks.accepted).toHaveBeenCalledWith('thread-personal', 'turn-personal');
     expect(input.verifyPrivateAuth).toHaveBeenCalledTimes(5);
