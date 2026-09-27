@@ -124,10 +124,11 @@ it('polls allocating receipts and shows verified identity only after exact compl
   expect(screen.queryByText(pending.userCode)).toBeNull();
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(screen.getByText(pending.userCode)).toBeTruthy();
+  expect(onAccountsChanged).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTimeAsync(2000));
   expect(screen.getByText('operator@example.test')).toBeTruthy();
   expect(screen.queryByText(pending.userCode)).toBeNull();
-  expect(onAccountsChanged).toHaveBeenCalledTimes(1);
+  expect(onAccountsChanged).toHaveBeenCalledTimes(2);
 });
 
 it.each([true, false])(
