@@ -1,3 +1,5 @@
+import { constants, openSync, closeSync, fstatSync, lstatSync, realpathSync } from 'node:fs';
+import { dirname, isAbsolute } from 'node:path';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -37,7 +39,7 @@ export interface PublicationCredentialHandle {
   connectionId: string;
   revision: number;
   generation: string;
-  assertCurrent(): void;
+  assertCurrent(): true;
   run(
     command: 'gh' | 'git',
     args: readonly string[],
@@ -46,7 +48,7 @@ export interface PublicationCredentialHandle {
 }
 export interface SealedPublicationAuthorityDependencies {
   /** Authenticated controller session; never an operator ID from request data alone. */
-  assertOperator(operatorId: string, sessionId: string): void;
+  assertOperator(operatorId: string, sessionId: string): true;
   /** Fresh actual seal and review-record validation; no pending intent accepted. */
   assertArtifact(scope: SealedPublicationScope, signal: AbortSignal): Promise<void>;
   resolveCredential(scope: SealedPublicationScope): PublicationCredentialHandle | null;
@@ -67,6 +69,27 @@ export class SealedPublicationAuthority {
     path: string,
     private readonly deps: SealedPublicationAuthorityDependencies,
   ) {
+    if (path !== ':memory:') {
+      const parent = dirname(path);
+      const directory = lstatSync(parent);
+      if (
+        !isAbsolute(path) ||
+        !directory.isDirectory() ||
+        directory.isSymbolicLink() ||
+        realpathSync(parent) !== parent ||
+        directory.mode & 0o077 ||
+        directory.uid !== process.getuid?.()
+      )
+        throw new Error('Private publication grant directory required');
+      const fd = openSync(path, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+      try {
+        const file = fstatSync(fd);
+        if (!file.isFile() || file.mode & 0o077 || file.uid !== process.getuid?.())
+          throw new Error('Private publication grant database required');
+      } finally {
+        closeSync(fd);
+      }
+    }
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = FULL');
@@ -80,7 +103,8 @@ export class SealedPublicationAuthority {
   }
   private async verify(scope: SealedPublicationScope, signal: AbortSignal) {
     signal.throwIfAborted();
-    this.deps.assertOperator(scope.operatorId, scope.sessionId);
+    if (this.deps.assertOperator(scope.operatorId, scope.sessionId) !== true)
+      throw new Error('Authenticated publication operator required');
     await this.deps.assertArtifact(scope, signal);
     const handle = this.deps.resolveCredential(scope);
     if (
@@ -90,7 +114,7 @@ export class SealedPublicationAuthority {
       handle.generation !== scope.credentialGeneration
     )
       throw new Error('Selected publication credential unavailable');
-    handle.assertCurrent();
+    if (handle.assertCurrent() !== true) throw new Error('Current publication credential required');
     // This command uses only the selected immutable credential handle. There is no
     // fallback to the process environment or managed read-only provider metadata.
     const output = await handle.run(
@@ -101,10 +125,11 @@ export class SealedPublicationAuthority {
     if (Buffer.byteLength(output.stdout) > 65536)
       throw new Error('Publication identity response too large');
     const identity = principalSchema.parse(JSON.parse(output.stdout));
-    handle.assertCurrent();
+    if (handle.assertCurrent() !== true) throw new Error('Current publication credential required');
     if (this.deps.resolveCredential(scope) !== handle)
       throw new Error('Publication credential handle changed');
-    this.deps.assertOperator(scope.operatorId, scope.sessionId);
+    if (this.deps.assertOperator(scope.operatorId, scope.sessionId) !== true)
+      throw new Error('Authenticated publication operator required');
     await this.deps.assertArtifact(scope, signal);
     signal.throwIfAborted();
     return {
@@ -135,7 +160,8 @@ export class SealedPublicationAuthority {
     return (await this.verify(scope, signal)).principal;
   }
   revoke(grantId: string, operatorId: string, sessionId: string) {
-    this.deps.assertOperator(operatorId, sessionId);
+    if (this.deps.assertOperator(operatorId, sessionId) !== true)
+      throw new Error('Authenticated publication operator required');
     const grant = this.read(grantId);
     if (grant.scope.operatorId !== operatorId || grant.scope.sessionId !== sessionId)
       throw new Error('Publication grant owner mismatch');
@@ -159,6 +185,32 @@ export class SealedPublicationAuthority {
     if (digest({ scope, principal }) !== row.binding_hash)
       throw new Error('Publication grant binding changed');
     return { id: grantId, scope, principal, bindingHash: row.binding_hash };
+  }
+  /** Synchronous lifecycle gate for CapabilityService. Network identity/artifact
+   * revalidation still runs in require before any external operation. */
+  isCurrent(
+    grantId: string,
+    bindingHash: string,
+    expectedHandle: PublicationCredentialHandle,
+  ): boolean {
+    try {
+      const grant = this.read(grantId);
+      if (
+        grant.bindingHash !== bindingHash ||
+        this.deps.assertOperator(grant.scope.operatorId, grant.scope.sessionId) !== true
+      )
+        return false;
+      const handle = this.deps.resolveCredential(grant.scope);
+      return (
+        handle === expectedHandle &&
+        handle.connectionId === grant.scope.connectionId &&
+        handle.revision === grant.scope.connectionRevision &&
+        handle.generation === grant.scope.credentialGeneration &&
+        handle.assertCurrent() === true
+      );
+    } catch {
+      return false;
+    }
   }
   /** Must run at preflight AND after forced approval. Returned public fields belong
    * in CapabilityService's exact approval projection and durable recovery intent. */
@@ -225,6 +277,21 @@ export function guardSealedPublicationExecutor(
     }
     return proof;
   };
+  const delegated = (
+    context: import('./connections/capabilities/types.js').CapabilityExecutionContext,
+  ) => {
+    const approvalInput = { ...context.approvalInput };
+    for (const key of [
+      'publicationGrantId',
+      'publicationBindingHash',
+      'publicationOperator',
+      'publicationGithubId',
+      'publicationGithubLogin',
+      'publicationCredentialGeneration',
+    ])
+      delete approvalInput[key];
+    return { ...context, approvalInput };
+  };
   return {
     async preflight(context) {
       const before = await validate(context, false);
@@ -249,13 +316,13 @@ export function guardSealedPublicationExecutor(
     },
     async execute(context) {
       await validate(context, true);
-      const result = await executor.execute(context);
+      const result = await executor.execute(delegated(context));
       await validate(context, true);
       return result;
     },
     async verify(context, result) {
       await validate(context, true);
-      await executor.verify(context, result);
+      await executor.verify(delegated(context), result);
       await validate(context, true);
     },
     // The underlying reviewed recovery only reads an already-dispatched outcome.

@@ -5,7 +5,10 @@ import {
   compileGithubReadonly,
   compileJiraReadonly,
 } from './policy-compiler.js';
-import { reviewedHandlerImplementationRevision } from './reviewed-handler-artifacts.js';
+import {
+  reviewedHandlerImplementationRevision,
+  reviewedGithubPublicationImplementationRevision,
+} from './reviewed-handler-artifacts.js';
 import type {
   CapabilityExecutor,
   CapabilityTemplate,
@@ -1000,8 +1003,8 @@ const executors: Readonly<Record<string, BoundHandler<CapabilityExecutor>>> = nu
     'github-publish-pr-v1': bindHandler(
       'github.publish-pr@1',
       reviewedCapabilityContracts['github.publish-pr@1'],
-      reviewedHandlerImplementationRevision,
-      '41d28fe0d516c0f3f22c21871f1a7ac32022d8a16d178adacfc33325b1cdcf80',
+      reviewedGithubPublicationImplementationRevision,
+      '16e4d3ed5d647357c243ffc05ab7a403f304e81c0e25d7c8d70eb72327f2b5a0',
       executorGoldenOutput,
       approvalRequiredExecutor,
     ),

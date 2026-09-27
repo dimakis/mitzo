@@ -24,7 +24,7 @@ function fixture() {
     connectionId: scope.connectionId,
     revision: 1,
     generation: 'generation-1',
-    assertCurrent: vi.fn(),
+    assertCurrent: vi.fn(() => true as const),
     run: vi.fn(async () => ({ stdout: JSON.stringify(identity) })),
   };
   let current: PublicationCredentialHandle | null = handle;
@@ -33,6 +33,7 @@ function fixture() {
     assertOperator: (operator, session) => {
       if (!authenticated || operator !== 'operator' || session !== 'session')
         throw Error('unauthenticated');
+      return true;
     },
     assertArtifact: artifact,
     resolveCredential: () => current,
@@ -256,4 +257,56 @@ it('rejects changed approved authority even with recomputed approval hash', asyn
   await expect(wrapper.execute(context)).rejects.toThrow('authority changed');
   expect(execute).not.toHaveBeenCalled();
   f.authority.close();
+});
+
+it('rejects undefined or asynchronous custody acknowledgements', async () => {
+  const f = fixture();
+  vi.mocked(f.handle.assertCurrent).mockReturnValueOnce(undefined as never);
+  await expect(f.authority.preview(f.scope, f.signal)).rejects.toThrow(
+    'Current publication credential required',
+  );
+  vi.mocked(f.handle.assertCurrent).mockReturnValueOnce(Promise.resolve(true) as never);
+  await expect(f.authority.preview(f.scope, f.signal)).rejects.toThrow(
+    'Current publication credential required',
+  );
+  for (const acknowledgement of [undefined, Promise.resolve(true)]) {
+    const authority = new SealedPublicationAuthority(':memory:', {
+      assertOperator: () => acknowledgement as never,
+      assertArtifact: async () => {},
+      resolveCredential: () => f.handle,
+    });
+    await expect(authority.preview(f.scope, f.signal)).rejects.toThrow(
+      'Authenticated publication operator required',
+    );
+    authority.close();
+  }
+  f.authority.close();
+});
+
+import { mkdtempSync, chmodSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+it('requires private owned database and parent modes', () => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), 'sealed-grants-')));
+  const deps = {
+    assertOperator: () => true as const,
+    assertArtifact: async () => {},
+    resolveCredential: () => null,
+  };
+  try {
+    chmodSync(directory, 0o755);
+    expect(() => new SealedPublicationAuthority(join(directory, 'grants.db'), deps)).toThrow(
+      'Private publication grant directory',
+    );
+    chmodSync(directory, 0o700);
+    writeFileSync(join(directory, 'grants.db'), '');
+    chmodSync(join(directory, 'grants.db'), 0o644);
+    expect(() => new SealedPublicationAuthority(join(directory, 'grants.db'), deps)).toThrow(
+      'Private publication grant database',
+    );
+    chmodSync(join(directory, 'grants.db'), 0o600);
+    new SealedPublicationAuthority(join(directory, 'grants.db'), deps).close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
