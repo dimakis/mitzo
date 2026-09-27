@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -275,6 +276,18 @@ function seatSandboxRegistry() {
       )
         throw new Error('creation requires reconciliation');
       row.creationStarted = true;
+    },
+    rollbackUndispatchedSymposiumSeatCreation(input: {
+      sessionId: string;
+      seatId: string;
+      generation: number;
+      runtimeId: string;
+      fenceToken: string;
+    }) {
+      const row = rows.get(key(input.sessionId, input.seatId, input.generation));
+      if (!row || row.runtimeId !== input.runtimeId || row.physicalId || row.state !== 'reserved')
+        throw new Error('intent changed');
+      row.creationStarted = false;
     },
     markSymposiumSeatSandboxCreationCompleted(input: {
       sessionId: string;
@@ -2019,9 +2032,11 @@ describe('per-seat artifact admission', () => {
       failDriverConfig?: boolean;
       failManager?: boolean;
       failFinalCapability?: boolean;
+      creationFence?: boolean;
     } = {},
   ) {
     const root = mkdtempSync(join(tmpdir(), 'symposium-owner-artifact-'));
+    const lifecycle = new SymposiumWorkspaceLifecycle(join(root, 'fence.json'), () => {});
     const request: ArtifactLeaseRequest = {
       sessionId: 'symposium',
       workspaceId: 'default',
@@ -2117,6 +2132,7 @@ describe('per-seat artifact admission', () => {
             ]),
           };
         },
+        runSandboxCreation: options.creationFence ? lifecycle.create : undefined,
         artifactLeaseHost: host,
         artifactRequest: (_session, _seat, _generation, purpose) => {
           if (!artifactReady && purpose !== 'cleanup')
@@ -2127,7 +2143,12 @@ describe('per-seat artifact admission', () => {
           if (options.failManager) throw new Error('manager construction failed');
           configurations.push(config);
           return {
-            ensure,
+            ensure: options.creationFence
+              ? async (runtimeId) => {
+                  config.beforeSandboxCreate?.();
+                  return ensure(runtimeId);
+                }
+              : ensure,
             inspect: async (_runtimeId: string, physicalId: string) =>
               phase === 'Absent' ? undefined : { id: physicalId, phase },
             inspectReserved: async (runtimeId: string) =>
@@ -2155,6 +2176,7 @@ describe('per-seat artifact admission', () => {
       remove,
       registry,
       configurations,
+      lifecycle,
       setArtifactReady: (ready: boolean) => {
         artifactReady = ready;
       },
@@ -2219,6 +2241,63 @@ describe('per-seat artifact admission', () => {
       }
     },
   );
+
+  it.each(['lease', 'seat', 'lease-after-write', 'seat-after-write'] as const)(
+    'recovers only local markers when %s persistence rejects before dispatch',
+    async (target) => {
+      const state = setup('writer', { creationFence: true });
+      try {
+        const original = target.startsWith('lease')
+          ? state.host.markCreationStarted.bind(state.host)
+          : state.registry.markSymposiumSeatSandboxCreationStarted.bind(state.registry);
+        const spy = target.startsWith('lease')
+          ? vi.spyOn(state.host, 'markCreationStarted')
+          : vi.spyOn(state.registry, 'markSymposiumSeatSandboxCreationStarted');
+        spy.mockImplementationOnce((...args: unknown[]) => {
+          if (target.endsWith('after-write')) (original as (...args: unknown[]) => void)(...args);
+          throw new Error('local marker failed');
+        });
+        await expect(
+          state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+        ).rejects.toThrow('local marker failed');
+        expect(state.ensure).not.toHaveBeenCalled();
+        await expect(state.lifecycle.cleanup(async () => 'available')).resolves.toBe('available');
+        spy.mockRestore();
+        await expect(
+          state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+        ).resolves.toMatchObject({ sandboxId: 'physical-1' });
+      } finally {
+        state.host.close();
+        rmSync(state.root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('retains a local recovery block if undispatched marker rollback fails', async () => {
+    const state = setup('writer', { creationFence: true });
+    try {
+      vi.spyOn(state.registry, 'markSymposiumSeatSandboxCreationStarted').mockImplementationOnce(
+        () => {
+          throw new Error('local write failed');
+        },
+      );
+      vi.spyOn(state.host, 'rollbackUndispatchedCreation').mockImplementationOnce(() => {
+        throw new Error('rollback failed');
+      });
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('rollback failed');
+      expect(state.ensure).not.toHaveBeenCalled();
+      await expect(state.lifecycle.cleanup(async () => 'available')).resolves.toBe('available');
+      await expect(
+        state.owner().ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow();
+      expect(state.ensure).not.toHaveBeenCalled();
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
 
   it('retains a closed lease when creation loses its response or mount proof fails', async () => {
     for (const options of [{ failCreate: true }, { failMount: true }]) {
