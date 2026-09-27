@@ -6,6 +6,38 @@ interactive operator authentication as personal login; an internal runtime token
 is insufficient. It operates on the host already installed inside that app
 process, never adopting another gateway or accepting caller custody assertions.
 
+For an app-owned Personal connection and an app-created draft, prefer the
+operator-only slot selection form:
+
+```json
+{
+  "personalConnection": { "connectionId": "EXACT_CONNECTED_SLOT", "expectedRevision": 3 },
+  "sessionId": "EXACT_DRAFT_SESSION",
+  "allowedRoles": ["coder", "reviewer"]
+}
+```
+
+The retained host resolves the provider name and ID from that slot's live adapter
+receipt; disk display metadata and CLI name guesses cannot substitute for it. The
+slot must be connected at the explicit revision, with no pending model discovery
+or reconciliation. The host derives the ready artifact volume from the same
+session's owned ledger and verifies physical session/generation labels. Callers
+cannot supply a provider or volume override with this form. It permits only the
+`openai-codex` account provider. Requested roles remain explicit.
+
+Slot revision/state, retained receipt identity, and gateway custody are checked
+before collection and again after asynchronous evidence collection and physical
+volume reads. The ready session-volume mapping must still match. A disconnect,
+replacement, discovery transition, or contradictory volume invalidates the request
+instead of returning a stale candidate. No credentials or account email are added
+to the response; provider identities are the same public metadata already present
+in the candidate format. This is evidence collection only: it never installs the
+attestation, activates a seat, starts inference, or bypasses existing admission.
+
+The original explicit provider/volume form below remains supported and is still
+strictly validated by the unchanged physical verifier. The two forms cannot be
+mixed. Neither automatically widens the allowlist.
+
 After explicitly provisioning the intended providers and baseline artifact volume,
 send the exact selection using the app's authenticated HTTP client:
 
