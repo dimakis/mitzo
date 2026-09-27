@@ -455,3 +455,7 @@ authorization does not. See [personal connection lifecycle](docs/operations/symp
 Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
 
 Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
