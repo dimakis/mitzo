@@ -574,6 +574,7 @@ retain a recovery lock, and SSH cleanup terminates its proxy process group.
 
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
 Owned Podman hosts must explicitly bind the driver namespace label, including the pinned driver’s empty value; see [Podman namespace evidence](docs/operations/symposium-podman-namespace.md).
+Owned artifact volumes also require a reviewed image-bound owner and terminal initialization receipt; see [artifact ownership readiness](docs/operations/symposium-artifact-ownership.md).
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 

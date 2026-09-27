@@ -33,7 +33,7 @@ function fixture() {
       port: 18791,
       podmanSocket: '/private/socket',
       network: 'network',
-      workloadImage: `sha256:${sha}`,
+      workloadImage: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
       sandboxRuntimeImage: `sha256:${sha}`,
       supervisorImage: `sha256:${sha}`,
       tls: {

@@ -15,6 +15,7 @@ function fixture() {
   const volumes = new Map<string, ArtifactVolumeEvidence>();
   const custody = vi.fn();
   const host = {
+    initializationContract: 'reviewed-image:998:998',
     inspect: vi.fn(async (name: string) => volumes.get(name) ?? null),
     create: vi.fn(async (name: string, labels: Record<string, string>) => {
       volumes.set(name, { name, labels, driver: 'local', options: {} });
@@ -43,7 +44,7 @@ it('creates one labeled volume and preserves exact identity on concurrent retry'
   expect(await f.store.ensure('session')).toEqual(first);
   expect(f.host.create).toHaveBeenCalledOnce();
 });
-it('retains uncertain create identity and reconciles only matching physical volume', async () => {
+it('retains uncertain create identity without treating matching labels as initialization proof', async () => {
   const f = fixture();
   f.host.create.mockRejectedValueOnce(new Error('unknown completion'));
   expect((await f.store.ensure('session')).state).toBe('recovery_required');
@@ -52,7 +53,8 @@ it('retains uncertain create identity and reconciles only matching physical volu
   expect((await f.store.ensure('session')).state).toBe('recovery_required');
   expect(f.host.create).toHaveBeenCalledOnce();
   f.volumes.set(name, { name, labels, driver: 'local', options: {} });
-  expect((await f.store.ensure('session')).state).toBe('ready');
+  expect((await f.store.ensure('session')).state).toBe('recovery_required');
+  expect(f.store.getReady('session')).toBeNull();
   expect(f.host.create).toHaveBeenCalledOnce();
 });
 it('does not create after custody loss or adopt changed physical labels', async () => {
@@ -285,7 +287,7 @@ it('converges concurrent successful inspections on the current ready mapping', a
   pending[1](volume);
   expect(await second).toEqual({ state: 'ready' });
 });
-it('reports ready when retry verifies creation before the original command returns', async () => {
+it('waits for terminal initialization before a concurrent inspection can report ready', async () => {
   const f = fixture();
   let finish!: () => void;
   const pending = new Promise<void>((resolve) => {
@@ -305,8 +307,30 @@ it('reports ready when retry verifies creation before the original command retur
     f.host,
   );
   cleanup.push(() => other.close());
-  expect(await other.ensure('session')).toEqual({ state: 'ready' });
+  expect(await other.ensure('session')).toEqual({ state: 'recovery_required' });
   finish();
   expect(await first).toEqual({ state: 'ready' });
+  expect(f.host.create).toHaveBeenCalledOnce();
+});
+
+it('persists initialization receipt but rejects legacy or mismatched image contracts', async () => {
+  const f = fixture();
+  expect(await f.store.ensure('session')).toEqual({ state: 'ready' });
+  const db = new Database(join(f.root, 'db'));
+  expect(
+    (
+      db.prepare('SELECT initialization_contract FROM symposium_session_artifacts').get() as {
+        initialization_contract: string;
+      }
+    ).initialization_contract,
+  ).toBe(f.host.initializationContract);
+  db.prepare('UPDATE symposium_session_artifacts SET initialization_contract=NULL').run();
+  expect(f.store.getReady('session')).toBeNull();
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
+  db.prepare('UPDATE symposium_session_artifacts SET initialization_contract=?').run(
+    'other-image:998:998',
+  );
+  expect(await f.store.ensure('session')).toEqual({ state: 'recovery_required' });
+  db.close();
   expect(f.host.create).toHaveBeenCalledOnce();
 });
