@@ -1,3 +1,4 @@
+import { createSymposiumApplicationDispatchPolicy } from './symposium-application-dispatch.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
 import {
   custodianControllerClient,
@@ -905,7 +906,7 @@ export interface SymposiumProductionHost {
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
-  /** Optional until native hard budgets and durable review receipts are available. */
+  /** Optional until trusted execution/artifact review receipts are installed. */
   reviewHost?: SymposiumInteractiveReviewHost;
   /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
   reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
@@ -1054,6 +1055,19 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       allowedAccountProviders: verified.allowedAccountProviders,
       verifyHostCapability,
       attemptRegistry: host.attemptRegistry,
+      applicationPolicy: createSymposiumApplicationDispatchPolicy({
+        store: symposiumReviewStore,
+        observations: host.attemptRegistry.observations,
+        assertArtifactCurrent(attempt) {
+          const current = host.reviewHost?.currentArtifact({ owner: 'user', sessionId });
+          if (
+            !current ||
+            current.revision !== attempt.artifactRevision ||
+            current.hash !== attempt.artifactHash
+          )
+            throw new Error('Trusted current application artifact unavailable');
+        },
+      }),
       artifactLeaseHost: host.artifactLeaseHost,
       artifactRequest: host.artifactRequest,
       resolveSeatPolicy: host.resolveSeatPolicy,

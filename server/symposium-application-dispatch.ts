@@ -109,6 +109,29 @@ export function createSymposiumApplicationDispatchPolicy(deps: {
       check();
       return () => clearInterval(timer);
     },
+    reconcile(input) {
+      const attempt = selected(input);
+      if (!attempt) return;
+      const retained = deps.observations?.get(input.claimToken);
+      // Missing/accepted-only observations keep the charged operation unresolved.
+      if (!retained || retained.status === 'accepted' || retained.terminalAt === null) return;
+      const observation = observed(input);
+      const id = operationId(
+        observation.identity.providerThreadId,
+        observation.identity.providerTurnId,
+      );
+      deps.store.bindApplicationOperation(attempt.workflowId, attempt.attemptId, id);
+      deps.store.settleApplicationExecution(
+        attempt.workflowId,
+        attempt.attemptId,
+        id,
+        observation.status === 'completed'
+          ? 'completed'
+          : observation.status === 'interrupted'
+            ? 'cancelled'
+            : 'failed',
+      );
+    },
     completed(input) {
       const attempt = selected(input);
       if (!attempt) return;

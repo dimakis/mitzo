@@ -376,6 +376,40 @@ it('requests exact cancellation when persisted policy stops or its deadline expi
     vi.useRealTimers();
   }
 });
+it('reconciles a known interrupted operation without settling unknown native execution', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.policy.consume(work.input);
+    f.policy.reconcile?.(work.input);
+    expect(f.store.get('policy')?.applicationAttempts[0].settled).toBe(false);
+    f.observations.accept({
+      claimToken: work.input.claimToken,
+      sessionId: work.input.sessionId,
+      seatId: seat.id,
+      membershipGeneration: 2,
+      accountBinding: seat.accountBinding,
+      provenance: work.input.provenance,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+    });
+    f.observations.terminal({
+      claimToken: work.input.claimToken,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      status: 'interrupted',
+    });
+    f.policy.reconcile?.(work.input);
+    expect(f.store.get('policy')?.applicationAttempts[0]).toMatchObject({
+      settled: true,
+      terminalOutcome: 'cancelled',
+    });
+    expect(f.store.get('policy')?.hostTurns).toBe(1);
+  } finally {
+    f.close();
+  }
+});
 it('does not let artifact-check failures reach policy consumption', () => {
   const work = fixture();
   const f = applicationFixture(work);
@@ -955,6 +989,35 @@ describe('last native Symposium dispatch fence', () => {
       expect(consume).not.toHaveBeenCalled();
       expect(ensure).toHaveBeenCalledTimes(stopDuringInitialization ? 1 : 0);
     }
+  });
+  it('rejects a first-turn result whose thread differs from the accepted receipt', async () => {
+    const work = fixture();
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      owner: {
+        ensure: async () => ({
+          sandboxName: 'shared',
+          workdir: '/sandbox/workspaces/mgmt',
+          cli: 'openshell',
+          gateway: 'test-gateway',
+          workspace: 'test-workspace',
+          gatewayInsecure: false,
+        }),
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+      },
+      recordAccepted: () => true,
+      openNative: async () => ({
+        run: async (_input, callbacks) => {
+          callbacks.beforeDispatch('accepted-thread');
+          callbacks.accepted('accepted-thread', 'turn');
+          return { providerThreadId: 'unrelated-thread', content: 'wrong' };
+        },
+        cancel: async () => undefined,
+      }),
+    });
+    await expect(executor.execute(work.input)).rejects.toThrow(/thread identity/);
   });
   it('rechecks the host grant after sandbox setup and records only exact accepted turns', async () => {
     const work = fixture();
@@ -2215,7 +2278,14 @@ describe('last native Symposium dispatch fence', () => {
     const work = fixture();
     const accepted: string[] = [];
     const recordEvent = vi.fn();
+    const consume = vi.fn();
     const runtime = createSymposiumSessionRuntime({
+      applicationPolicy: {
+        assertCurrent: () => undefined,
+        consume,
+        accepted: () => undefined,
+        completed: () => undefined,
+      },
       sessionId: 'symposium',
       store: { ...work.facts, ...seatSandboxRegistry() } as never,
       recordEvent,
@@ -2266,6 +2336,7 @@ describe('last native Symposium dispatch fence', () => {
       content: 'done',
     });
     expect(accepted).toEqual(['turn']);
+    expect(consume).toHaveBeenCalledWith(work.input);
     expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_accepted' });
     expect(recordEvent).toHaveBeenCalledWith(work.input, { type: 'symposium_attempt_released' });
     expect(runtime.owner).toBeDefined();

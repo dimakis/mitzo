@@ -36,6 +36,7 @@ export interface SymposiumApplicationDispatchPolicy {
   consume(input: SymposiumSeatExecution): void;
   accepted(input: SymposiumSeatExecution, providerThreadId: string, providerTurnId: string): void;
   completed(input: SymposiumSeatExecution): void;
+  reconcile?(input: SymposiumSeatExecution): void;
   /** Observe only this in-flight operation; no dispatch/retry scheduling. */
   watch?(input: SymposiumSeatExecution, requestCancellation: () => void): () => void;
 }
@@ -167,6 +168,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     // can now target the created process by its exact durable claim.
     admission();
     let approvedThread: string | undefined;
+    let acceptedThread: string | undefined;
     const stopWatching = this.deps.applicationPolicy?.watch?.(input, () => {
       // Failure keeps durable execution/cleanup uncertainty; it never authorizes a retry.
       void this.cancel({ claimToken: input.claimToken }).catch(() => {});
@@ -218,6 +220,9 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
             providerThreadId !== approvedThread
           )
             throw new Error('Symposium unapproved provider thread receipt');
+          if (acceptedThread && acceptedThread !== providerThreadId)
+            throw new Error('Symposium accepted thread identity changed');
+          acceptedThread = providerThreadId;
           const recorded = this.deps.recordAccepted({
             deliveryId: input.deliveryId,
             seatId: input.seat.id,
@@ -240,6 +245,8 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       result.providerThreadId !== approvedThread
     )
       throw new Error('Symposium native thread identity changed');
+    if (acceptedThread && result.providerThreadId !== acceptedThread)
+      throw new Error('Symposium result thread identity differs from accepted operation');
     this.deps.applicationPolicy?.completed(input);
     this.deps.recordEvent?.(input, { type: 'symposium_attempt_released' });
     this.attempts.delete(input.claimToken);
@@ -258,7 +265,10 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     } else if (!active || active.opening) {
       throw new Error('Symposium native attempt cleanup is unknown');
     }
-    if (active) this.deps.recordEvent?.(active.execution, { type: 'symposium_attempt_released' });
+    if (active) {
+      this.deps.applicationPolicy?.reconcile?.(active.execution);
+      this.deps.recordEvent?.(active.execution, { type: 'symposium_attempt_released' });
+    }
     this.deps.releaseAttempt?.(token);
     this.attempts.delete(token);
   }

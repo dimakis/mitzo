@@ -1296,6 +1296,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   'facts'
 > {
   store: EventStore;
+  applicationPolicy?: SymposiumOpenShellSeatExecutorDeps['applicationPolicy'];
   codexStore: CodexConversationStore;
   profileCatalogStore?: Pick<SymposiumProfileStore, 'list' | 'get'>;
   profileProposalStore?: Pick<SymposiumProfileProposalStore, 'propose'>;
@@ -1388,6 +1389,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       if (!executor) {
         executor = new SymposiumOpenShellSeatExecutor({
           facts: deps.store,
+          applicationPolicy: deps.applicationPolicy,
           attemptRegistry: deps.attemptRegistry,
           profiles: deps.profiles,
           currentProfiles: deps.currentProfiles,
