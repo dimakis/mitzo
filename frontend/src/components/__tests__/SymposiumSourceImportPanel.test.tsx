@@ -87,3 +87,22 @@ it.each([false, true])(
     ).toBe(false);
   },
 );
+
+it.each([
+  ['failed', 'The source helper exited with a failure.'],
+  ['uncertain', 'The source helper outcome is unknown.'],
+  ['recovery_required', 'The source import is incomplete.'],
+])('shows %s without offering another import', async (state, message) => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ repositories: ['repo'], artifact: { available: false, state } }),
+  );
+  render(<SymposiumSourceImportPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Import local repository' }));
+  await screen.findByText(new RegExp(message));
+  expect(screen.queryByRole('button', { name: 'Import approved history' })).toBeNull();
+  expect(
+    screen.getByText(
+      /retained for inspection; automatic retry and restart recovery are unavailable/,
+    ),
+  ).toBeTruthy();
+});

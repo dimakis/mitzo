@@ -143,7 +143,11 @@ export function SymposiumSourceImportPanel({ sessionId }: { sessionId: string })
                 ? 'Committed source has already been imported.'
                 : status.artifact?.admissionIssued
                   ? 'Source import is unavailable because admission permission was already issued.'
-                  : 'Source import is unavailable. An unused initialized volume with current host custody is required; an incomplete import cannot be retried automatically.'}
+                  : ['failed', 'uncertain', 'recovery_required'].includes(
+                        status.artifact?.state ?? '',
+                      )
+                    ? `${status.artifact?.state === 'failed' ? 'The source helper exited with a failure.' : status.artifact?.state === 'uncertain' ? 'The source helper outcome is unknown.' : 'The source import is incomplete.'} The volume and receipts are retained for inspection; automatic retry and restart recovery are unavailable.`
+                    : 'Source import is unavailable. An unused initialized volume with current host custody is required.'}
             </p>
           ) : (
             <fieldset disabled={busy}>
