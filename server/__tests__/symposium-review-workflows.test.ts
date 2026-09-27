@@ -975,3 +975,80 @@ it('preserves reported severity through delta history and replay without changin
   expect(history[0].detail).toMatchObject({ findings: [{ severity: 'high' }] });
   expect(history[1].detail).toMatchObject({ findings: [{ severity: 'medium' }] });
 });
+
+it('binds successor authority to the existing exact workflow authorization and current grant', async () => {
+  const { assertSuccessorFixAuthority } =
+    await import('../symposium-artifact-successor-authority.js');
+  const artifactRevision = 'a'.repeat(40),
+    artifactHash = hash('b');
+  reviews.create(create({ implementation: { ...implementation, artifactRevision, artifactHash } }));
+  const reviewed = recordReview({
+    workflowId: 'workflow-1',
+    reviewId: 'review-1',
+    reviewerSeatId: 'reviewer',
+    kind: 'full',
+    artifactRevision,
+    artifactHash,
+    findings: [finding],
+    resolvedFingerprints: [],
+    usage: usage('review-attempt'),
+  });
+  const findingFingerprints = reviewed.findings.map((item) => item.fingerprint);
+  reviews.authorizeFix({
+    workflowId: 'workflow-1',
+    artifactRevision,
+    artifactHash,
+    actor: 'owner',
+    authorityGrantId: 'grant',
+    authorityRevision: 2,
+    findingFingerprints,
+    reason: 'fix selected finding',
+  });
+  reviews.admitAttempt({
+    workflowId: 'workflow-1',
+    attemptId: 'fix-attempt',
+    enforcementId: 'unit-test-enforced-limit',
+    kind: 'fix',
+    actorSeatId: 'coder',
+    artifactRevision,
+    artifactHash,
+    maxTokens: 100,
+    maxCostUsd: 0.1,
+  });
+  const request = {
+    workflowId: 'workflow-1',
+    sessionId: 'session-1',
+    parentCommit: artifactRevision,
+    parentCommittedTreeDigest: artifactHash,
+    actor: 'owner',
+    authorityGrantId: 'grant',
+    authorityRevision: 2,
+    findingFingerprints,
+    fixAttemptId: 'fix-attempt',
+    seatId: 'coder',
+    accountId: 'coder-account',
+    model: 'coder-model',
+    profileId: 'coder',
+    profileRevision: '1',
+  } as import('../symposium-artifact-generations.js').ArtifactGenerationRequest;
+  expect(() => assertSuccessorFixAuthority(undefined, request)).toThrow(/unavailable/);
+  const authority = { workflows: reviews, assertCurrent: () => true as const };
+  expect(assertSuccessorFixAuthority(authority, request)).toBe(true);
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...request, authorityRevision: 3 }),
+  ).toThrow();
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...request, fixAttemptId: 'unreserved' }),
+  ).toThrow();
+  expect(() =>
+    assertSuccessorFixAuthority(
+      {
+        ...authority,
+        assertCurrent: () => {
+          throw new Error('revoked');
+        },
+      },
+      request,
+    ),
+  ).toThrow('revoked');
+});
