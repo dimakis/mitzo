@@ -239,7 +239,8 @@ it('provisions explicit Vertex profiles through the existing bootstrap with pinn
   });
   f.save();
   const provisionVertex = vi.fn(async (_gateway, input) => {
-    const { expectedPrincipal: _expectedPrincipal, ...profile } = input;
+    const { expectedPrincipal, ...profile } = input;
+    expect(expectedPrincipal).toBe(vertex.expectedPrincipal);
     return { ...profile, sandboxProvider: 'fresh-vertex', sandboxProviderId: 'vertex-id' };
   });
   const host = await bootstrapConfiguredSymposiumHost(

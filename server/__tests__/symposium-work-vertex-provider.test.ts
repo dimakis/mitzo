@@ -171,13 +171,11 @@ it('default authentication verifies the same snapshot and requires a verified em
     email: f.profile.expectedPrincipal,
     email_verified: true,
   }));
-  const fromJSON = vi
-    .spyOn(GoogleAuth.prototype, 'fromJSON')
-    .mockReturnValue({
-      transporter: { defaults: {} },
-      getAccessToken: async () => ({ token: 'synthetic-access' }),
-      getTokenInfo,
-    } as never);
+  const fromJSON = vi.spyOn(GoogleAuth.prototype, 'fromJSON').mockReturnValue({
+    transporter: { defaults: {} },
+    getAccessToken: async () => ({ token: 'synthetic-access' }),
+    getTokenInfo,
+  } as never);
   try {
     await createSymposiumWorkVertexProvider(f.gateway as never, f.profile, { run: f.run as never });
     expect(fromJSON).toHaveBeenCalledWith(f.material);
@@ -191,4 +189,22 @@ it('default authentication verifies the same snapshot and requires a verified em
   } finally {
     fromJSON.mockRestore();
   }
+});
+
+it('requires a gateway-managed initial rotation before publishing the binding', async () => {
+  const f = fixture();
+  await f.invoke();
+  const calls = f.run.mock.calls.map((c) => c[1]);
+  const configured = calls.findIndex((a) => a.includes('configure'));
+  const rotated = calls.findIndex((a) => a.includes('rotate'));
+  expect(rotated).toBeGreaterThan(configured);
+  expect(calls[rotated]).toContain('GOOGLE_VERTEX_AI_TOKEN');
+  const g = fixture();
+  const original = g.run.getMockImplementation()!;
+  g.run.mockImplementation((file, args, options) =>
+    args.includes('rotate')
+      ? { status: 1, stdout: 'synthetic-refresh' }
+      : original(file, args, options),
+  );
+  await expect(g.invoke()).rejects.toThrow('Vertex provisioning unavailable');
 });

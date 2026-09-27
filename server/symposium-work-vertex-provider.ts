@@ -175,6 +175,7 @@ export async function createSymposiumWorkVertexProvider(
         SYMPOSIUM_VERTEX_REFRESH_TOKEN: material.refresh_token,
       },
     );
+    invoke(['refresh', 'rotate', provider, '--credential-key', 'GOOGLE_VERTEX_AI_TOKEN']);
     gateway.verifyCustody();
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
