@@ -28,6 +28,32 @@ const Adc = z.object({
   quota_project_id: z.string().optional(),
 });
 type Material = z.infer<typeof Adc>;
+export interface SymposiumWorkVertexReceipt {
+  readonly principal: string;
+  readonly accountId: string;
+  readonly provider: string;
+  readonly providerId: string;
+  readonly projectId: string;
+  readonly region: 'global';
+  readonly model: 'claude-haiku-4-5@20251001';
+  readonly workspace: string;
+}
+// Same-process capability, not a persisted ledger or reconstructed authority.
+const receipts = new WeakMap<OwnedSymposiumGateway, Map<string, SymposiumWorkVertexReceipt>>();
+export function captureSymposiumWorkVertexProvider(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+) {
+  try {
+    gateway.verifyCustody();
+  } catch {
+    receipts.delete(gateway);
+    throw new Error('Vertex provider custody unavailable');
+  }
+  const receipt = receipts.get(gateway)?.get(providerId);
+  if (!receipt) throw new Error('Vertex provider custody unavailable');
+  return receipt;
+}
 interface Dependencies {
   authenticate?(material: Material): Promise<{ email: string; accessToken: string }>;
   run?: typeof spawnSync;
@@ -177,6 +203,21 @@ export async function createSymposiumWorkVertexProvider(
     );
     invoke(['refresh', 'rotate', provider, '--credential-key', 'GOOGLE_VERTEX_AI_TOKEN']);
     gateway.verifyCustody();
+    const retained = receipts.get(gateway) ?? new Map<string, SymposiumWorkVertexReceipt>();
+    retained.set(
+      found.id,
+      Object.freeze({
+        principal: verified.email,
+        accountId: profile.id,
+        provider,
+        providerId: found.id,
+        projectId: profile.projectId,
+        region: profile.region,
+        model: profile.models[0].id,
+        workspace: gateway.workspace,
+      }),
+    );
+    receipts.set(gateway, retained);
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
     // ADC/auth/process failures can embed secrets or private filesystem paths.

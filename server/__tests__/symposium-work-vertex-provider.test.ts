@@ -4,7 +4,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createSymposiumWorkVertexProvider } from '../symposium-work-vertex-provider.js';
+import {
+  createSymposiumWorkVertexProvider,
+  captureSymposiumWorkVertexProvider,
+} from '../symposium-work-vertex-provider.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 function fixture() {
@@ -207,4 +210,37 @@ it('requires a gateway-managed initial rotation before publishing the binding', 
       : original(file, args, options),
   );
   await expect(g.invoke()).rejects.toThrow('Vertex provisioning unavailable');
+});
+
+it('retains verified principal and exact provider intent only under the original gateway custody', async () => {
+  const f = fixture();
+  const result = await f.invoke();
+  const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
+  expect(receipt).toEqual({
+    principal: f.profile.expectedPrincipal,
+    accountId: f.profile.id,
+    provider: result.sandboxProvider,
+    providerId: 'new-id',
+    projectId: 'selected-project',
+    region: 'global',
+    model: 'claude-haiku-4-5@20251001',
+    workspace: 'private',
+  });
+  expect(Object.isFrozen(receipt)).toBe(true);
+  expect(() => captureSymposiumWorkVertexProvider({ ...f.gateway } as never, 'new-id')).toThrow(
+    'Vertex provider custody unavailable',
+  );
+  expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'other-id')).toThrow(
+    'Vertex provider custody unavailable',
+  );
+  f.gateway.verifyCustody.mockImplementation(() => {
+    throw Error('lost');
+  });
+  expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'new-id')).toThrow(
+    'Vertex provider custody unavailable',
+  );
+  f.gateway.verifyCustody.mockReset();
+  expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'new-id')).toThrow(
+    'Vertex provider custody unavailable',
+  );
 });
