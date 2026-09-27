@@ -204,3 +204,40 @@ it('refuses a legacy lease host with no verifier command context', () => {
     host.close();
   }
 });
+
+it.each(['😀.txt', 'nested/𐐀.txt'])(
+  'persists valid supplementary Unicode path %s',
+  async (path) => {
+    const f = await fixture();
+    const manifest = [{ path, executable: false, bytes: 0, sha256: 'a'.repeat(64) }];
+    const original = f.command.getMockImplementation()!;
+    f.command.mockImplementation(async (args) =>
+      args[0] === 'start' ? JSON.stringify(manifest) : original(args),
+    );
+    const receipt = await f.observer.observe(f.input);
+    expect(receipt.manifest).toEqual(manifest);
+    expect(f.observer.read(receipt.revision)?.manifest).toEqual(manifest);
+    f.observer.close();
+    f.host.close();
+  },
+);
+it('still rejects an unpaired surrogate in a verifier path', async () => {
+  const f = await fixture();
+  const original = f.command.getMockImplementation()!;
+  f.command.mockImplementation(async (args) =>
+    args[0] === 'start'
+      ? JSON.stringify([
+          {
+            path: String.fromCharCode(0xd800),
+            executable: false,
+            bytes: 0,
+            sha256: 'a'.repeat(64),
+          },
+        ])
+      : original(args),
+  );
+  await expect(f.observer.observe(f.input)).rejects.toThrow();
+  expect(f.command.mock.calls.at(-1)![0][0]).toBe('rm');
+  f.observer.close();
+  f.host.close();
+});

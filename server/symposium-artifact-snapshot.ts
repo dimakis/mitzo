@@ -27,9 +27,10 @@ const entrySchema = z
         (path) =>
           !path.startsWith('/') &&
           !path.includes('\\') &&
-          ![...path].some(
-            (c) => c.charCodeAt(0) < 32 || (c.charCodeAt(0) >= 0xd800 && c.charCodeAt(0) <= 0xdfff),
-          ) &&
+          ![...path].some((c) => {
+            const point = c.codePointAt(0)!;
+            return point < 32 || (point >= 0xd800 && point <= 0xdfff);
+          }) &&
           path.split('/').every((p) => p !== '' && p !== '.' && p !== '..') &&
           path.split('/')[0] !== '.git',
       ),
