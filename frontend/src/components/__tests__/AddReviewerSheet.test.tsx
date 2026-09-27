@@ -1,15 +1,21 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { AddReviewerSheet } from '../AddReviewerSheet';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+const accountPicker = vi.hoisted(() => ({
+  onChange: undefined as undefined | ((v: unknown) => void),
+}));
 vi.mock('../AccountModelPicker', () => ({
-  AccountModelPicker: ({ onChange }: { onChange: (v: unknown) => void }) => (
-    <button onClick={() => onChange({ accountId: 'a', model: 'luna' })}>Choose account</button>
-  ),
+  AccountModelPicker: ({ onChange }: { onChange: (v: unknown) => void }) => {
+    accountPicker.onChange = onChange;
+    return (
+      <button onClick={() => onChange({ accountId: 'a', model: 'luna' })}>Choose account</button>
+    );
+  },
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
   SymposiumProfilePicker: ({ onChange }: { onChange: (v: unknown) => void }) => (
@@ -82,6 +88,9 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
+  act(() => accountPicker.onChange?.(null));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  fireEvent.click(screen.getByText('Choose account'));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer added/);
   const revise = vi
@@ -201,6 +210,9 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   );
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer admitted. Context not queued/);
+  // Catalog invalidation is an effect callback even inside a disabled fieldset.
+  act(() => accountPicker.onChange?.(null));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   expect(screen.getByLabelText('Review package')).toBeDisabled();

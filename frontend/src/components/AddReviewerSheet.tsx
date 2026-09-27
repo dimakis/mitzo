@@ -410,8 +410,10 @@ function ReviewerForm({
                 requireExplicitSelection
                 sessionId={null}
                 preferredModel=""
-                onChange={setSelection}
-                disabled={busy}
+                onChange={(next) => {
+                  if (!locked) setSelection(next);
+                }}
+                disabled={busy || locked}
               />
               <label>
                 Review package
