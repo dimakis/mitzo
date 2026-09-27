@@ -50,6 +50,7 @@ export function SymposiumDeviceLogin({
   const version = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const attempt = useRef<string | undefined>(undefined);
+  const previousAttempt = useRef<string | undefined>(undefined);
   const refreshed = useRef(new Set<string>());
   const changed = useRef(onAccountsChanged);
   changed.current = onAccountsChanged;
@@ -74,6 +75,15 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    // Recovery may still describe the previous attempt until the new start allocates.
+    if (
+      startingVersion.current === version.current &&
+      ((next.attemptId && next.attemptId === previousAttempt.current) ||
+        (next.state === 'unknown' && !next.attemptId && !attempt.current))
+    )
+      return receipt.current;
+    if (attempt.current && next.attemptId && next.attemptId !== attempt.current)
+      throw new Error('Mismatched active receipt');
     // Idle before allocation is acknowledged does not prove the start failed.
     if (
       next.state === 'idle' &&
@@ -84,7 +94,8 @@ export function SymposiumDeviceLogin({
     if (
       receipt.current.state !== 'idle' &&
       receipt.current.state !== 'pending' &&
-      next.state === 'pending'
+      next.state === 'pending' &&
+      next.attemptId === attempt.current
     )
       return receipt.current;
     receipt.current = next;
@@ -96,7 +107,7 @@ export function SymposiumDeviceLogin({
       }
     }
     if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
-    attempt.current = next.attemptId;
+    attempt.current = next.attemptId ?? attempt.current;
     setStatus(next);
     setError('');
     setStatusFailed(false);
@@ -149,6 +160,7 @@ export function SymposiumDeviceLogin({
     setCancelling(kind === 'cancel');
     if (kind === 'start') {
       receipt.current = { state: 'idle' };
+      previousAttempt.current = attempt.current;
       attempt.current = undefined;
       startingVersion.current = generation;
       setStarting(true);
