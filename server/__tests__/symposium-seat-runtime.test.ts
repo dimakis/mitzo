@@ -2911,8 +2911,13 @@ describe('mixed personal subscription and work seat isolation', () => {
         throw new Error('upload failed');
       },
     );
+    let phasedCustody = true;
     const phasedDeps = {
       ...deps,
+      verifyHostCapability: () => {
+        if (!phasedCustody) throw new Error('custody lost');
+        return undefined as never;
+      },
       seatSandboxRegistry: incompleteRegistry,
       verifiedSubscriptionControllerCommand: ['/usr/local/bin/symposium-subscription-app-server'],
       verifySubscriptionPrivateAuth: async () => {},
@@ -2950,6 +2955,12 @@ describe('mixed personal subscription and work seat isolation', () => {
       code: 'SEAT_UPLOAD_FAILED',
       canCleanup: true,
     });
+    phasedCustody = false;
+    expect(() => phased.assertCreationCleanup('personal', membership.generation)).toThrow(
+      'custody lost',
+    );
+    expect(phased.creationDiagnostic('personal')?.canCleanup).toBe(false);
+    phasedCustody = true;
     expect(incomplete).toMatchObject({
       state: 'reserved',
       physicalId: 'terminal-id',
