@@ -1,3 +1,4 @@
+import type { CapabilityApproval } from './connections/capabilities/types.js';
 import { decodeCustodianRequest, type CustodianRequest } from './symposium-custodian-protocol.js';
 export interface CustodianResponse {
   status: number;
@@ -8,7 +9,12 @@ interface Owner {
   drain(signal: AbortSignal): Promise<void>;
   resume(): void;
   invalidate(jti: string): void;
-  dispatch(request: CustodianRequest, assertCurrent: () => void): Promise<CustodianResponse>;
+  dispatch(
+    request: CustodianRequest,
+    assertCurrent: () => void,
+    approval?: CapabilityApproval,
+    signal?: AbortSignal,
+  ): Promise<CustodianResponse>;
 }
 /** Process-local authority. There is deliberately no deserialize/adopt operation. */
 export class SymposiumCustodianController {
@@ -36,7 +42,7 @@ export class SymposiumCustodianController {
       if (this.state !== 'active' || this.epoch !== epoch)
         throw Error('Custodian controller is unavailable');
     };
-    const request = async (input: unknown) => {
+    const request = async (input: unknown, approval?: CapabilityApproval, signal?: AbortSignal) => {
       assertCurrent();
       const command = decodeCustodianRequest(input);
       if (command.epoch !== epoch) throw Error('Custodian epoch changed');
@@ -48,7 +54,18 @@ export class SymposiumCustodianController {
       authorize();
       if (pending.size >= 64) throw Error('Custodian request capacity unavailable');
       sessions.add(command.authorization.id);
-      const work = this.owner.dispatch(command, authorize);
+      const work = this.owner.dispatch(
+        command,
+        authorize,
+        approval &&
+          (async (request, signal) => {
+            authorize();
+            const result = await approval(request, signal);
+            authorize();
+            return result;
+          }),
+        signal,
+      );
       pending.add(work);
       try {
         const result = await work;

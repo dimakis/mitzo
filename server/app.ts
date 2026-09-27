@@ -1,3 +1,4 @@
+import { custodianPublicationApproval } from './symposium-custodian-authority.js';
 import {
   custodianControllerClient,
   custodianOwnerMode,
@@ -813,7 +814,19 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.use('/api', authMiddleware);
-if (custodianControllerClient) app.use(createCustodianProxy(custodianControllerClient));
+if (custodianControllerClient)
+  app.use(
+    createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
+    ),
+  );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
@@ -1142,6 +1155,7 @@ app.use(
     registration: () => symposiumPublication,
     hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>
+      custodianPublicationApproval(req) ??
       publicationControllerApproval(
         registry,
         isTransportConnectionOwnedBy,
