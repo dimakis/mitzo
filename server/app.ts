@@ -1,3 +1,5 @@
+import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import {
@@ -830,6 +832,9 @@ export interface SymposiumProductionHost {
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
+  collectAdmissionEvidence?: (
+    selection: unknown,
+  ) => Promise<import('./symposium-production-gate.js').SymposiumProductionAttestation>;
   beginDeviceLogin?: (
     selection?: ConnectionSelection,
   ) => Promise<import('./symposium-device-login.js').DeviceLogin>;
@@ -1732,6 +1737,12 @@ app.put('/api/accounts/:id/alias', (req, res) => {
 const subscriptionLogin = createSubscriptionLoginController(
   () => symposiumProductionHost,
   (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
+);
+// Retained owned-host candidate collection; never writes or activates admission.
+app.post(
+  '/api/symposium/admission-evidence',
+  operatorAuthMiddleware,
+  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
 );
 app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');

@@ -1,3 +1,4 @@
+import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -464,6 +465,30 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
+      collectAdmissionEvidence: createOwnedEvidenceCollector(
+        runtimeConfig,
+        gateway.endpoint,
+        {
+          cli: gateway.cli,
+          podman: options.podman.executable,
+          cliEnv: gateway.managementEnvironment,
+          podmanEnv,
+        },
+        {
+          verifyCustodyAsync: async () => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyCustodyAsync();
+          },
+          verifyOwnedNativeHostAsync: async (binding) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyOwnedNativeHostAsync(binding);
+          },
+          verifyGatewayDriverConfigAsync: async (...args) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyGatewayDriverConfigAsync(...args);
+          },
+        },
+      ),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,

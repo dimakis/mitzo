@@ -530,6 +530,8 @@ retain a recovery lock, and SSH cleanup terminates its proxy process group.
 
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
 
+- [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
+
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
