@@ -69,11 +69,7 @@ export function SymposiumPersonalConnections({
           : null,
       );
       setCallbackId((current) =>
-        current &&
-        body.connections.some(
-          (row) =>
-            row.id === current && row.state === 'connecting',
-        )
+        current && body.connections.some((row) => row.id === current && row.state === 'connecting')
           ? current
           : null,
       );
@@ -235,7 +231,7 @@ export function SymposiumPersonalConnections({
                 discoveryBlocked ||
                 !!error ||
                 callbackId === connection.id ||
-                (!!pendingId && (pendingId !== connection.id || callbackId !== connection.id))
+                (!!pendingId && pendingId !== connection.id)
               }
               onPendingChange={(pending) => {
                 setActiveId((current) =>
