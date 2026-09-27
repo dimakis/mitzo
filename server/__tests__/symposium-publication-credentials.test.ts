@@ -67,3 +67,32 @@ describe('publication credential custody', () => {
     await expect(pending).rejects.toThrow('Publication credential command failed');
   });
 });
+it('preserves only sanitized exact GitHub HTTP status for an absent branch', async () => {
+  const custody = new PublicationCredentialCustodian(
+    new CredentialResolver({ test: { resolve: async () => 'dummy-secret' } }),
+    async () => {
+      throw { stderr: 'gh: Not Found (HTTP 404)\n', secret: 'dummy-secret' };
+    },
+  );
+  custody.register('write', 'Write', reference);
+  const handle = await custody.select('write', 1);
+  const error = await handle
+    .run('gh', ['api', 'repos/owner/repo/branches/new'], new AbortController().signal)
+    .catch((e) => e);
+  expect(error.status).toBe(404);
+  expect(error.cause).toBeUndefined();
+  expect(String(error)).not.toContain('dummy-secret');
+});
+it.each(['', 'token\nother', 'token\r', 'token\0'])(
+  'rejects invalid credential material before dispatch',
+  async (secret) => {
+    const run = vi.fn<PublicationCommandRunner>(async () => ({ stdout: '' }));
+    const custody = new PublicationCredentialCustodian(
+      new CredentialResolver({ test: { resolve: async () => secret } }),
+      run,
+    );
+    custody.register('write', 'Write', reference);
+    await expect(custody.select('write', 1)).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+  },
+);

@@ -1,3 +1,5 @@
+import { CredentialResolver } from '../credentials.js';
+import { PublicationCredentialCustodian } from '../symposium-publication-credentials.js';
 import { expect, it, vi } from 'vitest';
 import { CapabilityOperationStore } from '../connections/capabilities/operation-store.js';
 import {
@@ -7,7 +9,12 @@ import {
   type SealedPublicationScope,
 } from '../symposium-sealed-publication-authority.js';
 import { SealedPublicationService } from '../symposium-sealed-publication-service.js';
-async function fixture(registered = true, mixedCase = false, unbornBranch = false) {
+async function fixture(
+  registered = true,
+  mixedCase = false,
+  unbornBranch = false,
+  useCustodian = false,
+) {
   const scope: SealedPublicationScope = {
     operatorId: 'operator',
     sessionId: 'session',
@@ -66,7 +73,7 @@ async function fixture(registered = true, mixedCase = false, unbornBranch = fals
     if (endpoint === 'repos/owner/repo/pulls/7') return { stdout: JSON.stringify(pr()) };
     throw Error('Unexpected mocked command');
   });
-  const handle: PublicationCredentialHandle = {
+  let handle: PublicationCredentialHandle = {
     connectionId: 'selected',
     revision: 1,
     generation: 'generation',
@@ -76,6 +83,27 @@ async function fixture(registered = true, mixedCase = false, unbornBranch = fals
     },
     run,
   };
+  if (useCustodian) {
+    const custody = new PublicationCredentialCustodian(
+      new CredentialResolver({ test: { resolve: async () => 'fixture-only-secret' } }),
+      async (command, args) => {
+        try {
+          return await run(command, args);
+        } catch (error) {
+          if (error instanceof PublicationCredentialHttpError)
+            throw { stderr: 'gh: Not Found (HTTP 404)\n' };
+          throw error;
+        }
+      },
+    );
+    custody.register('selected', 'Selected operator', {
+      provider: 'test',
+      service: 'publication',
+      account: 'operator',
+    });
+    handle = await custody.select('selected', 1);
+    scope.credentialGeneration = handle.generation;
+  }
   const authority = new SealedPublicationAuthority(':memory:', {
     assertOperator: () => true,
     assertArtifact: async () => {},
@@ -267,3 +295,10 @@ it.each(['invalid branch', 'main'])(
     f.close();
   },
 );
+
+it('publishes an absent source branch through the concrete custodian without losing 404 semantics', async () => {
+  const f = await fixture(true, false, true, true);
+  expect((await f.service.invoke(f.input, f.signal, async () => true)).status).toBe('succeeded');
+  expect(f.run.mock.calls.filter(([, args]) => args.includes('POST'))).toHaveLength(1);
+  f.close();
+});

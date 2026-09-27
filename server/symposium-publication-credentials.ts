@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
@@ -6,7 +9,10 @@ import {
   type CredentialReference,
   type CredentialResolver,
 } from './credentials.js';
-import type { PublicationCredentialHandle } from './symposium-sealed-publication-authority.js';
+import {
+  PublicationCredentialHttpError,
+  type PublicationCredentialHandle,
+} from './symposium-sealed-publication-authority.js';
 
 export type PublicationCommandRunner = (
   command: 'gh' | 'git',
@@ -15,14 +21,21 @@ export type PublicationCommandRunner = (
   environment: NodeJS.ProcessEnv,
 ) => Promise<{ stdout: string }>;
 const execute = promisify(execFile);
-const commandRunner: PublicationCommandRunner = async (command, args, signal, env) =>
-  execute(command, [...args], {
-    env,
-    signal,
-    timeout: 60_000,
-    maxBuffer: 4 * 1024 * 1024,
-    encoding: 'utf8',
-  });
+const commandRunner: PublicationCommandRunner = async (command, args, signal, environment) => {
+  const cwd = await mkdtemp(join(tmpdir(), 'mitzo-publication-command-'));
+  try {
+    return await execute(command, [...args], {
+      cwd,
+      env: { ...environment, HOME: cwd, GH_CONFIG_DIR: cwd },
+      signal,
+      timeout: 60_000,
+      maxBuffer: 4 * 1024 * 1024,
+      encoding: 'utf8',
+    });
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+};
 interface Entry {
   label: string;
   revision: number;
@@ -84,6 +97,8 @@ export class PublicationCredentialCustodian {
     const entry = this.current(id, revision);
     if (entry.handle) return entry.handle;
     const secret = await this.resolver.resolve(entry.reference);
+    if (!/^[!-~]{1,4096}$/.test(secret))
+      throw new Error('Publication credential material is invalid');
     if (this.current(id, revision) !== entry || entry.handle)
       throw new Error('Publication credential selection changed');
     const cancel = new AbortController();
@@ -135,7 +150,7 @@ export class PublicationCredentialCustodian {
           GIT_CONFIG_VALUE_1: '',
           GIT_CONFIG_KEY_2: 'credential.helper',
           GIT_CONFIG_VALUE_2:
-            '!f() { echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
+            '!f() { [ "$1" = get ] || exit 0; protocol=; host=; while IFS= read -r line && [ -n "$line" ]; do case "$line" in protocol=*) protocol=${line#protocol=};; host=*) host=${line#host=};; esac; done; [ "$protocol" = https ] && [ "$host" = github.com ] || exit 1; echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
         };
         try {
           if (
@@ -150,7 +165,24 @@ export class PublicationCredentialCustodian {
           await verify();
           combined.throwIfAborted();
           return { stdout: result.stdout };
-        } catch {
+        } catch (error) {
+          if (
+            command === 'gh' &&
+            !combined.aborted &&
+            typeof error === 'object' &&
+            error !== null &&
+            'stderr' in error &&
+            typeof error.stderr === 'string' &&
+            /^gh: [^\r\n]* \(HTTP 404\)\r?\n?$/.test(error.stderr)
+          ) {
+            try {
+              await verify();
+              combined.throwIfAborted();
+            } catch {
+              throw new Error('Publication credential command failed');
+            }
+            throw new PublicationCredentialHttpError(404);
+          }
           throw new Error('Publication credential command failed');
         }
       },
