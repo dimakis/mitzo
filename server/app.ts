@@ -1,3 +1,7 @@
+import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
+
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
 import {
   createSymposiumReviewPublicationPreflight,
   type ReviewPublicationDependencies,
@@ -7,11 +11,6 @@ import {
   createSymposiumReviewRouter,
   type SymposiumInteractiveReviewHost,
 } from './symposium-review-routes.js';
-
-import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
-import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
-
-import { ownedEvidenceHandler } from './symposium-owned-evidence.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -822,15 +821,14 @@ const symposiumSessionRuntimes = new Map<
   }
 >();
 export interface SymposiumProductionHost {
+  runSandboxCreation?: SandboxCreationFence;
+  ensureSessionArtifacts?: (
+    sessionId: string,
+  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
   /** Optional until native hard budgets and durable review receipts are available. */
   reviewHost?: SymposiumInteractiveReviewHost;
   /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
   reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
-  ensureSessionArtifacts?: (
-    sessionId: string,
-  ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
-
-  runSandboxCreation?: SandboxCreationFence;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -1740,6 +1738,12 @@ const subscriptionLogin = createSubscriptionLoginController(
   () => symposiumProductionHost,
   (_req, res) => (res.locals.authSession as AuthSession | undefined)?.id,
 );
+// Retained owned-host candidate collection; never writes or activates admission.
+app.post(
+  '/api/symposium/admission-evidence',
+  operatorAuthMiddleware,
+  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
+);
 app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const service = symposiumProductionHost?.personalConnections;
@@ -1829,12 +1833,6 @@ app.post(
       unregister();
     }
   },
-);
-// Retained owned-host candidate collection; never writes or activates admission.
-app.post(
-  '/api/symposium/admission-evidence',
-  operatorAuthMiddleware,
-  ownedEvidenceHandler(() => symposiumProductionHost?.collectAdmissionEvidence),
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
