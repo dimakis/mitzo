@@ -74,6 +74,9 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    // Idle before allocation is acknowledged does not prove the start failed.
+    if (next.state === 'idle' && startingVersion.current === version.current)
+      return receipt.current;
     // A late allocation reply cannot reopen an attempt already observed terminal.
     if (
       receipt.current.state !== 'idle' &&
@@ -115,7 +118,7 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, id);
-      continuePolling = next.state === 'pending';
+      continuePolling = next.state === 'pending' || startingVersion.current === generation;
     } catch {
       if (generation !== version.current) return;
       if (!['idle', 'pending'].includes(receipt.current.state)) return;
@@ -225,8 +228,7 @@ export function SymposiumDeviceLogin({
           {status.state === 'pending' &&
             status.method === 'device-code' &&
             status.verificationUrl &&
-            status.userCode &&
-            !statusFailed && (
+            status.userCode && (
               <div className="symposium-device-code">
                 <span>Enter this code on OpenAI</span>
                 <strong>{status.userCode}</strong>
@@ -271,11 +273,16 @@ export function SymposiumDeviceLogin({
             </p>
           )}
           <div className="symposium-device-actions">
-            {statusFailed || status.retryBlocked ? (
-              <button type="button" disabled={busy || disabled} onClick={() => void check()}>
+            {(statusFailed || status.retryBlocked) && (
+              <button
+                type="button"
+                disabled={busy || disabled}
+                onClick={() => void check(version.current)}
+              >
                 Retry status
               </button>
-            ) : status.state === 'pending' ? (
+            )}
+            {status.state === 'pending' ? (
               <button
                 type="button"
                 disabled={cancelling || disabled}
@@ -283,7 +290,7 @@ export function SymposiumDeviceLogin({
               >
                 Cancel sign-in
               </button>
-            ) : (
+            ) : !statusFailed && !status.retryBlocked ? (
               <button
                 type="button"
                 disabled={busy || starting || disabled}
@@ -291,7 +298,7 @@ export function SymposiumDeviceLogin({
               >
                 {status.state === 'completed' ? 'Reconnect ChatGPT' : 'Get sign-in code'}
               </button>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={() => {
