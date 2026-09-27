@@ -1,3 +1,6 @@
+import { SymposiumWorkspaceLifecycle } from './symposium-workspace-lifecycle.js';
+import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
+import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import {
   SymposiumSessionArtifacts,
@@ -17,10 +20,7 @@ import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
-import {
-  createSymposiumSubscriptionHost,
-  type SymposiumSubscriptionHostOptions,
-} from './symposium-subscription-host.js';
+import { type SymposiumSubscriptionHostOptions } from './symposium-subscription-host.js';
 import { createSymposiumSubscriptionSeatProof } from './symposium-subscription-seat-proof.js';
 import type {
   SymposiumDispatchFacts,
@@ -91,15 +91,15 @@ export async function createOwnedSymposiumHost(
   const gateway = await launch(options.gateway);
   let native: ReturnType<typeof initializeSymposiumNativeHost> | undefined;
   let leaseHost: SqliteArtifactLeaseHost | undefined;
+  let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
-  let subscription: ReturnType<typeof createSymposiumSubscriptionHost> | undefined;
   let stopped = false;
   let loginStarting = false;
   let loginQuarantined = false;
   let login:
     | Awaited<
         ReturnType<
-          ReturnType<typeof createSymposiumSubscriptionHost>['beginLogin' | 'beginDeviceLogin']
+          ReturnType<typeof createPersonalSubscriptionHost>['beginLogin' | 'beginDeviceLogin']
         >
       >
     | undefined;
@@ -257,12 +257,20 @@ export async function createOwnedSymposiumHost(
       runtimeConfig: { ...runtimeConfig, cliContract: 'v0.1' },
       verifyGatewayCustody: custody,
     });
-    subscription = createSymposiumSubscriptionHost({
-      ...options.personal,
-      workProfiles: preparedWork,
-      gateway,
-      seatProof,
-    });
+    const workspaceLifecycle = new SymposiumWorkspaceLifecycle(
+      join(options.gateway.stateParent, 'sandbox-creation-fence.json'),
+      custody,
+    );
+    subscription = createPersonalSubscriptionHost(
+      {
+        ...options.personal,
+        workProfiles: preparedWork,
+        gateway,
+        seatProof,
+        runCredentialCleanup: (operation) => workspaceLifecycle.cleanup(operation),
+      },
+      join(options.gateway.stateParent, 'personal-connections.json'),
+    );
     const artifactRequest = (
       sessionId: string,
       seatId: string,
@@ -341,7 +349,7 @@ export async function createOwnedSymposiumHost(
             : 'writer',
       };
     };
-    const startLogin = async (device: boolean) => {
+    const startLogin = async (device: boolean, selection?: ConnectionSelection) => {
       custody();
       if (loginQuarantined || login || loginStarting)
         throw new Error('Subscription login is already pending');
@@ -350,7 +358,9 @@ export async function createOwnedSymposiumHost(
         ReturnType<NonNullable<typeof subscription>['beginLogin' | 'beginDeviceLogin']>
       >;
       try {
-        pending = await (device ? subscription!.beginDeviceLogin() : subscription!.beginLogin());
+        pending = await (device
+          ? subscription!.beginDeviceLogin(selection)
+          : subscription!.beginLogin(selection));
       } catch (error) {
         if (error instanceof DeviceLoginCleanupError) loginQuarantined = true;
         throw error;
@@ -386,10 +396,14 @@ export async function createOwnedSymposiumHost(
       ensureSessionArtifacts,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: subscription.assertPrivateAuth,
-      beginLogin: () =>
-        startLogin(false) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
-      beginDeviceLogin: () =>
-        startLogin(true) as ReturnType<NonNullable<typeof subscription>['beginDeviceLogin']>,
+      runSandboxCreation: workspaceLifecycle.create,
+      personalConnections: subscription.personalConnections,
+      beginLogin: (selection?: ConnectionSelection) =>
+        startLogin(false, selection) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
+      beginDeviceLogin: (selection?: ConnectionSelection) =>
+        startLogin(true, selection) as ReturnType<
+          NonNullable<typeof subscription>['beginDeviceLogin']
+        >,
 
       stop() {
         if (stopped) return;

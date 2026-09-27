@@ -339,6 +339,67 @@ it('returns only verified display identity from an already completed device star
   expect(JSON.stringify(status.body)).not.toMatch(/secret|ABCD|access_token/);
 });
 
+it('binds code receipts to a selected slot and requires its revision', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const beginDeviceLogin = vi.fn().mockResolvedValue({
+    verificationUrl: 'https://auth.openai.com/codex/device',
+    userCode: 'ABCD-1234',
+    expiresAt: Date.now() + 60000,
+    completed: new Promise(() => {}),
+    cancel: vi.fn(),
+  });
+  const controller = createSubscriptionLoginController(() => ({ beginDeviceLogin }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  expect(
+    (await request(app).post('/login').send({ method: 'device-code', connectionId: 'one' })).status,
+  ).toBe(400);
+  const result = await request(app)
+    .post('/login')
+    .send({ method: 'device-code', connectionId: 'one', expectedRevision: 2 });
+  expect(result.body.connectionId).toBe('one');
+  expect(beginDeviceLogin).toHaveBeenCalledWith({ connectionId: 'one', expectedRevision: 2 });
+  expect((await request(app).get('/status?connectionId=two')).body).toEqual({ state: 'unknown' });
+  expect((await request(app).get('/status?connectionId=one')).body.userCode).toBe('ABCD-1234');
+  expect(
+    (
+      await request(app)
+        .post('/cancel')
+        .send({ attemptId: result.body.attemptId, connectionId: 'two' })
+    ).body,
+  ).toEqual({ state: 'unknown' });
+});
+
+it.each([
+  { method: 'device-code' },
+  { method: 'device-code', expectedRevision: 3 },
+  { callbackTransport: 'host-local' },
+  { callbackTransport: 'ssh-forwarded' },
+])('requires explicit current slot consent on a multi-slot host: %j', async (body) => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const beginDeviceLogin = vi.fn().mockRejectedValue(new Error('must not allocate'));
+  const beginLogin = vi.fn().mockRejectedValue(new Error('must not allocate'));
+  const controller = createSubscriptionLoginController(() => ({
+    personalConnections: {
+      list: () => [{ id: 'default', label: 'Default', revision: 3, state: 'connected' }],
+    },
+    beginDeviceLogin,
+    beginLogin,
+  }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  const result = await request(app).post('/login').send(body);
+  expect(result.status).toBe(400);
+  expect(beginDeviceLogin).not.toHaveBeenCalled();
+  expect(beginLogin).not.toHaveBeenCalled();
+});
+
 it.each([
   ['cancel', true],
   ['expire', true],
@@ -616,3 +677,58 @@ it.each(['status', 'cancel'])(
     }
   },
 );
+
+it('retains terminal receipts only for the selected connection and owner', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  const controller = createSubscriptionLoginController(
+    () => ({
+      beginDeviceLogin: async () => ({
+        verificationUrl: 'https://auth.openai.com/codex/device',
+        userCode: 'ABCD-1234',
+        expiresAt: Date.now() + 60000,
+        completed: Promise.resolve(),
+        cancel: async () => {},
+      }),
+    }),
+    (req) => req.header('x-owner'),
+  );
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  const first = (
+    await request(app)
+      .post('/login')
+      .set('x-owner', 'one')
+      .send({ method: 'device-code', connectionId: 'slot-one', expectedRevision: 1 })
+  ).body;
+  await request(app)
+    .post('/login')
+    .set('x-owner', 'two')
+    .send({ method: 'device-code', connectionId: 'slot-two', expectedRevision: 1 });
+  expect(
+    (
+      await request(app)
+        .get('/status')
+        .set('x-owner', 'one')
+        .query({ attemptId: first.attemptId, connectionId: 'slot-one' })
+    ).body.state,
+  ).toBe('completed');
+  expect(
+    (
+      await request(app)
+        .get('/status')
+        .set('x-owner', 'one')
+        .query({ attemptId: first.attemptId, connectionId: 'slot-two' })
+    ).body.state,
+  ).toBe('unknown');
+  expect(
+    (
+      await request(app)
+        .get('/status')
+        .set('x-owner', 'two')
+        .query({ attemptId: first.attemptId, connectionId: 'slot-one' })
+    ).body.state,
+  ).toBe('unknown');
+});

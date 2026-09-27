@@ -90,6 +90,7 @@ export class SymposiumSubscriptionProvisioner {
   };
   private pending?: { state: string; nonce: string; verifier: string; expires: number };
   private busy = false;
+  private resources = new Map<string, { refreshDeleted: boolean; providerDeleted: boolean }>();
   private generation = 0;
   constructor(
     private readonly host: SubscriptionProvisioningHost,
@@ -212,6 +213,80 @@ export class SymposiumSubscriptionProvisioner {
     };
   }
 
+  /** Fence first; only verified physical removal permits reuse of this slot. */
+  async disconnect(): Promise<void> {
+    this.invalidate();
+    if (this.busy) throw new Error('Subscription cleanup awaits provisioning completion');
+    const pages = async (args: string[], key: string): Promise<Record<string, unknown>[]> => {
+      const rows: Record<string, unknown>[] = [];
+      const seen = new Set<string>();
+      let token = '';
+      do {
+        this.verifyCustody();
+        const page = (await this.host.run([
+          ...args,
+          '--output',
+          'json',
+          '--page-size',
+          '100',
+          ...(token ? ['--page-token', token] : []),
+        ])) as Record<string, unknown>;
+        this.verifyCustody();
+        if (
+          !page ||
+          !Array.isArray(page[key]) ||
+          typeof page.next_page_token !== 'string' ||
+          !(page[key] as unknown[]).every((r) => r && typeof r === 'object')
+        )
+          throw new Error('Invalid cleanup inventory');
+        rows.push(...(page[key] as Record<string, unknown>[]));
+        token = page.next_page_token;
+        if (token && (seen.has(token) || seen.size >= 100))
+          throw new Error('Invalid cleanup pagination');
+        if (token) seen.add(token);
+      } while (token);
+      return rows;
+    };
+    try {
+      if (!this.resources.size) return;
+      // Attachment absence cannot prove a formerly projected credential cache
+      // was erased. Without durable projection/deletion lineage, require the
+      // entire owned workspace to have no surviving or starting sandboxes.
+      if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+        throw new Error('Owned workspace sandbox cleanup is required');
+      for (const [provider, proof] of this.resources) {
+        // These proofs exist only in this live, exclusively owned gateway.
+        // An ambiguous/NotFound response never creates a deletion proof.
+        if (!proof.refreshDeleted) {
+          await this.host.run([
+            'provider',
+            'refresh',
+            'delete',
+            provider,
+            '--credential-key',
+            'CODEX_AUTH_ACCESS_TOKEN',
+          ]);
+          this.verifyCustody();
+          proof.refreshDeleted = true;
+        }
+        if (!proof.providerDeleted) {
+          await this.host.run(['provider', 'delete', provider]);
+          this.verifyCustody();
+          proof.providerDeleted = true;
+        }
+        const remaining = await pages(['provider', 'list'], 'providers');
+        if (remaining.some((row) => typeof row.name !== 'string' || row.name === provider))
+          throw new Error('Provider absence is unconfirmed');
+        // An in-flight create may become visible after the first inventory.
+        if ((await pages(['sandbox', 'list'], 'sandboxes')).length)
+          throw new Error('Owned workspace sandbox cleanup is unconfirmed');
+        this.resources.delete(provider);
+      }
+    } catch {
+      throw new Error('Subscription credential cleanup is unconfirmed');
+    }
+  }
+
   private async installTokens(
     tokens: SubscriptionTokens,
     nonce: string | undefined,
@@ -230,6 +305,7 @@ export class SymposiumSubscriptionProvisioner {
       throw new Error('Subscription cached account identity changed');
     assertCurrent();
     const provider = `symposium-personal-${randomBytes(12).toString('hex')}`;
+    this.resources.set(provider, { refreshDeleted: false, providerDeleted: false }); // Track before creation: even a failed command may have created credentials.
     await this.host.run(
       [
         'provider',

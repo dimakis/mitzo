@@ -7,6 +7,7 @@ import './SymposiumDeviceLogin.css';
 const statusSchema = z.object({
   state: z.enum(['idle', 'pending', 'completed', 'failed', 'cancelled', 'expired', 'unknown']),
   attemptId: z.string().min(1).optional(),
+  connectionId: z.string().min(1).optional(),
   method: z.string().optional(),
   verificationUrl: z.string().optional(),
   userCode: z.string().min(1).max(64).optional(),
@@ -32,9 +33,17 @@ const messages: Record<Status['state'], string> = {
 export function SymposiumDeviceLogin({
   disabled = false,
   onAccountsChanged,
+  connectionId,
+  expectedRevision,
+  buttonLabel = 'Connect ChatGPT',
+  onPendingChange,
 }: {
   disabled?: boolean;
   onAccountsChanged?(): void;
+  connectionId?: string;
+  expectedRevision?: number;
+  buttonLabel?: string;
+  onPendingChange?(pending: boolean): void;
 }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>({ state: 'idle' });
@@ -54,6 +63,8 @@ export function SymposiumDeviceLogin({
   const refreshed = useRef(new Set<string>());
   const changed = useRef(onAccountsChanged);
   changed.current = onAccountsChanged;
+  const pendingChanged = useRef(onPendingChange);
+  pendingChanged.current = onPendingChange;
 
   function stop() {
     clearTimeout(timer.current);
@@ -72,6 +83,13 @@ export function SymposiumDeviceLogin({
     const next = statusSchema.parse(value);
     if (expectedId && next.attemptId !== expectedId && next.state !== 'unknown')
       throw new Error('Mismatched receipt');
+    if (
+      connectionId &&
+      next.attemptId &&
+      next.connectionId !== connectionId &&
+      next.state !== 'unknown'
+    )
+      throw new Error('Mismatched connection');
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
@@ -109,6 +127,7 @@ export function SymposiumDeviceLogin({
     if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
     attempt.current = next.attemptId ?? attempt.current;
     setStatus(next);
+    pendingChanged.current?.(next.state === 'pending');
     setError('');
     setStatusFailed(false);
     if (next.state === 'completed' && next.attemptId && !refreshed.current.has(next.attemptId)) {
@@ -125,9 +144,10 @@ export function SymposiumDeviceLogin({
     let continuePolling = false;
     const id = attempt.current;
     try {
-      const response = await apiFetch(
-        `${endpoint}/status${id ? `?attemptId=${encodeURIComponent(id)}` : ''}`,
-      );
+      const query = new URLSearchParams();
+      if (id) query.set('attemptId', id);
+      if (connectionId) query.set('connectionId', connectionId);
+      const response = await apiFetch(`${endpoint}/status${query.size ? `?${query}` : ''}`);
       if (!response.ok) throw new Error('Status unavailable');
       const value = await response.json();
       if (generation !== version.current) return;
@@ -171,6 +191,7 @@ export function SymposiumDeviceLogin({
       previousAttempt.current = attempt.current;
       attempt.current = undefined;
       startingVersion.current = generation;
+      pendingChanged.current?.(true);
       setStarting(true);
       schedule(generation);
     }
@@ -179,7 +200,9 @@ export function SymposiumDeviceLogin({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          kind === 'start' ? { method: 'device-code' } : { attemptId: attempt.current },
+          kind === 'start'
+            ? { method: 'device-code', ...(connectionId ? { connectionId, expectedRevision } : {}) }
+            : { attemptId: attempt.current },
         ),
       });
       if (!response.ok) throw new Error('Action unavailable');
@@ -218,7 +241,7 @@ export function SymposiumDeviceLogin({
             void check();
           }}
         >
-          Connect ChatGPT
+          {buttonLabel}
         </button>
       ) : (
         <>
@@ -245,8 +268,10 @@ export function SymposiumDeviceLogin({
             </p>
           )}
           <p>
-            This Mac holds one personal ChatGPT connection. Reconnect replaces it. Sign in again
-            after Mitzo restarts.
+            On your phone, sign in to the intended ChatGPT account first, then reopen the device
+            sign-in page in the same browser. If the page cannot accept the code, check the Security
+            setting and request a fresh code. An OpenAI page error does not by itself mean the code
+            expired.
           </p>
           {status.state === 'pending' &&
             status.method === 'device-code' &&
@@ -284,8 +309,8 @@ export function SymposiumDeviceLogin({
           )}
           {status.state === 'pending' && status.expiresAt && (
             <p>
-              This local attempt ends at {new Date(status.expiresAt).toLocaleTimeString()}. OpenAI
-              may require a new code sooner.
+              Mitzo will stop waiting at {new Date(status.expiresAt).toLocaleTimeString()}. This is
+              not OpenAI's code-expiry time.
             </p>
           )}
           {error && <p role="alert">{error}</p>}

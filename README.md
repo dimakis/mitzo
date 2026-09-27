@@ -505,11 +505,18 @@ Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is a
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
 Settings → Security, request a code, then open OpenAI on the phone or computer.
 The running Mac host completes the connection; the UI shows verified account
-identity and supports cancel, status recovery, and explicit reconnect. This host
-has one personal account slot. After a host restart, sign in again. Connecting
+identity and supports cancel, status recovery, and explicit reconnect. This host supports separate personal account slots. After a host restart, sign in again. Connecting
 does not select a reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
+
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Connection transitions sync the private metadata file and its parent directory before credential lifecycle operations proceed. Persistence failure fences the connection for recovery. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+
+Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
 
 The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
 checks native subscription account type and model availability without inference.
@@ -520,6 +527,7 @@ The no-inference discovery helper requires complete, bounded paginated sandbox a
 provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
+
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
 
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.

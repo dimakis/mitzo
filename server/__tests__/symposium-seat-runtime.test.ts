@@ -1003,12 +1003,21 @@ describe('last native Symposium dispatch fence', () => {
     expect(first.bindings).toEqual([{ name: 'openai-work', type: 'openai', id: 'openai-object' }]);
     expect(second.bindings).toEqual(first.bindings);
     const configurations: Array<{ accountProviderBindings?: readonly { name: string }[] }> = [];
+    let creationFenceEntries = 0;
+    let rejectQueued = true;
+    const creationRegistry = seatSandboxRegistry();
     const owner = new SymposiumPerSeatSandboxOwner({
+      runSandboxCreation: async (verify, operation) => {
+        if (rejectQueued) throw new Error('queued admission revoked');
+        verify();
+        creationFenceEntries++;
+        return operation(() => {});
+      },
       sessionId: 'symposium',
       facts,
       profiles,
       hostGrants,
-      seatSandboxRegistry: seatSandboxRegistry(),
+      seatSandboxRegistry: creationRegistry,
       resolveProviderIdentity: identities,
       runtimeConfig: {
         cli: 'openshell',
@@ -1031,18 +1040,30 @@ describe('last native Symposium dispatch fence', () => {
       managerFactory: (runtimeConfig) => {
         configurations.push(runtimeConfig);
         return {
-          ensure: async (runtimeId) => ({
-            sandboxName: runtimeId,
-            sandboxId: `id:${runtimeId}`,
-            workdir: '/sandbox/workspaces/mgmt',
-          }),
+          ensure: async (runtimeId) => {
+            runtimeConfig.beforeSandboxCreate?.();
+            return {
+              sandboxName: runtimeId,
+              sandboxId: `id:${runtimeId}`,
+              workdir: '/sandbox/workspaces/mgmt',
+            };
+          },
         };
       },
     });
+    await expect(
+      owner.ensure('symposium', 'reviewer', new AbortController().signal),
+    ).rejects.toThrow('queued admission revoked');
+    expect(
+      creationRegistry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.creationStarted,
+    ).toBe(false);
+    rejectQueued = false;
+    configurations.length = 0;
     const [a, b] = await Promise.all([
       owner.ensure('symposium', 'reviewer', new AbortController().signal),
       owner.ensure('symposium', 'builder', new AbortController().signal),
     ]);
+    expect(creationFenceEntries).toBe(2);
     expect(a.sandboxName).not.toBe(b.sandboxName);
     expect(configurations.map((value) => value.accountProviderBindings)).toEqual([
       first.bindings,

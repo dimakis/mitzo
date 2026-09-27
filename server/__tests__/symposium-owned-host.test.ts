@@ -52,9 +52,9 @@ function fixture() {
   };
   const options = {
     gateway: {
+      stateParent: root,
       gateway: 'owned',
       workspace: 'workspace',
-      stateParent: root,
       workloadImage: `sha256:${'a'.repeat(64)}`,
     },
     attestationPath: attestation,
