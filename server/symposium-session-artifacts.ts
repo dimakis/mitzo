@@ -153,8 +153,18 @@ export class SymposiumSessionArtifacts {
           "UPDATE symposium_session_artifacts SET state='ready', revision=revision+1 WHERE session_id=? AND revision=? AND state IN ('creating','uncertain','ready')",
         )
         .run(sessionId, revision);
+      if (updated.changes === 1) return { state: 'ready' } as SessionArtifactPreparation;
+      // A newer successful inspection is compatible with ours. Read its result
+      // without rewriting it; newer contradictory evidence must remain blocked.
+      const current = this.read(sessionId);
+      if (current) this.assertOwner(current);
       return {
-        state: updated.changes === 1 ? 'ready' : 'recovery_required',
+        state:
+          current?.state === 'ready' &&
+          current.volume_name === row.volume_name &&
+          current.generation === row.generation
+            ? 'ready'
+            : 'recovery_required',
       } as SessionArtifactPreparation;
     };
     try {
