@@ -383,6 +383,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
       volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
       return volume.Name + '\n';
     }
+    if (args[0] === 'create') {
+      expect(args).toContain('--network=none');
+      expect(args).toContain(`type=volume,src=${volume!.Name},dst=/sandbox/workspaces/mgmt`);
+      return 'a'.repeat(64);
+    }
+    if (args[0] === 'start') return 'MITZO_GIT_INITIALIZED_V1\n';
+    if (args[0] === 'rm') {
+      expect(args).toEqual(['rm', 'a'.repeat(64)]);
+      return 'a'.repeat(64);
+    }
     throw new Error('Unexpected command');
   });
   const before = readFileSync(f.options.attestationPath, 'utf8');
