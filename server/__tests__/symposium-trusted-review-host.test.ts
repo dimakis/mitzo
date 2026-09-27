@@ -396,6 +396,18 @@ it('dispatches only the persisted approved delivery and awaits physical refresh'
   expect(f.deps.artifacts.refresh).toHaveBeenCalledOnce();
   f.reviews.close();
 });
+it('reconciles a completed initial operation on a later request after a lost response', async () => {
+  const f = fixture();
+  const planned = prepare(f, 'initial');
+  completed(f, planned, 'done');
+  const reopened = createSymposiumTrustedReviewHost(f.deps);
+  await reopened.refreshArtifact!(context);
+  expect(f.deps.artifacts.refresh).toHaveBeenCalledWith(
+    context,
+    expect.objectContaining({ attempt: expect.objectContaining({ attemptId: 'initial' }) }),
+  );
+  f.reviews.close();
+});
 it('rejects a changed staged prompt before approving or dispatching', async () => {
   const f = fixture();
   const planned = prepare(f, 'initial');

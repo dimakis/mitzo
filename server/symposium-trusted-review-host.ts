@@ -127,6 +127,7 @@ const operation = (observation: NativeTurnObservation) =>
 export function createSymposiumTrustedReviewHost(
   deps: SymposiumTrustedReviewHostDeps,
 ): SymposiumInteractiveReviewHost {
+  const refreshTails = new Map<string, Promise<void>>();
   const workflow = (context: ReviewContext, id?: string): Workflow => {
     const state = id
       ? deps.reviews.get(id)
@@ -299,6 +300,28 @@ export function createSymposiumTrustedReviewHost(
     return parsed;
   };
   const host: SymposiumInteractiveReviewHost = {
+    async refreshArtifact(context) {
+      const prior = refreshTails.get(context.sessionId) ?? Promise.resolve();
+      const pending = prior
+        .catch(() => {})
+        .then(async () => {
+          const state = deps.reviews.applicationWorkflowForSession(context.sessionId);
+          if (!state) return;
+          if (state.owner !== context.owner) throw new Error('Review workflow owner changed');
+          for (const item of state.applicationAttempts) {
+            if (item.kind !== 'initial' && item.kind !== 'fix') continue;
+            const done = completion(context, item.attemptId);
+            if (!done || deps.artifacts.result(context, done)) continue;
+            await deps.artifacts.refresh(context, done);
+          }
+        });
+      refreshTails.set(context.sessionId, pending);
+      try {
+        await pending;
+      } finally {
+        if (refreshTails.get(context.sessionId) === pending) refreshTails.delete(context.sessionId);
+      }
+    },
     selectRoles() {
       throw new Error('Native O1 role-policy adapter unavailable');
     },
