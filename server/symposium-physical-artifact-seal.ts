@@ -542,7 +542,9 @@ export class PhysicalArtifactSealer {
       if (terminal.State?.Running !== false || terminal.State?.ExitCode !== 0)
         throw new Error('Sealed export terminal success is unconfirmed');
       const value = JSON.parse(output) as Record<string, unknown>;
-      if (JSON.stringify(gitProofSchema.parse(value.proof)) !== JSON.stringify(receipt.git))
+      if (
+        canonicalReviewJson(gitProofSchema.parse(value.proof)) !== canonicalReviewJson(receipt.git)
+      )
         throw new Error('Exported Git proof differs from seal');
       if (input.kind === 'inspect') sealedInspectionSchema.parse(value.inspection);
       else parseSealedBundle(value, input.maxBytes!);
