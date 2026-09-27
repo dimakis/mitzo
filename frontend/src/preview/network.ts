@@ -7,6 +7,8 @@ import {
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
 let deviceState = 'idle';
+let deviceAttemptId: string | undefined;
+let deviceAttemptSequence = 0;
 let deviceExpiresAt = 0;
 let deviceConnectionId: string | undefined;
 let originalConnectionState = 'reauth_required';
@@ -123,12 +125,14 @@ window.fetch = async (input, init) => {
         originalConnectionState = selected.state;
         selected.state = 'connecting';
       }
+      deviceAttemptId = `preview-device-${++deviceAttemptSequence}`;
       deviceState = 'pending';
       deviceExpiresAt = Date.now() + 600000;
     } else if (
       url.pathname === `${login}/cancel` &&
       method === 'POST' &&
-      body?.attemptId === 'preview-device' &&
+      deviceAttemptId &&
+      body?.attemptId === deviceAttemptId &&
       Object.keys(body).length === 1
     ) {
       deviceState = 'cancelled';
@@ -139,14 +143,14 @@ window.fetch = async (input, init) => {
       if (connectionId && connectionId !== deviceConnectionId)
         return Response.json({ state: 'idle' });
       const id = url.searchParams.get('attemptId');
-      if (id && id !== 'preview-device') return Response.json({ state: 'unknown', attemptId: id });
+      if (id && id !== deviceAttemptId) return Response.json({ state: 'unknown', attemptId: id });
     } else return denied();
     return Response.json(
       deviceState === 'pending'
         ? {
             state: deviceState,
             ...(deviceConnectionId ? { connectionId: deviceConnectionId } : {}),
-            attemptId: 'preview-device',
+            attemptId: deviceAttemptId,
             method: 'device-code',
             verificationUrl: 'https://auth.openai.com/codex/device',
             userCode: 'DEMO-CODE',
@@ -155,7 +159,7 @@ window.fetch = async (input, init) => {
         : {
             state: deviceState,
             ...(deviceConnectionId ? { connectionId: deviceConnectionId } : {}),
-            ...(deviceState === 'idle' ? {} : { attemptId: 'preview-device' }),
+            ...(deviceState === 'idle' ? {} : { attemptId: deviceAttemptId }),
           },
     );
   }
