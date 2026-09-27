@@ -2,7 +2,11 @@ import { SymposiumConfigSchema } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { SymposiumSessionArtifacts } from './symposium-session-artifacts.js';
 import type { SourceManifest } from './symposium-source-git.js';
-import { importSourceArtifact, SOURCE_IMPORT_CONTRACT } from './symposium-source-import.js';
+import {
+  importSourceArtifact,
+  SOURCE_IMPORT_CONTRACT,
+  SourceImportAttemptError,
+} from './symposium-source-import.js';
 import type { SymposiumArtifactOwner } from './symposium-artifact-owner.js';
 export type SourceImportRequest = {
   sessionId: string;
@@ -53,28 +57,41 @@ export function createSymposiumSourceHost(deps: {
           importer: SOURCE_IMPORT_CONTRACT,
         },
       });
-      const proof = await importSourceArtifact({
-        name: claim.volumeName,
-        owner: deps.owner,
-        bundle: request.bundle,
-        manifest: request.manifest,
-        command: deps.command,
-        custody: deps.custody,
-        authorize: () => {
-          scope(request);
-          authorize();
-        },
-        receipt: deps.artifacts.sourceImportHelperReceipt(claim),
-        observed: (value) => deps.artifacts.observeSourceImport(claim, value),
-      });
-      const receipt = {
-        ...proof,
-        manifest: request.manifest,
-        importer: SOURCE_IMPORT_CONTRACT,
-        operationId: request.operationId,
-      };
-      deps.artifacts.completeSourceImport(claim, receipt);
-      return receipt;
+      try {
+        const proof = await importSourceArtifact({
+          name: claim.volumeName,
+          owner: deps.owner,
+          bundle: request.bundle,
+          manifest: request.manifest,
+          command: deps.command,
+          custody: deps.custody,
+          authorize: () => {
+            scope(request);
+            authorize();
+          },
+          receipt: deps.artifacts.sourceImportHelperReceipt(claim),
+          observed: (value) => deps.artifacts.observeSourceImport(claim, value),
+        });
+        const receipt = {
+          ...proof,
+          manifest: request.manifest,
+          importer: SOURCE_IMPORT_CONTRACT,
+          operationId: request.operationId,
+        };
+        deps.artifacts.completeSourceImport(claim, receipt);
+        return receipt;
+      } catch (error) {
+        deps.artifacts.failSourceImport(
+          claim,
+          error instanceof SourceImportAttemptError
+            ? {
+                outcome: error.outcome,
+                ...(error.exitCode === undefined ? {} : { exitCode: error.exitCode }),
+              }
+            : { outcome: 'uncertain' },
+        );
+        throw error;
+      }
     },
   };
 }

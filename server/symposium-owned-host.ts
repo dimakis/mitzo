@@ -339,6 +339,16 @@ export async function createOwnedSymposiumHost(
     };
     const ensureSessionArtifacts = (sessionId: string) =>
       track(() => prepareSessionArtifacts(sessionId));
+    const sourceImporter = createSymposiumSourceHost({
+      artifacts: sessionArtifacts,
+      facts: options.facts,
+      owner: artifactOwner,
+      custody: () => {
+        if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
+        custody();
+      },
+      command: (args, input) => podmanText(args, undefined, true, input),
+    });
     const physical = new LocalSymposiumProductionPhysicalProof({
       cli: gateway.cli,
       podman: options.podman.executable,
@@ -765,16 +775,11 @@ export async function createOwnedSymposiumHost(
       artifactLeaseHost: leaseHost,
       artifactRequest,
       ensureSessionArtifacts,
-      sourceImport: createSymposiumSourceHost({
-        artifacts: sessionArtifacts,
-        facts: options.facts,
-        owner: artifactOwner,
-        custody: () => {
-          if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
-          custody();
-        },
-        command: (args, input) => track(() => podmanText(args, undefined, true, input)),
-      }),
+      sourceImport: {
+        status: sourceImporter.status,
+        import: (...args: Parameters<typeof sourceImporter.import>) =>
+          track(() => sourceImporter.import(...args)),
+      },
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: (
         ...args: Parameters<NonNullable<typeof subscription>['assertPrivateAuth']>

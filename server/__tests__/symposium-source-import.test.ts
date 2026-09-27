@@ -44,9 +44,9 @@ it('journals exact helper identity and output before later auth/custody checks, 
         receipt,
         observed: () => events.push('observed'),
       }),
-    ).rejects.toThrow('timeout');
-    expect(events).toEqual(['intent', 'create', 'created', 'start']);
-    expect(command).toHaveBeenCalledTimes(2);
+    ).rejects.toMatchObject({ outcome: 'uncertain' });
+    expect(events).toEqual(['intent', 'create', 'created', 'start', 'inspect']);
+    expect(command).toHaveBeenCalledTimes(3);
     expect(command).toHaveBeenCalledWith(
       ['start', '--attach', '--interactive', 'd'.repeat(64)],
       bundle,

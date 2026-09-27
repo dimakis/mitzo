@@ -18,6 +18,14 @@ export type SourceImportProof = {
   files: number;
   bytes: number;
 };
+export class SourceImportAttemptError extends Error {
+  constructor(
+    readonly outcome: 'failed' | 'uncertain',
+    readonly exitCode?: number,
+  ) {
+    super('Source helper import did not produce a verified completion');
+  }
+}
 export async function importSourceArtifact(input: {
   name: string;
   owner: SymposiumArtifactOwner;
@@ -79,7 +87,27 @@ export async function importSourceArtifact(input: {
   receipt.created(helperId);
   custody();
   authorize();
-  const output = await command(['start', '--attach', '--interactive', helperId], bundle);
+  let output: string;
+  try {
+    output = await command(['start', '--attach', '--interactive', helperId], bundle);
+  } catch {
+    let exitCode: number | undefined;
+    try {
+      const rows = JSON.parse(await command(['inspect', '--format', 'json', helperId]));
+      const row = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+      if (
+        row?.Id === helperId &&
+        row.State?.Running === false &&
+        row.State?.Status === 'exited' &&
+        Number.isInteger(row.State.ExitCode) &&
+        row.State.ExitCode > 0
+      )
+        exitCode = row.State.ExitCode;
+    } catch {
+      /* No conclusive physical observation: retain uncertainty. */
+    }
+    throw new SourceImportAttemptError(exitCode === undefined ? 'uncertain' : 'failed', exitCode);
+  }
   const proof = JSON.parse(output) as SourceImportProof;
   if (
     proof.commit !== manifest.baseOid ||

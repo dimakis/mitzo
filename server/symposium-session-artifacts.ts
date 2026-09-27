@@ -154,7 +154,11 @@ export class SymposiumSessionArtifacts {
     const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
     return {
       available: !!this.getReady(sessionId) && !row.admission_issued && !source,
-      state: source ? (source.receipt ? 'imported' : 'recovery_required') : 'empty',
+      state: source
+        ? source.receipt
+          ? 'imported'
+          : (source.failure?.outcome ?? 'recovery_required')
+        : 'empty',
       admissionIssued: !!row.admission_issued,
       volumeGeneration: row.generation,
       receipt: source?.receipt ?? null,
@@ -248,6 +252,14 @@ export class SymposiumSessionArtifacts {
   observeSourceImport(claim: SessionArtifactMapping & { token: string }, proof: unknown): void {
     this.updateSourceImport(claim, (value) => {
       value.observed = proof;
+    });
+  }
+  failSourceImport(
+    claim: SessionArtifactMapping & { token: string },
+    failure: { outcome: 'failed' | 'uncertain'; exitCode?: number },
+  ): void {
+    this.updateSourceImport(claim, (value) => {
+      value.failure = failure;
     });
   }
   completeSourceImport(claim: SessionArtifactMapping & { token: string }, receipt: unknown): void {

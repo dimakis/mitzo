@@ -844,3 +844,41 @@ it('keeps the production successor capability unavailable without a trusted fix 
     await host.stop();
   }
 });
+
+it('waits for the entire source import receipt lifecycle during shutdown between command boundaries', async () => {
+  const source = await import('../symposium-source-service.js');
+  const f = fixture();
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let receiptPersisted = false;
+  vi.spyOn(source, 'createSymposiumSourceHost').mockReturnValue({
+    status: () => ({ available: false, state: 'recovery_required' }),
+    import: async () => {
+      entered();
+      await gate;
+      receiptPersisted = true;
+      return {} as never;
+    },
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const operation = host.sourceImport.import({} as never, () => {});
+  await started;
+  host.beginShutdown();
+  const stopping = (async () => {
+    const signal = new AbortController().signal;
+    await host.drain(signal);
+    await host.closeAfterDrain(signal);
+  })();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
+  release();
+  await operation;
+  await stopping;
+  expect(receiptPersisted).toBe(true);
+  expect(f.gateway.stopAndWait).toHaveBeenCalledOnce();
+});
