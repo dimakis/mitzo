@@ -2412,6 +2412,33 @@ export class EventStore {
     if (result.changes !== 1) throw new Error('Symposium seat creation completion changed');
   }
 
+  /** Exact successful terminal create response; still reserved until configuration passes. */
+  recordSymposiumSeatSandboxTerminalCreate(input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+    physicalId: string;
+  }): void {
+    if (!input.sandboxName || !input.physicalId)
+      throw new Error('Missing terminal create identity');
+    const result = this.db!.prepare(
+      `UPDATE symposium_seat_sandboxes
+      SET sandbox_name=?,physical_id=?,creation_completed=1
+      WHERE session_id=? AND seat_id=? AND generation=? AND runtime_id=?
+      AND state='reserved' AND creation_started=1 AND creation_completed=0 AND physical_id IS NULL`,
+    ).run(
+      input.sandboxName,
+      input.physicalId,
+      input.sessionId,
+      input.seatId,
+      input.generation,
+      input.runtimeId,
+    );
+    if (result.changes !== 1) throw new Error('Terminal seat creation identity changed');
+  }
+
   confirmSymposiumSeatSandbox(input: {
     sessionId: string;
     seatId: string;

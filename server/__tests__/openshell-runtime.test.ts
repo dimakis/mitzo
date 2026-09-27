@@ -2645,3 +2645,71 @@ it('leaves owned cleanup available when actual manager provider preflight fails 
   expect(run.mock.calls.length).toBeGreaterThan(0);
   await expect(fence.cleanup(async () => {})).resolves.toBeUndefined();
 });
+
+it.each(['upload', 'unknown-create', 'wrong-id'] as const)(
+  'keeps native creation and %s outcome distinct',
+  async (failure) => {
+    const name = sandboxNameForConversation('conversation');
+    const receipt = {
+      name,
+      id: 'physical-native',
+      workspace: 'mitzo',
+      phase: 'Ready',
+      labels: {
+        'mitzo.conversation': owner,
+        'mitzo.account_provider': 'codex-personal',
+      },
+    };
+    const binding = { name: 'codex-personal', id: 'provider-native', type: 'codex' };
+    const settled = vi.fn();
+    const run = vi.fn(async (args: readonly string[]) => {
+      if (args.includes('list'))
+        return JSON.stringify({
+          providers: [{ ...binding, workspace: 'mitzo' }],
+          next_page_token: '',
+        });
+      if (args.includes('get')) throw new Error('sandbox not found');
+      if (args.includes('create')) {
+        if (failure === 'unknown-create') throw new Error('terminal response unavailable');
+        return JSON.stringify(
+          failure === 'wrong-id' ? { ...receipt, name: 'replacement' } : receipt,
+        );
+      }
+      if (args.includes('upload')) {
+        expect(settled).toHaveBeenCalledOnce();
+        throw new Error('upload unavailable');
+      }
+      return '{}';
+    });
+    const manager = new OpenShellRuntimeManager(
+      {
+        ...config,
+        cliContract: 'v0.1',
+        serviceProviders: [],
+        grantableServiceProviders: [],
+        account: {
+          kind: 'chatgpt-subscription-native',
+          provider: binding.name,
+          providerType: 'codex',
+          providerId: binding.id,
+          model: 'luna',
+        },
+        accountProviderBindings: [binding],
+        verifyAccountProviderUnion: () => {},
+        onSandboxCreateSettled: settled,
+      },
+      run,
+    );
+    await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow();
+    expect(run.mock.calls.find(([args]) => args.includes('create'))![0]).not.toContain('--upload');
+    if (failure === 'upload') {
+      expect(settled).toHaveBeenCalledWith(
+        expect.objectContaining({ sandboxId: 'physical-native', sandboxName: name }),
+      );
+      expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(true);
+    } else {
+      expect(settled).not.toHaveBeenCalled();
+      expect(run.mock.calls.some(([args]) => args.includes('upload'))).toBe(false);
+    }
+  },
+);

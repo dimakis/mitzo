@@ -289,6 +289,27 @@ function seatSandboxRegistry() {
         throw new Error('intent changed');
       row.creationStarted = false;
     },
+    recordSymposiumSeatSandboxTerminalCreate(input: {
+      sessionId: string;
+      seatId: string;
+      generation: number;
+      runtimeId: string;
+      sandboxName: string;
+      physicalId: string;
+    }) {
+      const row = rows.get(key(input.sessionId, input.seatId, input.generation));
+      if (
+        !row ||
+        row.runtimeId !== input.runtimeId ||
+        !row.creationStarted ||
+        row.creationCompleted ||
+        row.physicalId
+      )
+        throw new Error('terminal identity changed');
+      row.sandboxName = input.sandboxName;
+      row.physicalId = input.physicalId;
+      row.creationCompleted = true;
+    },
     markSymposiumSeatSandboxCreationCompleted(input: {
       sessionId: string;
       seatId: string;
@@ -2841,6 +2862,78 @@ describe('mixed personal subscription and work seat isolation', () => {
       snapshots.map((snapshot) => snapshot.bindings),
     );
     expect(configurations[2].account.kind).toBe('chatgpt-subscription-native');
+    const incompleteRegistry = seatSandboxRegistry();
+    let stopped = false;
+    const postCreate = vi.fn(
+      async (configuration: BoundOpenShellRuntimeConfig, runtimeId: string) => {
+        configuration.beforeSandboxCreate!();
+        configuration.onSandboxCreateSettled!({
+          sandboxName: runtimeId,
+          sandboxId: 'terminal-id',
+          workspace: 'default',
+          owner: 'mock-owner',
+          accountProvider: 'codex-personal',
+        });
+        throw new Error('upload failed');
+      },
+    );
+    const phasedDeps = {
+      ...deps,
+      seatSandboxRegistry: incompleteRegistry,
+      verifiedSubscriptionControllerCommand: ['/usr/local/bin/symposium-subscription-app-server'],
+      verifySubscriptionPrivateAuth: async () => {},
+      runSandboxCreation: async <T>(
+        _verify: () => void,
+        operation: (dispatch: () => void, settled?: () => void) => Promise<T>,
+      ) =>
+        operation(
+          () => {},
+          () => {},
+        ),
+      managerFactory: (configuration: BoundOpenShellRuntimeConfig) => ({
+        ensure: (runtimeId: string) => postCreate(configuration, runtimeId),
+        inspect: async () => ({
+          id: 'terminal-id',
+          phase: stopped ? ('Stopped' as const) : ('Ready' as const),
+        }),
+        inspectReserved: async () => undefined,
+        stop: async () => {
+          stopped = true;
+        },
+      }),
+    };
+    const phased = new SymposiumPerSeatSandboxOwner(phasedDeps);
+    await expect(
+      phased.ensure('symposium', 'personal', new AbortController().signal),
+    ).rejects.toThrow('upload failed');
+    const incomplete = incompleteRegistry.getSymposiumSeatSandbox(
+      'symposium',
+      'personal',
+      membership.generation,
+    )!;
+    expect(incomplete).toMatchObject({
+      state: 'reserved',
+      physicalId: 'terminal-id',
+      creationCompleted: true,
+    });
+    await expect(
+      phased.ensure('symposium', 'personal', new AbortController().signal),
+    ).rejects.toThrow('explicit cleanup');
+    expect(postCreate).toHaveBeenCalledOnce();
+    await expect(
+      new SymposiumPerSeatSandboxOwner(phasedDeps).stop(
+        'symposium',
+        'personal',
+        membership.generation,
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('retained terminal');
+    await phased.stop('symposium', 'personal', membership.generation, new AbortController().signal);
+    expect(
+      incompleteRegistry.getSymposiumSeatSandbox('symposium', 'personal', membership.generation)
+        ?.state,
+    ).toBe('stopped');
+
     expect(() =>
       snapshotSymposiumSeatProvider(
         'symposium',

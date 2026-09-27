@@ -365,7 +365,8 @@ type SeatSandboxRegistry = Pick<
   | 'listUnstoppedSymposiumSeatSandboxes'
   | 'confirmSymposiumSeatSandboxStopped'
   | 'confirmAbsentSymposiumSeatSandboxStopped'
->;
+> &
+  Partial<Pick<EventStore, 'recordSymposiumSeatSandboxTerminalCreate'>>;
 
 /** One owner serializes all seat/provider mutations for the shared session sandbox. */
 export class SymposiumSharedSandboxOwner {
@@ -506,6 +507,8 @@ export function snapshotSymposiumSeatProvider(
 
 /** Isolated sandbox per active seat; no credential is attached for another seat. */
 export class SymposiumPerSeatSandboxOwner {
+  /** Same-owner terminal proof for cleanup only; never restored from inventories/restart. */
+  private readonly terminalCreates = new Map<string, { sandboxName: string; sandboxId: string }>();
   readonly readOnlyEnforced: {
     openaiApi: boolean;
     claudeVertex: boolean;
@@ -630,6 +633,8 @@ export class SymposiumPerSeatSandboxOwner {
           providerType: binding.type,
           model: snapshot.account.model,
         });
+        if (reservation.state === 'reserved' && reservation.physicalId)
+          throw new Error('Created seat configuration incomplete; explicit cleanup required');
         const artifactRequest = this.deps.artifactRequest?.(sessionId, seatId, snapshot.generation);
         if (
           artifactRequest &&
@@ -659,6 +664,7 @@ export class SymposiumPerSeatSandboxOwner {
           : undefined;
         snapshot.verify();
         let physicalDispatch: (() => void) | undefined;
+        let terminalSettled: (() => void) | undefined;
         const manager = (
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
@@ -668,6 +674,43 @@ export class SymposiumPerSeatSandboxOwner {
                 beforeSandboxCreate: () => {
                   if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
                   physicalDispatch();
+                },
+              }
+            : {}),
+          ...(this.deps.runSandboxCreation &&
+          this.deps.runtimeConfig.cliContract === 'v0.1' &&
+          snapshot.account.kind === 'chatgpt-subscription-native' &&
+          this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate
+            ? {
+                onSandboxCreateSettled: (receipt) => {
+                  if (!terminalSettled) throw new Error('Missing terminal create fence');
+                  if (
+                    receipt.workspace !== this.deps.runtimeConfig.workspace ||
+                    receipt.accountProvider !== snapshot.account.provider
+                  )
+                    throw new Error('Terminal create receipt binding changed');
+                  const identity = {
+                    sandboxName: receipt.sandboxName,
+                    sandboxId: receipt.sandboxId,
+                  };
+                  // Bind cleanup identity before a provider/upload/mount postcheck may fail.
+                  if (lease)
+                    this.deps.artifactLeaseHost!.bindSandbox(
+                      lease.token,
+                      lease.revision,
+                      receipt.sandboxName,
+                      receipt.sandboxId,
+                    );
+                  this.deps.seatSandboxRegistry!.recordSymposiumSeatSandboxTerminalCreate!({
+                    sessionId,
+                    seatId,
+                    generation: snapshot.generation,
+                    runtimeId: snapshot.runtimeId,
+                    sandboxName: receipt.sandboxName,
+                    physicalId: receipt.sandboxId,
+                  });
+                  terminalSettled();
+                  this.terminalCreates.set(snapshot.runtimeId, identity);
                 },
               }
             : {}),
@@ -749,7 +792,8 @@ export class SymposiumPerSeatSandboxOwner {
             runtimeId: snapshot.runtimeId,
           });
         };
-        const create = async (markDispatched?: () => void) => {
+        const create = async (markDispatched?: () => void, markSettled?: () => void) => {
+          terminalSettled = markSettled;
           let started = false;
           physicalDispatch = () => {
             if (started) throw new Error('Seat creation dispatch already recorded');
@@ -822,13 +866,14 @@ export class SymposiumPerSeatSandboxOwner {
           sandboxName: sandbox.sandboxName,
           physicalId: sandbox.sandboxId,
         });
-        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
-          sessionId,
-          seatId,
-          generation: snapshot.generation,
-          runtimeId: snapshot.runtimeId,
-          physicalId: sandbox.sandboxId,
-        });
+        if (!this.terminalCreates.has(snapshot.runtimeId))
+          this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationCompleted({
+            sessionId,
+            seatId,
+            generation: snapshot.generation,
+            runtimeId: snapshot.runtimeId,
+            physicalId: sandbox.sandboxId,
+          });
         // A revocation during gateway creation leaves the exact physical ID
         // retained in the registry for the waiting stop operation.
         snapshot.verify();
@@ -861,6 +906,17 @@ export class SymposiumPerSeatSandboxOwner {
         )) {
           if (original.generation > generation) continue;
           let record: SymposiumSeatSandboxRecord = original;
+          if (record.state === 'reserved' && record.creationCompleted && record.physicalId) {
+            const terminal = this.terminalCreates.get(record.runtimeId);
+            if (
+              !terminal ||
+              terminal.sandboxId !== record.physicalId ||
+              terminal.sandboxName !== record.sandboxName
+            )
+              throw new Error(
+                'Incomplete seat cleanup requires retained terminal creation custody',
+              );
+          }
           if (record.workspace !== this.deps.runtimeConfig.workspace)
             throw new Error('Seat sandbox workspace changed before stop');
           const manager = (
