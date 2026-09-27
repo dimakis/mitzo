@@ -72,3 +72,21 @@ The receipt itself is synchronized before dispatch: each exclusive initial write
 atomic identity update syncs file contents and the containing directory. Cancellation
 SSH uses the same detached process-group termination on timeout and completion as the
 read transport, so its ProxyCommand is included in local cleanup.
+
+A rejected preflight before external creation can clear only the exact private
+journal created under the still-held host lock. This local rollback does not
+require current gateway custody, because no external allocation was dispatched.
+A replaced journal, lost lock, observed sandbox ID, or dispatched create retains
+reconciliation rather than claiming cleanup. The host records dispatch immediately
+before the CLI process starts; inventory and physical cleanup remain required
+for any dispatched attempt.
+
+An unreadable or malformed journal, or custody failure before journal absence is
+proved, reports reconciliation required. Successful cleanup deletes only the exact
+receipt under the retained lock; a replaced receipt or lost lock remains for host
+recovery instead of being erased. These checks apply to ordinary completion as
+well as undispatched rollback.
+
+Personal connection preflight failures before entering the discovery capability
+release their local discovery marker durably, allowing explicit disconnect. Once
+the capability is entered, a thrown error remains uncertain and retains recovery.

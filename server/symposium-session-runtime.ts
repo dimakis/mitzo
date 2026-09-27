@@ -1,4 +1,7 @@
-import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
+import {
+  SandboxCreationPreflightError,
+  type SandboxCreationFence,
+} from './symposium-workspace-lifecycle.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
@@ -750,11 +753,16 @@ export class SymposiumPerSeatSandboxOwner {
           let started = false;
           physicalDispatch = () => {
             if (started) throw new Error('Seat creation dispatch already recorded');
+            let localMarkersComplete = false;
             try {
               markCreationStarted();
+              localMarkersComplete = true;
+              markDispatched?.();
             } catch (error) {
-              // This synchronous callback has not reached the external dispatch fence.
-              // Only this retained lifecycle owner may undo its exact unbound intent.
+              if (localMarkersComplete && !(error instanceof SandboxCreationPreflightError))
+                throw error;
+              // Only local write rejection or the retained fence's explicit pre-write
+              // proof permits rollback. A failed uncertainty write stays quarantined.
               this.deps.seatSandboxRegistry!.rollbackUndispatchedSymposiumSeatCreation({
                 sessionId,
                 seatId,
@@ -773,7 +781,6 @@ export class SymposiumPerSeatSandboxOwner {
                 );
               throw error;
             }
-            markDispatched?.();
             started = true;
           };
           if (!this.deps.runSandboxCreation) physicalDispatch();
