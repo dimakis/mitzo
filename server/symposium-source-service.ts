@@ -18,9 +18,8 @@ export function createSymposiumSourceHost(deps: {
   artifacts: SymposiumSessionArtifacts;
   facts: Pick<EventStore, 'getSession'>;
   owner: SymposiumArtifactOwner;
-  stagingParent: string;
   custody(): void;
-  command(args: readonly string[]): Promise<string>;
+  command(args: readonly string[], input?: Buffer): Promise<string>;
 }) {
   const scope = (request: SourceImportRequest) => {
     deps.custody();
@@ -57,7 +56,6 @@ export function createSymposiumSourceHost(deps: {
       const proof = await importSourceArtifact({
         name: claim.volumeName,
         owner: deps.owner,
-        stagingParent: deps.stagingParent,
         bundle: request.bundle,
         manifest: request.manifest,
         command: deps.command,

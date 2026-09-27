@@ -36,7 +36,6 @@ it('journals exact helper identity and output before later auth/custody checks, 
       importSourceArtifact({
         name: 'mitzo-artifacts-test',
         owner: { image: 'pinned', uid: 998, gid: 998 },
-        stagingParent: root,
         bundle,
         manifest,
         command,
@@ -48,7 +47,11 @@ it('journals exact helper identity and output before later auth/custody checks, 
     ).rejects.toThrow('timeout');
     expect(events).toEqual(['intent', 'create', 'created', 'start']);
     expect(command).toHaveBeenCalledTimes(2);
-    expect(readdirSync(root)).toHaveLength(1);
+    expect(command).toHaveBeenCalledWith(
+      ['start', '--attach', '--interactive', 'd'.repeat(64)],
+      bundle,
+    );
+    expect(readdirSync(root)).toHaveLength(0);
     events.length = 0;
     command.mockImplementation(async (args) => {
       events.push(args[0]);
@@ -68,7 +71,6 @@ it('journals exact helper identity and output before later auth/custody checks, 
     await importSourceArtifact({
       name: 'mitzo-artifacts-other',
       owner: { image: 'pinned', uid: 998, gid: 998 },
-      stagingParent: root,
       bundle,
       manifest,
       command,

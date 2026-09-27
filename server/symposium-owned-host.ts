@@ -769,12 +769,11 @@ export async function createOwnedSymposiumHost(
         artifacts: sessionArtifacts,
         facts: options.facts,
         owner: artifactOwner,
-        stagingParent: options.gateway.stateParent,
         custody: () => {
           if (draining || stopped) throw new Error('Owned Symposium host is shutting down');
           custody();
         },
-        command: (args) => track(() => podmanText(args, undefined, true)),
+        command: (args, input) => track(() => podmanText(args, undefined, true, input)),
       }),
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: (

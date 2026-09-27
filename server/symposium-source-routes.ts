@@ -1,3 +1,4 @@
+import { sourceImportPublicError } from './symposium-source-errors.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { registerAuthSession, type AuthSession } from './auth.js';
@@ -70,9 +71,7 @@ export function createSymposiumSourceRouter(deps: {
           'All committed history reachable from this local base is imported. No remote fetch has verified the current GitHub head. Working tree, untracked files and host credentials are excluded.',
       });
     } catch (error) {
-      res
-        .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Source preview unavailable' });
+      res.status(409).json({ error: sourceImportPublicError(error) });
     }
   });
   router.post('/import', requireSameOriginJson, async (req, res) => {
@@ -130,10 +129,7 @@ export function createSymposiumSourceRouter(deps: {
         ),
       );
     } catch (error) {
-      if (!res.headersSent)
-        res
-          .status(409)
-          .json({ error: error instanceof Error ? error.message : 'Source import failed' });
+      if (!res.headersSent) res.status(409).json({ error: sourceImportPublicError(error) });
     } finally {
       unregister();
     }

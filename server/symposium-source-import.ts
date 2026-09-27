@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import type { SymposiumArtifactOwner } from './symposium-artifact-owner.js';
 import type { ArtifactInitializerReceipt } from './symposium-artifact-initializer.js';
@@ -23,10 +21,9 @@ export type SourceImportProof = {
 export async function importSourceArtifact(input: {
   name: string;
   owner: SymposiumArtifactOwner;
-  stagingParent: string;
   bundle: Buffer;
   manifest: SourceManifest;
-  command(args: readonly string[]): Promise<string>;
+  command(args: readonly string[], input?: Buffer): Promise<string>;
   custody(): void;
   authorize(): void;
   receipt: ArtifactInitializerReceipt;
@@ -35,7 +32,6 @@ export async function importSourceArtifact(input: {
   const { name, owner, bundle, manifest, command, custody, authorize, receipt } = input;
   if (
     !/^mitzo-artifacts-[A-Za-z0-9-]+$/.test(name) ||
-    !/^\/[A-Za-z0-9_./-]+$/.test(input.stagingParent) ||
     !bundle.length ||
     bundle.length > SOURCE_BUNDLE_MAX_BYTES ||
     bundle.length !== manifest.bundleBytes ||
@@ -44,11 +40,8 @@ export async function importSourceArtifact(input: {
     throw Error('Invalid source artifact input');
   custody();
   authorize();
-  const staging = mkdtempSync(join(input.stagingParent, 'source-import-'));
-  const path = join(staging, 'source.bundle');
-  writeFileSync(path, bundle, { mode: 0o444 });
   const helperName = `${name}-import`;
-  // Retain staged bytes after any ambiguous create/start. Never remove a running helper.
+  // Never remove or retry a helper after ambiguous create/start.
   receipt.intent(helperName);
   const helperId = (
     await command([
@@ -63,13 +56,14 @@ export async function importSourceArtifact(input: {
       '--pids-limit=32',
       '--memory=256m',
       '--cpus=1',
-      '--timeout=120',
+      '--timeout=50',
+      '--interactive',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,size=16m,mode=1777',
       '--user',
       `${owner.uid}:${owner.gid}`,
       '--mount',
       `type=volume,src=${name},dst=${SYMPOSIUM_ARTIFACT_TARGET}`,
-      '--mount',
-      `type=bind,src=${path},dst=/source.bundle,ro=true`,
       '--entrypoint=/usr/bin/python3',
       owner.image,
       '-I',
@@ -77,7 +71,7 @@ export async function importSourceArtifact(input: {
       '-c',
       SOURCE_GIT_IMPORTER,
       SYMPOSIUM_ARTIFACT_TARGET,
-      '/source.bundle',
+      '-',
       JSON.stringify(manifest),
     ])
   ).trim();
@@ -85,7 +79,7 @@ export async function importSourceArtifact(input: {
   receipt.created(helperId);
   custody();
   authorize();
-  const output = await command(['start', '--attach', helperId]);
+  const output = await command(['start', '--attach', '--interactive', helperId], bundle);
   const proof = JSON.parse(output) as SourceImportProof;
   if (
     proof.commit !== manifest.baseOid ||
@@ -104,6 +98,5 @@ export async function importSourceArtifact(input: {
   custody();
   await command(['rm', helperId]);
   receipt.removed();
-  rmSync(staging, { recursive: true, force: true });
   return proof;
 }

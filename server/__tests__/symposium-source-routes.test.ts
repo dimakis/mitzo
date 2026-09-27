@@ -1,3 +1,4 @@
+import { exportLocalSource } from '../symposium-source-git.js';
 import { expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -75,6 +76,12 @@ it('requires fresh auth, CSRF, exact scope and typed committed-history approval 
     }),
     expect.any(Function),
   );
+  vi.mocked(exportLocalSource).mockRejectedValueOnce(
+    new Error('ENOENT /private/account-state/auth.json'),
+  );
+  const failure = await post(body, auth.body.csrf);
+  expect(failure.status).toBe(409);
+  expect(JSON.stringify(failure.body)).not.toContain('/private/account-state');
   const status = await request(app)
     .get('/api/sessions/session/symposium/source')
     .set('Authorization', `Bearer ${token}`);

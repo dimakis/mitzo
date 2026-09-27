@@ -154,7 +154,7 @@ export class SymposiumSessionArtifacts {
     const source = row.source_import_json ? JSON.parse(row.source_import_json) : null;
     return {
       available: !!this.getReady(sessionId) && !row.admission_issued && !source,
-      state: source ? (source.receipt ? 'imported' : 'importing') : 'empty',
+      state: source ? (source.receipt ? 'imported' : 'recovery_required') : 'empty',
       admissionIssued: !!row.admission_issued,
       volumeGeneration: row.generation,
       receipt: source?.receipt ?? null,

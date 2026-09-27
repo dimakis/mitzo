@@ -448,7 +448,7 @@ it('keeps interrupted source import fenced after reopening and rejects stale vol
   expect(() => reopened.claimAdmission('session')).toThrow(/source import/);
   expect(reopened.sourceImportStatus('session')).toMatchObject({
     available: false,
-    state: 'importing',
+    state: 'recovery_required',
   });
 });
 
