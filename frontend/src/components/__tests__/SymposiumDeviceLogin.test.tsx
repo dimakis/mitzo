@@ -242,3 +242,91 @@ it('keeps retry enabled after cancelled fast allocation timers expire, then star
   expect(starts).toBe(2);
   expect(screen.getByText('ABCD-EFGH')).toBeTruthy();
 });
+
+it.each(['completed', 'failed', 'cancelled', 'expired', 'unknown'])(
+  'does not replace a polled %s receipt with a late pending start response',
+  async (state) => {
+    vi.useFakeTimers();
+    let finishStart!: (value: Response) => void;
+    let started = false;
+    vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === 'POST') {
+        started = true;
+        return new Promise((resolve) => {
+          finishStart = resolve;
+        });
+      }
+      return response(started ? { state, attemptId: pending.attemptId } : { state: 'idle' });
+    });
+    render(<SymposiumDeviceLogin />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(
+      (
+        screen.getByRole('button', {
+          name: state === 'completed' ? 'Reconnect ChatGPT' : 'Get sign-in code',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    const calls = vi.mocked(apiFetch).mock.calls.length;
+    await act(async () => finishStart(response(pending)));
+    expect(screen.queryByText(pending.userCode)).toBeNull();
+    await act(async () => vi.advanceTimersByTimeAsync(6000));
+    expect(screen.queryByText(pending.userCode)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+    expect(apiFetch).toHaveBeenCalledTimes(calls);
+  },
+);
+
+it('can cancel a known receipt while its status request is hung and ignores that late poll', async () => {
+  vi.useFakeTimers();
+  let finishPoll!: (value: Response) => void;
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(response(pending))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishPoll = resolve;
+        }),
+    )
+    .mockResolvedValue(response({ state: 'cancelled', attemptId: pending.attemptId }));
+  render(<SymposiumDeviceLogin />);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  const cancel = screen.getByRole('button', { name: 'Cancel sign-in' }) as HTMLButtonElement;
+  expect(cancel.disabled).toBe(false);
+  await act(async () => fireEvent.click(cancel));
+  await act(async () => finishPoll(response(pending)));
+  expect(screen.getByText(/Sign-in cancelled/)).toBeTruthy();
+  expect(screen.queryByText(pending.userCode)).toBeNull();
+});
+
+it('keeps only one polling chain when start resolves during an in-flight status request', async () => {
+  vi.useFakeTimers();
+  let finishStart!: (value: Response) => void;
+  let finishPoll!: (value: Response) => void;
+  let started = false;
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') {
+      started = true;
+      return new Promise((resolve) => {
+        finishStart = resolve;
+      });
+    }
+    if (!started) return response({ state: 'idle' });
+    return new Promise((resolve) => {
+      finishPoll = resolve;
+    });
+  });
+  render(<SymposiumDeviceLogin />);
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+  fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  await act(async () => finishStart(response(pending)));
+  await act(async () => vi.advanceTimersByTimeAsync(6000));
+  expect(apiFetch).toHaveBeenCalledTimes(3);
+  await act(async () => finishPoll(response(pending)));
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(apiFetch).toHaveBeenCalledTimes(4);
+});
