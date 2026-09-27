@@ -11,6 +11,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Symposium admission candidates](docs/features/symposium-owned-evidence.md) can resolve an explicitly selected Personal connection and ready session volume inside the retained host, without installing or activating admission.
 
+[Fresh Symposium artifacts](docs/operations/symposium-artifact-initialization.md) initialize an empty owned Git workspace before admission, retaining initializer identity and cleanup receipts. An opt-in credential-free physical contract checks native writer and read-only reviewer access; full application acceptance and restart recovery remain separate gates.
+
 - **Streaming chat** with thinking blocks, tool pills, and markdown
 - **Live token usage** — the chat token bar shows context and session totals for OpenAI Responses turns after the provider reports usage at completion.
 - **Three modes** — Ask (read-only), Agent (file edits allowed), Auto (shell too). Switch mid-chat.
