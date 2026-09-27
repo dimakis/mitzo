@@ -2,12 +2,17 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn } from 'node:child_process';
 import { createDiscoveryHostOperations } from '../symposium-model-discovery-host.js';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
+vi.mock('node:fs/promises', async (original) => {
+  const actual = await original<typeof import('node:fs/promises')>();
+  return { ...actual, open: vi.fn(actual.open) };
+});
 let root: string;
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
@@ -269,4 +274,57 @@ it('preserves supported dotted gateway/workspace names in the private SSH proces
     ]),
     expect.any(Object),
   );
+});
+
+it('syncs the creation receipt and directory before releasing persistence to the caller', async () => {
+  const { config, options } = fixture();
+  const events: string[] = [];
+  vi.mocked(open)
+    .mockResolvedValueOnce({
+      writeFile: async () => {
+        events.push('write');
+      },
+      sync: async () => {
+        events.push('file-sync');
+      },
+      close: async () => {
+        events.push('file-close');
+      },
+    } as never)
+    .mockResolvedValueOnce({
+      sync: async () => {
+        events.push('directory-sync');
+      },
+      close: async () => {
+        events.push('directory-close');
+      },
+    } as never);
+  await createDiscoveryHostOperations(config, options).persistReceipt(inventoryReceipt, true);
+  expect(events).toEqual(['write', 'file-sync', 'file-close', 'directory-sync', 'directory-close']);
+});
+it('terminates the cancellation SSH proxy process group when execFile times out', async () => {
+  const { config, options } = fixture();
+  const child = { pid: 987653, kill: vi.fn() };
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    setTimeout(() => {
+      child.kill();
+      (args[3] as (error: Error, stdout: string) => void)(new Error('timeout'), '');
+    }, 0);
+    return child;
+  }) as unknown as typeof execFile);
+  const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+  try {
+    await expect(
+      createDiscoveryHostOperations(config, options).cancel(inventoryReceipt),
+    ).rejects.toThrow('failed');
+    expect(execFile).toHaveBeenCalledWith(
+      'ssh',
+      expect.any(Array),
+      expect.objectContaining({ detached: true, shell: false }),
+      expect.any(Function),
+    );
+    expect(kill).toHaveBeenCalledWith(-987653, 'SIGTERM');
+  } finally {
+    kill.mockRestore();
+  }
 });

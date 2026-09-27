@@ -68,3 +68,7 @@ a process crash retains it and requires explicit host recovery after confirming 
 active owner remains. It is never automatically stolen using a PID or timeout.
 The read transport starts SSH in a detached process group and closes the entire
 group, including its OpenShell ProxyCommand, using the shared transport helper.
+The receipt itself is synchronized before dispatch: each exclusive initial write and
+atomic identity update syncs file contents and the containing directory. Cancellation
+SSH uses the same detached process-group termination on timeout and completion as the
+read transport, so its ProxyCommand is included in local cleanup.
