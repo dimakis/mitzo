@@ -15,6 +15,8 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'symposium-owned-config-test-'));
   roots.push(root);
   const profile = join(root, 'codex.yaml');
+  const policy = join(root, 'policy.yaml');
+  writeFileSync(policy, 'mock policy', { mode: 0o600 });
   writeFileSync(profile, 'id: codex\n');
   const sha = 'a'.repeat(64);
   const ref = { provider: 'keychain', service: 'test-service', account: 'work' };
@@ -45,7 +47,7 @@ function fixture() {
     },
     attestationPath: join(root, 'pending.json'),
     runtime: {
-      policy: '/private/policy',
+      policy,
       seed: '/private/seed',
       createDetached: true,
       sandboxIdLength: 13,

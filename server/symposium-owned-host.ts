@@ -1,3 +1,21 @@
+import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { runSymposiumModelDiscovery } from './symposium-model-discovery.js';
+import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
+import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
+import type { CatalogModel } from './model-catalog.js';
+import { SymposiumWorkspaceLifecycle } from './symposium-workspace-lifecycle.js';
+import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
+import type { ConnectionSelection } from './symposium-personal-connections.js';
+import { SymposiumConfigSchema } from '@mitzo/protocol';
+import {
+  SymposiumSessionArtifacts,
+  assertSessionArtifactVolume,
+  type SessionArtifactPreparation,
+} from './symposium-session-artifacts.js';
+
+import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
@@ -11,10 +29,7 @@ import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import { LocalPodmanArtifactEvidence } from './symposium-podman-evidence.js';
 import { LocalSymposiumProductionPhysicalProof } from './symposium-production-physical.js';
-import {
-  createSymposiumSubscriptionHost,
-  type SymposiumSubscriptionHostOptions,
-} from './symposium-subscription-host.js';
+import { type SymposiumSubscriptionHostOptions } from './symposium-subscription-host.js';
 import { createSymposiumSubscriptionSeatProof } from './symposium-subscription-seat-proof.js';
 import type {
   SymposiumDispatchFacts,
@@ -32,7 +47,7 @@ export interface OwnedSymposiumHostOptions {
   runtime: Pick<OpenShellRuntimeConfig, 'policy' | 'seed' | 'createDetached' | 'sandboxIdLength'>;
   podman: { executable: string; environment: NodeJS.ProcessEnv; sandboxNamespace: string };
   personal: Omit<SymposiumSubscriptionHostOptions, 'gateway' | 'seatProof'>;
-  facts: SymposiumDispatchFacts & Pick<EventStore, 'getSymposiumSeatSandbox'>;
+  facts: SymposiumDispatchFacts & Pick<EventStore, 'getSymposiumSeatSandbox' | 'getSession'>;
   hostGrants: SymposiumHostGrantVerifier;
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
@@ -47,6 +62,7 @@ export async function createOwnedSymposiumHost(
   options: OwnedSymposiumHostOptions,
   launch: typeof OwnedSymposiumGateway.launch = OwnedSymposiumGateway.launch,
   prepareGateway?: (gateway: OwnedSymposiumGateway) => Promise<readonly unknown[]>,
+  podmanCommand?: (args: readonly string[]) => Promise<string>,
 ) {
   if (
     !isAbsolute(options.attestationPath) ||
@@ -63,6 +79,17 @@ export async function createOwnedSymposiumHost(
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
+  const policyStat = lstatSync(options.runtime.policy);
+  if (
+    !policyStat.isFile() ||
+    policyStat.isSymbolicLink() ||
+    policyStat.uid !== process.getuid?.() ||
+    policyStat.mode & 0o022
+  )
+    throw new Error('Owned discovery policy must remain under host custody');
+  const policyDigest = createHash('sha256')
+    .update(readFileSync(options.runtime.policy))
+    .digest('hex');
   const artifacts = new Map<
     string,
     { sessionId: string; volumeName: string; volumeGeneration: string }
@@ -84,14 +111,15 @@ export async function createOwnedSymposiumHost(
   const gateway = await launch(options.gateway);
   let native: ReturnType<typeof initializeSymposiumNativeHost> | undefined;
   let leaseHost: SqliteArtifactLeaseHost | undefined;
-  let subscription: ReturnType<typeof createSymposiumSubscriptionHost> | undefined;
+  let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
+  let sessionArtifacts: SymposiumSessionArtifacts | undefined;
   let stopped = false;
   let loginStarting = false;
   let loginQuarantined = false;
   let login:
     | Awaited<
         ReturnType<
-          ReturnType<typeof createSymposiumSubscriptionHost>['beginLogin' | 'beginDeviceLogin']
+          ReturnType<typeof createPersonalSubscriptionHost>['beginLogin' | 'beginDeviceLogin']
         >
       >
     | undefined;
@@ -123,32 +151,26 @@ export async function createOwnedSymposiumHost(
     };
     native = initializeSymposiumNativeHost(join(gateway.stateDirectory, 'native-attempts'));
     const podmanEnv = { ...options.podman.environment };
-    const podman = (args: readonly string[]): Promise<unknown> =>
-      new Promise((resolve, reject) => {
-        try {
-          custody();
-        } catch (error) {
-          reject(error);
-          return;
-        }
-        execFile(
-          options.podman.executable,
-          [...args],
-          { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
-          (error, stdout) => {
-            if (error) {
-              reject(new Error('Owned Podman inspection failed'));
-              return;
-            }
-            try {
-              custody();
-              resolve(JSON.parse(stdout));
-            } catch (cause) {
-              reject(cause);
-            }
-          },
-        );
-      });
+    const podmanText = async (args: readonly string[]): Promise<string> => {
+      custody();
+      const text = podmanCommand
+        ? await podmanCommand(args)
+        : await new Promise<string>((resolve, reject) => {
+            execFile(
+              options.podman.executable,
+              [...args],
+              { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: 2 * 1024 * 1024 },
+              (error, stdout) => {
+                if (error) reject(new Error('Owned Podman operation failed'));
+                else resolve(stdout);
+              },
+            );
+          });
+      custody();
+      return text;
+    };
+    const podman = async (args: readonly string[]): Promise<unknown> =>
+      JSON.parse(await podmanText(args));
     const artifactEvidence = new LocalPodmanArtifactEvidence(
       gateway.workspace,
       options.podman.sandboxNamespace,
@@ -162,6 +184,79 @@ export async function createOwnedSymposiumHost(
       return podman(['volume', 'inspect', name]);
     });
     chmodSync(leasePath, 0o600);
+    // Session identities survive fresh gateway launches. Retain their reservations
+    // in the stable private parent, while recording launch custody in every row.
+    const parent = lstatSync(options.gateway.stateParent);
+    if (!parent.isDirectory() || parent.isSymbolicLink() || parent.mode & 0o077)
+      throw new Error('Session artifact state parent must be a private directory');
+    const sessionArtifactsPath = join(options.gateway.stateParent, 'session-artifacts.db');
+    try {
+      const ledger = lstatSync(sessionArtifactsPath);
+      if (!ledger.isFile() || ledger.isSymbolicLink() || ledger.mode & 0o077)
+        throw new Error('Session artifact ledger must be a private regular file');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    sessionArtifacts = new SymposiumSessionArtifacts(
+      sessionArtifactsPath,
+      gateway.workspace,
+      gateway.stateDirectory,
+      custody,
+      {
+        async inspect(name) {
+          const listed = await podman([
+            'volume',
+            'ls',
+            '--filter',
+            `name=^${name}$`,
+            '--format',
+            'json',
+          ]);
+          if (
+            !Array.isArray(listed) ||
+            listed.length > 1 ||
+            listed.some((row) => !row || typeof row !== 'object' || row.Name !== name)
+          )
+            throw new Error('Ambiguous artifact volume inventory');
+          return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
+        },
+        async create(name, labels) {
+          const result = await podmanText([
+            'volume',
+            'create',
+            '--driver',
+            'local',
+            ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
+            name,
+          ]);
+          if (result.trim() !== name) throw new Error('Artifact volume creation identity changed');
+        },
+      },
+    );
+    chmodSync(sessionArtifactsPath, 0o600);
+    const ensureSessionArtifacts = async (
+      sessionId: string,
+    ): Promise<SessionArtifactPreparation> => {
+      custody();
+      // A durable draft must already exist; this does not activate it or grant a seat.
+      const session = options.facts.getSession(sessionId);
+      const config = session?.symposiumConfig
+        ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+        : null;
+      if (session?.sessionType !== 'symposium' || config?.version !== 2)
+        throw new Error('A Symposium session is required');
+      const mapped = artifacts.get(sessionId);
+      if (mapped) {
+        assertSessionArtifactVolume(
+          gateway.workspace,
+          mapped,
+          await leaseHost!.inspectVolume(mapped.volumeName, 'podman'),
+        );
+        custody();
+        return { state: 'ready' };
+      }
+      return sessionArtifacts!.ensure(sessionId);
+    };
     const physical = new LocalSymposiumProductionPhysicalProof({
       cli: gateway.cli,
       podman: options.podman.executable,
@@ -182,19 +277,90 @@ export async function createOwnedSymposiumHost(
       runtimeConfig: { ...runtimeConfig, cliContract: 'v0.1' },
       verifyGatewayCustody: custody,
     });
-    subscription = createSymposiumSubscriptionHost({
-      ...options.personal,
-      workProfiles: preparedWork,
-      gateway,
-      seatProof,
-    });
+    const workspaceLifecycle = new SymposiumWorkspaceLifecycle(
+      join(options.gateway.stateParent, 'sandbox-creation-fence.json'),
+      custody,
+    );
+    subscription = createPersonalSubscriptionHost(
+      {
+        ...options.personal,
+        workProfiles: preparedWork,
+        gateway,
+        seatProof,
+        runCredentialCleanup: (operation) => workspaceLifecycle.cleanup(operation),
+      },
+      join(options.gateway.stateParent, 'personal-connections.json'),
+      async (proof) => {
+        custody();
+        proof.assertCurrent();
+        const gatewayConfigPath = join(gateway.stateDirectory, 'gateway.toml');
+        const gatewayConfigDigest = createHash('sha256')
+          .update(readFileSync(gatewayConfigPath))
+          .digest('hex');
+        const config = {
+          cliSha256: options.gateway.cliSha256,
+          workloadImage: options.gateway.workloadImage,
+          policySha256: policyDigest,
+          podmanUrl: `unix://${options.gateway.podmanSocket}`,
+          gateway: gateway.gateway,
+          workspace: gateway.workspace,
+          provider: proof.provider,
+        };
+        const operations = createDiscoveryHostOperations(config, {
+          cli: gateway.cli,
+          podman: options.podman.executable,
+          policy: options.runtime.policy,
+          journal: join(gateway.stateDirectory, 'model-discovery.json'),
+          namespace: options.podman.sandboxNamespace,
+          environment: { ...gateway.managementEnvironment },
+          configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o400 }],
+          attestGateway: async () => {
+            custody();
+            proof.assertCurrent();
+          },
+        });
+        const guarded = guardDiscoveryOperations(
+          operations,
+          () => {
+            custody();
+            proof.assertCurrent();
+          },
+          proof.account,
+        );
+        const fenced = fenceDiscoveryCreation(
+          guarded,
+          gateway.workspace,
+          workspaceLifecycle.create,
+          () => {
+            custody();
+            proof.assertCurrent();
+          },
+        );
+        let models: CatalogModel[] | undefined;
+        const result = await runSymposiumModelDiscovery(config, fenced.operations, (catalog) => {
+          custody();
+          proof.assertCurrent();
+          models = catalog;
+        });
+        custody();
+        proof.assertCurrent();
+        if (fenced.creationUncertain())
+          return { result: { status: 'reconciliation_required', inference: false } };
+        return { result, models };
+      },
+    );
     const artifactRequest = (
       sessionId: string,
       seatId: string,
       generation: number,
+      purpose: 'admission' | 'cleanup' = 'admission',
     ): ArtifactLeaseRequest => {
       custody();
-      const mapped = artifacts.get(sessionId);
+      const mapped =
+        artifacts.get(sessionId) ??
+        (purpose === 'cleanup'
+          ? sessionArtifacts!.getRetained(sessionId)
+          : sessionArtifacts!.getReady(sessionId));
       const config = options.facts.getActiveSymposiumConfig(sessionId);
       const seat = config.seats.find((row) => row.id === seatId);
       const membership = options.facts.getLatestSymposiumMembership(sessionId, seatId);
@@ -227,7 +393,7 @@ export async function createOwnedSymposiumHost(
             : 'writer',
       };
     };
-    const startLogin = async (device: boolean) => {
+    const startLogin = async (device: boolean, selection?: ConnectionSelection) => {
       custody();
       if (loginQuarantined || login || loginStarting)
         throw new Error('Subscription login is already pending');
@@ -236,7 +402,9 @@ export async function createOwnedSymposiumHost(
         ReturnType<NonNullable<typeof subscription>['beginLogin' | 'beginDeviceLogin']>
       >;
       try {
-        pending = await (device ? subscription!.beginDeviceLogin() : subscription!.beginLogin());
+        pending = await (device
+          ? subscription!.beginDeviceLogin(selection)
+          : subscription!.beginLogin(selection));
       } catch (error) {
         if (error instanceof DeviceLoginCleanupError) loginQuarantined = true;
         throw error;
@@ -264,17 +432,46 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
+      collectAdmissionEvidence: createOwnedEvidenceCollector(
+        runtimeConfig,
+        gateway.endpoint,
+        {
+          cli: gateway.cli,
+          podman: options.podman.executable,
+          cliEnv: gateway.managementEnvironment,
+          podmanEnv,
+        },
+        {
+          verifyCustodyAsync: async () => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyCustodyAsync();
+          },
+          verifyOwnedNativeHostAsync: async (binding) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyOwnedNativeHostAsync(binding);
+          },
+          verifyGatewayDriverConfigAsync: async (...args) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyGatewayDriverConfigAsync(...args);
+          },
+        },
+      ),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,
       artifactLeaseHost: leaseHost,
       artifactRequest,
+      ensureSessionArtifacts,
       verifySubscriptionPrivateAuth: subscription.verifyPrivateAuth,
       assertSubscriptionDispatch: subscription.assertPrivateAuth,
-      beginLogin: () =>
-        startLogin(false) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
-      beginDeviceLogin: () =>
-        startLogin(true) as ReturnType<NonNullable<typeof subscription>['beginDeviceLogin']>,
+      runSandboxCreation: workspaceLifecycle.create,
+      personalConnections: subscription.personalConnections,
+      beginLogin: (selection?: ConnectionSelection) =>
+        startLogin(false, selection) as ReturnType<NonNullable<typeof subscription>['beginLogin']>,
+      beginDeviceLogin: (selection?: ConnectionSelection) =>
+        startLogin(true, selection) as ReturnType<
+          NonNullable<typeof subscription>['beginDeviceLogin']
+        >,
 
       stop() {
         if (stopped) return;
@@ -292,6 +489,7 @@ export async function createOwnedSymposiumHost(
           } finally {
             try {
               leaseHost!.close();
+              sessionArtifacts!.close();
             } finally {
               gateway.stop();
             }
@@ -303,6 +501,7 @@ export async function createOwnedSymposiumHost(
     subscription?.invalidate();
     native?.registry.close();
     leaseHost?.close();
+    sessionArtifacts?.close();
     gateway.stop();
     throw error;
   }

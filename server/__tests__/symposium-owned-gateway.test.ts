@@ -256,3 +256,29 @@ it('does not accept a wildcard guest SAN', async () => {
   );
   expect(operations.start).not.toHaveBeenCalled();
 });
+
+it('async custody verifies files and process again after asynchronous listener observation', async () => {
+  const f = fixture();
+  let complete!: (pid: number) => void;
+  const operations = {
+    ...f.operations,
+    listenerPidAsync: vi.fn(
+      () =>
+        new Promise<number>((resolve) => {
+          complete = resolve;
+        }),
+    ),
+  };
+  const gateway = await OwnedSymposiumGateway.launch(f.options, operations);
+  try {
+    const pending = gateway.verifyCustodyAsync();
+    const rejected = expect(pending).rejects.toThrow('no longer live');
+    await vi.waitFor(() => expect(operations.listenerPidAsync).toHaveBeenCalledTimes(1));
+    Object.assign(f.child, { exitCode: 1 });
+    complete(4321);
+    await rejected;
+    expect(operations.listenerPidAsync).toHaveBeenCalledTimes(1);
+  } finally {
+    gateway.stop();
+  }
+});

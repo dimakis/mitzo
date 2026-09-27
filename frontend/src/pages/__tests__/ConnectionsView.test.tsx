@@ -6,8 +6,11 @@ import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { connectionErrorMessage, ConnectionsView } from '../ConnectionsView';
+import { apiFetch } from '../../lib/api-fetch';
 import * as connections from '../../lib/connections-api';
 import type { ConnectionTemplateCatalog, ConnectionsCatalog } from '../../types/connections';
+
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 
 vi.mock('../../lib/connections-api', () => ({
   getConnections: vi.fn(),
@@ -289,6 +292,10 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   vi.clearAllMocks();
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ connections: [] }),
+  } as Response);
   vi.mocked(connections.getConnections).mockResolvedValue(catalog);
   vi.mocked(connections.getConnectionTemplates).mockResolvedValue(templates);
   vi.mocked(connections.reauthorize).mockResolvedValue({
@@ -1017,11 +1024,16 @@ describe('ConnectionsView', () => {
   });
 });
 
-it('offers ChatGPT setup from Connections without a conversation', async () => {
+it('offers saved personal account management from Connections without a conversation', async () => {
   await act(async () => root.render(<ConnectionsView />));
+  expect(
+    Array.from(container.querySelectorAll('button')).some(
+      (item) => item.textContent === 'Add personal account',
+    ),
+  ).toBe(true);
   expect(
     Array.from(container.querySelectorAll('button')).some(
       (item) => item.textContent === 'Connect ChatGPT',
     ),
-  ).toBe(true);
+  ).toBe(false);
 });

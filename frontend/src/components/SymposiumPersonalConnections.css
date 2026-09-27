@@ -1,0 +1,65 @@
+.personal-connections {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.personal-connections h2 {
+  font-size: 1.15rem;
+  margin: 0 0 12px;
+}
+.personal-connections p {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.personal-connection-card {
+  border-top: 1px solid var(--border);
+  padding: 16px 0;
+}
+.personal-connection-card h3 {
+  font-size: 1rem;
+  margin: 0 0 6px;
+}
+.personal-connection-card p {
+  margin: 6px 0;
+}
+.personal-connection-status {
+  font-weight: 600;
+}
+.personal-connections button,
+.personal-connections input {
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  color: var(--text);
+  font: inherit;
+}
+.personal-connections button:disabled {
+  opacity: 0.5;
+}
+.personal-connections form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0;
+}
+.personal-connections form label {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 200px;
+}
+.personal-connections input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.personal-model-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}

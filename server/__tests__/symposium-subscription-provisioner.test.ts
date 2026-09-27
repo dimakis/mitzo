@@ -15,7 +15,7 @@ function fixture() {
   const host = {
     workspace: 'workspace',
     verifyCustody: vi.fn(),
-    run: vi.fn(async (args: string[], _environment?: Record<string, string>) =>
+    run: vi.fn(async (args: string[], _environment?: Record<string, string>): Promise<unknown> =>
       args[1] === 'create'
         ? undefined
         : args[1] === 'list'
@@ -219,4 +219,140 @@ it('fences a cancelled device completion and rejects a mismatched cached identit
     }),
   ).rejects.toThrow();
   expect(g.host.run).not.toHaveBeenCalled();
+});
+
+it('fences credentials and refuses deletion while any sandbox holds the provider', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  const provider = f.host.run.mock.calls[0][0][3];
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? args[1] === 'list'
+        ? { sandboxes: [{ name: 'seat' }], next_page_token: '' }
+        : { providers: [{ name: provider, type: 'codex' }], next_page_token: '' }
+      : (undefined as never),
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args.includes('delete'))).toBe(false);
+});
+it('removes refresh material then provider and verifies absence', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? { sandboxes: [], next_page_token: '' }
+      : args[1] === 'list'
+        ? { providers: [], next_page_token: '' }
+        : (undefined as never),
+  );
+  await f.service.disconnect();
+  const operations = f.host.run.mock.calls.map(([args]) => args);
+  expect(operations.some((args) => args.slice(0, 3).join(' ') === 'provider refresh delete')).toBe(
+    true,
+  );
+  expect(operations.some((args) => args.slice(0, 2).join(' ') === 'provider delete')).toBe(true);
+});
+
+it('refuses even detached or unrelated surviving sandboxes without credential deletion lineage', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? { sandboxes: [{ name: 'unrelated', state: 'Stopped' }], next_page_token: '' }
+      : { providers: [], next_page_token: '' },
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args.includes('delete'))).toBe(false);
+});
+it('does not certify cleanup when a starting sandbox appears after provider deletion', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let inventories = 0;
+  f.host.run.mockImplementation(async (args) =>
+    args[0] === 'sandbox'
+      ? {
+          sandboxes: ++inventories === 1 ? [] : [{ name: 'late-seat', state: 'Creating' }],
+          next_page_token: '',
+        }
+      : args[1] === 'list'
+        ? { providers: [], next_page_token: '' }
+        : undefined,
+  );
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(inventories).toBe(2);
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+});
+
+it('retries verified cleanup after a late sandbox disappears without repeating acknowledged deletes', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let sandboxReads = 0;
+  let retry = false;
+  const deleted = new Set<string>();
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox')
+      return {
+        sandboxes: !retry && ++sandboxReads > 1 ? [{ name: 'late-seat', state: 'Creating' }] : [],
+        next_page_token: '',
+      };
+    if (args[1] === 'list') return { providers: [], next_page_token: '' };
+    const operation = args.slice(0, 3).join(' ');
+    if (deleted.has(operation)) throw new Error('NotFound: refresh record or provider is absent');
+    deleted.add(operation);
+    return undefined;
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  retry = true;
+  await expect(f.service.disconnect()).resolves.toBeUndefined();
+  expect(deleted.size).toBe(2);
+  expect(
+    f.host.run.mock.calls.filter(([args]) => args[1] === 'refresh' && args[2] === 'delete'),
+  ).toHaveLength(1);
+  expect(f.host.run.mock.calls.filter(([args]) => args[1] === 'delete')).toHaveLength(1);
+});
+it('retains acknowledged refresh deletion when provider deletion needs a retry', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  let refreshDeleted = false;
+  let providerAttempts = 0;
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox') return { sandboxes: [], next_page_token: '' };
+    if (args[1] === 'list') return { providers: [], next_page_token: '' };
+    if (args[1] === 'refresh') {
+      if (refreshDeleted) throw new Error('NotFound');
+      refreshDeleted = true;
+      return;
+    }
+    if (args[1] === 'delete' && ++providerAttempts === 1)
+      throw new Error('Transient unacknowledged removal');
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  await expect(f.service.disconnect()).resolves.toBeUndefined();
+  expect(providerAttempts).toBe(2);
+});
+it('does not treat an unacknowledged NotFound as proof that refresh material was deleted', async () => {
+  const f = fixture();
+  await f.service.complete(f.begin());
+  f.host.run.mockImplementation(async (args) => {
+    if (args[0] === 'sandbox') return { sandboxes: [], next_page_token: '' };
+    throw new Error('NotFound');
+  });
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  await expect(f.service.disconnect()).rejects.toThrow('cleanup');
+  expect(f.host.run.mock.calls.some(([args]) => args[1] === 'delete')).toBe(false);
+});
+
+it('captures only a live verified receipt and fences publication after receipt replacement', async () => {
+  const f = fixture();
+  expect(() => f.service.captureDiscovery()).toThrow('receipt');
+  await f.service.complete(f.begin());
+  const proof = f.service.captureDiscovery();
+  expect(proof.provider).toEqual({ name: f.host.run.mock.calls[0][0][3], id: 'provider-id' });
+  expect(() => proof.publishBinding({ ...f.binding, accountId: 'another' })).toThrow('account');
+  proof.publishBinding({ ...f.binding, profileRevision: 'catalog-revision' });
+  expect(() => proof.assertCurrent()).toThrow('changed');
+  const newer = f.service.captureDiscovery();
+  expect(newer.binding.profileRevision).toBe('catalog-revision');
+  f.service.invalidate();
+  expect(() => newer.assertCurrent()).toThrow('changed');
 });

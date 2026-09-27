@@ -1,6 +1,7 @@
 import { beginDeviceLogin, DeviceLoginCleanupError } from './symposium-device-login.js';
 import { spawnSync } from 'node:child_process';
 import { AccountProfiles } from './account-profiles.js';
+import { z } from 'zod';
 import { CatalogModel } from './model-catalog.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
@@ -12,6 +13,7 @@ import {
 
 export interface SymposiumSubscriptionHostOptions {
   gateway: OwnedSymposiumGateway;
+  runCredentialCleanup?: <T>(operation: () => Promise<T>) => Promise<T>;
   seatProof: {
     assertCurrent(input: Parameters<VerifySymposiumSubscriptionAuth>[0]): void;
     verify: VerifySymposiumSubscriptionAuth;
@@ -53,6 +55,8 @@ export function createSymposiumSubscriptionHost(
   const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
   let active = workProfiles;
   let staged: AccountProfiles | undefined;
+  let definition: unknown;
+  let stagedDefinition: unknown;
   const service = new SymposiumSubscriptionProvisioner({
     workspace: gateway.workspace,
     verifyCustody() {
@@ -61,7 +65,11 @@ export function createSymposiumSubscriptionHost(
     async run(args, secrets = {}) {
       gateway.verifyCustody();
       if (
-        args[0] !== 'provider' ||
+        (args[0] !== 'provider' &&
+          !(
+            args[0] === 'sandbox' &&
+            (args[1] === 'list' || (args[1] === 'provider' && args[2] === 'list'))
+          )) ||
         Object.keys(secrets).some(
           (key) =>
             ![
@@ -74,14 +82,7 @@ export function createSymposiumSubscriptionHost(
         throw new Error('Invalid subscription management operation');
       const result = runProcess(
         gateway.cli,
-        [
-          'provider',
-          '--gateway',
-          gateway.gateway,
-          '--workspace',
-          gateway.workspace,
-          ...args.slice(1),
-        ],
+        [args[0], '--gateway', gateway.gateway, '--workspace', gateway.workspace, ...args.slice(1)],
         {
           env: { ...environment, ...secrets },
           encoding: 'utf8',
@@ -92,7 +93,7 @@ export function createSymposiumSubscriptionHost(
       gateway.verifyCustody();
       if (result.error || result.status !== 0)
         throw new Error('Subscription management operation failed');
-      if (args[1] !== 'list') return undefined;
+      if (!args.includes('list')) return undefined;
       try {
         return JSON.parse(String(result.stdout));
       } catch {
@@ -100,6 +101,18 @@ export function createSymposiumSubscriptionHost(
       }
     },
     async installProfile(identity) {
+      stagedDefinition = {
+        id: options.accountId,
+        label: options.label,
+        provider: 'openai-codex',
+        nativeAuth: 'sandbox-chatgpt',
+        email: identity.email,
+        planType: identity.planType,
+        sandboxProvider: identity.provider,
+        sandboxProviderType: 'codex',
+        sandboxProviderId: identity.providerId,
+        models,
+      };
       staged = new AccountProfiles(
         [
           ...work,
@@ -125,6 +138,8 @@ export function createSymposiumSubscriptionHost(
     service.invalidate();
     active = workProfiles;
     staged = undefined;
+    definition = undefined;
+    stagedDefinition = undefined;
   };
   const assertSelection = (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => {
     const binding = input.execution.seat.accountBinding;
@@ -146,6 +161,7 @@ export function createSymposiumSubscriptionHost(
         gateway.verifyCustody();
         if (!staged) throw new Error('Subscription profile installation did not complete');
         active = staged;
+        definition = stagedDefinition;
         staged = undefined;
         return result;
       })
@@ -156,6 +172,38 @@ export function createSymposiumSubscriptionHost(
       });
 
   return {
+    captureDiscovery() {
+      const proof = service.captureDiscovery();
+      if (!definition) throw new Error('Connected account required');
+      return {
+        provider: proof.provider,
+        account: proof.account,
+        assertCurrent: proof.assertCurrent,
+        publish: (catalog: unknown, revision: number) => {
+          proof.assertCurrent();
+          const nextModels = z.array(CatalogModel).min(1).parse(catalog);
+          const nextDefinition = {
+            ...(definition as Record<string, unknown>),
+            models: nextModels,
+            nativeCatalogRevision: revision,
+          };
+          const next = new AccountProfiles([...work, nextDefinition], { codexEnabled: true });
+          const binding = next.resolve(options.accountId, nextModels[0].id);
+          proof.publishBinding(binding);
+          active = next;
+          definition = nextDefinition;
+        },
+      };
+    },
+    get activeDefinition() {
+      return definition;
+    },
+    async disconnect() {
+      invalidate();
+      await (options.runCredentialCleanup
+        ? options.runCredentialCleanup(() => service.disconnect())
+        : service.disconnect());
+    },
     get currentProfiles(): AccountProfiles {
       try {
         gateway.verifyCustody();
@@ -190,6 +238,7 @@ export function createSymposiumSubscriptionHost(
           gateway.verifyCustody();
           if (!staged) throw new Error('Subscription profile installation did not complete');
           active = staged;
+          definition = stagedDefinition;
           staged = undefined;
           return result;
         })

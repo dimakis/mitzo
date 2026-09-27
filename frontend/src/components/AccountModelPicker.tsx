@@ -1,7 +1,6 @@
-import { SymposiumDeviceLogin } from './SymposiumDeviceLogin';
+import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
-import { SymposiumSubscriptionLogin } from './SymposiumSubscriptionLogin';
 import { apiFetch } from '../lib/api-fetch';
 
 export interface AccountSelection {
@@ -59,8 +58,10 @@ export function AccountModelPicker({
   onUnavailable,
   disabled = false,
   scope = 'chat',
+  requireExplicitSelection = false,
 }: {
   scope?: 'chat' | 'symposium';
+  requireExplicitSelection?: boolean;
   disabled?: boolean;
   sessionId: string | null;
   preferredModel: string;
@@ -79,10 +80,12 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [personalAccountsOpen, setPersonalAccountsOpen] = useState(false);
   const [legacyRequested, setLegacy] = useState(false);
   const legacy = scope === 'chat' && legacyRequested;
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
+  const [draftUnavailable, setDraftUnavailable] = useState(false);
   const callbacks = useRef({ onChange, onUnavailable });
   callbacks.current = { onChange, onUnavailable };
   useEffect(() => {
@@ -96,6 +99,7 @@ export function AccountModelPicker({
     setFixedSession(false);
     setSelection(null);
     setEmpty(false);
+    setDraftUnavailable(false);
     callbacks.current.onChange(null);
     const baseUrl =
       scope === 'symposium'
@@ -173,13 +177,13 @@ export function AccountModelPicker({
               account,
             );
             setSelection(next);
-            callbacks.current.onChange(next);
+            callbacks.current.onChange(requireExplicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
               : { model: preferredModel };
             setFixedSession(true);
-            callbacks.current.onChange(next);
+            callbacks.current.onChange(requireExplicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding
@@ -203,6 +207,18 @@ export function AccountModelPicker({
           }
           setAccounts(catalog);
           const previous = attempt ? selectionRef.current : null;
+          if (
+            scope === 'symposium' &&
+            previous &&
+            !catalog.some(
+              (a) => a.id === previous.accountId && a.models.some((m) => m.id === previous.model),
+            )
+          ) {
+            setSelection(previous);
+            setDraftUnavailable(true);
+            callbacks.current.onUnavailable?.();
+            return;
+          }
           const first = catalog.find((a) => a.id === previous?.accountId) ?? catalog[0];
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
@@ -215,7 +231,7 @@ export function AccountModelPicker({
             first,
           );
           setSelection(selected);
-          callbacks.current.onChange(selected);
+          callbacks.current.onChange(requireExplicitSelection ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -229,22 +245,24 @@ export function AccountModelPicker({
     };
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, attempt, legacy, scope]);
+  }, [sessionId, attempt, legacy, scope, requireExplicitSelection]);
   const subscriptionLogin =
     scope === 'symposium' ? (
       <>
-        <SymposiumDeviceLogin
+        <button
+          type="button"
           disabled={disabled}
-          onAccountsChanged={() => setAttempt((value) => value + 1)}
-        />
-        <details>
-          <summary>Browser callback alternative</summary>
-          <SymposiumSubscriptionLogin
+          aria-expanded={personalAccountsOpen}
+          onClick={() => setPersonalAccountsOpen((open) => !open)}
+        >
+          Manage personal ChatGPT accounts
+        </button>
+        {personalAccountsOpen && (
+          <SymposiumPersonalConnections
             disabled={disabled}
-            onComplete={() => setAttempt((value) => value + 1)}
-            onCatalogRefresh={() => setAttempt((value) => value + 1)}
+            onAccountsChanged={() => setAttempt((value) => value + 1)}
           />
-        </details>
+        )}
       </>
     ) : null;
   if (error)
@@ -283,11 +301,20 @@ export function AccountModelPicker({
       </>
     );
   if (!selection) return <span>Loading accounts…</span>;
-  const account = accounts.find((a) => a.id === (selection.accountId ?? ''));
+  const account =
+    accounts.find((a) => a.id === (selection.accountId ?? '')) ??
+    (draftUnavailable
+      ? { id: selection.accountId ?? '', label: 'Unavailable account', models: [] }
+      : undefined);
   if (!account) return <span role="alert">Selected account is unavailable. Reopen the task.</span>;
   return (
     <>
       {subscriptionLogin}
+      {draftUnavailable && (
+        <span role="alert">
+          Selected account or model is unavailable. Choose an account and model explicitly.
+        </span>
+      )}
       {sessionId ? (
         <span className="chat-account-binding">{account.label}</span>
       ) : legacy ? (
@@ -305,10 +332,16 @@ export function AccountModelPicker({
               { accountId: nextAccount.id, model: nextAccount.models[0].id },
               nextAccount,
             );
+            setDraftUnavailable(false);
             setSelection(next);
-            onChange(next);
+            onChange(requireExplicitSelection ? null : next);
           }}
         >
+          {!accounts.some((a) => a.id === account.id) && (
+            <option value={account.id} disabled>
+              {account.label}
+            </option>
+          )}
           {accounts.map((a) => (
             <option key={a.id} value={a.id}>
               {a.label}
@@ -384,8 +417,9 @@ export function AccountModelPicker({
             { accountId: selection.accountId, model: e.target.value },
             account,
           );
+          setDraftUnavailable(false);
           setSelection(next);
-          onChange(next);
+          onChange(requireExplicitSelection ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -409,7 +443,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(next);
+            onChange(requireExplicitSelection ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -424,6 +458,12 @@ export function AccountModelPicker({
       )}
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
+      )}
+      {requireExplicitSelection && (
+        <button type="button" disabled={disabled} onClick={() => onChange(selection)}>
+          Use {account.label} ·{' '}
+          {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
+        </button>
       )}
       {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>

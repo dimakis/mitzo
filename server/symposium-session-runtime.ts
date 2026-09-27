@@ -1,3 +1,4 @@
+import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
@@ -154,7 +155,9 @@ export interface SymposiumProviderUnion {
   verify(): void;
 }
 
-type SeatProviderPhase = 'candidate' | 'reconciling' | 'confirmed';
+// Retained admission revalidates an already-confirmed generation at a new config
+// revision. It never authorizes sandbox attachment or dispatch without admission.
+type SeatProviderPhase = 'candidate' | 'retained' | 'reconciling' | 'confirmed';
 
 /** Freeze the exact admitted generation and physical provider inventory for one reconciliation. */
 export function snapshotSymposiumProviderUnion(
@@ -186,11 +189,13 @@ export function snapshotSymposiumProviderUnion(
     for (const seat of config.seats) {
       const membership = facts.getLatestSymposiumMembership(sessionId, seat.id);
       if (membership?.state !== 'active') continue;
+      if (phase === 'retained' && membership.reconciliation !== 'confirmed')
+        throw new Error('Retained Symposium seat membership is not confirmed');
       const binding = seat.accountBinding;
       if (!binding) throw new Error('Active Symposium seat lacks account binding');
       const admission = facts.getLatestSymposiumAdmission(sessionId, seat.id, config.revision);
       if (
-        (phase !== 'candidate' && admission?.decision !== 'admitted') ||
+        (phase !== 'candidate' && phase !== 'retained' && admission?.decision !== 'admitted') ||
         (admission != null &&
           (admission.decision !== 'admitted' ||
             admission.membershipGeneration !== membership.generation ||
@@ -294,6 +299,7 @@ export function snapshotSymposiumProviderUnion(
 }
 
 export interface SymposiumSharedSandboxOwnerDeps {
+  runSandboxCreation?: SandboxCreationFence;
   sessionId: string;
   facts: SymposiumDispatchFacts;
   profiles: AccountProfiles;
@@ -442,7 +448,8 @@ export function snapshotSymposiumSeatProvider(
     const membership = facts.getLatestSymposiumMembership(sessionId, seatId);
     if (
       membership?.state !== 'active' ||
-      (phase === 'confirmed' && membership.reconciliation !== 'confirmed') ||
+      ((phase === 'confirmed' || phase === 'retained') &&
+        membership.reconciliation !== 'confirmed') ||
       (phase === 'candidate' && membership.reconciliation !== 'pending') ||
       (phase === 'reconciling' &&
         membership.reconciliation !== 'pending' &&
@@ -545,6 +552,7 @@ export class SymposiumPerSeatSandboxOwner {
         sessionId: string,
         seatId: string,
         generation: number,
+        purpose?: 'admission' | 'cleanup',
       ) => ArtifactLeaseRequest;
       artifactLeaseHost?: SqliteArtifactLeaseHost;
     },
@@ -646,10 +654,19 @@ export class SymposiumPerSeatSandboxOwner {
           ? await artifactDriverConfigForLease(this.deps.artifactLeaseHost!, lease)
           : undefined;
         snapshot.verify();
+        let physicalDispatch: (() => void) | undefined;
         const manager = (
           this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
         )({
           ...this.deps.runtimeConfig,
+          ...(this.deps.runSandboxCreation
+            ? {
+                beforeSandboxCreate: () => {
+                  if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                  physicalDispatch();
+                },
+              }
+            : {}),
           account: snapshot.account,
           accountProviderBindings: snapshot.bindings,
           verifyAccountProviderUnion: () => {
@@ -708,22 +725,48 @@ export class SymposiumPerSeatSandboxOwner {
         signal.throwIfAborted();
         verifySeatCapability();
         snapshot.verify();
-        if (lease) {
-          // This durable write precedes every possible gateway create. A crash
-          // after it leaves an unbound lease closed until explicit reconciliation.
-          this.deps.artifactLeaseHost!.markCreationStarted(
-            lease.token,
-            lease.revision,
-            sandboxNameForConversation(snapshot.runtimeId, this.deps.runtimeConfig.sandboxIdLength),
-          );
-        }
-        this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
-          sessionId,
-          seatId,
-          generation: snapshot.generation,
-          runtimeId: snapshot.runtimeId,
-        });
-        const sandbox = await manager.ensure(snapshot.runtimeId, signal);
+        const markCreationStarted = () => {
+          if (lease) {
+            // This durable write precedes every possible gateway create. A crash
+            // after it leaves an unbound lease closed until explicit reconciliation.
+            this.deps.artifactLeaseHost!.markCreationStarted(
+              lease.token,
+              lease.revision,
+              sandboxNameForConversation(
+                snapshot.runtimeId,
+                this.deps.runtimeConfig.sandboxIdLength,
+              ),
+            );
+          }
+          this.deps.seatSandboxRegistry!.markSymposiumSeatSandboxCreationStarted({
+            sessionId,
+            seatId,
+            generation: snapshot.generation,
+            runtimeId: snapshot.runtimeId,
+          });
+        };
+        const create = async (markDispatched?: () => void) => {
+          let started = false;
+          physicalDispatch = () => {
+            markDispatched?.();
+            markCreationStarted();
+            started = true;
+          };
+          if (!this.deps.runSandboxCreation) physicalDispatch();
+          const created = await manager.ensure(snapshot.runtimeId, signal);
+          if (!started) throw new Error('Seat creation did not record external dispatch');
+          if (!created.sandboxId)
+            throw new Error('OpenShell seat sandbox has no physical identity');
+          return created;
+        };
+        const verifyBeforeCreate = () => {
+          signal.throwIfAborted();
+          verifySeatCapability();
+          snapshot.verify();
+        };
+        const sandbox = this.deps.runSandboxCreation
+          ? await this.deps.runSandboxCreation(verifyBeforeCreate, create)
+          : await create();
         if (!sandbox.sandboxId) throw new Error('OpenShell seat sandbox has no physical identity');
         if (lease) {
           // A custom manager must attest the mount too. Duplicate attestation is
@@ -812,7 +855,12 @@ export class SymposiumPerSeatSandboxOwner {
               if (this.deps.artifactLeaseHost) {
                 if (!this.deps.artifactRequest)
                   throw new Error('Artifact lease request is unavailable');
-                const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+                const request = this.deps.artifactRequest(
+                  sessionId,
+                  seatId,
+                  record.generation,
+                  'cleanup',
+                );
                 if (
                   request.sessionId !== sessionId ||
                   request.seatId !== seatId ||
@@ -881,7 +929,12 @@ export class SymposiumPerSeatSandboxOwner {
             );
             if (record.sandboxName !== expectedName)
               throw new Error('Artifact seat sandbox name changed before deletion');
-            const request = this.deps.artifactRequest(sessionId, seatId, record.generation);
+            const request = this.deps.artifactRequest(
+              sessionId,
+              seatId,
+              record.generation,
+              'cleanup',
+            );
             if (
               request.sessionId !== sessionId ||
               request.seatId !== seatId ||
@@ -981,7 +1034,12 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   allowedSeatRoles?: ReadonlySet<'implementer' | 'coder' | 'reviewer'>;
   allowedAccountProviders?: ReadonlySet<'openai' | 'anthropic-vertex' | 'openai-codex'>;
   /** Re-probe selected host capability before every provider mutation/admission. */
-  artifactRequest?: (sessionId: string, seatId: string, generation: number) => ArtifactLeaseRequest;
+  artifactRequest?: (
+    sessionId: string,
+    seatId: string,
+    generation: number,
+    purpose?: 'admission' | 'cleanup',
+  ) => ArtifactLeaseRequest;
   artifactLeaseHost?: SqliteArtifactLeaseHost;
 }
 
@@ -1085,7 +1143,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
   const orchestrator = new SymposiumOrchestrator({
     store: deps.store,
     executors,
-    admitSeat: ({ sessionId, seatId, generation }) => {
+    admitSeat: ({ sessionId, seatId, generation, retained }) => {
       if (sessionId !== deps.sessionId)
         throw new Error('Symposium admission belongs to another session');
       const config = deps.store.getActiveSymposiumConfig(sessionId);
@@ -1135,7 +1193,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
         deps.hostGrants,
         deps.resolveProviderIdentity,
         deps.runtimeConfig.workspace,
-        'candidate',
+        retained ? 'retained' : 'candidate',
       );
       if (capability)
         for (const binding of snapshot.bindings)

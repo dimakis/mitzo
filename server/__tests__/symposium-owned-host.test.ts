@@ -1,6 +1,17 @@
+import * as personalHost from '../symposium-personal-host.js';
+import * as discoveryHost from '../symposium-model-discovery-host.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, statSync, existsSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+  existsSync,
+  chmodSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -10,6 +21,7 @@ import {
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 const roots: string[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 function fixture() {
@@ -17,6 +29,7 @@ function fixture() {
   roots.push(root);
   const attestation = join(root, 'attestation.json');
   writeFileSync(attestation, '{}', { mode: 0o600 });
+  writeFileSync(join(root, 'policy.yaml'), 'mock policy', { mode: 0o600 });
   const gateway = {
     cli: '/private/owned/openshell',
     gateway: 'owned',
@@ -41,13 +54,14 @@ function fixture() {
   };
   const options = {
     gateway: {
+      stateParent: root,
       gateway: 'owned',
       workspace: 'workspace',
       workloadImage: `sha256:${'a'.repeat(64)}`,
     },
     attestationPath: attestation,
     runtime: {
-      policy: '/private/policy.yaml',
+      policy: join(root, 'policy.yaml'),
       seed: '/private/seed',
       createDetached: true,
       sandboxIdLength: 13,
@@ -88,6 +102,14 @@ describe('explicit owned Symposium host composition', () => {
     host.stop();
     expect(f.gateway.stop).toHaveBeenCalledOnce();
     expect(() => host.currentProfiles()).toThrow('stopped');
+    await expect(
+      host.collectAdmissionEvidence({
+        providerInstances: [{ name: 'p', id: 'i', type: 'codex', profileName: 'codex' }],
+        allowedRoles: ['reviewer'],
+        allowedAccountProviders: ['openai-codex'],
+        artifactVolume: { driver: 'podman', name: 'volume' },
+      }),
+    ).rejects.toThrow('stopped');
   });
   it('derives artifact access from current host seat authority and generation', async () => {
     const f = fixture();
@@ -130,4 +152,135 @@ describe('explicit owned Symposium host composition', () => {
     );
     expect(f.gateway.stop).toHaveBeenCalledOnce();
   });
+});
+
+it('provisions a new draft through owned argv and makes its checked mapping available without replacing attestation', async () => {
+  const f = fixture();
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'draft',
+    anchorSeatId: 'seat',
+    activeSeatCap: 3,
+    seats: [
+      {
+        id: 'seat',
+        name: 'Builder',
+        model: 'luna',
+        systemPrompt: 'Build',
+        color: '#335577',
+        role: 'coder',
+      },
+    ],
+    turnRules: { mode: 'directed', maxTurns: 8 },
+    interceptMode: 'manual',
+  };
+  f.options.facts.getSession = vi
+    .fn()
+    .mockReturnValue({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) });
+  let volume: {
+    Name: string;
+    Driver: string;
+    Options: object;
+    Labels: Record<string, string>;
+  } | null = null;
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
+    if (args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[1] === 'create') {
+      const labels: Record<string, string> = {};
+      args.forEach((v, i) => {
+        if (v === '--label') {
+          const [key, ...parts] = args[i + 1].split('=');
+          labels[key] = parts.join('=');
+        }
+      });
+      expect(args.slice(0, 4)).toEqual(['volume', 'create', '--driver', 'local']);
+      volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
+      return volume.Name + '\n';
+    }
+    throw new Error('Unexpected command');
+  });
+  const before = readFileSync(f.options.attestationPath, 'utf8');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    const request = host.artifactRequest('new-session', 'seat', 2);
+    expect(request).toMatchObject({
+      sessionId: 'new-session',
+      access: 'writer',
+      workspaceId: 'workspace',
+    });
+    expect(request.volumeName).toMatch(/^mitzo-artifacts-/);
+    expect(await host.artifactLeaseHost.inspectVolume(request.volumeName, 'podman')).toMatchObject({
+      labels: { 'mitzo.symposium.session': 'new-session' },
+    });
+    f.seat.role = 'reviewer';
+    expect(host.artifactRequest('new-session', 'seat', 2).access).toBe('reviewer');
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    expect(readFileSync(f.options.attestationPath, 'utf8')).toBe(before);
+    expect(host.runtimeConfig.cliContract).toBeUndefined();
+    volume!.Labels['mitzo.symposium.session'] = 'wrong';
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+      state: 'recovery_required',
+    });
+    expect(() => host.artifactRequest('new-session', 'seat', 2)).toThrow('mapping');
+    expect(host.artifactRequest('new-session', 'seat', 2, 'cleanup').volumeName).toBe(
+      request.volumeName,
+    );
+    host.stop();
+    const nextDirectory = join(f.root, 'next-gateway');
+    mkdirSync(nextDirectory, { mode: 0o700 });
+    const nextGateway = { ...f.gateway, stateDirectory: nextDirectory };
+    const next = await createOwnedSymposiumHost(
+      f.options,
+      vi.fn().mockResolvedValue(nextGateway),
+      undefined,
+      command,
+    );
+    try {
+      await expect(next.ensureSessionArtifacts('new-session')).rejects.toThrow(
+        'different host custody',
+      );
+      expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    } finally {
+      next.stop();
+    }
+  } finally {
+    host.stop();
+  }
+});
+
+it('requires the discovery policy pin before launching an owned gateway', async () => {
+  const f = fixture();
+  f.options.runtime.policy = join(f.root, 'missing-policy');
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow();
+  expect(f.launch).not.toHaveBeenCalled();
+});
+
+it('pins the owned gateway immutable config using its actual read-only file mode', async () => {
+  const f = fixture();
+  const path = join(f.root, 'gateway.toml');
+  writeFileSync(path, 'owned config', { mode: 0o400 });
+  const compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  const operations = vi
+    .spyOn(discoveryHost, 'createDiscoveryHostOperations')
+    .mockImplementation(() => {
+      throw new Error('captured');
+    });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  const discover = compose.mock.calls[0][2]!;
+  await expect(
+    discover({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'mock@example.test', planType: 'plus' },
+      assertCurrent() {},
+    }),
+  ).rejects.toThrow('captured');
+  expect(operations.mock.calls[0][1].configPins).toEqual([
+    { path, sha256: expect.any(String), mode: statSync(path).mode & 0o777 },
+  ]);
+  expect(operations.mock.calls[0][1].configPins[0].mode).toBe(0o400);
+  host.stop();
 });

@@ -88,8 +88,35 @@ profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and
 acknowledge its boundary in Director controls before activation; all production
 admission checks still apply. Retried creation requests reuse the same session.
+An explicitly installed owned host also prepares a private named artifact volume for
+new drafts. If preparation is unavailable, the draft remains saved and the creation
+panel offers **Retry shared files** or **Open draft**. Volume readiness alone does
+not activate a seat or satisfy the separate runtime admission gate. See the
+[session artifact lifecycle](docs/features/symposium-session-artifacts.md).
+
 Ordinary chat send/interrupt routes cannot execute a configured Symposium, and
 converting an existing ordinary conversation requires stopping it first.
+
+Use **Add reviewer** in an existing conversation to choose a saved profile,
+account/model, and an explicit review package (objective, acceptance criteria,
+repository instructions, relevant diff/source, tests, and selected decisions).
+Independent review is the default and includes no earlier conversation. Optional
+context choices are an operator-written summary, selected shared excerpts, or
+all proven shared excerpts. Only delivered broadcasts to every active member at
+creation are eligible; private asides, queued inputs, and legacy turns without
+audience proof are excluded. Edited deliveries contribute their delivered text.
+The package is queued for approval, never automatically dispatched. Context
+source grants default to empty; a reference does not itself load conversation
+history. Shared workspace access remains governed by the read-only host grant.
+
+Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
+but admission still requires the verified runtime. Roster changes revalidate
+existing confirmed seats at the new configuration revision without resetting
+their membership generations or sandbox identity. A partially completed setup
+remains visible in Director controls. Removing the last reviewer simplifies the
+composer while preserving durable membership history and isolated routing; it
+never switches the session back to ordinary execution. The development-only
+`ui-preview.html` includes read-only reviewer choices for visual checks.
 
 Portable profiles save immutable revisions of guidance, expected output, and
 acceptance criteria. Select an exact revision for a seat, or export/import its
@@ -98,7 +125,7 @@ the latest version to create a new one. Conversational profile proposals require
 operator review before saving. Profiles do not carry account credentials or
 execution authority; those are bound separately by host-issued grants.
 
-This is the director and profile foundation. The default server has no Symposium
+These implemented controls remain subject to runtime admission. The default server has no Symposium
 provider runtime: activation and grant reissue fail closed until a trusted runtime
 is installed. These controls do not enable production native seat execution.
 
@@ -144,14 +171,32 @@ events and closure after failure or cancellation; live broadcasting is optional.
 Persisted native events retain their claim identity so confirmed restart cleanup
 can close the exact unfinished transcript without inventing a successful result.
 
-The review coordinator validates membership, recipient claims, profile revisions,
-and grants before dispatch and result acceptance. Review content comes from the
-trusted host's completed attempt and must match its receipt and artifact identity.
-Interactive callers select the recorded result but cannot supply its findings.
-These are guarded execution
-contracts with mocked integration coverage. The default application still has no
-Symposium runtime; production reviewer and Claude admission require further host
-attestation and live acceptance. Environment settings alone do not enable them.
+Both chat views now offer **Open review findings**. The application persists
+review workflows and history, displays severity only when the reviewer reports it,
+and requires explicit artifact-bound fix or dismissal
+decisions, and requests delta review after a fix. Select an older workflow to read
+its ordered decisions, reasons and evidence, or start a separate review of the current
+artifact without losing that history. A verified current revision can
+produce a PR review record; this action does **not** create or publish a PR.
+Records are immutable host-stored snapshots with a content-derived ID and SHA-256
+hash, binding the verified artifact to its exact workflow/history and evidence.
+Repeated export of the same snapshot returns the same record; changed verified
+history produces a new one. **Open saved review record** requires the Mitzo login
+and remains available after runtime shutdown. Copy **Permanent saved review link**
+to reopen the authenticated snapshot after a refresh or later visit. No record file is added to the
+reviewed Git tree. See [immutable review records](docs/design/immutable-review-records.md)
+for scope, integrity, and export limits.
+Interactive callers cannot submit fabricated findings, usage, or verification:
+the coordinator reads those facts from completed trusted host receipts.
+
+This interface is wired into the application, but native review/fix execution
+remains unavailable until a trusted adapter supplies enforced token budgets,
+terminal usage, structured results, and artifact-bound verification. The panel
+reports the missing capability rather than falling back to ordinary chat. Mocked
+integration coverage establishes the workflow boundaries, not live production
+readiness. Reviewer and Claude admission still require independent host attestation
+and live acceptance; environment settings alone do not enable them. See the
+[integration gaps](docs/features/symposium.md#integrated-review-surface-and-remaining-native-gate).
 
 ### Symposium OpenShell 0.1 per-seat runtime
 
@@ -173,9 +218,9 @@ matching host attestation for the selected CLI, gateway, images, policy, provide
 profiles, seed and artifacts. Attestations must map each exact provider instance
 name, ID and type to its reviewed profile; the host must verify that association
 in the selected workspace. Missing instance mappings or physical proof fail closed.
-The first supported attestation scope is OpenAI
-writer roles. Claude via Vertex and reviewer admission remain closed pending their
-live acceptance checks. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
+The legacy attestation scope is OpenAI writer roles. The separate owned-native
+contract includes personal Codex and reviewer capability when all of its physical
+and authorization gates pass; Claude via Vertex remains unavailable. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
 uses upstream Codex provider attachments and a private native authentication bootstrap.
 It rejects the older private-gateway OAuth binding and host login imports, and keeps
 subscription production admission closed pending independent account, credential
@@ -191,6 +236,17 @@ independent account authorization and all production evidence gates. See
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
+
+The [feature-stack implementation and acceptance record](docs/features/symposium.md)
+identifies sibling PRs for Add reviewer/context UI, immutable review records,
+publication preflight, and session artifact preparation; these are not installed
+by this documentation change or all present in its PR #627 base checkout. It distinguishes mocked application coverage from the attended two-turn native
+`gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
+probe cleanup; it did not establish full application or production admission.
+Multiple personal account slots and explicit supported-model refresh are
+implemented. Saved metadata survives restart, but personal authorization requires
+fresh sign-in. The newer CA-enabled image requires the separately reviewed build-pin
+update and matching physical proof before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
@@ -453,15 +509,49 @@ The OpenAI Responses route uses bearer authentication in the Authorization heade
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 
 Symposium account selection also includes [guided personal subscription login](docs/operations/symposium-owned-gateway.md#in-app-personal-account-setup), with explicit local/SSH callback preparation, phone guidance and credential-free login status receipts.
+Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
-Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Connect ChatGPT**
+Personal ChatGPT [device sign-in](docs/operations/symposium-device-auth.md) is available from **Connections → Personal ChatGPT accounts**
 and Symposium reviewer setup. Enable device-code authentication in ChatGPT
 Settings → Security, request a code, then open OpenAI on the phone or computer.
 The running Mac host completes the connection; the UI shows verified account
-identity and supports cancel, status recovery, and explicit reconnect. This host
-has one personal account slot. After a host restart, sign in again. Connecting
-does not select a reviewer account/model or silently rebind an active seat.
+identity and supports cancel, status recovery, and explicit reconnect. Connections
+keeps multiple labeled personal account entries with separate Connect, Reconnect,
+and Disconnect controls. Saved identities remain after restart; accounts marked
+**Sign in required** need fresh authentication. Connecting does not select a
+reviewer account/model or silently rebind an active seat.
 
 Login receipts are private to the initiating authenticated session, and credential cleanup must complete before success. A separately signed-in browser cannot recover or cancel another session’s pending code.
 
 Owned Symposium test instances require certificate SANs for both loopback and the Podman guest endpoint; see [disposable gateway TLS](docs/operations/symposium-disposable-tls.md).
+
+The [model-discovery acceptance helper](docs/operations/symposium-model-discovery.md)
+checks native subscription account type and model availability without inference.
+It requires a trusted owned-host attestation, pins its configuration and provider,
+and retains reconciliation evidence until gateway and physical cleanup agree.
+
+Personal Symposium Connections support separate saved account slots with explicit
+connect, reconnect, and disconnect. Saved metadata survives restart; account
+authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
+
+The no-inference discovery helper requires complete, bounded paginated sandbox and
+provider inventories; legacy bare-array responses cannot establish cleanup or attachment proof.
+
+Browser callback alternatives are scoped to a saved personal account and its current revision. An open account manager follows the picker’s disabled state, and refreshing completed sign-ins releases stale UI locks.
+
+Connections offers **Refresh supported models** for a connected personal account.
+The action uses that displayed account revision, reports pending cleanup or host recovery,
+and leaves model choice and active-seat rebinding explicit.
+Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Discovery journal ownership is exclusive across host adapters; interrupted owners
+retain a recovery lock, and SSH cleanup terminates its proxy process group.
+
+Owned native personal accounts expose an operator-only, revision-scoped model refresh
+endpoint. It performs account/model reads without inference, then publishes the catalog
+only after sandbox and physical cleanup. A new catalog revision requires explicit seat
+selection; interrupted discovery retains host recovery state.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
+
+- [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)

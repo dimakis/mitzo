@@ -1003,12 +1003,21 @@ describe('last native Symposium dispatch fence', () => {
     expect(first.bindings).toEqual([{ name: 'openai-work', type: 'openai', id: 'openai-object' }]);
     expect(second.bindings).toEqual(first.bindings);
     const configurations: Array<{ accountProviderBindings?: readonly { name: string }[] }> = [];
+    let creationFenceEntries = 0;
+    let rejectQueued = true;
+    const creationRegistry = seatSandboxRegistry();
     const owner = new SymposiumPerSeatSandboxOwner({
+      runSandboxCreation: async (verify, operation) => {
+        if (rejectQueued) throw new Error('queued admission revoked');
+        verify();
+        creationFenceEntries++;
+        return operation(() => {});
+      },
       sessionId: 'symposium',
       facts,
       profiles,
       hostGrants,
-      seatSandboxRegistry: seatSandboxRegistry(),
+      seatSandboxRegistry: creationRegistry,
       resolveProviderIdentity: identities,
       runtimeConfig: {
         cli: 'openshell',
@@ -1031,18 +1040,30 @@ describe('last native Symposium dispatch fence', () => {
       managerFactory: (runtimeConfig) => {
         configurations.push(runtimeConfig);
         return {
-          ensure: async (runtimeId) => ({
-            sandboxName: runtimeId,
-            sandboxId: `id:${runtimeId}`,
-            workdir: '/sandbox/workspaces/mgmt',
-          }),
+          ensure: async (runtimeId) => {
+            runtimeConfig.beforeSandboxCreate?.();
+            return {
+              sandboxName: runtimeId,
+              sandboxId: `id:${runtimeId}`,
+              workdir: '/sandbox/workspaces/mgmt',
+            };
+          },
         };
       },
     });
+    await expect(
+      owner.ensure('symposium', 'reviewer', new AbortController().signal),
+    ).rejects.toThrow('queued admission revoked');
+    expect(
+      creationRegistry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.creationStarted,
+    ).toBe(false);
+    rejectQueued = false;
+    configurations.length = 0;
     const [a, b] = await Promise.all([
       owner.ensure('symposium', 'reviewer', new AbortController().signal),
       owner.ensure('symposium', 'builder', new AbortController().signal),
     ]);
+    expect(creationFenceEntries).toBe(2);
     expect(a.sandboxName).not.toBe(b.sandboxName);
     expect(configurations.map((value) => value.accountProviderBindings)).toEqual([
       first.bindings,
@@ -1312,7 +1333,7 @@ describe('last native Symposium dispatch fence', () => {
       type: 'openai',
       workspace: 'default',
     });
-    const snapshot = (phase: 'candidate' | 'reconciling' | 'confirmed') =>
+    const snapshot = (phase: 'candidate' | 'retained' | 'reconciling' | 'confirmed') =>
       snapshotSymposiumSeatProvider(
         'symposium',
         'reviewer',
@@ -1335,6 +1356,18 @@ describe('last native Symposium dispatch fence', () => {
     currentMembership = { ...membership };
     expect(snapshot('confirmed').generation).toBe(2);
     expect(() => snapshot('candidate')).toThrow(/membership/i);
+    currentAdmission = undefined;
+    const retained = snapshot('retained');
+    expect(retained.generation).toBe(2);
+    expect(() => snapshot('confirmed')).toThrow(/admission/i);
+    currentAdmission = { ...admission, decision: 'refused' };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = { ...admission, membershipGeneration: 999 };
+    expect(() => snapshot('retained')).toThrow(/admission/i);
+    currentAdmission = undefined;
+    currentMembership = { ...membership, reconciliation: 'pending' };
+    expect(() => snapshot('retained')).toThrow(/membership/i);
+    expect(() => retained.verify()).toThrow(/membership/i);
   });
   it('does not create a pending seat sandbox until its provider admission is recorded', async () => {
     // The admission changes between the two ensure attempts in this test.
@@ -2003,6 +2036,7 @@ describe('per-seat artifact admission', () => {
       phase = 'Absent';
     });
     let capabilityChecks = 0;
+    let artifactReady = true;
     const owner = () =>
       new SymposiumPerSeatSandboxOwner({
         sessionId: 'symposium',
@@ -2048,7 +2082,11 @@ describe('per-seat artifact admission', () => {
           };
         },
         artifactLeaseHost: host,
-        artifactRequest: () => request,
+        artifactRequest: (_session, _seat, _generation, purpose) => {
+          if (!artifactReady && purpose !== 'cleanup')
+            throw new Error('Artifact admission blocked');
+          return request;
+        },
         managerFactory: (config) => {
           if (options.failManager) throw new Error('manager construction failed');
           configurations.push(config);
@@ -2081,6 +2119,9 @@ describe('per-seat artifact admission', () => {
       remove,
       registry,
       configurations,
+      setArtifactReady: (ready: boolean) => {
+        artifactReady = ready;
+      },
       setPhase: (next: typeof phase) => {
         phase = next;
       },
@@ -2215,6 +2256,27 @@ describe('per-seat artifact admission', () => {
       await expect(
         acquireSymposiumArtifactLease(state.host, { ...state.request, seatId: 'next' }),
       ).rejects.toThrow('already has a writer');
+    } finally {
+      state.host.close();
+      rmSync(state.root, { recursive: true, force: true });
+    }
+  });
+
+  it('retains cleanup identity after artifact readiness is revoked', async () => {
+    const state = setup('writer');
+    try {
+      const owner = state.owner();
+      await owner.ensure('symposium', 'reviewer', new AbortController().signal);
+      state.setArtifactReady(false);
+      await expect(
+        owner.ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow('Artifact admission blocked');
+      await owner.stop('symposium', 'reviewer', 2, new AbortController().signal);
+      expect(state.remove).toHaveBeenCalledOnce();
+      expect(state.verifyDeleted).toHaveBeenCalledOnce();
+      expect(state.registry.getSymposiumSeatSandbox('symposium', 'reviewer', 2)?.state).toBe(
+        'stopped',
+      );
     } finally {
       state.host.close();
       rmSync(state.root, { recursive: true, force: true });

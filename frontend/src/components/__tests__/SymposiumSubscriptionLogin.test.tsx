@@ -160,3 +160,103 @@ it.each(['idle', 'unknown', 'failed'])(
     ).toBe(false);
   },
 );
+
+it('submits the explicitly selected saved slot revision and scopes receipt recovery', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) =>
+    init?.method === 'POST'
+      ? response({
+          attemptId: 'attempt',
+          authorizationUrl: 'https://auth.openai.com/oauth/authorize?state=fake',
+        })
+      : response({ state: 'idle' }),
+  );
+  render(
+    <SymposiumSubscriptionLogin
+      connectionId="personal-b"
+      expectedRevision={7}
+      onComplete={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login/status?connectionId=personal-b',
+      expect.anything(),
+    ),
+  );
+  fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login',
+      expect.objectContaining({
+        body: JSON.stringify({
+          callbackTransport: 'host-local',
+          connectionId: 'personal-b',
+          expectedRevision: 7,
+        }),
+      }),
+    ),
+  );
+});
+
+it('releases the pending parent lock when its callback control unmounts', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ state: 'pending', attemptId: 'existing' }));
+  const onPendingChange = vi.fn();
+  const view = render(
+    <SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(true));
+  view.unmount();
+  expect(onPendingChange).toHaveBeenLastCalledWith(false);
+});
+
+it('does not take callback ownership of a pending device-code receipt', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ state: 'pending', attemptId: 'device', method: 'device-code' }),
+  );
+  const onPendingChange = vi.fn();
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await screen.findByText(/Continue or cancel it in device sign-in/);
+  expect(onPendingChange).not.toHaveBeenCalledWith(true);
+  expect((screen.getByRole('group') as HTMLFieldSetElement).disabled).toBe(true);
+});
+
+it.each(['cancelled', 'expired'])(
+  'recovers terminal %s device receipts without a callback lock',
+  async (state) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({ state, attemptId: 'device', method: 'device-code' }),
+    );
+    const onPendingChange = vi.fn();
+    render(<SymposiumSubscriptionLogin onComplete={vi.fn()} onPendingChange={onPendingChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry status' })).toBeNull());
+    await screen.findByText(/Previous login ended/);
+    expect(onPendingChange).not.toHaveBeenCalledWith(true);
+    expect((screen.getByRole('group') as HTMLFieldSetElement).disabled).toBe(false);
+  },
+);
+
+it('clears device-only pending guidance when the owning manager confirms it ended', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ state: 'pending', method: 'device-code', attemptId: 'device' }),
+  );
+  const complete = vi.fn();
+  const view = render(<SymposiumSubscriptionLogin onComplete={complete} recoveryOnly />);
+  fireEvent.click(screen.getByRole('button', { name: 'Recover callback sign-in' }));
+  await screen.findByText(/A device login is pending/);
+  view.rerender(<SymposiumSubscriptionLogin onComplete={complete} recoveryOnly={false} />);
+  await waitFor(() => expect(screen.queryByText(/A device login is pending/)).toBeNull());
+  expect(
+    (
+      screen.getByRole('group', {
+        name: 'Where will you open the login browser?',
+      }) as HTMLFieldSetElement
+    ).disabled,
+  ).toBe(false);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});

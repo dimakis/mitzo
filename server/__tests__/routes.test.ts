@@ -1603,8 +1603,20 @@ describe('account catalog routes', () => {
 describe('mounted personal device login ownership', () => {
   it('binds instructions and cancellation to the authenticated operator session', async () => {
     const { installSymposiumProductionHost } = await import('../app.js');
+    const row = { id: 'personal_test', label: 'Test', revision: 1, state: 'disconnected' };
+    const personalConnections = {
+      list: vi.fn(() => [row]),
+      create: vi.fn(() => row),
+      disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
+      discoverModels: vi.fn(async () => ({
+        status: 'complete',
+        inference: false,
+        models: [{ id: 'luna', label: 'Luna' }],
+      })),
+    };
     const cancel = vi.fn(async () => {});
     installSymposiumProductionHost({
+      personalConnections,
       beginDeviceLogin: async () => ({
         verificationUrl: 'https://auth.openai.com/codex/device',
         userCode: 'ABCD-1234',
@@ -1619,7 +1631,7 @@ describe('mounted personal device login ownership', () => {
     const started = await request(app)
       .post('/api/symposium/personal/login')
       .set('Cookie', first)
-      .send({ method: 'device-code' });
+      .send({ method: 'device-code', connectionId: row.id, expectedRevision: row.revision });
     expect(started.status).toBe(200);
     const foreign = await request(app)
       .get('/api/symposium/personal/login/status')
@@ -1644,5 +1656,50 @@ describe('mounted personal device login ownership', () => {
       ).body.state,
     ).toBe('cancelled');
     expect(cancel).toHaveBeenCalledOnce();
+    expect((await request(app).get('/api/symposium/personal/connections')).status).toBe(401);
+    expect(
+      (await request(app).get('/api/symposium/personal/connections').set('Cookie', authCookie))
+        .body,
+    ).toEqual({ connections: [row] });
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections')
+          .set('Cookie', authCookie)
+          .send({ label: 'Test' })
+      ).status,
+    ).toBe(201);
+    expect(personalConnections.create).toHaveBeenCalledWith('Test');
+    expect(
+      (
+        await request(app)
+          .post('/api/symposium/personal/connections/personal_test/disconnect')
+          .set('Cookie', authCookie)
+          .send({ expectedRevision: 1 })
+      ).status,
+    ).toBe(200);
+    expect(personalConnections.disconnect).toHaveBeenCalledWith('personal_test', 1);
+    const endpoint = '/api/symposium/personal/connections/personal_test/models/refresh';
+    expect((await request(app).post(endpoint).send({ expectedRevision: 1 })).status).toBe(401);
+    expect((await request(app).post(endpoint).set('Cookie', first).send({})).status).toBe(400);
+    expect(personalConnections.discoverModels).not.toHaveBeenCalled();
+    const discovered = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(discovered.status).toBe(200);
+    expect(discovered.headers['cache-control']).toBe('no-store');
+    expect(personalConnections.discoverModels).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
+    personalConnections.discoverModels.mockRejectedValueOnce(new Error('private token'));
+    const rejectedDiscovery = await request(app)
+      .post(endpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(rejectedDiscovery.status).toBe(409);
+    expect(JSON.stringify(rejectedDiscovery.body)).not.toContain('private token');
   });
 });

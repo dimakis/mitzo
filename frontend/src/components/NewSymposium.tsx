@@ -14,6 +14,7 @@ export function NewSymposium() {
   const [profile, setProfile] = useState<SymposiumProfileSelection | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [draft, setDraft] = useState<string | null>(null);
   const retry = useRef<{ payload: string; key: string } | null>(null);
   async function create() {
     if (busy || !account?.accountId || !profile || !title.trim()) return;
@@ -36,9 +37,29 @@ export function NewSymposium() {
       if (!response.ok) throw new Error(result.error || 'Could not create Symposium');
       if (typeof result.sessionId !== 'string' || !result.sessionId)
         throw new Error('Created session identity is unavailable');
-      navigate(`/chat/${encodeURIComponent(result.sessionId)}`);
+      if (result.artifacts && result.artifacts.state !== 'ready') setDraft(result.sessionId);
+      else navigate(`/chat/${encodeURIComponent(result.sessionId)}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create Symposium');
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function retryArtifacts() {
+    if (!draft || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch(
+        `/api/symposium/sessions/${encodeURIComponent(draft)}/artifacts`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' },
+      );
+      const result = await response.json();
+      if (!response.ok || result.state !== 'ready')
+        throw new Error('Shared files are still unavailable. Your draft is saved.');
+      navigate(`/chat/${encodeURIComponent(draft)}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare shared files');
     } finally {
       setBusy(false);
     }
@@ -50,47 +71,66 @@ export function NewSymposium() {
       </button>
       {open && (
         <div className="symposium-director-panel">
-          <p>
-            Create a draft without sending a prompt. Choose its first seat, then review and activate
-            it in Director controls.
-          </p>
-          <label>
-            Symposium title
-            <input
-              value={title}
-              maxLength={160}
-              disabled={busy}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </label>
-          <label>
-            First seat role
-            <select
-              value={role}
-              disabled={busy}
-              onChange={(event) => setRole(event.target.value as 'coder' | 'reviewer')}
-            >
-              <option value="coder">Coder</option>
-              <option value="reviewer">Reviewer</option>
-            </select>
-          </label>
-          <AccountModelPicker
-            scope="symposium"
-            sessionId={null}
-            preferredModel=""
-            onChange={setAccount}
-            disabled={busy}
-          />
-          <p>Select a saved profile with the same role. You can create or import one below.</p>
-          <SymposiumProfilePicker value={profile} onChange={setProfile} disabled={busy} />
-          {error && <p role="alert">{error}</p>}
-          <button
-            type="button"
-            disabled={busy || !account?.accountId || !profile || !title.trim()}
-            onClick={() => void create()}
-          >
-            {busy ? 'Creating Symposium…' : 'Create Symposium draft'}
-          </button>
+          {draft ? (
+            <>
+              <p role="status">Draft created. Shared files are not ready yet.</p>
+              {error && <p role="alert">{error}</p>}
+              <button type="button" disabled={busy} onClick={() => void retryArtifacts()}>
+                Retry shared files
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => navigate(`/chat/${encodeURIComponent(draft)}`)}
+              >
+                Open draft
+              </button>
+            </>
+          ) : (
+            <>
+              <p>
+                Create a draft without sending a prompt. Choose its first seat, then review and
+                activate it in Director controls.
+              </p>
+              <label>
+                Symposium title
+                <input
+                  value={title}
+                  maxLength={160}
+                  disabled={busy}
+                  onChange={(event) => setTitle(event.target.value)}
+                />
+              </label>
+              <label>
+                First seat role
+                <select
+                  value={role}
+                  disabled={busy}
+                  onChange={(event) => setRole(event.target.value as 'coder' | 'reviewer')}
+                >
+                  <option value="coder">Coder</option>
+                  <option value="reviewer">Reviewer</option>
+                </select>
+              </label>
+              <AccountModelPicker
+                scope="symposium"
+                sessionId={null}
+                preferredModel=""
+                onChange={setAccount}
+                disabled={busy}
+              />
+              <p>Select a saved profile with the same role. You can create or import one below.</p>
+              <SymposiumProfilePicker value={profile} onChange={setProfile} disabled={busy} />
+              {error && <p role="alert">{error}</p>}
+              <button
+                type="button"
+                disabled={busy || !account?.accountId || !profile || !title.trim()}
+                onClick={() => void create()}
+              >
+                {busy ? 'Creating Symposium…' : 'Create Symposium draft'}
+              </button>
+            </>
+          )}
         </div>
       )}
     </section>

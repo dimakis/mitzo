@@ -20,8 +20,15 @@ codes until host recovery. Cancel never implies provider authorization was
 revoked.
 
 Completion refreshes the reviewer account catalog and displays verified account
-identity returned by the host. The host has one personal account slot; reconnect
-replaces it, and host restart requires new sign-in. No auth URL, user code or
+identity returned by the host. Connections lists multiple saved personal account
+entries, each with its own label, verified identity, revision and status. Adding an
+entry saves metadata only; Connect starts sign-in explicitly. Reconnect and
+Disconnect target the selected entry and revision. They never select an account
+for a reviewer or rebind existing seats. Saved metadata survives restart, but
+credentials are not automatically restored: `reauth_required` appears as **Sign in
+required**. `recovery_required` blocks new sign-in until host recovery. Disconnect
+or reconnect can require cleanup of other seats in the same owned workspace;
+provider removal alone does not prove projected credentials were erased. No auth URL, user code or
 credential is persisted by the UI. Existing seat selections are never rebound.
 
 Mocked tests cover recovery, cancellation, quarantined cleanup, polling from code
@@ -29,3 +36,14 @@ allocation through exact completion, official URL validation, and catalog refres
 `ui-preview.html?view=connections` provides a fixture-only mobile preview; its
 `DEMO-CODE` is not an actual OpenAI code. No live OAuth or model test is part of
 this slice.
+
+Before requesting a code, the UI explains ChatGPT Settings → Security and phone
+troubleshooting: sign in to the intended account, then reopen the official device
+page in the same browser. A provider page error is not treated as proof of expiry;
+Mitzo's waiting deadline is labeled separately from OpenAI's code lifetime.
+
+The account manager uses `GET/POST /api/symposium/personal/connections`, starts
+login with `connectionId` and `expectedRevision`, filters status by `connectionId`,
+and disconnects with the selected revision. The UI rejects another entry's
+receipt and refreshes the list after terminal status or a mutation. Host
+authenticated-session isolation and credential custody remain backend authority.
