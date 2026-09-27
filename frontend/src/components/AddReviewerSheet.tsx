@@ -177,6 +177,11 @@ function ReviewerForm({
     setBusy(true);
     setError('');
     try {
+      const selectedProfile = await request<{ definition: { role: string } }>(
+        `/api/symposium/profiles/${encodeURIComponent(profile.profileId)}/${profile.revision}`,
+      );
+      if (selectedProfile.definition?.role !== 'reviewer')
+        throw new Error('Choose a profile with the reviewer role.');
       const context =
         packageSnapshot.current ??
         (await request<{ content: string }>(`${base}/context-package`, {
@@ -366,6 +371,7 @@ function ReviewerForm({
             <fieldset disabled={busy || locked}>
               <SymposiumProfilePicker
                 compact
+                requiredRole="reviewer"
                 value={profile}
                 onChange={setProfile}
                 disabled={busy}

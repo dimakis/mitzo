@@ -55,6 +55,8 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
   };
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const path = String(url);
+    if (path.startsWith('/api/symposium/profiles/'))
+      return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
     if (path.endsWith('/symposium'))
       return new Response(
         JSON.stringify({
@@ -116,9 +118,11 @@ it('lets an ordinary conversation prepare its isolated roster before runtime adm
     async (url) =>
       new Response(
         JSON.stringify(
-          String(url).endsWith('/context-package')
-            ? { content: '' }
-            : { config: null, ordinaryAccountId: 'a', runtimeAvailable: false, seats: [] },
+          String(url).startsWith('/api/symposium/profiles/')
+            ? { definition: { role: 'reviewer' } }
+            : String(url).endsWith('/context-package')
+              ? { content: '' }
+              : { config: null, ordinaryAccountId: 'a', runtimeAvailable: false, seats: [] },
         ),
       ),
   );
@@ -159,6 +163,8 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   let failed = false;
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     const path = String(url);
+    if (path.startsWith('/api/symposium/profiles/'))
+      return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
     if (path.endsWith('/symposium'))
       return new Response(
         JSON.stringify({
@@ -264,9 +270,11 @@ it('requires cross-account confirmation before converting an ordinary conversati
     async (url) =>
       new Response(
         JSON.stringify(
-          String(url).endsWith('/context-package')
-            ? { content: '' }
-            : { config: null, ordinaryAccountId: 'other', runtimeAvailable: false, seats: [] },
+          String(url).startsWith('/api/symposium/profiles/')
+            ? { definition: { role: 'reviewer' } }
+            : String(url).endsWith('/context-package')
+              ? { content: '' }
+              : { config: null, ordinaryAccountId: 'other', runtimeAvailable: false, seats: [] },
         ),
       ),
   );
@@ -290,14 +298,16 @@ it('rechecks the ordinary account before creating a draft when its binding chang
     async (url) =>
       new Response(
         JSON.stringify(
-          String(url).endsWith('/context-package')
-            ? { content: '' }
-            : {
-                config: null,
-                ordinaryAccountId: ++reads === 1 ? 'a' : 'other',
-                runtimeAvailable: false,
-                seats: [],
-              },
+          String(url).startsWith('/api/symposium/profiles/')
+            ? { definition: { role: 'reviewer' } }
+            : String(url).endsWith('/context-package')
+              ? { content: '' }
+              : {
+                  config: null,
+                  ordinaryAccountId: ++reads === 1 ? 'a' : 'other',
+                  runtimeAvailable: false,
+                  seats: [],
+                },
         ),
       ),
   );
@@ -310,4 +320,34 @@ it('rechecks the ordinary account before creating a draft when its binding chang
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Confirm the cross-account transfer/);
   expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/draft'), expect.anything());
+});
+
+it('rejects a non-reviewer profile before converting an ordinary conversation', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).startsWith('/api/symposium/profiles/')
+            ? { definition: { role: 'coder' } }
+            : String(url).endsWith('/symposium')
+              ? { config: null, ordinaryAccountId: 'a', seats: [], runtimeAvailable: true }
+              : { content: '' },
+        ),
+      ),
+  );
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), {
+    target: { value: 'Review this diff' },
+  });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Choose a profile with the reviewer role/);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+  expect(screen.getByText('Choose profile').closest('fieldset')).not.toBeDisabled();
 });
