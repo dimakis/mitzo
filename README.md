@@ -635,5 +635,10 @@ An internal physical-seal operation now composes runtime drain, exact absence ch
 credential-free read-only Git verifier; its retained receipt still grants no native review
 or publication permission, and new gateway custody cannot adopt it.
 
+The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
+binds an explicitly selected operator GitHub identity to a completed seal and forced
+Create PR approval. It is unavailable without registered credential custody and the
+completed seal/review bridge; no publication route or UI action is enabled.
+
 Dormant [pending native review evidence](docs/operations/symposium-review-attempt-staging.md)
 stores immutable linkage and bounded untrusted findings without enabling dispatch or receipt promotion.

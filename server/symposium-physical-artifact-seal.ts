@@ -10,7 +10,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { EventStore } from './event-store.js';
 import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
-import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
+import {
+  SqliteArtifactLeaseHost,
+  ArtifactCommandNotDispatched,
+} from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import {
@@ -335,7 +338,7 @@ export class PhysicalArtifactSealer {
         if (
           this.db
             .prepare(
-              "SELECT 1 FROM symposium_seal_export_jobs WHERE fence_id=? AND state NOT IN ('complete','failed_cleaned')",
+              "SELECT 1 FROM symposium_seal_export_jobs WHERE fence_id=? AND state NOT IN ('complete','failed_cleaned','not_dispatched')",
             )
             .get(input.fenceId)
         )
@@ -465,7 +468,14 @@ export class PhysicalArtifactSealer {
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
       });
       return value;
-    } catch {
+    } catch (error) {
+      if (!id && error instanceof ArtifactCommandNotDispatched) {
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='not_dispatched' WHERE job_id=? AND state='create_uncertain' AND container_id IS NULL",
+          )
+          .run(jobId);
+      }
       if (helperDeleted) {
         this.db
           .prepare(
@@ -485,6 +495,7 @@ export class PhysicalArtifactSealer {
       }
       throw new Error(
         'Sealed artifact export failed; retained helper state may require reconciliation',
+        { cause: error },
       );
     }
   }
