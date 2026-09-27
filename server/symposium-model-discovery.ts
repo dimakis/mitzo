@@ -284,6 +284,7 @@ async function runExclusiveDiscovery(
   if (receipt) {
     try {
       let clean = false;
+      let cleanupFailure: DiscoveryCommandFailure | undefined;
       for (let i = 0; i < 12; i++) {
         await verify();
         const rows = z.array(sandboxSchema).parse(await ops.list());
@@ -296,12 +297,14 @@ async function runExclusiveDiscovery(
           await ops.persistReceipt(receipt, false);
           try {
             await ops.cancel(receipt);
-          } catch {
+          } catch (error) {
+            if (error instanceof DiscoveryCommandFailure) cleanupFailure ??= error;
             /* deletion and host absence are still required */
           }
           try {
             await ops.delete(receipt);
-          } catch {
+          } catch (error) {
+            if (error instanceof DiscoveryCommandFailure) cleanupFailure = error;
             /* ambiguous delete: poll both inventories */
           }
         } else if (await ops.physicalAbsent(receipt)) {
@@ -314,7 +317,7 @@ async function runExclusiveDiscovery(
       }
       if (!clean) {
         result = { status: 'reconciliation_required', inference: false };
-        if (!failureDetails) await diagnose(new Error('Cleanup unconfirmed'));
+        if (!failureDetails) await diagnose(cleanupFailure ?? new Error('Cleanup unconfirmed'));
       } else {
         await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')

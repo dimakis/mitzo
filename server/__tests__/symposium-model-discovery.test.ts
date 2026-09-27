@@ -434,3 +434,21 @@ it.each([false, true])(
     expect(JSON.stringify(result)).not.toContain('PRIVATE');
   },
 );
+
+it('retains classified delete failure when cleanup remains unconfirmed', async () => {
+  const f = fixture();
+  f.operations.delete = async () => {
+    throw new DiscoveryCommandFailure({
+      failureClass: 'timeout',
+      commandDispatch: 'possibly-started',
+    });
+  };
+  f.operations.recordDiagnostic = vi.fn(async () => {});
+  const result = await runSymposiumModelDiscovery(f.config, f.operations);
+  expect(result).toMatchObject({
+    status: 'reconciliation_required',
+    diagnosticPersisted: true,
+    diagnostic: { stage: 'cleanup', failureClass: 'timeout', commandDispatch: 'possibly-started' },
+  });
+  expect(f.receipt()).toBeDefined();
+});
