@@ -12,16 +12,14 @@ import {
   type SealedPublicationArtifactTransport,
 } from './symposium-sealed-publication-service.js';
 import type { CapabilityOperationStore } from './connections/capabilities/operation-store.js';
-import { z } from 'zod';
-import { CredentialReferenceSchema } from './credentials.js';
-export const PublicationCredentialRegistrationSchema = z.strictObject({
-  id: z.string().regex(/^[a-zA-Z0-9_-]{1,128}$/),
-  label: z.string().min(1).max(200),
-  reference: CredentialReferenceSchema,
-});
-export type PublicationCredentialRegistration = z.infer<
-  typeof PublicationCredentialRegistrationSchema
->;
+import {
+  PublicationCredentialRegistrationSchema,
+  type PublicationCredentialRegistration,
+} from './symposium-publication-registration-schema.js';
+export {
+  PublicationCredentialRegistrationSchema,
+  type PublicationCredentialRegistration,
+} from './symposium-publication-registration-schema.js';
 /** Grant custody is private even when the existing workspace metadata directory
  * is ordinarily readable. The authority validates the resulting directory/file. */
 export function publicationAuthorityPath(directory: string): string {
