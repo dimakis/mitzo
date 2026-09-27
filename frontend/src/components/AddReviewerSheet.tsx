@@ -8,6 +8,7 @@ import './AddReviewerSheet.css';
 
 type Status = {
   config: SymposiumConfig | null;
+  ordinaryAccountId?: string | null;
   runtimeAvailable: boolean;
   initialProfileSelections?: Record<string, SymposiumProfileSelection>;
   seats: { seatId: string; membership: { state: string; generation: number } | null }[];
@@ -155,11 +156,13 @@ function ReviewerForm({
       seat.id ===
       (status.config?.version === 2 ? status.config.anchorSeatId : status.config?.seats[0]?.id),
   );
-  const crossAccount = Boolean(
-    anchor?.accountBinding && selection?.accountId !== anchor.accountBinding.accountId,
-  );
+  const sourceAccountId = status?.config
+    ? anchor?.accountBinding?.accountId
+    : status?.ordinaryAccountId;
+  const crossAccount = Boolean(sourceAccountId && selection?.accountId !== sourceAccountId);
   const ready = Boolean(
     status &&
+    sourceAccountId &&
     (!status.config || status.runtimeAvailable) &&
     profile &&
     selection?.accountId &&
@@ -183,7 +186,16 @@ function ReviewerForm({
         }));
       let current = await request<Status>(base);
       let config = current.config;
-      if (!config) config = await request<SymposiumConfig>(`${base}/draft`, {});
+      if (!config) {
+        setStatus(current);
+        if (!current.ordinaryAccountId)
+          throw new Error('Conversation account binding is unavailable');
+        if (current.ordinaryAccountId !== selection.accountId && typed !== confirmation)
+          throw new Error('Confirm the cross-account transfer before binding the reviewer');
+        config = await request<SymposiumConfig>(`${base}/draft`, {
+          expectedAccountId: current.ordinaryAccountId,
+        });
+      }
       if (config.version !== 2)
         throw new Error('This roster must be upgraded before adding a reviewer');
       const configuredAnchorId = config.anchorSeatId;

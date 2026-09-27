@@ -82,3 +82,5 @@ does not stamp a seat or artifact as creation-started. Rejection after dispatch 
 uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
 for in-flight creation and refuses uncertain outcomes. Interrupted login rows
 without a live adapter also remain blocked even when account metadata is absent.
+
+Mounted Symposium account pickers share a payload-free catalog invalidation signal after account mutations or recovered mutation receipts. Each picker reloads independently and clears its parent selection; an unavailable draft remains visible until an explicit available account/model choice. Catalog reads do not emit the signal. Callback allocation and terminal outcomes refresh account state, including unsuccessful attempts, and each callback setup uses its own radio group even when the same saved connection appears in several pickers.

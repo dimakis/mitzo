@@ -118,7 +118,7 @@ it('lets an ordinary conversation prepare its isolated roster before runtime adm
         JSON.stringify(
           String(url).endsWith('/context-package')
             ? { content: '' }
-            : { config: null, runtimeAvailable: false, seats: [] },
+            : { config: null, ordinaryAccountId: 'a', runtimeAvailable: false, seats: [] },
         ),
       ),
   );
@@ -257,4 +257,57 @@ it('refreshes unavailable runtime on reopen while preserving reviewer choices', 
   );
   expect(screen.getByLabelText('Review package')).toHaveValue('Review current diff');
   expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('requires cross-account confirmation before converting an ordinary conversation', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('/context-package')
+            ? { content: '' }
+            : { config: null, ordinaryAccountId: 'other', runtimeAvailable: false, seats: [] },
+        ),
+      ),
+  );
+  render(<AddReviewerSheet sessionId="ordinary" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/draft'), expect.anything());
+  fireEvent.change(screen.getByLabelText(/Cross-account confirmation/), {
+    target: { value: 'ADD CROSS-ACCOUNT SEAT' },
+  });
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
+});
+
+it('rechecks the ordinary account before creating a draft when its binding changes', async () => {
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('/context-package')
+            ? { content: '' }
+            : {
+                config: null,
+                ordinaryAccountId: ++reads === 1 ? 'a' : 'other',
+                runtimeAvailable: false,
+                seats: [],
+              },
+        ),
+      ),
+  );
+  render(<AddReviewerSheet sessionId="ordinary" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Confirm the cross-account transfer/);
+  expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/draft'), expect.anything());
 });

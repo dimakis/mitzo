@@ -386,7 +386,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
   });
   router.post('/draft', (req, res) => {
-    if (!z.strictObject({}).safeParse(req.body).success) {
+    const body = z
+      .strictObject({ expectedAccountId: z.string().min(1).max(200).optional() })
+      .safeParse(req.body);
+    if (!body.success) {
       res.status(400).json({ error: 'Invalid draft request' });
       return;
     }
@@ -413,6 +416,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     const binding = AccountBindingSchema.safeParse(session.accountBinding);
     if (!binding.success) {
       res.status(409).json({ error: 'Session account binding is unavailable' });
+      return;
+    }
+    if (body.data.expectedAccountId && body.data.expectedAccountId !== binding.data.accountId) {
+      res.status(409).json({ error: 'Conversation account changed before draft creation' });
       return;
     }
     const draft = {
@@ -470,9 +477,11 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     }
     const runtimeAvailable = deps.getRuntime(sessionId) !== null;
     if (session.sessionType !== 'symposium' || !session.symposiumConfig) {
+      const binding = AccountBindingSchema.safeParse(session.accountBinding);
       res.json({
         sessionId,
         config: null,
+        ordinaryAccountId: binding.success ? binding.data.accountId : null,
         seats: [],
         reservedSeats: 0,
         capacityRemaining: 0,
