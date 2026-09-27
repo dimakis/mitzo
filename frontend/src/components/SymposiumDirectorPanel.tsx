@@ -241,7 +241,7 @@ function SeatModelEditor({
               ...candidate,
               model: selection.model,
               accountBinding: binding,
-              ...(selection.reasoningEffort ? { reasoningEffort: selection.reasoningEffort } : {}),
+              reasoningEffort: selection.reasoningEffort || undefined,
             }
           : candidate,
       );
