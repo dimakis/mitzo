@@ -7,6 +7,11 @@ import { tmpdir } from 'os';
 
 const TEST_REPO = join(tmpdir(), `mitzo-review-app-test-${process.pid}`);
 
+const mockGetMessages = vi.fn().mockResolvedValue([]);
+const mockGetTranscript = vi
+  .fn()
+  .mockResolvedValue({ messages: [], current: null, currents: [], cursor: 0 });
+const mockGetReconnect = vi.fn().mockReturnValue({ messages: [], current: null, currents: [] });
 const mockSendToChat = vi.fn().mockResolvedValue(true);
 const mockFindBySessionId = vi.fn().mockReturnValue(null);
 
@@ -19,7 +24,9 @@ vi.mock('../chat.js', () => {
   return {
     broadcastDurableSymposiumEvent: vi.fn(),
     getSessions: vi.fn().mockResolvedValue({ sessions: [], hasMore: false }),
-    getMessages: vi.fn().mockResolvedValue([]),
+    getMessages: (...args: unknown[]) => mockGetMessages(...args),
+    getSessionTranscript: (...args: unknown[]) => mockGetTranscript(...args),
+    getReconnectTranscript: (...args: unknown[]) => mockGetReconnect(...args),
     renameSessionById: vi.fn(),
     hideSession: vi.fn(),
     hideAllSessions: vi.fn(),
@@ -86,4 +93,37 @@ describe('production review route initialization', () => {
   it('requires authentication', async () => {
     expect((await request(app).get('/api/sessions/session/symposium/reviews')).status).toBe(401);
   });
+});
+
+describe('production messages replay error containment', () => {
+  it.each(['', '?transcript=1', '?throughSeq=7'])(
+    'returns a safe error and keeps serving after replay failure %s',
+    async (query) => {
+      const secret = 'private transcript must not escape';
+      mockGetMessages.mockRejectedValueOnce(new Error(secret));
+      mockGetTranscript.mockRejectedValueOnce(new Error(secret));
+      mockGetReconnect.mockImplementationOnce(() => {
+        throw new Error(secret);
+      });
+      try {
+        const failed = await request(app)
+          .get('/api/sessions/session/messages' + query)
+          .set('Cookie', authCookie)
+          .timeout(1000);
+        expect(failed.status).toBe(500);
+        expect(failed.body).toEqual({ error: 'Session transcript unavailable' });
+        expect(JSON.stringify(failed.body)).not.toContain(secret);
+      } finally {
+        mockGetMessages.mockReset().mockResolvedValue([]);
+        mockGetTranscript
+          .mockReset()
+          .mockResolvedValue({ messages: [], current: null, currents: [], cursor: 0 });
+        mockGetReconnect.mockReset().mockReturnValue({ messages: [], current: null, currents: [] });
+      }
+      const next = await request(app)
+        .get('/api/sessions/session/messages' + query)
+        .set('Cookie', authCookie);
+      expect(next.status).toBe(200);
+    },
+  );
 });
