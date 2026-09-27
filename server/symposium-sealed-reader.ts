@@ -1,3 +1,4 @@
+import { artifactDriverConfigForLease } from './symposium-artifact-lease.js';
 import { createHash } from 'node:crypto';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import type {
@@ -51,6 +52,9 @@ export async function confirmOwnedSealedReader(
       return true;
     },
   );
+  const config = await artifactDriverConfigForLease(deps.leaseHost, lease);
+  if (config.podman?.mounts.length !== 1 || config.podman.mounts[0].read_only !== true)
+    throw new Error('Exact read-only reader mount required');
   const receipt: ArtifactReaderLeaseReceiptV1 = {
     version: 1,
     readerAdmissionId: binding.readerAdmissionId,

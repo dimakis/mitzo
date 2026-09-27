@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -497,6 +497,7 @@ it('keeps generic artifact leasing fenced after seal; only an exact reader admis
     const lease = await host.reserveSealedReaderLease(first, binding, async () => true);
     expect(lease.request).toMatchObject({ access: 'reviewer', readerAdmissionId: 'reader-lease' });
     expect(await host.reserveSealedReaderLease(first, binding, async () => true)).toEqual(lease);
+    const verifyReadOnly = vi.spyOn(host, 'verifyDriverConfig');
     const { confirmOwnedSealedReader } = await import('../symposium-sealed-reader');
     const confirmed = await confirmOwnedSealedReader(
       {
@@ -516,6 +517,12 @@ it('keeps generic artifact leasing fenced after seal; only an exact reader admis
     });
     expect(confirmed.receipt?.leaseTokenHash).toBe(
       createHash('sha256').update(lease.token).digest('hex'),
+    );
+    expect(verifyReadOnly).toHaveBeenCalledWith(
+      expect.objectContaining({ access: 'reviewer' }),
+      expect.objectContaining({
+        podman: expect.objectContaining({ mounts: [expect.objectContaining({ read_only: true })] }),
+      }),
     );
     await expect(
       host.reserveSealedReaderLease(first, { ...binding, volumeName: 'other' }, async () => true),
