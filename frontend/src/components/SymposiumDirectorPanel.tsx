@@ -4,6 +4,7 @@ import type {
   SymposiumConfig,
   SymposiumDeliveryRecord,
   SymposiumMembershipRecord,
+  SymposiumAdmissionRecord,
   ValidAccountBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -15,6 +16,10 @@ interface DirectorSeat {
   seat: SeatConfig;
   membership: SymposiumMembershipRecord | null;
   admitted: boolean;
+  admission?: Pick<
+    SymposiumAdmissionRecord,
+    'configRevision' | 'membershipGeneration' | 'decision'
+  > | null;
 }
 interface DirectorStatus {
   sessionId: string;
@@ -234,25 +239,35 @@ function SessionDirectorPanel({
   const refreshGeneration = useRef(0);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
 
-  const refresh = useCallback(async () => {
-    const generation = ++refreshGeneration.current;
-    setLoading(true);
-    try {
-      const next = await readJson<DirectorStatus>(base);
-      if (generation !== refreshGeneration.current) return;
-      setStatus(next);
-      setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
-      setSelected((current) =>
-        current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
-      );
-      setError('');
-    } catch (cause) {
-      if (generation === refreshGeneration.current)
-        setError(cause instanceof Error ? cause.message : 'Director status unavailable');
-    } finally {
-      if (generation === refreshGeneration.current) setLoading(false);
-    }
-  }, [base]);
+  const refresh = useCallback(
+    async (preservedError?: string) => {
+      const generation = ++refreshGeneration.current;
+      setLoading(true);
+      try {
+        const next = await readJson<DirectorStatus>(base);
+        if (generation !== refreshGeneration.current) return;
+        setStatus(next);
+        setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
+        setSelected((current) =>
+          current.filter((id) => next.seats.some((seat) => seat.seatId === id && seat.admitted)),
+        );
+        setError(preservedError ?? '');
+      } catch (cause) {
+        if (generation === refreshGeneration.current) {
+          const refreshError =
+            cause instanceof Error ? cause.message : 'Director status unavailable';
+          setError(
+            preservedError
+              ? `${preservedError}. Status refresh failed: ${refreshError}`
+              : refreshError,
+          );
+        }
+      } finally {
+        if (generation === refreshGeneration.current) setLoading(false);
+      }
+    },
+    [base],
+  );
 
   useEffect(() => {
     setStatus(null);
@@ -291,7 +306,11 @@ function SessionDirectorPanel({
       window.dispatchEvent(new Event('symposium-roster-changed'));
       await refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Director action failed');
+      const message = cause instanceof Error ? cause.message : 'Director action failed';
+      setError(message);
+      // The durable transfer may have committed before retained admission failed.
+      // Read its current revision before offering admission repair, preserving the error.
+      if (path === '/primary/transfer') await refresh(message);
     } finally {
       setBusy(false);
     }
@@ -597,7 +616,13 @@ function SessionDirectorPanel({
               )}
               {status.config.state === 'active' &&
                 status.seats.some(
-                  (seat) => seat.membership?.state === 'active' && !seat.admitted,
+                  (seat) =>
+                    seat.membership?.state === 'active' &&
+                    seat.membership.reconciliation === 'confirmed' &&
+                    !seat.admitted &&
+                    (!seat.admission ||
+                      seat.admission.configRevision !== status.config?.revision ||
+                      seat.admission.membershipGeneration !== seat.membership.generation),
                 ) && (
                   <button
                     type="button"

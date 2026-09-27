@@ -498,7 +498,8 @@ it('requires an explicit admitted primary selection and confirmation without cha
 it('provides admission recovery after a saved transfer without silently moving primary again', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     response({
-      ...status(false),
+      ...status(true),
+      seats: status(true).seats.map((seat) => ({ ...seat, admitted: false })),
       runtimeAvailable: true,
       config: { ...config, revision: 5, anchorSeatId: 'reviewer' },
     }),
@@ -515,4 +516,68 @@ it('provides admission recovery after a saved transfer without silently moving p
   expect(
     vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/primary/transfer')),
   ).toBe(false);
+});
+
+it('refreshes a partially saved primary transfer and repairs admissions at its new revision', async () => {
+  const failure = 'Primary transfer saved; retained seat admissions require rechecking';
+  let transferred = false;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (String(path).endsWith('/primary/transfer')) {
+      transferred = true;
+      return { ok: false, status: 409, json: async () => ({ error: failure }) } as Response;
+    }
+    if (String(path).endsWith('/admissions/refresh')) {
+      expect(JSON.parse(init!.body as string)).toEqual({ expectedRevision: 5 });
+      return response({ seatIds: ['architect', 'reviewer'] });
+    }
+    const current = status(true);
+    return response(
+      transferred
+        ? {
+            ...current,
+            config: { ...config, revision: 5, anchorSeatId: 'reviewer' },
+            seats: current.seats.map((seat) => ({ ...seat, admitted: false })),
+          }
+        : current,
+    );
+  });
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.selectOptions(await screen.findByLabelText('New primary seat'), 'reviewer');
+  await userEvent.type(
+    screen.getByLabelText('Type TRANSFER PRIMARY SEAT to confirm'),
+    'TRANSFER PRIMARY SEAT',
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Transfer primary seat' }));
+  expect(await screen.findByText(failure, { exact: false })).toBeTruthy();
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Recheck retained seat admissions' }),
+  );
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/admissions/refresh')),
+  ).toHaveLength(1);
+});
+
+it('does not offer retained admission recheck for pending membership or a current refused admission', async () => {
+  const pending = status(false);
+  vi.mocked(apiFetch).mockResolvedValue(response({ ...pending, runtimeAvailable: true }));
+  const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/OpenAI work · gpt/);
+  expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
+  mounted.unmount();
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      ...status(true),
+      seats: status(true).seats.map((seat) => ({
+        ...seat,
+        admitted: false,
+        admission: { configRevision: 4, membershipGeneration: 1, decision: 'refused' },
+      })),
+    }),
+  );
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await screen.findByText(/OpenAI work · gpt/);
+  expect(screen.queryByRole('button', { name: 'Recheck retained seat admissions' })).toBeNull();
 });
