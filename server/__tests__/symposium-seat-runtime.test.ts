@@ -348,6 +348,34 @@ it('requires exact native completion independently of unknown usage and stop sta
     f.close();
   }
 });
+it('requests exact cancellation when persisted policy stops or its deadline expires', async () => {
+  vi.useFakeTimers();
+  try {
+    for (const reason of ['user_stop', 'deadline_exceeded'] as const) {
+      const work = fixture();
+      const f = applicationFixture(work);
+      try {
+        f.store.reserveApplicationAttempt(f.request);
+        f.policy.consume(work.input);
+        const cancel = vi.fn();
+        const dispose = f.policy.watch!(work.input, cancel);
+        if (reason === 'user_stop') f.store.stopApplication('policy', 'user', reason);
+        else vi.advanceTimersByTime(60000);
+        await vi.advanceTimersByTimeAsync(250);
+        expect(cancel).toHaveBeenCalledTimes(1);
+        expect(f.store.get('policy')?.decisionCode).toBe(reason);
+        expect(f.store.get('policy')?.applicationAttempts[0].settled).toBe(false);
+        dispose();
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(cancel).toHaveBeenCalledTimes(1);
+      } finally {
+        f.close();
+      }
+    }
+  } finally {
+    vi.useRealTimers();
+  }
+});
 it('does not let artifact-check failures reach policy consumption', () => {
   const work = fixture();
   const f = applicationFixture(work);

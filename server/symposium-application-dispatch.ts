@@ -89,6 +89,26 @@ export function createSymposiumApplicationDispatchPolicy(deps: {
         operationId(thread, turn),
       );
     },
+    watch(input, requestCancellation) {
+      const attempt = selected(input);
+      if (!attempt) return () => undefined;
+      let requested = false;
+      const check = () => {
+        if (requested) return;
+        try {
+          deps.store.assertApplicationDispatch(attempt);
+        } catch {
+          requested = true;
+          requestCancellation();
+        }
+      };
+      // A bounded watcher belongs to this executor call. It only observes persisted
+      // stop/deadline state and requests exact cancellation; it never admits work.
+      const timer = setInterval(check, 250);
+      timer.unref?.();
+      check();
+      return () => clearInterval(timer);
+    },
     completed(input) {
       const attempt = selected(input);
       if (!attempt) return;

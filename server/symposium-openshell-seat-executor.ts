@@ -36,6 +36,8 @@ export interface SymposiumApplicationDispatchPolicy {
   consume(input: SymposiumSeatExecution): void;
   accepted(input: SymposiumSeatExecution, providerThreadId: string, providerTurnId: string): void;
   completed(input: SymposiumSeatExecution): void;
+  /** Observe only this in-flight operation; no dispatch/retry scheduling. */
+  watch?(input: SymposiumSeatExecution, requestCancellation: () => void): () => void;
 }
 
 export interface SymposiumOpenShellSeatExecutorDeps {
@@ -165,64 +167,73 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     // can now target the created process by its exact durable claim.
     admission();
     let approvedThread: string | undefined;
-    const result = await native.run(input, {
-      beforeDispatch: (providerThreadId) => {
-        const current = admission();
-        if (JSON.stringify(current) !== JSON.stringify(route))
-          throw new Error('Symposium account provider changed before native turn');
-        if (current.kind === 'claude-vertex') {
-          if (!this.deps.owner.verifySeatPolicy)
-            throw new Error('Owned Vertex seat policy unavailable');
-          this.deps.owner.verifySeatPolicy(input.sessionId, input.seat.id);
-        }
-        const capability = this.deps.verifyHostCapability?.();
-        if (capability)
-          assertSymposiumAttestedProvider(capability, {
-            name: current.provider,
-            id: current.providerId,
-            type:
-              current.kind === 'chatgpt-subscription-native'
-                ? 'codex'
-                : current.kind === 'openai-api'
-                  ? 'openai'
-                  : 'google-vertex-ai',
-          });
-        if (
-          input.providerThreadId &&
-          providerThreadId &&
-          providerThreadId !== input.providerThreadId
-        ) {
-          if (!native.verifyThreadMigration)
-            throw new Error('Symposium native thread migration is unavailable');
-          native.verifyThreadMigration(input.providerThreadId, providerThreadId);
-          if (!this.deps.migrateThread)
-            throw new Error('Symposium durable thread migration is unavailable');
-          this.deps.migrateThread(input.claimToken, input.providerThreadId, providerThreadId);
-          approvedThread = providerThreadId;
-        }
-        // Last synchronous step before native send; a consumed intent is never replay authority.
-        this.deps.applicationPolicy?.consume(input);
-      },
-      accepted: (providerThreadId, providerTurnId) => {
-        if (
-          input.providerThreadId &&
-          providerThreadId !== input.providerThreadId &&
-          providerThreadId !== approvedThread
-        )
-          throw new Error('Symposium unapproved provider thread receipt');
-        const recorded = this.deps.recordAccepted({
-          deliveryId: input.deliveryId,
-          seatId: input.seat.id,
-          claimToken: input.claimToken,
-          providerThreadId,
-          providerTurnId,
-          acceptedAt: Date.now(),
-        });
-        if (!recorded) throw new Error('Symposium provider receipt claim is no longer valid');
-        this.deps.applicationPolicy?.accepted(input, providerThreadId, providerTurnId);
-        this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
-      },
+    const stopWatching = this.deps.applicationPolicy?.watch?.(input, () => {
+      // Failure keeps durable execution/cleanup uncertainty; it never authorizes a retry.
+      void this.cancel({ claimToken: input.claimToken }).catch(() => {});
     });
+    let result: Awaited<ReturnType<SymposiumNativeSeat['run']>>;
+    try {
+      result = await native.run(input, {
+        beforeDispatch: (providerThreadId) => {
+          const current = admission();
+          if (JSON.stringify(current) !== JSON.stringify(route))
+            throw new Error('Symposium account provider changed before native turn');
+          if (current.kind === 'claude-vertex') {
+            if (!this.deps.owner.verifySeatPolicy)
+              throw new Error('Owned Vertex seat policy unavailable');
+            this.deps.owner.verifySeatPolicy(input.sessionId, input.seat.id);
+          }
+          const capability = this.deps.verifyHostCapability?.();
+          if (capability)
+            assertSymposiumAttestedProvider(capability, {
+              name: current.provider,
+              id: current.providerId,
+              type:
+                current.kind === 'chatgpt-subscription-native'
+                  ? 'codex'
+                  : current.kind === 'openai-api'
+                    ? 'openai'
+                    : 'google-vertex-ai',
+            });
+          if (
+            input.providerThreadId &&
+            providerThreadId &&
+            providerThreadId !== input.providerThreadId
+          ) {
+            if (!native.verifyThreadMigration)
+              throw new Error('Symposium native thread migration is unavailable');
+            native.verifyThreadMigration(input.providerThreadId, providerThreadId);
+            if (!this.deps.migrateThread)
+              throw new Error('Symposium durable thread migration is unavailable');
+            this.deps.migrateThread(input.claimToken, input.providerThreadId, providerThreadId);
+            approvedThread = providerThreadId;
+          }
+          // Last synchronous step before native send; a consumed intent is never replay authority.
+          this.deps.applicationPolicy?.consume(input);
+        },
+        accepted: (providerThreadId, providerTurnId) => {
+          if (
+            input.providerThreadId &&
+            providerThreadId !== input.providerThreadId &&
+            providerThreadId !== approvedThread
+          )
+            throw new Error('Symposium unapproved provider thread receipt');
+          const recorded = this.deps.recordAccepted({
+            deliveryId: input.deliveryId,
+            seatId: input.seat.id,
+            claimToken: input.claimToken,
+            providerThreadId,
+            providerTurnId,
+            acceptedAt: Date.now(),
+          });
+          if (!recorded) throw new Error('Symposium provider receipt claim is no longer valid');
+          this.deps.applicationPolicy?.accepted(input, providerThreadId, providerTurnId);
+          this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
+        },
+      });
+    } finally {
+      stopWatching?.();
+    }
     if (
       input.providerThreadId &&
       result.providerThreadId !== input.providerThreadId &&
