@@ -53,8 +53,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const [reason, setReason] = useState('');
   const [dismissalEvidence, setDismissalEvidence] = useState('');
   const [criteria, setCriteria] = useState('');
-  const [tokens, setTokens] = useState(10000);
-  const [rounds, setRounds] = useState(2);
+  const [tokens, setTokens] = useState('');
+  const [rounds, setRounds] = useState('');
+  const [costMode, setCostMode] = useState('');
+  const [cost, setCost] = useState('');
   const [record, setRecord] = useState('');
   const [savedRecordOpen, setSavedRecordOpen] = useState(false);
   const [recordReference, setRecordReference] = useState<{ id: string; hash: string } | null>(null);
@@ -130,6 +132,18 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
   const workflow = newReview
     ? undefined
     : (workflows.find((item) => item.workflowId === workflowId) ?? workflows.at(-1));
+  const validLimits =
+    tokens.trim() !== '' &&
+    Number.isSafeInteger(Number(tokens)) &&
+    Number(tokens) > 0 &&
+    rounds.trim() !== '' &&
+    Number.isSafeInteger(Number(rounds)) &&
+    Number(rounds) > 0 &&
+    (costMode === 'none' ||
+      (costMode === 'cap' &&
+        cost.trim() !== '' &&
+        Number.isFinite(Number(cost)) &&
+        Number(cost) >= 0));
   const pending = workflow?.reservations.find((attempt) => !attempt.settled);
   const endpoint = workflow ? `${base}/${encodeURIComponent(workflow.workflowId)}/actions` : base;
   return (
@@ -172,6 +186,10 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
           disabled={busy}
           onClick={() => {
             setNewReview(true);
+            setTokens('');
+            setRounds('');
+            setCostMode('');
+            setCost('');
             setSelected([]);
             setReason('');
             setRecord('');
@@ -345,7 +363,7 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               type="number"
               min="1"
               value={tokens}
-              onChange={(event) => setTokens(Number(event.target.value))}
+              onChange={(event) => setTokens(event.target.value)}
             />
           </label>
           <label>
@@ -354,11 +372,32 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
               type="number"
               min="1"
               value={rounds}
-              onChange={(event) => setRounds(Number(event.target.value))}
+              onChange={(event) => setRounds(event.target.value)}
             />
           </label>
+          <label>
+            Cost limit
+            <select value={costMode} onChange={(event) => setCostMode(event.target.value)}>
+              <option value="">Choose a cost limit</option>
+              <option value="cap">Set a maximum cost</option>
+              <option value="none">No dollar limit; keep token and round limits</option>
+            </select>
+          </label>
+          {costMode === 'cap' && (
+            <label>
+              Maximum cost (USD)
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={cost}
+                onChange={(event) => setCost(event.target.value)}
+              />
+            </label>
+          )}
+          <p>Choose limits for this review. It can run only when the workspace can enforce them.</p>
           <button
-            disabled={busy || !criteria.trim() || tokens < 1 || rounds < 1}
+            disabled={busy || !criteria.trim() || !validLimits}
             onClick={() =>
               void action(base, {
                 workflowId: crypto.randomUUID(),
@@ -366,7 +405,11 @@ function ReviewPanel({ sessionId }: { sessionId: string }) {
                   .split('\n')
                   .map((line) => line.trim())
                   .filter(Boolean),
-                limits: { maxTokens: tokens, maxReviewRounds: rounds, maxCostUsd: null },
+                limits: {
+                  maxTokens: Number(tokens),
+                  maxReviewRounds: Number(rounds),
+                  maxCostUsd: costMode === 'cap' ? Number(cost) : null,
+                },
               })
             }
           >

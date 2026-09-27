@@ -336,6 +336,21 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       throw new Error('Artifact sandbox creation intent cannot be changed');
   }
 
+  /** Live pre-dispatch rollback only; never use inventory absence or restart as this proof. */
+  rollbackUndispatchedCreation(token: string, revision: string, sandboxName: string): void {
+    if (!token || !revision || !safeName.test(sandboxName))
+      throw new Error('Invalid artifact creation identity');
+    const result = this.db
+      .prepare(
+        `UPDATE symposium_artifact_leases
+      SET creation_started=0, intended_sandbox_name=NULL
+      WHERE token=? AND revision=? AND sandbox_id IS NULL AND sandbox_name IS NULL
+      AND (intended_sandbox_name IS NULL OR intended_sandbox_name=?)`,
+      )
+      .run(token, revision, sandboxName);
+    if (result.changes !== 1) throw new Error('Undispatched artifact intent requires recovery');
+  }
+
   /** Bind the reservation to the immutable physical identity before admitting work. */
   bindSandbox(token: string, revision: string, sandboxName: string, sandboxId: string): void {
     if (!token || !revision || !safeName.test(sandboxName) || !sandboxId)

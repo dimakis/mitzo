@@ -1,20 +1,32 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
 import { AddReviewerSheet } from '../AddReviewerSheet';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+const accountPicker = vi.hoisted(() => ({
+  onChange: undefined as undefined | ((v: unknown) => void),
+}));
 vi.mock('../AccountModelPicker', () => ({
-  AccountModelPicker: ({ onChange }: { onChange: (v: unknown) => void }) => (
-    <button onClick={() => onChange({ accountId: 'a', model: 'luna' })}>Choose account</button>
-  ),
+  AccountModelPicker: ({ onChange }: { onChange: (v: unknown) => void }) => {
+    accountPicker.onChange = onChange;
+    return (
+      <button onClick={() => onChange({ accountId: 'a', model: 'luna' })}>Choose account</button>
+    );
+  },
+}));
+const profilePicker = vi.hoisted(() => ({
+  onChange: undefined as undefined | ((v: unknown) => void),
 }));
 vi.mock('../SymposiumProfilePicker', () => ({
-  SymposiumProfilePicker: ({ onChange }: { onChange: (v: unknown) => void }) => (
-    <button onClick={() => onChange({ profileId: 'review', revision: 1 })}>Choose profile</button>
-  ),
+  SymposiumProfilePicker: ({ onChange }: { onChange: (v: unknown) => void }) => {
+    profilePicker.onChange = onChange;
+    return (
+      <button onClick={() => onChange({ profileId: 'review', revision: 1 })}>Choose profile</button>
+    );
+  },
 }));
 afterEach(() => {
   cleanup();
@@ -82,6 +94,9 @@ it('adds a read-only reviewer with empty history grants and queues only the expl
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
+  act(() => accountPicker.onChange?.(null));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeDisabled();
+  fireEvent.click(screen.getByText('Choose account'));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer added/);
   const revise = vi
@@ -199,8 +214,13 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   await waitFor(() =>
     expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
   );
+  const finishEarlierProfileSave = profilePicker.onChange;
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer admitted. Context not queued/);
+  // Catalog invalidation is an effect callback even inside a disabled fieldset.
+  act(() => accountPicker.onChange?.(null));
+  act(() => finishEarlierProfileSave?.({ profileId: 'review', revision: 2 }));
+  expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled();
   fireEvent.click(screen.getByRole('button', { name: 'Close' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
   expect(screen.getByLabelText('Review package')).toBeDisabled();
@@ -210,6 +230,11 @@ it('retains an admitted reviewer and frozen context across close/reopen after qu
   fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
   await screen.findByText(/Reviewer added/);
   const writes = vi.mocked(apiFetch).mock.calls;
+  expect(
+    writes
+      .filter(([url]) => String(url).startsWith('/api/symposium/profiles/'))
+      .map(([url]) => url),
+  ).toEqual(['/api/symposium/profiles/review/1', '/api/symposium/profiles/review/1']);
   expect(writes.filter(([url]) => String(url).endsWith('/seats/revise'))).toHaveLength(1);
   const queued = writes
     .filter(([url]) => String(url).endsWith('/deliveries'))
@@ -350,4 +375,90 @@ it('rejects a non-reviewer profile before converting an ordinary conversation', 
   await screen.findByText(/Choose a profile with the reviewer role/);
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   expect(screen.getByText('Choose profile').closest('fieldset')).not.toBeDisabled();
+});
+
+it.each(['active', 'draft', 'draft-config'])(
+  'unlocks rejected %s reviewer selections only after confirming no seat was saved',
+  async (state) => {
+    const config = {
+      version: 2,
+      revision: 1,
+      state: state === 'draft-config' ? 'draft' : state,
+      anchorSeatId: 'anchor',
+      seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url) => {
+      const path = String(url);
+      if (path.startsWith('/api/symposium/profiles/'))
+        return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
+      if (path.endsWith('/symposium'))
+        return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
+      if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+      if (state === 'draft-config' && path.endsWith('/selection'))
+        return new Response(JSON.stringify({ binding: { accountId: 'a', model: 'luna' } }));
+      return new Response(
+        JSON.stringify({ error: 'Selected model is unavailable', seatMutation: 'not-started' }),
+        { status: 400 },
+      );
+    });
+    render(<AddReviewerSheet sessionId="chat" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+    fireEvent.click(await screen.findByText('Choose account'));
+    fireEvent.click(screen.getByText('Choose profile'));
+    fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Review diff' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+    await screen.findByText(/Selected model is unavailable/);
+    await waitFor(() =>
+      expect(screen.getByText('Choose account').closest('fieldset')).not.toBeDisabled(),
+    );
+    expect(screen.getByLabelText('Review package')).toBeEnabled();
+  },
+);
+
+it('keeps a lost mutation response frozen when a temporarily absent seat may commit later', async () => {
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'active',
+    anchorSeatId: 'anchor',
+    seats: [{ id: 'anchor', accountBinding: { accountId: 'a' } }],
+  };
+  let lateSeat = '';
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    const path = String(url);
+    if (path.startsWith('/api/symposium/profiles/'))
+      return new Response(JSON.stringify({ definition: { role: 'reviewer' } }));
+    if (path.endsWith('/symposium'))
+      return new Response(JSON.stringify({ config, runtimeAvailable: true, seats: [] }));
+    if (path.endsWith('/context-package')) return new Response(JSON.stringify({ content: '' }));
+    lateSeat = JSON.parse(String(init?.body)).seatId;
+    throw new Error('Response lost while mutation may still be running');
+  });
+  render(<AddReviewerSheet sessionId="chat" />);
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  fireEvent.click(await screen.findByText('Choose account'));
+  fireEvent.click(screen.getByText('Choose profile'));
+  fireEvent.change(screen.getByLabelText('Review package'), { target: { value: 'Frozen diff' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer and queue context' }));
+  await screen.findByText(/Response lost/);
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Add reviewer and queue context' })).toBeEnabled(),
+  );
+  expect(config.seats).toHaveLength(1);
+  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  config.seats.push({ id: lateSeat, accountBinding: { accountId: 'a' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add reviewer' }));
+  expect(screen.getByLabelText('Review package')).toBeDisabled();
+  expect(
+    vi.mocked(apiFetch).mock.calls.filter(([url]) => String(url).endsWith('/seats/revise')),
+  ).toHaveLength(1);
 });
