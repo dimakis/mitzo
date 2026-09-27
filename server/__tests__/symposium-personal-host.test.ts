@@ -246,3 +246,27 @@ it('does not publish discovery after the initiating operator session is revoked'
   expect(host.currentProfiles.catalog()).toEqual([]);
   expect(host.personalConnections.list()[0].state).toBe('recovery_required');
 });
+it('captures only a connected exact slot revision and fences disconnect or replacement', async () => {
+  const host = fixture();
+  const row = await connected(host);
+  const proof = host.captureAdmissionProvider({
+    connectionId: row.id,
+    expectedRevision: row.revision,
+  });
+  expect(proof.provider).toEqual({
+    name: 'physical-provider',
+    id: 'provider-id',
+    type: 'codex',
+    profileName: 'codex',
+  });
+  expect(JSON.stringify(proof)).not.toContain('email');
+  expect(() =>
+    host.captureAdmissionProvider({ connectionId: row.id, expectedRevision: row.revision - 1 }),
+  ).toThrow();
+  const other = host.personalConnections.create('Other');
+  expect(() =>
+    host.captureAdmissionProvider({ connectionId: other.id, expectedRevision: other.revision }),
+  ).toThrow();
+  await host.personalConnections.disconnect(row.id, row.revision);
+  expect(() => proof.assertCurrent()).toThrow();
+});
