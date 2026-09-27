@@ -194,6 +194,9 @@ The runtime supplies durable transcript recording by default, including early
 events and closure after failure or cancellation; live broadcasting is optional.
 Persisted native events retain their claim identity so confirmed restart cleanup
 can close the exact unfinished transcript without inventing a successful result.
+Transcript restore ignores recipient dispatch/thread-migration bookkeeping rather
+than treating its recipient ID as message authorship. Unverifiable message attribution
+still rejects the restore with a controlled HTTP error; it cannot terminate the server.
 
 Both chat views now offer **Open review findings**. The application persists
 review workflows and history, displays severity only when the reviewer reports it,
