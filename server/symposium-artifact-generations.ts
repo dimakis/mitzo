@@ -8,6 +8,7 @@ import {
 import Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { AccountBindingSchema } from '@mitzo/protocol';
 import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
@@ -18,7 +19,7 @@ const initialSchema = identity.extend({
   volumeName: id,
   initializationReceiptDigest: hash,
 });
-const requestSchema = identity.extend({
+const commonRequest = identity.extend({
   operationId: id,
   expectedPointerRevision: z.number().int().nonnegative(),
   parentGenerationId: id,
@@ -30,7 +31,6 @@ const requestSchema = identity.extend({
   bundleSha256: hash,
   exportReceiptDigest: hash,
   workflowId: id,
-  fixAttemptId: id,
   actor: id,
   authorityGrantId: id,
   authorityRevision: z.number().int().positive(),
@@ -40,10 +40,26 @@ const requestSchema = identity.extend({
   model: id,
   profileId: id,
   profileRevision: id,
-  findingFingerprints: z.array(hash).min(1).max(128),
   copierImageDigest: hash,
   copierCodeDigest: hash,
 });
+const requestSchema = z.union([
+  commonRequest.extend({
+    kind: z.literal('initial'),
+    sourceSealId: id,
+    initialAttemptId: id,
+    policyReservationId: id,
+    expectedConfigRevision: z.number().int().positive(),
+    predecessorMembershipGeneration: z.number().int().positive(),
+    accountBinding: AccountBindingSchema,
+    contextGrant: z.strictObject({ grantId: id, revision: z.number().int().positive() }),
+  }),
+  commonRequest.extend({
+    kind: z.literal('fix').optional(),
+    fixAttemptId: id,
+    findingFingerprints: z.array(hash).min(1).max(128),
+  }),
+]);
 const intentSchema = z.strictObject({
   request: requestSchema,
   generationId: id,
@@ -236,7 +252,10 @@ export class SymposiumArtifactGenerations {
   }
   reserve(input: ArtifactGenerationRequest): ArtifactGenerationIntent {
     const request = requestSchema.parse(input);
-    if (new Set(request.findingFingerprints).size !== request.findingFingerprints.length)
+    if (
+      request.kind !== 'initial' &&
+      new Set(request.findingFingerprints).size !== request.findingFingerprints.length
+    )
       throw new Error('Duplicate finding scope');
     return this.db
       .transaction(() => {
@@ -483,7 +502,22 @@ export class SymposiumArtifactGenerations {
           request.parentSealDigest !== binding.parentSealDigest ||
           request.expectedPointerRevision !== binding.expectedPointerRevision ||
           request.workflowId !== binding.workflowId ||
-          request.fixAttemptId !== binding.fixAttemptId ||
+          request.kind !== binding.kind ||
+          (request.kind === 'initial' && binding.kind === 'initial'
+            ? request.sourceSealId !== binding.sourceSealId ||
+              request.initialAttemptId !== binding.initialAttemptId ||
+              request.policyReservationId !== binding.policyReservationId ||
+              request.expectedConfigRevision !== binding.expectedConfigRevision ||
+              request.predecessorMembershipGeneration !== binding.predecessorMembershipGeneration ||
+              artifactAdmissionDigest(request.accountBinding) !==
+                artifactAdmissionDigest(binding.accountBinding) ||
+              request.contextGrant.grantId !== binding.contextGrant.grantId ||
+              request.contextGrant.revision !== binding.contextGrant.revision
+            : request.kind !== 'initial' && binding.kind !== 'initial'
+              ? request.fixAttemptId !== binding.fixAttemptId ||
+                artifactAdmissionDigest(request.findingFingerprints) !==
+                  artifactAdmissionDigest(binding.findingFingerprints)
+              : true) ||
           request.actor !== binding.actor ||
           request.seatId !== binding.seatId ||
           request.membershipGeneration !== binding.predecessorMembershipGeneration ||
@@ -492,9 +526,7 @@ export class SymposiumArtifactGenerations {
           request.profileId !== binding.profileBinding.profileId ||
           request.profileRevision !== binding.profileBinding.profileRevision ||
           request.authorityGrantId !== binding.authorityGrant.grantId ||
-          request.authorityRevision !== binding.authorityGrant.revision ||
-          artifactAdmissionDigest(request.findingFingerprints) !==
-            artifactAdmissionDigest(binding.findingFingerprints)
+          request.authorityRevision !== binding.authorityGrant.revision
         )
           throw new Error('Successor copy binding mismatch');
         const prior = this.db

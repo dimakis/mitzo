@@ -11,37 +11,46 @@ export const ArtifactAdmissionReferenceV1Schema = z.strictObject({
   pointerRevision: revision,
   bindingDigest: hash,
 });
+const commonBinding = z.strictObject({
+  version: z.literal(1),
+  transitionId: id,
+  operationId: id,
+  sessionId: id,
+  workspaceId: id,
+  custodyDigest: hash,
+  parentGenerationId: id,
+  parentSealDigest: hash,
+  childGenerationId: id,
+  childVolumeName: id,
+  copyReceiptDigest: hash,
+  expectedPointerRevision: z.number().int().nonnegative(),
+  activatedPointerRevision: revision,
+  workflowId: id,
+  policyReservationId: id,
+  seatId: id,
+  actor: id,
+  expectedConfigRevision: revision,
+  resultingConfigRevision: revision,
+  predecessorMembershipGeneration: revision,
+  successorMembershipGeneration: revision,
+  accountBinding: AccountBindingSchema,
+  profileBinding: z.strictObject({ profileId: id, profileRevision: id }),
+  contextGrant: grant,
+  authorityGrant: grant,
+});
+const fixBinding = commonBinding.extend({
+  kind: z.literal('fix').optional(),
+  parentFenceId: id,
+  fixAttemptId: id,
+  findingFingerprints: z.array(hash).min(1).max(128),
+});
+const initialBinding = commonBinding.extend({
+  kind: z.literal('initial'),
+  sourceSealId: id,
+  initialAttemptId: id,
+});
 export const ArtifactAdmissionBindingV1Schema = z
-  .strictObject({
-    version: z.literal(1),
-    transitionId: id,
-    operationId: id,
-    sessionId: id,
-    workspaceId: id,
-    custodyDigest: hash,
-    parentGenerationId: id,
-    parentFenceId: id,
-    parentSealDigest: hash,
-    childGenerationId: id,
-    childVolumeName: id,
-    copyReceiptDigest: hash,
-    expectedPointerRevision: z.number().int().nonnegative(),
-    activatedPointerRevision: revision,
-    workflowId: id,
-    fixAttemptId: id,
-    policyReservationId: id,
-    seatId: id,
-    actor: id,
-    expectedConfigRevision: revision,
-    resultingConfigRevision: revision,
-    predecessorMembershipGeneration: revision,
-    successorMembershipGeneration: revision,
-    accountBinding: AccountBindingSchema,
-    profileBinding: z.strictObject({ profileId: id, profileRevision: id }),
-    contextGrant: grant,
-    authorityGrant: grant,
-    findingFingerprints: z.array(hash).min(1).max(128),
-  })
+  .union([initialBinding, fixBinding])
   .refine(
     (v) =>
       v.resultingConfigRevision === v.expectedConfigRevision + 1 &&

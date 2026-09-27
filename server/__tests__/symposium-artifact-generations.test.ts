@@ -12,6 +12,11 @@ import {
   type ArtifactGenerationRequest,
 } from '../symposium-artifact-generations.js';
 import { canonicalReviewJson, reviewRecordHash } from '../symposium-review-records.js';
+import { ArtifactAdmissionBindingV1Schema } from '@mitzo/protocol';
+import {
+  assertSuccessorFixAuthority,
+  type SuccessorFixAuthority,
+} from '../symposium-artifact-successor-authority.js';
 const dirs: string[] = [];
 const dbs: Database.Database[] = [];
 afterEach(() => {
@@ -529,4 +534,149 @@ it('retains an exact admission receipt with pointer CAS and rejects unconfirmed 
   expect(f.open().store.requireAdmission(binding)).toEqual(activation);
   expect(f.store.activateAdmission(binding, () => true)).toEqual(activation);
   expect(() => f.store.requireAdmission({ ...binding, policyReservationId: 'other' })).toThrow();
+});
+it('admits an imported parent only for the exact initial attempt and selected authority', () => {
+  const f = fixture();
+  f.store.registerInitial(initial);
+  const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  const accountBinding = {
+    accountId: 'personal',
+    accountLabel: 'Personal',
+    provider: 'openai-codex' as const,
+    model: 'luna-fixture',
+    profileRevision: '1',
+  };
+  const initialRequest: ArtifactGenerationRequest = {
+    ...common,
+    kind: 'initial',
+    sourceSealId: 'source-seal',
+    initialAttemptId: 'first-attempt',
+    policyReservationId: 'initial-reservation',
+    expectedConfigRevision: 1,
+    predecessorMembershipGeneration: 1,
+    accountBinding,
+    contextGrant: { grantId: 'context', revision: 1 },
+  };
+  const intent = f.store.reserve(initialRequest);
+  f.store.claimCopy(context, intent.generationId);
+  f.store.bindHelper(context, intent.generationId, receipt(intent).helperId);
+  f.store.recordCopy(context, intent.generationId, receipt(intent));
+  const binding = ArtifactAdmissionBindingV1Schema.parse({
+    version: 1,
+    kind: 'initial',
+    transitionId: 'initial-transition',
+    operationId: initialRequest.operationId,
+    sessionId: initialRequest.sessionId,
+    workspaceId: initialRequest.workspace,
+    custodyDigest: initialRequest.custodyDigest,
+    parentGenerationId: initialRequest.parentGenerationId,
+    parentSealDigest: initialRequest.parentSealDigest,
+    sourceSealId: initialRequest.sourceSealId,
+    childGenerationId: intent.generationId,
+    childVolumeName: intent.volumeName,
+    copyReceiptDigest: reviewRecordHash(canonicalReviewJson(receipt(intent))),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: initialRequest.workflowId,
+    initialAttemptId: initialRequest.initialAttemptId,
+    policyReservationId: initialRequest.policyReservationId,
+    seatId: initialRequest.seatId,
+    actor: initialRequest.actor,
+    expectedConfigRevision: 1,
+    resultingConfigRevision: 2,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding,
+    profileBinding: { profileId: 'profile', profileRevision: '1' },
+    contextGrant: initialRequest.contextGrant,
+    authorityGrant: { grantId: initialRequest.authorityGrantId, revision: 1 },
+  });
+  expect(() =>
+    ArtifactAdmissionBindingV1Schema.parse({ ...binding, findingFingerprints: [hash] }),
+  ).toThrow();
+  expect(() =>
+    f.store.activateAdmission({ ...binding, initialAttemptId: 'wrong' }, () => true),
+  ).toThrow('mismatch');
+  expect(() =>
+    f.store.activateAdmission({ ...binding, policyReservationId: 'wrong' }, () => true),
+  ).toThrow('mismatch');
+  expect(() =>
+    f.store.activateAdmission(
+      { ...binding, accountBinding: { ...accountBinding, model: 'other' } },
+      () => true,
+    ),
+  ).toThrow('mismatch');
+  const activation = f.store.activateAdmission(binding, () => true);
+  expect(f.store.requireAdmission(binding)).toEqual(activation);
+  expect(f.store.historical(context, 'initial').initial).toEqual(initial);
+});
+it('requires a retained initial policy reservation rather than fabricated fix findings', () => {
+  const { fixAttemptId: _fixAttemptId, findingFingerprints: _findings, ...common } = request;
+  const initialRequest: ArtifactGenerationRequest = {
+    ...common,
+    kind: 'initial',
+    sourceSealId: 'source-seal',
+    initialAttemptId: 'first-attempt',
+    policyReservationId: 'reservation',
+    expectedConfigRevision: 1,
+    predecessorMembershipGeneration: 1,
+    accountBinding: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      provider: 'openai-codex',
+      model: 'luna-fixture',
+      profileRevision: '1',
+    },
+    contextGrant: { grantId: 'context', revision: 1 },
+  };
+  const attempt = {
+    kind: 'initial',
+    attemptId: 'first-attempt',
+    policyReservationId: 'reservation',
+    settled: false,
+    dispatched: false,
+    actorSeatId: 'writer',
+    artifactRevision: oid,
+    artifactHash: hash,
+    binding: {
+      membershipGeneration: 1,
+      configRevision: 1,
+      accountId: 'personal',
+      model: 'luna-fixture',
+      profileId: 'profile',
+      profileRevision: '1',
+      accountProfileRevision: '1',
+      authorityGrant: { grantId: 'grant', revision: 1 },
+      contextGrant: { grantId: 'context', revision: 1 },
+    },
+  };
+  const state = {
+    limits: { mode: 'application' },
+    status: 'awaiting_initial',
+    implementation: null,
+    sessionId: 'session',
+    owner: 'owner',
+    initialArtifact: { revision: oid, hash },
+    implementer: {
+      seatId: 'writer',
+      accountId: 'personal',
+      model: 'luna-fixture',
+      profileId: 'profile',
+      profileRevision: 1,
+    },
+    applicationAttempts: [attempt],
+  };
+  const authority = {
+    workflows: { get: () => state },
+    assertCurrent: () => true as const,
+  } as unknown as SuccessorFixAuthority;
+  expect(assertSuccessorFixAuthority(authority, initialRequest)).toBe(true);
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, policyReservationId: 'other' }),
+  ).toThrow('initial attempt');
+  expect(() =>
+    assertSuccessorFixAuthority(authority, { ...initialRequest, expectedConfigRevision: 2 }),
+  ).toThrow('initial attempt');
+  attempt.dispatched = true;
+  expect(() => assertSuccessorFixAuthority(authority, initialRequest)).toThrow('initial attempt');
 });

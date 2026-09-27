@@ -235,6 +235,52 @@ export function assertSuccessorFixAuthority(
   if (authority.assertCurrent(request) !== true)
     throw new Error('Current successor fix authority required');
   const state = authority.workflows.get(request.workflowId);
+  if (request.kind === 'initial') {
+    const attempt = state?.applicationAttempts.find(
+      (value) =>
+        value.kind === 'initial' &&
+        value.attemptId === request.initialAttemptId &&
+        value.policyReservationId === request.policyReservationId,
+    );
+    if (
+      !state ||
+      state.limits.mode !== 'application' ||
+      state.status !== 'awaiting_initial' ||
+      state.implementation !== null ||
+      state.sessionId !== request.sessionId ||
+      state.owner !== request.actor ||
+      state.initialArtifact?.revision !== request.parentCommit ||
+      state.initialArtifact.hash !== request.parentCommittedTreeDigest ||
+      state.implementer.seatId !== request.seatId ||
+      state.implementer.accountId !== request.accountId ||
+      state.implementer.model !== request.model ||
+      state.implementer.profileId !== request.profileId ||
+      String(state.implementer.profileRevision) !== request.profileRevision ||
+      request.membershipGeneration !== request.predecessorMembershipGeneration ||
+      request.accountBinding.accountId !== request.accountId ||
+      request.accountBinding.model !== request.model ||
+      request.accountBinding.profileRevision !== request.profileRevision ||
+      !attempt ||
+      attempt.settled ||
+      attempt.dispatched ||
+      attempt.actorSeatId !== request.seatId ||
+      attempt.artifactRevision !== request.parentCommit ||
+      attempt.artifactHash !== request.parentCommittedTreeDigest ||
+      attempt.binding.membershipGeneration !== request.predecessorMembershipGeneration ||
+      attempt.binding.configRevision !== request.expectedConfigRevision ||
+      attempt.binding.accountId !== request.accountId ||
+      attempt.binding.model !== request.model ||
+      attempt.binding.profileId !== request.profileId ||
+      attempt.binding.profileRevision !== request.profileRevision ||
+      attempt.binding.accountProfileRevision !== request.accountBinding.profileRevision ||
+      attempt.binding.authorityGrant.grantId !== request.authorityGrantId ||
+      attempt.binding.authorityGrant.revision !== request.authorityRevision ||
+      attempt.binding.contextGrant.grantId !== request.contextGrant.grantId ||
+      attempt.binding.contextGrant.revision !== request.contextGrant.revision
+    )
+      throw new Error('Exact retained initial attempt and policy reservation required');
+    return true;
+  }
   if (
     !state ||
     state.status !== 'awaiting_fix' ||

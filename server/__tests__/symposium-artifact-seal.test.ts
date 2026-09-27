@@ -173,6 +173,87 @@ it('serializes lifecycle-before-seal and seal-before-new-work across independent
   expect(() => second.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
   second.assertSymposiumArtifactWorkAllowed('other-session');
 });
+it('requires a fresh completed source-parent proof for initial admission on both sides of activation', () => {
+  const { first, second } = fixture();
+  first.transitionSymposiumMembership({
+    sessionId: 'symposium',
+    seatId: seat.id,
+    action: 'admit',
+    expectedGeneration: 0,
+    configRevision: 4,
+    actor: 'owner',
+    reason: 'initial',
+    idempotencyKey: 'initial',
+    occurredAt: 1,
+  });
+  first.markSymposiumMembershipReconciled('symposium', seat.id, 1, 'confirmed');
+  const sandbox = {
+    sessionId: 'symposium',
+    seatId: seat.id,
+    generation: 1,
+    runtimeId: 'parent-runtime',
+    workspace: 'workspace',
+    providerName: 'provider',
+    providerId: 'provider-id',
+    providerType: 'openai',
+    model: seat.model,
+  };
+  first.reserveSymposiumSeatSandbox(sandbox);
+  first.confirmAbsentSymposiumSeatSandboxStopped(sandbox);
+  const binding = {
+    version: 1 as const,
+    kind: 'initial' as const,
+    transitionId: 'initial-transition',
+    operationId: 'copy',
+    sessionId: 'symposium',
+    workspaceId: 'workspace',
+    custodyDigest: 'a'.repeat(64),
+    parentGenerationId: 'generation-1',
+    sourceSealId: 'import-1',
+    parentSealDigest: 'c'.repeat(64),
+    childGenerationId: 'generation-2',
+    childVolumeName: 'child-volume',
+    copyReceiptDigest: 'd'.repeat(64),
+    expectedPointerRevision: 0,
+    activatedPointerRevision: 1,
+    workflowId: 'workflow',
+    initialAttemptId: 'attempt-1',
+    policyReservationId: 'reservation',
+    seatId: seat.id,
+    actor: 'owner',
+    expectedConfigRevision: 4,
+    resultingConfigRevision: 5,
+    predecessorMembershipGeneration: 1,
+    successorMembershipGeneration: 2,
+    accountBinding: seat.accountBinding,
+    profileBinding: seat.profileBinding,
+    contextGrant: { grantId: seat.contextGrant.grantId, revision: 1 },
+    authorityGrant: { grantId: seat.authorityGrant.grantId, revision: 1 },
+  };
+  expect(() => first.beginSymposiumArtifactAdmission(binding, () => true)).toThrow('source parent');
+  const sourceProof = vi.fn(() => true as const);
+  const intent = first.beginSymposiumArtifactAdmission(binding, () => true, sourceProof);
+  expect(sourceProof).toHaveBeenCalledWith(binding);
+  const receipt = {
+    version: 1 as const,
+    transitionId: binding.transitionId,
+    bindingDigest: intent.reference.bindingDigest,
+    sessionId: binding.sessionId,
+    parentGenerationId: binding.parentGenerationId,
+    childGenerationId: binding.childGenerationId,
+    childVolumeName: binding.childVolumeName,
+    expectedPointerRevision: 0,
+    pointerRevision: 1,
+    copyReceiptDigest: binding.copyReceiptDigest,
+  };
+  expect(() => second.confirmSymposiumArtifactAdmission(binding, receipt, () => true)).toThrow(
+    'source parent',
+  );
+  expect(
+    second.confirmSymposiumArtifactAdmission(binding, receipt, () => true, sourceProof).receipt,
+  ).toEqual(receipt);
+  expect(sourceProof).toHaveBeenCalledTimes(2);
+});
 it('admits only a confirmed exact successor and preserves parent seal history', () => {
   const { first, second } = fixture();
   first.transitionSymposiumMembership({

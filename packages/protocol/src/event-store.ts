@@ -2585,6 +2585,9 @@ export class EventStore {
   beginSymposiumArtifactAdmission(
     input: ArtifactAdmissionBindingV1,
     assertAuthority: (binding: ArtifactAdmissionBindingV1) => true,
+    assertSourceParent?: (
+      binding: Extract<ArtifactAdmissionBindingV1, { kind: 'initial' }>,
+    ) => true,
   ) {
     const binding = ArtifactAdmissionBindingV1Schema.parse(input);
     this.db!.pragma('synchronous = FULL');
@@ -2596,7 +2599,7 @@ export class EventStore {
           throw new Error('Successor intent identity conflict');
         return existing;
       }
-      this.assertSymposiumArtifactPredecessor(binding);
+      this.assertSymposiumArtifactPredecessor(binding, assertSourceParent);
       if (
         this.db!.prepare(
           'SELECT 1 FROM symposium_artifact_reader_admissions WHERE session_id=? AND receipt_json IS NULL',
@@ -2618,11 +2621,19 @@ export class EventStore {
       return this.getSymposiumArtifactAdmission(binding.sessionId, binding.transitionId)!;
     }).immediate();
   }
-  private assertSymposiumArtifactPredecessor(binding: ArtifactAdmissionBindingV1): void {
+  private assertSymposiumArtifactPredecessor(
+    binding: ArtifactAdmissionBindingV1,
+    assertSourceParent?: (
+      binding: Extract<ArtifactAdmissionBindingV1, { kind: 'initial' }>,
+    ) => true,
+  ): void {
     const config = this.getActiveSymposiumConfig(binding.sessionId);
     const seat = config.seats.find((candidate) => candidate.id === binding.seatId);
     const member = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId);
-    const parent = this.getSymposiumArtifactSealByFence(binding.parentFenceId);
+    const parent =
+      binding.kind === 'initial'
+        ? null
+        : this.getSymposiumArtifactSealByFence(binding.parentFenceId);
     const sandbox = this.getSymposiumSeatSandbox(
       binding.sessionId,
       binding.seatId,
@@ -2632,11 +2643,12 @@ export class EventStore {
       config.version !== 2 ||
       config.revision !== binding.expectedConfigRevision ||
       !seat ||
-      !parent ||
-      parent.selection.sessionId !== binding.sessionId ||
-      parent.selection.artifact.volumeGeneration !== binding.parentGenerationId ||
-      parent.selection.custody.workspaceId !== binding.workspaceId ||
-      parent.selection.custody.gatewayLaunchDigest !== binding.custodyDigest ||
+      (binding.kind !== 'initial' &&
+        (!parent ||
+          parent.selection.sessionId !== binding.sessionId ||
+          parent.selection.artifact.volumeGeneration !== binding.parentGenerationId ||
+          parent.selection.custody.workspaceId !== binding.workspaceId ||
+          parent.selection.custody.gatewayLaunchDigest !== binding.custodyDigest)) ||
       member?.generation !== binding.predecessorMembershipGeneration ||
       member.state !== 'active' ||
       member.reconciliation !== 'confirmed' ||
@@ -2657,7 +2669,12 @@ export class EventStore {
       )
     )
       throw new Error('Exact retired successor predecessor required');
-    this.withSymposiumHistoricalArtifactSealSnapshot(parent, () => {});
+    if (binding.kind === 'initial') {
+      if (!assertSourceParent || assertSourceParent(binding) !== true)
+        throw new Error('Exact completed imported source parent required');
+    } else {
+      this.withSymposiumHistoricalArtifactSealSnapshot(parent!, () => {});
+    }
   }
   confirmSymposiumArtifactAdmission(
     input: ArtifactAdmissionBindingV1,
@@ -2665,6 +2682,9 @@ export class EventStore {
     assertAuthority: (
       binding: ArtifactAdmissionBindingV1,
       receipt: ArtifactActivationReceiptV1,
+    ) => true,
+    assertSourceParent?: (
+      binding: Extract<ArtifactAdmissionBindingV1, { kind: 'initial' }>,
     ) => true,
   ) {
     const binding = ArtifactAdmissionBindingV1Schema.parse(input),
@@ -2692,7 +2712,7 @@ export class EventStore {
           throw new Error('Successor receipt changed');
         return existing;
       }
-      this.assertSymposiumArtifactPredecessor(binding);
+      this.assertSymposiumArtifactPredecessor(binding, assertSourceParent);
       const config = this.getActiveSymposiumConfig(binding.sessionId);
       const previous = this.getLatestSymposiumMembership(binding.sessionId, binding.seatId)!;
       const changed = this.db!.prepare(
