@@ -92,6 +92,49 @@ it('inspects the sealed branch and exports a bounded reconstructable bundle', ()
     rmSync(path);
   }
 });
+it('exports selected successor refs without prerequisites into a fresh repository', () => {
+  const f = fixture();
+  f.git('branch', 'unselected-history');
+  const exported = f.run({
+    kind: 'successor',
+    sourceBranch: 'feature',
+    sourceOid: f.proof.commit,
+    maxBytes: 1048576,
+  });
+  const child = mkdtempSync(join(tmpdir(), 'successor-git-export-'));
+  roots.push(child);
+  execFileSync('git', ['init', '-q', child]);
+  const bundle = join(child, 'parent.bundle');
+  writeFileSync(bundle, Buffer.from(exported.bundle, 'base64'));
+  execFileSync('git', ['bundle', 'verify', bundle], { cwd: child, stdio: 'pipe' });
+  const refs = execFileSync('git', ['bundle', 'list-heads', bundle], { stdio: 'pipe' }).toString();
+  expect(refs.trim().split('\n').sort()).toEqual(
+    [
+      `${f.proof.commit} refs/heads/feature`,
+      `${f.git('rev-parse', 'refs/remotes/origin/main').trim()} refs/remotes/origin/main`,
+    ].sort(),
+  );
+  expect(exported.selection).toEqual({
+    sourceRef: 'refs/heads/feature',
+    sourceOid: f.proof.commit,
+    baseRef: 'refs/remotes/origin/main',
+    baseOid: f.git('rev-parse', 'refs/remotes/origin/main').trim(),
+    defaultBranch: 'main',
+    originUrl: 'https://github.com/example/repo.git',
+  });
+});
+it('rejects a missing successor base ref', () => {
+  const f = fixture();
+  f.git('update-ref', '-d', 'refs/remotes/origin/main');
+  expect(() =>
+    f.run({
+      kind: 'successor',
+      sourceBranch: 'feature',
+      sourceOid: f.proof.commit,
+      maxBytes: 1048576,
+    }),
+  ).toThrow();
+});
 it('rejects a bundle byte overflow and a different selected branch or commit', () => {
   const f = fixture();
   expect(() =>
