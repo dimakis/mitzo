@@ -49,6 +49,9 @@ export function SymposiumDeviceLogin({
   const [status, setStatus] = useState<Status>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const receipt = useRef<Status>({ state: 'idle' });
+  const polling = useRef<number | null>(null);
   const startingVersion = useRef<number | null>(null);
   const [error, setError] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
@@ -56,6 +59,7 @@ export function SymposiumDeviceLogin({
   const version = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const attempt = useRef<string | undefined>(undefined);
+  const previousAttempt = useRef<string | undefined>(undefined);
   const refreshed = useRef(new Set<string>());
   const changed = useRef(onAccountsChanged);
   changed.current = onAccountsChanged;
@@ -67,7 +71,13 @@ export function SymposiumDeviceLogin({
     version.current += 1;
     startingVersion.current = null;
     setStarting(false);
+    setCancelling(false);
     return version.current;
+  }
+  function schedule(generation: number) {
+    clearTimeout(timer.current);
+    if (generation === version.current && polling.current !== generation)
+      timer.current = setTimeout(() => void check(generation), 2000);
   }
   function accept(value: unknown, expectedId?: string) {
     const next = statusSchema.parse(value);
@@ -83,8 +93,39 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    // Recovery may still describe the previous attempt until the new start allocates.
+    if (
+      startingVersion.current === version.current &&
+      ((next.attemptId && next.attemptId === previousAttempt.current) ||
+        (next.state === 'unknown' && !next.attemptId && !attempt.current))
+    )
+      return receipt.current;
+    if (attempt.current && next.attemptId && next.attemptId !== attempt.current)
+      throw new Error('Mismatched active receipt');
+    // Idle before allocation is acknowledged does not prove the start failed.
+    if (
+      next.state === 'idle' &&
+      (startingVersion.current === version.current || receipt.current.state !== 'idle')
+    )
+      return receipt.current;
+    // A late allocation reply cannot reopen an attempt already observed terminal.
+    if (
+      receipt.current.state !== 'idle' &&
+      receipt.current.state !== 'pending' &&
+      next.state === 'pending' &&
+      next.attemptId === attempt.current
+    )
+      return receipt.current;
+    receipt.current = next;
+    if (next.state !== 'pending') {
+      clearTimeout(timer.current);
+      if (next.state !== 'idle') {
+        startingVersion.current = null;
+        setStarting(false);
+      }
+    }
     if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
-    attempt.current = next.attemptId;
+    attempt.current = next.attemptId ?? attempt.current;
     setStatus(next);
     pendingChanged.current?.(next.state === 'pending');
     setError('');
@@ -96,9 +137,13 @@ export function SymposiumDeviceLogin({
     return next;
   }
   async function check(generation = stop()) {
+    if (generation !== version.current || polling.current === generation) return;
+    polling.current = generation;
+    clearTimeout(timer.current);
     setBusy(true);
+    let continuePolling = false;
+    const id = attempt.current;
     try {
-      const id = attempt.current;
       const query = new URLSearchParams();
       if (id) query.set('attemptId', id);
       if (connectionId) query.set('connectionId', connectionId);
@@ -106,14 +151,27 @@ export function SymposiumDeviceLogin({
       if (!response.ok) throw new Error('Status unavailable');
       const value = await response.json();
       if (generation !== version.current) return;
+      if (id !== attempt.current) {
+        continuePolling = receipt.current.state === 'pending';
+        return;
+      }
       const next = accept(value, id);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      continuePolling = next.state === 'pending' || startingVersion.current === generation;
     } catch {
       if (generation !== version.current) return;
+      if (id !== attempt.current) {
+        continuePolling = receipt.current.state === 'pending';
+        return;
+      }
+      if (!['idle', 'pending'].includes(receipt.current.state)) return;
       setError('Could not check sign-in status. Retry status before starting another attempt.');
       setStatusFailed(true);
     } finally {
-      if (generation === version.current) setBusy(false);
+      if (polling.current === generation) polling.current = null;
+      if (generation === version.current) {
+        setBusy(false);
+        if (continuePolling) schedule(generation);
+      }
     }
   }
   useEffect(
@@ -127,12 +185,15 @@ export function SymposiumDeviceLogin({
     const generation = stop();
     setBusy(true);
     setError('');
+    setCancelling(kind === 'cancel');
     if (kind === 'start') {
+      receipt.current = { state: 'idle' };
+      previousAttempt.current = attempt.current;
       attempt.current = undefined;
       startingVersion.current = generation;
       pendingChanged.current?.(true);
       setStarting(true);
-      timer.current = setTimeout(() => void check(generation), 2000);
+      schedule(generation);
     }
     try {
       const response = await apiFetch(kind === 'start' ? endpoint : `${endpoint}/cancel`, {
@@ -148,15 +209,17 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, kind === 'cancel' ? attempt.current : undefined);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      if (next.state === 'pending') schedule(generation);
     } catch {
       if (generation !== version.current) return;
+      if (kind === 'start' && !['idle', 'pending'].includes(receipt.current.state)) return;
       setError('Could not confirm the sign-in request. Check status before trying again.');
       setStatusFailed(true);
     } finally {
       if (generation === version.current) {
         startingVersion.current = null;
         setStarting(false);
+        setCancelling(false);
         setBusy(false);
       }
     }
@@ -169,6 +232,7 @@ export function SymposiumDeviceLogin({
           type="button"
           disabled={disabled}
           onClick={() => {
+            receipt.current = { state: 'idle' };
             setStatus({ state: 'idle' });
             setError('');
             setStatusFailed(false);
@@ -212,8 +276,7 @@ export function SymposiumDeviceLogin({
           {status.state === 'pending' &&
             status.method === 'device-code' &&
             status.verificationUrl &&
-            status.userCode &&
-            !statusFailed && (
+            status.userCode && (
               <div className="symposium-device-code">
                 <span>Enter this code on OpenAI</span>
                 <strong>{status.userCode}</strong>
@@ -258,19 +321,24 @@ export function SymposiumDeviceLogin({
             </p>
           )}
           <div className="symposium-device-actions">
-            {statusFailed || status.retryBlocked ? (
-              <button type="button" disabled={busy || disabled} onClick={() => void check()}>
-                Retry status
-              </button>
-            ) : status.state === 'pending' ? (
+            {(statusFailed || status.retryBlocked) && (
               <button
                 type="button"
                 disabled={busy || disabled}
+                onClick={() => void check(version.current)}
+              >
+                Retry status
+              </button>
+            )}
+            {status.state === 'pending' ? (
+              <button
+                type="button"
+                disabled={cancelling || disabled}
                 onClick={() => void action('cancel')}
               >
                 Cancel sign-in
               </button>
-            ) : (
+            ) : !statusFailed && !status.retryBlocked ? (
               <button
                 type="button"
                 disabled={busy || starting || disabled}
@@ -278,7 +346,7 @@ export function SymposiumDeviceLogin({
               >
                 {status.state === 'completed' ? 'Reconnect ChatGPT' : 'Get sign-in code'}
               </button>
-            )}
+            ) : null}
             <button
               type="button"
               onClick={() => {

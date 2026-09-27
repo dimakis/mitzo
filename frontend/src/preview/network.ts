@@ -1,8 +1,14 @@
 // Imported only by ui-preview.html. No real accounts, messages, or services are contacted.
 import { account, metadata, sessions } from './fixtures';
+import {
+  symposiumReviewPreviewResponses,
+  symposiumReviewPreviewHistory,
+} from './symposium-review-fixtures';
 import { previewProposal, symposiumPerspective, symposiumStatus } from './symposium-fixtures';
 const nativeFetch = window.fetch.bind(window);
 let deviceState = 'idle';
+let deviceAttemptId: string | undefined;
+let deviceAttemptSequence = 0;
 let deviceExpiresAt = 0;
 window.fetch = async (input, init) => {
   const url = new URL(
@@ -35,24 +41,26 @@ window.fetch = async (input, init) => {
       body?.method === 'device-code' &&
       Object.keys(body).length === 1
     ) {
+      deviceAttemptId = `preview-device-${++deviceAttemptSequence}`;
       deviceState = 'pending';
       deviceExpiresAt = Date.now() + 600000;
     } else if (
       url.pathname === `${login}/cancel` &&
       method === 'POST' &&
-      body?.attemptId === 'preview-device' &&
+      deviceAttemptId &&
+      body?.attemptId === deviceAttemptId &&
       Object.keys(body).length === 1
     ) {
       deviceState = 'cancelled';
     } else if (url.pathname === `${login}/status` && method === 'GET') {
       const id = url.searchParams.get('attemptId');
-      if (id && id !== 'preview-device') return Response.json({ state: 'unknown', attemptId: id });
+      if (id && id !== deviceAttemptId) return Response.json({ state: 'unknown', attemptId: id });
     } else return denied();
     return Response.json(
       deviceState === 'pending'
         ? {
             state: deviceState,
-            attemptId: 'preview-device',
+            attemptId: deviceAttemptId,
             method: 'device-code',
             verificationUrl: 'https://auth.openai.com/codex/device',
             userCode: 'DEMO-CODE',
@@ -60,7 +68,7 @@ window.fetch = async (input, init) => {
           }
         : {
             state: deviceState,
-            ...(deviceState === 'idle' ? {} : { attemptId: 'preview-device' }),
+            ...(deviceState === 'idle' ? {} : { attemptId: deviceAttemptId }),
           },
     );
   }
@@ -73,11 +81,59 @@ window.fetch = async (input, init) => {
       appliesTo: 'new conversations only',
     });
   if (url.pathname === '/api/connections/templates') return Response.json({ templates: [] });
+  if (/^\/api\/sessions\/[^/]+\/symposium\/reviews$/.test(url.pathname)) {
+    // preview-1: findings; preview-3: changed artifact; preview-2: unavailable host.
+    const sessionId = url.pathname.split('/')[3];
+    return Response.json(
+      sessionId === 'preview-1'
+        ? symposiumReviewPreviewResponses.findings
+        : sessionId === 'preview-3'
+          ? symposiumReviewPreviewResponses.delta
+          : symposiumReviewPreviewResponses.unavailable,
+    );
+  }
+  if (/^\/api\/sessions\/[^/]+\/symposium\/reviews\/[^/]+$/.test(url.pathname)) {
+    const sessionId = url.pathname.split('/')[3];
+    const workflowId = url.pathname.split('/')[6];
+    const scenario =
+      sessionId === 'preview-1' ? 'findings' : sessionId === 'preview-3' ? 'delta' : null;
+    if (!scenario || workflowId !== 'preview-review')
+      return Response.json({ error: 'Review workflow not found' }, { status: 404 });
+    return Response.json({
+      workflow: symposiumReviewPreviewResponses[scenario].workflows[0],
+      history: symposiumReviewPreviewHistory[scenario],
+    });
+  }
   if (url.pathname === '/api/symposium/profile-proposals')
     return Response.json(
       url.searchParams.get('sessionId') === 'preview-3' ? [previewProposal] : [],
     );
-  if (url.pathname === '/api/symposium/profiles') return Response.json([]);
+  if (url.pathname === '/api/symposium/profiles')
+    return Response.json([
+      {
+        profileId: 'preview-reviewer',
+        revision: 1,
+        contentHash: 'preview',
+        definition: {
+          name: 'Independent reviewer',
+          role: 'reviewer',
+          instructions: 'Review supplied evidence independently.',
+          expectedOutput: 'Findings with evidence',
+          acceptanceCriteria: ['Each finding is actionable'],
+          modelPolicyRole: 'reviewer',
+        },
+      },
+    ]);
+  if (/^\/api\/sessions\/[^/]+\/symposium\/context-turns$/.test(url.pathname))
+    return Response.json({
+      turns: [
+        {
+          id: 'delivery:preview-shared',
+          content: 'Agreed acceptance criteria: preserve isolated accounts and explicit context.',
+          shareable: true,
+        },
+      ],
+    });
   if (
     /^\/api\/symposium\/profiles\/preview-(?:architect|reviewer|implementer)\/1$/.test(url.pathname)
   )
@@ -100,7 +156,8 @@ window.fetch = async (input, init) => {
     });
   }
   if (url.pathname === '/api/inbox') return Response.json([]);
-  if (url.pathname === '/api/accounts') return Response.json([account]);
+  if (url.pathname === '/api/accounts' || url.pathname === '/api/symposium/accounts')
+    return Response.json([account]);
   if (url.pathname.endsWith('/meta')) return Response.json(metadata);
   if (url.pathname === '/api/sessions/search')
     return Response.json({

@@ -183,14 +183,15 @@ export class SymposiumSubscriptionProvisioner {
   }
 
   /** Host-only import from a fresh isolated upstream device login, never an HTTP token body. */
-  beginDevice(): (
-    tokens: SubscriptionTokens,
-  ) => Promise<SubscriptionIdentity & { binding: AccountBinding }> {
+  beginDevice(
+    expires = Date.now() + 10 * 60_000,
+  ): (tokens: SubscriptionTokens) => Promise<SubscriptionIdentity & { binding: AccountBinding }> {
     this.verifyCustody();
     if (this.busy) throw new Error('Subscription provisioning is already running');
     this.invalidate();
     const generation = this.generation;
-    const expires = Date.now() + 10 * 60_000;
+    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 10 * 60_000)
+      throw new Error('Invalid device authorization deadline');
     let consumed = false;
     return async (tokens) => {
       const assertCurrent = () => {
