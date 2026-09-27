@@ -236,7 +236,7 @@ export async function createOwnedSymposiumHost(
           journal: join(gateway.stateDirectory, 'model-discovery.json'),
           namespace: options.podman.sandboxNamespace,
           environment: { ...gateway.managementEnvironment },
-          configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o600 }],
+          configPins: [{ path: gatewayConfigPath, sha256: gatewayConfigDigest, mode: 0o400 }],
           attestGateway: async () => {
             custody();
             proof.assertCurrent();
