@@ -322,3 +322,21 @@ it.each([false, true])(
     }
   },
 );
+
+it.each(['custody', 'read', 'malformed', 'null'])(
+  'retains reconciliation when %s prevents proving journal absence',
+  async (failure) => {
+    const f = fixture();
+    if (failure === 'custody')
+      vi.mocked(f.operations.verifyCustody).mockRejectedValue(new Error('custody'));
+    f.operations.readReceipt = async () => {
+      if (failure === 'read') throw Error('private journal unreadable');
+      return failure === 'null' ? null : { unexpected: 'retained intent' };
+    };
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+      status: 'reconciliation_required',
+      inference: false,
+    });
+    expect(f.operations.create).not.toHaveBeenCalled();
+  },
+);
