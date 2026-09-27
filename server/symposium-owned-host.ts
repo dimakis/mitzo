@@ -2,6 +2,7 @@ import {
   PhysicalArtifactSealer,
   type PhysicalArtifactSealInput,
 } from './symposium-physical-artifact-seal.js';
+import { symposiumArtifactOwner, artifactOwnerContract } from './symposium-artifact-owner.js';
 import { stableSymposiumArtifactLeasePath } from './symposium-artifact-state.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
@@ -92,6 +93,7 @@ export async function createOwnedSymposiumHost(
     !isAbsolute(options.runtime.seed)
   )
     throw new Error('Owned Symposium host requires explicit private paths and namespace');
+  const artifactOwner = symposiumArtifactOwner(options.gateway.workloadImage);
   try {
     const evidence = lstatSync(options.attestationPath);
     if (!evidence.isFile() || evidence.isSymbolicLink() || evidence.mode & 0o077)
@@ -217,6 +219,7 @@ export async function createOwnedSymposiumHost(
       options.podman.sandboxNamespace,
       podman,
       gateway,
+      options.gateway.workloadImage,
     );
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
@@ -244,6 +247,9 @@ export async function createOwnedSymposiumHost(
       gateway.stateDirectory,
       custody,
       {
+        get initializationContract() {
+          return artifactOwnerContract(artifactOwner);
+        },
         async inspect(name) {
           const listed = await podman([
             'volume',
@@ -262,11 +268,16 @@ export async function createOwnedSymposiumHost(
           return listed.length ? leaseHost!.inspectVolume(name, 'podman') : null;
         },
         async create(name, labels) {
+          const owner = artifactOwner;
           const result = await podmanText([
             'volume',
             'create',
             '--driver',
             'local',
+            '--uid',
+            String(owner.uid),
+            '--gid',
+            String(owner.gid),
             ...Object.entries(labels).flatMap(([key, value]) => ['--label', `${key}=${value}`]),
             name,
           ]);
@@ -286,16 +297,7 @@ export async function createOwnedSymposiumHost(
         : null;
       if (session?.sessionType !== 'symposium' || config?.version !== 2)
         throw new Error('A Symposium session is required');
-      const mapped = artifacts.get(sessionId);
-      if (mapped) {
-        assertSessionArtifactVolume(
-          gateway.workspace,
-          mapped,
-          await leaseHost!.inspectVolume(mapped.volumeName, 'podman'),
-        );
-        custody();
-        return { state: 'ready' };
-      }
+      if (artifacts.has(sessionId)) return { state: 'recovery_required' };
       return sessionArtifacts!.ensure(sessionId);
     };
     const ensureSessionArtifacts = (sessionId: string) =>
@@ -412,10 +414,11 @@ export async function createOwnedSymposiumHost(
         throw new Error('Owned Symposium host is shutting down');
       custody();
       const mapped =
-        artifacts.get(sessionId) ??
-        (purpose === 'cleanup'
-          ? sessionArtifacts!.getRetained(sessionId)
-          : sessionArtifacts!.getReady(sessionId));
+        purpose === 'cleanup'
+          ? (artifacts.get(sessionId) ?? sessionArtifacts!.getRetained(sessionId))
+          : artifacts.has(sessionId)
+            ? null
+            : sessionArtifacts!.getReady(sessionId);
       if (purpose === 'cleanup') {
         const record = options.facts.getSymposiumSeatSandbox(sessionId, seatId, generation);
         if (
