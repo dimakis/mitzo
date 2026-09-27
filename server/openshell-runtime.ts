@@ -1119,7 +1119,7 @@ export class OpenShellRuntimeManager {
         this.config.image,
         '--policy',
         this.config.policy,
-        ...(!phasedCreate
+        ...(!phasedCreate && !artifactConfig
           ? [
               '--upload',
               // OpenShell uploads a source directory as a child of the destination.
@@ -1188,17 +1188,19 @@ export class OpenShellRuntimeManager {
             owner,
             accountProvider,
           });
-          this.config.onSandboxCreationPhase?.('upload');
-          const beforeUpload = await this.get(name, signal);
-          if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
-            throw new Error('Created sandbox identity changed before seed upload');
-          await this.run(
-            ['sandbox', ...this.base(), 'upload', name, this.config.seed, '/sandbox/workspaces'],
-            signal,
-          );
-          const afterUpload = await this.get(name, signal);
-          if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
-            throw new Error('Created sandbox identity changed after seed upload');
+          if (!artifactConfig) {
+            this.config.onSandboxCreationPhase?.('upload');
+            const beforeUpload = await this.get(name, signal);
+            if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
+              throw new Error('Created sandbox identity changed before seed upload');
+            await this.run(
+              ['sandbox', ...this.base(), 'upload', name, this.config.seed, '/sandbox/workspaces'],
+              signal,
+            );
+            const afterUpload = await this.get(name, signal);
+            if (afterUpload?.id !== receipt.id || afterUpload.phase !== 'Ready')
+              throw new Error('Created sandbox identity changed after seed upload');
+          }
         }
       } catch (error) {
         if (

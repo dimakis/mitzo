@@ -4,7 +4,11 @@ Native Personal ChatGPT seats created by the owned host use separate supported
 OpenShell commands for creation and seed upload. A successful `sandbox create`
 process must return the exact Ready sandbox ID, name, workspace and expected
 ownership/provider labels before the host records terminal creation completion.
-Only then does `sandbox upload` run, followed by provider and mount checks.
+Only then does `sandbox upload` run for an ordinary seat, followed by provider
+and mount checks. An attested artifact-backed seat never uploads the seed: this
+avoids writes to a reader mount or overwriting a writer's shared artifact volume.
+Artifact initialization and native workdir/mount alignment remain separate host
+contracts; skipping upload is not proof that those contracts are satisfied.
 
 The durable seat record distinguishes an unknown create (`creationStarted=true`,
 `creationCompleted=false`) from a settled create awaiting configuration
