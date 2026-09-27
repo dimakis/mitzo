@@ -214,3 +214,66 @@ it('accepts explicit publication references and rejects inline credentials', () 
   );
   expect(() => readOwnedSymposiumHostConfig(f.filename)).toThrow();
 });
+
+it('provisions explicit Vertex profiles through the existing bootstrap with pinned endpointless profile', async () => {
+  const f = fixture();
+  const vertex = {
+    id: 'vertex-work',
+    label: 'Vertex',
+    provider: 'anthropic-vertex',
+    credentialRef: join(f.root, 'selected-adc.json'),
+    expectedPrincipal: 'selected@example.test',
+    projectId: 'selected-project',
+    region: 'global',
+    models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+  };
+  (f.config.personal.workProfiles as unknown[]).push(vertex);
+  const bytes = readFileSync(
+    new URL('../../infra/openshell/providers/vertex-seat-endpointless.yaml', import.meta.url),
+  );
+  const path = join(f.root, 'vertex.yaml');
+  writeFileSync(path, bytes);
+  f.config.providerProfiles.push({
+    path,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+  f.save();
+  const provisionVertex = vi.fn(async (_gateway, input) => {
+    const { expectedPrincipal: _expectedPrincipal, ...profile } = input;
+    return { ...profile, sandboxProvider: 'fresh-vertex', sandboxProviderId: 'vertex-id' };
+  });
+  const host = await bootstrapConfiguredSymposiumHost(
+    f.filename,
+    { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+    { ...f.tools, provisionVertex } as never,
+  );
+  expect(provisionVertex).toHaveBeenCalledWith(f.gateway, vertex);
+  expect(host.currentProfiles().resolve('vertex-work', 'claude-haiku-4-5@20251001').provider).toBe(
+    'anthropic-vertex',
+  );
+  expect(f.tools.provisionWork).toHaveBeenCalledTimes(1);
+  host.stop();
+});
+
+it('rejects Vertex bootstrap without the exact endpointless profile before gateway launch', async () => {
+  const f = fixture();
+  (f.config.personal.workProfiles as unknown[]).push({
+    id: 'vertex-work',
+    label: 'Vertex',
+    provider: 'anthropic-vertex',
+    credentialRef: join(f.root, 'selected-adc.json'),
+    expectedPrincipal: 'selected@example.test',
+    projectId: 'selected-project',
+    region: 'global',
+    models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+  });
+  f.save();
+  await expect(
+    bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+      f.tools as never,
+    ),
+  ).rejects.toThrow('endpointless');
+  expect(f.tools.launch).not.toHaveBeenCalled();
+});
