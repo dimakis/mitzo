@@ -72,7 +72,7 @@ export function SymposiumPersonalConnections({
         current &&
         body.connections.some(
           (row) =>
-            row.id === current && !['disconnecting', 'recovery_required'].includes(row.state),
+            row.id === current && row.state === 'connecting',
         )
           ? current
           : null,
@@ -235,7 +235,7 @@ export function SymposiumPersonalConnections({
                 discoveryBlocked ||
                 !!error ||
                 callbackId === connection.id ||
-                (!!pendingId && pendingId !== connection.id)
+                (!!pendingId && (pendingId !== connection.id || callbackId !== connection.id))
               }
               onPendingChange={(pending) => {
                 setActiveId((current) =>
@@ -261,7 +261,7 @@ export function SymposiumPersonalConnections({
                     busy ||
                     discoveryBlocked ||
                     !!error ||
-                    (!!pendingId && pendingId !== connection.id)
+                    (!!pendingId && (pendingId !== connection.id || callbackId !== connection.id))
                   }
                   onPendingChange={(pending) => {
                     setCallbackId(pending ? connection.id : null);

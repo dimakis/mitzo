@@ -361,3 +361,50 @@ it('releases callback lock when refresh unmounts a disconnecting callback contro
     ),
   );
 });
+
+it('blocks the callback alternative while the same slot has a pending device sign-in', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [{ ...rows[0], state: 'connecting' }, rows[1]] }
+        : {
+            state: 'pending',
+            attemptId: 'device',
+            connectionId: rows[0].id,
+            method: 'device-code',
+          },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  const first = within(screen.getByRole('region', { name: rows[0].label }));
+  expect(
+    (first.getByRole('button', { name: 'Connect personal subscription' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(true);
+});
+
+it('releases callback status-error lock when refresh proves the slot connected', async () => {
+  let connected = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [rows[0], { ...rows[1], state: connected ? 'connected' : 'reauth_required' }],
+      });
+    if (url.includes('attemptId=')) return response({}, false);
+    return response({ state: 'pending', attemptId: 'callback', connectionId: 'personal-b' });
+  });
+  render(<SymposiumPersonalConnections />);
+  await screen.findByText('two@example.test');
+  const second = within(screen.getByRole('region', { name: 'Second account' }));
+  fireEvent.click(second.getByRole('button', { name: 'Connect personal subscription' }));
+  await second.findByRole('button', { name: 'Retry status' });
+  connected = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh personal accounts' }));
+  await waitFor(() =>
+    expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    ),
+  );
+});
