@@ -8,12 +8,12 @@ Unknown helper creation, failed start, failed receipt persistence, or uncertain 
 
 ## Credential-free physical contract
 
-Run on a host with Podman and the pinned workload image already installed:
+Run on a host with Podman on PATH (or set `MITZO_CONTRACT_PODMAN` to its executable) and the pinned workload image already installed:
 
 ```sh
 MITZO_ARTIFACT_PHYSICAL_CONTRACT=1 npx vitest run server/__tests__/symposium-artifact-physical.contract.test.ts
 ```
 
-The opt-in test uses the production volume-create/initializer callback and SQLite preparation ledger, verifies the exact pinned native binary hashes, then invokes the actual native attempt controller. It checks writer Git commit, independent read-only reviewer reading the same commit, physical read-only mount denial, native read-only grant denial, rejection of nonempty initialization, unchanged commit afterward, and exact resource cleanup. It writes a private evidence record under `/private/tmp/mitzo-git-contract-*` with helper IDs, volume generation, commit and native terminal receipts. Failures retain the fixture ledger for investigation instead of deleting unknown resources.
+The opt-in test uses the production volume-create/initializer callback and SQLite preparation ledger, verifies the exact pinned native binary hashes, then invokes the actual native attempt controller. It checks writer Git commit, independent read-only reviewer reading the same commit, physical read-only mount denial, native read-only grant denial, rejection of nonempty initialization, unchanged commit afterward, and exact resource cleanup. It writes a private evidence record under the OS temporary directory as `mitzo-git-contract-*` with helper IDs, volume generation, commit and native terminal receipts. Failures retain the fixture ledger for investigation instead of deleting unknown resources.
 
 This lane has no provider credentials, login, gateway, or model calls. It is physical artifact/controller evidence, not full application seat admission, TLS/gateway behavior, restart recovery, trusted review, account isolation, seal/export, publication, or production acceptance. Normal CI skips it unless explicitly enabled on a provisioned runner.

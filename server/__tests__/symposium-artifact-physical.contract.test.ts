@@ -5,6 +5,7 @@ import { expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { randomUUID, createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from '../symposium-production-gate.js';
@@ -21,12 +22,12 @@ const physical = process.env.MITZO_ARTIFACT_PHYSICAL_CONTRACT === '1';
 it.skipIf(!physical)(
   'prepares fresh Git, native writer commits, independent RO reviewer reads and cannot mutate',
   async () => {
-    const root = mkdtempSync('/private/tmp/mitzo-git-contract-');
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-git-contract-'));
     const session = randomUUID();
     const owner = symposiumArtifactOwner(image);
     const env = { HOME: process.env.HOME, PATH: process.env.PATH };
     const run = (args: readonly string[]) =>
-      execFileSync('/opt/homebrew/bin/podman', [...args], {
+      execFileSync(process.env.MITZO_CONTRACT_PODMAN ?? 'podman', [...args], {
         env,
         encoding: 'utf8',
         timeout: 60000,
