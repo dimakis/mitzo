@@ -1,3 +1,4 @@
+import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME } from './symposium-owned-runtime-contract.js';
 import {
   SandboxCreationPreflightError,
   type SandboxCreationFence,
@@ -5,6 +6,7 @@ import {
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import {
   assertSymposiumAttestedProvider,
+  assertSymposiumAttestedClaudeProvider,
   type SymposiumProviderCapability,
 } from './symposium-production-gate.js';
 import { SymposiumNativeEventSink } from './symposium-native-event-sink.js';
@@ -337,6 +339,31 @@ export interface SymposiumSharedSandboxOwnerDeps {
   };
 }
 
+function verifyClaudeSeatCapability(
+  deps: Pick<
+    SymposiumSharedSandboxOwnerDeps,
+    'facts' | 'profiles' | 'currentProfiles' | 'runtimeConfig'
+  >,
+  sessionId: string,
+  seatId: string,
+  capability: SymposiumProviderCapability | undefined,
+): void {
+  const seat = deps.facts
+    .getActiveSymposiumConfig(sessionId)
+    .seats.find((candidate) => candidate.id === seatId);
+  const binding = seat?.accountBinding;
+  if (binding?.provider !== 'anthropic-vertex') return;
+  if (deps.runtimeConfig.image !== REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image)
+    throw new Error('Claude native image is outside the reviewed contract');
+  const route = (deps.currentProfiles?.() ?? deps.profiles).vertexSandboxRoute(binding);
+  assertSymposiumAttestedClaudeProvider(capability, {
+    ...route,
+    accountId: binding.accountId,
+    model: binding.model,
+    workspace: deps.runtimeConfig.workspace,
+  });
+}
+
 function assertNativeSubscriptionCapability(
   deps: Pick<
     SymposiumSharedSandboxOwnerDeps,
@@ -582,7 +609,12 @@ export class SymposiumPerSeatSandboxOwner {
       throw new Error('Verified seat sandboxes require a durable lifecycle registry');
     if (Boolean(deps.artifactRequest) !== Boolean(deps.artifactLeaseHost))
       throw new Error('Artifact request and durable lease host must be configured together');
-    if (deps.readOnlyEnforced.claudeVertex)
+    if (
+      deps.readOnlyEnforced.claudeVertex &&
+      (!deps.perSeatSandboxVerified ||
+        deps.runtimeConfig.image !== REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image ||
+        !deps.verifyHostCapability?.().claudeProviders?.size)
+    )
       throw new Error('Claude native read-only wrapper has not been verified');
     if (
       deps.runtimeConfig.serviceProviders.length ||
@@ -625,6 +657,7 @@ export class SymposiumPerSeatSandboxOwner {
         const binding = snapshot.bindings[0];
         const verifySeatCapability = () => {
           const capability = this.deps.verifyHostCapability?.();
+          verifyClaudeSeatCapability(this.deps, sessionId, seatId, capability);
           if (capability)
             assertSymposiumAttestedProvider(capability, {
               ...binding,
@@ -1351,7 +1384,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 symposiumSeatRolloverHistory(
                   deps.store,
                   input.execution,
-                  input.route.kind === 'chatgpt-subscription-native',
+                  input.route.kind !== 'openai-api',
                 );
               const resolveAttempt = (claim: string) => {
                 const attempt = deps.store.getSymposiumRecipientAttemptByClaimToken(claim);
@@ -1387,6 +1420,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   : createClaudeVertexSeat({
                       ...input,
                       route: input.route,
+                      loadConversationHistory,
+                      requireModelReceipts: true,
+                      verifiedLauncher: true,
                       attemptRegistry: deps.attemptRegistry,
                     });
             }),
@@ -1488,6 +1524,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
             ...binding,
             workspace: deps.runtimeConfig.workspace,
           });
+      verifyClaudeSeatCapability({ ...deps, facts: deps.store }, sessionId, seatId, capability);
       snapshot.verify();
       orchestrator.recordProviderAdmission({
         sessionId,

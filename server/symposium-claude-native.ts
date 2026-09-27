@@ -186,6 +186,7 @@ export interface ClaudeVertexSeatInput {
   loadConversationHistory?: () => readonly { role: 'user' | 'assistant'; text: string }[];
   /** Required by the reviewed owned Claude variant; legacy adapters stay unavailable. */
   requireModelReceipts?: boolean;
+  verifiedLauncher?: boolean;
   spawnProcess?: (spec: ReturnType<typeof openShellSshArgvProcessSpec>) => ClaudeProcess;
   onEvent?: (event: Record<string, unknown>) => void;
 }
@@ -214,7 +215,15 @@ export async function createClaudeVertexSeat(
 ): Promise<SymposiumNativeSeat> {
   const { execution, route } = input;
   const continuity = execution.providerThreadId ? claudeContinuity(input) : undefined;
-  const argv = claudeVertexArgv(route, { ...execution, providerThreadId: undefined });
+  const legacyArgv = claudeVertexArgv(route, { ...execution, providerThreadId: undefined });
+  const argv = input.verifiedLauncher
+    ? [
+        '/usr/local/bin/symposium-claude-vertex',
+        route.projectId,
+        route.region,
+        ...legacyArgv.slice(8),
+      ]
+    : legacyArgv;
   const expectedThreadId = argv[argv.indexOf('--session-id') + 1];
   const spec = openShellSshArgvProcessSpec(input.sandbox, argv);
   let child: ClaudeProcess | undefined;

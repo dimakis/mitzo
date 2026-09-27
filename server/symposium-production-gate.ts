@@ -19,9 +19,8 @@ const Sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 /** First capability contract covers OpenAI API writer seats only. Personal ChatGPT
  * subscription admission needs independent upstream provider/authentication and
  * per-seat credential isolation evidence; an API attestation cannot authorize it.
- * A future Claude
- * contract needs independent /usr/local/bin/claude, Vertex Haiku profile,
- * negative isolation, and host proof before widening admission.
+ * Owned Claude uses a separate exact native image and retained Vertex capability;
+ * this legacy API contract grants no Claude admission.
  */
 const LegacyAttestation = z
   .object({
@@ -176,6 +175,7 @@ export interface SymposiumProductionPhysicalProof {
 }
 
 export interface SymposiumProviderCapability {
+  claudeProviders?: ReadonlyMap<string, SymposiumWorkVertexReceipt>;
   attestedProviderInstances: ReadonlyMap<
     string,
     {
@@ -199,6 +199,39 @@ export function assertSymposiumAttestedProvider(
     (binding.workspace !== undefined && approved.workspace !== binding.workspace)
   )
     throw new Error('Seat provider profile is outside the host attestation');
+}
+
+export function assertSymposiumAttestedClaudeProvider(
+  capability: SymposiumProviderCapability | undefined,
+  binding: {
+    accountId: string;
+    provider: string;
+    providerId: string;
+    projectId: string;
+    region: string;
+    model: string;
+    workspace?: string;
+  },
+): void {
+  const receipt = capability?.claudeProviders?.get(binding.provider);
+  if (
+    !receipt ||
+    !receipt.principal ||
+    receipt.accountId !== binding.accountId ||
+    receipt.provider !== binding.provider ||
+    receipt.providerId !== binding.providerId ||
+    receipt.projectId !== binding.projectId ||
+    receipt.region !== binding.region ||
+    receipt.model !== binding.model ||
+    (binding.workspace !== undefined && receipt.workspace !== binding.workspace)
+  )
+    throw new Error('Claude seat is outside the retained Vertex capability');
+  assertSymposiumAttestedProvider(capability!, {
+    name: binding.provider,
+    id: binding.providerId,
+    type: 'google-vertex-ai',
+    workspace: receipt.workspace,
+  });
 }
 
 type RunCli = (cli: string, args: string[], cliEnvironment?: OpenShellCliEnvironment) => string;

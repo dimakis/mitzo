@@ -1,3 +1,4 @@
+import { assertSymposiumAttestedClaudeProvider } from '../symposium-production-gate.js';
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -375,6 +376,19 @@ it('admits the separate measured Claude variant only with live retained selected
   const f = claudeFixture();
   const verified = verifySymposiumProductionGate(f.config, f.attestation, f.physical, f.invoke);
   expect(verified.claudeProviders.get('vertex-work')).toEqual(vertexReceipt);
+  expect(() => assertSymposiumAttestedClaudeProvider(verified, vertexReceipt)).not.toThrow();
+  for (const field of [
+    'accountId',
+    'provider',
+    'providerId',
+    'projectId',
+    'region',
+    'model',
+    'workspace',
+  ] as const)
+    expect(() =>
+      assertSymposiumAttestedClaudeProvider(verified, { ...vertexReceipt, [field]: 'drift' }),
+    ).toThrow();
   expect(f.physical.captureClaudeProvider).toHaveBeenCalledWith('vertex-id');
   expect(f.physical.verifyNativeArtifacts).toHaveBeenCalledWith(
     f.config.image,
@@ -446,6 +460,8 @@ it('collects Claude image evidence from selected owned host and requires the exi
     { invoke },
   );
   expect(candidate.image).toBe(REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.image);
+  if (candidate.contract !== 'openshell-v0.1-owned-native-seats')
+    throw new Error('Expected owned candidate');
   expect(candidate.nativeArtifacts).toEqual(
     REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME.build.nativeArtifacts,
   );
