@@ -630,6 +630,9 @@ Git proof and native trusted-review dispatch remain unimplemented prerequisites.
 The pending seal can also reserve its exact artifact lease identity across writer cleanup;
 this internal retention lock remains unsealed and does not prove physical revocation.
 
+A dormant [artifact generation ledger](docs/operations/symposium-artifact-generations.md)
+records verified-copy lineage and a CAS working pointer without reopening sealed sessions.
+
 The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
 binds an explicitly selected operator GitHub identity to a completed seal and forced
 Create PR approval. It is unavailable without registered credential custody and the
