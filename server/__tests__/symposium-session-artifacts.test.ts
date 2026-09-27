@@ -473,6 +473,23 @@ it('durably fences original source admission before an imported generation can b
   expect(reopened.beginSourceSeal('source', 'source-seal-op')).toEqual(pending);
   expect(() => reopened.claimAdmission('source')).toThrow(/source seal/);
   expect(() => reopened.beginSourceSeal('source', 'other')).toThrow(/source seal/);
+  const proof = reopened.sourceSealHelperReceipt('source', 'source-seal-op');
+  proof.intent(`${mapping.volumeName}-source-seal`);
+  proof.created('9'.repeat(64));
+  proof.observed(receipt.git);
+  expect(() => reopened.completeSourceSeal('source', 'source-seal-op')).toThrow(
+    /physical completion/,
+  );
+  proof.terminal('9'.repeat(64), 0);
+  proof.removed();
+  const completed = reopened.completeSourceSeal('source', 'source-seal-op');
+  expect(completed).toMatchObject({
+    state: 'complete',
+    helperId: '9'.repeat(64),
+    git: receipt.git,
+  });
+  expect(f.store.sourceSealStatus('source')).toEqual(completed);
+  expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);
 });
 
 it('keeps interrupted source import fenced after reopening and rejects stale volume selection', async () => {

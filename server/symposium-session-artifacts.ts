@@ -219,6 +219,95 @@ export class SymposiumSessionArtifacts {
       })
       .immediate();
   }
+  sourceSealStatus(sessionId: string) {
+    const row = this.read(sessionId);
+    if (!row) return null;
+    this.assertOwner(row);
+    return row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+  }
+  private updateSourceSeal(
+    sessionId: string,
+    operationId: string,
+    update: (value: Record<string, unknown>) => void,
+  ) {
+    this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('source seal mapping unavailable');
+        this.assertOwner(row);
+        const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (!value || value.operationId !== operationId || value.state !== 'pending')
+          throw new Error('source seal helper claim changed');
+        update(value);
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET source_seal_json=? WHERE session_id=?')
+          .run(JSON.stringify(value), sessionId);
+      })
+      .immediate();
+  }
+  sourceSealHelperReceipt(sessionId: string, operationId: string) {
+    return {
+      intent: (name: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (name !== `${value.volumeName}-source-seal` || value.helperName)
+            throw new Error('source seal helper intent changed');
+          value.helperName = name;
+        }),
+      created: (helperId: string) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!value.helperName || value.helperId || !/^[a-f0-9]{64}$/.test(helperId))
+            throw new Error('source seal helper identity changed');
+          value.helperId = helperId;
+        }),
+      observed: (git: unknown) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!value.helperId || value.git) throw new Error('source seal proof changed');
+          const imported = (value.sourceReceipt as { git?: unknown }).git;
+          if (JSON.stringify(git) !== JSON.stringify(imported))
+            throw new Error('source seal Git proof differs from import');
+          value.git = git;
+        }),
+      terminal: (helperId: string, exitCode: number) =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (value.helperId !== helperId || exitCode !== 0 || !value.git || value.terminal)
+            throw new Error('source seal terminal proof changed');
+          value.terminal = { helperId, exitCode: 0 };
+        }),
+      removed: () =>
+        this.updateSourceSeal(sessionId, operationId, (value) => {
+          if (!value.terminal || value.helperRemoved)
+            throw new Error('source seal cleanup changed');
+          value.helperRemoved = true;
+        }),
+    };
+  }
+  completeSourceSeal(sessionId: string, operationId: string) {
+    return this.db
+      .transaction(() => {
+        const row = this.read(sessionId);
+        if (!row) throw new Error('source seal mapping unavailable');
+        this.assertOwner(row);
+        const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+        if (
+          !value ||
+          value.operationId !== operationId ||
+          value.state !== 'pending' ||
+          !value.helperId ||
+          !value.helperRemoved ||
+          !value.git ||
+          value.terminal?.helperId !== value.helperId ||
+          value.terminal?.exitCode !== 0 ||
+          row.admission_issued
+        )
+          throw new Error('source seal physical completion unavailable');
+        value.state = 'complete';
+        this.db
+          .prepare('UPDATE symposium_session_artifacts SET source_seal_json=? WHERE session_id=?')
+          .run(JSON.stringify(value), sessionId);
+        return value;
+      })
+      .immediate();
+  }
   /** Permanent issuance marker: an already returned descriptor can never race a later import. */
   claimAdmission(sessionId: string): SessionArtifactMapping {
     return this.db
