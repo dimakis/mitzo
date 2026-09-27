@@ -40,6 +40,9 @@ export function SymposiumDeviceLogin({
   const [status, setStatus] = useState<Status>({ state: 'idle' });
   const [busy, setBusy] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const receipt = useRef<Status>({ state: 'idle' });
+  const polling = useRef<number | null>(null);
   const startingVersion = useRef<number | null>(null);
   const [error, setError] = useState('');
   const [copyFeedback, setCopyFeedback] = useState('');
@@ -56,7 +59,13 @@ export function SymposiumDeviceLogin({
     version.current += 1;
     startingVersion.current = null;
     setStarting(false);
+    setCancelling(false);
     return version.current;
+  }
+  function schedule(generation: number) {
+    clearTimeout(timer.current);
+    if (generation === version.current && polling.current !== generation)
+      timer.current = setTimeout(() => void check(generation), 2000);
   }
   function accept(value: unknown, expectedId?: string) {
     const next = statusSchema.parse(value);
@@ -65,6 +74,21 @@ export function SymposiumDeviceLogin({
     if (next.state === 'pending' && !next.attemptId) throw new Error('Missing receipt');
     if (next.verificationUrl && next.verificationUrl !== 'https://auth.openai.com/codex/device')
       throw new Error('Unsupported sign-in address');
+    // A late allocation reply cannot reopen an attempt already observed terminal.
+    if (
+      receipt.current.state !== 'idle' &&
+      receipt.current.state !== 'pending' &&
+      next.state === 'pending'
+    )
+      return receipt.current;
+    receipt.current = next;
+    if (next.state !== 'pending') {
+      clearTimeout(timer.current);
+      if (next.state !== 'idle') {
+        startingVersion.current = null;
+        setStarting(false);
+      }
+    }
     if (next.attemptId !== attempt.current || next.state !== 'pending') setCopyFeedback('');
     attempt.current = next.attemptId;
     setStatus(next);
@@ -77,7 +101,11 @@ export function SymposiumDeviceLogin({
     return next;
   }
   async function check(generation = stop()) {
+    if (generation !== version.current || polling.current === generation) return;
+    polling.current = generation;
+    clearTimeout(timer.current);
     setBusy(true);
+    let continuePolling = false;
     try {
       const id = attempt.current;
       const response = await apiFetch(
@@ -87,13 +115,18 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, id);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      continuePolling = next.state === 'pending';
     } catch {
       if (generation !== version.current) return;
+      if (!['idle', 'pending'].includes(receipt.current.state)) return;
       setError('Could not check sign-in status. Retry status before starting another attempt.');
       setStatusFailed(true);
     } finally {
-      if (generation === version.current) setBusy(false);
+      if (polling.current === generation) polling.current = null;
+      if (generation === version.current) {
+        setBusy(false);
+        if (continuePolling) schedule(generation);
+      }
     }
   }
   useEffect(
@@ -107,11 +140,13 @@ export function SymposiumDeviceLogin({
     const generation = stop();
     setBusy(true);
     setError('');
+    setCancelling(kind === 'cancel');
     if (kind === 'start') {
+      receipt.current = { state: 'idle' };
       attempt.current = undefined;
       startingVersion.current = generation;
       setStarting(true);
-      timer.current = setTimeout(() => void check(generation), 2000);
+      schedule(generation);
     }
     try {
       const response = await apiFetch(kind === 'start' ? endpoint : `${endpoint}/cancel`, {
@@ -125,15 +160,17 @@ export function SymposiumDeviceLogin({
       const value = await response.json();
       if (generation !== version.current) return;
       const next = accept(value, kind === 'cancel' ? attempt.current : undefined);
-      if (next.state === 'pending') timer.current = setTimeout(() => void check(generation), 2000);
+      if (next.state === 'pending') schedule(generation);
     } catch {
       if (generation !== version.current) return;
+      if (kind === 'start' && !['idle', 'pending'].includes(receipt.current.state)) return;
       setError('Could not confirm the sign-in request. Check status before trying again.');
       setStatusFailed(true);
     } finally {
       if (generation === version.current) {
         startingVersion.current = null;
         setStarting(false);
+        setCancelling(false);
         setBusy(false);
       }
     }
@@ -146,6 +183,7 @@ export function SymposiumDeviceLogin({
           type="button"
           disabled={disabled}
           onClick={() => {
+            receipt.current = { state: 'idle' };
             setStatus({ state: 'idle' });
             setError('');
             setStatusFailed(false);
@@ -240,7 +278,7 @@ export function SymposiumDeviceLogin({
             ) : status.state === 'pending' ? (
               <button
                 type="button"
-                disabled={busy || disabled}
+                disabled={cancelling || disabled}
                 onClick={() => void action('cancel')}
               >
                 Cancel sign-in
