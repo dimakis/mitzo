@@ -435,6 +435,43 @@ it('allows receipt recovery after remount during a callback login without starti
   );
 });
 
+it('can request a second device code after cancellation with callback recovery open', async () => {
+  let state = 'idle';
+  let starts = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ ...rows[1], state: state === 'pending' ? 'connecting' : 'disconnected' }],
+      });
+    if (url.endsWith('/login') && init?.method === 'POST') {
+      state = 'pending';
+      starts++;
+    }
+    if (url.endsWith('/cancel')) state = 'cancelled';
+    return response({
+      state,
+      ...(state === 'idle'
+        ? {}
+        : { attemptId: `device-${starts}`, connectionId: rows[1].id, method: 'device-code' }),
+    });
+  });
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Get sign-in code' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  fireEvent.click(screen.getByRole('button', { name: 'Recover callback sign-in' }));
+  await screen.findByText(/Continue or cancel it in device sign-in/);
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Get sign-in code' }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Get sign-in code' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  expect(starts).toBe(2);
+});
+
 it('keeps device ownership when callback recovery observes its receipt against a stale slot list', async () => {
   let pending = false;
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {

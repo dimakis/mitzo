@@ -255,3 +255,45 @@ it('retains reconciliation when an undispatched journal cannot be cleared', asyn
   });
   expect(f.receipt()).toBeDefined();
 });
+
+it('bounds distinct model cursors and still completes both cleanup planes', async () => {
+  const f = fixture();
+  const close = vi.fn();
+  let pages = 0;
+  f.operations.openClient = async () => ({
+    initialize: async () => {},
+    close,
+    request: async (method) =>
+      method === 'account/read'
+        ? { account: { type: 'chatgpt' } }
+        : { data: [{ model: 'gpt-5.6-luna', displayName: 'Luna' }], nextCursor: `page-${++pages}` },
+  });
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    status: 'failed',
+    inference: false,
+  });
+  expect(pages).toBe(100);
+  expect(close).toHaveBeenCalledOnce();
+  expect(f.receipt()).toBeUndefined();
+});
+
+it('times out the full model read and closes the client before cleanup', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = fixture();
+    const close = vi.fn();
+    f.operations.openClient = async () => ({
+      initialize: async () => {},
+      close,
+      request: async (method) =>
+        method === 'account/read' ? { account: { type: 'chatgpt' } } : new Promise(() => {}),
+    });
+    const result = runSymposiumModelDiscovery(f.config, f.operations);
+    await vi.advanceTimersByTimeAsync(60001);
+    expect(await result).toEqual({ status: 'failed', inference: false });
+    expect(close).toHaveBeenCalledOnce();
+    expect(f.receipt()).toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});

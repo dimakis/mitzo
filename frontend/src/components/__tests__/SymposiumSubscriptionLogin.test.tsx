@@ -240,3 +240,23 @@ it.each(['cancelled', 'expired'])(
     expect((screen.getByRole('group') as HTMLFieldSetElement).disabled).toBe(false);
   },
 );
+
+it('clears device-only pending guidance when the owning manager confirms it ended', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({ state: 'pending', method: 'device-code', attemptId: 'device' }),
+  );
+  const complete = vi.fn();
+  const view = render(<SymposiumSubscriptionLogin onComplete={complete} recoveryOnly />);
+  fireEvent.click(screen.getByRole('button', { name: 'Recover callback sign-in' }));
+  await screen.findByText(/A device login is pending/);
+  view.rerender(<SymposiumSubscriptionLogin onComplete={complete} recoveryOnly={false} />);
+  await waitFor(() => expect(screen.queryByText(/A device login is pending/)).toBeNull());
+  expect(
+    (
+      screen.getByRole('group', {
+        name: 'Where will you open the login browser?',
+      }) as HTMLFieldSetElement
+    ).disabled,
+  ).toBe(false);
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});

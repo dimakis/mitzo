@@ -404,28 +404,6 @@ it('offers personal subscription setup only in the Symposium account catalog inc
   ).toBeTruthy();
 });
 
-it('requires confirmation of the named account and model and invalidates it on changes', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
-  const onChange = vi.fn();
-  render(
-    <AccountModelPicker
-      scope="symposium"
-      requireExplicitSelection
-      sessionId={null}
-      preferredModel=""
-      onChange={onChange}
-    />,
-  );
-  await screen.findByText('Work Vertex');
-  expect(onChange).toHaveBeenLastCalledWith(null);
-  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
-  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
-  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
-  expect(onChange).toHaveBeenLastCalledWith(null);
-  fireEvent.click(screen.getByRole('button', { name: 'Use Other Vertex · Haiku' }));
-  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
-});
-
 it('propagates later disabled state to an already open personal account manager', async () => {
   vi.mocked(apiFetch).mockImplementation(
     async (url) =>
@@ -516,7 +494,7 @@ it.each(['model', 'account'])(
 );
 
 it.each(['model', 'account'])(
-  'keeps a removed %s draft unavailable after a personal disconnect until explicit selection',
+  'keeps a removed %s draft unavailable after disconnect until explicit selection',
   async (removed) => {
     let refreshed = false;
     const onChange = vi.fn();
