@@ -113,7 +113,10 @@ export function createPersonalSubscriptionHost(
     },
     personalConnections: {
       list: () => connections.list(),
-      create: (label: string) => connections.create(label),
+      create: (label: string) => {
+        assertNoDiscovery();
+        return connections.create(label);
+      },
       disconnect: async (id: string, revision: number) => {
         assertNoDiscovery();
         return connections.disconnect(id, revision);
