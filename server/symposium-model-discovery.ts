@@ -38,6 +38,8 @@ export interface DiscoveryReadClient {
   close(): void;
 }
 /** Trusted host adapters only; never supplied by an HTTP caller or sandbox. */
+/** Internal proof from the host adapter that no external create was dispatched. */
+export class DiscoveryNotDispatchedError extends Error {}
 export interface DiscoveryOperations {
   withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
@@ -45,7 +47,11 @@ export interface DiscoveryOperations {
   persistReceipt(receipt: DiscoveryReceipt, exclusive: boolean): Promise<void>;
   clearReceipt(): Promise<void>;
   list(): Promise<unknown>;
-  create(receipt: DiscoveryReceipt, config: DiscoveryConfig): Promise<void>;
+  create(
+    receipt: DiscoveryReceipt,
+    config: DiscoveryConfig,
+    beforeDispatch?: () => void,
+  ): Promise<void>;
   attachedProviders(receipt: DiscoveryReceipt): Promise<unknown>;
   providerInventory(): Promise<unknown>;
   openClient(receipt: DiscoveryReceipt): Promise<DiscoveryReadClient>;
@@ -170,7 +176,15 @@ async function runExclusiveDiscovery(
       await verify();
       result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
     } else result = { status: 'reconciled', inference: false };
-  } catch {
+  } catch (error) {
+    if (error instanceof DiscoveryNotDispatchedError && !resumed) {
+      try {
+        await ops.clearReceipt();
+        receipt = undefined;
+      } catch {
+        /* retain reconciliation if journal cleanup fails */
+      }
+    }
     // Deliberately never surface command output, provider errors, identity or credential data.
     result = { status: receipt ? 'reconciliation_required' : 'failed', inference: false };
   }

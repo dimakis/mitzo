@@ -29,8 +29,10 @@ function jsonCommand(
   env: Record<string, string>,
   timeout = 15000,
   processGroup = false,
+  beforeDispatch?: () => void,
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
+    beforeDispatch?.();
     const child = execFile(
       command,
       [...args],
@@ -108,9 +110,16 @@ export function createDiscoveryHostOperations(
   )
     throw new Error('Private management environment required');
   const base = ['--gateway', config.gateway, '--workspace', config.workspace];
-  const cli = async (args: string[], timeout?: number) => {
+  const cli = async (args: string[], timeout?: number, beforeDispatch?: () => void) => {
     await options.attestGateway(config);
-    const result = await jsonCommand(options.cli, args, environment, timeout);
+    const result = await jsonCommand(
+      options.cli,
+      args,
+      environment,
+      timeout,
+      false,
+      beforeDispatch,
+    );
     await options.attestGateway(config);
     return result;
   };
@@ -239,7 +248,7 @@ export function createDiscoveryHostOperations(
     async list() {
       return inventory(['sandbox', ...base, 'list'], 'sandboxes');
     },
-    async create(receipt) {
+    async create(receipt, _config, beforeDispatch) {
       await cli(
         [
           'sandbox',
@@ -271,6 +280,7 @@ export function createDiscoveryHostOperations(
           'mkdir -p /sandbox/workspaces/mgmt && exec sleep infinity',
         ],
         45000,
+        beforeDispatch,
       );
     },
     async attachedProviders(receipt) {
