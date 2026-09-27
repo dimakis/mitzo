@@ -172,3 +172,43 @@ it('rejects and quarantines credential deletion failure before success without u
     rmSync(f.home(), { recursive: true, force: true });
   }
 });
+
+it('shares the original deadline with provisioning after delayed process initialization', async () => {
+  const f = fixture();
+  const started = Date.now();
+  const now = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const original = f.launch.getMockImplementation()!;
+  f.launch.mockImplementation((...args) => {
+    now.mockReturnValue(started + 30000);
+    return original(...args);
+  });
+  try {
+    const login = await beginDeviceLogin(f.service as never, f.launch as never);
+    expect(login.expiresAt).toBe(started + 10 * 60000);
+    expect(f.service.beginDevice).toHaveBeenCalledWith(login.expiresAt);
+    await login.cancel();
+  } finally {
+    now.mockRestore();
+  }
+});
+
+it('reaps and erases an allocation that expires before initialization returns', async () => {
+  const f = fixture();
+  const started = Date.now();
+  const now = vi.spyOn(Date, 'now').mockReturnValue(started);
+  const original = f.launch.getMockImplementation()!;
+  f.launch.mockImplementation((...args) => {
+    now.mockReturnValue(started + 10 * 60000);
+    return original(...args);
+  });
+  try {
+    await expect(beginDeviceLogin(f.service as never, f.launch as never)).rejects.toThrow(
+      'Device login is unavailable',
+    );
+    expect(f.install).not.toHaveBeenCalled();
+    expect(f.child.kill).toHaveBeenCalled();
+    expect(existsSync(f.home())).toBe(false);
+  } finally {
+    now.mockRestore();
+  }
+});
