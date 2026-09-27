@@ -146,3 +146,42 @@ it.each(['credential-path', 'historical-secret', 'submodule', 'config-hook'])(
     } else await expect(exportLocalSource(f.repositories, plan)).rejects.toThrow();
   },
 );
+
+it.each(['include', 'hook', 'object', 'oversized', 'digest'])(
+  'rejects altered pristine Git or bundle before materialization (%s)',
+  async (mode) => {
+    const f = fixture(),
+      plan = await inspectLocalSource(f.repositories, f.selection),
+      exported = await exportLocalSource(f.repositories, plan);
+    const target = join(f.root, 'target'),
+      bundle = join(f.root, 'source.bundle');
+    mkdirSync(target);
+    execFileSync('git', ['init', '--quiet', '--template=', '--initial-branch=main', target]);
+    writeFileSync(bundle, exported.bundle);
+    if (mode === 'include')
+      writeFileSync(
+        join(target, '.git/config'),
+        readFileSync(join(target, '.git/config'), 'utf8') +
+          '\n[include]\npath = /private/forbidden\n',
+      );
+    if (mode === 'hook') {
+      mkdirSync(join(target, '.git/hooks'));
+      writeFileSync(join(target, '.git/hooks/post-checkout'), 'exit 0');
+    }
+    if (mode === 'object')
+      writeFileSync(join(target, '.git/objects/info/alternates'), '/private/forbidden');
+    const manifest = { ...exported.manifest };
+    if (mode === 'oversized') manifest.bundleBytes = 8388609;
+    if (mode === 'digest') manifest.bundleSha256 = '0'.repeat(64);
+    const config = readFileSync(join(target, '.git/config'), 'utf8');
+    expect(() =>
+      execFileSync(
+        'python3',
+        ['-I', '-B', '-c', SOURCE_GIT_IMPORTER, target, bundle, JSON.stringify(manifest)],
+        { stdio: 'pipe' },
+      ),
+    ).toThrow();
+    expect(existsSync(join(target, 'first.txt'))).toBe(false);
+    expect(readFileSync(join(target, '.git/config'), 'utf8')).toBe(config);
+  },
+);
