@@ -596,6 +596,13 @@ export async function createOwnedSymposiumHost(
         podmanEnv,
       },
       {
+        captureClaudeProviderAsync: async (providerId) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyCustodyAsync();
+          const receipt = captureSymposiumWorkVertexProvider(gateway, providerId);
+          await gateway.verifyCustodyAsync();
+          return receipt;
+        },
         verifyCustodyAsync: async () => {
           if (stopped) throw new Error('Owned Symposium host stopped');
           await gateway.verifyCustodyAsync();

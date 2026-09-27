@@ -705,3 +705,5 @@ Vertex seat. Before ready/reuse and final dispatch, the owner brackets the
 supported effective-policy readback with immutable sandbox identity checks.
 API-backed seats now retain terminal create identity before later policy,
 provider or artifact checks, preserving exact cleanup after failure.
+
+Owned Vertex admission evidence workers obtain selected public provider receipts through the retained host custody channel and revalidate them after physical probing. Provider credentials never enter worker messages.

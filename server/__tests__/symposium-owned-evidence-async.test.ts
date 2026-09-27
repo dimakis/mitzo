@@ -104,7 +104,9 @@ it('waits for worker cleanup before returning and rechecks retained custody afte
       .mockImplementationOnce(async () => {
         throw new Error('stopped');
       });
-    await expect(collect(selection)).rejects.toThrow('stopped');
+    await expect(collect(selection)).rejects.toThrow(
+      'Evidence retained custody could not be verified',
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
