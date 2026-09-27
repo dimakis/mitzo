@@ -711,3 +711,66 @@ it('invalidates another mounted picker after account removal without selecting a
   expect(reads).toBeGreaterThanOrEqual(4);
   expect(reads).toBeLessThanOrEqual(6);
 });
+
+it('invalidates both selected pickers while device reconnect is pending and retains the code owner', async () => {
+  let reconnecting = false;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (url === '/api/symposium/personal/login' && init?.method === 'POST') {
+      reconnecting = true;
+      return response({
+        state: 'pending',
+        method: 'device-code',
+        connectionId: 'work',
+        attemptId: 'new-login',
+        userCode: 'DEMO-CODE',
+        verificationUrl: 'https://auth.openai.com/codex/device',
+      });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [
+          { id: 'work', label: 'Personal', state: 'connected', revision: 1 },
+          { id: 'other', label: 'Other', state: 'disconnected', revision: 1 },
+        ],
+      });
+    if (url.includes('/login/status')) return response({ state: 'idle' });
+    return response(reconnecting ? [profiles[1]] : profiles);
+  });
+  const a = vi.fn();
+  const b = vi.fn();
+  render(
+    <>
+      <section data-testid="device-first">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={a}
+        />
+      </section>
+      <section data-testid="device-second">
+        <AccountModelPicker
+          scope="symposium"
+          sessionId={null}
+          preferredModel="sonnet"
+          onChange={b}
+        />
+      </section>
+    </>,
+  );
+  const first = within(screen.getByTestId('device-first'));
+  const second = within(screen.getByTestId('device-second'));
+  await second.findByRole('option', { name: 'Sonnet' });
+  a.mockClear();
+  b.mockClear();
+  fireEvent.click(first.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await first.findByRole('button', { name: 'Reconnect' }));
+  fireEvent.click(await first.findByRole('button', { name: 'Get sign-in code' }));
+  await first.findByText('DEMO-CODE');
+  await second.findByText(/Selected account or model is unavailable/);
+  expect(a).toHaveBeenLastCalledWith(null);
+  expect(b).toHaveBeenLastCalledWith(null);
+  expect(first.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  expect((first.getByRole('button', { name: 'Connect' }) as HTMLButtonElement).disabled).toBe(true);
+});

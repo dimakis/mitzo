@@ -332,3 +332,58 @@ it('invalidates old account choices as soon as a new callback attempt is allocat
   await screen.findByRole('link', { name: 'Open official OpenAI login' });
   expect(changed).toHaveBeenCalledOnce();
 });
+
+it.each(['conflict', 'lost'] as const)(
+  'recovers an allocated login after an uncertain %s Start response',
+  async (failure) => {
+    let started = false;
+    vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+      if (init?.method === 'POST') {
+        started = true;
+        if (failure === 'lost') throw new Error('Response lost');
+        return response({}, false);
+      }
+      return response(started ? { state: 'pending', attemptId: 'existing' } : { state: 'idle' });
+    });
+    render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+    fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+    fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+    await screen.findByText(/already-open|already open/i);
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/symposium/personal/login/status?attemptId=existing',
+      expect.anything(),
+    );
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
+    ).toHaveLength(1);
+  },
+);
+
+it('keeps Retry status available if uncertain Start recovery also fails', async () => {
+  let started = false;
+  let recover = false;
+  vi.mocked(apiFetch).mockImplementation(async (_url, init) => {
+    if (init?.method === 'POST') {
+      started = true;
+      throw new Error('Lost');
+    }
+    if (started && !recover) throw new Error('Offline');
+    return response(started ? { state: 'pending', attemptId: 'recovered' } : { state: 'idle' });
+  });
+  render(<SymposiumSubscriptionLogin onComplete={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+  fireEvent.click(screen.getByLabelText('Browser on the Mitzo server'));
+  fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
+  fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
+  await screen.findByText(/Could not recover a login receipt/);
+  recover = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry status' }));
+  await screen.findByText(/already-open|already open/i);
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    1,
+  );
+});
