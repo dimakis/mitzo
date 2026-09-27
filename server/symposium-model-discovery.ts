@@ -38,14 +38,22 @@ export interface DiscoveryReadClient {
   close(): void;
 }
 /** Trusted host adapters only; never supplied by an HTTP caller or sandbox. */
+/** Internal proof from a trusted host adapter that no external create was dispatched. */
+export class DiscoveryNotDispatchedError extends Error {}
 export interface DiscoveryOperations {
   withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
   persistReceipt(receipt: DiscoveryReceipt, exclusive: boolean): Promise<void>;
   clearReceipt(): Promise<void>;
+  /** Exact local-journal cleanup only after proven absence of external dispatch. */
+  clearUndispatchedReceipt?(receipt: DiscoveryReceipt): Promise<void>;
   list(): Promise<unknown>;
-  create(receipt: DiscoveryReceipt, config: DiscoveryConfig): Promise<void>;
+  create(
+    receipt: DiscoveryReceipt,
+    config: DiscoveryConfig,
+    beforeDispatch?: () => void,
+  ): Promise<void>;
   attachedProviders(receipt: DiscoveryReceipt): Promise<unknown>;
   providerInventory(): Promise<unknown>;
   openClient(receipt: DiscoveryReceipt): Promise<DiscoveryReadClient>;
@@ -104,8 +112,12 @@ async function runExclusiveDiscovery(
         claim: randomBytes(32).toString('hex'),
         configHash,
       };
-      await ops.persistReceipt(receipt, true);
-      await verify();
+      try {
+        await ops.persistReceipt(receipt, true);
+        await verify();
+      } catch {
+        throw new DiscoveryNotDispatchedError('Custody preflight failed');
+      }
       await ops.create(receipt, config);
     }
     if (!resumed) {
@@ -185,7 +197,16 @@ async function runExclusiveDiscovery(
       await verify();
       result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
     } else result = { status: 'reconciled', inference: false };
-  } catch {
+  } catch (error) {
+    if (error instanceof DiscoveryNotDispatchedError && !resumed) {
+      try {
+        if (receipt && ops.clearUndispatchedReceipt) await ops.clearUndispatchedReceipt(receipt);
+        else await ops.clearReceipt();
+        receipt = undefined;
+      } catch {
+        /* Retain reconciliation if the exact local journal cannot be cleared. */
+      }
+    }
     // Deliberately never surface command output, provider errors, identity or credential data.
     result = { status: receipt ? 'reconciliation_required' : 'failed', inference: false };
   }

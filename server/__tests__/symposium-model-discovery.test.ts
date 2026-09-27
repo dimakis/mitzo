@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumModelDiscovery,
+  DiscoveryNotDispatchedError,
   type DiscoveryOperations,
   type DiscoveryReceipt,
 } from '../symposium-model-discovery.js';
@@ -211,6 +212,33 @@ it('accepts owned-host dotted identifiers and repository-pinned workload images'
   expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
 });
 
+it('clears only a proven undispatched attempt without claiming inventory cleanup', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryNotDispatchedError('preflight');
+  };
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    status: 'failed',
+    inference: false,
+  });
+  expect(f.receipt()).toBeUndefined();
+  expect(f.operations.physicalAbsent).not.toHaveBeenCalled();
+});
+it('retains reconciliation when an undispatched journal cannot be cleared', async () => {
+  const f = fixture();
+  f.operations.create = async () => {
+    throw new DiscoveryNotDispatchedError('preflight');
+  };
+  f.operations.clearReceipt = async () => {
+    throw new Error('disk');
+  };
+  expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+    status: 'reconciliation_required',
+    inference: false,
+  });
+  expect(f.receipt()).toBeDefined();
+});
+
 it('bounds distinct model cursors and still completes both cleanup planes', async () => {
   const f = fixture();
   const close = vi.fn();
@@ -252,3 +280,28 @@ it('times out the full model read and closes the client before cleanup', async (
     vi.useRealTimers();
   }
 });
+
+it.each([false, true])(
+  'handles custody rejection before create with journal cleanup failure=%s',
+  async (cleanupFails) => {
+    const f = fixture();
+    vi.mocked(f.operations.verifyCustody)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('custody changed'));
+    if (cleanupFails)
+      f.operations.clearReceipt = async () => {
+        throw new Error('disk');
+      };
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+      status: cleanupFails ? 'reconciliation_required' : 'failed',
+      inference: false,
+    });
+    expect(f.operations.create).not.toHaveBeenCalled();
+    expect(!!f.receipt()).toBe(cleanupFails);
+    expect(f.operations.physicalAbsent).not.toHaveBeenCalled();
+    if (!cleanupFails) {
+      vi.mocked(f.operations.verifyCustody).mockResolvedValue(undefined);
+      expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
+    }
+  },
+);

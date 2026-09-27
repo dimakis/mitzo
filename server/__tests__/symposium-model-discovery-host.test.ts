@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { execFile, spawn } from 'node:child_process';
+import { runSymposiumModelDiscovery } from '../symposium-model-discovery.js';
 import { createDiscoveryHostOperations } from '../symposium-model-discovery-host.js';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
 vi.mock('node:fs/promises', async (original) => {
@@ -328,3 +329,88 @@ it('terminates the cancellation SSH proxy process group when execFile times out'
     kill.mockRestore();
   }
 });
+
+it('marks external creation immediately before dispatch, after host preflight', async () => {
+  const { config, options } = fixture();
+  const order: string[] = [];
+  options.attestGateway.mockImplementation(async () => {
+    order.push('custody');
+  });
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    order.push('dispatch');
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  const ops = createDiscoveryHostOperations(config, options);
+  await ops.create(inventoryReceipt, config, () => {
+    order.push('mark');
+  });
+  expect(order).toEqual(['custody', 'mark', 'dispatch', 'custody']);
+  options.attestGateway.mockRejectedValue(new Error('preflight'));
+  const mark = vi.fn();
+  await expect(ops.create(inventoryReceipt, config, mark)).rejects.toThrow('preflight');
+  expect(mark).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'cleans only its undispatched private journal after custody loss, replacement=%s',
+  async (replaced) => {
+    const { config, options } = fixture();
+    const base = createDiscoveryHostOperations(config, options);
+    let current = true;
+    const persist = base.persistReceipt;
+    base.persistReceipt = async (receipt, exclusive) => {
+      await persist(receipt, exclusive);
+      if (replaced)
+        writeFileSync(options.journal, JSON.stringify({ ...receipt, claim: 'f'.repeat(64) }));
+      current = false;
+    };
+    const verify = base.verifyCustody;
+    base.verifyCustody = async (config) => {
+      if (!current) throw new Error('custody changed');
+      await verify(config);
+    };
+    await runSymposiumModelDiscovery(config, base);
+    expect(!!(await base.readReceipt())).toBe(replaced);
+    expect(execFile).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects local undispatched cleanup outside its lock and after actual create dispatch', async () => {
+  const { config, options } = fixture();
+  const ops = createDiscoveryHostOperations(config, options);
+  const receipt = {
+    name: 'md-aaaaaaaaaaaaaaaa',
+    claim: 'b'.repeat(64),
+    configHash: 'c'.repeat(64),
+  };
+  await ops.persistReceipt(receipt, true);
+  await expect(ops.clearUndispatchedReceipt!(receipt)).rejects.toThrow('proof');
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  await ops.withExclusiveAttempt(async () => {
+    await ops.create(receipt, config);
+    await expect(ops.clearUndispatchedReceipt!(receipt)).rejects.toThrow('proof');
+  });
+  expect(await ops.readReceipt()).toEqual(receipt);
+});
+it.each(['name', 'claim', 'configHash'])(
+  'rejects a different undispatched journal %s under the lock',
+  async (field) => {
+    const { config, options } = fixture();
+    const ops = createDiscoveryHostOperations(config, options);
+    const receipt = {
+      name: 'md-aaaaaaaaaaaaaaaa',
+      claim: 'b'.repeat(64),
+      configHash: 'c'.repeat(64),
+    };
+    await ops.withExclusiveAttempt(async () => {
+      await ops.persistReceipt(receipt, true);
+      await expect(
+        ops.clearUndispatchedReceipt!({ ...receipt, [field]: 'different' }),
+      ).rejects.toThrow('identity');
+      expect(await ops.readReceipt()).toEqual(receipt);
+    });
+  },
+);

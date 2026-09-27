@@ -495,3 +495,6 @@ provider inventories; legacy bare-array responses cannot establish cleanup or at
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
 Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#native-codex-usage-capture), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+
+Discovery preflight rejection can undo an exact undispatched local journal under
+its retained lock; dispatched or replaced evidence still requires reconciliation.
