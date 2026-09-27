@@ -187,6 +187,14 @@ records exact image/artifact pins and the attended Luna two-turn stream, replay 
 cleanup evidence. Its pin update still requires all existing host, provider,
 policy and physical admission checks; full application acceptance remains pending.
 
+### Fresh owned-custodian release preparation
+
+The explicit [owned-custodian preparation command](docs/operations/symposium-owned-release-preparation.md)
+validates a fresh private configuration and reviewed runtime tuple without starting
+providers. It emits a manual-start plist with no parent auto-restart and a durable
+one-shot launch guard. Default ordinary deployment is unchanged. Existing production
+state migration, parent recovery and database rollback remain unsupported by this path.
+
 ### Symposium native execution contracts
 
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
