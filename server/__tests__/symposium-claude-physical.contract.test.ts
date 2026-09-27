@@ -24,7 +24,7 @@ it.skipIf(process.env.MITZO_CLAUDE_PHYSICAL_CONTRACT !== '1')(
 import os,json,subprocess,hashlib,pathlib
 P=pathlib.Path
 workspace=P('/sandbox/workspaces/mgmt'); workspace.mkdir(parents=True)
-homes=P('/sandbox/.symposium-seats'); homes.mkdir(mode=0o700)
+homes=P('/sandbox/.symposium-seats'); homes.mkdir(mode=0o700,exist_ok=True)
 a='a'*64; b='b'*64
 for c in (a,b):
  (homes/c).mkdir(mode=0o700); (homes/c/'sentinel').write_text(c)
