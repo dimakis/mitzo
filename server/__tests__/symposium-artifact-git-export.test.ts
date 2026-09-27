@@ -1,3 +1,4 @@
+import { ARTIFACT_GIT_SUCCESSOR_IMPORT } from '../symposium-artifact-git-successor-import.js';
 import { afterEach, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -218,3 +219,45 @@ it('bounds historical path bytes even when the final sealed tree is small', () =
   expect(f.proof.entries).toBe(2);
   expect(() => f.run({ kind: 'inspect' })).toThrow(/history path byte bound/);
 }, 60_000);
+
+it('imports the exact successor bundle into an empty child without changing its parent', () => {
+  const f = fixture();
+  const value = f.run({
+    kind: 'successor',
+    sourceBranch: 'feature',
+    sourceOid: f.proof.commit,
+    maxBytes: 1048576,
+  });
+  const child = mkdtempSync(join(tmpdir(), 'successor-import-'));
+  roots.push(child);
+  const run = (bundle: Buffer) =>
+    JSON.parse(
+      execFileSync(
+        'python3',
+        [
+          '-I',
+          '-c',
+          ARTIFACT_GIT_SUCCESSOR_IMPORT.replaceAll(
+            `root='${SYMPOSIUM_ARTIFACT_TARGET}'`,
+            `root=${JSON.stringify(child)}`,
+          ),
+          '.',
+          JSON.stringify({
+            expected: f.proof,
+            selection: value.selection,
+            bundleSha256: value.bundleSha256,
+            bytes: value.bytes,
+          }),
+        ],
+        { input: bundle, stdio: 'pipe', timeout: 50000 },
+      ).toString(),
+    );
+  const bundle = Buffer.from(value.bundle, 'base64');
+  expect(() => run(Buffer.from('substitute'))).toThrow();
+  expect(run(bundle)).toEqual(f.proof);
+  expect(f.refreshProof()).toEqual(f.proof);
+  expect(() => run(bundle)).toThrow();
+  expect(
+    execFileSync('git', ['-C', child, 'config', '--get', 'remote.origin.url']).toString().trim(),
+  ).toBe(value.selection.originUrl);
+});
