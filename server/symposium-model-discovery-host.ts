@@ -1,3 +1,4 @@
+import { discoveryClaimLabel } from './symposium-model-discovery.js';
 import {
   DiscoveryDiagnosticSchema,
   DiscoveryCommandFailure,
@@ -334,7 +335,7 @@ export function createDiscoveryHostOperations(
           '--label',
           'mitzo.discovery=models',
           '--label',
-          `mitzo.discovery.claim=${receipt.claim}`,
+          `mitzo.discovery.claim=${discoveryClaimLabel(receipt.claim)}`,
           '--cpu',
           '1',
           '--memory',
