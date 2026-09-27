@@ -114,7 +114,12 @@ async function runExclusiveDiscovery(
         configHash,
       };
       await ops.persistReceipt(receipt, true);
-      await verify();
+      try {
+        await verify();
+      } catch {
+        // This local preflight precedes create; no external allocation was dispatched.
+        throw new DiscoveryNotDispatchedError('Custody preflight failed');
+      }
       await ops.create(receipt, config);
     }
     if (!resumed) {
