@@ -462,3 +462,50 @@ it.each(['previous-completed', 'unknown-without-attempt'])(
     expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
   },
 );
+
+it.each(['old-receipt', 'http-failure', 'invalid-json'])(
+  'continues polling the new attempt after an obsolete unscoped read returns %s',
+  async (outcome) => {
+    vi.useFakeTimers();
+    let finishStart!: (value: Response) => void;
+    let finishOldPoll!: (value: Response) => void;
+    let started = false;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (init?.method === 'POST') {
+        started = true;
+        return new Promise((resolve) => {
+          finishStart = resolve;
+        });
+      }
+      if (!started) return response({ state: 'completed', attemptId: 'old' });
+      if (!url.includes('attemptId='))
+        return new Promise((resolve) => {
+          finishOldPoll = resolve;
+        });
+      return response({ state: 'completed', attemptId: pending.attemptId });
+    });
+    render(<SymposiumDeviceLogin />);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Connect ChatGPT' })));
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect ChatGPT' }));
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    await act(async () => finishStart(response(pending)));
+    await act(async () =>
+      finishOldPoll(
+        outcome === 'http-failure'
+          ? response({}, false)
+          : outcome === 'invalid-json'
+            ? ({
+                ok: true,
+                json: async () => {
+                  throw Error('invalid json');
+                },
+              } as unknown as Response)
+            : response({ state: 'completed', attemptId: 'old' }),
+      ),
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(screen.queryByText(pending.userCode)).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Reconnect ChatGPT' })).toBeTruthy();
+  },
+);
