@@ -1,3 +1,5 @@
+import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
+import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
@@ -127,6 +129,83 @@ describe('explicit owned Symposium host composition', () => {
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
   });
+  it.each(['suspended', 'removed'])(
+    'retains exact artifact cleanup identity after %s and role replacement',
+    async (state) => {
+      const f = fixture();
+      const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, async () => '[]');
+      const sandboxName = sandboxNameForConversation('old-runtime', 13);
+      const original = host.artifactRequest('session', 'seat', 2);
+      const lease = await host.artifactLeaseHost.reserve(original);
+      host.artifactLeaseHost.markCreationStarted(lease.token, lease.revision, sandboxName);
+      host.artifactLeaseHost.bindSandbox(lease.token, lease.revision, sandboxName, 'physical-old');
+      const record = {
+        sessionId: 'session',
+        seatId: 'seat',
+        generation: 2,
+        workspace: 'workspace',
+        sandboxName: sandboxName,
+        physicalId: 'physical-old',
+        creationStarted: true,
+        creationCompleted: true,
+        runtimeId: 'old-runtime',
+        providerName: 'old-provider',
+        providerId: 'old-id',
+        providerType: 'openai',
+        model: 'luna',
+        state: 'ready',
+      };
+      vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue(record as never);
+      f.membership.state = state;
+      f.membership.generation = 3;
+      f.seat.role = 'reviewer';
+      f.seat.authorityGrant.filesystem = 'none';
+      expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
+      expect(host.artifactRequest('session', 'seat', 2, 'cleanup')).toEqual(original);
+      record.physicalId = 'replacement';
+      expect(() => host.artifactRequest('session', 'seat', 2, 'cleanup')).toThrow();
+      record.physicalId = 'physical-old';
+      record.workspace = 'other';
+      expect(() => host.artifactRequest('session', 'seat', 2, 'cleanup')).toThrow();
+      record.workspace = 'workspace';
+      let phase: 'Ready' | 'Stopped' | 'Absent' = 'Ready';
+      const remove = vi.fn(async () => {
+        phase = 'Absent';
+      });
+      const owner = new SymposiumPerSeatSandboxOwner({
+        sessionId: 'session',
+        runtimeConfig: { ...host.runtimeConfig, cliContract: 'v0.1' },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+        artifactRequest: host.artifactRequest,
+        artifactLeaseHost: host.artifactLeaseHost,
+        seatSandboxRegistry: {
+          claimSymposiumSeatLifecycle: () => true,
+          releaseSymposiumSeatLifecycle: () => {},
+          listUnstoppedSymposiumSeatSandboxes: () => (record.state === 'stopped' ? [] : [record]),
+          confirmSymposiumSeatSandboxStopped: () => {
+            record.state = 'stopped';
+          },
+        },
+        managerFactory: () => ({
+          inspect: async () => (phase === 'Absent' ? undefined : { id: record.physicalId, phase }),
+          inspectReserved: async () =>
+            phase === 'Absent' ? undefined : { id: record.physicalId, name: sandboxName, phase },
+          stop: async () => {
+            phase = 'Stopped';
+          },
+          delete: remove,
+        }),
+      } as never);
+      await owner.stop('session', 'seat', 3, new AbortController().signal);
+      expect(remove).toHaveBeenCalledOnce();
+      expect(await host.artifactLeaseHost.inspectLease(lease.token)).toBeNull();
+      expect(host.artifactRequest('session', 'seat', 2, 'cleanup')).toEqual(original);
+      await owner.stop('session', 'seat', 3, new AbortController().signal);
+      expect(remove).toHaveBeenCalledOnce();
+      host.stop();
+    },
+  );
   it('allows setup with pending evidence without fabricating a file or opening admission', async () => {
     const f = fixture();
     f.options.attestationPath = join(f.root, 'pending.json');
@@ -206,6 +285,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
     const request = host.artifactRequest('new-session', 'seat', 2);
+    await host.artifactLeaseHost.reserve(request);
+    vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue({
+      sessionId: 'new-session',
+      seatId: 'seat',
+      generation: 2,
+      workspace: 'workspace',
+      sandboxName: null,
+      physicalId: null,
+      creationStarted: false,
+    } as never);
     expect(request).toMatchObject({
       sessionId: 'new-session',
       access: 'writer',

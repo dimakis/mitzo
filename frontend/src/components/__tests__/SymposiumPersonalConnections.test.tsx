@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
 import { SymposiumPersonalConnections } from '../SymposiumPersonalConnections';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -519,4 +519,30 @@ it('shows the saved revision and refreshes the picker catalog after completed ca
   await screen.findByText('Connection version 3');
   fireEvent.click(screen.getByRole('button', { name: 'Connect personal subscription' }));
   await waitFor(() => expect(onAccountsChanged).toHaveBeenCalledOnce());
+});
+
+it('refreshes an open picker when recovered discovery finishes during polling', async () => {
+  vi.useFakeTimers();
+  let pending = true;
+  const changed = vi.fn();
+  vi.mocked(apiFetch).mockImplementation(async () =>
+    response({ connections: [{ ...rows[0], ...(pending ? { modelDiscovery: 'pending' } : {}) }] }),
+  );
+  const view = render(<SymposiumPersonalConnections onAccountsChanged={changed} />);
+  try {
+    await act(async () => {});
+    expect(changed).not.toHaveBeenCalled();
+    pending = false;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    expect(changed).toHaveBeenCalledOnce();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(changed).toHaveBeenCalledOnce();
+  } finally {
+    view.unmount();
+    vi.useRealTimers();
+  }
 });
