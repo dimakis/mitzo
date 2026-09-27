@@ -95,6 +95,7 @@ const config: SymposiumConfig = {
 };
 
 class FakeExecutor implements SymposiumSeatExecutor {
+  prepare?: SymposiumSeatExecutor['prepare'];
   calls: SymposiumSeatExecution[] = [];
   cancellations: string[] = [];
   cancellationThreadIds: Array<string | undefined> = [];
@@ -3679,4 +3680,115 @@ it('reserves pending recovery keys against other seat transitions and recoveries
   }
   expect((await host.recoverCreation(recovery)).generation).toBe(2);
   expect((await host.recoverCreation(recovery)).generation).toBe(2);
+});
+
+it.each(['cleanup-before', 'cleanup-after', 'seal-before', 'seal-after'] as const)(
+  'keeps denied delivery retryable across the %s claim boundary',
+  async (mode) => {
+    const { host, recovery } = prepareRecipientRecovery();
+    const delivery = host.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'unaffected work',
+      idempotencyKey: 'fence-race',
+    });
+    host.intervene({
+      deliveryId: delivery.deliveryId,
+      action: 'approve',
+      idempotencyKey: 'approve',
+    });
+    const competing = new EventStore(dbPath);
+    const fence = () => {
+      if (mode.startsWith('cleanup')) competing.beginSymposiumCreationRecovery(recovery);
+      else
+        competing.beginSymposiumArtifactSeal({
+          sessionId: 'chat',
+          expectedConfigRevision: 4,
+          idempotencyKey: 'seal',
+          custody: { workspaceId: 'work', gatewayLaunchDigest: 'a'.repeat(64) },
+          artifact: {
+            driver: 'podman',
+            volumeName: 'volume',
+            volumeGeneration: 'generation',
+            leaseRevision: 'lease',
+            leaseTokenHash: 'b'.repeat(64),
+          },
+        });
+    };
+    try {
+      if (mode.endsWith('before')) fence();
+      else builder.prepare = () => fence();
+      await expect(host.deliver(delivery.deliveryId)).rejects.toThrow(/fenced/);
+      expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('ready');
+      expect(store.getSymposiumDelivery(delivery.deliveryId)?.recipients[0].status).toBe('pending');
+      expect(store.getSymposiumRecipientAttempts(delivery.deliveryId)).toHaveLength(0);
+      expect(builder.calls).toHaveLength(0);
+      if (mode.startsWith('cleanup')) {
+        builder.prepare = undefined;
+        await host.recoverCreation(recovery);
+        expect((await host.deliver(delivery.deliveryId)).status).toBe('delivered');
+        expect(builder.calls).toHaveLength(1);
+      }
+    } finally {
+      competing.close();
+    }
+  },
+);
+
+it('preserves a live recipient claim when another recipient hits a concurrent seal fence', async () => {
+  const { host } = prepareRecipientRecovery();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const execute = builder.execute.bind(builder);
+  builder.execute = async (input) => {
+    await gate;
+    return execute(input);
+  };
+  const competing = new EventStore(dbPath);
+  reviewer.prepare = () => {
+    competing.beginSymposiumArtifactSeal({
+      sessionId: 'chat',
+      expectedConfigRevision: 4,
+      idempotencyKey: 'seal-active',
+      custody: { workspaceId: 'work', gatewayLaunchDigest: 'a'.repeat(64) },
+      artifact: {
+        driver: 'podman',
+        volumeName: 'volume',
+        volumeGeneration: 'generation',
+        leaseRevision: 'lease',
+        leaseTokenHash: 'b'.repeat(64),
+      },
+    });
+  };
+  const delivery = host.stageDelivery({
+    sessionId: 'chat',
+    sourceSeatId: null,
+    recipientSeatIds: ['builder', 'reviewer'],
+    originalContent: 'mixed fence',
+    idempotencyKey: 'mixed-fence',
+  });
+  host.intervene({ deliveryId: delivery.deliveryId, action: 'approve', idempotencyKey: 'approve' });
+  const running = host.deliver(delivery.deliveryId);
+  try {
+    await vi.waitFor(() => expect(store.getSymposiumArtifactSealIntent('chat')).not.toBeNull());
+    const attempts = store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder');
+    expect(attempts[0].status).toBe('executing');
+    competing.requeueIdleSymposiumDelivery(delivery.deliveryId, 100);
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('delivering');
+    expect(store.getSymposiumRecipientAttempts(delivery.deliveryId, 'builder')).toEqual(attempts);
+    release();
+    await expect(running).rejects.toThrow(/fenced/);
+    expect(store.getSymposiumDelivery(delivery.deliveryId)?.status).toBe('ready');
+    expect(
+      store.getSymposiumDelivery(delivery.deliveryId)?.recipients.map((r) => r.status),
+    ).toEqual(['delivered', 'pending']);
+    expect(builder.calls).toHaveLength(1);
+    expect(reviewer.calls).toHaveLength(0);
+  } finally {
+    release();
+    competing.close();
+  }
 });

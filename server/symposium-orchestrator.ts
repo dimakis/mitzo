@@ -827,15 +827,21 @@ export class SymposiumOrchestrator {
       }
       return true;
     };
-    if (config.version === 2) {
-      const results = await Promise.allSettled(delivery.recipients.map(executeRecipient));
-      const rejected = results.find((result) => result.status === 'rejected');
-      if (rejected?.status === 'rejected') throw rejected.reason;
-      this.store.requeueIdleSymposiumDelivery(deliveryId, this.now());
-    } else {
-      for (const recipient of delivery.recipients) {
-        if (!(await executeRecipient(recipient))) break;
+    try {
+      if (config.version === 2) {
+        const results = await Promise.allSettled(delivery.recipients.map(executeRecipient));
+        const rejected = results.find((result) => result.status === 'rejected');
+        if (rejected?.status === 'rejected') throw rejected.reason;
+      } else {
+        for (const recipient of delivery.recipients) {
+          if (!(await executeRecipient(recipient))) break;
+        }
       }
+    } finally {
+      // Another SQLite connection can fence work after the delivery claim but
+      // before recipient claims. Preserve queued work even when a claim throws;
+      // the conditional store update leaves active claims and terminal states alone.
+      this.store.requeueIdleSymposiumDelivery(deliveryId, this.now());
     }
 
     return this.store.getSymposiumDelivery(deliveryId)!;
