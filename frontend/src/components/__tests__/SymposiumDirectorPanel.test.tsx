@@ -377,3 +377,36 @@ it('keeps old mutation completion and its refresh isolated from the new session'
     screen.getByRole('button', { name: 'Create draft Symposium' }).hasAttribute('disabled'),
   ).toBe(false);
 });
+
+it('recovers shared files from a reopened saved draft without activating or dispatching', async () => {
+  const draft = { ...status(false), config: { ...config, state: 'draft' } };
+  let ready = false;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'POST') {
+      expect(path).toBe('/api/symposium/sessions/session/artifacts');
+      expect(init.body).toBe('{}');
+      return response({ state: ready ? 'ready' : 'recovery_required' });
+    }
+    return response(draft);
+  });
+  const mounted = render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Prepare or retry shared files' }),
+  );
+  expect(await screen.findByText(/Shared files are still unavailable/)).toBeTruthy();
+  mounted.unmount();
+  render(<SymposiumDirectorPanel sessionId="session" />);
+  await userEvent.click(screen.getByRole('button', { name: 'Director controls' }));
+  ready = true;
+  await userEvent.click(
+    await screen.findByRole('button', { name: 'Prepare or retry shared files' }),
+  );
+  expect(await screen.findByText(/Shared files are ready/)).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Activate roster' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(
+    2,
+  );
+});

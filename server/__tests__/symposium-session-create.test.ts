@@ -190,3 +190,51 @@ it('accepts the exact cached catalog model without refreshing or reverting to co
     409,
   );
 });
+
+it('keeps a draft usable when provisioning fails and retries only that session', async () => {
+  const ensureSessionArtifacts = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('driver unavailable'))
+    .mockResolvedValue({ state: 'ready' });
+  app = express();
+  app.use(express.json());
+  app.use(
+    '/sessions',
+    operatorAuthMiddleware,
+    createSymposiumSessionRouter({
+      store,
+      profiles,
+      currentAccounts,
+      newSessionId: () => 'allocated',
+      ensureSessionArtifacts,
+    }),
+  );
+  const first = await post();
+  expect(first.status).toBe(201);
+  expect(first.body.artifacts).toEqual({ state: 'recovery_required' });
+  expect(store.getSession('allocated')?.isActive).toBe(false);
+  expect(
+    (
+      await request(app)
+        .post('/sessions/missing/artifacts')
+        .set('Authorization', `Bearer ${token}`)
+        .send({})
+    ).status,
+  ).toBe(404);
+  expect(ensureSessionArtifacts).toHaveBeenCalledTimes(1);
+  const result = await request(app)
+    .post('/sessions/allocated/artifacts')
+    .set('Authorization', `Bearer ${token}`)
+    .send({});
+  expect(result.body).toEqual({ state: 'ready' });
+  expect(ensureSessionArtifacts).toHaveBeenLastCalledWith('allocated');
+  expect(
+    (
+      await request(app)
+        .post('/sessions/allocated/artifacts')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ volumeName: 'injected' })
+    ).status,
+  ).toBe(400);
+  expect(ensureSessionArtifacts).toHaveBeenCalledTimes(2);
+});
