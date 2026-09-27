@@ -517,3 +517,23 @@ it('cleanup binding uses only the retained original lease and exact terminal ide
     b.close();
   }
 });
+
+it('forwards bounded successor stdin and preserves volume create terminal observations', async () => {
+  const { ArtifactPodmanContext } = await import('../symposium-artifact-host.js');
+  const regular = vi.fn(async () => 'regular');
+  const terminal = vi.fn(async () => 'terminal');
+  const command = new ArtifactPodmanContext(regular, terminal).verifierCommand();
+  const input = Buffer.from('bounded bundle');
+  await command(['start', '--attach', '--interactive', 'a'.repeat(64)], 4096, input);
+  expect(terminal).toHaveBeenCalledWith(
+    ['start', '--attach', '--interactive', 'a'.repeat(64)],
+    4096,
+    input,
+  );
+  await command(['volume', 'create', 'child']);
+  expect(terminal).toHaveBeenCalledWith(['volume', 'create', 'child'], undefined, undefined);
+  await expect(
+    command(['start', '--attach', '--interactive', 'a'.repeat(64)], 4096, Buffer.alloc(8388609)),
+  ).rejects.toThrow(/bound/);
+  await expect(command(['inspect', 'a'.repeat(64)], 4096, input)).rejects.toThrow();
+});

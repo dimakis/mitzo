@@ -89,7 +89,10 @@ export async function createOwnedSymposiumHost(
   options: OwnedSymposiumHostOptions,
   launch: typeof OwnedSymposiumGateway.launch = OwnedSymposiumGateway.launch,
   prepareGateway?: (gateway: OwnedSymposiumGateway) => Promise<readonly unknown[]>,
-  podmanCommand?: (args: readonly string[], execution: { timeout: number }) => Promise<string>,
+  podmanCommand?: (
+    args: readonly string[],
+    execution: { timeout: number; input?: Buffer },
+  ) => Promise<string>,
 ) {
   if (
     !isAbsolute(options.attestationPath) ||
@@ -195,6 +198,7 @@ export async function createOwnedSymposiumHost(
       args: readonly string[],
       maxOutputBytes = 2 * 1024 * 1024,
       deferPostCustody = false,
+      input?: Buffer,
     ): Promise<string> => {
       if (
         !Number.isSafeInteger(maxOutputBytes) ||
@@ -209,9 +213,9 @@ export async function createOwnedSymposiumHost(
       }
       const timeout = args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000;
       const text = podmanCommand
-        ? await podmanCommand(args, { timeout })
+        ? await podmanCommand(args, { timeout, ...(input ? { input } : {}) })
         : await new Promise<string>((resolve, reject) => {
-            execFile(
+            const child = execFile(
               options.podman.executable,
               [...args],
               {
@@ -227,6 +231,9 @@ export async function createOwnedSymposiumHost(
                 else resolve(stdout);
               },
             );
+            // Errors are sanitized; artifact bytes never enter arguments, logs or error causes.
+            child.stdin?.on('error', () => reject(new Error('Owned Podman stdin failed')));
+            child.stdin?.end(input);
           });
       if (!deferPostCustody) custody();
       return text;
@@ -243,8 +250,9 @@ export async function createOwnedSymposiumHost(
     leaseHost = new SqliteArtifactLeaseHost(
       leasePath,
       artifactEvidence,
-      new ArtifactPodmanContext(podmanText, (args, maxOutputBytes) =>
-        podmanText(args, maxOutputBytes, true),
+      new ArtifactPodmanContext(
+        (args, max, input) => podmanText(args, max, false, input),
+        (args, maxOutputBytes, input) => podmanText(args, maxOutputBytes, true, input),
       ),
       gateway,
     );
