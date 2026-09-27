@@ -1,6 +1,17 @@
+import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
+import { sandboxNameForConversation } from '../openshell-runtime.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, statSync, existsSync, chmodSync } from 'node:fs';
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  statSync,
+  existsSync,
+  chmodSync,
+} from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -43,6 +54,7 @@ function fixture() {
     gateway: {
       gateway: 'owned',
       workspace: 'workspace',
+      stateParent: root,
       workloadImage: `sha256:${'a'.repeat(64)}`,
     },
     attestationPath: attestation,
@@ -113,6 +125,83 @@ describe('explicit owned Symposium host composition', () => {
     expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
     host.stop();
   });
+  it.each(['suspended', 'removed'])(
+    'retains exact artifact cleanup identity after %s and role replacement',
+    async (state) => {
+      const f = fixture();
+      const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, async () => '[]');
+      const sandboxName = sandboxNameForConversation('old-runtime', 13);
+      const original = host.artifactRequest('session', 'seat', 2);
+      const lease = await host.artifactLeaseHost.reserve(original);
+      host.artifactLeaseHost.markCreationStarted(lease.token, lease.revision, sandboxName);
+      host.artifactLeaseHost.bindSandbox(lease.token, lease.revision, sandboxName, 'physical-old');
+      const record = {
+        sessionId: 'session',
+        seatId: 'seat',
+        generation: 2,
+        workspace: 'workspace',
+        sandboxName: sandboxName,
+        physicalId: 'physical-old',
+        creationStarted: true,
+        creationCompleted: true,
+        runtimeId: 'old-runtime',
+        providerName: 'old-provider',
+        providerId: 'old-id',
+        providerType: 'openai',
+        model: 'luna',
+        state: 'ready',
+      };
+      vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue(record as never);
+      f.membership.state = state;
+      f.membership.generation = 3;
+      f.seat.role = 'reviewer';
+      f.seat.authorityGrant.filesystem = 'none';
+      expect(() => host.artifactRequest('session', 'seat', 2)).toThrow('mapping');
+      expect(host.artifactRequest('session', 'seat', 2, 'cleanup')).toEqual(original);
+      record.physicalId = 'replacement';
+      expect(() => host.artifactRequest('session', 'seat', 2, 'cleanup')).toThrow();
+      record.physicalId = 'physical-old';
+      record.workspace = 'other';
+      expect(() => host.artifactRequest('session', 'seat', 2, 'cleanup')).toThrow();
+      record.workspace = 'workspace';
+      let phase: 'Ready' | 'Stopped' | 'Absent' = 'Ready';
+      const remove = vi.fn(async () => {
+        phase = 'Absent';
+      });
+      const owner = new SymposiumPerSeatSandboxOwner({
+        sessionId: 'session',
+        runtimeConfig: { ...host.runtimeConfig, cliContract: 'v0.1' },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+        artifactRequest: host.artifactRequest,
+        artifactLeaseHost: host.artifactLeaseHost,
+        seatSandboxRegistry: {
+          claimSymposiumSeatLifecycle: () => true,
+          releaseSymposiumSeatLifecycle: () => {},
+          listUnstoppedSymposiumSeatSandboxes: () => (record.state === 'stopped' ? [] : [record]),
+          confirmSymposiumSeatSandboxStopped: () => {
+            record.state = 'stopped';
+          },
+        },
+        managerFactory: () => ({
+          inspect: async () => (phase === 'Absent' ? undefined : { id: record.physicalId, phase }),
+          inspectReserved: async () =>
+            phase === 'Absent' ? undefined : { id: record.physicalId, name: sandboxName, phase },
+          stop: async () => {
+            phase = 'Stopped';
+          },
+          delete: remove,
+        }),
+      } as never);
+      await owner.stop('session', 'seat', 3, new AbortController().signal);
+      expect(remove).toHaveBeenCalledOnce();
+      expect(await host.artifactLeaseHost.inspectLease(lease.token)).toBeNull();
+      expect(host.artifactRequest('session', 'seat', 2, 'cleanup')).toEqual(original);
+      await owner.stop('session', 'seat', 3, new AbortController().signal);
+      expect(remove).toHaveBeenCalledOnce();
+      host.stop();
+    },
+  );
   it('allows setup with pending evidence without fabricating a file or opening admission', async () => {
     const f = fixture();
     f.options.attestationPath = join(f.root, 'pending.json');
@@ -138,4 +227,112 @@ describe('explicit owned Symposium host composition', () => {
     );
     expect(f.gateway.stop).toHaveBeenCalledOnce();
   });
+});
+
+it('provisions a new draft through owned argv and makes its checked mapping available without replacing attestation', async () => {
+  const f = fixture();
+  const config = {
+    version: 2,
+    revision: 1,
+    state: 'draft',
+    anchorSeatId: 'seat',
+    activeSeatCap: 3,
+    seats: [
+      {
+        id: 'seat',
+        name: 'Builder',
+        model: 'luna',
+        systemPrompt: 'Build',
+        color: '#335577',
+        role: 'coder',
+      },
+    ],
+    turnRules: { mode: 'directed', maxTurns: 8 },
+    interceptMode: 'manual',
+  };
+  f.options.facts.getSession = vi
+    .fn()
+    .mockReturnValue({ sessionType: 'symposium', symposiumConfig: JSON.stringify(config) });
+  let volume: {
+    Name: string;
+    Driver: string;
+    Options: object;
+    Labels: Record<string, string>;
+  } | null = null;
+  const command = vi.fn(async (args: readonly string[]) => {
+    if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
+    if (args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[1] === 'create') {
+      const labels: Record<string, string> = {};
+      args.forEach((v, i) => {
+        if (v === '--label') {
+          const [key, ...parts] = args[i + 1].split('=');
+          labels[key] = parts.join('=');
+        }
+      });
+      expect(args.slice(0, 4)).toEqual(['volume', 'create', '--driver', 'local']);
+      volume = { Name: args.at(-1)!, Driver: 'local', Options: {}, Labels: labels };
+      return volume.Name + '\n';
+    }
+    throw new Error('Unexpected command');
+  });
+  const before = readFileSync(f.options.attestationPath, 'utf8');
+  const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
+  try {
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    const request = host.artifactRequest('new-session', 'seat', 2);
+    await host.artifactLeaseHost.reserve(request);
+    vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue({
+      sessionId: 'new-session',
+      seatId: 'seat',
+      generation: 2,
+      workspace: 'workspace',
+      sandboxName: null,
+      physicalId: null,
+      creationStarted: false,
+    } as never);
+    expect(request).toMatchObject({
+      sessionId: 'new-session',
+      access: 'writer',
+      workspaceId: 'workspace',
+    });
+    expect(request.volumeName).toMatch(/^mitzo-artifacts-/);
+    expect(await host.artifactLeaseHost.inspectVolume(request.volumeName, 'podman')).toMatchObject({
+      labels: { 'mitzo.symposium.session': 'new-session' },
+    });
+    f.seat.role = 'reviewer';
+    expect(host.artifactRequest('new-session', 'seat', 2).access).toBe('reviewer');
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    expect(readFileSync(f.options.attestationPath, 'utf8')).toBe(before);
+    expect(host.runtimeConfig.cliContract).toBeUndefined();
+    volume!.Labels['mitzo.symposium.session'] = 'wrong';
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+      state: 'recovery_required',
+    });
+    expect(() => host.artifactRequest('new-session', 'seat', 2)).toThrow('mapping');
+    expect(host.artifactRequest('new-session', 'seat', 2, 'cleanup').volumeName).toBe(
+      request.volumeName,
+    );
+    host.stop();
+    const nextDirectory = join(f.root, 'next-gateway');
+    mkdirSync(nextDirectory, { mode: 0o700 });
+    const nextGateway = { ...f.gateway, stateDirectory: nextDirectory };
+    const next = await createOwnedSymposiumHost(
+      f.options,
+      vi.fn().mockResolvedValue(nextGateway),
+      undefined,
+      command,
+    );
+    try {
+      await expect(next.ensureSessionArtifacts('new-session')).rejects.toThrow(
+        'different host custody',
+      );
+      expect(command.mock.calls.filter(([args]) => args[1] === 'create')).toHaveLength(1);
+    } finally {
+      next.stop();
+    }
+  } finally {
+    host.stop();
+  }
 });
