@@ -73,7 +73,6 @@ export class ArtifactSnapshotObserver {
   private readonly command: ArtifactSnapshotCommand;
   constructor(
     private readonly options: {
-      databasePath: string;
       leaseHost: SqliteArtifactLeaseHost;
       /** Real retained-host custody verification, not a caller-supplied assertion. */
       verifyCustody: () => Promise<void>;
@@ -81,7 +80,7 @@ export class ArtifactSnapshotObserver {
     },
   ) {
     this.command = options.leaseHost.snapshotCommand();
-    this.db = new Database(options.databasePath);
+    this.db = new Database(options.leaseHost.snapshotDatabasePath());
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db
@@ -242,13 +241,12 @@ export class ArtifactSnapshotObserver {
 
 /** Explicit host construction only; never invoked automatically by app bootstrap. */
 export function createOwnedArtifactSnapshotObserver(options: {
-  databasePath: string;
   gateway: OwnedSymposiumGateway;
   leaseHost: SqliteArtifactLeaseHost;
 }): ArtifactSnapshotObserver {
   const gateway = options.gateway;
+  options.leaseHost.requireSnapshotGateway(gateway);
   return new ArtifactSnapshotObserver({
-    databasePath: options.databasePath,
     leaseHost: options.leaseHost,
     verifyCustody: () => gateway.verifyCustodyAsync(),
     gateway: {

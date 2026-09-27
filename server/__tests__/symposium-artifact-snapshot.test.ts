@@ -2,12 +2,16 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
+import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import { SqliteArtifactLeaseHost, ArtifactPodmanContext } from '../symposium-artifact-host.js';
 import {
   acquireSymposiumArtifactLease,
   type ArtifactLeaseRequest,
 } from '../symposium-artifact-lease.js';
-import { ArtifactSnapshotObserver } from '../symposium-artifact-snapshot.js';
+import {
+  ArtifactSnapshotObserver,
+  createOwnedArtifactSnapshotObserver,
+} from '../symposium-artifact-snapshot.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
 async function fixture() {
@@ -29,6 +33,13 @@ async function fixture() {
         ? '[{"State":{"Running":false,"ExitCode":0}}]'
         : '',
   );
+  const retainedGateway = {
+    gateway: 'gateway',
+    workspace: 'w',
+    endpoint: 'https://localhost:18800',
+    stateDirectory: root,
+    verifyCustodyAsync: async () => {},
+  } as unknown as OwnedSymposiumGateway;
   const host = new SqliteArtifactLeaseHost(
     join(root, 'leases'),
     { verifyGateway: async () => {}, verifyMount: async () => {} },
@@ -49,13 +60,13 @@ async function fixture() {
           })
         : command(args),
     ),
+    retainedGateway,
   );
   const lease = await acquireSymposiumArtifactLease(host, request);
   host.markCreationStarted(lease.token, lease.revision, 'seat');
   host.bindSandbox(lease.token, lease.revision, 'seat', 'physical');
   const verifyCustody = vi.fn(async () => {});
   const options = {
-    databasePath: join(root, 'snapshots'),
     gateway: {
       name: 'gateway',
       workspace: 'w',
@@ -68,6 +79,7 @@ async function fixture() {
   const observer = new ArtifactSnapshotObserver(options);
   return {
     host,
+    retainedGateway,
     lease,
     request,
     command,
@@ -208,7 +220,6 @@ it('refuses a legacy lease host with no verifier command context', () => {
     expect(
       () =>
         new ArtifactSnapshotObserver({
-          databasePath: ':memory:',
           leaseHost: host,
           verifyCustody: async () => {},
           gateway: {
@@ -257,6 +268,58 @@ it('still rejects an unpaired surrogate in a verifier path', async () => {
   );
   await expect(f.observer.observe(f.input)).rejects.toThrow();
   expect(f.command.mock.calls.at(-1)![0][0]).toBe('rm');
+  f.observer.close();
+  f.host.close();
+});
+
+it('shares durable reservations across observers despite caller database overrides', async () => {
+  const f = await fixture();
+  f.command.mockImplementation(async (args) => {
+    if (args[0] === 'create') throw Error('uncertain');
+    return '';
+  });
+  await expect(f.observer.observe(f.input)).rejects.toThrow();
+  const overridden = { ...f.options, databasePath: ':memory:' };
+  const alternate = new ArtifactSnapshotObserver(overridden);
+  await expect(alternate.observe(f.input)).rejects.toThrow('reconciliation');
+  alternate.close();
+  f.observer.close();
+  f.host.close();
+});
+it('rejects a different gateway with the same workspace and accepts the retained gateway', async () => {
+  const f = await fixture();
+  const gateway = {
+    gateway: 'other',
+    workspace: 'w',
+    endpoint: 'https://localhost:18800',
+    stateDirectory: '/other',
+  };
+  expect(() =>
+    createOwnedArtifactSnapshotObserver({ ...f.options, gateway } as unknown as Parameters<
+      typeof createOwnedArtifactSnapshotObserver
+    >[0]),
+  ).toThrow('gateway');
+  f.observer.close();
+  f.host.close();
+});
+
+it('rejects in-memory lease storage for snapshot reservations', () => {
+  const host = new SqliteArtifactLeaseHost(
+    ':memory:',
+    { verifyGateway: async () => {}, verifyMount: async () => {} },
+    new ArtifactPodmanContext(async () => ''),
+  );
+  expect(() => host.snapshotDatabasePath()).toThrow('persistent');
+  host.close();
+});
+it('constructs the owned observer only with the exact retained gateway', async () => {
+  const f = await fixture();
+  const observer = createOwnedArtifactSnapshotObserver({
+    leaseHost: f.host,
+    gateway: f.retainedGateway,
+  });
+  expect((await observer.observe(f.input)).gateway.name).toBe('gateway');
+  observer.close();
   f.observer.close();
   f.host.close();
 });

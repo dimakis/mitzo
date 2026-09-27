@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { resolve } from 'node:path';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -110,12 +112,14 @@ function volumeEvidence(raw: unknown, name: string): ArtifactVolumeEvidence {
 export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
   private readonly db: Database.Database;
   private readonly volumeRunner: VolumeRunner;
+  private readonly persistentSnapshotPath?: string;
   private readonly podmanContext?: ArtifactPodmanContext;
 
   constructor(
     dbPath: string,
     private readonly evidence: ArtifactHostEvidence,
     volumeRunner: VolumeRunner | ArtifactPodmanContext = inspectLocalArtifactVolume,
+    private readonly snapshotGateway?: OwnedSymposiumGateway,
   ) {
     this.podmanContext = volumeRunner instanceof ArtifactPodmanContext ? volumeRunner : undefined;
     this.volumeRunner =
@@ -123,6 +127,8 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
         ? (driver, name) => volumeRunner.inspect(driver, name)
         : volumeRunner;
     this.db = new Database(dbPath);
+    this.persistentSnapshotPath =
+      this.db.name && this.db.name !== ':memory:' ? resolve(this.db.name) : undefined;
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_artifact_leases (
@@ -162,6 +168,17 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       released_at INTEGER NOT NULL,
       UNIQUE(sandbox_name, sandbox_id)
     );`);
+  }
+
+  snapshotDatabasePath(): string {
+    if (!this.persistentSnapshotPath)
+      throw new Error('Artifact snapshot requires persistent lease storage');
+    return this.persistentSnapshotPath;
+  }
+
+  requireSnapshotGateway(gateway: OwnedSymposiumGateway): void {
+    if (!this.snapshotGateway || this.snapshotGateway !== gateway)
+      throw new Error('Artifact snapshot gateway differs from retained lease host');
   }
 
   snapshotCommand(): (args: readonly string[]) => Promise<string> {

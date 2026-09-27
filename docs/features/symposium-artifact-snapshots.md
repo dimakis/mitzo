@@ -90,3 +90,5 @@ context as inspection and scanning. If custody is lost and cleanup cannot run, t
 durable verifier reservation remains for explicit reconciliation.
 
 An unconfirmed verifier-create response retains its durable reservation even if immediate removal succeeds. A delayed remote create can otherwise appear after removal; restart and retry remain blocked for host reconciliation.
+
+Reservations and observations share the lease host’s persistent SQLite database; callers cannot select an independent or in-memory observer store. The owned factory requires the exact gateway object retained when that lease host was constructed, binding custody and receipt provenance to the same host.

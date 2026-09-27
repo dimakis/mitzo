@@ -185,6 +185,7 @@ export async function createOwnedSymposiumHost(
       leasePath,
       artifactEvidence,
       new ArtifactPodmanContext(podmanText),
+      gateway,
     );
     chmodSync(leasePath, 0o600);
     // Session identities survive fresh gateway launches. Retain their reservations
