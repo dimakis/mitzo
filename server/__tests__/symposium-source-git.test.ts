@@ -199,3 +199,18 @@ it.each(['include', 'hook', 'object', 'oversized', 'digest'])(
     expect(readFileSync(join(target, '.git/config'), 'utf8')).toBe(config);
   },
 );
+
+it.each([
+  'topic/',
+  'HEAD',
+  'topic/.hidden',
+  'topic/ends.',
+  'topic/part.lock',
+  'topic//part',
+  'topic@{1}',
+])('rejects Git-invalid selected feature before export (%s)', async (featureBranch) => {
+  const f = fixture();
+  await expect(
+    inspectLocalSource(f.repositories, { ...f.selection, featureBranch }),
+  ).rejects.toThrow();
+});

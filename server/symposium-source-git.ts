@@ -23,7 +23,7 @@ const safeBranch = (s: string) =>
   /^[A-Za-z0-9][A-Za-z0-9._/-]{0,200}$/.test(s) &&
   !s.includes('..') &&
   !s.includes('//') &&
-  !s.split('/').some((p) => p.startsWith('.') || p.endsWith('.') || p.endsWith('.lock'));
+  !s.split('/').some((p) => !p || p.startsWith('.') || p.endsWith('.') || p.endsWith('.lock'));
 function plain(path: string, directory: boolean) {
   const stat = lstatSync(path);
   if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()))
@@ -145,6 +145,13 @@ async function withSource<T>(
   run: (context: { plan: LocalSourcePlan; args: string[]; env: NodeJS.ProcessEnv }) => Promise<T>,
 ) {
   const selected = source(repositories, selection);
+  for (const branch of [selection.baseBranch, selection.featureBranch]) {
+    try {
+      await git(['check-ref-format', '--branch', branch], {}, 4096);
+    } catch {
+      throw new SourceImportError('Selected branch is not a valid Git branch');
+    }
+  }
   const origin = (
     await git(
       ['config', '--file', selected.config, '--no-includes', '--get', 'remote.origin.url'],
@@ -353,8 +360,8 @@ for key in ['baseOid','treeOid']:
  if not re.fullmatch('[a-f0-9]{40}',manifest[key]): raise ValueError('object identity')
 for key in ['baseBranch','featureBranch']:
  value=manifest[key]
- if not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,200}',value) or '..' in value or '//' in value or any(p.startswith('.') or p.endswith('.') or p.endswith('.lock') for p in value.split('/')): raise ValueError('branch')
-if manifest['baseBranch']==manifest['featureBranch'] or not re.fullmatch('[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',manifest['targetRepository']): raise ValueError('target')
+ if not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,200}',value) or '..' in value or '//' in value or any(not p or p.startswith('.') or p.endswith('.') or p.endswith('.lock') for p in value.split('/')): raise ValueError('branch')
+if manifest['baseBranch']=='HEAD' or manifest['featureBranch']=='HEAD' or manifest['baseBranch']==manifest['featureBranch'] or not re.fullmatch('[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',manifest['targetRepository']): raise ValueError('target')
 env={'PATH':'/usr/bin:/bin','HOME':'/nonexistent','GIT_CONFIG_NOSYSTEM':'1','GIT_CONFIG_GLOBAL':'/dev/null','GIT_TERMINAL_PROMPT':'0','GIT_NO_LAZY_FETCH':'1','GIT_NO_REPLACE_OBJECTS':'1','GIT_OPTIONAL_LOCKS':'0','LC_ALL':'C'}
 def git(*args):
  p=subprocess.run(['/usr/bin/git','--git-dir='+gitdir,'--work-tree='+root,'-c','core.hooksPath=/dev/null','-c','core.fsmonitor=false','-c','protocol.allow=never',*args],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
