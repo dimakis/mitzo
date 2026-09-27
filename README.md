@@ -74,7 +74,8 @@ The [durable child session allocation design](docs/design/session-service-core.m
 
 ### Symposium director and portable profiles
 
-The mobile and desktop ChatViews include **Director controls** for the Symposium
+The mobile and desktop ChatViews share **Add reviewer / Ask another agent** setup
+and include **Director controls** for the Symposium
 roster and directed-delivery approval. Use **Refresh director status** to load
 newly queued deliveries while the panel is open. The conversation view offers
 an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
@@ -125,7 +126,7 @@ the latest version to create a new one. Conversational profile proposals require
 operator review before saving. Profiles do not carry account credentials or
 execution authority; those are bound separately by host-issued grants.
 
-This is the director and profile foundation. The default server has no Symposium
+These implemented controls remain subject to runtime admission. The default server has no Symposium
 provider runtime: activation and grant reissue fail closed until a trusted runtime
 is installed. These controls do not enable production native seat execution.
 
@@ -218,9 +219,9 @@ matching host attestation for the selected CLI, gateway, images, policy, provide
 profiles, seed and artifacts. Attestations must map each exact provider instance
 name, ID and type to its reviewed profile; the host must verify that association
 in the selected workspace. Missing instance mappings or physical proof fail closed.
-The first supported attestation scope is OpenAI
-writer roles. Claude via Vertex and reviewer admission remain closed pending their
-live acceptance checks. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
+The legacy attestation scope is OpenAI writer roles. The separate owned-native
+contract includes personal Codex and reviewer capability when all of its physical
+and authorization gates pass; Claude via Vertex remains unavailable. An experimental [personal ChatGPT seat route](docs/features/symposium-chatgpt-subscription.md)
 uses upstream Codex provider attachments and a private native authentication bootstrap.
 It rejects the older private-gateway OAuth binding and host login imports, and keeps
 subscription production admission closed pending independent account, credential
@@ -236,6 +237,15 @@ independent account authorization and all production evidence gates. See
 [per-seat runtime handoff](docs/spikes/openshell-codex/SYMPOSIUM_PHASE3_HANDOFF.md)
 for the architecture and remaining gates. Installing this code does not upgrade
 or enable the active gateway.
+
+The [current implementation and acceptance record](docs/features/symposium.md)
+distinguishes mocked application coverage from the attended two-turn native
+`gpt-5.6-luna` smoke. The smoke verified streaming, replay, exact replies and
+probe cleanup; it did not establish full application or production admission.
+Multiple personal account slots and explicit supported-model refresh are
+implemented. Saved metadata survives restart, but personal authorization requires
+fresh sign-in. The newer CA-enabled image still requires a reviewed build-pin
+update before it can satisfy the production gate.
 
 ### Packages (`packages/`) — npm workspace
 
