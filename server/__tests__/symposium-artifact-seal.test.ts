@@ -518,6 +518,29 @@ it('keeps generic artifact leasing fenced after seal; only an exact reader admis
     expect(confirmed.receipt?.leaseTokenHash).toBe(
       createHash('sha256').update(lease.token).digest('hex'),
     );
+    const { acquireConfirmedSealedReaderLease } = await import('../symposium-artifact-lease');
+    expect(
+      await acquireConfirmedSealedReaderLease(host, first, 'symposium', confirmed.reference),
+    ).toEqual(lease);
+    await expect(
+      acquireConfirmedSealedReaderLease(host, first, 'symposium', {
+        ...confirmed.reference,
+        bindingDigest: 'c'.repeat(64),
+      }),
+    ).rejects.toThrow();
+    const reopened = new SqliteArtifactLeaseHost(
+      leasePath,
+      { verifyGateway: async () => {}, verifyMount: async () => {} },
+      async () => ({ Name: 'volume', Driver: 'local', Labels: volume.labels, Options: {} }),
+    );
+    try {
+      expect(
+        await acquireConfirmedSealedReaderLease(reopened, first, 'symposium', confirmed.reference),
+      ).toEqual(lease);
+    } finally {
+      reopened.close();
+    }
+
     expect(verifyReadOnly).toHaveBeenCalledWith(
       expect.objectContaining({ access: 'reviewer' }),
       expect.objectContaining({

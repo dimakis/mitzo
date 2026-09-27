@@ -1,4 +1,4 @@
-import type { ArtifactReaderAdmissionBindingV1 } from '@mitzo/protocol';
+import type { ArtifactReaderAdmissionBindingV1, ArtifactReaderReferenceV1 } from '@mitzo/protocol';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
@@ -486,6 +486,63 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
         return { token, revision, request };
       })
       .immediate();
+  }
+
+  /** Reopen an already confirmed sealed-reader lease; no new reservation is possible here. */
+  async requireConfirmedSealedReaderLease(
+    store: Pick<
+      EventStore,
+      'assertSymposiumSealedReaderAdmissionCurrent' | 'getSymposiumSealedReaderAdmission'
+    >,
+    sessionId: string,
+    reference: ArtifactReaderReferenceV1,
+  ): Promise<ArtifactLease> {
+    const binding = store.assertSymposiumSealedReaderAdmissionCurrent(sessionId, reference);
+    const admission = store.getSymposiumSealedReaderAdmission(
+      binding.sessionId,
+      binding.readerAdmissionId,
+    );
+    if (!admission?.receipt || admission.receipt.access !== 'reviewer')
+      throw new Error('Confirmed sealed reader receipt required');
+    const rows = this.db
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE driver=? AND volume_name=?')
+      .all('podman', binding.volumeName) as LeaseRow[];
+    const matches = rows.filter((row) => {
+      const request = JSON.parse(row.request_json) as ArtifactLeaseRequest;
+      return request.readerAdmissionId === binding.readerAdmissionId;
+    });
+    if (matches.length !== 1) throw new Error('Exact confirmed reader lease unavailable');
+    const row = matches[0],
+      request = JSON.parse(row.request_json) as ArtifactLeaseRequest;
+    if (
+      request.access !== 'reviewer' ||
+      request.sessionId !== binding.sessionId ||
+      request.workspaceId !== binding.workspaceId ||
+      request.seatId !== binding.seatId ||
+      request.volumeGeneration !== binding.artifactGenerationId ||
+      request.volumeName !== binding.volumeName ||
+      createHash('sha256').update(row.token).digest('hex') !== admission.receipt.leaseTokenHash ||
+      row.revision !== admission.receipt.leaseRevision
+    )
+      throw new Error('Confirmed reader lease identity changed');
+    const volume = await this.inspectVolume(binding.volumeName, 'podman');
+    assertSessionArtifactVolume(
+      binding.workspaceId,
+      {
+        sessionId: binding.sessionId,
+        volumeName: binding.volumeName,
+        volumeGeneration: binding.artifactGenerationId,
+      },
+      volume,
+    );
+    // Recheck after physical I/O before returning a token to the sandbox owner.
+    const current = this.db
+      .prepare('SELECT * FROM symposium_artifact_leases WHERE token=?')
+      .get(row.token) as LeaseRow | undefined;
+    store.assertSymposiumSealedReaderAdmissionCurrent(binding.sessionId, reference);
+    if (!current || current.revision !== row.revision || current.request_json !== row.request_json)
+      throw new Error('Confirmed reader lease changed during inspection');
+    return { token: row.token, revision: row.revision, request };
   }
 
   async reserve(request: ArtifactLeaseRequest): Promise<ArtifactLease> {
