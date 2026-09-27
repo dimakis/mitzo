@@ -1,4 +1,5 @@
 import { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
+import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-successor-authority.js';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import {
   createSymposiumApplicationDispatchPolicy,
@@ -1151,7 +1152,15 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
   },
 });
 export function getSymposiumBootstrapDependencies() {
-  return { facts: eventStore, hostGrants: symposiumHostGrants };
+  return {
+    facts: eventStore,
+    hostGrants: symposiumHostGrants,
+    successorAuthority: createSymposiumSuccessorFixAuthority({
+      workflows: symposiumReviewStore,
+      events: eventStore,
+      grants: symposiumHostGrants,
+    }),
+  };
 }
 
 /** Runtime integration installs a verified session-scoped orchestrator, never config-only admission. */

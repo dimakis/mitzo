@@ -16,7 +16,7 @@ import {
 import { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import { createSymposiumWorkApiProvider } from './symposium-work-api-provider.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
-type Dependencies = Pick<OwnedSymposiumHostOptions, 'facts' | 'hostGrants'>;
+type Dependencies = Pick<OwnedSymposiumHostOptions, 'facts' | 'hostGrants' | 'successorAuthority'>;
 interface BootstrapTools {
   launch: typeof OwnedSymposiumGateway.launch;
   run: typeof spawnSync;
