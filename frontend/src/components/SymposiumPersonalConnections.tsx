@@ -139,6 +139,7 @@ export function SymposiumPersonalConnections({
         >
           <div>
             <h3>{connection.label}</h3>
+            <p>Connection version {connection.revision}</p>
             <p>{connection.account?.email ?? 'No verified account yet'}</p>
             {connection.account && <span>{connection.account.planType}</span>}
             <p className="personal-connection-status">{stateLabels[connection.state]}</p>
@@ -199,7 +200,10 @@ export function SymposiumPersonalConnections({
                   void refresh();
                   onAccountsChanged?.();
                 }}
-                onCatalogRefresh={() => void refresh()}
+                onCatalogRefresh={() => {
+                  void refresh();
+                  onAccountsChanged?.();
+                }}
               />
             </details>
           )}
