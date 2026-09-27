@@ -300,6 +300,17 @@ function seatSandboxRegistry() {
         throw new Error('intent changed');
       row.creationStarted = false;
     },
+    recordSymposiumSeatCreationDiagnostic(input: {
+      sessionId: string;
+      seatId: string;
+      generation: number;
+      phase: 'create' | 'upload' | 'provider' | 'mount';
+      failed: boolean;
+    }) {
+      const row = rows.get(key(input.sessionId, input.seatId, input.generation))!;
+      row.creationPhase = input.phase;
+      row.creationFailureCode = input.failed ? `SEAT_${input.phase.toUpperCase()}_FAILED` : null;
+    },
     recordSymposiumSeatSandboxTerminalCreate(input: {
       sessionId: string;
       seatId: string;
@@ -2891,6 +2902,7 @@ describe('mixed personal subscription and work seat isolation', () => {
           owner: 'mock-owner',
           accountProvider: 'codex-personal',
         });
+        configuration.onSandboxCreationPhase?.('upload');
         throw new Error('upload failed');
       },
     );
@@ -2928,6 +2940,11 @@ describe('mixed personal subscription and work seat isolation', () => {
       'personal',
       membership.generation,
     )!;
+    expect(phased.creationDiagnostic('personal')).toEqual({
+      phase: 'upload',
+      code: 'SEAT_UPLOAD_FAILED',
+      canCleanup: true,
+    });
     expect(incomplete).toMatchObject({
       state: 'reserved',
       physicalId: 'terminal-id',

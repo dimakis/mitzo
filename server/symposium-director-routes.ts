@@ -525,12 +525,15 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         admission?.decision === 'admitted' &&
         (config.version === 1 || admission.membershipGeneration === membership.generation),
       );
+      const creationDiagnostic =
+        deps.getRuntime(sessionId)?.creationDiagnostic?.(sessionId, seat.id) ?? null;
       return {
         seatId: seat.id,
         seat,
         membership: membership ?? null,
         admission: admission ?? null,
-        admitted,
+        admitted: admitted && !creationDiagnostic,
+        creationDiagnostic,
       };
     });
     const reservedSeats = seats.filter((seat) => seat.membership?.state === 'active').length;
@@ -719,6 +722,54 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
     } catch (error) {
       res.status(409).json({
         error: error instanceof Error ? error.message : 'Primary transfer requires recovery',
+      });
+    }
+  });
+
+  router.post('/creation/recover', async (req, res) => {
+    const parsed = z
+      .strictObject({
+        seatId: z.string().trim().min(1),
+        expectedRevision: z.number().int().positive(),
+        expectedGeneration: z.number().int().positive(),
+        idempotencyKey: z.string().trim().min(1).max(200),
+        confirmation: z.literal('CLEAN UP FAILED SEAT'),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'Typed failed-seat cleanup confirmation is required' });
+      return;
+    }
+    const sessionId = (req.params as { id: string }).id;
+    if (!deps.store.getSession(sessionId)) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    const runtime = deps.getRuntime(sessionId);
+    if (!runtime) {
+      res.status(503).json({ error: 'Creation cleanup capability unavailable' });
+      return;
+    }
+    const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;
+    if (!actorId) {
+      res.status(401).json({ error: 'Authenticated operator required' });
+      return;
+    }
+    try {
+      const input = {
+        seatId: parsed.data.seatId,
+        expectedRevision: parsed.data.expectedRevision,
+        expectedGeneration: parsed.data.expectedGeneration,
+        idempotencyKey: parsed.data.idempotencyKey,
+      };
+      res.json(
+        await runtime.recoverCreation({ ...input, sessionId, actor: `operator:${actorId}` }),
+      );
+    } catch {
+      // Native/subprocess output is never returned by the cleanup boundary.
+      res.status(409).json({
+        error:
+          'Failed-seat cleanup is incomplete or stale. Refresh status; retained host custody is required.',
       });
     }
   });

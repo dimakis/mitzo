@@ -14,9 +14,21 @@ seat cleanup. Successful configuration transitions the record to ready.
 
 If upload or later configuration fails, the original failure is returned and the
 exact ID remains recorded. The workspace creation fence can settle without
-claiming upload/provider/mount success. Existing explicit seat stop/removal can
-clean up the incomplete seat only while the same owner retains its terminal
-receipt. Artifact lease release still requires native absence and driver deletion
+claiming upload/provider/mount success. The authenticated director status exposes only bounded creation phases
+(`create`, `upload`, `provider`, `mount`), safe `SEAT_*_FAILED` codes, and the
+host's cleanup capability. Native subprocess output is not part of diagnostics.
+
+The explicit **Clean up failed seat** action, including for the primary seat,
+requires typing `CLEAN UP FAILED SEAT` and the current roster revision and seat
+generation. `POST /creation/recover` durably fences new work and cancels stale
+queued/retryable deliveries before calling exact physical cleanup. It can proceed
+only while the same owner retains the terminal receipt. After cleanup is proven,
+a transaction rotates the membership to a new suspended generation, preserving
+the primary role and account binding. A separate **Restore** action is required;
+cleanup never creates a replacement or calls a model. Retry uses the same durable
+request; partial cleanup stays fenced, and a completed retry never repeats deletion.
+
+Artifact lease release still requires native absence and driver deletion
 proof for that exact ID. No provider inventory, mount failure, or empty sandbox
 list is itself proof of completed creation.
 

@@ -3113,3 +3113,158 @@ it('revalidates all existing active seats after a roster revision without changi
   expect(reviewer.calls).toHaveLength(1);
   expect(() => orchestrator.refreshActiveAdmissions('chat', 4)).toThrow(/revision/i);
 });
+
+import express from 'express';
+import request from 'supertest';
+import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
+
+it.each(['before-stop', 'after-stop', 'none'] as const)(
+  'recovers a failed primary through the real HTTP handler and durable fences (%s)',
+  async (failure) => {
+    store.setSymposiumConfig('chat', {
+      ...config,
+      version: 2,
+      revision: 4,
+      anchorSeatId: 'builder',
+      activeSeatCap: 3,
+    });
+    store.transitionSymposiumMembership({
+      sessionId: 'chat',
+      seatId: 'builder',
+      action: 'admit',
+      expectedGeneration: 0,
+      configRevision: 4,
+      actor: 'director',
+      reason: 'initial',
+      idempotencyKey: 'initial',
+      occurredAt: 1,
+    });
+    store.markSymposiumMembershipReconciled('chat', 'builder', 1, 'confirmed');
+    admit('builder');
+    const queued = orchestrator.stageDelivery({
+      sessionId: 'chat',
+      sourceSeatId: null,
+      recipientSeatIds: ['builder'],
+      originalContent: 'old queued work',
+      idempotencyKey: 'old-queue',
+    });
+
+    const physical = {
+      sessionId: 'chat',
+      seatId: 'builder',
+      generation: 1,
+      runtimeId: 'runtime',
+      workspace: 'work',
+      providerName: 'provider',
+      providerId: 'provider-id',
+      providerType: 'codex',
+      model: 'luna',
+    };
+    store.reserveSymposiumSeatSandbox(physical);
+    store.markSymposiumSeatSandboxCreationStarted(physical);
+    store.recordSymposiumSeatSandboxTerminalCreate({
+      ...physical,
+      sandboxName: 'sandbox',
+      physicalId: 'physical',
+    });
+    store.recordSymposiumSeatCreationDiagnostic({ ...physical, phase: 'upload', failed: true });
+    let retained = true;
+    let fail = failure;
+    const stop = vi.fn(async () => {
+      expect(store.getLatestSymposiumMembership('chat', 'builder')?.reconciliation).toBe(
+        'recovery_required',
+      );
+      expect(store.getSymposiumDelivery(queued.deliveryId)?.status).toBe('cancelled');
+      expect(() => store.assertSymposiumArtifactWorkAllowed('chat')).toThrow('cleanup is pending');
+      if (fail === 'before-stop') {
+        fail = 'none';
+        throw new Error('physical deletion uncertain');
+      }
+      store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+      if (fail === 'after-stop') {
+        fail = 'none';
+        throw new Error('response lost after cleanup');
+      }
+    });
+    const host = new SymposiumOrchestrator({
+      store,
+      executors: { builder, reviewer },
+      stopSeat: stop,
+      creationRecovery: {
+        diagnostic: () => ({ phase: 'upload', code: 'SEAT_UPLOAD_FAILED', canCleanup: retained }),
+        assertRetained: () => {
+          if (!retained) throw new Error('receipt unavailable');
+        },
+      },
+    });
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: 'owner' };
+      next();
+    });
+    app.use(
+      '/api/sessions/:id/symposium',
+      createSymposiumDirectorRouter({ store, getRuntime: () => host } as never),
+    );
+    const body = {
+      seatId: 'builder',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      idempotencyKey: 'cleanup',
+      confirmation: 'CLEAN UP FAILED SEAT',
+    };
+    const post = (value = body) =>
+      request(app).post('/api/sessions/chat/symposium/creation/recover').send(value);
+    expect((await post({ ...body, confirmation: 'yes' })).status).toBe(400);
+    expect((await post({ ...body, expectedRevision: 3 })).status).toBe(409);
+    retained = false;
+    expect((await post()).status).toBe(409);
+    expect(stop).not.toHaveBeenCalled();
+    retained = true;
+    const raw = new Database(dbPath);
+    raw
+      .prepare(
+        "UPDATE symposium_seat_sandboxes SET creation_completed=0 WHERE session_id='chat' AND seat_id='builder'",
+      )
+      .run();
+    expect((await post()).status).toBe(409);
+    expect(stop).not.toHaveBeenCalled();
+    raw
+      .prepare(
+        "UPDATE symposium_seat_sandboxes SET creation_completed=1 WHERE session_id='chat' AND seat_id='builder'",
+      )
+      .run();
+    raw.close();
+    const first = await post();
+    if (failure !== 'none') {
+      expect(first.status).toBe(409);
+      expect(store.getLatestSymposiumMembership('chat', 'builder')?.generation).toBe(1);
+      expect(() =>
+        store.setSymposiumConfig('chat', {
+          ...store.getActiveSymposiumConfig('chat'),
+          revision: 5,
+        }),
+      ).toThrow('cleanup');
+      retained = false;
+      expect((await post()).status).toBe(409);
+      retained = true;
+      expect((await post()).status).toBe(200);
+    } else expect(first.status).toBe(200);
+    expect(store.getLatestSymposiumMembership('chat', 'builder')).toMatchObject({
+      generation: 2,
+      state: 'suspended',
+      reconciliation: 'confirmed',
+    });
+    expect(store.getActiveSymposiumConfig('chat')).toMatchObject({
+      anchorSeatId: 'builder',
+      revision: 4,
+    });
+    const calls = stop.mock.calls.length;
+    retained = false; // A completed idempotent read does not require a new deletion or custody adoption.
+    expect((await post()).status).toBe(200);
+    expect(stop).toHaveBeenCalledTimes(calls);
+    expect((await post({ ...body, idempotencyKey: 'different' })).status).toBe(409);
+    expect(builder.calls).toHaveLength(0);
+  },
+);

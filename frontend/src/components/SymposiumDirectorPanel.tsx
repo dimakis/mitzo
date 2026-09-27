@@ -16,6 +16,7 @@ interface DirectorSeat {
   seat: SeatConfig;
   membership: SymposiumMembershipRecord | null;
   admitted: boolean;
+  creationDiagnostic?: { phase: string; code: string; canCleanup: boolean } | null;
   admission?: Pick<
     SymposiumAdmissionRecord,
     'configRevision' | 'membershipGeneration' | 'decision'
@@ -225,6 +226,7 @@ function SessionDirectorPanel({
   const [editContent, setEditContent] = useState('');
   const [primarySelection, setPrimarySelection] = useState('');
   const [primaryConfirmation, setPrimaryConfirmation] = useState('');
+  const [cleanupConfirmation, setCleanupConfirmation] = useState<Record<string, string>>({});
   const [newSeatId, setNewSeatId] = useState('');
   const [newSeatName, setNewSeatName] = useState('');
   const [newSeatRole, setNewSeatRole] = useState('implementer');
@@ -310,7 +312,7 @@ function SessionDirectorPanel({
       setError(message);
       // The durable transfer may have committed before retained admission failed.
       // Read its current revision before offering admission repair, preserving the error.
-      if (path === '/primary/transfer') await refresh(message);
+      if (path === '/primary/transfer' || path === '/creation/recover') await refresh(message);
     } finally {
       setBusy(false);
     }
@@ -741,12 +743,59 @@ function SessionDirectorPanel({
                           ? 'Cleanup required'
                           : 'Pending runtime admission'}
                     </span>
+                    {seat.creationDiagnostic && (
+                      <div role="status">
+                        Creation failed during {seat.creationDiagnostic.phase}:{' '}
+                        {seat.creationDiagnostic.code}.
+                        {seat.creationDiagnostic.canCleanup ? (
+                          <>
+                            <p>
+                              Clean up this failed sandbox. The seat will be suspended; Restore
+                              requires a separate action.
+                            </p>
+                            <label>
+                              Type CLEAN UP FAILED SEAT for {seat.seat.name}
+                              <input
+                                value={cleanupConfirmation[seat.seatId] ?? ''}
+                                onChange={(event) =>
+                                  setCleanupConfirmation({
+                                    ...cleanupConfirmation,
+                                    [seat.seatId]: event.target.value,
+                                  })
+                                }
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              disabled={
+                                busy || cleanupConfirmation[seat.seatId] !== 'CLEAN UP FAILED SEAT'
+                              }
+                              onClick={() =>
+                                void mutate('/creation/recover', {
+                                  seatId: seat.seatId,
+                                  expectedRevision: status.config!.revision,
+                                  expectedGeneration: seat.membership!.generation,
+                                  confirmation: cleanupConfirmation[seat.seatId],
+                                })
+                              }
+                            >
+                              Clean up failed seat
+                            </button>
+                          </>
+                        ) : (
+                          <p>
+                            Exact retained creation proof is unavailable. Host recovery is required.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {status.config?.version === 2 &&
                     seat.seatId === status.config.anchorSeatId &&
                     seat.membership?.state === 'active' ? (
                       <span>
-                        Transfer primary ownership before suspending, removing, or rebinding this
-                        seat.
+                        {seat.creationDiagnostic
+                          ? 'Failed seat cleanup preserves the primary role and account binding.'
+                          : 'Transfer primary ownership before suspending, removing, or rebinding this seat.'}
                       </span>
                     ) : seat.membership?.state === 'active' ? (
                       <>
