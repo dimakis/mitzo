@@ -333,12 +333,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         }),
       );
     } catch (error) {
-      res
-        .status(409)
-        .json({
-          error: error instanceof Error ? error.message : 'Seat revision failed',
-          ...(!mutationStarted ? { seatMutation: 'not-started' } : {}),
-        });
+      res.status(409).json({
+        error: error instanceof Error ? error.message : 'Seat revision failed',
+        ...(!mutationStarted ? { seatMutation: 'not-started' } : {}),
+      });
     }
   });
   router.post('/activate', (req, res) => {
