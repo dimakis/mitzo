@@ -97,6 +97,15 @@ it('journals exact helper identity and output before later auth/custody checks, 
                 bundleSha256: manifest.bundleSha256,
                 files: 1,
                 bytes: 3,
+                git: {
+                  version: 1,
+                  commit: manifest.baseOid,
+                  tree: manifest.treeOid,
+                  entries: 1,
+                  bytes: 3,
+                  manifestDigest: 'e'.repeat(64),
+                  committedTreeDigest: 'f'.repeat(64),
+                },
               })
             : '';
     });

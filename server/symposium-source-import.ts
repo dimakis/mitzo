@@ -18,6 +18,15 @@ export type SourceImportProof = {
   bundleSha256: string;
   files: number;
   bytes: number;
+  git: {
+    version: 1;
+    commit: string;
+    tree: string;
+    entries: number;
+    bytes: number;
+    manifestDigest: string;
+    committedTreeDigest: string;
+  };
   terminal?: { helperId: string; exitCode: 0 };
 };
 export class SourceImportAttemptError extends Error {
@@ -125,6 +134,13 @@ export async function importSourceArtifact(input: {
     proof.tree !== manifest.treeOid ||
     proof.featureBranch !== manifest.featureBranch ||
     proof.bundleSha256 !== manifest.bundleSha256 ||
+    proof.git?.version !== 1 ||
+    proof.git.commit !== manifest.baseOid ||
+    proof.git.tree !== manifest.treeOid ||
+    proof.git.entries !== proof.files ||
+    proof.git.bytes !== proof.bytes ||
+    !/^[a-f0-9]{64}$/.test(proof.git.manifestDigest) ||
+    !/^[a-f0-9]{64}$/.test(proof.git.committedTreeDigest) ||
     !Number.isInteger(proof.files) ||
     proof.files < 0 ||
     proof.files > 10000 ||
