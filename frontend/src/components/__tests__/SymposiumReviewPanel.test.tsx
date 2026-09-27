@@ -218,6 +218,9 @@ it('selects earlier workflows and starts a separate review for the current artif
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Fresh criteria' },
   });
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
   fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
   await waitFor(() =>
     expect(apiFetch).toHaveBeenCalledWith(
@@ -233,6 +236,13 @@ it('selects earlier workflows and starts a separate review for the current artif
     'new',
   );
   expect(screen.getByRole('option', { name: /old-commit/ })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'New review for current artifact' }));
+  expect((screen.getByLabelText('Token budget') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Maximum review rounds') as HTMLInputElement).value).toBe('');
+  expect((screen.getByLabelText('Cost limit') as HTMLSelectElement).value).toBe('');
+  expect((screen.getByRole('button', { name: 'Start review' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
 });
 
 it('reloads ordered persisted decisions including reason, evidence and verification', async () => {
@@ -316,6 +326,9 @@ it('starts a new workflow despite a stranded older reservation without settling 
   fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
     target: { value: 'Review new artifact' },
   });
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
   fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
   await waitFor(() =>
     expect((screen.getByLabelText('Review workflow') as HTMLSelectElement).value).toBe('current'),
@@ -331,4 +344,58 @@ it('starts a new workflow despite a stranded older reservation without settling 
   expect(stale.reservations).toEqual([
     { attemptId: 'old-attempt', kind: 'review', settled: false },
   ]);
+});
+
+it('requires explicit token, round and cost choices before starting a review', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [] }));
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const start = await screen.findByRole('button', { name: 'Start review' });
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Correct behavior' },
+  });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Token budget') as HTMLInputElement).value).toBe('');
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1200' } });
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '3' } });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'cap' } });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Maximum cost (USD)'), { target: { value: '0.75' } });
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(call[1]!.body as string).limits).toEqual({
+    maxTokens: 1200,
+    maxReviewRounds: 3,
+    maxCostUsd: 0.75,
+  });
+});
+
+it('requires explicit no-cost-limit choice and rejects fractional or missing integer budgets', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ available: true, workflows: [] }));
+  render(<SymposiumReviewPanel sessionId="session" />);
+  const start = await screen.findByRole('button', { name: 'Start review' });
+  fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), {
+    target: { value: 'Correct behavior' },
+  });
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1.5' } });
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
+  fireEvent.change(screen.getByLabelText('Cost limit'), { target: { value: 'none' } });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '1000' } });
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '' } });
+  expect((start as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.change(screen.getByLabelText('Maximum review rounds'), { target: { value: '2' } });
+  fireEvent.click(start);
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(true),
+  );
+  const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
+  expect(JSON.parse(call[1]!.body as string).limits).toEqual({
+    maxTokens: 1000,
+    maxReviewRounds: 2,
+    maxCostUsd: null,
+  });
 });

@@ -297,3 +297,46 @@ it('times out the full model read and closes the client before cleanup', async (
     vi.useRealTimers();
   }
 });
+
+it.each([false, true])(
+  'handles custody rejection before create with journal cleanup failure=%s',
+  async (cleanupFails) => {
+    const f = fixture();
+    vi.mocked(f.operations.verifyCustody)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValue(new Error('custody changed'));
+    if (cleanupFails)
+      f.operations.clearReceipt = async () => {
+        throw new Error('disk');
+      };
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+      status: cleanupFails ? 'reconciliation_required' : 'failed',
+      inference: false,
+    });
+    expect(f.operations.create).not.toHaveBeenCalled();
+    expect(!!f.receipt()).toBe(cleanupFails);
+    expect(f.operations.physicalAbsent).not.toHaveBeenCalled();
+    if (!cleanupFails) {
+      vi.mocked(f.operations.verifyCustody).mockResolvedValue(undefined);
+      expect((await runSymposiumModelDiscovery(f.config, f.operations)).status).toBe('complete');
+    }
+  },
+);
+
+it.each(['custody', 'read', 'malformed', 'null'])(
+  'retains reconciliation when %s prevents proving journal absence',
+  async (failure) => {
+    const f = fixture();
+    if (failure === 'custody')
+      vi.mocked(f.operations.verifyCustody).mockRejectedValue(new Error('custody'));
+    f.operations.readReceipt = async () => {
+      if (failure === 'read') throw Error('private journal unreadable');
+      return failure === 'null' ? null : { unexpected: 'retained intent' };
+    };
+    expect(await runSymposiumModelDiscovery(f.config, f.operations)).toEqual({
+      status: 'reconciliation_required',
+      inference: false,
+    });
+    expect(f.operations.create).not.toHaveBeenCalled();
+  },
+);

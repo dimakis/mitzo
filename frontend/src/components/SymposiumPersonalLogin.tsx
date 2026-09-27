@@ -23,6 +23,11 @@ export function SymposiumPersonalLogin({
   const [rows, setRows] = useState<Selection[]>([]);
   const [selected, setSelected] = useState<Selection | null>(null);
   const [error, setError] = useState('');
+  const [devicePending, setDevicePending] = useState(false);
+  const [callbackPending, setCallbackPending] = useState(false);
+  const pending = devicePending || callbackPending;
+  const stale =
+    !!selected && !rows.some((row) => row.id === selected.id && row.revision === selected.revision);
   const refresh = useCallback(async () => {
     try {
       const response = await apiFetch('/api/symposium/personal/connections');
@@ -31,15 +36,10 @@ export function SymposiumPersonalLogin({
         .object({ connections: z.array(rowSchema) })
         .parse(await response.json()).connections;
       setRows(next);
-      setSelected((current) =>
-        current && next.some((row) => row.id === current.id && row.revision === current.revision)
-          ? current
-          : null,
-      );
       setError('');
     } catch {
       setError('Saved account selection is unavailable. Refresh before signing in.');
-      setSelected(null);
+      setRows([]);
     }
   }, []);
   useEffect(() => {
@@ -54,8 +54,8 @@ export function SymposiumPersonalLogin({
       <label>
         Saved account for sign-in
         <select
-          disabled={disabled || !!error}
-          value={selected?.id ?? ''}
+          disabled={disabled || !!error || pending}
+          value={stale ? '' : (selected?.id ?? '')}
           onChange={(event) =>
             setSelected(rows.find((row) => row.id === event.target.value) ?? null)
           }
@@ -75,16 +75,26 @@ export function SymposiumPersonalLogin({
         </select>
       </label>
       {error && <p role="alert">{error}</p>}
+      {stale && (
+        <p>
+          The selected connection revision changed. Choose its displayed revision before starting
+          another sign-in.
+        </p>
+      )}
       <button disabled={disabled} type="button" onClick={() => void refresh()}>
         Refresh saved accounts
       </button>
       {selected && (
         <div key={`${selected.id}:${selected.revision}`}>
           <p>
+            Selected for this sign-in: {selected.label}, revision {selected.revision}.
+          </p>
+          <p>
             Signing in replaces the selected connection. Existing seats require an explicit rebind.
           </p>
           <SymposiumDeviceLogin
-            disabled={disabled}
+            disabled={disabled || callbackPending || (stale && !devicePending)}
+            onPendingChange={setDevicePending}
             connectionId={selected.id}
             expectedRevision={selected.revision}
             onAccountsChanged={changed}
@@ -93,7 +103,8 @@ export function SymposiumPersonalLogin({
             <details>
               <summary>Browser callback alternative</summary>
               <SymposiumSubscriptionLogin
-                disabled={disabled}
+                disabled={disabled || devicePending || (stale && !callbackPending)}
+                onPendingChange={setCallbackPending}
                 connectionId={selected.id}
                 expectedRevision={selected.revision}
                 onComplete={changed}

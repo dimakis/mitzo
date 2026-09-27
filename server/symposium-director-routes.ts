@@ -292,6 +292,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
       return;
     }
+    let mutationStarted = false;
     try {
       const current = deps.store.getActiveSymposiumConfig(sessionId);
       if (current.version !== 2) throw new Error('Multi-seat configuration is required');
@@ -320,6 +321,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       };
       const actorId = (res.locals.authSession as { id?: string } | undefined)?.id;
+      mutationStarted = true;
       res.json(
         deps.reviseSeat({
           sessionId,
@@ -331,9 +333,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         }),
       );
     } catch (error) {
-      res
-        .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Seat revision failed' });
+      res.status(409).json({
+        error: error instanceof Error ? error.message : 'Seat revision failed',
+        ...(!mutationStarted ? { seatMutation: 'not-started' } : {}),
+      });
     }
   });
   router.post('/activate', (req, res) => {
@@ -542,13 +545,15 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
   router.put('/config', (req, res) => {
     const parsed = ConfigBody.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json({ error: 'Invalid Symposium configuration' });
+      res
+        .status(400)
+        .json({ error: 'Invalid Symposium configuration', seatMutation: 'not-started' });
       return;
     }
     const sessionId = (req.params as { id: string }).id;
     const session = deps.store.getSession(sessionId);
     if (!session) {
-      res.status(404).json({ error: 'Session not found' });
+      res.status(404).json({ error: 'Session not found', seatMutation: 'not-started' });
       return;
     }
     if (
@@ -557,9 +562,10 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
         (session.executionPhase && session.executionPhase !== 'TERMINAL') ||
         deps.hasOrdinaryRuntime?.(sessionId))
     ) {
-      res
-        .status(409)
-        .json({ error: 'Stop the ordinary conversation before creating a Symposium draft' });
+      res.status(409).json({
+        error: 'Stop the ordinary conversation before creating a Symposium draft',
+        seatMutation: 'not-started',
+      });
       return;
     }
     const { config, expectedRevision } = parsed.data;
@@ -577,11 +583,16 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       session.symposiumRevision !== expectedRevision ||
       config.revision !== expectedRevision + 1
     ) {
-      res.status(409).json({ error: 'Symposium configuration revision conflict' });
+      res
+        .status(409)
+        .json({ error: 'Symposium configuration revision conflict', seatMutation: 'not-started' });
       return;
     }
     if (previous?.success && previous.data.state === 'active' && config.state === 'draft') {
-      res.status(409).json({ error: 'Active Symposium cannot become an unadmitted draft' });
+      res.status(409).json({
+        error: 'Active Symposium cannot become an unadmitted draft',
+        seatMutation: 'not-started',
+      });
       return;
     }
     if (
@@ -591,15 +602,22 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
           seat.profileBinding || seat.contextGrant || seat.authorityGrant || seat.isolationRequest,
       )
     ) {
-      res.status(409).json({ error: 'Draft seats cannot supply runtime grants' });
+      res
+        .status(409)
+        .json({ error: 'Draft seats cannot supply runtime grants', seatMutation: 'not-started' });
       return;
     }
     if (config.state === 'active' && !deps.getRuntime(sessionId)) {
-      res.status(503).json({ error: 'Symposium provider runtime is unavailable' });
+      res
+        .status(503)
+        .json({ error: 'Symposium provider runtime is unavailable', seatMutation: 'not-started' });
       return;
     }
     if (config.state === 'active' && !parsed.data.sharedBoundaryAcknowledged) {
-      res.status(409).json({ error: 'Shared Symposium boundary acknowledgement is required' });
+      res.status(409).json({
+        error: 'Shared Symposium boundary acknowledgement is required',
+        seatMutation: 'not-started',
+      });
       return;
     }
     if (
@@ -607,19 +625,25 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       crossesAnchorAccount(config) &&
       parsed.data.crossAccountConfirmation !== 'ADD CROSS-ACCOUNT SEAT'
     ) {
-      res.status(409).json({ error: 'Typed cross-account seat confirmation is required' });
+      res.status(409).json({
+        error: 'Typed cross-account seat confirmation is required',
+        seatMutation: 'not-started',
+      });
       return;
     }
+    let mutationStarted = false;
     try {
       for (const seat of config.seats) {
         if (seat.accountBinding) deps.validateSelection(seat);
       }
       if (config.state === 'active') deps.validateActiveConfig(sessionId, config);
+      mutationStarted = true;
       res.json(deps.store.setSymposiumConfig(sessionId, config, expectedRevision));
     } catch (error) {
-      res
-        .status(409)
-        .json({ error: error instanceof Error ? error.message : 'Configuration failed' });
+      res.status(409).json({
+        error: error instanceof Error ? error.message : 'Configuration failed',
+        ...(!mutationStarted ? { seatMutation: 'not-started' } : {}),
+      });
     }
   });
 
