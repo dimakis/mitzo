@@ -700,3 +700,5 @@ reviewed local candidate image with no network or mounts, isolated disposable
 homes, dummy placeholders, and actual native `--version` only. It retains exact
 uncertain helper identity on failure. This proves local launch/isolation, not
 Vertex inference permission, live multi-turn acceptance, or enforced native review budgets.
+
+The optional Symposium custodian rejects ordinary OpenAI/Codex host fallback: configure a separate ordinary OpenShell runtime, or keep ordinary accounts unavailable. See [custodian operations](docs/operations/symposium-local-custodian.md).
