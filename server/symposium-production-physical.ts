@@ -1,3 +1,4 @@
+export class SymposiumPhysicalCleanupError extends Error {}
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { lstatSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -152,6 +153,7 @@ export class LocalSymposiumProductionPhysicalProof implements SymposiumProductio
     const name = `symposium-image-proof-${randomUUID()}`;
     let created = false;
     try {
+      created = true; // A failed create may have taken effect before its response was lost.
       this.podman([
         'create',
         '--pull=never',
@@ -162,20 +164,31 @@ export class LocalSymposiumProductionPhysicalProof implements SymposiumProductio
         '/bin/false',
         inspect.Id,
       ]);
-      created = true;
       const path = join(root, 'controller');
       this.podman(['cp', `${name}:${controllerPath}`, path]);
       const stat = lstatSync(path);
       if (!stat.isFile() || stat.isSymbolicLink() || hash(readFileSync(path)) !== controllerSha256)
         throw new Error('Runtime controller digest changed');
     } finally {
-      try {
-        if (created) this.podman(['rm', name]);
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
+      this.cleanupImageProbe(created ? name : undefined, root);
     }
   }
+  private cleanupImageProbe(name: string | undefined, root: string): void {
+    let failed = false;
+    try {
+      if (name) this.podman(['rm', name]);
+    } catch {
+      failed = true;
+    }
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      failed = true;
+    }
+    if (failed)
+      throw new SymposiumPhysicalCleanupError('Physical probe cleanup requires operator recovery');
+  }
+
   verifyProviderProfile(name: string, expected: string, workspace: string): void {
     if (!identifier.test(name) || !sha256.test(expected)) throw new Error('Invalid profile proof');
     const profile = object(

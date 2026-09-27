@@ -42,7 +42,7 @@ export const OwnedEvidenceSelection = z
   })
   .strict();
 type Invoke = NonNullable<Parameters<typeof verifySymposiumProductionGate>[3]>;
-const invokeCli: Invoke = (cli, args, environment) => {
+export const invokeOwnedEvidenceCli: Invoke = (cli, args, environment) => {
   if (!environment) throw new Error('Owned CLI environment missing');
   const env = validateOpenShellCliEnvironment(environment);
   for (const key of [
@@ -59,7 +59,7 @@ const invokeCli: Invoke = (cli, args, environment) => {
     maxBuffer: 1024 * 1024,
   });
   if (result.error || result.status !== 0) throw new Error('Public profile evidence unavailable');
-  return result.stdout;
+  return result.stdout.trim();
 };
 
 /** Candidate only: the retained host supplies custody and physical verification.
@@ -79,7 +79,7 @@ export function collectOwnedAdmissionEvidence(
     if (instance.type !== instance.profileName)
       throw new Error('Provider and public profile differ');
   host.custody();
-  const invoke = dependencies.invoke ?? invokeCli;
+  const invoke = dependencies.invoke ?? invokeOwnedEvidenceCli;
   const config = host.config;
   const policy = lstatSync(config.policy);
   if (!policy.isFile() || policy.isSymbolicLink()) throw new Error('Policy must be a regular file');
@@ -135,9 +135,9 @@ export function collectOwnedAdmissionEvidence(
 
 /** Authentication is attached by app.ts using operatorAuthMiddleware. */
 export function ownedEvidenceHandler(
-  resolve: () => ((selection: unknown) => SymposiumProductionAttestation) | undefined,
+  resolve: () => ((selection: unknown) => Promise<SymposiumProductionAttestation>) | undefined,
 ): RequestHandler {
-  return (req, res) => {
+  return async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const collect = resolve();
     if (!collect) {
@@ -152,7 +152,7 @@ export function ownedEvidenceHandler(
       return;
     }
     try {
-      res.json({ candidate: collect(parsed.data), activated: false });
+      res.json({ candidate: await collect(parsed.data), activated: false });
     } catch {
       res.status(409).json({
         error: 'Evidence could not be verified. Check the explicit selection and owned host.',

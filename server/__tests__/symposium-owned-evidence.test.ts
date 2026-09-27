@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   collectOwnedAdmissionEvidence,
+  invokeOwnedEvidenceCli,
   ownedEvidenceHandler,
 } from '../symposium-owned-evidence.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from '../symposium-production-gate.js';
@@ -74,7 +75,9 @@ it('candidate endpoint rejects caller authority and reports unavailable or faile
   app.use(express.json());
   const state: {
     collect?: ReturnType<
-      typeof vi.fn<(selection: unknown) => ReturnType<typeof collectOwnedAdmissionEvidence>>
+      typeof vi.fn<
+        (selection: unknown) => Promise<ReturnType<typeof collectOwnedAdmissionEvidence>>
+      >
     >;
   } = {};
   app.post(
@@ -96,7 +99,7 @@ it('candidate endpoint rejects caller authority and reports unavailable or faile
   const failed = await request(app).post('/evidence').send(selection);
   expect(failed.status).toBe(409);
   expect(failed.text).not.toContain('private diagnostics');
-  state.collect.mockReturnValue({ candidateFixture: true } as never);
+  state.collect.mockResolvedValue({ candidateFixture: true } as never);
   const result = await request(app).post('/evidence').send(selection);
   expect(result.headers['cache-control']).toBe('no-store');
   expect(result.body).toEqual({ candidate: { candidateFixture: true }, activated: false });
@@ -116,4 +119,14 @@ it('operator endpoint refuses unauthenticated and internal-runtime callers befor
     (await request(app).post('/evidence').set('x-internal-token', INTERNAL_TOKEN).send({})).status,
   ).toBe(403);
   expect(collect).not.toHaveBeenCalled();
+});
+
+it('trims actual command stdout for exact version comparisons', () => {
+  expect(
+    invokeOwnedEvidenceCli('/usr/bin/printf', ['openshell reviewed\n'], {
+      HOME: '/tmp',
+      XDG_CONFIG_HOME: '/tmp',
+      PATH: '/usr/bin:/bin',
+    }),
+  ).toBe('openshell reviewed');
 });

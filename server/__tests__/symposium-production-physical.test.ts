@@ -164,3 +164,40 @@ describe('host physical production proof', () => {
     ).toThrow('unavailable');
   });
 });
+
+it('distinguishes failed temporary-container cleanup from a rejected proof', () => {
+  const { proof } = setup((args) => {
+    if (args[0] === 'image')
+      return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+    if (args[0] === 'cp') writeFileSync(args[2], 'controller');
+    if (args[0] === 'rm') throw new Error('cannot delete');
+    return '';
+  });
+  expect(() =>
+    proof.verifyImageAndController(
+      'runtime',
+      sha('image'),
+      '/usr/bin/controller',
+      sha('controller'),
+    ),
+  ).toThrow('cleanup requires operator recovery');
+});
+
+it('attempts exact temporary-container removal after an ambiguous create failure', () => {
+  const { proof, run } = setup((args) => {
+    if (args[0] === 'image')
+      return JSON.stringify([{ Id: sha('id'), Digest: `sha256:${sha('image')}` }]);
+    if (args[0] === 'create') throw new Error('response lost');
+    return '';
+  });
+  expect(() =>
+    proof.verifyImageAndController(
+      'runtime',
+      sha('image'),
+      '/usr/bin/controller',
+      sha('controller'),
+    ),
+  ).toThrow('response lost');
+  const created = run.mock.calls.find((call) => call[1][0] === 'create')![1];
+  expect(run.mock.calls.at(-1)![1]).toEqual(['rm', created[created.indexOf('--name') + 1]]);
+});

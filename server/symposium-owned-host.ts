@@ -1,4 +1,4 @@
-import { collectOwnedAdmissionEvidence } from './symposium-owned-evidence.js';
+import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { execFile } from 'node:child_process';
 import { chmodSync, lstatSync } from 'node:fs';
@@ -265,11 +265,30 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
-      collectAdmissionEvidence: (selection: unknown) =>
-        collectOwnedAdmissionEvidence(
-          { config: runtimeConfig, endpoint: gateway.endpoint, physical, custody },
-          selection,
-        ),
+      collectAdmissionEvidence: createOwnedEvidenceCollector(
+        runtimeConfig,
+        gateway.endpoint,
+        {
+          cli: gateway.cli,
+          podman: options.podman.executable,
+          cliEnv: gateway.managementEnvironment,
+          podmanEnv,
+        },
+        {
+          verifyCustodyAsync: async () => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyCustodyAsync();
+          },
+          verifyOwnedNativeHostAsync: async (binding) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyOwnedNativeHostAsync(binding);
+          },
+          verifyGatewayDriverConfigAsync: async (...args) => {
+            if (stopped) throw new Error('Owned Symposium host stopped');
+            await gateway.verifyGatewayDriverConfigAsync(...args);
+          },
+        },
+      ),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,
