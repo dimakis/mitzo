@@ -285,7 +285,7 @@ export class CodexConversationStore {
     b: AccountBinding,
     expectedThreadId: string,
     threadId: string,
-    reason: 'provider_transport_failure' | 'tool_surface_change',
+    reason: 'provider_transport_failure' | 'tool_surface_change' | 'attempt_home_change',
     lastCompletedTurnId?: string,
     toolSurfaceRevision?: string,
     rolloverContext?: string,
@@ -320,6 +320,31 @@ export class CodexConversationStore {
       return generation;
     })();
   }
+  assertAttemptHomeReplacement(
+    id: string,
+    binding: AccountBinding,
+    previous: string,
+    next: string,
+  ) {
+    const current = this.read(id, binding);
+    if (current.threadId !== next || !current.rolloverContext?.trim())
+      throw new Error('Codex attempt migration lacks retained continuity');
+    const rows = this.db
+      .prepare(
+        `SELECT thread_id, parent_thread_id, reason FROM codex_thread_generations WHERE conversation_id=? ORDER BY generation DESC`,
+      )
+      .all(id) as Array<{ thread_id: string; parent_thread_id: string | null; reason: string }>;
+    let cursor = next;
+    for (const row of rows) {
+      if (row.thread_id !== cursor) continue;
+      if (row.reason !== 'attempt_home_change' || !row.parent_thread_id)
+        throw new Error('Codex attempt migration lineage changed');
+      cursor = row.parent_thread_id;
+      if (cursor === previous) return;
+    }
+    throw new Error('Codex attempt migration predecessor is unavailable');
+  }
+
   /** Host-owned lineage only; a thread ID supplied by a provider is insufficient. */
   assertToolSurfaceReplacement(
     id: string,

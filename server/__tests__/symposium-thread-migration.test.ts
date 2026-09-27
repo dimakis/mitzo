@@ -333,3 +333,44 @@ it('retains only completed text for the same session, seat, account and grant ge
     { role: 'assistant', text: 'Completed writer text' },
   ]);
 });
+
+it('retains more than twenty eligible attempts for strict attempt continuity and rejects incomplete delivered history', async () => {
+  const { symposiumSeatRolloverHistory } = await import('../symposium-session-runtime.js');
+  const f = fixture();
+  const provenance = {
+    seatId: 'writer',
+    membershipGeneration: 1,
+    accountBinding: f.binding,
+    contextGrant: { grantId: 'private-writer', revision: 1 },
+  };
+  const execution = { ...f.execution, provenance } as unknown as SymposiumSeatExecution;
+  const attempts = Array.from({ length: 25 }, (_, index) => ({
+    attemptId: index + 1,
+    status: 'delivered',
+    seatId: 'writer',
+    provenance,
+    dispatchedContent: `approved-${index}`,
+    resultContent: `answer-${index}`,
+  }));
+  const source = {
+    getSymposiumDeliveries: () => [{ deliveryId: 'own' }],
+    getSymposiumRecipientAttempts: () => [
+      ...attempts,
+      {
+        ...attempts[0],
+        attemptId: 90,
+        provenance: { ...provenance, seatId: 'reviewer' },
+        dispatchedContent: 'FOREIGN_PRIVATE_ASIDE',
+      },
+    ],
+  };
+  const history = symposiumSeatRolloverHistory(source as never, execution, true);
+  expect(history).toHaveLength(50);
+  expect(history[0].text).toBe('approved-0');
+  expect(history[49].text).toBe('answer-24');
+  expect(JSON.stringify(history)).not.toContain('FOREIGN_PRIVATE_ASIDE');
+  attempts[24].resultContent = null as never;
+  expect(() => symposiumSeatRolloverHistory(source as never, execution, true)).toThrow(
+    /continuity/i,
+  );
+});
