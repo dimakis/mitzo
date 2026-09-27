@@ -80,6 +80,7 @@ export function AccountModelPicker({
   const [savingAlias, setSavingAlias] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const explicitSelection = requireExplicitSelection || (scope === 'symposium' && attempt > 0);
   const [personalAccountsOpen, setPersonalAccountsOpen] = useState(false);
   const [legacyRequested, setLegacy] = useState(false);
   const legacy = scope === 'chat' && legacyRequested;
@@ -177,13 +178,13 @@ export function AccountModelPicker({
               account,
             );
             setSelection(next);
-            callbacks.current.onChange(requireExplicitSelection ? null : next);
+            callbacks.current.onChange(explicitSelection ? null : next);
           } else {
             const next = data.accountBinding
               ? { accountId: data.accountBinding.accountId, model: data.accountBinding.model }
               : { model: preferredModel };
             setFixedSession(true);
-            callbacks.current.onChange(requireExplicitSelection ? null : next);
+            callbacks.current.onChange(explicitSelection ? null : next);
           }
           setBindingLabel(
             data.accountBinding
@@ -231,7 +232,7 @@ export function AccountModelPicker({
             first,
           );
           setSelection(selected);
-          callbacks.current.onChange(requireExplicitSelection ? null : selected);
+          callbacks.current.onChange(explicitSelection ? null : selected);
         }
       })
       .catch((err: unknown) => {
@@ -300,7 +301,13 @@ export function AccountModelPicker({
         )}
       </>
     );
-  if (!selection) return <span>Loading accounts…</span>;
+  if (!selection)
+    return (
+      <>
+        {subscriptionLogin}
+        <span>Loading accounts…</span>
+      </>
+    );
   const account =
     accounts.find((a) => a.id === (selection.accountId ?? '')) ??
     (draftUnavailable
@@ -334,7 +341,7 @@ export function AccountModelPicker({
             );
             setDraftUnavailable(false);
             setSelection(next);
-            onChange(requireExplicitSelection ? null : next);
+            onChange(explicitSelection ? null : next);
           }}
         >
           {!accounts.some((a) => a.id === account.id) && (
@@ -419,7 +426,7 @@ export function AccountModelPicker({
           );
           setDraftUnavailable(false);
           setSelection(next);
-          onChange(requireExplicitSelection ? null : next);
+          onChange(explicitSelection ? null : next);
         }}
       >
         {!account.models.some((m) => m.id === selection.model) && (
@@ -443,7 +450,7 @@ export function AccountModelPicker({
             const next = { ...selection };
             next.reasoningEffort = e.target.value || null;
             setSelection(next);
-            onChange(requireExplicitSelection ? null : next);
+            onChange(explicitSelection ? null : next);
           }}
         >
           <option value="">Model default</option>
@@ -459,7 +466,7 @@ export function AccountModelPicker({
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
       )}
-      {requireExplicitSelection && (
+      {explicitSelection && (
         <button
           type="button"
           disabled={

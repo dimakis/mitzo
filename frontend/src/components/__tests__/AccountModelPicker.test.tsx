@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -567,3 +567,86 @@ it.each(['model', 'account'])(
     });
   },
 );
+
+it('retains recovered callback completion while catalog reloads and requires explicit use', async () => {
+  let catalogs = 0;
+  let finish!: (value: Response) => void;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url === '/api/symposium/accounts') {
+      if (++catalogs === 1) return response([]);
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ id: 'work', label: 'Personal', state: 'connected', revision: 1 }],
+      });
+    return response({ state: 'completed', attemptId: 'login', connectionId: 'work' });
+  });
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker scope="symposium" sessionId={null} preferredModel="" onChange={onChange} />,
+  );
+  await screen.findByText('No Symposium account profiles configured.');
+  fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Connect personal subscription' }));
+  await waitFor(() => expect(catalogs).toBe(2));
+  expect(screen.getByText(/Previous login completed/)).toBeTruthy();
+  await act(async () => {
+    finish(response(profiles));
+  });
+  expect(screen.getByText(/Previous login completed/)).toBeTruthy();
+  expect(onChange.mock.calls.every(([value]) => value === null)).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Use Work Vertex · Sonnet' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
+
+it('reenables explicit confirmation when a missing model returns on a later refresh', async () => {
+  let refreshes = 0;
+  const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (url.endsWith('/models/refresh')) {
+      refreshes++;
+      return response({ status: 'complete', inference: false, modelCount: 1 });
+    }
+    if (url.endsWith('/connections'))
+      return response({
+        connections: [{ id: 'work', label: 'Personal', state: 'connected', revision: 1 }],
+      });
+    if (url.includes('/login/status')) return response({ state: 'idle' });
+    return response([
+      {
+        ...profiles[0],
+        models: [
+          {
+            id: refreshes === 1 ? 'missing' : 'sonnet',
+            label: refreshes === 1 ? 'Replacement' : 'Sonnet',
+          },
+        ],
+      },
+    ]);
+  });
+  const changed = vi.fn();
+  render(
+    <AccountModelPicker
+      scope="symposium"
+      requireExplicitSelection
+      sessionId={null}
+      preferredModel="sonnet"
+      onChange={changed}
+    />,
+  );
+  await screen.findByRole('option', { name: 'Sonnet' });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage personal ChatGPT accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByText(/Selected account or model is unavailable/);
+  expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh supported models' }));
+  await screen.findByRole('option', { name: 'Sonnet' });
+  expect((screen.getByRole('button', { name: /^Use / }) as HTMLButtonElement).disabled).toBe(false);
+  expect(changed).toHaveBeenLastCalledWith(null);
+  fireEvent.click(screen.getByRole('button', { name: /^Use / }));
+  expect(changed).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' });
+});
