@@ -1,3 +1,5 @@
+import type { CatalogModel } from './model-catalog.js';
+import type { DiscoveryResult } from './symposium-model-discovery.js';
 import { AccountProfiles } from './account-profiles.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { PersonalConnections, type ConnectionSelection } from './symposium-personal-connections.js';
@@ -10,6 +12,11 @@ import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-n
 export function createPersonalSubscriptionHost(
   options: SymposiumSubscriptionHostOptions,
   metadataPath: string,
+  discover?: (proof: {
+    provider: { name: string; id: string };
+    account: { email: string; planType: string };
+    assertCurrent(): void;
+  }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[] }>,
 ) {
   const initial = createSymposiumSubscriptionHost(options);
   const connections = new PersonalConnections(metadataPath, (accountId, label) =>
@@ -32,7 +39,12 @@ export function createPersonalSubscriptionHost(
       throw new Error('Connection changed; refresh before retry');
     return row;
   };
+  const assertNoDiscovery = () => {
+    if (connections.list().some((row) => row.modelDiscovery))
+      throw new Error('Model discovery must finish or be reconciled first');
+  };
   const start = async (device: boolean, selection?: ConnectionSelection) => {
+    assertNoDiscovery();
     let row = select(selection);
     if (row.state === 'connected') row = await connections.disconnect(row.id, row.revision);
     const lease = connections.begin(row.id, row.revision);
@@ -101,8 +113,67 @@ export function createPersonalSubscriptionHost(
     },
     personalConnections: {
       list: () => connections.list(),
-      create: (label: string) => connections.create(label),
-      disconnect: (id: string, revision: number) => connections.disconnect(id, revision),
+      create: (label: string) => {
+        assertNoDiscovery();
+        return connections.create(label);
+      },
+      disconnect: async (id: string, revision: number) => {
+        assertNoDiscovery();
+        return connections.disconnect(id, revision);
+      },
+      async discoverModels(id: string, revision: number, assertOperator: () => void) {
+        assertOperator();
+        if (!discover) throw new Error('Owned model discovery is unavailable');
+        assertNoDiscovery();
+        if (connections.list().some((row) => ['connecting', 'disconnecting'].includes(row.state)))
+          throw new Error('Account change is pending');
+        const lease = connections.beginDiscovery(id, revision);
+        let discoveryEntered = false;
+        try {
+          const proof = lease.adapter.captureDiscovery();
+          const assertCurrent = () => {
+            assertOperator();
+            connections.assertDiscovery(lease);
+            proof.assertCurrent();
+          };
+          assertCurrent();
+          discoveryEntered = true;
+          const discovered = await discover({
+            provider: proof.provider,
+            account: proof.account,
+            assertCurrent,
+          });
+          assertCurrent();
+          if (discovered.result.status === 'complete') {
+            if (!discovered.models?.length) throw new Error('Discovery catalog missing');
+            proof.publish(discovered.models, lease.revision + 1);
+          }
+          const connection = connections.finishDiscovery(
+            lease,
+            discovered.result.status !== 'reconciliation_required',
+          );
+          return {
+            ...discovered.result,
+            connection,
+            ...(discovered.result.status === 'complete' ? { models: discovered.models } : {}),
+          };
+        } catch {
+          let locallyReleased = false;
+          try {
+            // Before entering the discovery capability, only this local marker exists.
+            // Once entered, an exception cannot prove remote allocation was absent.
+            connections.finishDiscovery(lease, !discoveryEntered);
+            locallyReleased = !discoveryEntered;
+          } catch {
+            /* retained recovery state */
+          }
+          throw new Error(
+            locallyReleased
+              ? 'Personal model discovery preflight failed'
+              : 'Personal model discovery requires recovery',
+          );
+        }
+      },
     },
     invalidate: () => connections.invalidate(),
     verifyPrivateAuth: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>

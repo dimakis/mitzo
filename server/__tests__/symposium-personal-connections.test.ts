@@ -81,6 +81,21 @@ it('requires cancellation instead of disconnecting an allocating login', async (
   expect(manager.list()[0].state).toBe('connecting');
 });
 
+it('serializes catalog discovery against disconnect and retains recovery after an interrupted discovery', async () => {
+  const { path, manager: connections, create } = setup();
+  const row = connections.create('Personal');
+  const login = connections.begin(row.id, row.revision);
+  connections.complete(login, { email: 'one@example.test', planType: 'plus' });
+  const connected = connections.list()[0];
+  const lease = connections.beginDiscovery(connected.id, connected.revision);
+  await expect(connections.disconnect(connected.id, lease.revision)).rejects.toThrow();
+  expect(() => connections.beginDiscovery(connected.id, lease.revision)).toThrow();
+  const restarted = new PersonalConnections(path, create);
+  expect(restarted.list()[0].state).toBe('recovery_required');
+  connections.finishDiscovery(lease, true);
+  expect(connections.list()[0].revision).toBeGreaterThan(lease.revision);
+});
+
 it('never clears interrupted login recovery after restart without a live cleanup adapter', async () => {
   const { manager, path, create } = setup();
   const row = manager.create('Phone');
