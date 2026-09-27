@@ -93,13 +93,9 @@ it.each(['post-clear-guard', 'lock-release'] as const)(
       if (phase === 'lock-release' && fail) throw new Error('Lock release failed');
       return result;
     };
-    const guarded = guardDiscoveryOperations(
-      ops,
-      () => {
-        if (!authorized) throw new Error('Custody postcheck failed');
-      },
-      { email: 'test@example.test', planType: 'test' },
-    );
+    const guarded = guardDiscoveryOperations(ops, () => {
+      if (!authorized) throw new Error('Custody postcheck failed');
+    });
     const recover = createSymposiumModelDiscoveryRecovery(config, receipt);
     expect((await recover(guarded)).status).toBe('reconciliation_required');
     expect(journal).toBeUndefined();
