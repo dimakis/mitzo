@@ -60,6 +60,30 @@ const receiptSchema = z.strictObject({
   helperRemoved: z.literal(true),
   verificationDigest: hash,
 });
+const physicalSchema = z.discriminatedUnion('phase', [
+  z.strictObject({ phase: z.literal('volume_create_dispatched') }),
+  z.strictObject({ phase: z.literal('volume_created'), name: id }),
+  z.strictObject({ phase: z.literal('helper_create_dispatched') }),
+  z.strictObject({ phase: z.literal('helper_created'), helperId: hash }),
+  z.strictObject({
+    phase: z.literal('terminal'),
+    helperId: hash,
+    exitCode: z.number().int().min(0).max(255),
+    proofDigest: hash.nullable(),
+  }),
+  z.strictObject({ phase: z.literal('helper_removed'), helperId: hash }),
+  z.strictObject({ phase: z.literal('helper_absent'), helperId: hash }),
+]);
+export type ArtifactGenerationPhysicalObservation = z.infer<typeof physicalSchema>;
+const physicalPhases = [
+  'volume_create_dispatched',
+  'volume_created',
+  'helper_create_dispatched',
+  'helper_created',
+  'terminal',
+  'helper_removed',
+  'helper_absent',
+] as const;
 export type ArtifactGenerationRequest = z.infer<typeof requestSchema>;
 export type ArtifactGenerationIntent = z.infer<typeof intentSchema>;
 export type ArtifactGenerationCopyReceipt = z.infer<typeof receiptSchema>;
@@ -83,6 +107,7 @@ type Row = {
   helper_id: string | null;
   receipt_json: string | null;
   state: State;
+  physical_json: string | null;
 };
 
 /** Dormant host ledger: no physical copy, lease, fence mutation or native dispatch.
@@ -116,6 +141,12 @@ export class SymposiumArtifactGenerations {
       session_id TEXT PRIMARY KEY, generation_id TEXT NOT NULL UNIQUE, revision INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS symposium_artifact_copy_observations (generation_id TEXT PRIMARY KEY, receipt_json TEXT NOT NULL);
     `);
+    if (
+      !(db.pragma('table_info(symposium_artifact_generations)') as { name: string }[]).some(
+        (row) => row.name === 'physical_json',
+      )
+    )
+      db.exec('ALTER TABLE symposium_artifact_generations ADD COLUMN physical_json TEXT');
     // The unique storage key includes the session; migrate earlier unscoped keys atomically.
     db.transaction(() => {
       const rows = db
@@ -267,6 +298,19 @@ export class SymposiumArtifactGenerations {
       })
       .immediate();
   }
+  assertCopyCurrent(context: Context, generationId: string): void {
+    const row = this.get(context, generationId);
+    const intent = this.intent(row);
+    if (row.state !== 'copy_uncertain') throw new Error('Copy is not dispatchable');
+    this.require(this.proof.authority(intent.request));
+    this.parent(intent);
+    const current = this.active(context);
+    if (
+      current.generationId !== intent.request.parentGenerationId ||
+      current.revision !== intent.request.expectedPointerRevision
+    )
+      throw new Error('Generation parent pointer changed');
+  }
   bindHelper(context: Context, generationId: string, helperId: string): void {
     id.parse(helperId);
     this.db
@@ -284,6 +328,46 @@ export class SymposiumArtifactGenerations {
       })
       .immediate();
   }
+  /** Append exact observations before any later authority/custody postcheck. Never authorizes redispatch. */
+  observePhysical(
+    context: Context,
+    generationId: string,
+    input: ArtifactGenerationPhysicalObservation,
+  ): void {
+    const value = physicalSchema.parse(input);
+    this.db
+      .transaction(() => {
+        const row = this.get(context, generationId);
+        const intent = this.intent(row);
+        if (!['copy_uncertain', 'quarantined'].includes(row.state))
+          throw new Error('Physical copy is not unsettled');
+        const previous = this.physical(row);
+        if (physicalPhases[previous.length] !== value.phase)
+          throw new Error('Physical copy observation order changed');
+        if (value.phase === 'volume_created' && value.name !== intent.volumeName)
+          throw new Error('Child volume identity changed');
+        if (
+          'helperId' in value &&
+          value.phase !== 'helper_created' &&
+          value.helperId !== row.helper_id
+        )
+          throw new Error('Child helper identity changed');
+        if (value.phase === 'helper_created')
+          this.bindHelper(context, generationId, value.helperId);
+        this.db
+          .prepare(
+            'UPDATE symposium_artifact_generations SET physical_json=? WHERE generation_id=?',
+          )
+          .run(canonicalReviewJson([...previous, value]), generationId);
+      })
+      .immediate();
+  }
+  private physical(row: Row): ArtifactGenerationPhysicalObservation[] {
+    return row.physical_json
+      ? z.array(physicalSchema).max(7).parse(JSON.parse(row.physical_json))
+      : [];
+  }
+
   quarantine(context: Context, generationId: string): void {
     this.db
       .transaction(() => {
@@ -412,6 +496,7 @@ export class SymposiumArtifactGenerations {
     const row = this.get(context, generationId);
     return {
       state: row.state,
+      physical: this.physical(row),
       terminalObservation: (() => {
         const observed = this.db
           .prepare(
