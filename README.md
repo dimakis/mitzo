@@ -624,3 +624,8 @@ new Symposium seat work while trusted-host sealing is pending. Physical drain, i
 Git proof and native trusted-review dispatch remain unimplemented prerequisites.
 The pending seal can also reserve its exact artifact lease identity across writer cleanup;
 this internal retention lock remains unsealed and does not prove physical revocation.
+
+The dormant [sealed publication service](docs/operations/symposium-sealed-publication-authority.md)
+binds an explicitly selected operator GitHub identity to a completed seal and forced
+Create PR approval. It is unavailable without registered credential custody and the
+completed seal/review bridge; no publication route or UI action is enabled.
