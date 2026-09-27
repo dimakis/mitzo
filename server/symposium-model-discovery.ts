@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
-import { readCodexModels } from './model-catalog.js';
+import { readCodexModels, type CatalogModel } from './model-catalog.js';
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
 const configSchema = z
@@ -62,9 +62,10 @@ export type DiscoveryResult =
 export async function runSymposiumModelDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
+  onCatalog?: (models: CatalogModel[]) => void,
 ): Promise<DiscoveryResult> {
   try {
-    return await ops.withExclusiveAttempt(() => runExclusiveDiscovery(input, ops));
+    return await ops.withExclusiveAttempt(() => runExclusiveDiscovery(input, ops, onCatalog));
   } catch {
     return { status: 'reconciliation_required', inference: false };
   }
@@ -72,11 +73,13 @@ export async function runSymposiumModelDiscovery(
 async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
+  onCatalog?: (models: CatalogModel[]) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let config: DiscoveryConfig;
   let client: DiscoveryReadClient | undefined;
   let result: DiscoveryResult;
+  let discovered: CatalogModel[] | undefined;
   let resumed = false;
   let creationConfirmed = false;
   const verify = async () => ops.verifyCustody(config);
@@ -160,6 +163,7 @@ async function runExclusiveDiscovery(
           return client!.request(method, params);
         },
       });
+      discovered = models;
       const lunaModels = models
         .map((model) => model.id)
         .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
@@ -214,6 +218,13 @@ async function runExclusiveDiscovery(
       }
     } catch {
       result = { status: 'reconciliation_required', inference: false };
+    }
+  }
+  if (result.status === 'complete' && discovered && onCatalog) {
+    try {
+      onCatalog(structuredClone(discovered));
+    } catch {
+      return { status: 'failed', inference: false };
     }
   }
   return result;

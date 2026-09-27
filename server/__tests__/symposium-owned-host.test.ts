@@ -26,6 +26,7 @@ function fixture() {
   roots.push(root);
   const attestation = join(root, 'attestation.json');
   writeFileSync(attestation, '{}', { mode: 0o600 });
+  writeFileSync(join(root, 'policy.yaml'), 'mock policy', { mode: 0o600 });
   const gateway = {
     cli: '/private/owned/openshell',
     gateway: 'owned',
@@ -57,7 +58,7 @@ function fixture() {
     },
     attestationPath: attestation,
     runtime: {
-      policy: '/private/policy.yaml',
+      policy: join(root, 'policy.yaml'),
       seed: '/private/seed',
       createDetached: true,
       sandboxIdLength: 13,
@@ -238,4 +239,11 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   } finally {
     host.stop();
   }
+});
+
+it('requires the discovery policy pin before launching an owned gateway', async () => {
+  const f = fixture();
+  f.options.runtime.policy = join(f.root, 'missing-policy');
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow();
+  expect(f.launch).not.toHaveBeenCalled();
 });

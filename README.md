@@ -521,3 +521,8 @@ Credential cleanup waits for owned-workspace sandbox creation to settle; uncerta
 
 Discovery journal ownership is exclusive across host adapters; interrupted owners
 retain a recovery lock, and SSH cleanup terminates its proxy process group.
+
+Owned native personal accounts expose an operator-only, revision-scoped model refresh
+endpoint. It performs account/model reads without inference, then publishes the catalog
+only after sandbox and physical cleanup. A new catalog revision requires explicit seat
+selection; interrupted discovery retains host recovery state.

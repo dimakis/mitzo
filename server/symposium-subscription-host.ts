@@ -1,6 +1,7 @@
 import { beginDeviceLogin, DeviceLoginCleanupError } from './symposium-device-login.js';
 import { spawnSync } from 'node:child_process';
 import { AccountProfiles } from './account-profiles.js';
+import { z } from 'zod';
 import { CatalogModel } from './model-catalog.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
@@ -171,6 +172,29 @@ export function createSymposiumSubscriptionHost(
       });
 
   return {
+    captureDiscovery() {
+      const proof = service.captureDiscovery();
+      if (!definition) throw new Error('Connected account required');
+      return {
+        provider: proof.provider,
+        account: proof.account,
+        assertCurrent: proof.assertCurrent,
+        publish: (catalog: unknown, revision: number) => {
+          proof.assertCurrent();
+          const nextModels = z.array(CatalogModel).min(1).parse(catalog);
+          const nextDefinition = {
+            ...(definition as Record<string, unknown>),
+            models: nextModels,
+            nativeCatalogRevision: revision,
+          };
+          const next = new AccountProfiles([...work, nextDefinition], { codexEnabled: true });
+          const binding = next.resolve(options.accountId, nextModels[0].id);
+          proof.publishBinding(binding);
+          active = next;
+          definition = nextDefinition;
+        },
+      };
+    },
     get activeDefinition() {
       return definition;
     },
