@@ -1,5 +1,8 @@
-import { assertSymposiumWorkVertexReadiness } from './symposium-work-vertex-readiness.js';
-import { spawnSync } from 'node:child_process';
+import {
+  assertSymposiumWorkVertexReadiness,
+  assertSymposiumWorkVertexReadinessAsync,
+} from './symposium-work-vertex-readiness.js';
+import { execFile, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
@@ -42,7 +45,14 @@ export interface SymposiumWorkVertexReceipt {
 // Same-process capability, not a persisted ledger or reconstructed authority.
 const receipts = new WeakMap<
   OwnedSymposiumGateway,
-  Map<string, { receipt: SymposiumWorkVertexReceipt; verifyReadiness(): void }>
+  Map<
+    string,
+    {
+      receipt: SymposiumWorkVertexReceipt;
+      verifyReadiness(): void;
+      verifyReadinessAsync(): Promise<void>;
+    }
+  >
 >();
 function verifyCustody(gateway: OwnedSymposiumGateway): void {
   try {
@@ -74,9 +84,51 @@ export function captureSymposiumWorkVertexProvider(
   }
   return retained.receipt;
 }
+async function verifyCustodyAsync(gateway: OwnedSymposiumGateway): Promise<void> {
+  try {
+    await gateway.verifyCustodyAsync();
+  } catch {
+    receipts.delete(gateway);
+    throw new Error('Vertex provider custody unavailable');
+  }
+}
+export async function captureSymposiumWorkVertexProviderAsync(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+) {
+  await verifyCustodyAsync(gateway);
+  const retained = receipts.get(gateway)?.get(providerId);
+  if (!retained) throw new Error('Vertex provider custody unavailable');
+  try {
+    await retained.verifyReadinessAsync();
+    await verifyCustodyAsync(gateway);
+    if (receipts.get(gateway)?.get(providerId) !== retained) throw new Error();
+  } catch {
+    throw new Error('Vertex provider readiness unavailable');
+  }
+  return retained.receipt;
+}
+type AsyncRun = (
+  file: string,
+  args: string[],
+  options: { env: NodeJS.ProcessEnv; timeout: number; maxBuffer: number },
+) => Promise<string>;
+const runAsync: AsyncRun = (file, args, options) =>
+  new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      { ...options, encoding: 'utf8', killSignal: 'SIGKILL' },
+      (error, stdout) => {
+        if (error) reject(new Error('Vertex readiness command unavailable'));
+        else resolve(stdout);
+      },
+    );
+  });
 interface Dependencies {
   authenticate?(material: Material): Promise<{ email: string; accessToken: string }>;
   run?: typeof spawnSync;
+  runAsync?: AsyncRun;
 }
 async function authenticate(material: Material) {
   // A single bounded snapshot supplies both identity proof and gateway material.
@@ -242,6 +294,25 @@ export async function createSymposiumWorkVertexProvider(
         model: profile.models[0].id,
         workspace: gateway.workspace,
       }),
+      verifyReadinessAsync: () =>
+        assertSymposiumWorkVertexReadinessAsync({
+          provider,
+          providerId: found.id as string,
+          workspace: gateway.workspace,
+          invoke: async (args, timeoutMs) => {
+            const deadline = performance.now() + timeoutMs;
+            await verifyCustodyAsync(gateway);
+            const remaining = Math.floor(deadline - performance.now());
+            if (remaining <= 0) throw new Error('Vertex readiness observation expired');
+            const output = await (dependencies.runAsync ?? runAsync)(
+              gateway.cli,
+              ['provider', '--gateway', gateway.gateway, '--workspace', gateway.workspace, ...args],
+              { env: environment, timeout: remaining, maxBuffer: 1_000_000 },
+            );
+            await verifyCustodyAsync(gateway);
+            return output;
+          },
+        }),
       verifyReadiness: () =>
         assertSymposiumWorkVertexReadiness({
           provider,

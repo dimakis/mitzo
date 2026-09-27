@@ -1,5 +1,5 @@
 import { GoogleAuth } from 'google-auth-library';
-import { chmodSync } from 'node:fs';
+import { chmodSync, readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import {
   createSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProvider,
+  captureSymposiumWorkVertexProviderAsync,
 } from '../symposium-work-vertex-provider.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
@@ -38,6 +39,7 @@ function fixture() {
     workspace: 'private',
     managementEnvironment: { HOME: root, XDG_CONFIG_HOME: root, PATH: '/usr/bin' },
     verifyCustody: vi.fn(),
+    verifyCustodyAsync: vi.fn(async () => {}),
   };
   const authenticate = vi.fn(async (value: unknown) => {
     expect(value).toEqual(material);
@@ -310,4 +312,98 @@ it('permanently revokes retained identity when custody is lost during a readines
   expect(() =>
     captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId),
   ).toThrow('custody unavailable');
+});
+
+it('observes retained readiness asynchronously without blocking the parent or invoking sync CLI', async () => {
+  const f = fixture();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const runAsync = vi.fn(async (file: string, args: string[], options: unknown) => {
+    await pending;
+    return String(f.run.getMockImplementation()!(file, args, options).stdout);
+  });
+  await createSymposiumWorkVertexProvider(f.gateway as never, f.profile, {
+    authenticate: f.authenticate,
+    run: f.run as never,
+    runAsync,
+  });
+  const syncCalls = f.run.mock.calls.length;
+  const capture = captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  expect(runAsync).toHaveBeenCalledTimes(1);
+  expect(f.run).toHaveBeenCalledTimes(syncCalls);
+  release();
+  const receipt = await capture;
+  expect(receipt.providerId).toBe('new-id');
+  expect(Object.isFrozen(receipt)).toBe(true);
+  expect(runAsync).toHaveBeenCalledTimes(3);
+  expect(f.run).toHaveBeenCalledTimes(syncCalls);
+  expect(f.gateway.verifyCustodyAsync).toHaveBeenCalled();
+  runAsync.mockRejectedValueOnce(new Error('PRIVATE readiness diagnostic'));
+  await expect(
+    captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id'),
+  ).rejects.toThrow('Vertex provider readiness unavailable');
+});
+
+it('production async capture leaves the event loop responsive while exact CLI children run', async () => {
+  const f = fixture();
+  f.gateway.cli = join(f.root, 'public-cli');
+  await f.invoke();
+  const list = f.run.getMockImplementation()!('', ['list'], {}).stdout;
+  const status = f.run.getMockImplementation()!('', ['status'], {}).stdout;
+  writeFileSync(
+    f.gateway.cli,
+    `#!${process.execPath}
+setTimeout(() => process.stdout.write(process.argv.includes('list') ? ${JSON.stringify(list)} : ${JSON.stringify(status)}), 60);
+`,
+    { mode: 0o700 },
+  );
+  let ticks = 0;
+  const interval = setInterval(() => {
+    ticks++;
+  }, 5);
+  try {
+    const count = f.run.mock.calls.length;
+    const receipt = await captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id');
+    expect(receipt.providerId).toBe('new-id');
+    expect(ticks).toBeGreaterThan(5);
+    expect(f.run).toHaveBeenCalledTimes(count);
+  } finally {
+    clearInterval(interval);
+  }
+});
+
+it('production async capture kills and reaps a stalled exact child within the shared observation bound', async () => {
+  const f = fixture();
+  f.gateway.cli = join(f.root, 'public-cli');
+  await f.invoke();
+  const pidFile = join(f.root, 'child-pid');
+  writeFileSync(
+    f.gateway.cli,
+    `#!${process.execPath}
+require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);
+`,
+    { mode: 0o700 },
+  );
+  const started = performance.now();
+  await expect(
+    captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id'),
+  ).rejects.toThrow('Vertex provider readiness unavailable');
+  expect(performance.now() - started).toBeLessThan(14000);
+  const pid = Number(readFileSync(pidFile, 'utf8'));
+  expect(() => process.kill(pid, 0)).toThrow();
+}, 15000);
+
+it('revokes async receipt custody permanently after loss without leaking diagnostics', async () => {
+  const f = fixture();
+  await f.invoke();
+  f.gateway.verifyCustodyAsync.mockRejectedValueOnce(new Error('PRIVATE custody diagnostic'));
+  await expect(
+    captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id'),
+  ).rejects.toThrow('Vertex provider custody unavailable');
+  await expect(
+    captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id'),
+  ).rejects.toThrow('Vertex provider custody unavailable');
 });

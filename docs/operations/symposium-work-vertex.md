@@ -142,3 +142,9 @@ native adapter with synthetic CLI/controller responses. They establish code
 behavior, not physical gateway policy installation or live inference acceptance.
 
 The asynchronous generic admission-evidence worker requests only a selected Vertex provider ID through the existing private custody channel. The retained owner captures the current public receipt and readiness; strict bounded fields cross the channel, with no credentials or callable authority in worker data. After the worker has completed physical cleanup and exited, the parent verifies custody and recaptures every selected Vertex receipt before returning the candidate. Missing support, identity/readiness changes and malformed receipts fail closed with sanitized errors. Offline worker tests replace public CLI/Podman replies and pinned binary streams; they are not proof of a live workload or inference.
+
+The worker receipt RPC runs readiness commands asynchronously in the retained
+parent. It shares the synchronous readiness validator and its total ten-second
+observation bound, uses bounded output, and kills/reaps the exact CLI child on
+timeout. Offline regressions exercise real synthetic subprocesses to verify
+parent responsiveness and timeout cleanup; they do not exercise a live gateway.
