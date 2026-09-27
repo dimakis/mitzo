@@ -112,6 +112,18 @@ export function createOwnedReviewArtifactResults(
   return {
     close: () => db.close(),
     currentOrNull,
+    currentFence(context: ReviewContext, artifact: { revision: string; hash: string }) {
+      const row = db
+        .prepare(
+          'SELECT fence_id, result_json FROM symposium_review_artifact_results WHERE session_id=? ORDER BY completed_at DESC, attempt_id DESC LIMIT 1',
+        )
+        .get(context.sessionId) as { fence_id: string; result_json: string } | undefined;
+      if (!row) throw new Error('Current artifact seal unavailable');
+      const result = WorkResultSchema.parse(JSON.parse(row.result_json));
+      if (result.artifactRevision !== artifact.revision || result.artifactHash !== artifact.hash)
+        throw new Error('Current artifact seal changed');
+      return row.fence_id;
+    },
     current(context: ReviewContext) {
       const current = currentOrNull(context);
       if (!current) throw new Error('No physically sealed review artifact is current');

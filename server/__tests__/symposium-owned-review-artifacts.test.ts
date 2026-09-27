@@ -99,6 +99,24 @@ it('retains an exact physical seal result and recovers it without model output',
       revision: seal.git.commit,
       hash: seal.git.committedTreeDigest,
     });
+    expect(
+      recovered.currentFence(
+        { owner: 'owner', sessionId: 'session' },
+        {
+          revision: seal.git.commit,
+          hash: seal.git.committedTreeDigest,
+        },
+      ),
+    ).toBe('fence');
+    expect(() =>
+      recovered.currentFence(
+        { owner: 'owner', sessionId: 'session' },
+        {
+          revision: 'another',
+          hash: seal.git.committedTreeDigest,
+        },
+      ),
+    ).toThrow('Current artifact');
     recovered.close();
     expect(sealCompleted).toHaveBeenCalledOnce();
   } finally {
