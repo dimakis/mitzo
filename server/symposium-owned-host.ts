@@ -340,6 +340,7 @@ export async function createOwnedSymposiumHost(
     const ensureSessionArtifacts = (sessionId: string) =>
       track(() => prepareSessionArtifacts(sessionId));
     const sourceImporter = createSymposiumSourceHost({
+      workspace: gateway.workspace,
       artifacts: sessionArtifacts,
       facts: options.facts,
       owner: artifactOwner,

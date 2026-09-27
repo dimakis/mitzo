@@ -1,3 +1,4 @@
+import { assertSourceVolume } from './symposium-source-physical-evidence.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { SymposiumSessionArtifacts } from './symposium-session-artifacts.js';
@@ -22,6 +23,7 @@ export function createSymposiumSourceHost(deps: {
   artifacts: SymposiumSessionArtifacts;
   facts: Pick<EventStore, 'getSession'>;
   owner: SymposiumArtifactOwner;
+  workspace: string;
   custody(): void;
   command(args: readonly string[], input?: Buffer): Promise<string>;
 }) {
@@ -65,6 +67,14 @@ export function createSymposiumSourceHost(deps: {
           manifest: request.manifest,
           command: deps.command,
           custody: deps.custody,
+          verifyVolume: (helperId) =>
+            assertSourceVolume({
+              mapping: claim,
+              workspace: deps.workspace,
+              owner: deps.owner,
+              command: deps.command,
+              helperId,
+            }),
           authorize: () => {
             scope(request);
             authorize();

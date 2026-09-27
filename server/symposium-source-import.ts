@@ -1,3 +1,4 @@
+import { inspectSourceHelper } from './symposium-source-physical-evidence.js';
 import { createHash } from 'node:crypto';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import type { SymposiumArtifactOwner } from './symposium-artifact-owner.js';
@@ -17,6 +18,7 @@ export type SourceImportProof = {
   bundleSha256: string;
   files: number;
   bytes: number;
+  terminal?: { helperId: string; exitCode: 0 };
 };
 export class SourceImportAttemptError extends Error {
   constructor(
@@ -32,6 +34,7 @@ export async function importSourceArtifact(input: {
   bundle: Buffer;
   manifest: SourceManifest;
   command(args: readonly string[], input?: Buffer): Promise<string>;
+  verifyVolume(helperId?: string): Promise<void>;
   custody(): void;
   authorize(): void;
   receipt: ArtifactInitializerReceipt;
@@ -46,6 +49,9 @@ export async function importSourceArtifact(input: {
     createHash('sha256').update(bundle).digest('hex') !== manifest.bundleSha256
   )
     throw Error('Invalid source artifact input');
+  custody();
+  authorize();
+  await input.verifyVolume();
   custody();
   authorize();
   const helperName = `${name}-import`;
@@ -87,20 +93,25 @@ export async function importSourceArtifact(input: {
   receipt.created(helperId);
   custody();
   authorize();
+  await input.verifyVolume(helperId);
+  const created = await inspectSourceHelper({ command, helperId, name, owner });
+  if (created.State?.Running !== false || created.State.Status !== 'created')
+    throw Error('Source helper state changed before start');
+  custody();
+  authorize();
   let output: string;
   try {
     output = await command(['start', '--attach', '--interactive', helperId], bundle);
   } catch {
     let exitCode: number | undefined;
     try {
-      const rows = JSON.parse(await command(['inspect', '--format', 'json', helperId]));
-      const row = Array.isArray(rows) && rows.length === 1 ? rows[0] : undefined;
+      const row = await inspectSourceHelper({ command, helperId, name, owner });
       if (
-        row?.Id === helperId &&
         row.State?.Running === false &&
-        row.State?.Status === 'exited' &&
+        row.State.Status === 'exited' &&
         Number.isInteger(row.State.ExitCode) &&
-        row.State.ExitCode > 0
+        row.State.ExitCode! > 0 &&
+        row.State.ExitCode! <= 255
       )
         exitCode = row.State.ExitCode;
     } catch {
@@ -123,6 +134,15 @@ export async function importSourceArtifact(input: {
   )
     throw Error('Source import proof changed');
   input.observed(proof); // Persist terminal output before post-operation custody can fail.
+  const terminal = await inspectSourceHelper({ command, helperId, name, owner });
+  if (
+    terminal.State?.Running !== false ||
+    terminal.State.Status !== 'exited' ||
+    terminal.State.ExitCode !== 0
+  )
+    throw new SourceImportAttemptError('uncertain');
+  proof.terminal = { helperId, exitCode: 0 };
+  input.observed(proof);
   custody();
   await command(['rm', helperId]);
   receipt.removed();
