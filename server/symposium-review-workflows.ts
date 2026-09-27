@@ -683,6 +683,8 @@ export class SymposiumReviewStore {
         const state = this.read(input.workflowId);
         if (state.owner !== input.actor || !isApplicationPolicy(state.limits))
           throw new Error('Application owner required');
+        if (state.status !== 'decision_required' || !state.decisionCode)
+          throw new Error('Stopped application policy required for continuation');
         if (state.applicationAttempts.some((a) => !a.settled))
           throw new Error('Reconcile unresolved operations before continuation');
         if (

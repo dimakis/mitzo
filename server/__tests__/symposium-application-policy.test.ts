@@ -319,3 +319,97 @@ it('can continue safely after a stop before dispatch without refunding the reser
   });
   a.close();
 });
+it('does not use an amendment to rewind an active workflow phase', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create(create());
+  expect(() =>
+    a.continueApplication({
+      workflowId: 'w',
+      actor: 'user',
+      authorizationId: 'a',
+      reason: 'amend',
+      limits: create().limits,
+    }),
+  ).toThrow(/stopped/i);
+  a.close();
+});
+it('blocks a third fix cycle while allowing the final delta turn', () => {
+  const a = new SymposiumReviewStore(':memory:');
+  a.create({ ...create(), limits: { ...create().limits, maxHostTurns: 12, maxReviewCycles: 2 } });
+  a.reserveApplicationAttempt(request('one'));
+  let state = terminalReview(a, 'one', [
+    { criterion: 'works', summary: 'missing', location: 'file', evidenceRefs: ['diff'] },
+  ]);
+  for (let cycle = 1; cycle <= 2; cycle++) {
+    const revision = state.artifactRevision,
+      artifactHash = state.artifactHash;
+    a.authorizeFix({
+      workflowId: 'w',
+      artifactRevision: revision,
+      artifactHash,
+      actor: 'user',
+      authorityGrantId: 'g',
+      authorityRevision: 1,
+      findingFingerprints: [state.findings[0].fingerprint],
+      reason: 'fix',
+    });
+    const fix = {
+      ...request('fix' + cycle),
+      kind: 'fix' as const,
+      actorSeatId: 'coder',
+      artifactRevision: revision,
+      artifactHash,
+      binding: { ...request('fix' + cycle).binding, accountId: 'coder', profileId: 'coder' },
+    };
+    expect(a.reserveApplicationAttempt(fix).kind).toBe('admitted');
+    a.consumeApplicationDispatch(fix);
+    a.bindApplicationOperation('w', fix.attemptId, 'op' + fix.attemptId);
+    a.settleApplicationExecution('w', fix.attemptId, 'op' + fix.attemptId, 'completed');
+    const nextHash = String(cycle).repeat(64);
+    state = a.recordFix({
+      workflowId: 'w',
+      implementerSeatId: 'coder',
+      usage: { attemptId: fix.attemptId, tokens: null, costUsd: null },
+      result: {
+        ...create().implementation,
+        attemptId: fix.attemptId,
+        inputRevision: revision,
+        inputHash: artifactHash,
+        artifactRevision: 'a' + cycle,
+        artifactHash: nextHash,
+      },
+    });
+    const delta = {
+      ...request('delta' + cycle),
+      kind: 'delta' as const,
+      artifactRevision: state.artifactRevision,
+      artifactHash: state.artifactHash,
+    };
+    expect(a.reserveApplicationAttempt(delta).kind).toBe('admitted');
+    a.consumeApplicationDispatch(delta);
+    a.bindApplicationOperation('w', delta.attemptId, 'op' + delta.attemptId);
+    a.settleApplicationExecution('w', delta.attemptId, 'op' + delta.attemptId, 'completed');
+    state = a.recordReview({
+      workflowId: 'w',
+      reviewId: delta.attemptId,
+      reviewerSeatId: 'reviewer',
+      kind: 'delta',
+      artifactRevision: state.artifactRevision,
+      artifactHash: state.artifactHash,
+      findings: [],
+      resolvedFingerprints: [],
+      usage: { attemptId: delta.attemptId, tokens: null, costUsd: null },
+    });
+  }
+  const third = {
+    ...request('third'),
+    kind: 'fix' as const,
+    actorSeatId: 'coder',
+    artifactRevision: state.artifactRevision,
+    artifactHash: state.artifactHash,
+    binding: { ...request('third').binding, accountId: 'coder', profileId: 'coder' },
+  };
+  expect(a.reserveApplicationAttempt(third)).toMatchObject({ code: 'cycles_exhausted' });
+  expect(a.get('w')).toMatchObject({ hostTurns: 5, reviewCycles: 2 });
+  a.close();
+});

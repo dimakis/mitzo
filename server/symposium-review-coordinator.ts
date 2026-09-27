@@ -198,6 +198,8 @@ export class SymposiumReviewCoordinator {
       });
       if ('code' in prepared) return prepared;
       if (
+        prepared.kind !==
+          (kind === 'review' && state.status === 'awaiting_delta_review' ? 'delta' : kind) ||
         prepared.workflowId !== workflowId ||
         prepared.attemptId !== attemptId ||
         prepared.actorSeatId !== selection.seatId ||
