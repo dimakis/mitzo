@@ -109,3 +109,24 @@ it('rejects a prior child JWT on generic replay, SSE and WebSocket authenticatio
     freshWs: true,
   });
 });
+
+it('preserves explicit ordinary sandbox routing without forwarding provider management credentials', () => {
+  const ordinary = {
+    MITZO_OPENSHELL_ENABLED: '1',
+    MITZO_OPENSHELL_IMAGE: 'image',
+    MITZO_OPENSHELL_POLICY: '/ordinary/policy',
+    MITZO_OPENSHELL_SEED: '/ordinary/seed',
+    MITZO_OPENSHELL_CLI: '/ordinary/openshell',
+    MITZO_OPENSHELL_GATEWAY_ENDPOINT: 'https://ordinary.example.test',
+    OPENSHELL_GATEWAY: 'ordinary',
+    OPENSHELL_WORKSPACE: 'ordinary-workspace',
+  };
+  const env = custodianAppEnvironment({
+    ...ordinary,
+    OPENSHELL_TOKEN: 'never-forward',
+    MITZO_SYMPOSIUM_OWNED_HOST_CONFIG: '/private/owner.json',
+  });
+  expect(env).toMatchObject(ordinary);
+  expect(env.OPENSHELL_TOKEN).toBeUndefined();
+  expect(env.MITZO_SYMPOSIUM_OWNED_HOST_CONFIG).toBeUndefined();
+});
