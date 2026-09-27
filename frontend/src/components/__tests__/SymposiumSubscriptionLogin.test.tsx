@@ -352,9 +352,11 @@ it.each(['conflict', 'lost'] as const)(
     fireEvent.click(screen.getByLabelText('The callback setup is ready on the browser computer'));
     fireEvent.click(screen.getByRole('button', { name: 'Start personal login' }));
     await screen.findByText(/already-open|already open/i);
-    expect(apiFetch).toHaveBeenCalledWith(
-      '/api/symposium/personal/login/status?attemptId=existing',
-      expect.anything(),
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/symposium/personal/login/status?attemptId=existing',
+        expect.anything(),
+      ),
     );
     expect(
       vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'POST'),
