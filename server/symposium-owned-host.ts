@@ -1,5 +1,8 @@
 import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js';
-import { captureSymposiumWorkVertexProvider } from './symposium-work-vertex-provider.js';
+import {
+  captureSymposiumWorkVertexProvider,
+  captureSymposiumWorkVertexProviderAsync,
+} from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
 import type { PublicationCredentialRegistration } from './symposium-publication-registration.js';
 import { withOwnedArtifactSuccessor } from './symposium-owned-successor.js';
@@ -596,6 +599,13 @@ export async function createOwnedSymposiumHost(
         podmanEnv,
       },
       {
+        captureClaudeProviderAsync: async (providerId) => {
+          if (stopped) throw new Error('Owned Symposium host stopped');
+          await gateway.verifyCustodyAsync();
+          const receipt = await captureSymposiumWorkVertexProviderAsync(gateway, providerId);
+          await gateway.verifyCustodyAsync();
+          return receipt;
+        },
         verifyCustodyAsync: async () => {
           if (stopped) throw new Error('Owned Symposium host stopped');
           await gateway.verifyCustodyAsync();
