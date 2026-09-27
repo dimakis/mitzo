@@ -127,3 +127,34 @@ it('invalidates a retained parent grant when logout follows an already completed
     ).status,
   ).toBe(403);
 });
+it('fences every noncanonical or unsupported protected request before a child safety handler', async () => {
+  const local = vi.fn((_req: express.Request, res: express.Response) => res.json({ local: true }));
+  const invoke = vi.fn(async () => ({ status: 200, body: { remote: true } }));
+  const app = express();
+  app.use(express.json());
+  app.use(createCustodianProxy({ request: invoke, invalidate() {} }));
+  app.all('/api/sessions/:id/symposium/*', local);
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  for (const path of [
+    '/api/sessions/session/Symposium/deliveries/d/cancel',
+    '/api/sessions/%73ession/symposium/deliveries/d/cancel',
+    '/api/sessions/session/symposium/unknown',
+  ])
+    expect(
+      (
+        await request(app)
+          .post(path)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ idempotencyKey: 'unchanged', reason: 'test' })
+      ).status,
+    ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .head('/api/sessions/session/symposium/status')
+        .set('Authorization', `Bearer ${token}`)
+    ).status,
+  ).toBe(400);
+  expect(local).not.toHaveBeenCalled();
+  expect(invoke).not.toHaveBeenCalled();
+});

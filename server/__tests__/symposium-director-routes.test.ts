@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { createCustodianProxy, type CustodianClient } from '../symposium-custodian-proxy.js';
 import { createSymposiumDirectorRouter } from '../symposium-director-routes.js';
 
 const config = {
@@ -31,7 +32,7 @@ const config = {
   interceptMode: 'manual' as const,
 };
 
-function fixture(runtimeAvailable = false) {
+function fixture(runtimeAvailable = false, custodianClient?: CustodianClient) {
   const membership = {
     sessionId: 'chat',
     seatId: 'reviewer',
@@ -118,6 +119,7 @@ function fixture(runtimeAvailable = false) {
   const getRuntime = vi.fn(() => (runtimeAvailable ? (orchestrator as never) : null));
   const app = express();
   app.use(express.json());
+  if (custodianClient) app.use(createCustodianProxy(custodianClient));
   app.use((_req, res, next) => {
     res.locals.authSession = { id: 'operator-1' };
     next();
@@ -1032,4 +1034,23 @@ it('requires explicit primary transfer confirmation and binds operator identity'
     sessionId: 'chat',
     actor: 'operator:operator-1',
   });
+});
+
+it('fences aliases before the actual child director cancellation fallback', async () => {
+  const client = { request: vi.fn(), invalidate: vi.fn() };
+  const { app, orchestrator, store } = fixture(false, client);
+  const before = store.getSymposiumDelivery('delivery-1');
+  for (const path of [
+    '/api/sessions/chat/Symposium/deliveries/delivery-1/cancel',
+    '/api/sessions/%63hat/symposium/deliveries/delivery-1/cancel',
+    '/api/sessions/chat/symposium/unknown',
+  ]) {
+    const response = await request(app)
+      .post(path)
+      .send({ reason: 'cancel', idempotencyKey: 'cancel-1' });
+    expect(response.status).toBe(400);
+  }
+  expect(orchestrator.cancel).not.toHaveBeenCalled();
+  expect(client.request).not.toHaveBeenCalled();
+  expect(store.getSymposiumDelivery('delivery-1')).toEqual(before);
 });

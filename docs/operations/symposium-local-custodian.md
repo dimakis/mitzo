@@ -10,6 +10,8 @@ The app and custodian communicate through the OS-created inherited IPC channel o
 
 Each child receives one exclusive controller epoch. Duplicate active controllers and stale epochs are rejected. App loss, channel failure or a missed heartbeat fences new work. The custodian records suspension of retained active memberships, including the anchor, using the existing membership ledger. Ordinary operator actions still cannot revoke the anchor. Exact native, seat and creation cleanup must complete before another child is admitted; unknown effects retain their original claims and prevent replacement. Completed personal/provider authentication remains in the original owner and does not require another provider sign-in.
 
+Each child receives a fresh random app signing secret; JWTs from a previous child are rejected on HTTP, SSE and WebSocket paths, including ordinary transcript reads. The configured app passphrase remains usable for a new login. Noncanonical or unsupported requests in protected Symposium namespaces are rejected before any child-local router; only the two explicit app reauthorization endpoints remain local.
+
 Replacement requires fresh app-operator authorization and an explicit normal seat restore/admission. It never silently resumes a model turn or restores browser publication approvals. Only sessions created by this custodian may use its host; persisted sessions, IDs and Ready inventory cannot reconstruct custody. Draft creation interrupted during artifact initialization stays draft and cannot become active merely because a new child starts.
 
 ## Recovery and compatibility

@@ -1,9 +1,11 @@
+import { randomBytes } from 'node:crypto';
 /** App authentication/configuration is distinct from the retained provider host.
  * Do not spread process.env: dotenv is disabled in the supervised child too. */
 export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = {
     MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER: '1',
     DOTENV_CONFIG_PATH: '/dev/null',
+    AUTH_SECRET: randomBytes(32).toString('hex'),
   };
   for (const name of [
     'PATH',
@@ -25,7 +27,6 @@ export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
     'MITZO_CODEX_ENABLED',
     'MITZO_URL',
     'AUTH_PASSPHRASE',
-    'AUTH_SECRET',
     'COOKIE_MAX_AGE_HOURS',
     'CORS_ALLOWED_ORIGINS',
     'MITZO_CODEX_PRIVATE_DIR',

@@ -19,7 +19,29 @@ export interface CustodianClient {
 export function createCustodianProxy(client: CustodianClient): RequestHandler {
   return (req, res, next) => {
     const selected = selectCustodianOperation(req.method, req.path);
-    if (!selected) return next();
+    if (!selected) {
+      // Express decodes parameters and matches routes case-insensitively. The
+      // controller must never fall through to a local owner for those aliases.
+      const localReauthorization =
+        req.method === 'POST' &&
+        /^\/api\/sessions\/[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}\/symposium\/(?:source\/reauthorize|creation\/recovery\/app-reauthorize)$/.test(
+          req.path,
+        );
+      if (localReauthorization) return next();
+      let decoded = req.path;
+      try {
+        decoded = decodeURIComponent(req.path);
+      } catch {
+        /* Original namespace remains fenced. */
+      }
+      const protectedNamespace =
+        /^\/api\/(?:symposium(?:\/|$)|sessions\/[^/]+\/symposium(?:\/|$))/i;
+      if (protectedNamespace.test(req.path) || protectedNamespace.test(decoded)) {
+        res.status(400).json({ error: 'Unsupported custodian request' });
+        return;
+      }
+      return next();
+    }
     void operatorAuthMiddleware(req, res, () => {
       const execute = async () => {
         const auth = res.locals.authSession as AuthSession;
