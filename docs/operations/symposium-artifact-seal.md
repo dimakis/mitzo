@@ -47,3 +47,12 @@ completion path. A crash between the session fence and retention leaves the sess
 pending; a crash after retention leaves both locks. Future physical orchestration must
 use the retained gateway and Podman capabilities, refresh exact gateway/physical absence,
 and bind immutable committed Git inspection before any successful seal can be claimed.
+
+The owned host stores the lease ledger at `stateParent/artifact-leases.db`, outside
+per-launch gateway directories, and opens it with private ownership and file checks.
+Fresh gateway launches retain pending locks and uncertain leases. Before launch, any
+legacy `gateway-*/artifact-leases.db` (including an orphan WAL/SHM) blocks startup for
+explicit reconciliation, even when a stable ledger also exists. Prior per-launch fixtures
+cannot be restarted by silently adopting or discarding their state; this increment does
+not migrate or delete those ledgers. A new gateway cannot inherit old physical custody
+merely because a database row survived.

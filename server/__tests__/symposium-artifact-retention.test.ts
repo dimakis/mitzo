@@ -1,5 +1,6 @@
+import { stableSymposiumArtifactLeasePath } from '../symposium-artifact-state.js';
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, chmodSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountBindingSchema, type SeatConfig, type SymposiumConfig } from '@mitzo/protocol';
@@ -80,14 +81,20 @@ async function fixture() {
   cleanups.push(() => store.close());
   store.upsertSession({ sessionId: 'symposium', accountBinding: seat.accountBinding });
   store.setSymposiumConfig('symposium', config);
-  const path = join(root, 'leases.db');
+  const path = stableSymposiumArtifactLeasePath(root);
+  let launch = 0;
   const evidence = {
     verifyGateway: vi.fn(async () => {}),
     verifyMount: vi.fn(async () => {}),
     verifyDeleted: vi.fn(async () => {}),
   };
   const open = () => {
+    mkdirSync(join(root, `gateway-${++launch}`), { mode: 0o700 });
+    expect(stableSymposiumArtifactLeasePath(root)).toBe(path);
     const host = new SqliteArtifactLeaseHost(path, evidence, async () => []);
+    chmodSync(path, 0o600);
+    chmodSync(`${path}-wal`, 0o600);
+    chmodSync(`${path}-shm`, 0o600);
     cleanups.push(() => host.close());
     return host;
   };
