@@ -103,6 +103,16 @@ function fixture() {
   return { root, filename, config, save, gateway, tools };
 }
 describe('explicit private owned startup configuration', () => {
+  it('requires an explicit namespace but permits the exact empty Podman namespace', () => {
+    const f = fixture();
+    f.config.podman.sandboxNamespace = '';
+    f.save();
+    expect(readOwnedSymposiumHostConfig(f.filename).podman.sandboxNamespace).toBe('');
+    delete (f.config.podman as Partial<typeof f.config.podman>).sandboxNamespace;
+    f.save();
+    expect(() => readOwnedSymposiumHostConfig(f.filename)).toThrow('private valid');
+  });
+
   it('creates named workspace, imports hash-pinned private copies, then provisions fresh work', async () => {
     const f = fixture();
     const host = await bootstrapConfiguredSymposiumHost(
