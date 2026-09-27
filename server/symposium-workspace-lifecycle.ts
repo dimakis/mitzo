@@ -13,7 +13,7 @@ import {
 import { dirname } from 'node:path';
 export type SandboxCreationFence = <T>(
   verify: () => void,
-  operation: () => Promise<T>,
+  operation: (markDispatched: () => void) => Promise<T>,
 ) => Promise<T>;
 /** Retained by the sole owned host. An uncertain external create is never
  * converted into proof of absence by inventory polling or a process restart. */
@@ -85,8 +85,15 @@ export class SymposiumWorkspaceLifecycle {
   create: SandboxCreationFence = (verify, operation) =>
     this.run(async () => {
       verify();
-      this.save(true);
-      const result = await operation();
+      let dispatched = false;
+      const result = await operation(() => {
+        if (dispatched) throw new Error('Sandbox creation dispatch already recorded');
+        verify();
+        this.custody();
+        this.save(true);
+        dispatched = true;
+      });
+      if (!dispatched) throw new Error('Sandbox creation dispatch was not recorded');
       this.custody();
       this.save(false);
       return result;

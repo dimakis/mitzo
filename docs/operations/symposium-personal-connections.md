@@ -60,7 +60,10 @@ recovery. These stage proofs are never restored from disk.
 
 A retained host coordinator serializes sandbox creation with credential cleanup.
 Creation revalidates its seat binding after acquiring the fence and durably marks
-the external operation before dispatch. Rejection or host loss leaves a persistent
+the external operation immediately before the create command, after read-only
+preflight. The trusted adapter must call the supplied dispatch marker; an
+unmarked success is refused. Preflight rejection leaves cleanup available and
+does not stamp a seat or artifact as creation-started. Rejection after dispatch or host loss leaves a persistent
 uncertain marker: neither inventory absence nor restart clears it. Cleanup waits
 for in-flight creation and refuses uncertain outcomes. Interrupted login rows
 without a live adapter also remain blocked even when account metadata is absent.

@@ -451,3 +451,5 @@ connect, reconnect, and disconnect. Saved metadata survives restart; account
 authorization does not. See [personal connection lifecycle](docs/operations/symposium-personal-connections.md).
 
 Personal login requires selecting a saved connection and displayed revision, including callback alternatives. Credential cleanup waits for owned-workspace sandbox creation to settle; uncertain creation stays blocked across restart.
+
+Owned sandbox creation records uncertainty at the external dispatch boundary; read-only preflight failures do not strand credential cleanup or seat creation reservations.
