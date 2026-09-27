@@ -1,3 +1,6 @@
+import { createSymposiumApplicationDispatchPolicy } from '../symposium-application-dispatch.js';
+import { SymposiumReviewStore, type ApplicationAttempt } from '../symposium-review-workflows.js';
+import { SymposiumNativeObservations } from '../symposium-native-observations.js';
 import Database from 'better-sqlite3';
 import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -207,6 +210,158 @@ function fixture() {
     },
   };
 }
+
+function applicationFixture(work: ReturnType<typeof fixture>) {
+  const store = new SymposiumReviewStore(':memory:');
+  const hash = 'a'.repeat(64);
+  const selected = {
+    seatId: seat.id,
+    role: 'reviewer',
+    selectionId: 'selection',
+    policyRevision: '1',
+    profileId: 'reviewer',
+    profileRevision: 1,
+    accountId: seat.accountBinding.accountId,
+    model: seat.accountBinding.model,
+  };
+  store.create({
+    workflowId: 'policy',
+    owner: 'user',
+    sessionId: work.input.sessionId,
+    implementation: {
+      version: 1,
+      resultId: 'result',
+      attemptId: 'writer',
+      inputRevision: 'base',
+      inputHash: hash,
+      artifactRevision: 'commit',
+      artifactHash: hash,
+      summary: 'fixture completion',
+      evidenceRefs: ['fixture'],
+      completedAt: 1,
+    },
+    implementer: { ...selected, seatId: 'writer', role: 'coder', selectionId: 'writer-selection' },
+    reviewer: selected,
+    acceptanceCriteria: ['criterion'],
+    limits: {
+      version: 1,
+      mode: 'application',
+      maxHostTurns: 2,
+      maxReviewCycles: 1,
+      deadlineAt: Date.now() + 60000,
+      noProgressLimit: 1,
+    },
+  });
+  const request: ApplicationAttempt = {
+    workflowId: 'policy',
+    attemptId: 'review',
+    policyReservationId: 'reservation',
+    kind: 'review',
+    actorSeatId: seat.id,
+    artifactRevision: 'commit',
+    artifactHash: hash,
+    binding: {
+      claimToken: work.input.claimToken,
+      deliveryId: work.input.deliveryId,
+      membershipGeneration: 2,
+      configRevision: 4,
+      accountId: seat.accountBinding.accountId,
+      model: seat.accountBinding.model,
+      profileId: 'reviewer',
+      profileRevision: 'p1',
+      accountProfileRevision: seat.accountBinding.profileRevision,
+      authorityGrant: { grantId: 'authority', revision: 1 },
+      contextGrant: { grantId: 'context', revision: 1 },
+    },
+  };
+  const db = new Database(':memory:');
+  const observations = new SymposiumNativeObservations(db, () => undefined);
+  const assertArtifactCurrent = vi.fn();
+  const policy = createSymposiumApplicationDispatchPolicy({
+    store,
+    observations,
+    assertArtifactCurrent,
+  });
+  return {
+    store,
+    request,
+    observations,
+    policy,
+    assertArtifactCurrent,
+    close: () => {
+      store.close();
+      db.close();
+    },
+  };
+}
+it('binds the persisted application reservation to every actual native identity field', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    expect(() => f.policy.assertCurrent(work.input)).toThrow(/reservation/i);
+    f.store.reserveApplicationAttempt(f.request);
+    expect(() => f.policy.assertCurrent(work.input)).not.toThrow();
+    for (const changed of [
+      { ...work.input, deliveryId: 'other' },
+      { ...work.input, sessionId: 'other' },
+      { ...work.input, claimToken: 'other' },
+      { ...work.input, provenance: { ...work.input.provenance, membershipGeneration: 3 } },
+      { ...work.input, seat: { ...seat, authorityGrant: { ...seat.authorityGrant, revision: 2 } } },
+    ])
+      expect(() => f.policy.assertCurrent(changed)).toThrow();
+    f.policy.consume(work.input);
+    expect(() => f.policy.consume(work.input)).toThrow(/already_dispatched/);
+    expect(f.store.get('policy')?.hostTurns).toBe(1);
+  } finally {
+    f.close();
+  }
+});
+it('requires exact native completion independently of unknown usage and stop state', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.policy.consume(work.input);
+    f.observations.accept({
+      claimToken: work.input.claimToken,
+      sessionId: work.input.sessionId,
+      seatId: seat.id,
+      membershipGeneration: 2,
+      accountBinding: seat.accountBinding,
+      provenance: work.input.provenance,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+    });
+    f.policy.accepted(work.input, 'thread', 'turn');
+    expect(() => f.policy.completed(work.input)).toThrow(/terminal/i);
+    f.store.stopApplication('policy', 'user', 'user_stop');
+    f.observations.terminal({
+      claimToken: work.input.claimToken,
+      providerThreadId: 'thread',
+      providerTurnId: 'turn',
+      status: 'completed',
+    });
+    expect(() => f.policy.completed(work.input)).not.toThrow();
+    expect(f.store.get('policy')?.applicationAttempts[0].terminalOutcome).toBe('completed');
+    expect(f.observations.get(work.input.claimToken)?.usageStatus).toBe('unknown');
+  } finally {
+    f.close();
+  }
+});
+it('does not let artifact-check failures reach policy consumption', () => {
+  const work = fixture();
+  const f = applicationFixture(work);
+  try {
+    f.store.reserveApplicationAttempt(f.request);
+    f.assertArtifactCurrent.mockImplementation(() => {
+      throw new Error('Artifact changed');
+    });
+    expect(() => f.policy.consume(work.input)).toThrow('Artifact changed');
+    expect(f.store.get('policy')?.applicationAttempts[0].dispatched).toBe(false);
+  } finally {
+    f.close();
+  }
+});
 
 it('checks the durable seal at final dispatch even for an already claimed recipient', () => {
   const { facts, input } = fixture();
