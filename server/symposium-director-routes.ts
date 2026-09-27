@@ -1,3 +1,4 @@
+import { registerAuthSession, type AuthSession } from './auth.js';
 import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
@@ -764,23 +765,39 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       res.status(503).json({ error: 'Retained creation cleanup custody unavailable' });
       return;
     }
-    const actorId = (res.locals.authSession as { id: string }).id;
+    const auth = res.locals.authSession as AuthSession;
+    let invalidated = false;
+    const unregister = registerAuthSession(auth, () => {
+      invalidated = true;
+    });
+    const authorize = () => {
+      if (invalidated) {
+        res.status(401).json({ error: 'App authentication expired or revoked' });
+        throw new Error('Authorization invalidated');
+      }
+      if (!requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? ''))
+        throw new Error('Recent reauthorization required');
+    };
     try {
       const { confirmation: _confirmation, ...scope } = parsed.data;
       res.json(
-        await runtime.reauthorizeCreationRecovery({
-          ...scope,
-          sessionId,
-          actor: `operator:${actorId}`,
-        }),
+        await runtime.reauthorizeCreationRecovery(
+          {
+            ...scope,
+            sessionId,
+            actor: `operator:${auth.id}`,
+          },
+          authorize,
+        ),
       );
     } catch {
-      res
-        .status(409)
-        .json({
-          error:
-            'Cleanup reauthorization is stale, busy, or lacks retained host custody. Refresh status.',
-        });
+      if (res.headersSent) return;
+      res.status(409).json({
+        error:
+          'Cleanup reauthorization is stale, busy, or lacks retained host custody. Refresh status.',
+      });
+    } finally {
+      unregister();
     }
   });
 

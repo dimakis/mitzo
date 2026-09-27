@@ -4001,8 +4001,45 @@ it('requires actual fresh app reauthorization, same-origin JSON and CSRF for the
       actor: `operator:${(await authenticateToken(token))!.id}`,
       operationId: handoff.operationId,
     }),
+    expect.any(Function),
   );
   revokeAuthSession((await authenticateToken(token))!);
   expect((await post(auth.body.csrf)).status).toBe(401);
   expect(apply).toHaveBeenCalledOnce();
+});
+
+it('rechecks fresh authorization after waiting for physical cleanup and preserves completed cleanup evidence', async () => {
+  const { input, handoff, physical } = pendingCreation();
+  let release!: () => void;
+  const stop = vi.fn(async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    store.confirmSymposiumSeatSandboxStopped({ ...physical, physicalId: 'physical' });
+    throw new Error('physical stop settled, response lost');
+  });
+  const host = new SymposiumOrchestrator({
+    store,
+    executors: {},
+    stopSeat: stop,
+    creationRecovery: { diagnostic: () => null, assertRetained: () => {} },
+  });
+  const stopping = host.recoverCreation(input);
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+  let authorized = true;
+  const handoffWork = host.reauthorizeCreationRecovery(handoff, () => {
+    if (!authorized) throw new Error('fresh authorization expired');
+  });
+  authorized = false;
+  release();
+  await expect(stopping).rejects.toThrow('response lost');
+  await expect(handoffWork).rejects.toThrow('authorization expired');
+  expect(store.getSymposiumCreationRecoveryAuthorization(input)).toMatchObject({
+    actor: input.actor,
+    authorizationRevision: 0,
+    executing: false,
+  });
+  expect(store.getSymposiumSeatSandbox('chat', 'builder', 1)?.state).toBe('stopped');
+  expect((await host.recoverCreation(input)).state).toBe('suspended');
+  expect(stop).toHaveBeenCalledOnce();
 });

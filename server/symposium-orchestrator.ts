@@ -247,11 +247,13 @@ export class SymposiumOrchestrator {
 
   async reauthorizeCreationRecovery(
     input: Parameters<EventStore['reauthorizeSymposiumCreationRecovery']>[0],
+    authorize: () => void = () => {},
   ) {
     const prior = this.reconciliationQueues.get(input.sessionId) ?? Promise.resolve();
     const work = prior
       .catch(() => {})
       .then(() => {
+        authorize();
         if (!this.creationRecovery || !this.stopSeat)
           throw new Error('Creation cleanup capability unavailable');
         this.creationRecovery.assertRetained(
