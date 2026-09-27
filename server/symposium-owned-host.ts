@@ -1,4 +1,5 @@
 import { stableSymposiumArtifactLeasePath } from './symposium-artifact-state.js';
+import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import {
   collectPersonalAdmissionEvidence,
   PersonalEvidenceSelection,
@@ -82,7 +83,7 @@ export async function createOwnedSymposiumHost(
   if (
     !isAbsolute(options.attestationPath) ||
     !isAbsolute(options.podman.executable) ||
-    !id.test(options.podman.sandboxNamespace) ||
+    !isPodmanSandboxNamespace(options.podman.sandboxNamespace) ||
     !isAbsolute(options.runtime.policy) ||
     !isAbsolute(options.runtime.seed)
   )

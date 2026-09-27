@@ -497,3 +497,14 @@ it('classifies actual command timeout without leaking stderr and persists privat
   );
   expect(fs.statSync(options.journal + '.diagnostic.json').mode & 0o777).toBe(0o600);
 });
+
+it('accepts explicit empty Podman namespace but rejects omitted namespace', () => {
+  const { config, options } = fixture();
+  expect(() => createDiscoveryHostOperations(config, { ...options, namespace: '' })).not.toThrow();
+  expect(() =>
+    createDiscoveryHostOperations(config, {
+      ...options,
+      namespace: undefined as unknown as string,
+    }),
+  ).toThrow('Explicit discovery');
+});
