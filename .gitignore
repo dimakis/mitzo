@@ -18,6 +18,8 @@ logs/
 .grafana-data/
 .mlflow-data/
 .DS_Store
+test-results/
+playwright-report/
 .claude/worktrees/
 .cursor/worktrees/
 frontend/ios/App/App.xcworkspace/

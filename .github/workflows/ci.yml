@@ -7,6 +7,22 @@ on:
     types: [opened, synchronize, reopened, edited]
 
 jobs:
+  browser:
+    name: Connections browser regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --no-audit
+      - run: npx playwright install --with-deps webkit chromium
+      - run: npm run test:browser
+
   documentation:
     name: Documentation gate
     if: github.event_name == 'pull_request'

@@ -478,6 +478,8 @@ both the review acknowledgement and that exception.
 ```bash
 npm run dev          # backend + frontend concurrently
 npm test             # vitest — full suite
+npx playwright install webkit chromium # first-time browser test setup
+npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chromium (mocked APIs)
 npm run lint         # eslint
 npm run format:check # prettier
 ```
