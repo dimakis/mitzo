@@ -627,6 +627,7 @@ export class PhysicalArtifactSealer {
           /* Exact helper remains journaled; never infer absence from an error. */
         }
       }
+      // eslint-disable-next-line preserve-caught-error -- Parser/transport causes may contain private bundle bytes.
       throw new Error(
         'Sealed artifact export failed; retained helper state may require reconciliation',
       );

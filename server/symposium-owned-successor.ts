@@ -53,7 +53,7 @@ export async function withOwnedArtifactSuccessor<T>(
         initializationReceiptDigest: digest(receipt),
       };
     };
-    const ledger = new SymposiumArtifactGenerations(db, {
+    const ledger: SymposiumArtifactGenerations = new SymposiumArtifactGenerations(db, {
       initial(value) {
         if (canonicalReviewJson(value) !== canonicalReviewJson(initial()))
           throw new Error('Initial artifact identity changed');
@@ -76,12 +76,12 @@ export async function withOwnedArtifactSuccessor<T>(
           throw new Error('Retained successor parent changed');
         return true;
       },
-      copy(intent, receipt) {
+      copy(intent, receipt): true {
         return copier.assertCopyReceipt(intent, receipt);
       },
     });
     ledger.registerInitial(initial());
-    const copier = new PhysicalArtifactSuccessorCopier({
+    const copier: PhysicalArtifactSuccessorCopier = new PhysicalArtifactSuccessorCopier({
       ledger,
       sealer: deps.sealer,
       command: deps.leaseHost.snapshotCommand(),
