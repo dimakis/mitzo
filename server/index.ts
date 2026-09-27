@@ -1,4 +1,4 @@
-import { createSymposiumShutdown } from './symposium-shutdown.js';
+import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import 'dotenv/config';
@@ -1320,7 +1320,10 @@ const drainOwnedSymposium = createSymposiumShutdown({
     await ownedSymposiumStartup;
     signal.throwIfAborted();
     ownedSymposiumHost?.beginShutdown();
-    await Promise.all([drainSymposiumRuntimes(signal), ownedSymposiumHost?.drain(signal)]);
+    await settleSymposiumCleanup([
+      drainSymposiumRuntimes(signal),
+      ownedSymposiumHost?.drain(signal),
+    ]);
   },
   close: async (signal) => {
     await ownedSymposiumHost?.closeAfterDrain(signal);

@@ -39,3 +39,12 @@ export function createSymposiumShutdown(
     return pending;
   };
 }
+
+/** Independent exact cleanup must settle before a sibling failure is reported. */
+export async function settleSymposiumCleanup(
+  operations: readonly (Promise<unknown> | undefined)[],
+): Promise<void> {
+  const results = await Promise.allSettled(operations);
+  if (results.some((result) => result.status === 'rejected'))
+    throw new Error('Symposium cleanup incomplete');
+}

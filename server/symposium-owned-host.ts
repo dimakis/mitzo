@@ -561,17 +561,24 @@ export async function createOwnedSymposiumHost(
         draining = true;
         workspaceLifecycle.beginDrain();
         const pending = await Promise.allSettled([...pendingHostOperations]);
-        if (
-          pending.some(
-            (result) =>
-              result.status === 'rejected' && !(result.reason instanceof LoginCancelledForShutdown),
-          )
-        )
-          throw new Error('Host operation did not settle cleanly');
+        let failed = pending.some(
+          (result) =>
+            result.status === 'rejected' && !(result.reason instanceof LoginCancelledForShutdown),
+        );
         signal.throwIfAborted();
-        if (login) await login.cancel();
-        if (loginQuarantined) throw new Error('Login cleanup incomplete');
-        await workspaceLifecycle.drain(signal);
+        try {
+          if (login) await login.cancel();
+          if (loginQuarantined) failed = true;
+        } catch {
+          failed = true;
+        }
+        try {
+          await workspaceLifecycle.drain(signal);
+        } catch {
+          failed = true;
+        }
+        signal.throwIfAborted();
+        if (failed) throw new Error('Host operation did not settle cleanly');
       },
       markShutdownUncertain() {
         for (const claim of native!.registry.pending())

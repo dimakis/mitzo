@@ -468,3 +468,40 @@ it('does not suppress a failed cancellation of a late login', async () => {
   expect(f.gateway.stopAndWait).not.toHaveBeenCalled();
   host.stop();
 });
+
+it('still cancels active login and drains workspace when a tracked operation fails', async () => {
+  const { SymposiumWorkspaceLifecycle } = await import('../symposium-workspace-lifecycle.js');
+  const f = fixture();
+  let finish!: () => void;
+  const cancel = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const original = personalHost.createPersonalSubscriptionHost;
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...original(...args),
+    beginLogin: async () =>
+      ({
+        authorizationUrl: 'https://example.invalid',
+        completed: new Promise(() => {}),
+        cancel,
+      }) as never,
+  }));
+  const workspace = vi.spyOn(SymposiumWorkspaceLifecycle.prototype, 'drain');
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  await host.beginLogin();
+  const failed = host.ensureSessionArtifacts('session').catch(() => {});
+  host.beginShutdown();
+  const drain = expect(host.drain(new AbortController().signal)).rejects.toThrow(
+    'did not settle cleanly',
+  );
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  expect(workspace).not.toHaveBeenCalled();
+  finish();
+  await drain;
+  await failed;
+  expect(workspace).toHaveBeenCalledOnce();
+  host.stop();
+});

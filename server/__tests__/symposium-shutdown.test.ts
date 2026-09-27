@@ -73,3 +73,23 @@ it('aborts timeout and never closes after a delayed drain resolves', async () =>
   expect(uncertain).toHaveBeenCalledOnce();
   vi.useRealTimers();
 });
+
+it('waits for independent cleanup after a sibling fails before reporting failure', async () => {
+  const { settleSymposiumCleanup } = await import('../symposium-shutdown.js');
+  let finish!: () => void;
+  let reported = false;
+  const result = settleSymposiumCleanup([
+    Promise.reject(new Error('seat failed')),
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    }),
+  ]).catch(() => {
+    reported = true;
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(reported).toBe(false);
+  finish();
+  await result;
+  expect(reported).toBe(true);
+});
