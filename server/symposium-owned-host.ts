@@ -1,3 +1,7 @@
+import {
+  collectPersonalAdmissionEvidence,
+  PersonalEvidenceSelection,
+} from './symposium-personal-evidence.js';
 import { createOwnedEvidenceCollector } from './symposium-owned-evidence-async.js';
 import { fenceDiscoveryCreation } from './symposium-discovery-creation.js';
 import { createHash } from 'node:crypto';
@@ -484,7 +488,7 @@ export async function createOwnedSymposiumHost(
     };
     const startLogin = (device: boolean, selection?: ConnectionSelection) =>
       track(() => allocateLogin(device, selection));
-    const collectAdmissionEvidence = createOwnedEvidenceCollector(
+    const collectExplicitEvidence = createOwnedEvidenceCollector(
       runtimeConfig,
       gateway.endpoint,
       {
@@ -512,8 +516,52 @@ export async function createOwnedSymposiumHost(
       gateway,
       runtimeConfig,
       attestationPath: options.attestationPath,
-      collectAdmissionEvidence: (...args: Parameters<typeof collectAdmissionEvidence>) =>
-        track(() => collectAdmissionEvidence(...args)),
+      collectAdmissionEvidence: (selection: unknown) =>
+        track(() => {
+          const personal = PersonalEvidenceSelection.safeParse(selection);
+          if (!personal.success) return collectExplicitEvidence(selection);
+          return collectPersonalAdmissionEvidence(personal.data, {
+            capture: (selected) => {
+              if (stopped || !subscription) throw new Error('Owned personal host unavailable');
+              return subscription.captureAdmissionProvider(selected);
+            },
+            getReady: async (sessionId) => {
+              const assertDraft = () => {
+                const session = options.facts.getSession?.(sessionId);
+                const config = session?.symposiumConfig
+                  ? SymposiumConfigSchema.safeParse(JSON.parse(session.symposiumConfig))
+                  : null;
+                if (
+                  session?.sessionType !== 'symposium' ||
+                  !config?.success ||
+                  config.data.state !== 'draft'
+                )
+                  throw new Error('Current Symposium draft required for personal evidence');
+              };
+              custody();
+              assertDraft();
+              const mapping = sessionArtifacts!.getReady(sessionId);
+              if (!mapping) return null;
+              assertSessionArtifactVolume(
+                gateway.workspace,
+                mapping,
+                await leaseHost!.inspectVolume(mapping.volumeName, 'podman'),
+              );
+              custody();
+              assertDraft();
+              const current = sessionArtifacts!.getReady(sessionId);
+              if (
+                !current ||
+                current.sessionId !== mapping.sessionId ||
+                current.volumeName !== mapping.volumeName ||
+                current.volumeGeneration !== mapping.volumeGeneration
+              )
+                throw new Error('Session artifact readiness changed');
+              return current;
+            },
+            collect: collectExplicitEvidence,
+          });
+        }),
       currentProfiles,
       physical,
       attemptRegistry: native.registry,

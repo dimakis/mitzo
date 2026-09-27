@@ -1,7 +1,8 @@
-import * as personalHost from '../symposium-personal-host.js';
-import * as discoveryHost from '../symposium-model-discovery-host.js';
+import * as evidenceCollector from '../symposium-owned-evidence-async.js';
 import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
+import * as personalHost from '../symposium-personal-host.js';
+import * as discoveryHost from '../symposium-model-discovery-host.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -305,6 +306,22 @@ it('pins the owned gateway immutable config using its actual read-only file mode
 
 it('provisions a new draft through owned argv and makes its checked mapping available without replacing attestation', async () => {
   const f = fixture();
+  const collect = vi.fn(async (selection: unknown) => selection as never);
+  vi.spyOn(evidenceCollector, 'createOwnedEvidenceCollector').mockReturnValue(collect);
+  const originalPersonalHost = personalHost.createPersonalSubscriptionHost;
+  const assertCurrent = vi.fn();
+  vi.spyOn(personalHost, 'createPersonalSubscriptionHost').mockImplementation((...args) => ({
+    ...originalPersonalHost(...args),
+    captureAdmissionProvider: () => ({
+      provider: {
+        name: 'retained-personal',
+        id: 'retained-id',
+        type: 'codex',
+        profileName: 'codex',
+      },
+      assertCurrent,
+    }),
+  }));
   const config = {
     version: 2,
     revision: 1,
@@ -333,9 +350,16 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
     Options: object;
     Labels: Record<string, string>;
   } | null = null;
+  let afterInspection: (() => Promise<void>) | undefined;
   const command = vi.fn(async (args: readonly string[]) => {
     if (args[1] === 'ls') return JSON.stringify(volume ? [volume] : []);
-    if (args[1] === 'inspect') return JSON.stringify([volume]);
+    if (args[1] === 'inspect') {
+      const result = JSON.stringify([volume]);
+      const hook = afterInspection;
+      afterInspection = undefined;
+      await hook?.();
+      return result;
+    }
     if (args[1] === 'create') {
       const labels: Record<string, string> = {};
       args.forEach((v, i) => {
@@ -354,6 +378,49 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
   const host = await createOwnedSymposiumHost(f.options, f.launch, undefined, command);
   try {
     expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+    const personalSelection = {
+      personalConnection: { connectionId: 'personal', expectedRevision: 3 },
+      sessionId: 'new-session',
+      allowedRoles: ['coder'],
+    };
+    const candidate = await host.collectAdmissionEvidence(personalSelection);
+    expect(candidate).toMatchObject({
+      providerInstances: [{ name: 'retained-personal', id: 'retained-id' }],
+      artifactVolume: { name: volume!.Name },
+    });
+    expect(assertCurrent).toHaveBeenCalled();
+    volume!.Labels['mitzo.symposium.session'] = 'wrong-session';
+    await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow();
+    expect(collect).toHaveBeenCalledTimes(1);
+    volume!.Labels['mitzo.symposium.session'] = 'new-session';
+    collect.mockImplementationOnce(async (selection) => {
+      vi.mocked(f.options.facts.getSession!).mockReturnValue({
+        sessionType: 'chat',
+        symposiumConfig: null,
+      } as never);
+      return selection as never;
+    });
+    await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow('draft');
+    vi.mocked(f.options.facts.getSession!).mockReturnValue({
+      sessionType: 'symposium',
+      symposiumConfig: JSON.stringify(config),
+    } as never);
+
+    collect.mockImplementationOnce(async (selection) => {
+      afterInspection = async () => {
+        volume!.Labels['mitzo.symposium.session'] = 'contradictory-session';
+        expect(await host.ensureSessionArtifacts('new-session')).toEqual({
+          state: 'recovery_required',
+        });
+        volume!.Labels['mitzo.symposium.session'] = 'new-session';
+      };
+      return selection as never;
+    });
+    await expect(host.collectAdmissionEvidence(personalSelection)).rejects.toThrow(
+      'readiness changed',
+    );
+    expect(await host.ensureSessionArtifacts('new-session')).toEqual({ state: 'ready' });
+
     const request = host.artifactRequest('new-session', 'seat', 2);
     await host.artifactLeaseHost.reserve(request);
     vi.mocked(f.options.facts.getSymposiumSeatSandbox).mockReturnValue({
