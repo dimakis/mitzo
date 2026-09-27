@@ -2,6 +2,7 @@ import { DiscoveryCommandFailure } from '../symposium-discovery-diagnostics.js';
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumModelDiscovery,
+  discoveryClaimLabel,
   DiscoveryNotDispatchedError,
   type DiscoveryOperations,
   type DiscoveryReceipt,
@@ -41,7 +42,7 @@ function fixture() {
               phase: 'Ready',
               labels: {
                 'mitzo.discovery': 'models',
-                'mitzo.discovery.claim': receipt!.claim,
+                'mitzo.discovery.claim': discoveryClaimLabel(receipt!.claim),
               },
             },
           ]
@@ -389,4 +390,14 @@ it('retains original native stage diagnosis after successful exact cleanup', asy
   });
   expect(f.receipt()).toBeUndefined();
   expect(JSON.stringify(result)).not.toContain('SECRET');
+});
+
+it('preserves every claim bit while producing valid upstream labels', () => {
+  for (const claim of ['0'.repeat(64), 'f'.repeat(64), 'fb'.repeat(32)]) {
+    const label = discoveryClaimLabel(claim);
+    expect(label.length).toBeLessThanOrEqual(63);
+    expect(label).toMatch(/^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$/);
+    expect(Buffer.from(label.slice(3, -2), 'base64url').toString('hex')).toBe(claim);
+  }
+  expect(() => discoveryClaimLabel('f'.repeat(63))).toThrow('Invalid discovery claim');
 });

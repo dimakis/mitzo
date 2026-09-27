@@ -139,6 +139,35 @@ it('creates the reviewed controller workspace rather than an unrelated discovery
   expect(args).toContain('--no-auto-providers');
 });
 
+it('encodes the full discovery claim within upstream label limits', async () => {
+  const { config, options } = fixture();
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const argv = args[1] as string[];
+    for (let i = 0; i < argv.length; i++) {
+      if (argv[i] !== '--label') continue;
+      const value = argv[i + 1].split('=')[1];
+      // Pinned upstream validate_label_value: max 63, alphanumeric ends.
+      if (value.length > 63 || !/^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(value)) {
+        queueMicrotask(() =>
+          (args[3] as (error: Error, stdout: string) => void)(new Error('invalid label'), ''),
+        );
+        return;
+      }
+    }
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  const claim = 'f'.repeat(64);
+  await createDiscoveryHostOperations(config, options).create(
+    { name: 'md-aaaaaaaaaaaaaaaa', claim, configHash: 'c'.repeat(64) },
+    config,
+  );
+  const argv = vi.mocked(execFile).mock.calls[0][1] as string[];
+  const label = argv.find((arg) => arg.startsWith('mitzo.discovery.claim='))!.split('=')[1];
+  expect(label.startsWith('v1.')).toBe(true);
+  expect(label.endsWith('.c')).toBe(true);
+  expect(Buffer.from(label.slice(3, -2), 'base64url').toString('hex')).toBe(claim);
+});
+
 const inventories = [
   ['sandboxes', 'list'],
   ['providers', 'providerInventory'],
