@@ -17,6 +17,9 @@ export function guardDiscoveryOperations(
       },
     ]),
   ) as unknown as DiscoveryOperations;
+  // This capability only removes an exact local journal under the host lock.
+  // Gateway custody is intentionally not required to undo an undispatched intent.
+  guarded.clearUndispatchedReceipt = operations.clearUndispatchedReceipt;
   guarded.openClient = async (receipt) => {
     check();
     const client = await operations.openClient(receipt);

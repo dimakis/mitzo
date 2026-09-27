@@ -46,6 +46,8 @@ export interface DiscoveryOperations {
   readReceipt(): Promise<unknown>;
   persistReceipt(receipt: DiscoveryReceipt, exclusive: boolean): Promise<void>;
   clearReceipt(): Promise<void>;
+  /** Local exact-journal cleanup, only after proven absence of external dispatch. */
+  clearUndispatchedReceipt?(receipt: DiscoveryReceipt): Promise<void>;
   list(): Promise<unknown>;
   create(
     receipt: DiscoveryReceipt,
@@ -113,8 +115,13 @@ async function runExclusiveDiscovery(
         claim: randomBytes(32).toString('hex'),
         configHash,
       };
-      await ops.persistReceipt(receipt, true);
-      await verify();
+      try {
+        await ops.persistReceipt(receipt, true);
+        await verify();
+      } catch {
+        // This local preflight precedes create; no external allocation was dispatched.
+        throw new DiscoveryNotDispatchedError('Custody preflight failed');
+      }
       await ops.create(receipt, config);
     }
     if (!resumed) {
@@ -198,7 +205,8 @@ async function runExclusiveDiscovery(
   } catch (error) {
     if (error instanceof DiscoveryNotDispatchedError && !resumed) {
       try {
-        await ops.clearReceipt();
+        if (receipt && ops.clearUndispatchedReceipt) await ops.clearUndispatchedReceipt(receipt);
+        else await ops.clearReceipt();
         receipt = undefined;
       } catch {
         /* retain reconciliation if journal cleanup fails */

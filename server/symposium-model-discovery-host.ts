@@ -164,6 +164,9 @@ export function createDiscoveryHostOperations(
       args,
       {},
     );
+  let activeAttempt = false;
+  let creationDispatched = false;
+  let assertAttemptLock: (() => Promise<void>) | undefined;
   return {
     async withExclusiveAttempt(operation) {
       privateDirectory(dirname(options.journal));
@@ -188,8 +191,18 @@ export function createDiscoveryHostOperations(
         } finally {
           await directory.close();
         }
+        activeAttempt = true;
+        creationDispatched = false;
+        assertAttemptLock = async () => {
+          const held = await lock.stat();
+          const current = await lstat(path);
+          if (held.ino !== current.ino || held.dev !== current.dev || current.isSymbolicLink())
+            throw new Error('Discovery journal ownership changed');
+        };
         return await operation();
       } finally {
+        activeAttempt = false;
+        assertAttemptLock = undefined;
         await release();
       }
     },
@@ -242,6 +255,29 @@ export function createDiscoveryHostOperations(
       if (!exclusive) await rename(destination, options.journal);
       await syncDirectory(dirname(options.journal));
     },
+    async clearUndispatchedReceipt(expected) {
+      if (!activeAttempt || creationDispatched || expected.id)
+        throw new Error('Undispatched journal proof required');
+      await assertAttemptLock!();
+      privateDirectory(dirname(options.journal));
+      const stat = await lstat(options.journal);
+      if (
+        !stat.isFile() ||
+        stat.isSymbolicLink() ||
+        stat.uid !== process.getuid?.() ||
+        (stat.mode & 0o777) !== 0o600
+      )
+        throw new Error('Unsafe discovery journal');
+      const actual = JSON.parse(await readFile(options.journal, 'utf8'));
+      if (JSON.stringify(actual) !== JSON.stringify(expected))
+        throw new Error('Discovery journal identity changed');
+      const current = await lstat(options.journal);
+      if (current.ino !== stat.ino || current.dev !== stat.dev || current.isSymbolicLink())
+        throw new Error('Discovery journal identity changed');
+      await assertAttemptLock!();
+      await unlink(options.journal);
+      await syncDirectory(dirname(options.journal));
+    },
     async clearReceipt() {
       await unlink(options.journal);
     },
@@ -280,7 +316,10 @@ export function createDiscoveryHostOperations(
           'mkdir -p /sandbox/workspaces/mgmt && exec sleep infinity',
         ],
         45000,
-        beforeDispatch,
+        () => {
+          beforeDispatch?.();
+          creationDispatched = true;
+        },
       );
     },
     async attachedProviders(receipt) {
