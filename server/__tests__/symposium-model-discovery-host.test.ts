@@ -394,13 +394,9 @@ it.each([false, true])(
         writeFileSync(options.journal, JSON.stringify({ ...receipt, claim: 'f'.repeat(64) }));
       current = false;
     };
-    const guarded = guardDiscoveryOperations(
-      base,
-      () => {
-        if (!current) throw new Error('custody changed');
-      },
-      { email: 'a@example.test', planType: 'plus' },
-    );
+    const guarded = guardDiscoveryOperations(base, () => {
+      if (!current) throw new Error('custody changed');
+    });
     await runSymposiumModelDiscovery(config, guarded);
     expect(!!(await base.readReceipt())).toBe(replaced);
     expect(execFile).not.toHaveBeenCalled();

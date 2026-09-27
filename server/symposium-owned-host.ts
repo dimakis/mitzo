@@ -345,14 +345,10 @@ export async function createOwnedSymposiumHost(
             custody();
           },
         });
-        const guarded = guardDiscoveryOperations(
-          operations,
-          () => {
-            custody();
-            proof.assertCurrent();
-          },
-          proof.account,
-        );
+        const guarded = guardDiscoveryOperations(operations, () => {
+          custody();
+          proof.assertCurrent();
+        });
         const fenced = fenceDiscoveryCreation(
           guarded,
           gateway.workspace,
@@ -379,14 +375,10 @@ export async function createOwnedSymposiumHost(
             const recoverExact = createSymposiumModelDiscoveryRecovery(config, receipt);
             recover = (check: () => void) =>
               workspaceLifecycle.cleanup(async () => {
-                const cleanup = guardDiscoveryOperations(
-                  operations,
-                  () => {
-                    custody();
-                    check();
-                  },
-                  proof.account,
-                );
+                const cleanup = guardDiscoveryOperations(operations, () => {
+                  custody();
+                  check();
+                });
                 return recoverExact(cleanup);
               });
           }

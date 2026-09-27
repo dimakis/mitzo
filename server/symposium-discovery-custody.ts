@@ -1,10 +1,14 @@
 import type { DiscoveryOperations } from './symposium-model-discovery.js';
 
-/** A retained host capability; a caller cannot substitute a provider or stale login receipt. */
+/** A retained host capability; a caller cannot substitute a provider or stale login receipt.
+ * `check` attests the OAuth-verified receipt and same gateway custody. The pinned
+ * upstream launcher uses a synthetic ID token, so native email/plan are display
+ * metadata, never account identity evidence. Provider name/ID/workspace and exact
+ * attachment are independently verified before this client is opened.
+ */
 export function guardDiscoveryOperations(
   operations: DiscoveryOperations,
   check: () => void,
-  expectedAccount: { email: string; planType: string },
 ): DiscoveryOperations {
   const guarded = Object.fromEntries(
     Object.entries(operations).map(([name, operation]) => [
@@ -41,15 +45,9 @@ export function guardDiscoveryOperations(
         const value = await client.request(method, params);
         check();
         if (method === 'account/read') {
-          const account = (
-            value as { account?: { type?: unknown; email?: unknown; planType?: unknown } }
-          )?.account;
-          if (
-            account?.type !== 'chatgpt' ||
-            account.email !== expectedAccount.email ||
-            account.planType !== expectedAccount.planType
-          )
-            throw new Error('Discovery account differs from verified receipt');
+          const account = (value as { account?: { type?: unknown } })?.account;
+          if (account?.type !== 'chatgpt')
+            throw new Error('Native discovery runtime is not authenticated with ChatGPT');
         }
         return value;
       },
