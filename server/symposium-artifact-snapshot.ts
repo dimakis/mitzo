@@ -129,6 +129,7 @@ export class ArtifactSnapshotObserver {
       })
       .immediate();
     let createAttempted = false;
+    let createCompleted = false;
     let manifest: ManifestEntry[];
     let initialLease: Awaited<ReturnType<SqliteArtifactLeaseHost['requireBoundSandboxLease']>>;
     const verify = async () => {
@@ -179,6 +180,7 @@ export class ArtifactSnapshotObserver {
         String(ARTIFACT_SNAPSHOT_LIMITS.bytes),
         String(ARTIFACT_SNAPSHOT_LIMITS.seconds),
       ]);
+      createCompleted = true;
       const output = await this.command(['start', '--attach', name]);
       const status = z
         .array(z.object({ State: z.object({ Running: z.literal(false), ExitCode: z.literal(0) }) }))
@@ -206,10 +208,14 @@ export class ArtifactSnapshotObserver {
       // Failure retains the durable reservation; a restart cannot silently retry.
       if (createAttempted) {
         await this.cleanup(name);
+        // A failed create response may precede a late remote commit. Removal now
+        // cannot establish that this reserved name will remain absent.
       }
-      this.db
-        .prepare('DELETE FROM artifact_snapshot_verifiers WHERE singleton=1 AND name=?')
-        .run(name);
+      if (!createAttempted || createCompleted) {
+        this.db
+          .prepare('DELETE FROM artifact_snapshot_verifiers WHERE singleton=1 AND name=?')
+          .run(name);
+      }
     }
     await verify();
     const receipt: ArtifactSnapshotObservation = {

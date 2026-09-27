@@ -88,3 +88,5 @@ The shared context is installed in owned-host lease construction only; no snapsh
 observer or route is automatically created. Cleanup uses the same retained command
 context as inspection and scanning. If custody is lost and cleanup cannot run, the
 durable verifier reservation remains for explicit reconciliation.
+
+An unconfirmed verifier-create response retains its durable reservation even if immediate removal succeeds. A delayed remote create can otherwise appear after removal; restart and retry remain blocked for host reconciliation.

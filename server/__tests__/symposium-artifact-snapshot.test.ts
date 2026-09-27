@@ -117,6 +117,25 @@ it('cleans an uncertain create and records no receipt', async () => {
   f.observer.close();
   f.host.close();
 });
+it('retains ambiguous create reservation after successful removal and a late create', async () => {
+  const f = await fixture();
+  let lateVerifierExists = false;
+  f.command.mockImplementation(async (args) => {
+    if (args[0] === 'create') throw Error('transport lost before response');
+    if (args[0] === 'rm') expect(lateVerifierExists).toBe(false);
+    return '';
+  });
+  await expect(f.observer.observe(f.input)).rejects.toThrow();
+  lateVerifierExists = true;
+  f.observer.close();
+  const restarted = new ArtifactSnapshotObserver(f.options);
+  f.command.mockClear();
+  await expect(restarted.observe(f.input)).rejects.toThrow('reconciliation');
+  expect(f.command).not.toHaveBeenCalled();
+  expect(restarted.list()).toEqual([]);
+  restarted.close();
+  f.host.close();
+});
 it('quarantines failed cleanup durably across restart', async () => {
   const f = await fixture();
   f.command.mockImplementation(async (args) => {
