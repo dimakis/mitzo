@@ -18,7 +18,7 @@ it('fixed Claude launcher validates projection and strips inherited auth endpoin
     VERTEX_AI_REGION: 'global',
     GOOGLE_VERTEX_AI_TOKEN: 'openshell:resolve:env:GOOGLE_VERTEX_AI_TOKEN',
   };
-  const run = (env: Record<string, string>) =>
+  const run = (env: NodeJS.ProcessEnv) =>
     spawnSync('/bin/sh', ['-eu', '-c', script, '--', 'project-1', 'global', '--version'], {
       encoding: 'utf8',
       env,

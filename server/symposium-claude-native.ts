@@ -97,11 +97,12 @@ export function claudeVertexArgv(route: ClaudeRoute, input: SymposiumSeatExecuti
   ];
 }
 
-export type ClaudeVertexEvent =
+export type ClaudeVertexEvent = (
   | { kind: 'init'; threadId: string }
   | { kind: 'assistant'; threadId: string; turnId: string; text: string }
   | { kind: 'native'; threadId: string; turnId?: string }
-  | { kind: 'result'; threadId: string; success: boolean; costUsd?: number };
+  | { kind: 'result'; threadId: string; success: boolean; costUsd?: number }
+) & { model?: unknown };
 
 /** System init alone does not prove the prompt reached the provider. */
 export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undefined {
@@ -109,7 +110,8 @@ export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undef
   const data = value as Record<string, unknown>;
   const threadId = data.session_id;
   if (typeof threadId !== 'string' || !threadId) return undefined;
-  if (data.type === 'system' && data.subtype === 'init') return { kind: 'init', threadId };
+  if (data.type === 'system' && data.subtype === 'init')
+    return { kind: 'init', threadId, ...(data.model !== undefined ? { model: data.model } : {}) };
   if (data.type === 'stream_event') {
     const event = data.event;
     const stream = event && typeof event === 'object' ? (event as Record<string, unknown>) : {};
@@ -120,6 +122,9 @@ export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undef
       kind: 'native',
       threadId,
       ...(stream.type === 'message_start' && typeof id === 'string' && id ? { turnId: id } : {}),
+      ...(message && typeof message === 'object' && 'model' in message
+        ? { model: message.model }
+        : {}),
     };
   }
   if (
@@ -145,7 +150,13 @@ export function readClaudeVertexEvent(value: unknown): ClaudeVertexEvent | undef
       )
       .map((block) => block.text)
       .join('');
-    return { kind: 'assistant', threadId, turnId: id, text };
+    return {
+      kind: 'assistant',
+      threadId,
+      turnId: id,
+      text,
+      ...('model' in message ? { model: message.model } : {}),
+    };
   }
   if (data.type === 'result') {
     const cost = data.total_cost_usd;
@@ -173,6 +184,8 @@ export interface ClaudeVertexSeatInput {
   attemptRegistry?: SymposiumAttemptRegistry;
   /** Complete eligible same-seat history from the trusted EventStore owner. */
   loadConversationHistory?: () => readonly { role: 'user' | 'assistant'; text: string }[];
+  /** Required by the reviewed owned Claude variant; legacy adapters stay unavailable. */
+  requireModelReceipts?: boolean;
   spawnProcess?: (spec: ReturnType<typeof openShellSshArgvProcessSpec>) => ClaudeProcess;
   onEvent?: (event: Record<string, unknown>) => void;
 }
@@ -274,6 +287,21 @@ export async function createClaudeVertexSeat(
               }
               const event = readClaudeVertexEvent(value);
               if (event) {
+                const modelBearing =
+                  event.kind === 'init' ||
+                  event.kind === 'assistant' ||
+                  (event.kind === 'native' && !!event.turnId);
+                // Exact provider IDs for the same dated model, not floating aliases.
+                // https://platform.claude.com/docs/en/about-claude/models/overview
+                const modelMatches =
+                  event.model === route.model ||
+                  (route.model === 'claude-haiku-4-5@20251001' &&
+                    event.model === 'claude-haiku-4-5-20251001');
+                if (
+                  (event.model !== undefined || (input.requireModelReceipts && modelBearing)) &&
+                  !modelMatches
+                )
+                  return fail();
                 if (
                   event.threadId !== expectedThreadId ||
                   (threadId && threadId !== event.threadId)

@@ -29,6 +29,7 @@ const route = {
   projectId: 'project-1',
   region: 'global',
   readOnly: true,
+  effort: null,
 };
 const sandbox = {
   sandboxName: 'seat',
@@ -110,20 +111,25 @@ it('binds planned fresh claim identity and sends complete history only as untrus
     claudeVertexArgv(route, { ...execution, providerThreadId: undefined, claimToken: 'claim-3' }),
   ).not.toEqual(argv);
 });
-it.each([[], [{ role: 'user' as const, text: 'x'.repeat(65537) }]])(
-  'refuses unavailable or oversized complete history',
-  async (history) => {
-    await expect(
-      createClaudeVertexSeat({
-        sandbox,
-        route,
-        execution,
-        loadConversationHistory: () => history,
-        spawnProcess: vi.fn(),
-      }),
-    ).rejects.toThrow(/continuity/i);
+it.each([
+  { history: [] },
+  {
+    history: [
+      { role: 'user' as const, text: 'x'.repeat(65537) },
+      { role: 'assistant' as const, text: 'done' },
+    ],
   },
-);
+])('refuses unavailable or oversized complete history', async ({ history }) => {
+  await expect(
+    createClaudeVertexSeat({
+      sandbox,
+      route,
+      execution,
+      loadConversationHistory: () => history,
+      spawnProcess: vi.fn(),
+    }),
+  ).rejects.toThrow(/continuity/i);
+});
 it('rejects changed history before planned migration', async () => {
   const history = [
     { role: 'user' as const, text: 'Prior' },
@@ -140,4 +146,85 @@ it('rejects changed history before planned migration', async () => {
   expect(() => native.verifyThreadMigration!('prior-native', next)).not.toThrow();
   history[1].text = 'Changed';
   expect(() => native.verifyThreadMigration!('prior-native', next)).toThrow();
+});
+
+it.each(['claude-other', 'claude-haiku-4-5', undefined])(
+  'rejects wrong or absent required native model %j before acceptance',
+  async (model) => {
+    const child = process();
+    const current = { ...execution, providerThreadId: undefined };
+    const native = await createClaudeVertexSeat({
+      sandbox,
+      route: { ...route, model: 'claude-haiku-4-5@20251001' },
+      execution: current,
+      requireModelReceipts: true,
+      spawnProcess: () => child,
+    });
+    const accepted = vi.fn();
+    const run = native.run(current, { beforeDispatch: vi.fn(), accepted });
+    const rejection = expect(run).rejects.toThrow(/failed|uncertain/);
+    const thread = claudeVertexArgv({ ...route, model: 'claude-haiku-4-5@20251001' }, current).at(
+      -1,
+    )!;
+    child.stdout.write(
+      JSON.stringify({ type: 'system', subtype: 'init', session_id: thread, model }) + '\n',
+    );
+    child.stdout.write(
+      JSON.stringify({
+        type: 'assistant',
+        session_id: thread,
+        message: {
+          id: 'turn',
+          model: 'claude-haiku-4-5-20251001',
+          content: [{ type: 'text', text: 'invalid init must not pass' }],
+        },
+      }) + '\n',
+    );
+    child.stdout.write(
+      JSON.stringify({ type: 'result', session_id: thread, is_error: false }) + '\n',
+    );
+    child.emit('close', 0);
+    await rejection;
+    expect(accepted).not.toHaveBeenCalled();
+  },
+);
+it('recognizes only the documented dated Haiku request/response IDs and rejects a later mismatch', async () => {
+  const child = process();
+  const current = { ...execution, providerThreadId: undefined };
+  const routed = { ...route, model: 'claude-haiku-4-5@20251001' };
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route: routed,
+    execution: current,
+    requireModelReceipts: true,
+    spawnProcess: () => child,
+  });
+  const accepted = vi.fn();
+  const run = native.run(current, { beforeDispatch: vi.fn(), accepted });
+  const rejection = expect(run).rejects.toThrow(/failed|uncertain/);
+  const thread = claudeVertexArgv(routed, current).at(-1)!;
+  child.stdout.write(
+    JSON.stringify({ type: 'system', subtype: 'init', session_id: thread, model: routed.model }) +
+      '\n',
+  );
+  child.stdout.write(
+    JSON.stringify({
+      type: 'stream_event',
+      session_id: thread,
+      event: { type: 'message_start', message: { id: 'turn', model: 'claude-haiku-4-5-20251001' } },
+    }) + '\n',
+  );
+  expect(accepted).toHaveBeenCalledWith(thread, 'turn');
+  child.stdout.write(
+    JSON.stringify({
+      type: 'assistant',
+      session_id: thread,
+      message: { id: 'turn', model: 'claude-other', content: [{ type: 'text', text: 'wrong' }] },
+    }) + '\n',
+  );
+  child.stdout.write(
+    JSON.stringify({ type: 'result', session_id: thread, is_error: false }) + '\n',
+  );
+  child.emit('close', 0);
+  await rejection;
 });
