@@ -263,3 +263,50 @@ it('fences an uncertain-ready-uncertain ABA cycle by revision, not state', async
   expect(await stale).toEqual({ state: 'recovery_required' });
   expect(f.store.getReady('session')).toBeNull();
 });
+it('converges concurrent successful inspections on the current ready mapping', async () => {
+  const f = fixture();
+  await f.store.ensure('session');
+  const mapping = f.store.getReady('session')!;
+  const volume = f.volumes.get(mapping.volumeName)!;
+  const pending: ((v: ArtifactVolumeEvidence) => void)[] = [];
+  f.host.inspect.mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  const first = f.store.ensure('session');
+  const second = other.ensure('session');
+  pending[0](volume);
+  expect(await first).toEqual({ state: 'ready' });
+  pending[1](volume);
+  expect(await second).toEqual({ state: 'ready' });
+});
+it('reports ready when retry verifies creation before the original command returns', async () => {
+  const f = fixture();
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  f.host.create.mockImplementationOnce(async (name, labels) => {
+    f.volumes.set(name, { name, labels, driver: 'local', options: {} });
+    await pending;
+  });
+  const first = f.store.ensure('session');
+  await vi.waitFor(() => expect(f.host.create).toHaveBeenCalledOnce());
+  const other = new SymposiumSessionArtifacts(
+    join(f.root, 'db'),
+    'workspace',
+    'custody',
+    f.custody,
+    f.host,
+  );
+  cleanup.push(() => other.close());
+  expect(await other.ensure('session')).toEqual({ state: 'ready' });
+  finish();
+  expect(await first).toEqual({ state: 'ready' });
+  expect(f.host.create).toHaveBeenCalledOnce();
+});
