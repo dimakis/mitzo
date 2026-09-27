@@ -1,4 +1,7 @@
-import { ARTIFACT_GIT_EXPORT } from './symposium-artifact-git-export.js';
+import {
+  ARTIFACT_GIT_EXPORT,
+  ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+} from './symposium-artifact-git-export.js';
 import type { GithubSandboxInspection } from './connections/capabilities/github-publish-pr.js';
 import { assertSessionArtifactVolume } from './symposium-session-artifacts.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
@@ -10,7 +13,10 @@ import type { SymposiumSeatSandboxRecord } from '@mitzo/protocol/event-store';
 import { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
-import { drainSymposiumRuntimeForArtifactSeal } from './symposium-session-runtime.js';
+import {
+  assertSymposiumRuntimeForArtifactSeal,
+  drainSymposiumRuntimeForArtifactSeal,
+} from './symposium-session-runtime.js';
 import { OpenShellRuntimeManager, type OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { TESTED_SYMPOSIUM_NATIVE_BUILD } from './symposium-production-gate.js';
 import { ARTIFACT_GIT_VERIFIER } from './symposium-artifact-git-verifier.js';
@@ -348,7 +354,9 @@ export class PhysicalArtifactSealer {
     let id: string | undefined;
     let helperDeleted = false;
     const outputLimit =
-      input.kind === 'bundle' ? Math.ceil((input.maxBytes! * 4) / 3) + 16384 : 128 * 1024;
+      input.kind === 'bundle'
+        ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
+        : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
     const verify = async () => {
       const found: unknown = JSON.parse(await this.command(['inspect', id!]));
       if (!Array.isArray(found) || found.length !== 1)
@@ -484,6 +492,7 @@ export class PhysicalArtifactSealer {
     signal.throwIfAborted();
     await this.custody();
     const { store, leaseHost, gateway } = this.deps;
+    assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, input.sessionId);
     const custodyDigest = hash(gateway.stateDirectory);
     const config = store.getActiveSymposiumConfig(input.sessionId);
     if (config.version !== 2 || config.revision !== input.expectedConfigRevision)

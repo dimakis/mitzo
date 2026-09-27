@@ -1,16 +1,19 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { ARTIFACT_GIT_VERIFIER } from '../symposium-artifact-git-verifier.js';
-import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
+import {
+  ARTIFACT_GIT_EXPORT,
+  ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
+} from '../symposium-artifact-git-export.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(populate?: (root: string) => void) {
   const root = mkdtempSync(join(tmpdir(), 'sealed-git-export-'));
   roots.push(root);
   const git = (...args: string[]) =>
@@ -26,6 +29,7 @@ function fixture() {
   git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
   git('checkout', '-qb', 'feature');
   writeFileSync(join(root, 'feature.txt'), 'FEATURE');
+  populate?.(root);
   git('add', '.');
   git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'feature');
   const python = (code: string, args: string[]) =>
@@ -39,7 +43,7 @@ function fixture() {
           '.',
           ...args,
         ],
-        { stdio: 'pipe' },
+        { stdio: 'pipe', maxBuffer: ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES },
       ).toString(),
     );
   const proof = python(ARTIFACT_GIT_VERIFIER, []);
@@ -114,3 +118,18 @@ it('does not emit credential-bearing origin metadata or export dirty contents', 
     }),
   ).toThrow();
 });
+
+it('transports a real Git inspection with long Unicode paths and JSON expansion', () => {
+  const paths = Array.from(
+    { length: 499 },
+    (_, i) => `${'é'.repeat(60)}/${'é'.repeat(60)}/${i}${'é'.repeat(60)}`,
+  );
+  const f = fixture((root) => {
+    mkdirSync(join(root, 'é'.repeat(60), 'é'.repeat(60)), { recursive: true });
+    for (const path of paths) writeFileSync(join(root, path), 'x');
+  });
+  const result = f.run({ kind: 'inspect' });
+  expect(result.inspection.changedFiles).toHaveLength(500);
+  expect(result.inspection.changedFiles).toContain(paths[498]);
+  expect(Buffer.byteLength(JSON.stringify(result))).toBeGreaterThan(128 * 1024);
+}, 60_000);

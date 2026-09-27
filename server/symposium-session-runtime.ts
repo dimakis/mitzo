@@ -1241,13 +1241,12 @@ const sealRuntimeBindings = new WeakMap<
   }
 >();
 /** Accept only a runtime created here, bound to this exact host/store/session. */
-export async function drainSymposiumRuntimeForArtifactSeal(
+export function assertSymposiumRuntimeForArtifactSeal(
   runtime: object,
   store: EventStore,
   leaseHost: unknown,
   sessionId: string,
-  signal: AbortSignal,
-): Promise<void> {
+): void {
   const binding = sealRuntimeBindings.get(runtime);
   if (
     !binding ||
@@ -1256,7 +1255,17 @@ export async function drainSymposiumRuntimeForArtifactSeal(
     binding.sessionId !== sessionId
   )
     throw new Error('Artifact seal runtime custody is unavailable');
-  await binding.drain(signal);
+}
+
+export async function drainSymposiumRuntimeForArtifactSeal(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  sessionId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, sessionId);
+  await sealRuntimeBindings.get(runtime)!.drain(signal);
 }
 
 export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps) {

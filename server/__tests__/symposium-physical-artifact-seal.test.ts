@@ -84,7 +84,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   for (const fn of cleanups.splice(0).reverse()) fn();
 });
-async function fixture() {
+async function fixture(inspectionPaths = ['file']) {
   const root = mkdtempSync(join(tmpdir(), 'physical-seal-'));
   cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const store = new EventStore(join(root, 'events.db'));
@@ -155,7 +155,7 @@ async function fixture() {
     stateDirectory: join(root, 'gateway-first'),
     verifyCustodyAsync: vi.fn(async () => {}),
   };
-  const command = vi.fn(async (args: readonly string[]) => {
+  const command = vi.fn(async (args: readonly string[], _maxOutputBytes?: number) => {
     if (args[0] === 'volume')
       return JSON.stringify([
         {
@@ -220,7 +220,7 @@ async function fixture() {
             defaultBranch: 'main',
             originUrl: 'https://github.com/example/repo',
             commitsAhead: 1,
-            changedFiles: ['file'],
+            changedFiles: inspectionPaths,
             sourceBranchProtected: false,
             symlinkFree: true,
           },
@@ -377,12 +377,31 @@ it.each(['failCreate', 'failDelete', 'extraMount'] as const)(
     expect(() => f.store.assertSymposiumArtifactWorkAllowed('symposium')).toThrow(/fenced/);
   },
 );
-it('rejects an invented runtime capability before physical verifier dispatch', async () => {
+it('rejects invented runtime custody without changing any ledger or fencing work', async () => {
   const f = await fixture();
+  const snapshot = () =>
+    ['events.db', 'leases.db'].map((file) => {
+      const db = new Database(join(f.root, file));
+      try {
+        return (
+          db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all() as {
+            name: string;
+          }[]
+        ).map(({ name }) => [
+          name,
+          db.prepare('SELECT * FROM "' + name.replaceAll('"', '""') + '"').all(),
+        ]);
+      } finally {
+        db.close();
+      }
+    });
+  const before = snapshot();
   await expect(f.sealer.seal(f.input, {}, new AbortController().signal)).rejects.toThrow(
     /runtime custody/,
   );
   expect(f.command.mock.calls.some(([args]) => args[0] === 'create')).toBe(false);
+  expect(snapshot()).toEqual(before);
+  expect(() => f.store.assertSymposiumArtifactWorkAllowed('symposium')).not.toThrow();
 });
 
 it('retains an uncertain verifier create journal across database reopen without a completion receipt', async () => {
@@ -529,4 +548,18 @@ it('records confirmed deletion when final export custody revalidation fails', as
   await expect(
     f.sealer.inspectCompletedArtifact(input, new AbortController().signal),
   ).resolves.toMatchObject({ sourceOid: receipt.git.commit });
+});
+
+it('transports permitted long Unicode inspection paths above the old 128 KiB ceiling', async () => {
+  const paths = Array.from({ length: 499 }, (_, i) => `${'é'.repeat(180)}/${i}`);
+  const f = await fixture(paths);
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const inspection = await f.sealer.inspectCompletedArtifact(
+    { fenceId: receipt.fenceId, operationId: 'large-inspection', baseBranch: 'main' },
+    new AbortController().signal,
+  );
+  expect(inspection.changedFiles).toEqual(paths);
+  expect(f.command.mock.calls.filter(([args]) => args[0] === 'start').at(-1)?.[1]).toBeGreaterThan(
+    Buffer.byteLength(JSON.stringify(inspection)),
+  );
 });

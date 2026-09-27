@@ -1,4 +1,7 @@
 import { ARTIFACT_GIT_VERIFIER_CORE } from './symposium-artifact-git-verifier.js';
+// Shared producer/transport ceiling includes JSON escaping and the trailing newline.
+// The 1 MiB committed tree can expand roughly threefold under Python's ASCII JSON encoding.
+export const ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 /** Entire script runs inside the pinned, credential-free read-only helper. */
 export const ARTIFACT_GIT_EXPORT =
   ARTIFACT_GIT_VERIFIER_CORE +
@@ -34,7 +37,9 @@ for raw in git('diff-tree','--no-commit-id','--name-only','--no-ext-diff','--no-
  if len(paths)>500: raise ValueError('changed path bound')
 inspection={'canonicalRepositoryPath':repo,'status':'clean','sourceBranch':source_branch,'sourceOid':commit,'defaultBranch':default_branch,'originUrl':origin,'commitsAhead':count,'changedFiles':sorted(paths,key=lambda p:p.encode('utf-8')),'sourceBranchProtected':False,'symlinkFree':True}
 if options['kind']=='inspect':
- print(json.dumps({'inspection':inspection,'proof':proof},sort_keys=True))
+ encoded=json.dumps({'inspection':inspection,'proof':proof},sort_keys=True)+'\n'
+ if len(encoded.encode('utf-8'))>${ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES}: raise ValueError('inspection byte bound')
+ sys.stdout.write(encoded)
 elif options['kind']=='bundle':
  if source_branch!=options['sourceBranch'] or commit!=options['sourceOid']: raise ValueError('export selection changed')
  limit=options['maxBytes']

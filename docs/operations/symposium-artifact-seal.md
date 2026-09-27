@@ -123,7 +123,10 @@ cleanup, then revalidate custody and the durable session snapshot. Unknown creat
 outcomes and uncertain cleanup block subsequent export; no retry clears evidence.
 
 Inspection requires existing local origin base/default refs and a credential-free
-GitHub origin URL. It never fetches missing refs. Bundle output is bounded to at
+GitHub origin URL. It never fetches missing refs. Inspection JSON, including Unicode
+escaping and its trailing newline, has a shared 4 MiB producer/transport ceiling.
+Runtime binding is checked before a seal intent, retention lock or job is persisted;
+an invalid runtime leaves the ledgers and work admission unchanged. Bundle output is bounded to at
 most 8 MiB, hash checked before the journal completes, and returned only after
 cleanup. The inspection's branch-protection placeholder is not policy authority;
 the eventual publication host must independently resolve protected/default branch
@@ -131,10 +134,11 @@ policy and operator-selected GitHub authority. No live writer identity is invent
 
 This increment is local, not an enabled review/publication route. Offline real-Git
 and mocked host-boundary tests cover inspection, bundle verification, size and
-identity rejection, unknown create and failed cleanup. An exact combined-source physical proof at `47c93c79` exercised the unchanged
+identity rejection, unknown create and failed cleanup. An exact combined-source physical proof at `47c93c79` exercised the then-current
 verifier and exporter scripts on the canonical target using the pinned image:
 two synthetic commits, matching inspection, a hash-checked 402-byte bundle, and
 physical rejection of a 16-byte cap. Helpers and the disposable volume were
-removed. This proves those scripts, not full host drain-to-seal-to-export wiring.
+removed. This proves that earlier script revision, not full host drain-to-seal-to-export wiring.
+The runtime preflight and 4 MiB inspection changes have local regression evidence only.
 Earlier target-projected evidence is not used for this claim. Child artifact generations will require a reviewed generation-scoped
 parent lookup; current snapshot checks intentionally remain strict.
