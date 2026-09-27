@@ -208,9 +208,20 @@ it('waits for allocation and physical cancellation before allowing another devic
     .send({ attemptId: pending.attemptId })
     .then((response) => response);
   await vi.waitFor(async () =>
-    expect((await request(app).get('/status')).body.state).toBe('cancelled'),
+    expect((await request(app).get('/status')).body.state).toBe('pending'),
   );
   expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
+  let secondFinished = false;
+  const secondCancel = request(app)
+    .post('/cancel')
+    .send({ attemptId: pending.attemptId })
+    .then((response) => {
+      secondFinished = true;
+      return response;
+    });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(secondFinished).toBe(false);
+  expect((await request(app).get('/status')).body.state).toBe('pending');
   allocate({
     verificationUrl: 'https://auth.openai.com/codex/device',
     userCode: 'ABCD-1234',
@@ -222,6 +233,7 @@ it('waits for allocation and physical cancellation before allowing another devic
   await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
   expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
   reaped();
+  expect((await secondCancel).body.state).toBe('cancelled');
   expect((await cancelling).body.state).toBe('cancelled');
   expect((await request(app).get('/status')).body.state).toBe('cancelled');
 });
@@ -325,4 +337,101 @@ it('returns only verified display identity from an already completed device star
     account: { email: 'verified@example.invalid', planType: 'pro', label: 'Personal' },
   });
   expect(JSON.stringify(status.body)).not.toMatch(/secret|ABCD|access_token/);
+});
+
+it.each([
+  ['cancel', true],
+  ['expire', true],
+  ['cancel', false],
+  ['expire', false],
+] as const)(
+  'handles allocation failure during %s with confirmed cleanup %s',
+  async (action, clean) => {
+    const { createSubscriptionLoginController } =
+      await import('../symposium-subscription-login-route.js');
+    let reject!: (error: Error) => void;
+    const beginDeviceLogin = vi.fn(
+      () =>
+        new Promise((_resolve, fail) => {
+          reject = fail;
+        }),
+    );
+    const controller = createSubscriptionLoginController(() => ({
+      beginDeviceLogin: beginDeviceLogin as never,
+    }));
+    const app = express();
+    app.use(express.json());
+    app.post('/login', controller.start);
+    app.get('/status', controller.status);
+    app.post('/cancel', controller.cancel);
+    const starting = request(app)
+      .post('/login')
+      .send({ method: 'device-code' })
+      .then((r) => r);
+    await vi.waitFor(() => expect(beginDeviceLogin).toHaveBeenCalledOnce());
+    const pending = (await request(app).get('/status')).body;
+    const now = vi.spyOn(Date, 'now');
+    if (action === 'expire') now.mockReturnValue(pending.expiresAt + 1);
+    const stopping = (
+      action === 'cancel'
+        ? request(app).post('/cancel').send({ attemptId: pending.attemptId })
+        : request(app).get('/status')
+    ).then((r) => r);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const { DeviceLoginCleanupError } = await import('../symposium-device-login.js');
+    reject(
+      clean
+        ? new Error('Allocation failed after confirmed cleanup')
+        : new DeviceLoginCleanupError(),
+    );
+    expect((await starting).status).toBe(503);
+    expect((await stopping).body).toMatchObject({
+      state: clean ? (action === 'cancel' ? 'cancelled' : 'expired') : 'unknown',
+      ...(!clean ? { retryBlocked: true } : {}),
+    });
+    now.mockRestore();
+    beginDeviceLogin.mockRejectedValue(new Error('Clean allocation failure'));
+    expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(
+      clean ? 503 : 409,
+    );
+    expect(beginDeviceLogin).toHaveBeenCalledTimes(clean ? 2 : 1);
+  },
+);
+
+it('keeps concurrent cancellation pending until cleanup failure is known', async () => {
+  const { createSubscriptionLoginController } =
+    await import('../symposium-subscription-login-route.js');
+  let fail!: (error: Error) => void;
+  const cancel = vi.fn(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  const controller = createSubscriptionLoginController(() => ({
+    beginDeviceLogin: async () => ({
+      verificationUrl: 'https://auth.openai.com/codex/device',
+      userCode: 'ABCD-1234',
+      expiresAt: Date.now() + 60000,
+      completed: new Promise(() => {}),
+      cancel,
+    }),
+  }));
+  const app = express();
+  app.use(express.json());
+  app.post('/login', controller.start);
+  app.get('/status', controller.status);
+  app.post('/cancel', controller.cancel);
+  const started = (await request(app).post('/login').send({ method: 'device-code' })).body;
+  const stopping = request(app)
+    .post('/cancel')
+    .send({ attemptId: started.attemptId })
+    .then((r) => r);
+  await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+  const pending = (await request(app).get('/status')).body;
+  expect(pending.state).toBe('pending');
+  expect(pending).not.toHaveProperty('userCode');
+  fail(new Error('Cleanup unconfirmed'));
+  expect((await stopping).body).toMatchObject({ state: 'unknown', retryBlocked: true });
+  expect((await request(app).post('/login').send({ method: 'device-code' })).status).toBe(409);
 });

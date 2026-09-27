@@ -60,6 +60,8 @@ export function createSubscriptionLoginController(
   let owner: string | undefined;
   let cancelLogin: (() => void | Promise<void>) | undefined;
   let cancelling = false;
+  let cleanupPending: Promise<void> | undefined;
+  let allocationFailedCleanly = false;
   let quarantined = false;
   let allocated: Promise<void> = Promise.resolve();
   let allocatedDone = () => {};
@@ -69,25 +71,35 @@ export function createSubscriptionLoginController(
     if (attempt.state !== 'pending' && Date.now() >= receiptDeadline)
       return { state: 'unknown', ...(quarantined ? { retryBlocked: true } : {}) };
     const { verificationUrl, userCode, ...receipt } = attempt;
-    return attempt.state === 'pending'
+    return attempt.state === 'pending' && !cancelling
       ? { ...receipt, ...(verificationUrl ? { verificationUrl, userCode } : {}) }
       : { ...receipt, ...(quarantined ? { retryBlocked: true } : {}) };
+  };
+  const cleanupAttempt = (terminal: 'cancelled' | 'expired'): Promise<void> => {
+    if (cleanupPending) return cleanupPending;
+    const current = attempt;
+    if (!current || current.state !== 'pending') return Promise.resolve();
+    cancelling = true;
+    cleanupPending = (async () => {
+      try {
+        await allocated;
+        if (cancelLogin) await cancelLogin();
+        else if (!allocationFailedCleanly) throw new Error('Cancellation unavailable');
+        current.state = quarantined ? 'unknown' : terminal;
+      } catch {
+        current.state = 'unknown';
+        quarantined = true;
+      } finally {
+        cancelling = false;
+        cleanupPending = undefined;
+      }
+    })();
+    return cleanupPending;
   };
   const expire = async () => {
     if (attempt?.state !== 'pending' || !attempt.expiresAt || Date.now() < attempt.expiresAt)
       return;
-    attempt.state = 'expired';
-    cancelling = true;
-    try {
-      await allocated;
-      if (!cancelLogin) throw new Error('Cancellation unavailable');
-      await cancelLogin();
-    } catch {
-      attempt.state = 'unknown';
-      quarantined = true;
-    } finally {
-      cancelling = false;
-    }
+    await cleanupAttempt('expired');
   };
 
   const status: RequestHandler = async (req, res) => {
@@ -149,6 +161,7 @@ export function createSubscriptionLoginController(
     attempt = current;
     owner = authenticatedOwner;
     cancelLogin = undefined;
+    allocationFailedCleanly = false;
     try {
       const host = getHost();
       if (device ? !host?.beginDeviceLogin : !host?.beginLogin) throw new Error('Unavailable');
@@ -156,7 +169,7 @@ export function createSubscriptionLoginController(
       cancelLogin = login.cancel;
       allocatedDone();
       void login.completed.catch(() => undefined);
-      if (device && attempt?.state === 'pending') {
+      if (device && attempt?.state === 'pending' && !cancelling) {
         const selected = login as DeviceLogin;
         if (
           selected.verificationUrl !== 'https://auth.openai.com/codex/device' ||
@@ -195,7 +208,11 @@ export function createSubscriptionLoginController(
                   label: verified.binding.accountLabel,
                 }
               : undefined;
-          if (attempt?.attemptId === current.attemptId && attempt.state === 'pending')
+          if (
+            attempt?.attemptId === current.attemptId &&
+            attempt.state === 'pending' &&
+            !cancelling
+          )
             attempt = {
               ...attempt,
               ...(account && (!attempt.expiresAt || Date.now() < attempt.expiresAt)
@@ -206,7 +223,11 @@ export function createSubscriptionLoginController(
         },
         (error) => {
           if (error instanceof DeviceLoginCleanupError) quarantined = true;
-          if (attempt?.attemptId === current.attemptId && attempt.state === 'pending')
+          if (
+            attempt?.attemptId === current.attemptId &&
+            attempt.state === 'pending' &&
+            !cancelling
+          )
             attempt = {
               ...attempt,
               state: quarantined
@@ -228,9 +249,12 @@ export function createSubscriptionLoginController(
         ...callbackWorkflow,
       });
     } catch (error) {
+      // The native adapter rejects ordinary allocation failures only after process and home cleanup;
+      // cleanup uncertainty is preserved as DeviceLoginCleanupError by the host wrapper.
+      allocationFailedCleanly = !cancelLogin && !(error instanceof DeviceLoginCleanupError);
       allocatedDone();
       if (error instanceof DeviceLoginCleanupError) quarantined = true;
-      if (attempt?.attemptId === current.attemptId && attempt.state === 'pending')
+      if (attempt?.attemptId === current.attemptId && attempt.state === 'pending' && !cancelling)
         attempt = { ...attempt, state: quarantined ? 'unknown' : 'failed' };
       res.status(503).json({
         error: device
@@ -249,18 +273,7 @@ export function createSubscriptionLoginController(
       res.json(publicReceipt());
       return;
     }
-    attempt.state = 'cancelled';
-    cancelling = true;
-    try {
-      await allocated;
-      if (!cancelLogin) throw new Error('Cancellation unavailable');
-      await cancelLogin();
-    } catch {
-      attempt.state = 'unknown';
-      quarantined = true;
-    } finally {
-      cancelling = false;
-    }
+    await cleanupAttempt('cancelled');
     res.json(publicReceipt());
   };
   return { start, status, cancel };
