@@ -346,6 +346,7 @@ export class PhysicalArtifactSealer {
       })
       .immediate();
     let id: string | undefined;
+    let helperDeleted = false;
     const outputLimit =
       input.kind === 'bundle' ? Math.ceil((input.maxBytes! * 4) / 3) + 16384 : 128 * 1024;
     const verify = async () => {
@@ -436,6 +437,7 @@ export class PhysicalArtifactSealer {
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
         .run(jobId);
       await cleanup();
+      helperDeleted = true;
       id = undefined;
       const current = await this.requireCompleted(input.fenceId, signal);
       if (JSON.stringify(current) !== JSON.stringify(receipt))
@@ -450,6 +452,13 @@ export class PhysicalArtifactSealer {
       });
       return value;
     } catch {
+      if (helperDeleted) {
+        this.db
+          .prepare(
+            "UPDATE symposium_seal_export_jobs SET state='failed_cleaned' WHERE job_id=? AND state='terminal'",
+          )
+          .run(jobId);
+      }
       if (id) {
         try {
           await cleanup();

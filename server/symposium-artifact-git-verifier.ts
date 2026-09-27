@@ -30,7 +30,9 @@ commit=git('rev-parse','--verify','HEAD^{commit}').decode().strip()
 tree=git('rev-parse','--verify',commit+'^{tree}').decode().strip()
 if len(commit) not in (40,64) or any(c not in '0123456789abcdef' for c in commit+tree) or len(tree)!=len(commit): raise ValueError('git oid')
 manifest=[]; total=0; tracked=set()
-for row in git('ls-tree','-r','-z','--full-tree',commit).split(b'\0'):
+tree_output=git('ls-tree','-r','-z','--full-tree',commit)
+if len(tree_output)>1048576 or '\ufffd' in tree_output.decode('utf-8','strict'): raise ValueError('unsupported committed tree')
+for row in tree_output.split(b'\0'):
  if not row: continue
  meta, rawpath=row.split(b'\t',1); mode,kind,oid=meta.decode().split(' '); path=rawpath.decode('utf-8','strict')
  if kind!='blob' or mode not in ('100644','100755') or path.startswith('/') or any(p in ('','.','..','.git') for p in path.split('/')) or '\\' in path or any(ord(c)<32 or ord(c)==127 for c in path): raise ValueError('unsupported tree entry')

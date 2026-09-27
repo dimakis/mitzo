@@ -202,7 +202,14 @@ export async function createOwnedSymposiumHost(
             execFile(
               options.podman.executable,
               [...args],
-              { env: podmanEnv, encoding: 'utf8', timeout: 15_000, maxBuffer: maxOutputBytes },
+              {
+                env: podmanEnv,
+                encoding: 'utf8',
+                // Attached verifier/export helpers own bounded child work (including
+                // a 20-second bundle phase); the transport must outlive that bound.
+                timeout: args[0] === 'start' && args[1] === '--attach' ? 60_000 : 15_000,
+                maxBuffer: maxOutputBytes,
+              },
               (error, stdout) => {
                 if (error) reject(new Error('Owned Podman operation failed'));
                 else resolve(stdout);

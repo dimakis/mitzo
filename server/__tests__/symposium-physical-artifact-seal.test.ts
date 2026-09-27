@@ -506,3 +506,27 @@ it('never returns a bundle if exact helper cleanup is uncertain', async () => {
   });
   db.close();
 });
+
+it('records confirmed deletion when final export custody revalidation fails', async () => {
+  const f = await fixture();
+  const receipt = await f.sealer.seal(f.input, f.runtime, new AbortController().signal);
+  const requireCompleted = f.sealer.requireCompleted.bind(f.sealer);
+  const check = vi.spyOn(f.sealer, 'requireCompleted');
+  check
+    .mockImplementationOnce(requireCompleted)
+    .mockRejectedValueOnce(new Error('custody changed'));
+  const input = { fenceId: receipt.fenceId, operationId: 'post-cleanup', baseBranch: 'main' };
+  await expect(
+    f.sealer.inspectCompletedArtifact(input, new AbortController().signal),
+  ).rejects.toThrow(/export failed/);
+  const db = new Database(join(f.root, 'leases.db'));
+  expect(db.prepare('SELECT state,container_id FROM symposium_seal_export_jobs').get()).toEqual({
+    state: 'failed_cleaned',
+    container_id: 'e'.repeat(64),
+  });
+  db.close();
+  check.mockRestore();
+  await expect(
+    f.sealer.inspectCompletedArtifact(input, new AbortController().signal),
+  ).resolves.toMatchObject({ sourceOid: receipt.git.commit });
+});

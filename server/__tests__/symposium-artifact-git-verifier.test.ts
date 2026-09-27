@@ -14,7 +14,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'artifact-git-proof-'));
   roots.push(root);
   const git = (...args: string[]) =>
-    execFileSync('git', args, { cwd: root, stdio: 'pipe' }).toString();
+    execFileSync('git', args, { cwd: root, stdio: 'pipe', maxBuffer: 2 * 1024 * 1024 }).toString();
   git('init', '-q');
   git('config', 'user.email', 'test@example.invalid');
   git('config', 'user.name', 'Test');
@@ -70,3 +70,33 @@ it.each(['edited', 'staged', 'untracked', 'symlink', 'alternate'])(
     expect(f.run).toThrow();
   },
 );
+
+it('rejects replacement-character paths rejected by publication identity', () => {
+  const f = fixture();
+  writeFileSync(join(f.root, 'bad\ufffd.txt'), 'synthetic');
+  f.git('add', '.');
+  f.git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'replacement path');
+  expect(() => committedTreeDigest(f.git('ls-tree', '-r', '-z', '--full-tree', 'HEAD'))).toThrow();
+  expect(f.run).toThrow(/unsupported committed tree/);
+});
+
+it('rejects tree metadata beyond the publication one-MiB bound before content reads', () => {
+  const f = fixture();
+  const oid = f.git('rev-parse', 'HEAD:file.txt').trim();
+  const rows = Array.from(
+    { length: 4500 },
+    (_, i) => `100644 ${oid}\t${String(i).padStart(5, '0')}${'x'.repeat(190)}\n`,
+  ).join('');
+  execFileSync('git', ['update-index', '--index-info'], {
+    cwd: f.root,
+    input: rows,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const tree = f.git('write-tree').trim();
+  const commit = f.git('commit-tree', tree, '-p', 'HEAD', '-m', 'bounded tree').trim();
+  f.git('update-ref', 'HEAD', commit);
+  const output = f.git('ls-tree', '-r', '-z', '--full-tree', 'HEAD');
+  expect(Buffer.byteLength(output)).toBeGreaterThan(1024 * 1024);
+  expect(() => committedTreeDigest(output)).toThrow();
+  expect(f.run).toThrow(/unsupported committed tree/);
+});
