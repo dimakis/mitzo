@@ -98,6 +98,7 @@ it('candidate endpoint rejects caller authority and reports unavailable or faile
   expect(failed.text).not.toContain('private diagnostics');
   state.collect.mockReturnValue({ candidateFixture: true } as never);
   const result = await request(app).post('/evidence').send(selection);
+  expect(result.headers['cache-control']).toBe('no-store');
   expect(result.body).toEqual({ candidate: { candidateFixture: true }, activated: false });
 });
 
