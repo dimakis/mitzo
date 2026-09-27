@@ -49,7 +49,7 @@ export interface SymposiumReviewHost {
     context: ReviewContext;
     workflowId: string;
     attemptId: string;
-    kind: 'review' | 'delta' | 'fix';
+    kind: 'initial' | 'review' | 'delta' | 'fix';
     selection: Selection;
     artifactRevision: string;
     artifactHash: string;
@@ -373,7 +373,7 @@ export class SymposiumReviewCoordinator {
   async reserveWithTransition(
     context: ReviewContext,
     workflowId: string,
-    kind: 'review' | 'fix',
+    kind: 'initial' | 'review' | 'fix',
     attemptId: string,
   ): Promise<ReturnType<SymposiumReviewCoordinator['reserve']>> {
     const state = this.scoped(context, workflowId);

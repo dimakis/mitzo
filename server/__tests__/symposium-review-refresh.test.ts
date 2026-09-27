@@ -112,7 +112,7 @@ it('refreshes physical state before exposing trusted initial artifact and before
         .post(base + '/w/actions')
         .send({ action: 'initial', expectedArtifactRevision: 'input', expectedArtifactHash: hash })
     ).body.code,
-  ).toBe('offline_dispatch_only');
+  ).toBe('trusted_transition_host_unavailable');
   expect(host.refreshArtifact).toHaveBeenCalledTimes(3);
 });
 it('keeps history readable on refresh failure and fails closed before starting or acting, but permits stop', async () => {
@@ -226,6 +226,24 @@ it('routes application review through the charged transition preparation', async
       .send({ action: 'review', expectedArtifactRevision: 'input', expectedArtifactHash: hash });
     expect(result.body.code).toBe('transition_preparation_required');
     expect(reserve).toHaveBeenCalledOnce();
+  } finally {
+    reserve.mockRestore();
+  }
+});
+it('routes initial implementation through charged child admission before native work', async () => {
+  const { app, start, base } = setup();
+  await request(app)
+    .post(base + '/application-runs')
+    .send(start);
+  const reserve = vi
+    .spyOn(SymposiumReviewCoordinator.prototype, 'reserveWithTransition')
+    .mockResolvedValue({ kind: 'decision_required', code: 'source_child_required' });
+  try {
+    const result = await request(app)
+      .post(base + '/w/actions')
+      .send({ action: 'initial', expectedArtifactRevision: 'input', expectedArtifactHash: hash });
+    expect(result.body.code).toBe('source_child_required');
+    expect(reserve).toHaveBeenCalledWith(expect.anything(), 'w', 'initial', expect.any(String));
   } finally {
     reserve.mockRestore();
   }

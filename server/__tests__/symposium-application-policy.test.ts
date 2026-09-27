@@ -69,6 +69,46 @@ const request = (attemptId: string) => ({
   },
 });
 describe('persisted application admission', () => {
+  it('charges a sealed-source initial transition before any native claim exists', () => {
+    const a = new SymposiumReviewStore(':memory:');
+    const { implementation, ...base } = create();
+    expect(implementation).toBeDefined();
+    a.createApplicationRun({ ...base, initialArtifact: { revision: 'i', hash } });
+    const preparation = {
+      workflowId: 'w',
+      attemptId: 'initial-attempt',
+      policyReservationId: 'policy-initial',
+      kind: 'initial' as const,
+      actorSeatId: 'coder',
+      artifactRevision: 'i',
+      artifactHash: hash,
+      transitionId: 'initial-child',
+      sourceSealId: 'source-fence',
+      seal: {
+        fenceId: 'source-fence',
+        artifactGenerationId: 'source',
+        volumeName: 'source-volume',
+        sealDigest: hash,
+        artifactRevision: 'i',
+        artifactHash: hash,
+      },
+      from: { configRevision: 1, membershipGeneration: 1 },
+      to: { configRevision: 2, membershipGeneration: 2 },
+      expectedSelection: {
+        accountId: 'coder',
+        model: 'offline',
+        profileId: 'coder',
+        profileRevision: '1',
+        accountProfileRevision: '1',
+      },
+    };
+    expect(a.reserveApplicationPreparation(preparation)).toMatchObject({ kind: 'prepared' });
+    expect(a.get('w')).toMatchObject({ hostTurns: 1, reviewCycles: 0, applicationAttempts: [] });
+    expect(a.reserveApplicationPreparation(preparation)).toMatchObject({
+      kind: 'already_prepared',
+    });
+    a.close();
+  });
   it('charges once across connections/restart and consumes dispatch once', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'app-policy-')), 'db');
     const a = new SymposiumReviewStore(path);

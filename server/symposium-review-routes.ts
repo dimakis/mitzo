@@ -318,7 +318,8 @@ export function createSymposiumReviewRouter(deps: {
           }
           attemptId = randomUUID();
           const reservation =
-            (kind === 'review' || kind === 'fix') && inspected.limits.mode === 'application'
+            (kind === 'initial' || kind === 'review' || kind === 'fix') &&
+            inspected.limits.mode === 'application'
               ? await coordinator.reserveWithTransition(ctx, workflowId, kind, attemptId)
               : coordinator.reserve(ctx, workflowId, kind, attemptId);
           if (reservation.kind !== 'reserved_not_dispatched') {

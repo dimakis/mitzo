@@ -63,11 +63,10 @@ const ApplicationAttemptSchema = z.strictObject({
   }),
 });
 export type ApplicationAttempt = z.infer<typeof ApplicationAttemptSchema>;
-const ApplicationPreparationSchema = z.strictObject({
+const ApplicationPreparationBase = z.strictObject({
   workflowId: Id,
   attemptId: Id,
   policyReservationId: Id,
-  kind: z.enum(['review', 'delta', 'fix']),
   actorSeatId: Id,
   artifactRevision: Id,
   artifactHash: Sha256,
@@ -96,6 +95,10 @@ const ApplicationPreparationSchema = z.strictObject({
     accountProfileRevision: Id,
   }),
 });
+const ApplicationPreparationSchema = z.union([
+  ApplicationPreparationBase.extend({ kind: z.literal('initial'), sourceSealId: Id }),
+  ApplicationPreparationBase.extend({ kind: z.enum(['review', 'delta', 'fix']) }),
+]);
 export type ApplicationPreparation = z.infer<typeof ApplicationPreparationSchema>;
 type PersistedApplicationPreparation = ApplicationPreparation & {
   requestHash: string;
@@ -834,6 +837,7 @@ export class SymposiumReviewStore {
         if (
           parsed.seal.artifactRevision !== parsed.artifactRevision ||
           parsed.seal.artifactHash !== parsed.artifactHash ||
+          (parsed.kind === 'initial' && parsed.sourceSealId !== parsed.seal.fenceId) ||
           parsed.to.configRevision <= parsed.from.configRevision ||
           parsed.to.membershipGeneration <= parsed.from.membershipGeneration
         )
@@ -867,7 +871,15 @@ export class SymposiumReviewStore {
           state.applicationPreparations.some((p) => p.status === 'preparing')
         )
           return { kind: 'decision_required' as const, code: 'attempt_in_progress' };
-        if (parsed.kind === 'review') {
+        if (parsed.kind === 'initial') {
+          if (state.status !== 'awaiting_initial' || state.implementation !== null)
+            throw new Error('Initial preparation is not due');
+          if (
+            state.initialArtifact?.revision !== parsed.artifactRevision ||
+            state.initialArtifact.hash !== parsed.artifactHash
+          )
+            throw new Error('Exact imported initial artifact required');
+        } else if (parsed.kind === 'review') {
           if (state.status !== 'awaiting_review') throw new Error('Review preparation is not due');
           if (state.reviewCycles >= state.limits.maxReviewCycles) {
             this.applicationStop(state, 'cycles_exhausted');

@@ -171,7 +171,8 @@ export function createSealedReaderReviewTransition(deps: SealedReaderTransitionD
     assertReaderAdmissionCurrent,
     transition: {
       async prepare(input) {
-        if (input.kind === 'fix') throw new Error('Fix requires writable successor admission');
+        if (input.kind === 'fix' || input.kind === 'initial')
+          throw new Error('Reader transition requires an independent review attempt');
         const artifact = deps.currentArtifact(input.context);
         if (artifact.revision !== input.artifactRevision || artifact.hash !== input.artifactHash)
           throw new Error('Current artifact changed');

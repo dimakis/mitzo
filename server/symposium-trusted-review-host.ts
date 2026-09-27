@@ -65,7 +65,7 @@ export interface SymposiumTrustedReviewHostDeps {
       context: ReviewContext;
       workflowId: string;
       attemptId: string;
-      kind: 'review' | 'delta' | 'fix';
+      kind: 'initial' | 'review' | 'delta' | 'fix';
       selection: Selection;
       artifactRevision: string;
       artifactHash: string;
@@ -339,7 +339,6 @@ export function createSymposiumTrustedReviewHost(
           workflowId,
           attemptId,
           policyReservationId,
-          kind,
           actorSeatId,
           artifactRevision,
           artifactHash,
@@ -349,11 +348,10 @@ export function createSymposiumTrustedReviewHost(
           to,
           expectedSelection,
         } = prior;
-        return {
+        const exact = {
           workflowId,
           attemptId,
           policyReservationId,
-          kind,
           actorSeatId,
           artifactRevision,
           artifactHash,
@@ -363,6 +361,9 @@ export function createSymposiumTrustedReviewHost(
           to,
           expectedSelection,
         };
+        return prior.kind === 'initial'
+          ? { ...exact, kind: 'initial' as const, sourceSealId: prior.sourceSealId }
+          : { ...exact, kind: prior.kind };
       }
       const state = workflow(input.context, input.workflowId);
       if (state.decisionCode)
@@ -393,12 +394,16 @@ export function createSymposiumTrustedReviewHost(
             artifactRevision: persisted.artifactRevision,
             artifactHash: persisted.artifactHash,
             transitionId: persisted.transitionId,
+            sourceSealId: persisted.kind === 'initial' ? persisted.sourceSealId : null,
             seal: persisted.seal,
             from: persisted.from,
             to: persisted.to,
             expectedSelection: persisted.expectedSelection,
           },
-          preparation,
+          {
+            ...preparation,
+            sourceSealId: preparation.kind === 'initial' ? preparation.sourceSealId : null,
+          },
         )
       )
         throw new Error('Persisted transition preparation required');
