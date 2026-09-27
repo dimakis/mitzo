@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import Database from 'better-sqlite3';
 import { resolve } from 'node:path';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
@@ -226,7 +227,7 @@ export class SqliteArtifactLeaseHost implements ArtifactLeaseHost {
       mount?.length !== 1 ||
       mount[0].type !== 'volume' ||
       mount[0].source !== request.volumeName ||
-      mount[0].target !== '/sandbox/symposium-artifacts' ||
+      mount[0].target !== SYMPOSIUM_ARTIFACT_TARGET ||
       mount[0].read_only !== (request.access === 'reviewer')
     )
       throw new Error('Artifact driver config differs from lease');

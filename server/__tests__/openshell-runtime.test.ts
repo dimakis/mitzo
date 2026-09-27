@@ -62,7 +62,7 @@ describe('OpenShell runtime lifecycle', () => {
           {
             type: 'volume' as const,
             source: 'artifacts-1',
-            target: '/sandbox/symposium-artifacts',
+            target: '/sandbox/workspaces/mgmt',
             read_only: true,
           },
         ],
@@ -92,6 +92,38 @@ describe('OpenShell runtime lifecycle', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['/sandbox/symposium-artifacts', '/sandbox/workspaces/mgmt', 'Invalid artifact driver config'],
+    ['/sandbox/workspaces/mgmt', '/sandbox/workspaces/other', 'reviewed native workdir'],
+  ])(
+    'rejects mismatched artifact target/cwd before management %s %s',
+    async (target, workdir, message) => {
+      const run = vi.fn();
+      const manager = new OpenShellRuntimeManager(
+        {
+          ...config,
+          cliContract: 'v0.1',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          accountProviderBindings: [{ name: 'openai-work', type: 'openai', id: 'provider-id' }],
+          verifyAccountProviderUnion: () => undefined,
+          workdir,
+          verifyArtifactMount: async () => {},
+          artifactDriverConfig: {
+            podman: {
+              mounts: [{ type: 'volume', source: 'artifacts-1', target, read_only: false }],
+            },
+          },
+        },
+        run,
+      );
+      await expect(manager.ensure('conversation', new AbortController().signal)).rejects.toThrow(
+        message,
+      );
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it('passes a lease-bound driver config only on 0.1 create and attests physical mount', async () => {
     const commands: string[][] = [];
     const sandboxName = sandboxNameForConversation('conversation');
@@ -101,7 +133,7 @@ describe('OpenShell runtime lifecycle', () => {
           {
             type: 'volume' as const,
             source: 'artifacts-1',
-            target: '/sandbox/symposium-artifacts',
+            target: '/sandbox/workspaces/mgmt',
             read_only: true,
           },
         ],

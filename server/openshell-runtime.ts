@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import {
   validateOpenShellCliEnvironment,
   type OpenShellCliEnvironment,
@@ -130,7 +131,7 @@ function assertArtifactDriverConfig(config: ArtifactDriverConfig): void {
     mounts.length !== 1 ||
     mounts[0].type !== 'volume' ||
     !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/.test(mounts[0].source) ||
-    mounts[0].target !== '/sandbox/symposium-artifacts' ||
+    mounts[0].target !== SYMPOSIUM_ARTIFACT_TARGET ||
     typeof mounts[0].read_only !== 'boolean' ||
     Object.keys(mounts[0]).sort().join(',') !== 'read_only,source,target,type'
   )
@@ -1034,6 +1035,8 @@ export class OpenShellRuntimeManager {
     if (artifactConfig && (this.config.cliContract !== 'v0.1' || !this.config.verifyArtifactMount))
       throw new Error('Artifact mount requires OpenShell 0.1 and physical mount attestation');
     if (artifactConfig) assertArtifactDriverConfig(artifactConfig);
+    if (artifactConfig && this.config.workdir !== SYMPOSIUM_ARTIFACT_TARGET)
+      throw new Error('Artifact mount must match the reviewed native workdir');
     this.config.verifyAccountProviderUnion?.();
     await this.verifyAccountProvider(signal);
     this.config.verifyAccountProviderUnion?.();

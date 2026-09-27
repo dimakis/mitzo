@@ -54,7 +54,7 @@ function fixture() {
   };
   const input = {
     connectionId: 'connection',
-    repositoryPath: '/sandbox/symposium-artifacts/repo',
+    repositoryPath: '/sandbox/workspaces/mgmt/repo',
     baseBranch: 'main',
     title: 'Reviewed change',
     body: `Review record: ${record.recordId}\nSHA256: ${record.contentHash}`,
@@ -166,7 +166,7 @@ function fixture() {
         connectionRevision: 1,
         gatewayProviderId: 'gateway-provider',
         sandboxName: 'sandbox',
-        workspace: '/sandbox/symposium-artifacts',
+        workspace: '/sandbox/workspaces/mgmt',
       }),
     resolveBinding: vi.fn(() => binding),
   };
@@ -299,11 +299,11 @@ it('keeps Symposium inspection separate from the unchanged publisher transport',
   expect(transport).not.toHaveProperty('execute');
   await transport.committedTree({
     sandboxName: 'sandbox',
-    repositoryPath: '/sandbox/symposium-artifacts/repo',
+    repositoryPath: '/sandbox/workspaces/mgmt/repo',
     sourceOid: 'b'.repeat(40),
     signal: new AbortController().signal,
   });
-  expect(control.mock.calls[0][0]).toContain('/sandbox/symposium-artifacts');
+  expect(control.mock.calls[0][0]).toContain('/sandbox/workspaces/mgmt');
   await expect(
     transport.committedTree({
       sandboxName: 'sandbox',

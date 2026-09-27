@@ -1,3 +1,4 @@
+import { SYMPOSIUM_ARTIFACT_TARGET } from './symposium-artifact-lease.js';
 import { open, lstat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -580,7 +581,7 @@ enabled = true
       mounts?.length !== 1 ||
       mounts[0].type !== 'volume' ||
       mounts[0].source !== request.volumeName ||
-      mounts[0].target !== '/sandbox/symposium-artifacts' ||
+      mounts[0].target !== SYMPOSIUM_ARTIFACT_TARGET ||
       mounts[0].read_only !== (request.access === 'reviewer')
     )
       throw new Error('Artifact driver config differs from lease');
