@@ -379,10 +379,19 @@ it('blocks the callback alternative while the same slot has a pending device sig
   fireEvent.click(await screen.findByRole('button', { name: 'Continue sign-in' }));
   await screen.findByRole('button', { name: 'Cancel sign-in' });
   const first = within(screen.getByRole('region', { name: rows[0].label }));
+  fireEvent.click(first.getByRole('button', { name: 'Recover callback sign-in' }));
+  await first.findByText(/Continue or cancel it in device sign-in/);
   expect(
-    (first.getByRole('button', { name: 'Connect personal subscription' }) as HTMLButtonElement)
-      .disabled,
+    (
+      first.getByRole('group', {
+        name: 'Where will you open the login browser?',
+      }) as HTMLFieldSetElement
+    ).disabled,
   ).toBe(true);
+  expect(apiFetch).not.toHaveBeenCalledWith(
+    '/api/symposium/personal/login',
+    expect.objectContaining({ method: 'POST' }),
+  );
 });
 
 it('releases callback status-error lock when refresh proves the slot connected', async () => {
@@ -406,5 +415,22 @@ it('releases callback status-error lock when refresh proves the slot connected',
     expect((second.getByRole('button', { name: 'Reconnect' }) as HTMLButtonElement).disabled).toBe(
       false,
     ),
+  );
+});
+
+it('allows receipt recovery after remount during a callback login without starting another flow', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    response(
+      url.endsWith('/connections')
+        ? { connections: [{ ...rows[1], state: 'connecting' }] }
+        : { state: 'pending', attemptId: 'callback', connectionId: 'personal-b' },
+    ),
+  );
+  render(<SymposiumPersonalConnections />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Recover callback sign-in' }));
+  await screen.findByText(/Continue in the already-open login browser/);
+  expect(apiFetch).not.toHaveBeenCalledWith(
+    '/api/symposium/personal/login',
+    expect.objectContaining({ method: 'POST' }),
   );
 });
