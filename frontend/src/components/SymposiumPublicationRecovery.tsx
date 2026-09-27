@@ -40,6 +40,7 @@ export function SymposiumPublicationRecovery({
     recordHash = record?.hash;
   useEffect(() => {
     setOperations([]);
+    setBusy(false);
     setSelected('');
     setPassphrase('');
     if (!recordId || !recordHash) {

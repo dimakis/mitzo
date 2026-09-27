@@ -143,6 +143,10 @@ it('does not continue an old authentication response after the displayed record 
       onRecovered={vi.fn()}
     />,
   );
+  expect(
+    (screen.getByRole('button', { name: 'Refresh uncertain publications' }) as HTMLButtonElement)
+      .disabled,
+  ).toBe(false);
   release({ csrf: 'old-csrf', expiresAt: Date.now() + 60000 });
   await screen.findByText(/Pending publication status is unavailable/);
   expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/recovery'))).toBe(
