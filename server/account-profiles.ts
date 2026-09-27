@@ -363,6 +363,10 @@ export class AccountProfiles {
   ) {
     if (profile.nativeAuth)
       throw new Error('Native ChatGPT model discovery requires the isolated Symposium runtime');
+    // Controller mode is validated before app imports. Discovery must never
+    // bypass ordinary dispatch isolation through startup or catalog refresh.
+    if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER === '1' && profile.credentialRef)
+      throw new Error('Custodian model discovery requires a brokered OpenShell account');
     const deadline = new AbortController();
     const timeout = setTimeout(
       () => deadline.abort(),

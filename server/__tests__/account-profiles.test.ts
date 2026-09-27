@@ -580,6 +580,50 @@ describe('brokered ChatGPT subscription profile', () => {
     );
   });
 
+  it.each([false, true])(
+    'never launches host model discovery in the custodian child (sandbox configured=%s)',
+    async (configured) => {
+      prepareBrokeredTransport();
+      if (!configured) brokerDiscovery.runtimeConfig.mockReturnValue(undefined);
+      vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '1');
+      const host = {
+        id: `child-host-${configured}`,
+        label: 'Host',
+        provider: 'openai-codex',
+        email: 'test@example.test',
+        planType: 'plus',
+        credentialRef: '/synthetic/never-read',
+        models: [{ id: 'gpt-5.6-luna', label: 'Luna' }],
+      };
+      try {
+        await new AccountProfiles([host], { codexEnabled: true }).refresh(true);
+        expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+        expect(brokerDiscovery.launch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it('keeps brokered child discovery in the existing sandbox owner', async () => {
+    prepareBrokeredTransport();
+    vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '1');
+    brokerDiscovery.request.mockImplementation(async (method) => {
+      if (method === 'model/list') return discoveryPage();
+      throw Error('Unexpected host account request');
+    });
+    try {
+      await new AccountProfiles([{ ...subscription, id: 'child-brokered' }], {
+        codexEnabled: true,
+      }).refresh(true);
+      expect(brokerDiscovery.ensure).toHaveBeenCalledOnce();
+      expect(brokerDiscovery.launch).toHaveBeenCalledOnce();
+      expect(brokerDiscovery.hostLaunch).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('keeps host-login discovery verification and cleanup intact', async () => {
     vi.clearAllMocks();
     brokerDiscovery.initialize.mockResolvedValue(undefined);
