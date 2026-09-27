@@ -42,7 +42,13 @@ async function fixture() {
   const lease = await acquireSymposiumArtifactLease(host, request);
   host.markCreationStarted(lease.token, lease.revision, 'seat');
   host.bindSandbox(lease.token, lease.revision, 'seat', 'physical');
-  const command = vi.fn(async (args: readonly string[]) => (args[0] === 'start' ? '[]' : ''));
+  const command = vi.fn(async (args: readonly string[]) =>
+    args[0] === 'start'
+      ? '[]'
+      : args[0] === 'inspect'
+        ? '[{"State":{"Running":false,"ExitCode":0}}]'
+        : '',
+  );
   const verifyCustody = vi.fn(async () => {});
   const options = {
     databasePath: join(root, 'snapshots'),
@@ -100,7 +106,11 @@ it('quarantines failed cleanup durably across restart', async () => {
   const f = await fixture();
   f.command.mockImplementation(async (args) => {
     if (args[0] === 'rm') throw Error('uncertain');
-    return args[0] === 'start' ? '[]' : '';
+    return args[0] === 'start'
+      ? '[]'
+      : args[0] === 'inspect'
+        ? '[{"State":{"Running":false,"ExitCode":0}}]'
+        : '';
   });
   await expect(f.observer.observe(f.input)).rejects.toThrow('cleanup');
   f.observer.close();
@@ -124,6 +134,34 @@ it('rejects malformed verifier paths and custody loss without persistence', asyn
   f.command.mockClear();
   await expect(f.observer.observe(f.input)).rejects.toThrow();
   expect(f.command).not.toHaveBeenCalled();
+  f.observer.close();
+  f.host.close();
+});
+it('rejects a nonzero verifier exit even when stdout is a valid empty manifest', async () => {
+  const f = await fixture();
+  f.command.mockImplementation(async (args) =>
+    args[0] === 'start'
+      ? '[]'
+      : args[0] === 'inspect'
+        ? '[{"State":{"Running":false,"ExitCode":2}}]'
+        : '',
+  );
+  await expect(f.observer.observe(f.input)).rejects.toThrow('exit');
+  expect(f.observer.list()).toEqual([]);
+  f.observer.close();
+  f.host.close();
+});
+it('rejects lease drift after scanning and removes the verifier', async () => {
+  const f = await fixture();
+  const original = f.host.requireBoundSandboxLease.bind(f.host);
+  let count = 0;
+  vi.spyOn(f.host, 'requireBoundSandboxLease').mockImplementation(async (...args) => {
+    const lease = await original(...args);
+    return ++count > 1 ? { ...lease, revision: 'changed' } : lease;
+  });
+  await expect(f.observer.observe(f.input)).rejects.toThrow('lease');
+  expect(f.observer.list()).toEqual([]);
+  expect(f.command.mock.calls.at(-1)![0][0]).toBe('rm');
   f.observer.close();
   f.host.close();
 });

@@ -28,7 +28,9 @@ const entrySchema = z
         (path) =>
           !path.startsWith('/') &&
           !path.includes('\\') &&
-          !/[\u0000-\u001f\ud800-\udfff]/u.test(path) &&
+          ![...path].some(
+            (c) => c.charCodeAt(0) < 32 || (c.charCodeAt(0) >= 0xd800 && c.charCodeAt(0) <= 0xdfff),
+          ) &&
           path.split('/').every((p) => p !== '' && p !== '.' && p !== '..') &&
           path.split('/')[0] !== '.git',
       ),
@@ -105,6 +107,13 @@ export class ArtifactSnapshotObserver {
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS artifact_snapshot_verifiers (singleton INTEGER PRIMARY KEY CHECK(singleton=1), name TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS artifact_snapshot_observations (revision TEXT PRIMARY KEY, receipt TEXT NOT NULL);`);
+  }
+  private async cleanup(name: string): Promise<void> {
+    try {
+      await this.options.command(['rm', '--force', '--ignore', name]);
+    } catch {
+      throw new Error('Artifact verifier cleanup is uncertain; reconciliation required');
+    }
   }
   close(): void {
     this.db.close();
@@ -190,6 +199,11 @@ export class ArtifactSnapshotObserver {
         String(ARTIFACT_SNAPSHOT_LIMITS.seconds),
       ]);
       const output = await this.options.command(['start', '--attach', name]);
+      const status = z
+        .array(z.object({ State: z.object({ Running: z.literal(false), ExitCode: z.literal(0) }) }))
+        .length(1)
+        .safeParse(JSON.parse(await this.options.command(['inspect', name])));
+      if (!status.success) throw new Error('Artifact verifier exit was not successful');
       if (Buffer.byteLength(output) > ARTIFACT_SNAPSHOT_LIMITS.outputBytes)
         throw new Error('Artifact verifier output limit');
       manifest = z
@@ -210,11 +224,7 @@ export class ArtifactSnapshotObserver {
       // Attempt exact cleanup even if create timed out after creating the resource.
       // Failure retains the durable reservation; a restart cannot silently retry.
       if (createAttempted) {
-        try {
-          await this.options.command(['rm', '--force', '--ignore', name]);
-        } catch {
-          throw new Error('Artifact verifier cleanup is uncertain; reconciliation required');
-        }
+        await this.cleanup(name);
       }
       this.db
         .prepare('DELETE FROM artifact_snapshot_verifiers WHERE singleton=1 AND name=?')
