@@ -4,7 +4,7 @@ import {
   requireCompletedImportedSourceSeal,
 } from '../symposium-source-artifact-seal.js';
 import { SYMPOSIUM_ARTIFACT_TARGET } from '../symposium-artifact-lease.js';
-import { ARTIFACT_GIT_VERIFIER } from '../symposium-artifact-git-verifier.js';
+import { ARTIFACT_GIT_EXPORT } from '../symposium-artifact-git-export.js';
 import { createHash } from 'node:crypto';
 
 it.each([false, true])('requires exact read-only source proof (matches=%s)', async (matches) => {
@@ -23,13 +23,40 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
     workspace: 'workspace',
     volumeName: 'mitzo-artifacts-source',
     volumeGeneration: 'generation',
-    sourceReceipt: { git, commit: git.commit, tree: git.tree },
+    sourceReceipt: {
+      git,
+      commit: git.commit,
+      tree: git.tree,
+      manifest: {
+        baseOid: git.commit,
+        treeOid: git.tree,
+        baseBranch: 'main',
+        featureBranch: 'change',
+        targetRepository: 'owner/repo',
+      },
+    },
+  };
+  const bundle = Buffer.from('source-bundle');
+  const exported = {
+    proof: git,
+    bundle: bundle.toString('base64'),
+    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+    bytes: bundle.length,
+    selection: {
+      sourceRef: 'refs/heads/change',
+      sourceOid: git.commit,
+      baseRef: 'refs/remotes/origin/main',
+      baseOid: git.commit,
+      defaultBranch: 'main',
+      originUrl: 'https://github.com/owner/repo.git',
+    },
   };
   const journal = {
     verifier: vi.fn(),
     intent: vi.fn(),
     created: vi.fn(),
     observed: vi.fn(),
+    exported: vi.fn(),
     terminal: vi.fn(),
     removed: vi.fn(),
   };
@@ -82,7 +109,9 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
       ]);
     if (args[0] === 'start') {
       started = true;
-      return JSON.stringify(matches ? git : { ...git, tree: 'f'.repeat(40) });
+      return JSON.stringify(
+        matches ? exported : { ...exported, proof: { ...git, tree: 'f'.repeat(40) } },
+      );
     }
     return '';
   });
@@ -104,6 +133,7 @@ it.each([false, true])('requires exact read-only source proof (matches=%s)', asy
   expect(journal.intent).toHaveBeenCalledOnce();
   expect(journal.created).toHaveBeenCalledOnce();
   expect(journal.observed).toHaveBeenCalledTimes(matches ? 1 : 0);
+  expect(journal.exported).toHaveBeenCalledTimes(matches ? 1 : 0);
   expect(artifacts.completeSourceSeal).toHaveBeenCalledTimes(matches ? 1 : 0);
   expect(
     command.mock.calls.some(
@@ -127,6 +157,9 @@ it('rejects a pending source seal as a parent even with an imported Git receipt'
           volumeName: 'volume',
           volumeGeneration: 'generation',
         }),
+        sourceSealExport: () => {
+          throw new Error('pending');
+        },
       } as never,
       { image: 'image', uid: 998, gid: 998 },
       'session',
@@ -159,7 +192,7 @@ it('recovers the same completed source parent digest from the owner ledger', () 
     terminal: { helperId: 'e'.repeat(64), exitCode: 0 },
     verifier: {
       image: 'image',
-      codeDigest: createHash('sha256').update(ARTIFACT_GIT_VERIFIER).digest('hex'),
+      codeDigest: createHash('sha256').update(ARTIFACT_GIT_EXPORT).digest('hex'),
     },
   };
   const artifacts = {
@@ -170,6 +203,7 @@ it('recovers the same completed source parent digest from the owner ledger', () 
       volumeName: 'volume',
       volumeGeneration: 'generation',
     }),
+    sourceSealExport: () => ({ receipt: { proof: git }, bundle: Buffer.from('bundle') }),
   };
   const first = requireCompletedImportedSourceSeal(artifacts as never, owner, 'session');
   expect(first.receipt).toEqual(seal);

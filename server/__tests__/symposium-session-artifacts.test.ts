@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -453,6 +454,13 @@ it('durably fences original source admission before an imported generation can b
     terminal: { helperId: 'a'.repeat(64), exitCode: 0 },
     importer: 'g'.repeat(64),
     operationId: 'import-op',
+    manifest: {
+      baseOid: 'b'.repeat(40),
+      treeOid: 'c'.repeat(40),
+      baseBranch: 'main',
+      featureBranch: 'change',
+      targetRepository: 'owner/repo',
+    },
   };
   f.store.completeSourceImport(claim, receipt);
   const pending = f.store.beginSourceSeal('source', 'source-seal-op');
@@ -478,6 +486,21 @@ it('durably fences original source admission before an imported generation can b
   proof.intent(`${mapping.volumeName}-source-seal`);
   proof.created('9'.repeat(64));
   proof.observed(receipt.git);
+  const bundle = Buffer.from('source-bundle');
+  const exportReceipt = {
+    proof: receipt.git,
+    bundleSha256: createHash('sha256').update(bundle).digest('hex'),
+    bytes: bundle.length,
+    selection: {
+      sourceRef: 'refs/heads/change',
+      sourceOid: receipt.commit,
+      baseRef: 'refs/remotes/origin/main',
+      baseOid: receipt.commit,
+      defaultBranch: 'main',
+      originUrl: 'https://github.com/owner/repo.git',
+    },
+  };
+  proof.exported(exportReceipt, bundle);
   expect(() => reopened.completeSourceSeal('source', 'source-seal-op')).toThrow(
     /physical completion/,
   );
@@ -491,6 +514,7 @@ it('durably fences original source admission before an imported generation can b
     verifier: { image: 'pinned-image', codeDigest: '8'.repeat(64) },
   });
   expect(f.store.sourceSealStatus('source')).toEqual(completed);
+  expect(f.store.sourceSealExport('source')).toEqual({ receipt: exportReceipt, bundle });
   expect(() => f.store.claimAdmission('source')).toThrow(/source seal/);
 });
 

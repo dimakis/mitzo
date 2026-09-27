@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import type { ArtifactInitializerReceipt } from './symposium-artifact-initializer.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ArtifactVolumeEvidence } from './symposium-artifact-lease.js';
 export type SessionArtifactMapping = {
   sessionId: string;
@@ -85,6 +85,10 @@ export class SymposiumSessionArtifacts {
    session_id TEXT PRIMARY KEY, workspace TEXT NOT NULL, custody TEXT NOT NULL,
    volume_name TEXT NOT NULL UNIQUE, generation TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0, state TEXT NOT NULL
    CHECK(state IN ('reserved','creating','ready','uncertain','quarantined')))`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS symposium_source_seal_exports (
+      session_id TEXT PRIMARY KEY, operation_id TEXT NOT NULL,
+      receipt_json TEXT NOT NULL, bundle BLOB NOT NULL
+    )`);
     const columns = this.db.pragma('table_info(symposium_session_artifacts)') as { name: string }[];
     if (!columns.some((column) => column.name === 'initialization_contract'))
       this.db.exec(
@@ -273,6 +277,50 @@ export class SymposiumSessionArtifacts {
             throw new Error('source seal Git proof differs from import');
           value.git = git;
         }),
+      exported: (
+        receipt: {
+          proof: unknown;
+          selection: Record<string, unknown>;
+          bundleSha256: string;
+          bytes: number;
+        },
+        bundle: Buffer,
+      ) =>
+        this.db
+          .transaction(() => {
+            const row = this.read(sessionId);
+            if (!row) throw new Error('source seal mapping unavailable');
+            this.assertOwner(row);
+            const value = row.source_seal_json ? JSON.parse(row.source_seal_json) : null;
+            const manifest = value?.sourceReceipt?.manifest;
+            if (
+              !value ||
+              value.operationId !== operationId ||
+              value.state !== 'pending' ||
+              !value.git ||
+              JSON.stringify(receipt.proof) !== JSON.stringify(value.git) ||
+              !Buffer.isBuffer(bundle) ||
+              !bundle.length ||
+              bundle.length > 8 * 1024 * 1024 ||
+              receipt.bytes !== bundle.length ||
+              receipt.bundleSha256 !== createHash('sha256').update(bundle).digest('hex') ||
+              receipt.selection.sourceRef !== `refs/heads/${manifest?.featureBranch}` ||
+              receipt.selection.sourceOid !== value.sourceReceipt.commit ||
+              receipt.selection.baseRef !== `refs/remotes/origin/${manifest?.baseBranch}` ||
+              receipt.selection.baseOid !== value.sourceReceipt.commit ||
+              receipt.selection.defaultBranch !== manifest?.baseBranch ||
+              receipt.selection.originUrl !==
+                `https://github.com/${manifest?.targetRepository}.git` ||
+              this.db
+                .prepare('SELECT 1 FROM symposium_source_seal_exports WHERE session_id=?')
+                .get(sessionId)
+            )
+              throw new Error('source seal export evidence changed');
+            this.db
+              .prepare('INSERT INTO symposium_source_seal_exports VALUES(?,?,?,?)')
+              .run(sessionId, operationId, JSON.stringify(receipt), bundle);
+          })
+          .immediate(),
       terminal: (helperId: string, exitCode: number) =>
         this.updateSourceSeal(sessionId, operationId, (value) => {
           if (value.helperId !== helperId || exitCode !== 0 || !value.git || value.terminal)
@@ -304,6 +352,11 @@ export class SymposiumSessionArtifacts {
           !value.verifier ||
           value.terminal?.helperId !== value.helperId ||
           value.terminal?.exitCode !== 0 ||
+          !this.db
+            .prepare(
+              'SELECT 1 FROM symposium_source_seal_exports WHERE session_id=? AND operation_id=?',
+            )
+            .get(sessionId, operationId) ||
           row.admission_issued
         )
           throw new Error('source seal physical completion unavailable');
@@ -314,6 +367,25 @@ export class SymposiumSessionArtifacts {
         return value;
       })
       .immediate();
+  }
+  sourceSealExport(sessionId: string) {
+    const seal = this.sourceSealStatus(sessionId);
+    if (seal?.state !== 'complete') throw new Error('Completed source seal required for export');
+    const row = this.db
+      .prepare(
+        'SELECT operation_id,receipt_json,bundle FROM symposium_source_seal_exports WHERE session_id=?',
+      )
+      .get(sessionId) as { operation_id: string; receipt_json: string; bundle: Buffer } | undefined;
+    if (!row || row.operation_id !== seal.operationId)
+      throw new Error('Retained source export unavailable');
+    const receipt = JSON.parse(row.receipt_json);
+    if (
+      row.bundle.length !== receipt.bytes ||
+      createHash('sha256').update(row.bundle).digest('hex') !== receipt.bundleSha256 ||
+      JSON.stringify(receipt.proof) !== JSON.stringify(seal.git)
+    )
+      throw new Error('Retained source export integrity changed');
+    return { receipt, bundle: row.bundle };
   }
   /** Permanent issuance marker: an already returned descriptor can never race a later import. */
   claimAdmission(sessionId: string): SessionArtifactMapping {
