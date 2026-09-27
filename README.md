@@ -98,6 +98,9 @@ never automatically redispatch a turn.
 
 ### Symposium director and portable profiles
 
+Changing a draft seat to a model without a thinking-level option clears the previous
+model’s thinking level, so selecting Work Vertex Haiku after Personal Luna remains valid.
+
 The mobile and desktop ChatViews include **Director controls** for the Symposium
 roster and directed-delivery approval. Use **Refresh director status** to load
 newly queued deliveries while the panel is open. The conversation view offers
