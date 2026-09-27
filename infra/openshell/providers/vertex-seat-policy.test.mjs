@@ -82,3 +82,13 @@ test('rejects aliases, malformed global locations and trailing control character
     ['providerName', 'work-vertex-seat\n'], ['claudeBinary', '/usr/local/bin/claude\n'],
   ]) assert.throws(() => createVertexSeatPolicy({ ...input, [key]: value }));
 });
+
+
+test('rejects both Unicode line terminators in every policy identity field', () => {
+  for (const suffix of ['\u2028', '\u2029']) {
+    for (const key of ['project', 'region', 'model', 'providerName', 'claudeBinary']) {
+      const value = (key === 'region' ? 'global' : input[key]) + suffix;
+      assert.throws(() => createVertexSeatPolicy({ ...input, [key]: value }), `${key} suffix ${suffix.charCodeAt(0)}`);
+    }
+  }
+});
