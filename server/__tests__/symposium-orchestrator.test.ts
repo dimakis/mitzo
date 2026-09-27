@@ -452,6 +452,66 @@ describe('SymposiumOrchestrator', () => {
     expect(store.transferSymposiumAnchor(input)).toMatchObject({ anchorSeatId: 'reviewer' });
   });
 
+  it('returns an exact transfer receipt after later roster changes without rechecking obsolete admissions', async () => {
+    await prepareConcurrentSeats();
+    const admitSeat = vi.fn(({ seatId }: { seatId: string }) => {
+      orchestrator.recordProviderAdmission({
+        sessionId: 'chat',
+        seatId,
+        decision: 'admitted',
+        idempotencyKey: `refresh-${seatId}`,
+      });
+    });
+    orchestrator = new SymposiumOrchestrator({ store, executors: {}, admitSeat });
+    const input = {
+      sessionId: 'chat',
+      fromSeatId: 'builder',
+      toSeatId: 'reviewer',
+      expectedRevision: 4,
+      expectedGeneration: 1,
+      actor: 'operator',
+      reason: 'Replace writer',
+      idempotencyKey: 'transfer',
+    };
+    const receipt = orchestrator.transferPrimary(input);
+    store.setSymposiumConfig('chat', { ...receipt, revision: 6 });
+    admitSeat.mockClear();
+    expect(orchestrator.transferPrimary(input)).toEqual(receipt);
+    expect(admitSeat).not.toHaveBeenCalled();
+    expect(store.getActiveSymposiumConfig('chat').revision).toBe(6);
+  });
+
+  it.each(['failed', 'recovery_required'] as const)(
+    'requires %s deliveries to be resolved before primary transfer',
+    async (status) => {
+      await prepareConcurrentSeats();
+      const deliveryId = readyFor(['builder'], 'retryable-before-transfer');
+      // Model durable retryable states independently from transport execution uncertainty.
+      const db = new Database(dbPath);
+      db.prepare('UPDATE symposium_deliveries SET status=? WHERE delivery_id=?').run(
+        status,
+        deliveryId,
+      );
+      db.close();
+      const input = {
+        sessionId: 'chat',
+        fromSeatId: 'builder',
+        toSeatId: 'reviewer',
+        expectedRevision: 4,
+        expectedGeneration: 1,
+        actor: 'operator',
+        reason: 'Replace writer',
+        idempotencyKey: 'transfer',
+      };
+      expect(() => store.transferSymposiumAnchor(input)).toThrow(/cancel.*deliveries/i);
+      await orchestrator.cancel({ deliveryId, idempotencyKey: 'cancel-retryable' });
+      expect(store.transferSymposiumAnchor(input)).toMatchObject({
+        revision: 5,
+        anchorSeatId: 'reviewer',
+      });
+    },
+  );
+
   it('does not treat a cancelled queue as physical execution cleanup proof', async () => {
     await prepareConcurrentSeats();
     let release!: () => void;

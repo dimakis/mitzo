@@ -2122,14 +2122,11 @@ export class EventStore {
         'SELECT request, config FROM symposium_anchor_transfers WHERE session_id=? AND idempotency_key=?',
       ).get(input.sessionId, input.idempotencyKey) as
         { request: string; config: string } | undefined;
-      const current = this.getActiveSymposiumConfig(input.sessionId);
       if (prior) {
         if (prior.request !== request) throw new Error('Anchor transfer idempotency conflict');
-        const result = SymposiumConfigSchema.parse(JSON.parse(prior.config));
-        if (current.revision !== result.revision)
-          throw new Error('Anchor transfer receipt has been superseded');
-        return result;
+        return SymposiumConfigSchema.parse(JSON.parse(prior.config));
       }
+      const current = this.getActiveSymposiumConfig(input.sessionId);
       if (
         current.version !== 2 ||
         current.revision !== input.expectedRevision ||
@@ -2166,7 +2163,7 @@ export class EventStore {
       if (lifecycle)
         throw new Error('Seat lifecycle operation must finish before primary transfer');
       const queued = this.db!.prepare(
-        "SELECT 1 FROM symposium_deliveries WHERE session_id=? AND status IN ('awaiting_intervention','ready','delivering') LIMIT 1",
+        "SELECT 1 FROM symposium_deliveries WHERE session_id=? AND status IN ('awaiting_intervention','ready','delivering','failed','recovery_required') LIMIT 1",
       ).get(input.sessionId);
       if (queued) throw new Error('Finish or cancel queued deliveries before primary transfer');
       const next = SymposiumConfigSchema.parse({

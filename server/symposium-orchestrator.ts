@@ -141,6 +141,10 @@ export class SymposiumOrchestrator {
   transferPrimary(input: Parameters<EventStore['transferSymposiumAnchor']>[0]): SymposiumConfig {
     if (!this.admitSeat) throw new Error('Verified host admission is unavailable');
     const config = this.store.transferSymposiumAnchor(input);
+    // Exact retries return their immutable receipt even after later roster changes.
+    // Never re-admit seats against that historical configuration revision.
+    if (this.store.getActiveSymposiumConfig(input.sessionId).revision !== config.revision)
+      return config;
     try {
       this.refreshActiveAdmissions(input.sessionId, config.revision);
     } catch {
