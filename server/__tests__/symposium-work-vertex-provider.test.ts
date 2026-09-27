@@ -79,8 +79,10 @@ function fixture() {
               date(expiry - 300000),
               date(Date.now() - 10000),
               '',
-              '',
-            ].join('  ') +
+              '-',
+            ]
+              .map((value, index) => value.padEnd([24, 28, 28, 24, 18, 20, 20, 20, 44, 0][index]))
+              .join('  ') +
             '\n'
           : '',
     };

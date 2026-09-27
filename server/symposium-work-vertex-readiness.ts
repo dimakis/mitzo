@@ -112,11 +112,16 @@ function* readiness(input: {
       lines.length === 2 &&
         JSON.stringify(lines[0].trim().split(/ {2,}/)) === JSON.stringify(HEADER),
     );
-    // Empty failure/error columns trim away. Any nonempty diagnostic rejects,
-    // and is never included in public errors or retained receipts.
+    // Pinned provider.rs emits an empty 44-wide FAILURE_CODE and renders an
+    // empty LAST_ERROR as "-" (common.rs truncate_status_field). Splitting
+    // collapses the blank failure column, leaving nine fields. Preserve its
+    // exact padding so a shifted failure/error diagnostic cannot masquerade as
+    // the placeholder: LAST_REFRESH width20 minus timestamp19 +2 +44 +2 =49.
     const fields = lines[1].trim().split(/ {2,}/);
     requireValue(
-      fields.length === 8 &&
+      fields.length === 9 &&
+        fields[8] === '-' &&
+        lines[1].endsWith(fields[7] + ' '.repeat(49) + '-') &&
         fields[0] === input.provider &&
         fields[1] === KEY &&
         fields[2] === 'oauth2_refresh_token' &&
