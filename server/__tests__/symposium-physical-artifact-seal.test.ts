@@ -225,10 +225,18 @@ async function fixture(inspectionPaths = ['file']) {
             symlinkFree: true,
           },
         });
-      if (exportOptions?.kind === 'bundle') {
+      if (exportOptions?.kind === 'bundle' || exportOptions?.kind === 'successor') {
         const bundle = Buffer.from('synthetic bounded bundle');
         return JSON.stringify({
           proof,
+          selection: {
+            sourceRef: 'refs/heads/feature',
+            sourceOid: proof.commit,
+            baseRef: 'refs/remotes/origin/main',
+            baseOid: 'b'.repeat(40),
+            defaultBranch: 'main',
+            originUrl: 'https://github.com/example/repo',
+          },
           bundle: bundle.toString('base64'),
           bytes: bundle.length,
           bundleSha256: createHash('sha256').update(bundle).digest('hex'),
@@ -663,4 +671,61 @@ it('records known transport predispatch rejection without clearing real dispatch
   await expect(
     f.sealer.inspectCompletedArtifact(selected, new AbortController().signal),
   ).resolves.toMatchObject({ status: 'clean' });
+});
+
+it('retains exact successor export authority across reopen and rejects substituted evidence', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const seal = await f.sealer.seal(f.input, f.runtime, signal);
+  const exported = await f.sealer.exportSuccessorArtifactBundle(
+    {
+      fenceId: seal.fenceId,
+      operationId: 'fix-copy-1',
+      baseBranch: 'main',
+      sourceBranch: 'feature',
+      sourceOid: seal.git.commit,
+      maxBytes: 1024,
+    },
+    signal,
+  );
+  expect(exported.receipt).toMatchObject({
+    version: 1,
+    mode: 'successor',
+    operationId: 'fix-copy-1',
+    seal,
+    bundleSha256: createHash('sha256').update(exported.bundle).digest('hex'),
+    bytes: exported.bundle.length,
+    helper: { id: 'e'.repeat(64), terminalExitCode: 0, removed: true },
+    selection: {
+      sourceRef: 'refs/heads/feature',
+      sourceOid: seal.git.commit,
+      baseRef: 'refs/remotes/origin/main',
+    },
+  });
+  const reopened = new PhysicalArtifactSealer(f.deps);
+  cleanups.push(() => reopened.close());
+  await expect(
+    reopened.requireSuccessorExport(exported.receipt, exported.bundle, signal),
+  ).resolves.toEqual(seal);
+  for (const patch of [
+    { operationId: 'other' },
+    { parentGenerationId: 'other' },
+    { mode: 'bundle' },
+    { helper: { ...exported.receipt.helper, removed: false } },
+  ]) {
+    await expect(
+      reopened.requireSuccessorExport({ ...exported.receipt, ...patch }, exported.bundle, signal),
+    ).rejects.toThrow();
+  }
+  await expect(
+    reopened.requireSuccessorExport(exported.receipt, Buffer.from('substitute'), signal),
+  ).rejects.toThrow();
+  const db = new Database(join(f.root, 'leases.db'));
+  db.prepare("UPDATE symposium_seal_export_jobs SET state='removed' WHERE job_id=?").run(
+    exported.receipt.jobId,
+  );
+  await expect(
+    reopened.requireSuccessorExport(exported.receipt, exported.bundle, signal),
+  ).rejects.toThrow();
+  db.close();
 });

@@ -1,3 +1,4 @@
+import { canonicalReviewJson, reviewRecordHash } from './symposium-review-records.js';
 import {
   ARTIFACT_GIT_EXPORT,
   ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES,
@@ -72,6 +73,41 @@ export interface CompletedArtifactSeal {
   completedAt: number;
 }
 
+const successorSelectionSchema = z.strictObject({
+  sourceRef: z.string().regex(/^refs\/heads\/[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
+  sourceOid: oid,
+  baseRef: z.string().regex(/^refs\/remotes\/origin\/[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
+  baseOid: oid,
+  defaultBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
+  originUrl: z
+    .string()
+    .max(2048)
+    .regex(
+      /^(https:\/\/github\.com\/|git@github\.com:)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?$/,
+    ),
+});
+export interface SuccessorArtifactExportReceipt {
+  version: 1;
+  mode: 'successor';
+  jobId: string;
+  operationId: string;
+  parentGenerationId: string;
+  parentVolumeName: string;
+  parentSealDigest: string;
+  seal: CompletedArtifactSeal;
+  selection: z.infer<typeof successorSelectionSchema>;
+  bundleSha256: string;
+  bytes: number;
+  helper: {
+    id: string;
+    name: string;
+    image: string;
+    codeDigest: string;
+    terminalExitCode: 0;
+    removed: true;
+  };
+}
+
 /** Concrete host-only operation. No request route installs it and no model runs here.
  * Stable pending locks never imply reconstructed custody on a new gateway lifetime.
  */
@@ -129,6 +165,12 @@ export class PhysicalArtifactSealer {
     this.db.exec(
       `CREATE TABLE IF NOT EXISTS symposium_seal_export_jobs(job_id TEXT PRIMARY KEY,fence_id TEXT NOT NULL,operation_id TEXT NOT NULL,kind TEXT NOT NULL,input_json TEXT NOT NULL,custody_digest TEXT NOT NULL,state TEXT NOT NULL,container_name TEXT NOT NULL,container_id TEXT,result_hash TEXT);`,
     );
+    if (
+      !(this.db.pragma('table_info(symposium_seal_export_jobs)') as { name: string }[]).some(
+        (row) => row.name === 'receipt_json',
+      )
+    )
+      this.db.exec('ALTER TABLE symposium_seal_export_jobs ADD COLUMN receipt_json TEXT');
   }
   close() {
     this.db.close();
@@ -290,12 +332,64 @@ export class PhysicalArtifactSealer {
     return parseSealedBundle(value, input.maxBytes);
   }
 
+  async exportSuccessorArtifactBundle(
+    input: {
+      fenceId: string;
+      operationId: string;
+      sourceBranch: string;
+      baseBranch: string;
+      sourceOid: string;
+      maxBytes: number;
+    },
+    signal: AbortSignal,
+  ): Promise<{ bundle: Buffer; receipt: SuccessorArtifactExportReceipt }> {
+    const value = await this.exportOperation({ ...input, kind: 'successor' }, signal);
+    return {
+      bundle: parseSealedBundle(value, input.maxBytes),
+      receipt: value.receipt as SuccessorArtifactExportReceipt,
+    };
+  }
+
+  /** Exact retained job authority, usable inside synchronous generation proof transactions. */
+  assertRetainedSuccessorExport(receipt: SuccessorArtifactExportReceipt, bundle: Buffer): true {
+    const row = this.db
+      .prepare('SELECT state,kind,receipt_json FROM symposium_seal_export_jobs WHERE job_id=?')
+      .get(receipt.jobId) as
+      { state: string; kind: string; receipt_json: string | null } | undefined;
+    if (
+      !row ||
+      row.state !== 'complete' ||
+      row.kind !== 'successor' ||
+      row.receipt_json !== canonicalReviewJson(receipt) ||
+      receipt.mode !== 'successor' ||
+      receipt.parentSealDigest !== reviewRecordHash(canonicalReviewJson(receipt.seal)) ||
+      bundle.length !== receipt.bytes ||
+      bundle.length > 8 * 1024 * 1024 ||
+      createHash('sha256').update(bundle).digest('hex') !== receipt.bundleSha256
+    )
+      throw new Error('Retained successor export evidence changed');
+    return true;
+  }
+
+  async requireSuccessorExport(
+    receipt: SuccessorArtifactExportReceipt,
+    bundle: Buffer,
+    signal: AbortSignal,
+  ): Promise<CompletedArtifactSeal> {
+    this.assertRetainedSuccessorExport(receipt, bundle);
+    const seal = await this.requireCompleted(receipt.seal.fenceId, signal);
+    if (canonicalReviewJson(seal) !== canonicalReviewJson(receipt.seal))
+      throw new Error('Successor parent seal changed');
+    this.assertRetainedSuccessorExport(receipt, bundle);
+    return seal;
+  }
+
   private async exportOperation(
     raw: {
       fenceId: string;
       operationId: string;
       baseBranch: string;
-      kind: 'inspect' | 'bundle';
+      kind: 'inspect' | 'bundle' | 'successor';
       sourceBranch?: string;
       sourceOid?: string;
       maxBytes?: number;
@@ -307,7 +401,7 @@ export class PhysicalArtifactSealer {
         fenceId: z.string(),
         operationId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
         baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/),
-        kind: z.enum(['inspect', 'bundle']),
+        kind: z.enum(['inspect', 'bundle', 'successor']),
         sourceBranch: z
           .string()
           .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/)
@@ -321,7 +415,7 @@ export class PhysicalArtifactSealer {
           .optional(),
       })
       .parse(raw);
-    if (input.kind === 'bundle' && (!input.sourceBranch || !input.sourceOid || !input.maxBytes))
+    if (input.kind !== 'inspect' && (!input.sourceBranch || !input.sourceOid || !input.maxBytes))
       throw new Error('Sealed bundle selection is incomplete');
     const receipt = await this.requireCompleted(input.fenceId, signal);
     if (input.sourceOid && input.sourceOid !== receipt.git.commit)
@@ -344,7 +438,9 @@ export class PhysicalArtifactSealer {
         )
           throw new Error('Sealed export requires helper reconciliation');
         this.db
-          .prepare('INSERT INTO symposium_seal_export_jobs VALUES(?,?,?,?,?,?,?,?,NULL,NULL)')
+          .prepare(
+            'INSERT INTO symposium_seal_export_jobs(job_id,fence_id,operation_id,kind,input_json,custody_digest,state,container_name) VALUES(?,?,?,?,?,?,?,?)',
+          )
           .run(
             jobId,
             input.fenceId,
@@ -361,7 +457,7 @@ export class PhysicalArtifactSealer {
     let helperDeleted = false;
     let helperRemovalObserved = false;
     const outputLimit =
-      input.kind === 'bundle'
+      input.kind !== 'inspect'
         ? Math.ceil((input.maxBytes! * 4) / 3) + 16384
         : ARTIFACT_INSPECTION_MAX_OUTPUT_BYTES;
     const verify = async () => {
@@ -453,21 +549,57 @@ export class PhysicalArtifactSealer {
       this.db
         .prepare("UPDATE symposium_seal_export_jobs SET state='terminal' WHERE job_id=?")
         .run(jobId);
+      const terminalId = id;
       await cleanup();
       helperDeleted = true;
       id = undefined;
       const current = await this.requireCompleted(input.fenceId, signal);
       if (JSON.stringify(current) !== JSON.stringify(receipt))
         throw new Error('Sealed export custody changed');
+      let successorReceipt: SuccessorArtifactExportReceipt | undefined;
+      if (input.kind === 'successor') {
+        const selection = successorSelectionSchema.parse(value.selection);
+        if (
+          selection.sourceRef !== `refs/heads/${input.sourceBranch}` ||
+          selection.sourceOid !== receipt.git.commit ||
+          selection.baseRef !== `refs/remotes/origin/${input.baseBranch}`
+        )
+          throw new Error('Successor export selection changed');
+        successorReceipt = {
+          version: 1,
+          mode: 'successor',
+          jobId,
+          operationId: input.operationId,
+          parentGenerationId: intent.selection.artifact.volumeGeneration,
+          parentVolumeName: volume,
+          parentSealDigest: reviewRecordHash(canonicalReviewJson(receipt)),
+          seal: receipt,
+          selection,
+          bundleSha256: value.bundleSha256 as string,
+          bytes: value.bytes as number,
+          helper: {
+            id: terminalId!,
+            name,
+            image: TESTED_SYMPOSIUM_NATIVE_BUILD.image,
+            codeDigest: hash(ARTIFACT_GIT_EXPORT),
+            terminalExitCode: 0,
+            removed: true,
+          },
+        };
+      }
       this.deps.store.withSymposiumArtifactSealSnapshot(intent, () => {
         const updated = this.db
           .prepare(
-            "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=? WHERE job_id=? AND state='removed'",
+            "UPDATE symposium_seal_export_jobs SET state='complete',result_hash=?,receipt_json=? WHERE job_id=? AND state='removed'",
           )
-          .run(hash(output), jobId);
+          .run(
+            hash(output),
+            successorReceipt ? canonicalReviewJson(successorReceipt) : null,
+            jobId,
+          );
         if (updated.changes !== 1) throw new Error('Sealed export journal changed');
       });
-      return value;
+      return successorReceipt ? { ...value, receipt: successorReceipt } : value;
     } catch (error) {
       if (!id && error instanceof ArtifactCommandNotDispatched) {
         this.db
