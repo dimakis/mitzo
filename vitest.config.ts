@@ -20,7 +20,12 @@ export default defineConfig({
     },
   },
   test: {
-    exclude: [...configDefaults.exclude, '**/.claude/worktrees/**', '**/.cursor/worktrees/**'],
+    exclude: [
+      ...configDefaults.exclude,
+      '**/.claude/worktrees/**',
+      '**/.cursor/worktrees/**',
+      'tests/browser/**',
+    ],
     env: {
       NODE_ENV: 'test',
       AUTH_PASSPHRASE: 'test-passphrase-for-vitest',

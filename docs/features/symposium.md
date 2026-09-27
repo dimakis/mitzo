@@ -130,6 +130,11 @@ of up to eight seats. Membership generations are append-only. Suspension or
 removal fences queued and running work before cleanup; replacement creates a new
 identity. Historical seat metadata remains available to interpret the ledger.
 
+The primary (anchor) seat cannot currently be suspended, removed, or rebound.
+Director controls explain this restriction instead of offering rejected actions;
+other seats retain their lifecycle controls. Primary-writer removal remains an
+acceptance gap: removing a non-anchor seat does not demonstrate that capability.
+
 Every recipient retains immutable configuration, account/profile, context/tool
 grant, and membership provenance. Provider acceptance receipts pin the exact
 attempt, native thread, and turn. Queued inputs are distinct from received inputs;

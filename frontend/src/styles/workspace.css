@@ -28,6 +28,11 @@
   padding: max(24px, env(safe-area-inset-top)) 22px calc(100px + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
+.connections-page {
+  /* Native iOS disables document scrolling; keep this page's scroller bounded. */
+  height: 100dvh;
+  min-height: 0;
+}
 .workspace-page a,
 .workspace-rail a {
   color: var(--workspace-accent);
